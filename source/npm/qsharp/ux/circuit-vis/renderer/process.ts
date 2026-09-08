@@ -455,6 +455,13 @@ const _opToRenderData = (
   // If gate has extra arguments, display them For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
+  if (op.kind === "unitary" && op.error !== undefined) {
+    const errorLabel = `${(op.error * 100).toFixed(3)}%`;
+    renderData.displayArgs = renderData.displayArgs
+      ? `${renderData.displayArgs}; ${errorLabel}`
+      : errorLabel;
+  }
+
   // Minimum width is calculated based on the label and args. If this is a collapsed composite
   // (GateType.Group with no children render data), its width should be based on the summary gate
   // rather than the full expanded layout.

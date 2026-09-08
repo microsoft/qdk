@@ -24,6 +24,7 @@ import {
   _zoomButton,
   _classicalControls,
   _getQuantumControlYs,
+  formatGate,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
 import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
@@ -68,6 +69,27 @@ function makeRenderData(overrides = {}) {
     ...overrides,
   };
 }
+
+test("CNOT error renders as a percentage badge above the target", () => {
+  const gate = formatGate(
+    makeRenderData({
+      type: GateType.Cnot,
+      controlsY: [40],
+      targetsY: [80],
+      label: "X",
+      displayArgs: "30.000%",
+    }),
+  );
+
+  const badge = gate.querySelector(".gate-error");
+  const background = badge?.querySelector(".gate-error-badge");
+  const label = badge?.querySelector(".gate-error-label");
+
+  assert.equal(label?.textContent, "30.000%");
+  assert.equal(label?.getAttribute("x"), "100");
+  assert.equal(label?.getAttribute("y"), "62");
+  assert.equal(background?.getAttribute("rx"), "3");
+});
 
 // ---------------------------------------------------------------------------
 // _getQuantumControlYs — pure-data filter (no JSDOM needed, but the `beforeEach` setup is harmless)

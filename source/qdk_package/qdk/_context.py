@@ -821,6 +821,7 @@ class Context:
         source_locations: bool = False,
         group_by_scope: bool = True,
         prune_classical_qubits: bool = False,
+        noise: Optional[NoiseConfig] = None,
     ) -> Circuit:
         """
         Synthesizes a circuit for a Q# program. Either an entry
@@ -863,6 +864,10 @@ class Context:
             in a quantum gate (e.g. qubits only used as classical controls).
         :kwtype prune_classical_qubits: bool
 
+        :keyword noise: Per-gate noise configuration. This is supported only when
+            ``generation_method`` is :attr:`~qdk.qsharp.CircuitGenerationMethod.Static`.
+        :kwtype noise: :class:`~qdk.simulation.NoiseConfig`
+
         :return: The synthesized circuit.
         :rtype: Circuit
         :raises QSharpError: If there is an error synthesizing the circuit.
@@ -887,15 +892,18 @@ class Context:
                 config=config,
                 callable=getattr(entry_expr, "__global_callable"),
                 args=args,
+                noise_config=noise,
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
             args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
-                config=config, callable=entry_expr, args=args
+                config=config, callable=entry_expr, args=args, noise_config=noise
             )
         else:
             assert entry_expr is None or isinstance(entry_expr, str)
-            res = self._interpreter.circuit(config, entry_expr, operation=operation)
+            res = self._interpreter.circuit(
+                config, entry_expr, operation=operation, noise_config=noise
+            )
 
         durationMs = (monotonic() - start) * 1000
         telemetry_events.on_circuit_end(durationMs)

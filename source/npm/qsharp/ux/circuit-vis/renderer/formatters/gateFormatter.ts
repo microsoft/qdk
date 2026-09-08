@@ -576,9 +576,14 @@ const _controlledGate = (renderData: GateRenderData): SVGElement => {
   // Get SVG for target gates
   switch (type) {
     case GateType.Cnot:
-      (targetsY as number[]).forEach((y) =>
-        targetGateSvgs.push(_oplus(x, y, [y])),
-      );
+      (targetsY as number[]).forEach((y) => {
+        targetGateSvgs.push(_oplus(x, y, [y]));
+        if (displayArgs != null) {
+          targetGateSvgs.push(
+            _errorBadge(displayArgs, x, y - gateHeight / 2 + 2),
+          );
+        }
+      });
       break;
     case GateType.Swap:
       (targetsY as number[]).forEach((y) => targetGateSvgs.push(_cross(x, y)));
@@ -609,6 +614,25 @@ const _controlledGate = (renderData: GateRenderData): SVGElement => {
     renderData,
   );
   return svg;
+};
+
+const _errorBadge = (label: string, x: number, y: number): SVGElement => {
+  const horizontalPadding = 5;
+  const height = 16;
+  const width = label.length * 6 + horizontalPadding * 2;
+  const background = box(
+    x - width / 2,
+    y - height / 2,
+    width,
+    height,
+    "gate-error-badge",
+  );
+  background.setAttribute("rx", "3");
+
+  const labelText = text(label, x, y, argsFontSize);
+  labelText.setAttribute("class", "gate-error-label");
+
+  return group([background, labelText], { class: "gate-error" });
 };
 
 /**

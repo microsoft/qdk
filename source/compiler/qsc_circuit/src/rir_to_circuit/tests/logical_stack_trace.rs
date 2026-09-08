@@ -46,6 +46,7 @@ impl TestOperationReceiver<'_> {
 }
 
 impl OperationReceiver for TestOperationReceiver<'_> {
+    #[allow(clippy::too_many_arguments)]
     fn gate(
         &mut self,
         _wire_map: &WireMap,
@@ -53,6 +54,7 @@ impl OperationReceiver for TestOperationReceiver<'_> {
         is_adjoint: bool,
         inputs: &GateInputs,
         _args: Vec<String>,
+        _error: Option<f64>,
         call_stack: LogicalStack,
     ) {
         let targets = inputs
@@ -197,6 +199,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         &[],
         &ScopeStack::top(),
         &(&store, &fir_store),
+        None,
     ) {
         panic!("error building operation list: {err}");
     }

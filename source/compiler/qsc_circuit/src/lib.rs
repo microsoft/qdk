@@ -5,6 +5,7 @@ mod angle_format;
 mod builder;
 mod circuit;
 pub mod operations;
+mod loss;
 
 pub use builder::{CircuitTracer, TracerConfig};
 pub use circuit::{

@@ -6,6 +6,7 @@ mod control_flow;
 mod tests;
 
 use core::panic;
+use qdk_simulators::noise_config::{NoiseConfig, NoiseTable};
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::fir::{LocalItemId, PackageId, StoreItemId};
 use qsc_partial_eval::{
@@ -37,6 +38,16 @@ pub fn rir_to_circuit(
     config: TracerConfig,
     user_package_ids: &[PackageId],
     source_lookup: &impl SourceLookup,
+) -> std::result::Result<Circuit, Error> {
+    rir_to_circuit_with_noise(program_rir, config, user_package_ids, source_lookup, None)
+}
+
+pub fn rir_to_circuit_with_noise(
+    program_rir: &Program,
+    config: TracerConfig,
+    user_package_ids: &[PackageId],
+    source_lookup: &impl SourceLookup,
+    noise_config: Option<&NoiseConfig<f64, f64>>,
 ) -> std::result::Result<Circuit, Error> {
     let entry_block_id = program_rir
         .callables
@@ -78,6 +89,7 @@ pub fn rir_to_circuit(
         &[],
         &ScopeStack::top(),
         source_lookup,
+        noise_config,
     )?;
 
     // All operations from the program collected, finalize the circuit.
@@ -100,6 +112,7 @@ fn build_operation_list(
     control_results: &[usize],
     current_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
+    noise_config: Option<&NoiseConfig<f64, f64>>,
 ) -> Result<(), Error> {
     match scf {
         StructuredControlFlow::Seq(items) => {
@@ -113,6 +126,7 @@ fn build_operation_list(
                     control_results,
                     current_stack,
                     source_lookup,
+                    noise_config,
                 )?;
             }
         }
@@ -136,6 +150,7 @@ fn build_operation_list(
                 block,
                 current_stack,
                 source_lookup,
+                noise_config,
             )?;
         }
         StructuredControlFlow::If {
@@ -191,6 +206,7 @@ fn build_operation_list(
                 &control_results,
                 &new_stack_true,
                 source_lookup,
+                noise_config,
             )?;
 
             build_operation_list(
@@ -202,6 +218,7 @@ fn build_operation_list(
                 &control_results,
                 &new_stack_false,
                 source_lookup,
+                noise_config,
             )?;
         }
         StructuredControlFlow::Return => {}
@@ -219,6 +236,7 @@ fn push_operations_in_block(
     block: &Block,
     current_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
+    noise_config: Option<&NoiseConfig<f64, f64>>,
 ) -> Result<(), Error> {
     let dbg_lookup = DbgLookup { dbg_info };
 
@@ -243,6 +261,7 @@ fn push_operations_in_block(
                 &mut BuilderWithRegisterMap {
                     builder,
                     wire_map: wire_map_builder.current(),
+                    noise_config,
                 },
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
@@ -452,6 +471,7 @@ fn process_variables(
 struct BuilderWithRegisterMap<'a, T: OperationReceiver> {
     builder: &'a mut T,
     wire_map: &'a WireMap,
+    noise_config: Option<&'a NoiseConfig<f64, f64>>,
 }
 
 /// Combines the current stack, which DOES include classically controlled scopes, with the stack obtained
@@ -1079,6 +1099,14 @@ fn trace_call(
     operands: &[Operand],
     mut stack: LogicalStack,
 ) -> Result<(), Error> {
+    let error = if callable.call_type == CallableType::Regular {
+        builder_ctx
+            .noise_config
+            .and_then(|config| gate_error(config, &callable.name))
+    } else {
+        None
+    };
+
     // Get the signature information for known callables. For custom intrinsics, derive
     // them from the actual operands.
     let operands = callable_spec(variables, callable, operands)?;
@@ -1119,6 +1147,7 @@ fn trace_call(
                 operands.name,
                 operands.is_adjoint,
                 operands,
+                error,
                 stack,
             )?,
             callable_type @ (CallableType::Readout | CallableType::OutputRecording) => {
@@ -1142,6 +1171,7 @@ fn trace_gate(
     name: &str,
     is_adjoint: bool,
     operands: Operands,
+    error: Option<f64>,
     stack: LogicalStack,
 ) -> Result<(), Error> {
     let Operands {
@@ -1165,10 +1195,43 @@ fn trace_gate(
                 controls: &control_qubits,
             },
             args,
+            error,
             stack,
         );
     }
     Ok(())
+}
+
+fn gate_error(config: &NoiseConfig<f64, f64>, callable_name: &str) -> Option<f64> {
+    let table = match callable_name {
+        "__quantum__qis__x__body" => &config.x,
+        "__quantum__qis__y__body" => &config.y,
+        "__quantum__qis__z__body" => &config.z,
+        "__quantum__qis__h__body" => &config.h,
+        "__quantum__qis__s__body" => &config.s,
+        "__quantum__qis__s__adj" => &config.s_adj,
+        "__quantum__qis__sx__body" => &config.sx,
+        "__quantum__qis__t__body" => &config.t,
+        "__quantum__qis__t__adj" => &config.t_adj,
+        "__quantum__qis__rx__body" => &config.rx,
+        "__quantum__qis__ry__body" => &config.ry,
+        "__quantum__qis__rz__body" => &config.rz,
+        "__quantum__qis__cx__body" => &config.cx,
+        "__quantum__qis__cy__body" => &config.cy,
+        "__quantum__qis__cz__body" => &config.cz,
+        "__quantum__qis__ccx__body" => &config.ccx,
+        "__quantum__qis__rxx__body" => &config.rxx,
+        "__quantum__qis__ryy__body" => &config.ryy,
+        "__quantum__qis__rzz__body" => &config.rzz,
+        "__quantum__qis__swap__body" => &config.swap,
+        _ => return None,
+    };
+    total_error(table)
+}
+
+fn total_error(table: &NoiseTable<f64>) -> Option<f64> {
+    let error = table.probabilities.iter().sum();
+    (error > 0.0).then_some(error)
 }
 
 fn trace_reset(

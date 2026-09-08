@@ -909,7 +909,7 @@ impl Interpreter {
     /// :param args: The arguments to pass to the callable.
     ///
     /// :raises QSharpError: If there is an error synthesizing the circuit.
-    #[pyo3(signature=(config, entry_expr=None,*, operation=None, callable=None, args=None))]
+    #[pyo3(signature=(config, entry_expr=None,*, operation=None, callable=None, args=None, noise_config=None))]
     fn circuit(
         &mut self,
         py: Python,
@@ -918,6 +918,7 @@ impl Interpreter {
         operation: Option<String>,
         callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
+        noise_config: Option<&Bound<NoiseConfig>>,
     ) -> PyResult<Py<PyAny>> {
         let entrypoint = match (entry_expr, operation, callable) {
             (Some(entry_expr), None, None) => CircuitEntryPoint::EntryExpr(entry_expr),
@@ -953,10 +954,22 @@ impl Interpreter {
             qsc::interpret::CircuitGenerationMethod::ClassicalEval
         };
 
-        match self
-            .interpreter
-            .circuit(entrypoint, generation_method, tracer_config)
+        if noise_config.is_some()
+            && generation_method != qsc::interpret::CircuitGenerationMethod::Static
         {
+            return Err(PyValueError::new_err(
+                "noise is supported only with static circuit generation",
+            ));
+        }
+
+        let noise_config = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+
+        match self.interpreter.circuit_with_noise(
+            entrypoint,
+            generation_method,
+            tracer_config,
+            noise_config.as_ref(),
+        ) {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }

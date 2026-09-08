@@ -177,6 +177,8 @@ export interface Unitary extends BaseOperation {
   controls?: Register[];
   /** Whether gate is an adjoint operation. */
   isAdjoint?: boolean;
+  /** Total probability that the gate experiences a configured fault. */
+  error?: number;
 }
 
 /**
@@ -211,7 +213,9 @@ export function isOperation(obj: any): obj is Operation {
         (op.controls === undefined ||
           (Array.isArray(op.controls) && op.controls.every(isRegister))) &&
         // isAdjoint is optional
-        (op.isAdjoint === undefined || typeof op.isAdjoint === "boolean")
+        (op.isAdjoint === undefined || typeof op.isAdjoint === "boolean") &&
+        // error is optional
+        (op.error === undefined || typeof op.error === "number")
       );
     case "measurement":
       return (
