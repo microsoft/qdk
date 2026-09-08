@@ -30,6 +30,18 @@ use crate::{
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ErrorDisplayConfig {
+    pub gate_errors: Option<GateErrorMode>,
+    pub qubit_errors: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GateErrorMode {
+    All,
+    Loss,
+}
+
 /// Converts a Runtime Intermediate Representation (RIR) program into a visual circuit.
 ///
 /// Traverses the RIR's structured control flow, collects quantum operations, tracks variable
@@ -40,7 +52,14 @@ pub fn rir_to_circuit(
     user_package_ids: &[PackageId],
     source_lookup: &impl SourceLookup,
 ) -> std::result::Result<Circuit, Error> {
-    rir_to_circuit_with_noise(program_rir, config, user_package_ids, source_lookup, None)
+    rir_to_circuit_with_noise(
+        program_rir,
+        config,
+        user_package_ids,
+        source_lookup,
+        None,
+        ErrorDisplayConfig::default(),
+    )
 }
 
 pub fn rir_to_circuit_with_noise(
@@ -49,6 +68,7 @@ pub fn rir_to_circuit_with_noise(
     user_package_ids: &[PackageId],
     source_lookup: &impl SourceLookup,
     noise_config: Option<&NoiseConfig<f64, f64>>,
+    error_display: ErrorDisplayConfig,
 ) -> std::result::Result<Circuit, Error> {
     let entry_block_id = program_rir
         .callables
@@ -68,36 +88,56 @@ pub fn rir_to_circuit_with_noise(
         wire_map_builder.map_qubit(id, None);
     }
 
-    // Initialize the operation list builder with the configuration.
     let builder = OperationListBuilder::new(
         config.max_operations,
         user_package_ids.to_vec(),
         config.group_by_scope,
         config.source_locations,
     );
-    let mut builder = OperationListBuilderWithLoss::new(builder, num_qubits, noise_config);
 
     // First, get a structured control flow so we can traverse the program in proper execution order,
     // following any branches.
     let structured_control_flow = reconstruct_control_flow(&program_rir.blocks, entry_block_id);
 
-    // Then we traverse the structured control flow, pushing operations to the builder as we go.
-    build_operation_list(
-        &mut VariableTracker::default(),
-        program_rir,
-        &mut wire_map_builder,
-        &mut builder,
-        &structured_control_flow,
-        &[],
-        &[],
-        &ScopeStack::top(),
-        source_lookup,
-        noise_config,
-    )?;
+    let operations = if error_display.gate_errors.is_some() || error_display.qubit_errors {
+        let mut builder = OperationListBuilderWithLoss::new(
+            builder,
+            num_qubits,
+            noise_config,
+            error_display.qubit_errors,
+        );
+        build_operation_list(
+            &mut VariableTracker::default(),
+            program_rir,
+            &mut wire_map_builder,
+            &mut builder,
+            &structured_control_flow,
+            &[],
+            &[],
+            &ScopeStack::top(),
+            source_lookup,
+            error_display.gate_errors.map(|mode| (noise_config, mode)),
+        )?;
+        builder.into_operations()
+    } else {
+        let mut builder = builder;
+        build_operation_list(
+            &mut VariableTracker::default(),
+            program_rir,
+            &mut wire_map_builder,
+            &mut builder,
+            &structured_control_flow,
+            &[],
+            &[],
+            &ScopeStack::top(),
+            source_lookup,
+            None,
+        )?;
+        builder.into_operations()
+    };
 
     // All operations from the program collected, finalize the circuit.
     let qubits = wire_map_builder.into_wire_map().to_qubits(source_lookup);
-    let operations = builder.into_operations();
     let circuit = finish_circuit(source_lookup, operations, qubits, config.group_by_scope);
 
     Ok(circuit)
@@ -117,7 +157,7 @@ fn build_operation_list(
     classical_controls: &[ClassicalControlInput],
     current_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
-    noise_config: Option<&NoiseConfig<f64, f64>>,
+    gate_error_config: Option<(Option<&NoiseConfig<f64, f64>>, GateErrorMode)>,
 ) -> Result<(), Error> {
     match scf {
         StructuredControlFlow::Seq(items) => {
@@ -132,7 +172,7 @@ fn build_operation_list(
                     classical_controls,
                     current_stack,
                     source_lookup,
-                    noise_config,
+                    gate_error_config,
                 )?;
             }
         }
@@ -157,7 +197,7 @@ fn build_operation_list(
                 classical_controls,
                 current_stack,
                 source_lookup,
-                noise_config,
+                gate_error_config,
             )?;
         }
         StructuredControlFlow::If {
@@ -264,7 +304,7 @@ fn build_operation_list(
                     &new_stack_true
                 },
                 source_lookup,
-                noise_config,
+                gate_error_config,
             )?;
 
             build_operation_list(
@@ -281,7 +321,7 @@ fn build_operation_list(
                     &new_stack_false
                 },
                 source_lookup,
-                noise_config,
+                gate_error_config,
             )?;
         }
         StructuredControlFlow::Return => {}
@@ -300,7 +340,7 @@ fn push_operations_in_block(
     classical_controls: &[ClassicalControlInput],
     current_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
-    noise_config: Option<&NoiseConfig<f64, f64>>,
+    gate_error_config: Option<(Option<&NoiseConfig<f64, f64>>, GateErrorMode)>,
 ) -> Result<(), Error> {
     let dbg_lookup = DbgLookup { dbg_info };
 
@@ -325,7 +365,7 @@ fn push_operations_in_block(
                 &mut BuilderWithRegisterMap {
                     builder,
                     wire_map: wire_map_builder.current(),
-                    noise_config,
+                    gate_error_config,
                 },
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
@@ -592,7 +632,7 @@ fn process_variables(
 struct BuilderWithRegisterMap<'a, T: OperationReceiver> {
     builder: &'a mut T,
     wire_map: &'a WireMap,
-    noise_config: Option<&'a NoiseConfig<f64, f64>>,
+    gate_error_config: Option<(Option<&'a NoiseConfig<f64, f64>>, GateErrorMode)>,
 }
 
 /// Combines the current stack, which DOES include classically controlled scopes, with the stack obtained
@@ -1222,9 +1262,9 @@ fn trace_call(
     mut stack: LogicalStack,
 ) -> Result<(), Error> {
     let error = if callable.call_type == CallableType::Regular {
-        builder_ctx
-            .noise_config
-            .and_then(|config| gate_error(config, &callable.name))
+        builder_ctx.gate_error_config.and_then(|(config, mode)| {
+            config.and_then(|config| gate_error(config, &callable.name, mode))
+        })
     } else {
         None
     };
@@ -1330,6 +1370,7 @@ fn trace_gate(
 fn gate_error(
     config: &NoiseConfig<f64, f64>,
     callable_name: &str,
+    mode: GateErrorMode,
 ) -> Option<crate::circuit::GateErrorInfo> {
     let table = match callable_name {
         "__quantum__qis__x__body" => &config.x,
@@ -1354,7 +1395,11 @@ fn gate_error(
         "__quantum__qis__swap__body" => &config.swap,
         _ => return None,
     };
-    total_error(table).map(|gate_error| crate::circuit::GateErrorInfo {
+    let gate_error = match mode {
+        GateErrorMode::All => total_error(table),
+        GateErrorMode::Loss => loss_error(table),
+    };
+    gate_error.map(|gate_error| crate::circuit::GateErrorInfo {
         gate_error,
         output_errors: Vec::new(),
     })
@@ -1362,6 +1407,20 @@ fn gate_error(
 
 fn total_error(table: &NoiseTable<f64>) -> Option<f64> {
     let error = table.probabilities.iter().sum();
+    (error > 0.0).then_some(error)
+}
+
+fn loss_error(table: &NoiseTable<f64>) -> Option<f64> {
+    let error = table
+        .pauli_strings
+        .iter()
+        .zip(&table.probabilities)
+        .filter_map(|(pauli, probability)| {
+            (0..table.qubits)
+                .any(|qubit| ((pauli >> (3 * qubit)) & 0b111) == 0b100)
+                .then_some(probability)
+        })
+        .sum();
     (error > 0.0).then_some(error)
 }
 

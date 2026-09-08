@@ -15,6 +15,7 @@ pub(crate) struct OperationListBuilderWithLoss<'a> {
     internal_builder: OperationListBuilder,
     not_lost_probs: Vec<f64>,
     noise_config: Option<&'a NoiseConfig<f64, f64>>,
+    show_qubit_errors: bool,
 }
 
 impl<'a> OperationListBuilderWithLoss<'a> {
@@ -22,11 +23,13 @@ impl<'a> OperationListBuilderWithLoss<'a> {
         internal_builder: OperationListBuilder,
         num_qubits: usize,
         noise_config: Option<&'a NoiseConfig<f64, f64>>,
+        show_qubit_errors: bool,
     ) -> Self {
         Self {
             internal_builder,
             not_lost_probs: vec![1.0; num_qubits],
             noise_config,
+            show_qubit_errors,
         }
     }
 
@@ -83,7 +86,9 @@ impl OperationReceiver for OperationListBuilderWithLoss<'_> {
         mut error: Option<GateErrorInfo>,
         call_stack: LogicalStack,
     ) {
-        if let Some(table) = self.noise_table(name, is_adjoint, inputs) {
+        if self.show_qubit_errors
+            && let Some(table) = self.noise_table(name, is_adjoint, inputs)
+        {
             let operand_losses = inputs
                 .controls
                 .iter()
@@ -170,6 +175,7 @@ mod tests {
             OperationListBuilder::new(usize::MAX, Vec::new(), false, false),
             1,
             Some(&noise_config),
+            true,
         );
         let classical_controls = [ClassicalControlInput {
             result_id: 0,
@@ -211,6 +217,7 @@ mod tests {
             OperationListBuilder::new(usize::MAX, Vec::new(), false, false),
             1,
             Some(&noise_config),
+            true,
         );
         let inputs = GateInputs {
             targets: &[0],
@@ -270,6 +277,43 @@ mod tests {
             LogicalStack::default(),
         );
         builder.reset(wire_map_builder.current(), 0, LogicalStack::default());
+        assert_eq!(builder.not_lost_probs[0], 1.0);
+    }
+
+    #[test]
+    fn does_not_track_loss_when_qubit_errors_are_disabled() {
+        let mut noise_config = NoiseConfig::NOISELESS;
+        noise_config.x = NoiseTable {
+            qubits: 1,
+            pauli_strings: vec![encode_pauli("L")],
+            probabilities: vec![0.01],
+            on_loss: noise_config.x.on_loss,
+        };
+
+        let mut wire_map_builder = WireMapBuilder::default();
+        wire_map_builder.map_qubit(0, None);
+        let mut builder = OperationListBuilderWithLoss::new(
+            OperationListBuilder::new(usize::MAX, Vec::new(), false, false),
+            1,
+            Some(&noise_config),
+            false,
+        );
+        let inputs = GateInputs {
+            targets: &[0],
+            controls: &[],
+            classical_controls: &[],
+        };
+
+        builder.gate(
+            wire_map_builder.current(),
+            "X",
+            false,
+            &inputs,
+            Vec::new(),
+            None,
+            LogicalStack::default(),
+        );
+
         assert_eq!(builder.not_lost_probs[0], 1.0);
     }
 }

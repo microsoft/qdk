@@ -268,7 +268,6 @@ class Interpreter:
         operation: Optional[str] = None,
         callable: Optional[GlobalCallable | Closure] = None,
         args: Optional[Any] = None,
-        noise_config: Optional[NoiseConfig] = None,
     ) -> Circuit:
         """
         Synthesizes a circuit for a Q# program. Either an entry
@@ -479,6 +478,9 @@ class CircuitConfig:
         source_locations: bool = False,
         group_by_scope: bool = False,
         prune_classical_qubits: bool = False,
+        noise_config: Optional[NoiseConfig] = None,
+        gate_errors: Optional[Literal["loss", "all"]] = None,
+        qubit_errors: Optional[Literal["loss"]] = None,
     ) -> None: ...
 
     max_operations: Optional[int]

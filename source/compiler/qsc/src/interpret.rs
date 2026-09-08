@@ -1320,7 +1320,13 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        self.circuit_with_noise(entry, method, tracer_config, None)
+        self.circuit_with_noise(
+            entry,
+            method,
+            tracer_config,
+            None,
+            qsc_circuit::ErrorDisplayConfig::default(),
+        )
     }
 
     pub fn circuit_with_noise(
@@ -1329,6 +1335,7 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
         noise_config: Option<&NoiseConfig<f64, f64>>,
+        error_display: qsc_circuit::ErrorDisplayConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
         let (entry_expr, qubit_params, invoke_params) = match entry {
             CircuitEntryPoint::Operation(operation_expr) => {
@@ -1410,9 +1417,15 @@ impl Interpreter {
                         args,
                         tracer_config,
                         noise_config,
+                        error_display,
                     );
                 }
-                return self.static_circuit(entry_expr.as_deref(), tracer_config, noise_config);
+                return self.static_circuit(
+                    entry_expr.as_deref(),
+                    tracer_config,
+                    noise_config,
+                    error_display,
+                );
             }
         }
         let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
@@ -1424,6 +1437,7 @@ impl Interpreter {
         entry_expr: Option<&str>,
         tracer_config: TracerConfig,
         noise_config: Option<&NoiseConfig<f64, f64>>,
+        error_display: qsc_circuit::ErrorDisplayConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
         if self.capabilities > Profile::AdaptiveRIF.into() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
@@ -1436,6 +1450,7 @@ impl Interpreter {
             &[self.package, self.source_package],
             &(self.compiler.package_store(), &fir_store),
             noise_config,
+            error_display,
         )
         .map_err(|e| vec![e.into()])
     }
@@ -1446,6 +1461,7 @@ impl Interpreter {
         args: Value,
         tracer_config: TracerConfig,
         noise_config: Option<&NoiseConfig<f64, f64>>,
+        error_display: qsc_circuit::ErrorDisplayConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
         if self.capabilities > Profile::AdaptiveRIF.into() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
@@ -1486,6 +1502,7 @@ impl Interpreter {
                     &[self.package, self.source_package],
                     &(self.compiler.package_store(), &fir_store),
                     noise_config,
+                    error_display,
                 )
                 .map_err(|e| vec![e.into()])
             }
@@ -1514,6 +1531,7 @@ impl Interpreter {
                     &[self.package, self.source_package],
                     &(self.compiler.package_store(), &fir_store),
                     noise_config,
+                    error_display,
                 )
                 .map_err(|e| vec![e.into()])
             }
