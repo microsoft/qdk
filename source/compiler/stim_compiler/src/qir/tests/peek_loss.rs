@@ -10,35 +10,14 @@ fn peek_loss_single_qubit() {
     check(
         "PEEK_LOSS 0",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__array_record_output(i64 1, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          ret i64 0
-        }
+            body:
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+            declarations:
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            required_num_qubits: 1
+            required_num_results: 1"#]],
     );
 }
 
@@ -47,39 +26,16 @@ fn peek_loss_broadcasts_over_multiple_qubits() {
     check(
         "PEEK_LOSS 0 1 2",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-          call void @__quantum__rt__array_record_output(i64 3, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr null)
-          ret i64 0
-        }
+            body:
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+            declarations:
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            required_num_qubits: 3
+            required_num_results: 3"#]],
     );
 }
 
@@ -88,39 +44,17 @@ fn peek_loss_with_readout_noise_yields_expected_qir() {
     check(
         "PEEK_LOSS(0.5) 0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__readout_noise(double 0.5, double 0.5, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 1, ptr null)
-              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-              ret i64 0
-            }
+            body:
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__rt__readout_noise(double 0.5, double 0.5, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__readout_noise(double, double, ptr) #2
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+            declarations:
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+              declare void @__quantum__rt__readout_noise(double, double, ptr) #2
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            attributes #2 = { "qdk_noise" }
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            required_num_qubits: 1
+            required_num_results: 1
+            uses_noise: true"#]],
     );
 }
 
@@ -217,49 +151,29 @@ fn peek_loss_referenced_by_classical_control() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__rt__array_record_output(i64 1, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          ret i64 0
-        }
+            body:
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-        define void @classical_control_cx(ptr %result, ptr %qubit) {
-        block_cx_entry:
-          %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-          br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-        block_cx_apply:
-          call void @__quantum__qis__x__body(ptr %qubit)
-          br label %block_cx_exit
-        block_cx_exit:
-          ret void
-        }
+            definitions:
+              define void @classical_control_cx(ptr %result, ptr %qubit) {
+              block_cx_entry:
+                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
+                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
+              block_cx_apply:
+                call void @__quantum__qis__x__body(ptr %qubit)
+                br label %block_cx_exit
+              block_cx_exit:
+                ret void
+              }
 
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__qis__x__body(ptr)
-        declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+            declarations:
+              declare i1 @__quantum__rt__read_result(ptr)
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+              declare void @__quantum__qis__x__body(ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            required_num_qubits: 2
+            required_num_results: 1"#]],
     );
 }
 
@@ -298,44 +212,23 @@ fn peek_loss_referenced_by_require_in_select_block() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          br label %select_0
-        select_0:
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-          %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          %restart_0 = or i1 %l_0, %r_0
-          br i1 %restart_0, label %select_0, label %continue_0
-        continue_0:
-          call void @__quantum__rt__array_record_output(i64 1, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          ret i64 0
-        }
+            body:
+                br label %select_0
+              select_0:
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                %restart_0 = or i1 %l_0, %r_0
+                br i1 %restart_0, label %select_0, label %continue_0
+              continue_0:
 
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare i1 @__quantum__rt__read_loss(ptr)
-        declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__peek_loss__body(ptr, ptr)
+            declarations:
+              declare i1 @__quantum__rt__read_loss(ptr)
+              declare i1 @__quantum__rt__read_result(ptr)
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            required_num_qubits: 1
+            required_num_results: 1"#]],
     );
 }
 
@@ -349,40 +242,17 @@ fn peek_loss_interleaved_with_measurements() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-          call void @__quantum__rt__array_record_output(i64 3, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr null)
-          ret i64 0
-        }
+            body:
+                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
 
-        declare void @__quantum__qis__m__body(ptr, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-        declare void @__quantum__rt__initialize(ptr)
+            declarations:
+              declare void @__quantum__qis__m__body(ptr, ptr)
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            required_num_qubits: 3
+            required_num_results: 3"#]],
     );
 }
 
@@ -423,50 +293,28 @@ fn require_allows_peek_record_mixed_with_measurement() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          br label %select_0
-        select_0:
-          call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-          %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
-          %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-          %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-          %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          %loss_0 = or i1 %l_0, %l_1
-          %parity_0 = xor i1 %r_0, %r_1
-          %restart_0 = or i1 %loss_0, %parity_0
-          br i1 %restart_0, label %select_0, label %continue_0
-        continue_0:
-          call void @__quantum__rt__array_record_output(i64 2, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
-          ret i64 0
-        }
+            body:
+                br label %select_0
+              select_0:
+                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
+                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                %loss_0 = or i1 %l_0, %l_1
+                %parity_0 = xor i1 %r_0, %r_1
+                %restart_0 = or i1 %loss_0, %parity_0
+                br i1 %restart_0, label %select_0, label %continue_0
+              continue_0:
 
-        declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare i1 @__quantum__rt__read_loss(ptr)
-        declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__m__body(ptr, ptr)
+            declarations:
+              declare i1 @__quantum__rt__read_loss(ptr)
+              declare i1 @__quantum__rt__read_result(ptr)
+              declare void @__quantum__qis__m__body(ptr, ptr)
+              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            required_num_qubits: 2
+            required_num_results: 2"#]],
     );
 }
