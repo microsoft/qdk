@@ -126,8 +126,8 @@
   }
 
   .gate-error-badge {
-    fill: #f7d9ad;
-    stroke: #9a4d00;
+    fill: #ffe9bb;
+    stroke: #9a0000;
     stroke-width: 1;
   }
 
@@ -135,6 +135,7 @@
     fill: #2f1a08;
     font-family: "KaTeX_Main", "MJXZERO", "MJXTEX", sans-serif;
     font-weight: 600;
+    font-size: xx-small;
   }
 
   /* Dot and line for controlled gates */

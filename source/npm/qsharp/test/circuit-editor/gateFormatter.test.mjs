@@ -25,7 +25,7 @@ import {
   _classicalControls,
   _getQuantumControlYs,
   formatGate,
-  formatLossProbability,
+  _formatErrorProbability,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
 import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
@@ -71,25 +71,36 @@ function makeRenderData(overrides = {}) {
   };
 }
 
-test("CNOT error renders as a percentage badge above the target", () => {
+test("single-control single-target gate error renders midway between control and target", () => {
   const gate = formatGate(
     makeRenderData({
       type: GateType.Cnot,
       controlsY: [40],
       targetsY: [80],
       label: "X",
-      displayArgs: "30.000%",
+      gateError: 0.3,
     }),
   );
 
-  const badge = gate.querySelector(".gate-error");
+  const badge = gate.querySelector(".gate-operation-error");
   const background = badge?.querySelector(".gate-error-badge");
   const label = badge?.querySelector(".gate-error-label");
 
-  assert.equal(label?.textContent, "30.000%");
+  assert.equal(label?.textContent, "30%");
   assert.equal(label?.getAttribute("x"), "100");
-  assert.equal(label?.getAttribute("y"), "62");
-  assert.equal(background?.getAttribute("rx"), "3");
+  assert.equal(label?.getAttribute("y"), "60");
+  assert.equal(background?.getAttribute("rx"), "6");
+});
+
+test("other gate errors render above the gate bounding box", () => {
+  const gate = formatGate(makeRenderData({ gateError: 0.01234 }));
+
+  const badge = gate.querySelector(".gate-operation-error");
+  const label = badge?.querySelector(".gate-error-label");
+
+  assert.equal(label?.textContent, "1.23%");
+  assert.equal(label?.getAttribute("x"), "100");
+  assert.equal(label?.getAttribute("y"), "12");
 });
 
 test("loss probabilities use three significant digits with three decimal places at most", () => {
@@ -103,7 +114,7 @@ test("loss probabilities use three significant digits with three decimal places 
   ];
 
   for (const [probability, expected] of examples) {
-    assert.equal(formatLossProbability(probability), expected);
+    assert.equal(_formatErrorProbability(probability), expected);
   }
 });
 
@@ -121,7 +132,7 @@ test("loss probability renders on its output wire just after the gate", () => {
   assert.equal(label?.textContent, "1.23%");
   assert.equal(label?.getAttribute("x"), "128");
   assert.equal(label?.getAttribute("y"), "80");
-  assert.equal(background?.getAttribute("rx"), "8");
+  assert.equal(background?.getAttribute("rx"), "6");
 });
 
 // ---------------------------------------------------------------------------

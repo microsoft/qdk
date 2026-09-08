@@ -102,16 +102,11 @@ const processOperations = (
             break;
         }
 
-        // For group ops with own classical controls, include those control wires in the body-geometry
+        // For ops with own classical controls, include those control wires in the body-geometry
         // input. `_classicalControls` draws a short L-connector from each control circle to the
         // body box; for that connector to land on the box (rather than in empty space below the
         // body), the body must extend down to include the classical control wire's y.
-        if (
-          op.kind === "unitary" &&
-          op.controls &&
-          op.children &&
-          op.children.length > 0
-        ) {
+        if (op.kind === "unitary" && op.controls) {
           const ownClassicalControls = op.controls.filter(
             (r) => r.result != null,
           );
@@ -328,35 +323,29 @@ const _opToRenderData = (
 
   // Classically-controlled operations are encoded as operations whose `controls` are classical
   // registers (i.e. `Register.result` is set), with IDs provided via `metadata.controlResultIds`.
-  const hasChildren = children != null && children.length > 0;
-  const isClassicallyControlledGroup =
+  const hasClassicalControls =
     op.kind === "unitary" &&
-    hasChildren &&
     ((controls?.some((reg) => reg.result != null) ?? false) ||
       (op.metadata?.controlResultIds?.length ?? 0) > 0);
 
+  const hasChildren = children != null && children.length > 0;
   const expandedAttr = dataAttributes?.["expanded"];
-  const defaultExpanded = isClassicallyControlledGroup;
+  const defaultExpanded = hasClassicalControls && hasChildren;
   const isExpanded =
     expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
   renderData.isExpanded = isExpanded;
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
-  if (op.kind === "unitary") {
-    renderData.controlsInverted = op.controls?.map(
-      (control) => control.inverted ?? false,
-    );
-  }
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
-  // For classically-controlled groups, include the classical-control sub-wires in `targetsY` so the
+  // For classically-controlled ops, include the classical-control sub-wires in `targetsY` so the
   // wire span this op claims for layout matches the bounding-box span drawn by `_gateBoundingBox`
   // (which merges `targetsY` with `controlsY` for its min/max). Without it, a parent group's
   // `_processChildren` `topY === minTargetY` check fails for nested classically-controlled children
   // and their `topPadding` doesn't propagate up, causing stacked nested conditionals to render box
   // tops and labels at the same y.
-  if (isClassicallyControlledGroup && op.kind === "unitary" && op.controls) {
+  if (op.kind === "unitary" && op.controls) {
     const ownClassicalControlYs = op.controls
       .filter((r) => r.result != null)
       .map((reg) => _getRegY(reg, registers));
@@ -368,7 +357,7 @@ const _opToRenderData = (
     }
   }
 
-  if (isClassicallyControlledGroup) {
+  if (hasClassicalControls) {
     // Classically-controlled operations. These are treated as composite/group operations when they
     // have children. Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
@@ -467,10 +456,9 @@ const _opToRenderData = (
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
   if (op.kind === "unitary" && op.error !== undefined) {
-    const errorLabel = `${(op.error.gateError * 100).toFixed(3)}%`;
-    renderData.displayArgs = renderData.displayArgs
-      ? `${renderData.displayArgs}; ${errorLabel}`
-      : errorLabel;
+    if (op.error.gateError != 0.0) {
+      renderData.gateError = op.error.gateError;
+    }
     renderData.outputErrors = op.error.outputErrors.map(
       ([register, probability]) => ({
         y: _getRegY(register, registers),
