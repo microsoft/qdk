@@ -797,7 +797,7 @@ RECIPES = {
                 "section": "The complete workflow",
                 "cells": [
                     (
-                        "code",
+                        "skip-test",
                         "iqpe_result = run_iqpe_workflow()\n"
                         "print_iqpe_results(iqpe_result)\n",
                     ),
@@ -1774,7 +1774,12 @@ def convert(key, *, check=False, allow_cell_id_changes=False):
         cells[end:end] = block
         owner[end:end] = [section] * len(block)
 
-    kinds = {"md": md, "code": code, "region": lambda v: code(notebook_region(v))}
+    kinds = {
+        "md": md,
+        "code": code,
+        "skip-test": lambda value: code(value, tags=["skip-test"]),
+        "region": lambda value: code(notebook_region(value)),
+    }
     for spec in recipe.get("inserts", []):
         splice(spec["section"], [kinds[k](v) for k, v in spec["cells"]])
 

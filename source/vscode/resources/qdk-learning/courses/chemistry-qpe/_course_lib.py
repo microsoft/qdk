@@ -16,7 +16,6 @@ relevant visuals or output.
 
 from typing import Callable
 
-from IPython.core.getipython import get_ipython
 from IPython.display import HTML, display
 
 # A learner exercise is a no-argument function whose result is checked.
@@ -32,21 +31,8 @@ _checkers: dict[str, Checker] = {}
 class ExerciseError(AssertionError):
     """Raised when an exercise is not yet correct."""
 
-
-def _hide_traceback() -> None:
-    """Show only the failure banner for a wrong answer.
-
-    The cell still ends in an error, which marks the exercise as incomplete,
-    but real errors raised by learner code keep their traceback.
-    """
-    shell = get_ipython()
-    if shell is None:
-        return
-
-    shell.set_custom_exc((ExerciseError,), lambda *args, **kwargs: None)
-
-
-_hide_traceback()
+    def _render_traceback_(self) -> list[str]:
+        return []
 
 
 def _register(name: str, checker: Checker) -> str:

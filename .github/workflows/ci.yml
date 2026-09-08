@@ -220,6 +220,87 @@ jobs:
           # which requires a display to run
         run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --widgets --qdk --integration-tests
 
+  course-notebook-changes:
+    name: Detect course notebook changes
+    runs-on: ubuntu-latest
+    outputs:
+      run-tests: ${{ steps.changes.outputs.run-tests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          fetch-depth: 0
+      - name: Determine whether to run course notebook tests
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            run_tests=true
+          elif git diff --quiet "$BASE_SHA...$HEAD_SHA" -- \
+            source/vscode/resources/qdk-learning/courses/ \
+            source/vscode/test/course-notebooks/; then
+            run_tests=false
+          else
+            run_tests=true
+          fi
+          echo "run-tests=$run_tests" >> "$GITHUB_OUTPUT"
+
+  course-notebook-tests:
+    name: Course notebooks (${{ matrix.course }}, ${{ matrix.arch }})
+    needs: course-notebook-changes
+    if: needs.course-notebook-changes.outputs.run-tests == 'true'
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - course: chemistry-qpe
+            runner: ubuntu-24.04
+            arch: x64
+            machine: x86_64
+            pip-cache: ~/.cache/pip
+          - course: chemistry-qpe
+            runner: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+            pip-cache: ~/.cache/pip
+          - course: chemistry-qpe
+            runner: windows-2025
+            arch: x64
+            machine: amd64
+            pip-cache: ~/AppData/Local/pip/Cache
+          - course: chemistry-qpe
+            runner: windows-11-arm
+            arch: arm64
+            machine: arm64
+            pip-cache: ~/AppData/Local/pip/Cache
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          architecture: ${{ matrix.arch }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ matrix.pip-cache }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-pip-${{ hashFiles('source/vscode/test/course-notebooks/requirements.txt', format('source/vscode/resources/qdk-learning/courses/{0}/requirements.txt', matrix.course)) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-pip-
+      - name: Verify runner architecture
+        run: python -c "import platform; actual = platform.machine().lower(); expected = '${{ matrix.machine }}'; print(f'{actual=} {expected=}'); assert actual == expected"
+      - name: Install notebook dependencies
+        run: |
+          python -m pip install -r source/vscode/test/course-notebooks/requirements.txt
+          python -m pip install -r source/vscode/resources/qdk-learning/courses/${{ matrix.course }}/requirements.txt
+      - name: Test course notebooks
+        run: python -m pytest source/vscode/test/course-notebooks -v -s --course ${{ matrix.course }}
+
   status-check:
     name: Status Check
     needs:
@@ -233,6 +314,8 @@ jobs:
         unit-tests,
         format-qsc,
         integration-tests,
+        course-notebook-changes,
+        course-notebook-tests,
       ]
     runs-on: ubuntu-latest
     if: failure()
