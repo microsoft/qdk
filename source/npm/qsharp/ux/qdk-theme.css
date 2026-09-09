@@ -121,6 +121,14 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-atom-fill: #0078d4;
   --qdk-atom-trail: #fa0;
 
+  /* Use to mark a self-check question. The chemistry tutorial styles its
+     collapsible questions with this burnt orange, so anything that asks the
+     reader something should share it. Paired with a foreground because the
+     accent is a filled band: the two must be picked together to stay legible,
+     and which one is the dark half flips between light and dark themes. */
+  --qdk-quiz-accent: #8c4a00;
+  --qdk-quiz-accent-foreground: #ffffff;
+
   /* Circuit diagram: unitary gate box colors */
   --qdk-circuit-unitary-fill: #ffffff;
   --qdk-circuit-unitary-text: #3b3b3b;
@@ -192,6 +200,11 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
   --qdk-gate-reset: #8e8;
   --qdk-atom-fill: #9df;
   --qdk-atom-trail: #fa0;
+
+  /* Same hue as the light theme's quiz accent, lightened until it separates
+     from a dark editor background; the band's text goes dark to match. */
+  --qdk-quiz-accent: #e0a15e;
+  --qdk-quiz-accent-foreground: #2b1a05;
 
   /* Chord diagram: 3-stop colormaps (low → mid → high) */
   --qdk-chord-node-lo: #3a3a3a;
