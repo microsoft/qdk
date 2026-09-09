@@ -484,7 +484,7 @@ unsafe extern "C" {
     ) -> cutensornetStatus_t;
 }
 unsafe extern "C" {
-    #[doc = " \\brief Prepares the tensor network state sampler.\n\n \\param[in] handle cuTensorNet library handle.\n \\param[in] tensorNetworkSampler Tensor network sampler.\n \\param[in] maxWorkspaceSizeDevice Upper limit on the amount of available GPU scratch memory (bytes).\n \\param[out] workDesc Workspace descriptor (the required scratch/cache memory sizes will be set).\n \\param[in] cudaStream CUDA stream.\n\n \\note The cudaStream argument is unused in the current release (can be set to 0x0).\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    #[doc = " \\brief Prepares the tensor network state sampler.\n\n \\param[in] handle cuTensorNet library handle.\n \\param[in] tensorNetworkSampler Tensor network state sampler.\n \\param[in] maxWorkspaceSizeDevice Upper limit on the amount of available GPU scratch memory (bytes).\n \\param[out] workDesc Workspace descriptor (the required scratch/cache memory sizes will be set).\n \\param[in] cudaStream CUDA stream.\n\n \\note The cudaStream argument is unused in the current release (can be set to 0x0).\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
     pub fn cutensornetSamplerPrepare(
         handle: cutensornetHandle_t,
         tensorNetworkSampler: cutensornetStateSampler_t,
