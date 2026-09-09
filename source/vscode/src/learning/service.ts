@@ -510,7 +510,7 @@ export class LearningService {
    * Save a course workbook after any earlier save for the same document.
    * Returns false when the document is not a course workbook or could not save.
    */
-  async saveCourseWorkbook(
+  private async saveCourseWorkbook(
     notebook: vscode.NotebookDocument,
   ): Promise<boolean> {
     if (!this.isCourseWorkbook(notebook.uri)) {

@@ -44,11 +44,7 @@ async function syncActiveNotebook(
     // hasn't started yet and merely opening a notebook must not materialize
     // one behind their back.
     if (await service.tryInitialize()) {
-      if (await service.syncToWorkbook(editor.notebook.uri)) {
-        // The workbook may already be dirty when restoring a VS Code session,
-        // before the notebook-change listener had a chance to observe it.
-        await service.saveCourseWorkbook(editor.notebook);
-      }
+      await service.syncToWorkbook(editor.notebook.uri);
     }
   }
 

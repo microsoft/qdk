@@ -43,15 +43,13 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
-      // Save after cell execution and update exercise completion.
+      // Track cell execution and update exercise completion.
       if (!learningService.isCourseWorkbook(e.notebook.uri)) {
         return;
       }
 
-      let hasExecutionChange = false;
       for (const change of e.cellChanges) {
         if (change.executionSummary !== undefined) {
-          hasExecutionChange = true;
           const cellId = change.cell.metadata?.id;
           if (typeof cellId !== "string") {
             continue;
@@ -68,12 +66,6 @@ export function initLearning(
             void learningService.markActivityCompleteByCellId(cellId);
           }
         }
-      }
-      if (hasExecutionChange) {
-        // Moving between notebooks is clumsy when they're unsaved.  Since this
-        // is a working copy we created on the user's behalf, we're free to
-        // auto-save.
-        void learningService.saveCourseWorkbook(e.notebook);
       }
     }),
   );
