@@ -7,10 +7,11 @@
 # changes shape, refresh this copy.
 ---
 qodec.yaml:
+  schema_version: 7
   name: repetition3
   description: Z-basis bit-flip repetition code (distance 3) — the simplest non-trivial QEC example in qodec.
   layers:
-    - isa: repetition3.isa.yaml
+    - instruction_set: repetition3.isa.yaml
       codes:
         repetition3: repetition3.code.yaml
       gadgets:
@@ -18,7 +19,7 @@ qodec.yaml:
         idle: idle.gadget.yaml
         measure_z: measure_z.gadget.yaml
         rotate_z: rotate_z.gadget.yaml
-    - isa: stim+rz.isa.yaml
+    - instruction_set: stim+rz.isa.yaml
 ---
 repetition3.isa.yaml:
   name: repetition3
@@ -102,5 +103,5 @@ measure_z.gadget.yaml:
 ---
 rotate_z.gadget.yaml:
   circuit:
-    source: [rotate_z: {target: 0, theta: theta}]
-  parameters: {theta: circuit.source.theta}
+    source: [rotate_z: {operands: [0], arguments: {theta: theta}}]
+  parameter_bindings: {theta: circuit.source.theta}

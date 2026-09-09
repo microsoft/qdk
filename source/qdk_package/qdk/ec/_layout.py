@@ -1,11 +1,11 @@
-"""Program-level placement of symbolic block instances onto logical qubits."""
+"""Circuit-level placement of symbolic block instances onto logical qubits."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import qodec as qc
-from qodec.circuits import Program
+from qodec.gadgets import Circuit
 
 from ._operands import QubitLabel, qubit_labels
 
@@ -14,19 +14,19 @@ from ._operands import QubitLabel, qubit_labels
 class ProgramLayout:
     """Stable logical-qubit ranges for the block instances in a program."""
 
-    program: Program
+    program: Circuit
     instance_bases: dict[QubitLabel, int]
     total_qubits: int
 
     @classmethod
-    def of(cls, program: Program) -> "ProgramLayout":
-        blocks = {block.name: block for block in program.isa.blocks}
+    def of(cls, program: Circuit) -> "ProgramLayout":
+        blocks = {block.name: block for block in program.instruction_set.blocks}
         bindings: list[tuple[QubitLabel, int]] = []
-        for call in program.instructions:
-            instruction = program.lookup(call.mnemonic)
+        for call in program.calls:
+            instruction = program.instruction_set.instructions[call.mnemonic]
             pairs = [
-                *zip(instruction.inputs, call.inputs.values()),
-                *zip(instruction.outputs, call.outputs.values()),
+                *cls._bound_operands(instruction.inputs, call.operands),
+                *cls._bound_operands(instruction.outputs, call.operands),
             ]
             for operand, value in pairs:
                 try:
@@ -66,13 +66,14 @@ class ProgramLayout:
 
     def call_qubit_map(self, call: qc.instructions.InstructionCall) -> dict[int, int]:
         """Map one call's flat action indices to program logical qubits."""
-        instruction = self.program.lookup(call.mnemonic)
-        operands = list(instruction.inputs) or list(instruction.outputs)
-        values = list(call.inputs.values()) or list(call.outputs.values())
-        blocks = {block.name: block for block in self.program.isa.blocks}
+        instruction = self.program.instruction_set.instructions[call.mnemonic]
+        inputs = self._bound_operands(instruction.inputs, call.operands)
+        outputs = self._bound_operands(instruction.outputs, call.operands)
+        pairs = inputs if len(inputs) >= len(outputs) else outputs
+        blocks = {block.name: block for block in self.program.instruction_set.blocks}
         result: dict[int, int] = {}
         flat_index = 0
-        for operand, value in zip(operands, values):
+        for operand, value in pairs:
             block = blocks[operand.block]
             for instance in qubit_labels(value):
                 base = self.instance_bases[instance]
@@ -80,6 +81,23 @@ class ProgramLayout:
                     result[flat_index] = base + offset
                     flat_index += 1
         return result
+
+    @staticmethod
+    def _bound_operands(
+        operands: list[qc.instructions.BlockOperand], values: list[int | str]
+    ) -> list[tuple[qc.instructions.BlockOperand, int | str]]:
+        variadic_count = sum(operand.is_variadic for operand in operands)
+        if variadic_count > 1:
+            raise ValueError("cannot bind more than one variadic operand per boundary")
+        fixed_count = len(operands) - variadic_count
+        if len(values) < fixed_count:
+            raise ValueError("call supplies fewer blocks than its instruction declares")
+        expanded = [
+            operand
+            for operand in operands
+            for _ in range(len(values) - fixed_count if operand.is_variadic else 1)
+        ]
+        return list(zip(expanded, values))
 
     def qubit_of(self, call: qc.instructions.InstructionCall, flat_index: int) -> int:
         """Resolve one flat action index for ``call``."""

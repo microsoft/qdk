@@ -8,7 +8,7 @@ loaded qodec.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator
 
 import qodec as qc
 from qdk.ec._audit import (
@@ -24,12 +24,9 @@ from qdk.ec._audit import (
 # ----------------------------------------------------------------------------
 
 
-def _atoms(readout: Sequence[object] | Mapping[str, Sequence[object]]) -> list[str]:
-    """Flatten one ``readouts`` entry (bare list or ``{name: list}``) to atoms."""
-    if isinstance(readout, Mapping):
-        (equation,) = readout.values()
-        return [str(atom) for atom in equation]
-    return [str(atom) for atom in readout]
+def _atoms(readout: qc.gadgets.Readout) -> list[str]:
+    """The authored parity terms of a typed readout."""
+    return [str(atom) for atom in readout.equation]
 
 
 def _clone(
@@ -161,7 +158,7 @@ def test_out_of_range_stabilizer_index_is_flagged(
 
 
 def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
-    stim_isa = rep3_qodec.layers[1].isa
+    stim_isa = rep3_qodec.layers[1].instruction_set
     code = rep3_qodec.codes["repetition3"]
     operand = qc.instructions.BlockOperand("repetition3")
     flagged = qc.Instruction(
@@ -181,7 +178,7 @@ def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
 def test_prepared_declared_input_is_rejected(rep3_qodec: qc.Qodec) -> None:
     idle = rep3_qodec.layers[0].gadgets["idle"]
     circuit = qc.gadgets.Circuit(
-        idle.circuit.isa,
+        idle.circuit.instruction_set,
         f"R 0\n{idle.circuit.source}",
         format=idle.circuit.format,
     )

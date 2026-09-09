@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from paulimer import OutcomeCompleteSimulation
-from qodec.circuits import Program
+from qodec.gadgets import Circuit
 
 from ..._layout import ProgramLayout
 from .frames import FrameGroup
@@ -24,7 +24,7 @@ class ConditionalChoiResult:
 
 
 def conditional_choi_state(
-    program: Program,
+    program: Circuit,
     *,
     input_qubits: Sequence[int],
     codespace_projector: Sequence[Pauli] = (),

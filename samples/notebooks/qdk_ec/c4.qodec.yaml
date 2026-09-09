@@ -1,8 +1,9 @@
 ---
 qodec.yaml:
   name: c4
+  description: Protocol based on Knill's C4
   layers:
-  - isa: C4.isa.yaml
+  - instruction_set: C4.isa.yaml
     codes:
       c4: C4.code.yaml
     gadgets:
@@ -16,7 +17,7 @@ qodec.yaml:
       x1: x1.gadget.yaml
       z0: z0.gadget.yaml
       z1: z1.gadget.yaml
-  - isa: stim.isa.yaml
+  - instruction_set: stim.isa.yaml
 ---
 C4.isa.yaml:
   name: C4
@@ -184,7 +185,7 @@ C4.code.yaml:
 idle.gadget.yaml:
   implements: ./C4.isa.yaml#idle
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       # Data qubits: 0-3; X-stabilizer ancilla: 4; Z-stabilizer ancilla: 5
       R 4 5
@@ -219,7 +220,7 @@ idle.gadget.yaml:
 measure_xx.gadget.yaml:
   implements: ./C4.isa.yaml#measure_xx
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       H 0 1 2 3
       M 0 1 2 3
@@ -245,7 +246,7 @@ measure_xx.gadget.yaml:
 measure_zz.gadget.yaml:
   implements: ./C4.isa.yaml#measure_zz
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       M 0 1 2 3
     format: stim
@@ -270,7 +271,7 @@ measure_zz.gadget.yaml:
 prepare_xx.gadget.yaml:
   implements: ./C4.isa.yaml#prepare_xx
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       # Fault-tolerant preparation of |++>_L in XX basis
       R 0 1 2 3
@@ -300,7 +301,7 @@ prepare_xx.gadget.yaml:
 prepare_zz.gadget.yaml:
   implements: ./C4.isa.yaml#prepare_zz
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       # Fault-tolerant preparation of |00>_L in ZZ basis
       R 0 1 2 3
@@ -329,7 +330,7 @@ prepare_zz.gadget.yaml:
 transversal_cx.gadget.yaml:
   implements: ./C4.isa.yaml#transversal_cx
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       CX 0 4 1 5 2 6 3 7
     format: stim
@@ -359,7 +360,7 @@ transversal_cx.gadget.yaml:
 x0.gadget.yaml:
   implements: ./C4.isa.yaml#x0
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       X 0 1
     format: stim
@@ -379,7 +380,7 @@ x0.gadget.yaml:
 x1.gadget.yaml:
   implements: ./C4.isa.yaml#x1
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       X 0 2
     format: stim
@@ -399,7 +400,7 @@ x1.gadget.yaml:
 z0.gadget.yaml:
   implements: ./C4.isa.yaml#z0
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       Z 0 2
     format: stim
@@ -419,7 +420,7 @@ z0.gadget.yaml:
 z1.gadget.yaml:
   implements: ./C4.isa.yaml#z1
   circuit:
-    isa: ./stim.isa.yaml
+    instruction_set: ./stim.isa.yaml
     source: |
       Z 0 1
     format: stim

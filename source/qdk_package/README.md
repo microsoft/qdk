@@ -109,6 +109,26 @@ canonical format's guarantees, and the visitor's context protocol.
 
 ## Public API Surface
 
+### Error Correction Preview
+
+`qdk.ec` analyzes codes and gadgets and can derive checks and readout equations.
+It requires Python 3.11 or newer and qodec 0.1.x. Install the local qodec Python
+bindings first while that version is unpublished, then install `qdk[ec]`.
+
+Use `qodec.gadgets.Circuit(instruction_set, source, format=...)` for circuits.
+Parsed invocations are `circuit.calls`; each call has positional `operands`
+and named classical `arguments`. The instruction definitions are in
+`circuit.instruction_set.instructions`.
+
+Gadget readouts are typed objects with `name`, `position`, `is_flag`, and
+`equation`. To replace them, pass parity lists or named parity dictionaries,
+not the returned readout objects. Bundle fixtures use schema version 7;
+`Qodec.load` takes an explicit manifest or bundle file path, not a directory.
+
+The `qdk.ec` public API is unchanged by this qodec migration.
+
+### Submodules
+
 Submodules:
 
 - `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`, and related types.

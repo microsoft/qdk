@@ -48,7 +48,7 @@ def synthesis_notes(qodec: qc.Qodec) -> dict:
 def _round_tripped(qodec: qc.Qodec, directory: Path) -> qc.Qodec:
     # qodec.save/load take strings, not os.PathLike.
     qodec.save(str(directory), single_file=True)
-    return qc.Qodec.load(str(directory))
+    return qc.Qodec.load(str(directory / qodec.manifest_filename))
 
 
 @pytest.fixture(scope="module")
@@ -61,13 +61,13 @@ def steane() -> qc.Qodec:
 
 def test_result_is_a_two_layer_qodec(steane: qc.Qodec) -> None:
     assert len(steane.layers) == 2
-    assert steane.layers[0].isa.name == "steane"
-    assert steane.layers[1].isa.name == "stim"
+    assert steane.layers[0].instruction_set.name == "steane"
+    assert steane.layers[1].instruction_set.name == "stim"
     assert steane.layers[1].gadgets == {}
 
 
 def test_logical_block_encodes_the_logical_qubits(steane: qc.Qodec) -> None:
-    (block,) = steane.layers[0].isa.blocks
+    (block,) = steane.layers[0].instruction_set.blocks
 
     assert block.name == "steane"
     assert block.encodes == 1
@@ -76,7 +76,7 @@ def test_logical_block_encodes_the_logical_qubits(steane: qc.Qodec) -> None:
 def test_every_declared_instruction_has_a_gadget(steane: qc.Qodec) -> None:
     layer = steane.layers[0]
 
-    assert set(layer.isa.instructions) == set(layer.gadgets)
+    assert set(layer.instruction_set.instructions) == set(layer.gadgets)
 
 
 def test_the_expected_instruction_menu_is_synthesized(steane: qc.Qodec) -> None:
@@ -112,7 +112,7 @@ def test_name_and_description_can_be_overridden() -> None:
 
     assert built.name == "my_qodec"
     assert built.description == "hand written"
-    assert built.layers[0].isa.name == "my_qodec"
+    assert built.layers[0].instruction_set.name == "my_qodec"
 
 
 @pytest.mark.parametrize(
@@ -377,7 +377,7 @@ def test_synthesized_qodec_round_trips_through_disk(
     steane: qc.Qodec, tmp_path: Path
 ) -> None:
     steane.save(str(tmp_path / "bundle"))
-    restored = qc.Qodec.load(str(tmp_path / "bundle"))
+    restored = qc.Qodec.load(str(tmp_path / "bundle" / steane.manifest_filename))
 
     assert restored.name == steane.name
     assert sorted(restored.codes) == sorted(steane.codes)
@@ -408,7 +408,7 @@ def test_a_non_z_logical_basis_omits_the_gadgets_it_cannot_support() -> None:
     assert "prepare_z" in omitted
     assert "measure_z" in omitted
     assert "idle" in built.layers[0].gadgets
-    assert set(built.layers[0].isa.instructions) == set(built.layers[0].gadgets)
+    assert set(built.layers[0].instruction_set.instructions) == set(built.layers[0].gadgets)
 
 
 def test_omissions_carry_structured_reasons() -> None:
@@ -511,7 +511,7 @@ def test_logical_pauli_gadgets_are_verified_for_a_large_k_code() -> None:
 
 
 def test_y_components_are_rejected_with_an_actionable_message() -> None:
-    code = qc.Code("has_y", stabilizers=["Y_0 X_1"], x=["X_0"], z=["Z_0 Z_1"])
+    code = qc.Code("has_y", stabilizers=["Y_0 X_1"], x=["X_1"], z=["Z_0 Z_1"])
 
     with pytest.raises(NotImplementedError, match="Y components"):
         qodec_from_code(code)

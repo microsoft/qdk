@@ -17,6 +17,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import qodec as qc
+from qodec.gadgets import Readout, ReadoutLike, ReferenceLike
 
 from ._references import (
     Equation,
@@ -36,22 +37,21 @@ def observe_count_of(instruction: qc.Instruction) -> int:
     )
 
 
-def readout_equation(entry: qc.Readout) -> Equation:
+def readout_equation(entry: Readout) -> Equation:
     """The parsed parity equation of one ``gadget.readouts`` entry.
 
-    An entry is either a bare equation or a single-key ``{name: equation}``
-    mapping; both reduce to the same atom list.
+    qodec has already resolved its position, name, and flag role.
     """
-    if isinstance(entry, Mapping):
-        (equation,) = entry.values()
-        return parse_equation(equation)
-    return parse_equation(entry)
+    return parse_equation(entry.equation)
 
 
 def as_readout(
-    entry: Sequence[qc.ReferenceLike] | Mapping[str, Sequence[qc.ReferenceLike]],
-) -> qc.ReadoutLike:
+    entry: Readout | Sequence[ReferenceLike] | Mapping[str, Sequence[ReferenceLike]],
+) -> ReadoutLike:
     """One readout entry in the shape qodec's setters accept."""
+    if isinstance(entry, Readout):
+        equation = as_references(entry.equation)
+        return equation if entry.name is None else {entry.name: equation}
     if isinstance(entry, Mapping):
         return {name: as_references(equation) for name, equation in entry.items()}
     return as_references(entry)
@@ -151,7 +151,7 @@ def set_gadget_readouts(
     for name, indices in named_xor.items():
         if str(name).isdigit():
             positional[int(name)] = outcome_equation(indices)
-    readouts: list[qc.ReadoutLike] = [
+    readouts: list[ReadoutLike] = [
         as_references(positional[index]) for index in sorted(positional)
     ]
     authored = list(gadget.readouts)[len(observable_slots(gadget)) :]

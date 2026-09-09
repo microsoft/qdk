@@ -147,6 +147,23 @@ def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
     )
 
 
+def test_channel_action_is_opaque(idle_gadget) -> None:
+    action = ec.GadgetProfile(idle_gadget).action
+    assert {name for name in dir(action) if not name.startswith("_")} == {
+        "is_equivalent_to",
+        "why_not_equivalent_to",
+    }
+    assert not inspect.signature(ec.ChannelAction).parameters
+    for name in ("observables", "stabilizers", "mapping"):
+        assert not hasattr(action, name)
+        with pytest.raises(AttributeError):
+            setattr(action, name, None)
+    with pytest.raises(TypeError, match="GadgetProfile"):
+        ec.ChannelAction()
+    assert action.is_equivalent_to(action)
+    assert action.why_not_equivalent_to(action) == ""
+
+
 def test_gadget_profile_rejects_other_targets() -> None:
     with pytest.raises(TypeError, match="Gadget or qodec.gadgets.Circuit"):
         ec.GadgetProfile(object())

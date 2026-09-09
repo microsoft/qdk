@@ -22,44 +22,17 @@ union (``N,M,P``); a selector addressing several records parses to one
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal, Union
 
-import qodec as qc
+from qodec.gadgets import Reference, ReferenceLike
 
 #: Which side of a gadget boundary an encoding reference names.
 Side = Literal["in", "out"]
 
 #: Which operator list of a boundary encoding a sign reference names.
 Basis = Literal["x", "z"]
-
-_READOUT_RE = re.compile(r"^circuit\.readouts\[([^\]]+)\]$")
-_ENCODING_REF_RE = re.compile(r"^(in|out)\[(\d+)\]\.(stabilizers|x|z)\[(\d+)\]$")
-
-
-def _expand_bracket_selector(token: str) -> list[int]:
-    """Expand a JsonPath bracket-selector token into explicit indices."""
-    token = token.strip()
-    if not token:
-        return []
-    if "," in token and ":" not in token:
-        return [int(part.strip()) for part in token.split(",")]
-    if ":" in token:
-        parts = token.split(":")
-        if len(parts) == 2:
-            start, stop = int(parts[0]), int(parts[1])
-            step = 1
-        elif len(parts) == 3:
-            start, stop, step = int(parts[0]), int(parts[1]), int(parts[2])
-        else:
-            return []
-        if step <= 0:
-            return []
-        return list(range(start, stop, step))
-    return [int(token)]
-
 
 @dataclass(frozen=True)
 class Outcome:
@@ -120,23 +93,22 @@ Atom = Union[Outcome, StabilizerSign, LogicalSign]
 Equation = tuple[Atom, ...]
 
 
-def _parse_atom(reference: qc.ReferenceLike) -> list[Atom]:
-    text = str(reference)
-    readout = _READOUT_RE.match(text)
-    if readout is not None:
-        return [Outcome(index) for index in _expand_bracket_selector(readout.group(1))]
-    encoding = _ENCODING_REF_RE.match(text)
-    if encoding is None:
-        return []
-    side, entry, basis, index = encoding.groups()
-    resolved_side: Side = "in" if side == "in" else "out"
-    if basis == "stabilizers":
-        return [StabilizerSign(resolved_side, int(entry), int(index))]
-    resolved_basis: Basis = "x" if basis == "x" else "z"
-    return [LogicalSign(resolved_side, int(entry), resolved_basis, int(index))]
+def _parse_atom(reference: ReferenceLike) -> list[Atom]:
+    atoms: list[Atom] = []
+    for term in Reference(reference).expand():
+        if term.kind == "circuit_readout":
+            atoms.append(Outcome(term.index))
+        elif term.kind == "encoding":
+            side, entry, basis = term.boundary, term.entry, term.encoding_property
+            assert side is not None and entry is not None
+            if basis == "stabilizers":
+                atoms.append(StabilizerSign(side, entry, term.index))
+            elif basis in ("x", "z"):
+                atoms.append(LogicalSign(side, entry, basis, term.index))
+    return atoms
 
 
-def parse_equation(references: Iterable[qc.ReferenceLike]) -> Equation:
+def parse_equation(references: Iterable[ReferenceLike]) -> Equation:
     """Every atom of one parity equation, in declared order.
 
     References of a shape this module does not model are dropped rather than
@@ -147,7 +119,7 @@ def parse_equation(references: Iterable[qc.ReferenceLike]) -> Equation:
 
 
 def parse_equations(
-    equations: Iterable[Iterable[qc.ReferenceLike]],
+    equations: Iterable[Iterable[ReferenceLike]],
 ) -> tuple[Equation, ...]:
     """A list of parity equations — a gadget's ``checks``, say — parsed."""
     return tuple(parse_equation(equation) for equation in equations)
@@ -174,7 +146,7 @@ def outcome_equation(indices: Iterable[int]) -> Equation:
     return tuple(Outcome(index) for index in indices)
 
 
-def as_references(atoms: Iterable[qc.ReferenceLike | Atom]) -> list[qc.ReferenceLike]:
+def as_references(atoms: Iterable[ReferenceLike | Atom]) -> list[ReferenceLike]:
     """One parity equation in the shape qodec's setters accept."""
     return [str(atom) for atom in atoms]
 

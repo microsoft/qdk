@@ -148,7 +148,7 @@ def fault_effects_of(
 
 
 def _build_basis_probes(
-    encodings: Sequence[qc.Encoding], basis: Basis
+    encodings: Sequence[qc.gadgets.Encoding], basis: Basis
 ) -> tuple[list[Pauli], list[tuple[int, int]]]:
     probes = []
     layout = []
@@ -161,7 +161,7 @@ def _build_basis_probes(
 
 
 def _combine_residual_passes(
-    encodings: Sequence[qc.Encoding],
+    encodings: Sequence[qc.gadgets.Encoding],
     z_flips: set[int],
     z_layout: list[tuple[int, int]],
     x_flips: set[int],

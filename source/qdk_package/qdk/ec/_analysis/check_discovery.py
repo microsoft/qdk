@@ -9,7 +9,7 @@ from typing import cast
 import qodec as qc
 from paulimer import OutcomeCompleteSimulation, UnitaryOpcode
 from qodec.actions import Observe
-from qodec.circuits import Program
+from qodec.gadgets import Circuit
 
 from .._layout import ProgramLayout
 from .._readouts import flag_slots, observables_as_xor_map, observe_count_of
@@ -52,7 +52,7 @@ class StabilizerReference:
 
 
 def simulate_program(
-    program: Program,
+    program: Circuit,
     simulation: OutcomeCompleteSimulation | None = None,
 ) -> ProgramSimulation:
     walk = walk_program(program, simulation=simulation)
@@ -342,13 +342,13 @@ def _declared_observable_probes(
         if not isinstance(action, Observe):
             continue
         for observable in action.observables:
-            probe = declared_pauli_of(gadget.inputs, observable.pauli)
+            probe = declared_pauli_of(gadget.inputs, observable)
             specs.append((str(position), relabel(probe, partners)))
             position += 1
     return specs
 
 
-def _auxiliary_origin(program: Program, input_qubits: Sequence[int]) -> int:
+def _auxiliary_origin(program: Circuit, input_qubits: Sequence[int]) -> int:
     # Must agree with `channel_action._aux_origin_of`, which also accounts for a
     # codespace projector and an output support. The two only coincide while
     # neither reaches past the program's own qubits.

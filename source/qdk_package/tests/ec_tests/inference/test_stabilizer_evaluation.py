@@ -11,6 +11,7 @@ from qdk.ec._analysis.propagation.interpreter import (
     walk_for_outcome_code,
 )
 from qdk.ec._analysis.propagation.stabilizer import frame_group_of
+from qdk.ec._layout import ProgramLayout
 
 
 def test_walking_a_program_stabilizes_every_qubit(idle_gadget: qc.Gadget) -> None:
@@ -21,4 +22,4 @@ def test_walking_a_program_stabilizes_every_qubit(idle_gadget: qc.Gadget) -> Non
 
     assert all(isinstance(framed, PauliFrame) for framed in frames)
     group = PauliGroup([framed.pauli for framed in frames], all_commute=True)
-    assert len(group.generators) == program.qubit_count
+    assert len(group.generators) == ProgramLayout.of(program).total_qubits

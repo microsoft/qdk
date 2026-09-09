@@ -20,14 +20,14 @@ class MissingSourceInstructionRule:
         if not isinstance(target, qc.Qodec):
             raise TypeError(f"expected qodec.Qodec, got {type(target).__name__}")
         for index, layer in enumerate(target.layers):
-            source = set(layer.isa.instructions)
+            source = set(layer.instruction_set.instructions)
             for mnemonic in layer.gadgets:
                 if mnemonic not in source:
                     yield Diagnostic(
                         self.name,
                         self.severity,
                         f"gadget keyed {mnemonic!r} has no matching instruction "
-                        f"in source ISA {layer.isa.name!r}",
+                        f"in source ISA {layer.instruction_set.name!r}",
                         f"layers[{index}].gadgets[{mnemonic!r}]",
                     )
 
@@ -43,12 +43,12 @@ class MissingRealizationRule:
         if not isinstance(target, qc.Qodec):
             raise TypeError(f"expected qodec.Qodec, got {type(target).__name__}")
         for index, layer in enumerate(target.layers[:-1]):
-            for mnemonic in layer.isa.instructions:
+            for mnemonic in layer.instruction_set.instructions:
                 if mnemonic not in layer.gadgets:
                     yield Diagnostic(
                         self.name,
                         self.severity,
-                        f"instruction {mnemonic!r} of ISA {layer.isa.name!r} "
+                        f"instruction {mnemonic!r} of ISA {layer.instruction_set.name!r} "
                         f"has no gadget in layer {index}",
                         f"layers[{index}]",
                     )
