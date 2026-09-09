@@ -34,26 +34,16 @@ impl Display for Circuit {
 }
 
 pub enum Item {
-    Line(Line),
+    Instruction(Instruction),
     Block(Block),
 }
 
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Item::Line(line) => write!(f, "{line}"),
+            Item::Instruction(instruction) => write!(f, "{instruction}"),
             Item::Block(block) => write!(f, "{block}"),
         }
-    }
-}
-
-pub struct Line {
-    pub instruction: Instruction,
-}
-
-impl Display for Line {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.instruction.fmt(f)
     }
 }
 
@@ -464,7 +454,8 @@ impl<'a> Parser<'a> {
                 return Some(Item::Block(self.parse_block(instruction)?));
             }
 
-            Some(Item::Line(self.parse_line(instruction)?))
+            self.expect_line_end()?;
+            Some(Item::Instruction(instruction))
         } else {
             self.emit_error(Error::ExpectedToken {
                 expected: TokenKind::InstructionName,
@@ -497,11 +488,6 @@ impl<'a> Parser<'a> {
             block_instruction: instruction,
             items,
         })
-    }
-
-    fn parse_line(&mut self, instruction: Instruction) -> Option<Line> {
-        self.expect_line_end()?;
-        Some(Line { instruction })
     }
 
     fn parse_instruction(&mut self) -> Option<Instruction> {

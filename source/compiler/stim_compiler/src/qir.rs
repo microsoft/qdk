@@ -780,7 +780,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_item(&mut self, item: &Item) {
         match item {
             Item::Block(block) => self.compile_block(block),
-            Item::Line(line) => self.compile_line(line),
+            Item::Instruction(instruction) => self.compile_instruction(instruction),
         }
     }
 
@@ -888,11 +888,6 @@ impl<'noise> Compiler<'noise> {
                 return;
             }
         }
-    }
-
-    fn compile_line(&mut self, line: &Line) {
-        let Line { instruction, .. } = line;
-        self.compile_instruction(instruction);
     }
 
     fn compile_instruction(&mut self, instruction: &Instruction) {
