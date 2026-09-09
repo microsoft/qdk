@@ -21,7 +21,6 @@ use qsc_data_structures::{
 use std::{fmt::Display, iter::Peekable, num::IntErrorKind, str::FromStr};
 use thiserror::Error;
 
-#[derive(Debug)]
 pub struct Circuit {
     pub span: Span,
     pub items: Vec<Item>,
@@ -34,7 +33,6 @@ impl Display for Circuit {
     }
 }
 
-#[derive(Debug)]
 pub enum Item {
     Line(Line),
     Block(Block),
@@ -49,7 +47,6 @@ impl Display for Item {
     }
 }
 
-#[derive(Debug)]
 pub struct Line {
     pub instruction: Instruction,
 }
@@ -60,7 +57,6 @@ impl Display for Line {
     }
 }
 
-#[derive(Debug)]
 pub struct Block {
     pub span: Span,
     pub block_instruction: Instruction, // currently, only the "REPEAT" instruction is supported
@@ -75,7 +71,6 @@ impl Display for Block {
     }
 }
 
-#[derive(Debug)]
 pub struct Instruction {
     pub span: Span,
     pub name: String,
@@ -94,7 +89,7 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Arg {
     pub span: Span,
     pub value: ArgValue,
@@ -114,7 +109,7 @@ pub fn args_span(args: &[Arg]) -> Span {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum ArgValue {
     Default(f64),
     Radians(f64),
@@ -129,7 +124,6 @@ impl Display for ArgValue {
     }
 }
 
-#[derive(Debug)]
 pub struct Target {
     pub span: Span,
     pub kind: TargetKind,
@@ -142,7 +136,6 @@ impl Display for Target {
     }
 }
 
-#[derive(Debug)]
 pub enum TargetKind {
     Qubit { negated: bool, value: u32 },
     MeasurementRecord { negated: bool, value: u32 },
@@ -186,7 +179,7 @@ impl Display for TargetKind {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Pauli {
     X,
     Y,
@@ -233,7 +226,7 @@ impl FromStr for Pauli {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct PauliTarget {
     pub negated: bool,
     pub pauli: Pauli,
