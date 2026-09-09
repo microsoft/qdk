@@ -1717,12 +1717,12 @@ def convert(key, *, check=False, allow_cell_id_changes=False):
             "Before you begin",
             md(
                 "## Before you begin\n\n"
-                "This course requires the base `qdk-chemistry>=2.2.0` package and "
+                "This course requires the `qdk-chemistry>=2.2.0` package and "
                 "`ipykernel`. "
                 "The required workflow uses implementations included with QDK/Chemistry "
                 "and does not require QDK/Chemistry optional dependency groups or PySCF.\n\n"
-                "Released packages support Linux on x86-64 and Arm64, macOS on Apple silicon, "
-                "and native Windows on x86-64 and Arm64. Run the cell below to check the "
+                "Supported platforms include Linux and Windows on x64 and Arm64, and macOS "
+                "on Apple silicon. Run the cell below to check the "
                 "current environment."
             ),
         ),
