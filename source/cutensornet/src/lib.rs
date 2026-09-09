@@ -225,6 +225,38 @@ mod tests {
         assert!(!CUTENSORNET_REQUIRED_SYMBOLS.contains(&"cutensornetGetLastError"));
     }
 
+    /// Every required symbol must be declared in the generated bindings *and*
+    /// resolved by the loader.
+    ///
+    /// The loader (`library`) only compiles on `linux/x86_64`, so on any other
+    /// host `cargo test` silently skips every resolver test. Reading both files
+    /// as text keeps this check running everywhere, so a symbol added to the
+    /// inventory but never resolved is caught on the development host instead
+    /// of only on a CUDA-capable one.
+    #[test]
+    fn required_symbols_are_declared_in_bindings_and_resolved_by_the_loader() {
+        const BINDINGS: &str = include_str!("bindings/v2_13.rs");
+        const LOADER: &str = include_str!("library.rs");
+
+        for symbol in CUTENSORNET_REQUIRED_SYMBOLS {
+            assert!(
+                BINDINGS.contains(&format!("pub fn {symbol}(")),
+                "{symbol} is required but not declared in the generated bindings"
+            );
+            assert!(
+                LOADER.contains(&format!("b\"{symbol}\\0\"")),
+                "{symbol} is required but never resolved by the loader"
+            );
+        }
+
+        for symbol in CUDART_REQUIRED_SYMBOLS {
+            assert!(
+                LOADER.contains(&format!("b\"{symbol}\\0\"")),
+                "{symbol} is required but never resolved by the loader"
+            );
+        }
+    }
+
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
     #[test]
     fn unsupported_target_does_not_attempt_discovery() {

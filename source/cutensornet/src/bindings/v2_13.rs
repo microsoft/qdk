@@ -100,6 +100,105 @@ pub const cutensornetStatus_t_CUTENSORNET_STATUS_DISTRIBUTED_FAILURE: cutensorne
 pub const cutensornetStatus_t_CUTENSORNET_STATUS_INTERRUPTED: cutensornetStatus_t = 28;
 #[doc = " \\brief cuTensorNet status type returns\n\n \\details The type is used for function status returns. All cuTensorNet library functions return their status, which can have the following values."]
 pub type cutensornetStatus_t = ::std::os::raw::c_uint;
+#[doc = "< int32_t: The number of input tensors that are constant (get-only)."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_NUM_CONSTANT:
+    cutensornetNetworkAttributes_t = 0;
+#[doc = "< ::cutensornetTensorIDList_t: Structure holding number of, and indices of input tensors that are constant. Setting this attribute will override previous setting of `CUTENSORNET_NETWORK_INPUT_TENSORS_CONSTANT`."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_CONSTANT:
+    cutensornetNetworkAttributes_t = 1;
+#[doc = "< int32_t: The number of input tensors that are conjugated (get-only)."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_NUM_CONJUGATED:
+    cutensornetNetworkAttributes_t = 10;
+#[doc = "< ::cutensornetTensorIDList_t: Structure holding number of, and indices of input tensors that are conjugated. Setting number of conjugated tesnors to -1 will select all tensors. Setting this attribute will override previous setting of `CUTENSORNET_NETWORK_INPUT_TENSORS_CONJUGATED`."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_CONJUGATED:
+    cutensornetNetworkAttributes_t = 11;
+#[doc = "< int32_t: The number of input tensors that require gradient computation (get-only)."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_NUM_REQUIRE_GRAD:
+    cutensornetNetworkAttributes_t = 20;
+#[doc = "< ::cutensornetTensorIDList_t: Structure holding number of, and indices of input tensors that require gradient computation. Setting number of tensors requiring gradient computation to -1 will select all tensors. Setting this attribute will override previous setting of `CUTENSORNET_NETWORK_INPUT_TENSORS_REQUIRE_GRAD`."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_REQUIRE_GRAD:
+    cutensornetNetworkAttributes_t = 21;
+#[doc = "< cutensornetComputeType_t: Set compute type."]
+pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_COMPUTE_TYPE:
+    cutensornetNetworkAttributes_t = 30;
+#[doc = " This enum lists all attributes of a ::cutensornetNetworkDescriptor_t that are accessible."]
+pub type cutensornetNetworkAttributes_t = ::std::os::raw::c_uint;
+#[doc = "< int32_t: The network is recursively split over `num_partitions` until the size of each partition is less than or equal to the cutoff.\n<          The allowed range for `num_partitions` is [2, 30]. When the hyper-optimizer is disabled the default value is 8."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GRAPH_NUM_PARTITIONS : cutensornetContractionOptimizerConfigAttributes_t = 0 ;
+#[doc = "< int32_t: The network is recursively split over `num_partitions` until the size of each partition is less than or equal to this cutoff.\n<          The allowed range for `cutoff_size` is [4, 50]. When the hyper-optimizer is disabled the default value is 8."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GRAPH_CUTOFF_SIZE : cutensornetContractionOptimizerConfigAttributes_t = 1 ;
+#[doc = "< ::cutensornetGraphAlgo_t: the graph algorithm to be used in graph partitioning. Choices include\n<          CUTENSORNET_GRAPH_ALGO_KWAY (default) or CUTENSORNET_GRAPH_ALGO_RB."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GRAPH_ALGORITHM : cutensornetContractionOptimizerConfigAttributes_t = 2 ;
+#[doc = "< int32_t: Specifies the maximum allowed size imbalance among the partitions. Allowed range [30, 2000]. When the hyper-optimizer is disabled the default value is 200."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GRAPH_IMBALANCE_FACTOR : cutensornetContractionOptimizerConfigAttributes_t = 3 ;
+#[doc = "< int32_t: Specifies the number of iterations for the refinement algorithms at each stage of the uncoarsening process of the graph partitioner.\n<          Allowed range [1, 500]. When the hyper-optimizer is disabled the default value is 60."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GRAPH_NUM_ITERATIONS : cutensornetContractionOptimizerConfigAttributes_t = 4 ;
+#[doc = "< int32_t: Specifies the number of different partitioning that the graph partitioner will compute. The final partitioning is the one that achieves the best edge-cut or communication volume.\n<          Allowed range [1, 40]. When the hyper-optimizer is disabled the default value is 10."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GRAPH_NUM_CUTS : cutensornetContractionOptimizerConfigAttributes_t = 5 ;
+#[doc = "< int32_t: Specifies the number of subtrees to be chosen for reconfiguration.\n<          A value of 0 disables reconfiguration. The default value is 500. The amount of time spent in reconfiguration, which usually dominates the pathfinder run time, is proportional to this."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_RECONFIG_NUM_ITERATIONS : cutensornetContractionOptimizerConfigAttributes_t = 10 ;
+#[doc = "< int32_t: Specifies the maximum number of leaves in the subtree chosen for optimization in each reconfiguration iteration.\n<          The default value is 8. The amount of time spent in reconfiguration, which usually dominates the pathfinder run time, is proportional to this."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_RECONFIG_NUM_LEAVES : cutensornetContractionOptimizerConfigAttributes_t = 11 ;
+#[doc = "< int32_t: If set to 1, disables slicing regardless of memory available."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_DISABLE_SLICING : cutensornetContractionOptimizerConfigAttributes_t = 20 ;
+#[doc = "< ::cutensornetMemoryModel_t: Memory model used to determine workspace size.\n<                           CUTENSORNET_MEMORY_MODEL_HEURISTIC uses a simple memory model that does not require external calls.\n<                           CUTENSORNET_MEMORY_MODEL_CUTENSOR (default) uses cuTENSOR to more precisely evaluate the amount of memory cuTENSOR will need for the contraction."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_MEMORY_MODEL : cutensornetContractionOptimizerConfigAttributes_t = 21 ;
+#[doc = "< int32_t: The memory limit for the first slice-finding iteration as a percentage of the workspace size.\n<          Allowed range [1, 100]. The default is 80 when using CUTENSORNET_MEMORY_MODEL_CUTENSOR for the memory model and 100 when using CUTENSORNET_MEMORY_MODEL_HEURISTIC."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_MEMORY_FACTOR : cutensornetContractionOptimizerConfigAttributes_t = 22 ;
+#[doc = "< int32_t: Minimum number of slices to produce at the first round of slicing. Default is 1."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_MIN_SLICES : cutensornetContractionOptimizerConfigAttributes_t = 23 ;
+#[doc = "< int32_t: Factor by which to increase the total number of slice at each slicing round. Default is 32, must be at least 2."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_SLICE_FACTOR : cutensornetContractionOptimizerConfigAttributes_t = 24 ;
+#[doc = "< int32_t: Number of hyper-optimizer random samples. Default 0 (disabled)."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_HYPER_NUM_SAMPLES : cutensornetContractionOptimizerConfigAttributes_t = 30 ;
+#[doc = "< int32_t: Number of parallel hyper-optimizer threads. Default is number-of-cores / 2.\n<          When user-provided, it will be limited by the number of cores."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_HYPER_NUM_THREADS : cutensornetContractionOptimizerConfigAttributes_t = 31 ;
+#[doc = "< int32_t: If set to 1, disable deferred rank simplification."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SIMPLIFICATION_DISABLE_DR : cutensornetContractionOptimizerConfigAttributes_t = 40 ;
+#[doc = "< int32_t: Random seed to be used internally in order to reproduce same path."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SEED : cutensornetContractionOptimizerConfigAttributes_t = 60 ;
+#[doc = "< ::cutensornetOptimizerCost_t: the objective function to use for finding the optimal contraction path.\n<     CUTENSORNET_OPTIMIZER_COST_FLOPS (default) find a path that minimizes FLOP count.\n<     CUTENSORNET_OPTIMIZER_COST_TIME (experimental) find a path that minimizes the estimated time. The estimated time is computed based on arithmetic intensity."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_COST_FUNCTION_OBJECTIVE : cutensornetContractionOptimizerConfigAttributes_t = 61 ;
+#[doc = "< int32_t: Number of runs that utilize cache-reuse"]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_CACHE_REUSE_NRUNS : cutensornetContractionOptimizerConfigAttributes_t = 62 ;
+#[doc = "< ::cutensornetSmartOption_t: enable or disable smart options."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SMART_OPTION : cutensornetContractionOptimizerConfigAttributes_t = 63 ;
+#[doc = "< Set the GPU architecture to optimize the path for."]
+pub const cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_GPU_ARCH : cutensornetContractionOptimizerConfigAttributes_t = 64 ;
+#[doc = " This enum lists all attributes of a ::cutensornetContractionOptimizerConfig_t that can be modified."]
+pub type cutensornetContractionOptimizerConfigAttributes_t = ::std::os::raw::c_uint;
+#[doc = "< ::cutensornetContractionPath_t: Pointer to the contraction path."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_PATH : cutensornetContractionOptimizerInfoAttributes_t = 0 ;
+#[doc = "< int64_t: Total number of slices."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_SLICES : cutensornetContractionOptimizerInfoAttributes_t = 10 ;
+#[doc = "< int32_t: Total number of sliced modes. (get-only)"]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_SLICED_MODES : cutensornetContractionOptimizerInfoAttributes_t = 11 ;
+#[doc = "< DEPRECATED int32_t* slicedModes: slicedModes[i] with i < \\p numSlicedModes refers to the mode label of the i-th sliced mode (see \\p modesIn w.r.t. cutensornetCreateNetworkDescriptor()). (get-only)"]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICED_MODE : cutensornetContractionOptimizerInfoAttributes_t = 12 ;
+#[doc = "< DEPRECATED int64_t* slicedExtents: slicedExtents[i] with i < \\p numSlicedModes refers to the sliced extent of the i-th sliced mode (see \\p extentsIn w.r.t. cutensornetCreateNetworkDescriptor()).  (get-only)"]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICED_EXTENT : cutensornetContractionOptimizerInfoAttributes_t = 13 ;
+#[doc = "< cutensornetSlicingConfig_t*: Pointer to the slice configuration settings (number of slices, sliced modes, and sliced extents) used with the given path."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICING_CONFIG : cutensornetContractionOptimizerInfoAttributes_t = 14 ;
+#[doc = "< double: Overhead due to slicing."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICING_OVERHEAD : cutensornetContractionOptimizerInfoAttributes_t = 15 ;
+#[doc = "< double: FLOP count for the given network after phase 1 of pathfinding (i.e., before slicing and reconfig)."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_PHASE1_FLOP_COUNT : cutensornetContractionOptimizerInfoAttributes_t = 20 ;
+#[doc = "< double: FLOP count for the given network after slicing."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_FLOP_COUNT : cutensornetContractionOptimizerInfoAttributes_t = 21 ;
+#[doc = "< double: Experimental. Returns the total flop-equivalent for one pass for all slices based on the cost function. When the cost function is flops, conventional flops are returned. When a time-based cost function is chosen,  effectiveFlopsEstimation = RuntimeEstimation * ops_peak."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_EFFECTIVE_FLOPS_EST : cutensornetContractionOptimizerInfoAttributes_t = 22 ;
+#[doc = "< double: Experimental. Returns the runtime estimation in [s] based on the time cost function objective for one pass for all slices."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_RUNTIME_EST : cutensornetContractionOptimizerInfoAttributes_t = 23 ;
+#[doc = "< double: The number of elements in the largest intermediate tensor."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_LARGEST_TENSOR : cutensornetContractionOptimizerInfoAttributes_t = 24 ;
+#[doc = "< int32_t* intermediateModes: The modes in \\f$[\\text{intermediateModes}[\\sum_{n=0}^{i-1}\\text{numIntermediateModes}[n]], \\text{intermediateModes}[\\sum_{n=0}^{i}\\text{numIntermediateModes}[n]])\\f$ are the modes for the intermediate tensor \\p i (so the total bytes to store \\p intermediateModes is \\f$\\text{sizeof}(\\text{int32_t})*\\left(\\sum_n \\text{numIntermediateModes}[n]\\right)\\f$)."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_INTERMEDIATE_MODES : cutensornetContractionOptimizerInfoAttributes_t = 30 ;
+#[doc = "< int32_t* numIntermediateModes: numIntermediateModes[i] with i < \\p numInputs - 1 is the number of modes for the intermediate tensor \\p i (see \\p numInputs w.r.t. cutensornetCreateNetworkDescriptor())."]
+pub const cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_INTERMEDIATE_MODES : cutensornetContractionOptimizerInfoAttributes_t = 31 ;
+#[doc = " This enum lists all attributes of a ::cutensornetContractionOptimizerInfo_t that are accessible."]
+pub type cutensornetContractionOptimizerInfoAttributes_t = ::std::os::raw::c_uint;
+#[doc = " \\brief Opaque structure holding cuTensorNet's network descriptor."]
+pub type cutensornetNetworkDescriptor_t = *mut ::std::os::raw::c_void;
 #[doc = " \\brief Opaque structure holding cuTensorNet's library context.\n \\details This handle holds the cuTensorNet library context (device properties, system information, etc.).\n The handle must be initialized and destroyed with cutensornetCreate() and cutensornetDestroy() functions,\n respectively."]
 pub type cutensornetHandle_t = *mut ::std::os::raw::c_void;
 #[doc = " \\brief Opaque structure that holds information about the user-provided workspace."]
@@ -125,6 +224,23 @@ pub const cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH: cutensornetW
 pub const cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_CACHE: cutensornetWorkspaceKind_t = 1;
 #[doc = " \\brief Type enumeration for workspace allocation."]
 pub type cutensornetWorkspaceKind_t = ::std::os::raw::c_uint;
+#[doc = " \\brief Opaque structure holding cuTensorNet's pathfinder config."]
+pub type cutensornetContractionOptimizerConfig_t = *mut ::std::os::raw::c_void;
+#[doc = " \\brief Opaque structure holding information about the optimized path and the slices (see ::cutensornetContractionOptimizerInfoAttributes_t)."]
+pub type cutensornetContractionOptimizerInfo_t = *mut ::std::os::raw::c_void;
+#[doc = " \\brief Opaque structure capturing a group of slices."]
+pub type cutensornetSliceGroup_t = *mut ::std::os::raw::c_void;
+#[doc = " \\brief Holds qualifiers/flags about the input tensors."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cutensornetTensorQualifiers_t {
+    #[doc = "< if set to 1, indicates the tensor should be complex-conjugated (applies only to complex data types)."]
+    pub isConjugate: i32,
+    #[doc = "< if set to 1, indicates the tensor's data will not change across different network contractions."]
+    pub isConstant: i32,
+    #[doc = "< if set to 1, indicates the tensor required gradient computation."]
+    pub requiresGradient: i32,
+}
 #[doc = "< `cusolverDnGesvd` (default)."]
 pub const cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD: cutensornetTensorSVDAlgo_t =
     0;
@@ -258,10 +374,65 @@ unsafe extern "C" {
     pub fn cutensornetDestroy(handle: cutensornetHandle_t) -> cutensornetStatus_t;
 }
 unsafe extern "C" {
+    #[doc = " \\brief Initializes an empty ::cutensornetNetworkDescriptor_t\n\n The input tensors need to be added to the network using cutensornetNetworkAppendTensor().\n The output tensor needs to be set for the network using cutensornetNetworkSetOutputTensor(). If not set, the network will infer the output modes/extents and use default strides (refer to cutensornetCreateTensorDescriptor()).\n The network connectivity (i.e., network topology) between the tensors is auto inferred.\n The data type of the network is inferred from the appended tensors. All the input tensors, and the output tensor, must have the same data type.\n The compute type needs to be set using cutensornetNetworkSetAttribute() using the attribute ::CUTENSORNET_NETWORK_COMPUTE_TYPE. If not set, the default compute type is used per the table below.\n\n \\warning This function allocates data on the heap; hence, it is critical that cutensornetDestroyNetwork() is called once \\p networkDesc is no longer required.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[out] networkDesc Pointer to a ::cutensornetNetworkDescriptor_t.\n\n Supported data-type combinations are shown in the table below.\n The default compute-type is used for the corresponding data-type when the former is not explicitly set.\n All the input, output, adjoint, and gradient tensors should have the same data-type, an error is returned otherwise.\n\n \\verbatim embed:rst:leading-asterisk\n +-------------+----------------------------+---------+------------------+\n |  Data type  |       Compute type         | Default | Uses Tensor Core |\n +=============+============================+=========+==================+\n | CUDA_R_16F  | CUTENSORNET_COMPUTE_32F    | Yes     | Volta+           |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_16BF | CUTENSORNET_COMPUTE_32F    | Yes     | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_32F  | CUTENSORNET_COMPUTE_32F    | Yes     | No               |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_32F  | CUTENSORNET_COMPUTE_TF32   | No      | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_32F  | CUTENSORNET_COMPUTE_3XTF32 | No      | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_32F  | CUTENSORNET_COMPUTE_16BF   | No      | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_32F  | CUTENSORNET_COMPUTE_16F    | No      | Volta+           |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_64F  | CUTENSORNET_COMPUTE_64F    | Yes     | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_R_64F  | CUTENSORNET_COMPUTE_32F    | No      | No               |\n +-------------+----------------------------+---------+------------------+\n | CUDA_C_32F  | CUTENSORNET_COMPUTE_32F    | Yes     | No               |\n +-------------+----------------------------+---------+------------------+\n | CUDA_C_32F  | CUTENSORNET_COMPUTE_TF32   | No      | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_C_32F  | CUTENSORNET_COMPUTE_3XTF32 | No      | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_C_64F  | CUTENSORNET_COMPUTE_64F    | Yes     | Ampere+          |\n +-------------+----------------------------+---------+------------------+\n | CUDA_C_64F  | CUTENSORNET_COMPUTE_32F    | No      | No               |\n +-------------+----------------------------+---------+------------------+\n \\endverbatim\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetCreateNetwork(
+        handle: cutensornetHandle_t,
+        networkDesc: *mut cutensornetNetworkDescriptor_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Frees all the memory associated with the network.\n\n \\param[in,out] networkDesc Opaque handle to a tensor network descriptor."]
+    pub fn cutensornetDestroyNetwork(
+        networkDesc: cutensornetNetworkDescriptor_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Appends an input tensor to the network\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc Opaque handle to a tensor network descriptor, created using cutensornetCreateNetwork().\n \\param[in] numModes The number of modes of the tensor.\n \\param[in] extents Array of size \\p numModes; ``extents[j]`` corresponding to the extent of the j-th mode of the tensor.\n \\param[in] modeLabels Array of size \\p numModes; ``modeLabels[j]`` denotes the label of the j-th mode of the tensor.\n \\param[in] qualifiers Denotes the qualifiers of the input tensor in relation to \\p networkDesc. Refer to ::cutensornetTensorQualifiers_t\n \\param[in] dataType Denotes the data type of the tensor.\n \\param[out] tensorId On return, if not NULL, will hold the tensor identifier within the \\p networkDesc (may be not sequential, but is unique).\n\n \\note If \\p qualifiers is set to 0 (\\p NULL), cuTensorNet will use the defaults in ::cutensornetTensorQualifiers_t.\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkAppendTensor(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        numModes: i32,
+        extents: *const i64,
+        modeLabels: *const i32,
+        qualifiers: *const cutensornetTensorQualifiers_t,
+        dataType: cudaDataType_t,
+        tensorId: *mut i64,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Sets the output tensor of the network\n If this function is not called on the network, the network output tensor metadata will be inferred (using default values where needed).\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc Opaque handle to a tensor network descriptor, created using cutensornetCreateNetwork().\n \\param[in] numModes The number of modes of the tensor. If this value is ``0``, the network is force reduced.\n \\param[in] modeLabels Array of size \\p numModes; ``modeLabels[j]`` denotes the label of the j-th mode of the tensor.\n \\param[in] dataType Denotes the data type of the output tensor.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkSetOutputTensor(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        numModes: i32,
+        modeLabels: *const i32,
+        dataType: cudaDataType_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Sets attributes of networkDescriptor.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc Opaque structure that is accessed.\n \\param[in] attr Specifies the attribute that is requested.\n \\param[in] buffer This buffer (of size \\p sizeInBytes) determines the value to which \\p attr will be set.\n \\param[in] sizeInBytes Size of \\p buffer (in bytes).\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkSetAttribute(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        attr: cutensornetNetworkAttributes_t,
+        buffer: *const ::std::os::raw::c_void,
+        sizeInBytes: usize,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
     #[doc = " \\brief Creates a workspace descriptor that holds information about the user provided memory buffer.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[out] workDesc Pointer to the opaque workspace descriptor.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
     pub fn cutensornetCreateWorkspaceDescriptor(
         handle: cutensornetHandle_t,
         workDesc: *mut cutensornetWorkspaceDescriptor_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Computes the workspace size needed to contract the tensor network using the provided contraction path.\n\n This function will compute the required SCRATCH and CACHE memory sizes needed for contracting the network, as well as for computing the gradients if necessary.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in] networkDesc Describes the tensor network (i.e., its tensors and their connectivity).\n \\param[in] optimizerInfo Opaque structure.\n \\param[out] workDesc The workspace descriptor in which the information is collected.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetWorkspaceComputeContractionSizes(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        optimizerInfo: cutensornetContractionOptimizerInfo_t,
+        workDesc: cutensornetWorkspaceDescriptor_t,
     ) -> cutensornetStatus_t;
 }
 unsafe extern "C" {
@@ -290,6 +461,116 @@ unsafe extern "C" {
     #[doc = " \\brief Frees the workspace descriptor.\n\n \\warning This API does not free the memory provided by cutensornetWorkspaceSetMemory().\n\n \\param[in,out] workDesc Opaque structure."]
     pub fn cutensornetDestroyWorkspaceDescriptor(
         workDesc: cutensornetWorkspaceDescriptor_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Sets up the required hyper-optimization parameters for the contraction order solver (see cutensornetContractionOptimize())\n\n \\warning This function allocates data on the heap; hence, it is critical that cutensornetDestroyContractionOptimizerConfig() is called once \\p optimizerConfig is no longer required.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[out] optimizerConfig This data structure holds all information about the user-requested hyper-optimization parameters.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetCreateContractionOptimizerConfig(
+        handle: cutensornetHandle_t,
+        optimizerConfig: *mut cutensornetContractionOptimizerConfig_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Frees all the memory associated with \\p optimizerConfig.\n\n \\param[in,out] optimizerConfig Opaque structure."]
+    pub fn cutensornetDestroyContractionOptimizerConfig(
+        optimizerConfig: cutensornetContractionOptimizerConfig_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Sets attributes of \\p optimizerConfig.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] optimizerConfig Opaque structure that is accessed.\n \\param[in] attr Specifies the attribute that is requested.\n \\param[in] buffer This buffer (of size \\p sizeInBytes) determines the value to which \\p attr will be set.\n \\param[in] sizeInBytes Size of \\p buffer (in bytes).\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetContractionOptimizerConfigSetAttribute(
+        handle: cutensornetHandle_t,
+        optimizerConfig: cutensornetContractionOptimizerConfig_t,
+        attr: cutensornetContractionOptimizerConfigAttributes_t,
+        buffer: *const ::std::os::raw::c_void,
+        sizeInBytes: usize,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Frees all the memory associated with \\p optimizerInfo\n\n \\param[in,out] optimizerInfo Opaque structure."]
+    pub fn cutensornetDestroyContractionOptimizerInfo(
+        optimizerInfo: cutensornetContractionOptimizerInfo_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Allocates resources for \\p optimizerInfo.\n\n \\warning This function allocates data on the heap; hence, it is critical that cutensornetDestroyContractionOptimizerInfo() is called once \\p optimizerInfo is no longer required.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in] networkDesc Describes the tensor network (i.e., its tensors and their connectivity) for which \\p optimizerInfo is created.\n \\param[out] optimizerInfo Pointer to ::cutensornetContractionOptimizerInfo_t.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetCreateContractionOptimizerInfo(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        optimizerInfo: *mut cutensornetContractionOptimizerInfo_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Computes an \"optimized\" contraction order as well as slicing info (for more information see Overview section) for a given tensor network such that the total time to solution is minimized while adhering to the user-provided memory constraint.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc Describes the topology of the tensor network (i.e., all tensors, their connectivity and modes). Will be updated with \\p optimizerInfo data.\n \\param[in] optimizerConfig Holds all hyper-optimization parameters that govern the search for an \"optimal\" contraction order.\n \\param[in] workspaceSizeConstraint Maximal device memory that will be provided by the user (i.e., cuTensorNet has to find a viable path/slicing solution within this user-defined constraint).\n \\param[in,out] optimizerInfo On return, this object will hold all necessary information about the optimized path and the related slicing information. \\p optimizerInfo will hold information including (see ::cutensornetContractionOptimizerInfoAttributes_t):\n      - Total number of slices.\n      - Total number of sliced modes.\n      - Information about the sliced modes (i.e., the IDs of the sliced modes (see \\p modesIn w.r.t. cutensornetCreateNetworkDescriptor()) as well as their extents (see Overview section for additional documentation).\n      - Optimized path.\n      - FLOP count.\n      - Total number of elements in the largest intermediate tensor.\n      - The mode labels for all intermediate tensors.\n      - The estimated runtime and \"effective\" flops.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetContractionOptimize(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        optimizerConfig: cutensornetContractionOptimizerConfig_t,
+        workspaceSizeConstraint: u64,
+        optimizerInfo: cutensornetContractionOptimizerInfo_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Gets attributes of \\p optimizerInfo.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in] optimizerInfo Opaque structure that is accessed.\n \\param[in] attr Specifies the attribute that is requested.\n \\param[out] buffer On return, this buffer (of size \\p sizeInBytes) holds the value that corresponds to \\p attr within \\p optimizerInfo.\n \\param[in] sizeInBytes Size of \\p buffer (in bytes).\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetContractionOptimizerInfoGetAttribute(
+        handle: cutensornetHandle_t,
+        optimizerInfo: cutensornetContractionOptimizerInfo_t,
+        attr: cutensornetContractionOptimizerInfoAttributes_t,
+        buffer: *mut ::std::os::raw::c_void,
+        sizeInBytes: usize,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Prepares the network for contraction.\n\n \\details Prepares the network for contraction by generating the corresponding cuTENSOR pairwise contraction plans for intermediate tensors and optimizing their mode-order.\n\n \\note This function must be preceded by a call to cutensornetContractionOptimize(), or cutensornetNetworkSetOptimizerInfo().\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc The network descriptor whose internal contraction plan will be built.\n \\param[in] workDesc Opaque structure describing the workspace sizes that are available. At the preparation of the network contraction, only the workspace size is needed; the pointer to the workspace memory may be left null.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkPrepareContraction(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        workDesc: cutensornetWorkspaceDescriptor_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Creates a `cutensornetSliceGroup_t` object from a range, which produces a sequence of slice IDs from the specified start (inclusive) to the specified stop (exclusive) values with the specified step. The sequence can be increasing or decreasing depending on the start and stop values.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in] sliceIdStart The start slice ID.\n \\param[in] sliceIdStop The final slice ID is the largest (smallest) integer that excludes this value and all those above (below) for an increasing (decreasing) sequence.\n \\param[in] sliceIdStep The step size between two successive slice IDs. A negative step size should be specified for a decreasing sequence.\n \\param[out] sliceGroup Opaque object specifying the slice IDs.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetCreateSliceGroupFromIDRange(
+        handle: cutensornetHandle_t,
+        sliceIdStart: i64,
+        sliceIdStop: i64,
+        sliceIdStep: i64,
+        sliceGroup: *mut cutensornetSliceGroup_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Releases the resources associated with a `cutensornetSliceGroup_t` object and sets its value to null.\n\n \\param[in,out] sliceGroup Opaque object specifying the slices to be contracted (see cutensornetCreateSliceGroupFromIDRange() and cutensornetCreateSliceGroupFromIDs())."]
+    pub fn cutensornetDestroySliceGroup(sliceGroup: cutensornetSliceGroup_t)
+    -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Provides memory buffer and strides corresponding to an input tensor for the network to be used for data reading.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc The network descriptor.\n \\param[in] tensorId The tensorId as returned by cutensornetNetworkAppendTensor().\n \\param[in] buffer Pointer to memory buffer in device memory.\n \\param[in] strides Array of size equal to the number of modes of the corresponding tensor; ``strides[j]`` corresponding to the linearized offset -- in physical memory -- between two logically-neighboring elements w.r.t the j-th mode of the tensor.\n\n \\note If \\p strides is set to \\p NULL, it means the tensor is in the Fortran (column-major) layout.\n \\note Data pointers are recommended to be at least 256-byte aligned for best performance.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkSetInputTensorMemory(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        tensorId: i64,
+        buffer: *const ::std::os::raw::c_void,
+        strides: *const i64,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Provides memory buffer and strides corresponding to the output tensor of the network to be used for data writing.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc The network descriptor.\n \\param[in] buffer Pointer to memory buffer in device memory.\n \\param[in] strides Array of size equal to the number of modes of the corresponding tensor; ``strides[j]`` corresponding to the linearized offset -- in physical memory -- between two logically-neighboring elements w.r.t the j-th mode of the tensor.\n\n \\note If \\p strides is set to \\p NULL, it means the tensor is in the Fortran (column-major) layout.\n \\note Data pointers are recommended to be at least 256-byte aligned for best performance.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkSetOutputTensorMemory(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        buffer: *mut ::std::os::raw::c_void,
+        strides: *const i64,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Performs the actual contraction of the tensor network.\n\n \\warning In the current release, this function will synchronize the stream\n in case distributed execution is activated (via ::cutensornetDistributedResetConfiguration)\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc The network descriptor whose specified slices (\\p sliceGroup) will be contracted (see cutensornetNetworkPrepareContraction() and cutensornetNetworkAutotuneContraction()). Some internal meta-data may be updated upon contraction.\n \\param[in] accumulateOutput If 0, write the contraction result into output data buffer as provided by cutensornetNetworkSetOutputTensorMemory(); otherwise, accumulate the results.\n \\param[in] workDesc Opaque structure describing the workspace.\n The provided ::CUTENSORNET_WORKSPACE_SCRATCH workspace must be \\em valid (the workspace pointer must be device accessible, see ::cutensornetMemspace_t, and the workspace size must be the same as or larger than both the minimum needed and the value provided at contraction preparation). See cutensornetNetworkPrepareContraction(), cutensornetWorkspaceGetMemorySize() & cutensornetWorkspaceSetMemory().\n The provided ::CUTENSORNET_WORKSPACE_CACHE workspace must be device accessible, see ::cutensornetMemspace_t; it can be of any size, the larger the better, up to the size that can be queried with cutensornetWorkspaceGetMemorySize().\n If a device memory handler is set (see cutensornetSetDeviceMemHandler()), then \\p workDesc can be set to null, or the memory pointer in \\p workDesc of either the workspace kinds can be set to null, and the workspace size can be set either to a negative value (in which case the \"recommended\" size is used, see ::CUTENSORNET_WORKSIZE_PREF_RECOMMENDED) or to a \\em valid size.\n For a workspace of kind ::CUTENSORNET_WORKSPACE_SCRATCH, a memory buffer with the specified size will be drawn from the user's mempool and released back once done.\n For a workspace of kind ::CUTENSORNET_WORKSPACE_CACHE, a memory buffer with the specified size will be drawn from the user's mempool and released back once the \\p workDesc is destroyed, if \\p workDesc != NULL, otherwise, once the \\p networkDesc is destroyed, cutensornetWorkspacePurgeCache() is called, or an alternative \\p workDesc with a different memory address/size is provided in a subsequent cutensornetNetworkContract() call.\n \\param[in] sliceGroup Opaque object specifying the slices to be contracted (see cutensornetCreateSliceGroupFromIDRange() and cutensornetCreateSliceGroupFromIDs()). *If set to null, all slices will be contracted.*\n \\param[in] stream The CUDA stream on which the computation is performed.\n\n \\note Input and output data pointers are recommended to be at least 256-byte aligned for best performance.\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkContract(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        accumulateOutput: i32,
+        workDesc: cutensornetWorkspaceDescriptor_t,
+        sliceGroup: cutensornetSliceGroup_t,
+        stream: cudaStream_t,
     ) -> cutensornetStatus_t;
 }
 unsafe extern "C" {
