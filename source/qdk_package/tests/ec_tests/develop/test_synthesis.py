@@ -324,17 +324,35 @@ def test_synthesized_code_keeps_its_distance() -> None:
     [(case[0], case[1]) for case in FULLY_SUPPORTED],
     ids=[case[0] for case in FULLY_SUPPORTED],
 )
-def test_audit_reports_no_errors(label: str, factory) -> None:
+def test_audit_reports_missing_measurement_frame_corrections(label: str, factory) -> None:
     built = qodec_from_code(_code(label, factory))
 
     report = _audit.audit(built)
-    assert report.ok, str(report)
+    assert len(report.errors) == 2 * len(built.codes[label].x)
+    assert {item.rule for item in report.errors} == {"gadget/readout-mismatch"}
+    for basis in ("x", "z"):
+        gadget = built.layers[0].gadgets[f"measure_{basis}"]
+        gadget.readouts = [
+            (*readout.equation, f"in[0].{basis}[{index}]")
+            for index, readout in enumerate(gadget.readouts)
+        ]
+    corrected = _audit.audit(built)
+    assert corrected.ok, str(corrected)
 
 
-def test_hand_authored_fixture_audits_without_errors() -> None:
+def test_hand_authored_readouts_need_incoming_frame_corrections() -> None:
     fixture = c4()
     report = _audit.audit(fixture)
-    assert report.ok, str(report)
+    assert len(report.errors) == 4
+    assert {item.rule for item in report.errors} == {"gadget/readout-mismatch"}
+    for basis in ("x", "z"):
+        gadget = fixture.layers[0].gadgets[f"measure_{basis}{basis}"]
+        gadget.readouts = [
+            (*readout.equation, f"in[0].{basis}[{index}]")
+            for index, readout in enumerate(gadget.readouts)
+        ]
+    corrected = _audit.audit(fixture)
+    assert corrected.ok, str(corrected)
 
 
 # ── Round-tripping ──────────────────────────────────────────────────────────

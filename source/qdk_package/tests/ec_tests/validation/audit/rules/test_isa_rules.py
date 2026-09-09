@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import qodec as qc
-from qdk.ec._audit import Diagnostic, Severity
+from qdk.ec._audit import Diagnostic, Severity, audit
 from qdk.ec._audit.rules.instruction_set import UnreferencedBlockRule
 
 
@@ -47,6 +47,18 @@ def test_unreferenced_block_fires_for_unused_block() -> None:
     diagnostics = _diags(UnreferencedBlockRule(), isa)
     assert any("'spare'" in d.summary for d in diagnostics)
     assert all(d.severity is Severity.INFO for d in diagnostics)
+    assert {d.rule for d in diagnostics} == {"instruction-set/unreferenced-block"}
+    protocol = qc.Qodec(layers=[qc.Layer(isa), qc.Layer(qc.InstructionSet("physical"))])
+    assert {item.rule for item in audit(protocol).informational} == {
+        "instruction-set/unreferenced-block",
+        "gadget/missing-realization",
+    }
+    assert "instruction-set/unreferenced-block" not in {
+        item.rule
+        for item in audit(
+            protocol, disabled=("instruction-set/unreferenced-block",)
+        ).diagnostics
+    }
 
 
 def test_unreferenced_block_skipped_when_no_block_operands() -> None:

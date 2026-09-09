@@ -288,6 +288,10 @@ def subsystem_code_of(code: "qc.Code") -> SubsystemCode:
     Purely a function of the code's operators: the code's name and description
     are presentation, and do not ride along inside the algebraic value.
     """
+    if len(code.x) != len(code.z):
+        raise ValueError(
+            f"Logical operator counts disagree: x has {len(code.x)}, z has {len(code.z)}."
+        )
     stabilizers = [Pauli(text) for text in code.stabilizers]
     logical_basis = [
         Pauli(str(text))

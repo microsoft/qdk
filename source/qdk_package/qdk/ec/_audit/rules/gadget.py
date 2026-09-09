@@ -8,26 +8,16 @@ import json
 
 import qodec as qc
 
-from ..._readouts import flag_slots, observable_slots, observe_count_of, readout_slots
-from ..._layout import ProgramLayout
-from ..._references import (
-    Atom,
-    LogicalSign,
-    Outcome,
-    StabilizerSign,
-    parse_equations,
-    stabilizer_signs_of,
-)
+from ..._readouts import flag_slots, observable_slots, observe_count_of
+from ..._references import StabilizerSign
 from ..._analysis.channel_action import (
     declared_action_of,
-    input_qubits_of,
     realized_action_of,
 )
 from ..._analysis.check_discovery import _output_relations_of
-from ..._analysis.propagation.interpreter import program_of
-from ..._analysis.propagation.pauli_remap import encoding_qubit_relocation
 from ..._analysis.declaration_issues import declaration_issues
 from .._diagnostic import Diagnostic, Phase, Severity
+from .._parity import ParityAnalysis
 from .._readout_check import readout_disagreements
 from .._rule import Rule
 
@@ -60,8 +50,8 @@ def _observable(gadget: qc.Gadget, position: int) -> str:
 @dataclass(frozen=True)
 class MissingObservableRule:
     name: str = "gadget/missing-observable"
-    severity: Severity = Severity.ERROR
-    phase: Phase = Phase.STRUCTURAL
+    severity: Severity = Severity.INFO
+    phase: Phase = Phase.INFORMATIONAL
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
@@ -80,8 +70,8 @@ class MissingObservableRule:
 @dataclass(frozen=True)
 class MissingFlagRule:
     name: str = "gadget/missing-flag"
-    severity: Severity = Severity.ERROR
-    phase: Phase = Phase.STRUCTURAL
+    severity: Severity = Severity.INFO
+    phase: Phase = Phase.INFORMATIONAL
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
@@ -104,7 +94,7 @@ class MissingFlagRule:
 class UnsupportedActionAtomRule:
     name: str = "gadget/unsupported-action-atom"
     severity: Severity = Severity.WARNING
-    phase: Phase = Phase.STRUCTURAL
+    phase: Phase = Phase.SEMANTIC
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
@@ -129,62 +119,108 @@ class UnsupportedActionAtomRule:
 
 
 @dataclass(frozen=True)
-class PreparedInputRule:
-    name: str = "gadget/prepared-input"
+class CheckMismatchRule:
+    name: str = "gadget/check-mismatch"
     severity: Severity = Severity.ERROR
-    phase: Phase = Phase.STRUCTURAL
+    phase: Phase = Phase.SEMANTIC
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        declared = {
-            qubit
-            for encoding in gadget.inputs
-            for qubit in encoding_qubit_relocation(encoding).values()
-        }
-        if not declared:
-            return
-        program = program_of(gadget)
-        try:
-            prepared = set(range(ProgramLayout.of(program).total_qubits)) - set(
-                input_qubits_of(program)
-            )
-        except (KeyError, TypeError, ValueError):
-            return
-        overlap = declared & prepared
-        if overlap:
-            encodings = [
-                f"in[{entry}] ({encoding.code.name}): "
-                f"circuit qubits {sorted(overlap & set(encoding_qubit_relocation(encoding).values()))}"
-                for entry, encoding in enumerate(gadget.inputs)
-                if overlap & set(encoding_qubit_relocation(encoding).values())
-            ]
-            yield Diagnostic(
+        analysis = ParityAnalysis(gadget)
+        for index, equation in enumerate(analysis.checks):
+            yield from _zero_parity_diagnostic(
                 self.name,
-                self.severity,
-                "circuit prepares qubits declared as encoded inputs",
-                _where(gadget),
-                "\n".join(encodings),
+                gadget,
+                analysis,
+                equation,
+                f"checks[{index}]",
+                _equation(gadget.checks[index]),
             )
+
+
+def _zero_parity_diagnostic(
+    rule: str,
+    gadget: qc.Gadget,
+    analysis: ParityAnalysis,
+    equation: tuple[str, ...],
+    label: str,
+    declared: str,
+) -> Iterator[Diagnostic]:
+    if not equation:
+        return
+    try:
+        value = analysis.value(equation)
+        if value.is_zero:
+            return
+        if not any(value[index] for index in range(len(value) - 1)):
+            evidence = "Parity: 1; expected: 0."
+        else:
+            evidence = f"Parity can be 1; expected: 0.\nWitness: {analysis.witness(equation, value)}"
+    except (KeyError, ValueError, TypeError, NotImplementedError) as error:
+        yield Diagnostic(
+            rule,
+            Severity.WARNING,
+            f"{label}: parity not checked",
+            _where(gadget),
+            f"Declared: {declared}\n{type(error).__name__}: {error}",
+        )
+        return
+    yield Diagnostic(
+        rule,
+        Severity.ERROR,
+        f"{label}: nonzero parity on noiseless execution",
+        _where(gadget),
+        f"Declared: {declared}\n{evidence}",
+    )
 
 
 @dataclass(frozen=True)
-class FlagContentRule:
-    name: str = "gadget/flag-content-not-checked"
-    severity: Severity = Severity.INFO
-    phase: Phase = Phase.INFORMATIONAL
+class FlagMismatchRule:
+    name: str = "gadget/flag-mismatch"
+    severity: Severity = Severity.ERROR
+    phase: Phase = Phase.SEMANTIC
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for slot in flag_slots(gadget):
+        analysis = ParityAnalysis(gadget)
+        slots = [
+            slot for slot in flag_slots(gadget) if analysis.readouts[slot.position]
+        ]
+        if not slots:
+            return
+        try:
+            values, unresolved, error = analysis.resolved
+        except (KeyError, ValueError, TypeError, NotImplementedError) as error:
             yield Diagnostic(
                 self.name,
-                self.severity,
-                f"readouts[{slot.position}] (flag {slot.name!r}): binding present; meaning not checked",
+                Severity.WARNING,
+                "Flags not checked: analysis failed",
                 _where(gadget),
-                f"Declared: {_equation(gadget.readouts[slot.position].equation)}",
+                f"{type(error).__name__}: {error}",
             )
+            return
+        del values
+        for slot in slots:
+            label = f"readouts[{slot.position}] (flag {slot.name!r})"
+            if error or slot.position in unresolved:
+                yield Diagnostic(
+                    self.name,
+                    Severity.ERROR,
+                    f"{label}: inconsistent or undetermined binding",
+                    _where(gadget),
+                    error or f"readouts[{slot.position}] is not uniquely determined.",
+                )
+            else:
+                yield from _zero_parity_diagnostic(
+                    self.name,
+                    gadget,
+                    analysis,
+                    analysis.readouts[slot.position],
+                    label,
+                    _equation(gadget.readouts[slot.position].equation),
+                )
 
 
 @dataclass(frozen=True)
@@ -251,50 +287,21 @@ class ReadoutMismatchRule:
             )
             return
         for mismatch in mismatches:
-            position = int(mismatch.name)
+            position = mismatch.position
             declared = _equation(gadget.readouts[position].equation)
             detail = [f"Declared: {declared}"]
-            if mismatch.expected_positions is not None:
-                expected = _equation(
-                    Outcome(index) for index in mismatch.expected_positions
-                )
-                detail.append(f"Verified measurement parity: {expected}")
-            elif mismatch.verifiable:
-                detail.append("No equivalent measurement parity was derived.")
-            if mismatch.verifiable:
+            if mismatch.expected_equation is not None:
                 detail.append(
-                    "Compared on noiseless codewords; encoding-sign terms not checked."
+                    f"Verified relation: {_equation(mismatch.expected_equation)}"
                 )
-            else:
-                detail.append(mismatch.reason)
+            detail.append(mismatch.reason)
             yield Diagnostic(
                 self.name,
-                self.severity if mismatch.verifiable else Severity.WARNING,
-                f"readouts[{position}] (logical {_observable(gadget, position)}): "
-                + (
-                    "measurement parity mismatch"
-                    if mismatch.verifiable
-                    else "not verified"
-                ),
+                self.severity,
+                f"readouts[{position}] (logical {_observable(gadget, position)}): readout equation mismatch",
                 _where(gadget),
                 "\n".join(detail),
             )
-
-
-def _declared_out_frames(gadget: qc.Gadget) -> set[tuple[int, int]]:
-    return {
-        sign.key
-        for check in parse_equations(gadget.checks)
-        for sign in stabilizer_signs_of(check, side="out")
-    }
-
-
-def _required_out_frames(gadget: qc.Gadget) -> set[tuple[int, int]]:
-    return {
-        (entry, index)
-        for entry, encoding in enumerate(gadget.outputs)
-        for index in range(len(list(encoding.code.stabilizers)))
-    }
 
 
 @dataclass(frozen=True)
@@ -307,8 +314,14 @@ class IncompleteOutputFrameRule:
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         try:
-            missing = _required_out_frames(gadget) - _declared_out_frames(gadget)
-        except (KeyError, ValueError, TypeError, AttributeError) as error:
+            missing = ParityAnalysis(gadget).unresolved_outputs()
+        except (
+            KeyError,
+            ValueError,
+            TypeError,
+            AttributeError,
+            NotImplementedError,
+        ) as error:
             yield Diagnostic(
                 self.name,
                 Severity.WARNING,
@@ -325,7 +338,10 @@ class IncompleteOutputFrameRule:
         except (KeyError, ValueError, TypeError, NotImplementedError) as error:
             relations = []
             unavailable = f"Relation not derived: {type(error).__name__}: {error}"
-        for operand, index in sorted(missing):
+        for path in missing:
+            reference = qc.gadgets.Reference(path)
+            operand, index = reference.entry, reference.index
+            assert operand is not None
             sign = StabilizerSign("out", operand, index)
             encoding = gadget.outputs[operand]
             relation = next(
@@ -349,72 +365,18 @@ class IncompleteOutputFrameRule:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"No check references {sign} ({encoding.code.stabilizers[index]})",
+                f"Declared relations do not determine {sign} ({encoding.code.stabilizers[index]})",
                 _where(gadget),
                 f"Code: {encoding.code.name}; circuit support: {list(encoding.support)}.\n{detail}",
             )
 
 
-def _encoding_atom_violation(gadget: qc.Gadget, atom: Atom) -> str | None:
-    if isinstance(atom, StabilizerSign):
-        basis = "stabilizers"
-    elif isinstance(atom, LogicalSign):
-        basis = atom.basis
-    else:
-        return None
-    encodings = gadget.inputs if atom.side == "in" else gadget.outputs
-    if atom.entry >= len(encodings):
-        return f"Valid {atom.side} entries: [0, {len(encodings)}) (stop exclusive)."
-    code = encodings[atom.entry].code
-    operators = (
-        code.stabilizers
-        if basis == "stabilizers"
-        else code.x if basis == "x" else code.z
-    )
-    bound = len(list(operators))
-    if atom.index >= bound:
-        return (
-            f"Code {code.name!r}: valid {basis} indices [0, {bound}) (stop exclusive)."
-        )
-    return None
-
-
-@dataclass(frozen=True)
-class ReferenceOutOfBoundsRule:
-    name: str = "gadget/reference-out-of-bounds"
-    severity: Severity = Severity.ERROR
-    phase: Phase = Phase.STRUCTURAL
-    target: type = qc.Gadget
-
-    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
-        gadget = _gadget(target)
-        equations = [
-            (f"checks[{index}]", check)
-            for index, check in enumerate(parse_equations(gadget.checks))
-        ] + [
-            (f"readouts[{slot.position}]", slot.equation)
-            for slot in readout_slots(gadget)
-        ]
-        for label, equation in equations:
-            for atom in equation:
-                violation = _encoding_atom_violation(gadget, atom)
-                if violation is not None:
-                    yield Diagnostic(
-                        self.name,
-                        self.severity,
-                        f"{label}: {atom} is out of bounds",
-                        _where(gadget),
-                        violation,
-                    )
-
-
 RULES: tuple[Rule, ...] = (
-    ReferenceOutOfBoundsRule(),
     MissingObservableRule(),
     MissingFlagRule(),
     UnsupportedActionAtomRule(),
-    PreparedInputRule(),
-    FlagContentRule(),
+    CheckMismatchRule(),
+    FlagMismatchRule(),
     ActionMismatchRule(),
     ReadoutMismatchRule(),
     IncompleteOutputFrameRule(),
@@ -422,12 +384,11 @@ RULES: tuple[Rule, ...] = (
 
 __all__ = [
     "ActionMismatchRule",
-    "FlagContentRule",
+    "CheckMismatchRule",
+    "FlagMismatchRule",
     "IncompleteOutputFrameRule",
     "MissingFlagRule",
     "MissingObservableRule",
-    "PreparedInputRule",
-    "ReferenceOutOfBoundsRule",
     "ReadoutMismatchRule",
     "RULES",
     "UnsupportedActionAtomRule",
