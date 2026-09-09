@@ -48,11 +48,15 @@ class Report:
             return "audit: ok (no diagnostics)"
         lines = []
         for diagnostic in (*self.errors, *self.warnings):
-            lines.append(
-                f"{diagnostic.severity.value}: {diagnostic.rule}: "
-                f"{diagnostic.where}: {diagnostic.summary}"
+            lines.extend(
+                (
+                    f"[{diagnostic.severity.name}] {diagnostic.rule}",
+                    diagnostic.where,
+                    diagnostic.summary,
+                )
             )
             lines.extend(f"    {line}" for line in diagnostic.detail.splitlines())
+            lines.append("")
         lines.append(
             f"audit: {len(self.errors)} error(s), "
             f"{len(self.warnings)} warning(s), "

@@ -104,6 +104,24 @@ def test_informational_split() -> None:
     assert report.ok
 
 
+def test_report_formats_location_and_evidence_without_extra_advice() -> None:
+    diagnostic = Diagnostic(
+        rule="gadget/readout-mismatch",
+        severity=Severity.ERROR,
+        summary="readouts[0] (logical X_0): measurement parity mismatch",
+        where="layers[0].gadgets['measure_xx'] (C4 -> stim)",
+        detail='Declared: ["circuit.readouts[0]"]\nVerified measurement parity: ["circuit.readouts[0]", "circuit.readouts[1]"]',
+    )
+    assert str(Report((diagnostic,))) == (
+        "[ERROR] gadget/readout-mismatch\n"
+        "layers[0].gadgets['measure_xx'] (C4 -> stim)\n"
+        "readouts[0] (logical X_0): measurement parity mismatch\n"
+        '    Declared: ["circuit.readouts[0]"]\n'
+        '    Verified measurement parity: ["circuit.readouts[0]", "circuit.readouts[1]"]\n\n'
+        "audit: 1 error(s), 0 warning(s), 0 informational"
+    )
+
+
 def test_diagnostic_phase_enum_values() -> None:
     """Phase enum is used by rules; sanity-check the three members exist."""
     members = {p.name for p in Phase}

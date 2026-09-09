@@ -10,6 +10,7 @@ import qodec as qc
 
 from .._layout import ProgramLayout
 from .._readouts import observables_as_xor_map
+from .._analysis.check_discovery import profile_of
 from .._analysis.channel_action import realized_codes_of
 from .._analysis.propagation.conditional import (
     ConditionalChoiResult,
@@ -29,6 +30,7 @@ class ReadoutMismatch:
     declared_signature: BitVector
     reason: str
     verifiable: bool = True
+    expected_positions: tuple[int, ...] | None = None
 
 
 def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
@@ -37,6 +39,9 @@ def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
     probes = _data_side_logical_probes(gadget)
     relevant_mask = _bitvector_not(_projector_random_mask(result))
     width = result.simulation.sign_matrix.column_count
+    code_in, _ = realized_codes_of(gadget)
+    input_qubits = sorted(code_in.support)
+    candidates: dict[str, list[int]] | None = None
     mismatches = []
     for name, positions in declared.items():
         probe = probes.get(name)
@@ -52,25 +57,47 @@ def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
                     discovered_signature=BitVector.zeros(width),
                     declared_signature=BitVector.zeros(width),
                     reason=(
-                        "logical Pauli probe is not in the circuit's "
-                        "input-side stabiliser group; cannot verify"
+                        "No circuit measurement relation was verified for this logical observable."
                     ),
                     verifiable=False,
                 )
             )
             continue
         discovered = BitVector([column in frame for column in range(width)])
+        for offset, qubit in enumerate(input_qubits):
+            character = probe[qubit]
+            for basis, row in (("XY", 2 * offset), ("ZY", 2 * offset + 1)):
+                if character in basis:
+                    discovered = discovered ^ BitVector(
+                        [
+                            bool(result.simulation.outcome_matrix[row, column])
+                            for column in range(width)
+                        ]
+                    )
         declared_signature = _declared_signature(result, positions)
         if not ((discovered ^ declared_signature) & relevant_mask).is_zero:
+            if candidates is None:
+                try:
+                    candidates = profile_of(gadget).readouts
+                except (KeyError, ValueError, TypeError, NotImplementedError):
+                    candidates = {}
+            expected = candidates.get(name)
+            if (
+                expected is not None
+                and not (
+                    (_declared_signature(result, expected) ^ discovered) & relevant_mask
+                ).is_zero
+            ):
+                expected = None
             mismatches.append(
                 ReadoutMismatch(
                     name=name,
                     declared_positions=tuple(sorted(positions)),
                     discovered_signature=discovered,
                     declared_signature=declared_signature,
-                    reason=(
-                        "declared XOR pattern disagrees with the circuit's "
-                        "discovered signature on non-projector random columns"
+                    reason="measurement parity differs for at least one noiseless outcome",
+                    expected_positions=(
+                        tuple(expected) if expected is not None else None
                     ),
                 )
             )

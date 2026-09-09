@@ -219,3 +219,54 @@ def test_declared_circuit_preserves_parameter_names() -> None:
     declared = declared_program_of(gadget)
     assert declared.instruction_set.instructions["rotate"].parameters == [parameter]
     assert declared.calls[0].arguments == {"theta": "theta"}
+
+
+def test_action_explanation_identifies_missing_observable() -> None:
+    expected = ChannelAction._create(
+        FrameGroup([PauliFrame(Pauli({0: "X"}))]), FrameGroup([]), {}
+    )
+    actual = ChannelAction._create(
+        FrameGroup([PauliFrame(Pauli({0: "Z"}))]), FrameGroup([]), {}
+    )
+    assert expected.why_not_equivalent_to(actual) == (
+        "Expected measured logical observable X; absent from the circuit's group."
+    )
+
+
+def test_action_explanation_identifies_output_image() -> None:
+    operator = Pauli({0: "X"})
+    expected = ChannelAction._create(
+        FrameGroup([]), FrameGroup([]), {operator: PauliFrame(operator)}
+    )
+    actual = ChannelAction._create(
+        FrameGroup([]), FrameGroup([]), {operator: PauliFrame(Pauli({0: "Z"}))}
+    )
+    assert (
+        expected.why_not_equivalent_to(actual)
+        == "Logical X: expected X; circuit gives Z."
+    )
+
+
+def test_action_explanation_identifies_opposite_sign() -> None:
+    expected = ChannelAction._create(
+        FrameGroup([]), FrameGroup([PauliFrame(Pauli({0: "Z"}))]), {}
+    )
+    actual = ChannelAction._create(
+        FrameGroup([]), FrameGroup([PauliFrame(-Pauli({0: "Z"}))]), {}
+    )
+    assert (
+        expected.why_not_equivalent_to(actual)
+        == "Opposite sign parity: output stabilizer Z."
+    )
+
+
+def test_action_explanation_identifies_variable_sign() -> None:
+    expected = ChannelAction._create(
+        FrameGroup([]), FrameGroup([PauliFrame(Pauli({0: "Z"}))]), {}
+    )
+    actual = ChannelAction._create(
+        FrameGroup([]), FrameGroup([PauliFrame(Pauli({0: "Z"}), frozenset({0}))]), {}
+    )
+    assert expected.why_not_equivalent_to(actual) == (
+        "Sign parity (output stabilizer Z): circuit varies with outcomes; expected is fixed."
+    )

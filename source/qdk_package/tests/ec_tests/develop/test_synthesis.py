@@ -318,39 +318,23 @@ def test_synthesized_code_keeps_its_distance() -> None:
 
 # ── Audit ───────────────────────────────────────────────────────────────────
 
-#: Rule that misfires on X-basis destructive measurement gadgets. It fires on
-#: the hand-authored c4 fixture's `measure_xx` too, so it is a property of the
-#: audit rule rather than of synthesis. Asserted as a known exception here so
-#: this suite tightens automatically once the rule is fixed.
-_KNOWN_AUDIT_RULE = "gadget/readout-mismatch"
-
 
 @pytest.mark.parametrize(
     ("label", "factory"),
     [(case[0], case[1]) for case in FULLY_SUPPORTED],
     ids=[case[0] for case in FULLY_SUPPORTED],
 )
-def test_audit_reports_no_unexpected_errors(label: str, factory) -> None:
+def test_audit_reports_no_errors(label: str, factory) -> None:
     built = qodec_from_code(_code(label, factory))
 
-    unexpected = [
-        f"{d.rule}: {d.summary}"
-        for d in _audit.audit(built).errors
-        if d.rule != _KNOWN_AUDIT_RULE
-    ]
-    assert unexpected == []
+    report = _audit.audit(built)
+    assert report.ok, str(report)
 
 
-def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
-    """Pins the claim that ``_KNOWN_AUDIT_RULE`` is not a synthesis defect."""
+def test_hand_authored_fixture_audits_without_errors() -> None:
     fixture = c4()
-
-    rules = {
-        d.rule
-        for gadget in fixture.layers[0].gadgets.values()
-        for d in _audit.Auditor().audit_gadget(gadget, qodec=fixture).errors
-    }
-    assert _KNOWN_AUDIT_RULE in rules
+    report = _audit.audit(fixture)
+    assert report.ok, str(report)
 
 
 # ── Round-tripping ──────────────────────────────────────────────────────────

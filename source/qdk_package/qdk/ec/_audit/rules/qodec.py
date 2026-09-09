@@ -26,9 +26,16 @@ class MissingSourceInstructionRule:
                     yield Diagnostic(
                         self.name,
                         self.severity,
-                        f"gadget keyed {mnemonic!r} has no matching instruction "
-                        f"in source ISA {layer.instruction_set.name!r}",
-                        f"layers[{index}].gadgets[{mnemonic!r}]",
+                        f"implements: no source instruction named {mnemonic!r}",
+                        f"layers[{index}].gadgets[{mnemonic!r}] "
+                        f"({layer.instruction_set.name}"
+                        + (
+                            f" -> {target.layers[index + 1].instruction_set.name}"
+                            if index + 1 < len(target.layers)
+                            else ""
+                        )
+                        + ")",
+                        f"Source: layers[{index}].instruction_set.instructions",
                     )
 
 
@@ -48,9 +55,10 @@ class MissingRealizationRule:
                     yield Diagnostic(
                         self.name,
                         self.severity,
-                        f"instruction {mnemonic!r} of ISA {layer.instruction_set.name!r} "
-                        f"has no gadget in layer {index}",
-                        f"layers[{index}]",
+                        f"No gadget implements instruction {mnemonic!r}",
+                        f"layers[{index}].instruction_set.instructions[{mnemonic!r}] "
+                        f"({layer.instruction_set.name} -> {target.layers[index + 1].instruction_set.name})",
+                        f"Missing: layers[{index}].gadgets[{mnemonic!r}]",
                     )
 
 
