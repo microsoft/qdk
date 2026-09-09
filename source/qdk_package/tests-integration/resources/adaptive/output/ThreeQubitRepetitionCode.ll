@@ -183,7 +183,7 @@ declare void @__quantum__qis__rx__body(double, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @X(ptr %var_28) {
 block_32:
@@ -215,6 +215,7 @@ declare void @__quantum__rt__int_record_output(i64, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="5" "required_num_results"="3" }
 attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
