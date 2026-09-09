@@ -48,6 +48,37 @@ def _observable(gadget: qc.Gadget, position: int) -> str:
 
 
 @dataclass(frozen=True)
+class MissingCheckRule:
+    name: str = "gadget/missing-check"
+    severity: Severity = Severity.INFO
+    phase: Phase = Phase.INFORMATIONAL
+    target: type = qc.Gadget
+
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        gadget = _gadget(target)
+        try:
+            missing = ParityAnalysis(gadget).missing_checks()
+        except (KeyError, ValueError, TypeError, NotImplementedError) as error:
+            yield Diagnostic(
+                self.name,
+                self.severity,
+                "Check completeness not checked: analysis unavailable",
+                _where(gadget),
+                f"{type(error).__name__}: {error}",
+            )
+            return
+        for equation in missing:
+            yield Diagnostic(
+                self.name,
+                self.severity,
+                "An independent measurement check is undeclared",
+                _where(gadget),
+                f"Verified relation: {_equation(equation)}\n"
+                "Not implied by the declared checks, readout definitions, or zero-valued flags.",
+            )
+
+
+@dataclass(frozen=True)
 class MissingObservableRule:
     name: str = "gadget/missing-observable"
     severity: Severity = Severity.INFO
@@ -372,6 +403,7 @@ class IncompleteOutputFrameRule:
 
 
 RULES: tuple[Rule, ...] = (
+    MissingCheckRule(),
     MissingObservableRule(),
     MissingFlagRule(),
     UnsupportedActionAtomRule(),
@@ -387,6 +419,7 @@ __all__ = [
     "CheckMismatchRule",
     "FlagMismatchRule",
     "IncompleteOutputFrameRule",
+    "MissingCheckRule",
     "MissingFlagRule",
     "MissingObservableRule",
     "ReadoutMismatchRule",
