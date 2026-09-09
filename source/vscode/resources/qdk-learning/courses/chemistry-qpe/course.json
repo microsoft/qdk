@@ -40,6 +40,10 @@
     }
   ],
   "environment": {
-    "importChecks": ["qdk_chemistry", "qdk_chemistry.utils.cubegen", "qdk.widgets"]
+    "importChecks": [
+      "qdk_chemistry",
+      "qdk_chemistry.utils.cubegen",
+      "qdk.widgets"
+    ]
   }
 }
