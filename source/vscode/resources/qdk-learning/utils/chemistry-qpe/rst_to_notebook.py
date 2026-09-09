@@ -143,7 +143,7 @@ RECIPES = {
             "from qdk_chemistry.utils import Logger"
         ),
         # A notebook is the example, so the download instructions are noise.
-        "skip_sections": ["Example download"],
+        "skip_sections": ["Example download", "Example files"],
         # The reader is already inside the notebook, so nothing sends them to a terminal.
         "drop_blocks": [
             "run the complete script from the Visual Studio Code integrated terminal",
@@ -180,7 +180,7 @@ RECIPES = {
         "py": "tutorial_choose_active_space.py",
         "unit_dir": "03-active-space",
         "notebook": "active_space.ipynb",
-        "skip_sections": ["Example download"],
+        "skip_sections": ["Example download", "Example files"],
         # The chapter's excerpts all assume the Hartree-Fock run that precedes them.
         "pre_regions": ["hartree-fock"],
         "setup_code": (
@@ -193,11 +193,7 @@ RECIPES = {
                 "from qdk_chemistry.data.symmetry import SymmetryLabel, axes\n"
                 "from qdk_chemistry.utils import compute_valence_space_parameters"
             ),
-            "refine": (
-                "from tutorial_orbital_coordinates import (\n"
-                "    coordinate_minimize_natural_orbital_coefficient_norm,\n"
-                ")"
-            ),
+            "refine": "from qdk_chemistry.data import Orbitals",
         },
         "region_appends": {
             "valence-space": (
@@ -221,6 +217,7 @@ RECIPES = {
             "python tutorial_choose_active_space.py",
             # The learner is already in the notebook that shows the viewer.
             "Download and open",
+            "Open `tutorial_choose_active_space.ipynb`",
         ],
         "rewrites": [
             (
@@ -265,12 +262,12 @@ RECIPES = {
                         "    grid_size=(30, 30, 30),\n"
                         "    margin=10.0,\n"
                         "    indices=valence_indices,\n"
+                        '    label_maker=lambda index: f"orbital_{index:04d}",\n'
                         ")\n\n"
                         "cube_data = {}\n"
                         "for raw_label, cube_file in raw_cube_data.items():\n"
-                        "    # Cube labels number orbitals from one, while QDK/Chemistry indices start\n"
-                        "    # from zero, so convert before looking up occupations and entropies.\n"
-                        '    orbital_index = int(raw_label.split("_")[1]) - 1\n'
+                        "    # Cube labels use zero-based orbital indices, matching QDK/Chemistry.\n"
+                        '    orbital_index = int(raw_label.split("_")[1])\n'
                         "    position = active_position[orbital_index]\n"
                         "    # Add the alpha and beta occupations to report the total occupation of\n"
                         "    # each spatial orbital in the viewer.\n"
@@ -374,7 +371,7 @@ RECIPES = {
         "py": "tutorial_map_n2_to_qubits.py",
         "unit_dir": "04-map-to-qubits",
         "notebook": "map_to_qubits.ipynb",
-        "skip_sections": ["Example download"],
+        "skip_sections": ["Example download", "Example files"],
         "setup_code": "from qdk_chemistry.utils import Logger",
         "region_prepends": {
             "active-hamiltonian": "from qdk_chemistry.algorithms import create",
@@ -521,7 +518,7 @@ RECIPES = {
         "py": "tutorial_prepare_trial_state.py",
         "unit_dir": "05-trial-state",
         "notebook": "trial_state.ipynb",
-        "skip_sections": ["Example download"],
+        "skip_sections": ["Example download", "Example files"],
         "setup_code": "from qdk_chemistry.utils import Logger",
         "region_prepends": {
             "determinant-weights": (
@@ -545,6 +542,7 @@ RECIPES = {
             "run the complete script from the Visual Studio Code integrated terminal",
             "python tutorial_prepare_trial_state.py",
             "Before answering the next question, download and open",
+            "Before answering the next question, open `tutorial_prepare_trial_state.ipynb`",
         ],
         "rewrites": [
             (
@@ -706,7 +704,7 @@ RECIPES = {
         "py": "tutorial_run_iqpe.py",
         "unit_dir": "06-iterative-phase-estimation",
         "notebook": "iterative_phase_estimation.ipynb",
-        "skip_sections": ["Example download"],
+        "skip_sections": ["Example download", "Example files"],
         # Every marked region here only defines a function, so the pieces that
         # actually run the calculation are imported from the shipped scripts.
         "pre_code": "from tutorial_prepare_trial_state import circuit_statistics\n"
@@ -1719,10 +1717,12 @@ def convert(key, *, check=False, allow_cell_id_changes=False):
             "Before you begin",
             md(
                 "## Before you begin\n\n"
-                "This course requires a Python environment with the `qdk-chemistry[jupyter]` package.\n\n"
-                "`qdk-chemistry` ships compiled binaries for Linux, macOS on Apple silicon, "
-                "and Windows on x86-64. This course also needs PySCF, which has no Windows "
-                "build, so run it inside WSL on Windows. Run the cell below to check the "
+                "This course requires the base `qdk-chemistry>=2.2.0` package and "
+                "`ipykernel`. "
+                "The required workflow uses implementations included with QDK/Chemistry "
+                "and does not require QDK/Chemistry optional dependency groups or PySCF.\n\n"
+                "Released packages support Linux on x86-64 and Arm64, macOS on Apple silicon, "
+                "and native Windows on x86-64 and Arm64. Run the cell below to check the "
                 "current environment."
             ),
         ),

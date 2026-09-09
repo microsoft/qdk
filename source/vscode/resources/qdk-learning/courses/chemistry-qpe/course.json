@@ -40,6 +40,6 @@
     }
   ],
   "environment": {
-    "importChecks": ["qdk_chemistry", "qdk_chemistry.utils.cubegen", "pyscf"]
+    "importChecks": ["qdk_chemistry", "qdk_chemistry.utils.cubegen", "qdk.widgets"]
   }
 }

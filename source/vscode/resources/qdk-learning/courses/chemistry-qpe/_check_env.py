@@ -12,8 +12,9 @@ import sys
 from pathlib import Path
 
 from IPython.display import HTML, display
+from packaging.version import Version
 
-QDK_CHEMISTRY_VERSION = "2.1.0"
+QDK_CHEMISTRY_MIN_VERSION = Version("2.2.0")
 
 
 def check() -> None:
@@ -60,7 +61,7 @@ def check() -> None:
 
     if _can_import("qdk_chemistry"):
         installed_version = importlib.metadata.version("qdk-chemistry")
-        version_ok = installed_version == QDK_CHEMISTRY_VERSION
+        version_ok = Version(installed_version) >= QDK_CHEMISTRY_MIN_VERSION
         results.append(
             (
                 "QDK/Chemistry version",
@@ -71,7 +72,7 @@ def check() -> None:
         if not version_ok:
             errors.append(
                 "This course requires "
-                f"<code>qdk-chemistry=={QDK_CHEMISTRY_VERSION}</code>, but "
+                f"<code>qdk-chemistry&gt;={QDK_CHEMISTRY_MIN_VERSION}</code>, but "
                 f"version <code>{installed_version}</code> is installed. "
                 "Install the course requirements and re-run this cell:"
                 f"<pre>  %pip install -r ../requirements.txt</pre>"
