@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import qodec as qc
-from qdk.ec._audit import Diagnostic, Severity
+from qdk.ec._audit import Diagnostic, Severity, audit
+from qdk.ec._audit.rules import default_rules
 from qdk.ec._audit.rules.qodec import (
     MissingRealizationRule,
-    MissingSourceInstructionRule,
+    StructuralValidationRule,
 )
 
 
@@ -23,7 +24,7 @@ def _diags(rule: object, qodec: qc.Qodec) -> list[Diagnostic]:
 
 
 def test_missing_source_instruction_clean(rep3_qodec: qc.Qodec) -> None:
-    assert _diags(MissingSourceInstructionRule(), rep3_qodec) == []
+    assert _diags(StructuralValidationRule(), rep3_qodec) == []
 
 
 def test_missing_realization_clean(rep3_qodec: qc.Qodec) -> None:
@@ -38,18 +39,29 @@ def test_missing_realization_clean(rep3_qodec: qc.Qodec) -> None:
 def test_missing_realization_fires_when_gadget_omitted(
     rep3_qodec: qc.Qodec,
 ) -> None:
-    """Drop one gadget from the top layer; the rule should flag it as an
-    instruction without a realization."""
     layer0 = rep3_qodec.layers[0]
     kept = {name: gadget for name, gadget in layer0.gadgets.items() if name != "idle"}
-    bogus = qc.Qodec(
+    partial = qc.Qodec(
         layers=[
             qc.Layer(layer0.instruction_set, gadgets=kept),
             rep3_qodec.layers[1],
         ],
-        name="rep3_bogus",
+        name="rep3_partial",
     )
-    diagnostics = _diags(MissingRealizationRule(), bogus)
-    flagged = [d.summary for d in diagnostics if "'idle'" in d.summary]
-    assert flagged
-    assert all(d.severity is Severity.ERROR for d in diagnostics)
+    rule = MissingRealizationRule()
+    diagnostics = _diags(rule, partial)
+    assert len(diagnostics) == 1
+    assert diagnostics[0].severity is Severity.INFO
+    assert diagnostics[0].summary == "No explicit gadget for instruction 'idle'"
+    assert diagnostics[0].detail == "No entry: layers[0].gadgets['idle']"
+
+    disabled = tuple(item.name for item in default_rules() if item.name != rule.name)
+    for promote_warnings in (False, True):
+        report = audit(partial, disabled=disabled, promote_warnings=promote_warnings)
+        assert report.ok
+        assert report.errors == report.warnings == ()
+        assert report.informational == tuple(diagnostics)
+
+    assert rule.name not in {
+        item.rule for item in audit(partial, disabled=(rule.name,)).diagnostics
+    }

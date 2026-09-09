@@ -121,11 +121,46 @@ and named classical `arguments`. The instruction definitions are in
 `circuit.instruction_set.instructions`.
 
 Gadget readouts are typed objects with `name`, `position`, `is_flag`, and
-`equation`. To replace them, pass parity lists or named parity dictionaries,
-not the returned readout objects. Bundle fixtures use schema version 7;
+`equation`. Constructors and setters accept these values directly, preserving
+names and equations while recomputing positions and roles. Parity sequences
+and named mappings are also accepted. Checks, readouts, and readout equations
+are immutable tuple snapshots; assign new collections to change the gadget.
+`str(readout)` gives the authored form, and `repr(readout)` includes its equation.
+Bundle fixtures use schema version 7;
 `Qodec.load` takes an explicit manifest or bundle file path, not a directory.
 
 The `qdk.ec` public API is unchanged by this qodec migration.
+
+`ec.audit` checks code algebra, complete Clifford maps (including implicit
+identities), gadget actions, and check, flag, and readout equations. It also
+owns protocol completeness, code-list shapes and capacities, reference bounds,
+parameter uses, and circuit-call validity. These declaration findings use
+`qodec/invalid-structure`; qodec itself enforces only preservation preconditions
+such as unambiguous resolution and bindings that can survive a round trip.
+This replaces `gadget/reference-out-of-bounds` and
+`gadget/missing-source-instruction`; update any rule filters using those IDs.
+Invalid prerequisites block dependent gadget analyses, including shared
+definitions, while unrelated gadgets remain analyzable. Direct analysis calls
+still check their mathematical preconditions.
+
+Algebraically incorrect drafts can be constructed, loaded, and saved by
+qodec, as can unequal code lists, incomplete protocols, and malformed circuit
+text. Parsed accessors can fail on a loadable draft. Entirely omitted readout
+lists are allowed for later derivation and reported as informational; partially
+supplied lists also persist but are audit errors.
+
+Parity verification assumes valid noiseless input
+codewords with arbitrary incoming Pauli frames. A measurement readout that
+omits a required logical-frame correction is an error even if it works for a
+zero-frame input. The authored C4 example currently has such omissions; the
+audit reports them without changing the protocol.
+
+Readout references are solved as binary linear equations, including cycles
+with unique consistent solutions. Output stabilizer signs must be determined
+by valid declared constraints, not merely mentioned in them. Empty equations
+are zero but provide no constraint. Unsupported parity analysis produces
+warnings rather than claiming a result. These checks do not establish fault
+tolerance or verify a particular fault model.
 
 ### Submodules
 

@@ -168,7 +168,7 @@ def walk_program(
             if isinstance(action, Stabilize):
                 for pauli_str in action.operators:
                     remapped = remap_pauli(pauli_str, qubit_map)
-                    if oracle.is_stabilizer(remapped, ignore_sign=True):
+                    if not remapped.weight:
                         continue
                     correction = _eigenstate_correction(remapped)
                     outcome = oracle.measure(remapped)

@@ -77,9 +77,12 @@ def test_c4_measure_xx_readouts_are_consistent() -> None:
     protocol = qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
     )
-    report = Auditor().audit_gadget(
-        protocol.layers[0].gadgets["measure_xx"], qodec=protocol
-    )
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts = [
+        (*readout.equation, f"in[0].x[{index}]")
+        for index, readout in enumerate(gadget.readouts)
+    ]
+    report = Auditor().audit_gadget(gadget, qodec=protocol)
     assert not [
         item for item in report.errors if item.rule == "gadget/readout-mismatch"
     ], str(report)
@@ -92,22 +95,21 @@ def test_readout_message_has_layer_observable_and_verified_parity() -> None:
     gadget = protocol.layers[0].gadgets["measure_xx"]
     gadget.readouts = [
         ["circuit.readouts[0]", "in[0].x[0]"],
-        ["circuit.readouts[0]", "circuit.readouts[2]"],
+        ["circuit.readouts[0]", "circuit.readouts[2]", "in[0].x[1]"],
     ]
     errors = [
         item
         for item in audit(protocol).errors
         if item.rule == "gadget/readout-mismatch"
+        and "gadgets['measure_xx']" in item.where
     ]
     assert len(errors) == 1
     diagnostic = errors[0]
     assert diagnostic.where == "layers[0].gadgets['measure_xx'] (C4 -> stim)"
-    assert (
-        diagnostic.summary == "readouts[0] (logical X_0): measurement parity mismatch"
-    )
+    assert diagnostic.summary == "readouts[0] (logical X_0): readout equation mismatch"
     assert 'Declared: ["circuit.readouts[0]", "in[0].x[0]"]' in diagnostic.detail
     assert (
-        'Verified measurement parity: ["circuit.readouts[0]", "circuit.readouts[1]"]'
+        'Verified relation: ["in[0].x[0]", "circuit.readouts[0]", "circuit.readouts[1]"]'
         in diagnostic.detail
     )
     expected = json.loads(diagnostic.detail.splitlines()[1].split(": ", 1)[1])
@@ -117,7 +119,7 @@ def test_readout_message_has_layer_observable_and_verified_parity() -> None:
         for item in Auditor().audit_gadget(gadget, qodec=protocol).errors
         if item.rule == "gadget/readout-mismatch"
     ]
-    assert "encoding-sign terms not checked" in diagnostic.detail
+    assert "arbitrary incoming frames" in diagnostic.detail
 
 
 def test_same_gadget_at_two_layers_has_distinct_locations(rep3_qodec: qc.Qodec) -> None:
@@ -133,9 +135,13 @@ def test_same_gadget_at_two_layers_has_distinct_locations(rep3_qodec: qc.Qodec) 
         and ".gadgets['idle']" in item.where
     }
     assert locations == {
-        "layers[0].gadgets['idle'] (repetition3 -> repetition3)",
         f"layers[1].gadgets['idle'] (repetition3 -> {target.instruction_set.name})",
     }
+    assert any(
+        item.rule == "qodec/invalid-structure"
+        and item.where == "layers[0].gadgets['idle'] (repetition3 -> repetition3)"
+        for item in report.errors
+    )
 
 
 def test_detached_gadget_location_does_not_guess_layer(rep3_qodec: qc.Qodec) -> None:
@@ -150,8 +156,18 @@ def test_c4_readout_equivalent_modulo_check_is_accepted() -> None:
     )
     gadget = protocol.layers[0].gadgets["measure_xx"]
     gadget.readouts = [
-        ["circuit.readouts[2]", "circuit.readouts[3]"],
-        ["circuit.readouts[1]", "circuit.readouts[3]"],
+        [
+            "circuit.readouts[2]",
+            "circuit.readouts[3]",
+            "in[0].x[0]",
+            "in[0].stabilizers[0]",
+        ],
+        [
+            "circuit.readouts[1]",
+            "circuit.readouts[3]",
+            "in[0].x[1]",
+            "in[0].stabilizers[0]",
+        ],
     ]
     report = Auditor().audit_gadget(gadget, qodec=protocol)
     assert not [
@@ -194,8 +210,7 @@ def test_output_frame_relation_preserves_constant_sign() -> None:
     )
     assert (
         'Relation terms: ["out[0].stabilizers[1]", "in[0].stabilizers[1]"]\n'
-        "Parity: 1 (not a valid zero-parity check)."
-        in diagnostic.detail
+        "Parity: 1 (not a valid zero-parity check)." in diagnostic.detail
     )
     assert "Verified relation:" not in diagnostic.detail
 
@@ -222,9 +237,11 @@ def test_dropped_readouts_triggers_missing_observable(
 ) -> None:
     measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     stripped = _clone(measure_z, readouts=[])
-    report = Auditor().audit_gadget(stripped, qodec=rep3_qodec)
-    assert not report.ok
-    assert "gadget/missing-observable" in {d.rule for d in report.errors}
+    report = Auditor(include_informational=True, strict=True).audit_gadget(
+        stripped, qodec=rep3_qodec
+    )
+    assert report.ok
+    assert "gadget/missing-observable" in {d.rule for d in report.informational}
 
 
 # ----------------------------------------------------------------------------
@@ -249,7 +266,7 @@ def test_truncated_readout_triggers_readout_mismatch(
 
 
 # ----------------------------------------------------------------------------
-# Negative: gadget/reference-out-of-bounds
+# Negative: qodec reference bounds
 # ----------------------------------------------------------------------------
 
 
@@ -264,7 +281,7 @@ def test_out_of_range_encoding_entry_is_flagged(
     corrupted = _clone(measure_z, checks=checks)
     report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
     assert not report.ok
-    assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors}
+    assert "qodec/invalid-structure" in {d.rule for d in report.errors}
 
 
 def test_out_of_range_stabilizer_index_is_flagged(
@@ -277,7 +294,24 @@ def test_out_of_range_stabilizer_index_is_flagged(
     checks.append(["in[0].stabilizers[9]"])
     corrupted = _clone(idle, checks=checks)
     report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
-    assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors}
+    assert "qodec/invalid-structure" in {d.rule for d in report.errors}
+
+
+def test_all_reference_targets_are_bounds_checked(rep3_qodec: qc.Qodec) -> None:
+    gadget = rep3_qodec.layers[0].gadgets["measure_z"]
+    for reference, valid_range in (
+        ("circuit.readouts[0,999]", "out of bounds for 3 entries"),
+        ("readouts[0:2]", "out of bounds for 1 entries"),
+    ):
+        for field in ("checks", "readouts"):
+            changed = _clone(gadget, **{field: [[reference]]})
+            report = Auditor().audit_gadget(changed, qodec=rep3_qodec)
+            errors = [
+                item for item in report.errors if item.rule == "qodec/invalid-structure"
+            ]
+            assert len(errors) == 1
+            assert f"{field}[0]" in errors[0].summary
+            assert valid_range in errors[0].summary
 
 
 # ----------------------------------------------------------------------------
@@ -300,28 +334,48 @@ def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
     encoding = qc.gadgets.Encoding(code, support=["0", "1", "2"])
     # readouts=[] leaves the declared 'reject' flag unbound.
     gadget = qc.Gadget(flagged, circuit, outputs=[encoding], readouts=[])
-    report = Auditor().audit_gadget(gadget, qodec=rep3_qodec)
-    assert "gadget/missing-flag" in {d.rule for d in report.errors}
+    report = Auditor(include_informational=True).audit_gadget(gadget, qodec=rep3_qodec)
+    assert "gadget/missing-flag" in {d.rule for d in report.informational}
 
 
-def test_prepared_declared_input_is_rejected(rep3_qodec: qc.Qodec) -> None:
-    idle = rep3_qodec.layers[0].gadgets["idle"]
-    circuit = qc.gadgets.Circuit(
-        idle.circuit.instruction_set,
-        f"R 0\n{idle.circuit.source}",
-        format=idle.circuit.format,
+def test_reset_of_declared_input_is_checked_against_instruction() -> None:
+    block = qc.instructions.Block("qubit", encodes=1)
+    operand = qc.instructions.BlockOperand("qubit")
+    reset = qc.Instruction(
+        "reset_z",
+        inputs=[operand],
+        outputs=[operand],
+        action=[qc.actions.Stabilize(["Z_0"])],
     )
-    corrupted = qc.Gadget(
-        idle.implements,
-        circuit,
-        inputs=list(idle.inputs),
-        outputs=list(idle.outputs),
-        checks=list(idle.checks),
-        readouts=list(idle.readouts),
+    idle = qc.Instruction("idle", inputs=[operand], outputs=[operand])
+    physical_reset = qc.Instruction(
+        "R", outputs=[operand], action=[qc.actions.Stabilize(["Z_0"])]
     )
+    physical = qc.InstructionSet(
+        "physical", blocks=[block], instructions=[physical_reset]
+    )
+    encoding = qc.gadgets.Encoding(
+        qc.Code("qubit", stabilizers=[], x=["X_0"], z=["Z_0"]), support=["0"]
+    )
+    for instruction, expected_rules in (
+        (reset, set()),
+        (idle, {"gadget/action-mismatch"}),
+    ):
+        logical = qc.InstructionSet(
+            "logical", blocks=[block], instructions=[instruction]
+        )
+        gadget = qc.Gadget(
+            instruction,
+            qc.gadgets.Circuit(physical, "R 0", format="stim"),
+            inputs=[encoding],
+            outputs=[encoding],
+        )
+        protocol = qc.Qodec([qc.Layer(logical, gadgets=[gadget]), qc.Layer(physical)])
+        protocol.validate()
 
-    report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
-    assert "gadget/prepared-input" in {d.rule for d in report.errors}
+        report = audit(protocol)
+        assert {item.rule for item in report.diagnostics} == expected_rules, str(report)
+        assert {item.rule for item in report.errors} == expected_rules, str(report)
 
 
 # ----------------------------------------------------------------------------
@@ -330,12 +384,12 @@ def test_prepared_declared_input_is_rejected(rep3_qodec: qc.Qodec) -> None:
 
 
 def test_structural_error_skips_semantic_phase(rep3_qodec: qc.Qodec) -> None:
-    """A missing observable (structural) skips action-mismatch (semantic)."""
+    """An unresolved reference skips dependent semantic checks."""
     measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
-    stripped = _clone(measure_z, readouts=[])
+    stripped = _clone(measure_z, readouts=[["in[9].x[0]"]])
     report = Auditor().audit_gadget(stripped, qodec=rep3_qodec)
     rules_fired = {d.rule for d in report.diagnostics}
-    assert "gadget/missing-observable" in rules_fired
+    assert "qodec/invalid-structure" in rules_fired
     assert "gadget/action-mismatch" not in rules_fired
     assert "gadget/readout-mismatch" not in rules_fired
 
