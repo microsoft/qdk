@@ -44,7 +44,7 @@ def test_missing_realization_fires_when_gadget_omitted(
     kept = {name: gadget for name, gadget in layer0.gadgets.items() if name != "idle"}
     bogus = qc.Qodec(
         layers=[
-            qc.Layer(layer0.isa, gadgets=kept),
+            qc.Layer(layer0.instruction_set, gadgets=kept),
             rep3_qodec.layers[1],
         ],
         name="rep3_bogus",

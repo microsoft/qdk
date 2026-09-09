@@ -50,7 +50,7 @@ def code_qubit_count(code: qc.Code) -> int:
     return highest + 1
 
 
-def encoding_qubit_relocation(encoding: qc.Encoding) -> dict[int, int]:
+def encoding_qubit_relocation(encoding: qc.gadgets.Encoding) -> dict[int, int]:
     support = [int(qubit) for qubit in encoding.support]
     return encoding_relocation(support, code_qubit_count(encoding.code))
 
@@ -64,7 +64,7 @@ def remap_to_global(
     )
 
 
-def flat_logical_paulis(encodings: Iterable[qc.Encoding]) -> list[Pauli]:
+def flat_logical_paulis(encodings: Iterable[qc.gadgets.Encoding]) -> list[Pauli]:
     paulis = []
     for encoding in encodings:
         relocation = encoding_qubit_relocation(encoding)
@@ -74,8 +74,8 @@ def flat_logical_paulis(encodings: Iterable[qc.Encoding]) -> list[Pauli]:
 
 
 def flat_logical_slots(
-    encodings: Iterable[qc.Encoding],
-) -> list[tuple[qc.Encoding, int]]:
+    encodings: Iterable[qc.gadgets.Encoding],
+) -> list[tuple[qc.gadgets.Encoding, int]]:
     """``(encoding, local logical index)`` per logical qubit, in flat order.
 
     An action token ``X_<t>`` names the ``t``-th entry of this list, so this is
@@ -94,7 +94,7 @@ def logical_chars(code: qc.Code, basis: Basis) -> list[dict[int, "PauliCharacter
     return [characters_of_string(str(operator)) for operator in operators]
 
 
-def declared_pauli_of(encodings: Sequence[qc.Encoding], declared: str) -> Pauli:
+def declared_pauli_of(encodings: Sequence[qc.gadgets.Encoding], declared: str) -> Pauli:
     """The physical Pauli a declared logical operator names over ``encodings``.
 
     ``declared`` is an instruction action operand such as ``"X_0 Z_1"``. Its
@@ -106,7 +106,7 @@ def declared_pauli_of(encodings: Sequence[qc.Encoding], declared: str) -> Pauli:
 
 
 def logical_pauli_of(
-    encodings: Sequence[qc.Encoding],
+    encodings: Sequence[qc.gadgets.Encoding],
     terms: Iterable[tuple[str, int]],
 ) -> Pauli:
     """The physical Pauli named by ``(basis, flat logical qubit)`` terms.
@@ -176,6 +176,6 @@ def _flat_logical_chars(code: qc.Code) -> Iterator[dict[int, "PauliCharacter"]]:
 
 
 def _all_operator_chars(code: qc.Code) -> Iterator[dict[int, "PauliCharacter"]]:
-    for group in (code.stabilizers, code.destabilizers, code.x, code.z):
+    for group in (code.stabilizers, code.x, code.z):
         for operator in group:
             yield characters_of_string(str(operator))

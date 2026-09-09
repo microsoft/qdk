@@ -14,7 +14,7 @@ from qodec.actions import (
     Pauli as PauliAction,
     Stabilize,
 )
-from qodec.circuits import Program
+from qodec.gadgets import Circuit
 
 from ..._layout import ProgramLayout
 from .isa_actions import (
@@ -134,7 +134,7 @@ def _eigenstate_correction(observable: Pauli) -> Pauli:
 
 
 def walk_program(
-    program: Program,
+    program: Circuit,
     *,
     simulation: OutcomeCompleteSimulation | None = None,
     extra_engines: Sequence[PropagationEngine] = (),
@@ -160,8 +160,8 @@ def walk_program(
     outcome_count = 0
     observe_rows: list[int] = []
     layout = ProgramLayout.of(program)
-    for instruction_index, call in enumerate(program.instructions):
-        instruction = program.lookup(call.mnemonic)
+    for instruction_index, call in enumerate(program.calls):
+        instruction = program.instruction_set.instructions[call.mnemonic]
         qubit_map = layout.call_qubit_map(call)
 
         for action in instruction.action:
@@ -197,7 +197,7 @@ def walk_program(
                     engine.apply_pauli(remapped)
             elif isinstance(action, Observe):
                 for observable in action.observables:
-                    remapped = remap_pauli(observable.pauli, qubit_map)
+                    remapped = remap_pauli(observable, qubit_map)
                     observe_rows.append(oracle.outcome_count)
                     oracle.measure(remapped)
                     for engine in extra_engines:
@@ -229,7 +229,7 @@ def walk_program(
 
 
 def walk_for_outcome_code(
-    program: Program,
+    program: Circuit,
     input_stabilizers: Sequence[Pauli] = (),
     output_stabilizers: Sequence[Pauli] = (),
 ) -> WalkResult:
@@ -241,7 +241,7 @@ def walk_for_outcome_code(
 
 
 def propagate_faults(
-    program: Program,
+    program: Circuit,
     fault_basis: Sequence[Any],
     residual_probes: Sequence[Pauli],
 ) -> tuple[BitMatrix, int, int]:
@@ -265,9 +265,9 @@ def propagate_faults(
     return propagator.outcome_deltas, result.hidden_count, result.outcome_count
 
 
-def program_of(gadget: qc.Gadget) -> Program:
-    """The gadget's circuit as a runnable program (parses the source)."""
-    return Program(gadget.circuit.instructions, gadget.circuit.isa)
+def program_of(gadget: qc.Gadget) -> Circuit:
+    """The gadget's source-backed circuit."""
+    return gadget.circuit
 
 
 def propagate_input_paulis(

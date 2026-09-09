@@ -7,6 +7,9 @@ below pin the reference shapes it must accept and the text it must render back.
 
 from __future__ import annotations
 
+import pytest
+from qodec.gadgets import Reference
+
 from qdk.ec._references import (
     LogicalSign,
     Outcome,
@@ -42,8 +45,25 @@ def test_parse_equation_expands_bracket_selectors() -> None:
     )
 
 
-def test_parse_equation_drops_unmodelled_shapes() -> None:
-    assert parse_equation(["checks[2]", "readouts[1]", "in.block.stabilizers[1]"]) == ()
+def test_parse_equation_drops_logical_readout_references() -> None:
+    assert parse_equation(["readouts[1]"]) == ()
+
+
+@pytest.mark.parametrize("text", ["checks[2]", "in.block.stabilizers[1]"])
+def test_parse_equation_rejects_invalid_paths(text: str) -> None:
+    with pytest.raises(ValueError):
+        parse_equation([text])
+
+
+def test_parse_equation_expands_typed_encoding_references() -> None:
+    assert parse_equation(
+        [Reference("in[0].stabilizers[0:2]"), Reference("out[1].x[1,3]")]
+    ) == (
+        StabilizerSign("in", 0, 0),
+        StabilizerSign("in", 0, 1),
+        LogicalSign("out", 1, "x", 1),
+        LogicalSign("out", 1, "x", 3),
+    )
 
 
 def test_parse_equations_parses_a_whole_check_list() -> None:

@@ -109,7 +109,7 @@ def _data_side_logical_probes(gadget: qc.Gadget) -> dict[str, Pauli]:
         if not isinstance(action, qc.actions.Observe):
             continue
         for observable in action.observables:
-            result[str(position)] = declared_pauli_of(gadget.inputs, observable.pauli)
+            result[str(position)] = declared_pauli_of(gadget.inputs, observable)
             position += 1
     return result
 

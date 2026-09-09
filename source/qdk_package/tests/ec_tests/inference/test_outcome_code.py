@@ -9,7 +9,7 @@ def test_outcome_code_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> Non
     program = program_of(idle_gadget)
     code = outcome_code_of(program)
     assert isinstance(code, OutcomeCode)
-    assert code.measurement_count == program.outcome_count
+    assert code.measurement_count == len(program.readouts)
     assert code.check_count >= 1
 
 

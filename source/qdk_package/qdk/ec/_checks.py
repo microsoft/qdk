@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from binar import BitMatrix, BitVector
 from paulimer import PauliGroup
-from qodec.circuits import Program
+from qodec.gadgets import Circuit
 
 from ._analysis.check_discovery import Profile, checks_of, profile_of
 from ._analysis.essential_checks import essential_checks_of
@@ -48,7 +48,7 @@ class OutcomeCode:
 
 
 def outcome_code_of(
-    program: Program,
+    program: Circuit,
     input_stabilizers: PauliGroup | None = None,
 ) -> OutcomeCode:
     """Return the classical code formed by ``program``'s deterministic outcomes."""

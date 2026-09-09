@@ -24,7 +24,7 @@ def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
         outputs=list(gadget.outputs),
         checks=[as_references(check) for check in discovered.checks],
         readouts=[as_readout(value) for value in gadget.readouts],
-        parameters=dict(gadget.parameters),
+        parameter_bindings=dict(gadget.parameter_bindings),
         metadata=dict(gadget.metadata),
     )
     set_gadget_readouts(completed, discovered.readouts)
@@ -47,7 +47,7 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
         completed: list[qc.Gadget] = []
         for mnemonic, gadget in layer.gadgets.items():
             completed.append(_try_complete_gadget(gadget, index, mnemonic))
-        layers.append(qc.Layer(layer.isa, gadgets=completed))
+        layers.append(qc.Layer(layer.instruction_set, gadgets=completed))
     return qc.Qodec(
         layers,
         name=qodec.name,

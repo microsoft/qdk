@@ -8,6 +8,7 @@ import pytest
 from ec_tests.testing.qodecs import c4
 from qdk.ec import _completion
 from qdk.ec._completion import complete_qodec
+from qdk.ec._readouts import as_readout
 
 
 def _stripped(qodec: qc.Qodec) -> qc.Qodec:
@@ -21,24 +22,14 @@ def _stripped(qodec: qc.Qodec) -> qc.Qodec:
                 inputs=list(gadget.inputs),
                 outputs=list(gadget.outputs),
                 checks=[],
-                readouts=[
-                    [str(atom) for atom in _equation(entry)]
-                    for entry in gadget.readouts
-                ],
-                parameters=dict(gadget.parameters),
+                readouts=[as_readout(entry) for entry in gadget.readouts],
+                parameter_bindings=dict(gadget.parameter_bindings),
                 metadata=dict(gadget.metadata),
             )
             for gadget in layer.gadgets.values()
         ]
-        layers.append(qc.Layer(layer.isa, gadgets=drafts))
+        layers.append(qc.Layer(layer.instruction_set, gadgets=drafts))
     return qc.Qodec(layers, name=qodec.name, description=qodec.description)
-
-
-def _equation(entry: object) -> list[object]:
-    if isinstance(entry, dict):
-        (equation,) = entry.values()
-        return list(equation)
-    return list(entry)  # type: ignore[arg-type]
 
 
 def test_complete_qodec_fills_in_checks_for_every_gadget() -> None:
@@ -76,8 +67,8 @@ def test_complete_qodec_preserves_the_layer_chain_and_identity() -> None:
     assert completed is not qodec
     assert completed.name == qodec.name
     assert completed.description == qodec.description
-    assert [layer.isa.name for layer in completed.layers] == [
-        layer.isa.name for layer in qodec.layers
+    assert [layer.instruction_set.name for layer in completed.layers] == [
+        layer.instruction_set.name for layer in qodec.layers
     ]
     assert [sorted(layer.gadgets) for layer in completed.layers] == [
         sorted(layer.gadgets) for layer in qodec.layers

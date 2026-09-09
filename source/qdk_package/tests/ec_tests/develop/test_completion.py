@@ -2,21 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-
 import qodec as qc
 
 from qdk.ec._completion import complete_gadget
-
-
-def _readout(
-    value: Sequence[object] | Mapping[str, Sequence[object]],
-) -> list[str] | dict[str, list[str]]:
-    if isinstance(value, Mapping):
-        return {
-            name: [str(atom) for atom in equation] for name, equation in value.items()
-        }
-    return [str(atom) for atom in value]
+from qdk.ec._readouts import as_readout
 
 
 def test_complete_gadget_returns_completed_copy(idle_gadget: qc.Gadget) -> None:
@@ -26,8 +15,8 @@ def test_complete_gadget_returns_completed_copy(idle_gadget: qc.Gadget) -> None:
         inputs=list(idle_gadget.inputs),
         outputs=list(idle_gadget.outputs),
         checks=[],
-        readouts=[_readout(value) for value in idle_gadget.readouts],
-        parameters=dict(idle_gadget.parameters),
+        readouts=[as_readout(value) for value in idle_gadget.readouts],
+        parameter_bindings=dict(idle_gadget.parameter_bindings),
         metadata=dict(idle_gadget.metadata),
     )
 
@@ -38,3 +27,11 @@ def test_complete_gadget_returns_completed_copy(idle_gadget: qc.Gadget) -> None:
     assert len(completed.checks) > 0
     assert completed.implements == draft.implements
     assert completed.circuit == draft.circuit
+
+
+def test_completion_preserves_named_flag_readouts(prepare_zz_gadget: qc.Gadget) -> None:
+    completed = complete_gadget(prepare_zz_gadget)
+    (readout,) = completed.readouts
+    assert readout.is_flag
+    assert readout.name == "reject"
+    assert completed.readouts == prepare_zz_gadget.readouts

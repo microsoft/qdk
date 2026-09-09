@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Sequence, cast
+from typing import Sequence
 
 import qodec as qc
-from qodec.circuits import Program
 from qodec.gadgets import Circuit
 
 from ._analysis.check_discovery import checks_of, profile_of
@@ -21,7 +20,7 @@ from ._analysis.equivalence import gadgets_equivalent, why_not_equivalent
 from ._analysis.propagation.interpreter import propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._layout import ProgramLayout
-from ._readouts import observe_count_of
+from ._readouts import as_readout, observe_count_of
 from ._references import outcomes_of
 from ._checks import OutcomeCode, outcome_code_of
 from ._faults import FaultEffect, FaultEvent, fault_effects_of
@@ -199,7 +198,7 @@ class GadgetProfile:
         layout = ProgramLayout.of(program)
         return tuple(
             FaultEvent.after(index, Pauli({qubit: basis}))
-            for index, call in enumerate(program.instructions)
+            for index, call in enumerate(program.calls)
             for qubit in sorted(set(layout.call_qubit_map(call).values()))
             for basis in ("X", "Z")
         )
@@ -223,9 +222,9 @@ def _residual(z_probe_flipped: bool, x_probe_flipped: bool) -> Pauli:
 
 def _snapshot(target: qc.Gadget | Circuit) -> qc.Gadget | Circuit:
     if isinstance(target, Circuit):
-        return Circuit(target.isa, target.source, format=target.format)
+        return Circuit(target.instruction_set, target.source, format=target.format)
     circuit = Circuit(
-        target.circuit.isa,
+        target.circuit.instruction_set,
         target.circuit.source,
         format=target.circuit.format,
     )
@@ -235,11 +234,11 @@ def _snapshot(target: qc.Gadget | Circuit) -> qc.Gadget | Circuit:
         inputs=list(target.inputs),
         outputs=list(target.outputs),
         checks=[list(check) for check in target.checks],
-        readouts=cast("list[qc.ReadoutLike]", list(target.readouts)),
-        parameters=dict(target.parameters),
+        readouts=[as_readout(readout) for readout in target.readouts],
+        parameter_bindings=dict(target.parameter_bindings),
         metadata=dict(target.metadata),
     )
 
 
-def _program(circuit: Circuit) -> Program:
-    return Program(circuit.instructions, circuit.isa)
+def _program(circuit: Circuit) -> Circuit:
+    return circuit

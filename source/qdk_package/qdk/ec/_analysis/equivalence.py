@@ -38,7 +38,7 @@ def why_not_equivalent(left: qc.Gadget, right: qc.Gadget) -> str:
 
 
 def _encoding_signature(
-    encodings: Iterable[qc.Encoding],
+    encodings: Iterable[qc.gadgets.Encoding],
 ) -> EncodingSignature:
     return tuple(
         (entry, tuple(int(qubit) for qubit in encoding.support))

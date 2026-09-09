@@ -20,6 +20,7 @@ from qdk.ec._analysis.channel_action import (
 from qdk.ec._analysis.propagation.interpreter import program_of
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
+from qdk.ec._layout import ProgramLayout
 
 
 def _action_of_gadget(gadget: qc.Gadget) -> ChannelAction:
@@ -31,7 +32,7 @@ def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> Non
     inputs = input_qubits_of(program)
     assert isinstance(inputs, frozenset)
     assert all(isinstance(qubit, int) for qubit in inputs)
-    assert inputs <= frozenset(range(program.qubit_count))
+    assert inputs <= frozenset(range(ProgramLayout.of(program).total_qubits))
 
 
 def test_action_of_idle_channel_returns_channel_action(
@@ -39,9 +40,9 @@ def test_action_of_idle_channel_returns_channel_action(
 ) -> None:
     action = _action_of_gadget(idle_gadget)
     assert isinstance(action, ChannelAction)
-    assert isinstance(action.observables, FrameGroup)
-    assert isinstance(action.stabilizers, FrameGroup)
-    assert isinstance(action.mapping, dict)
+    assert isinstance(action._observables, FrameGroup)
+    assert isinstance(action._stabilizers, FrameGroup)
+    assert isinstance(action._mapping, dict)
 
 
 def test_action_is_equivalent_to_itself(idle_gadget: qc.Gadget) -> None:
@@ -66,10 +67,10 @@ def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
     idle_gadget: qc.Gadget,
 ) -> None:
     action = _action_of_gadget(idle_gadget)
-    if not action.mapping:
+    if not action._mapping:
         return
-    flipped_mapping = {key: value * -1 for key, value in action.mapping.items()}
-    flipped = ChannelAction(action.observables, action.stabilizers, flipped_mapping)
+    flipped_mapping = {key: value * -1 for key, value in action._mapping.items()}
+    flipped = ChannelAction._create(action._observables, action._stabilizers, flipped_mapping)
     assert are_equivalent_mod_paulis(action, flipped)
     assert flipped.is_equivalent_to(action, modulo_paulis=True)
     assert not are_outcome_equivalent(action, flipped)
@@ -81,9 +82,9 @@ def test_different_stabilizers_are_not_mod_paulis_equivalent(
 ) -> None:
     action = _action_of_gadget(idle_gadget)
     extra = FrameGroup(
-        list(action.stabilizers.generators) + [PauliFrame(Pauli({0: "Z"}))]
+        list(action._stabilizers.generators) + [PauliFrame(Pauli({0: "Z"}))]
     )
-    perturbed = ChannelAction(action.observables, extra, action.mapping)
+    perturbed = ChannelAction._create(action._observables, extra, action._mapping)
     assert not are_equivalent_mod_paulis(action, perturbed)
 
 
@@ -103,7 +104,7 @@ def test_preparation_declared_stabilizers_are_deterministic(
     """
     for gadget in (prepare_xx_gadget, prepare_zz_gadget):
         declared = declared_action_of(gadget)
-        generators = declared.stabilizers.standardized().generators
+        generators = declared._stabilizers.standardized().generators
         assert generators, "preparation fixes no stabilisers"
         assert all(not framed.frame for framed in generators), (
             "preparation left an outcome frame on its stabilisers; `stabilize` "
@@ -170,7 +171,7 @@ def test_destructive_measurement_carries_no_logical_but_stays_distinguishable(
     """
     measured = realized_action_of(measure_zz_gadget)
 
-    assert not measured.mapping
+    assert not measured._mapping
     for other in (measure_xx_gadget, prepare_zz_gadget):
         assert not are_equivalent_mod_paulis(measured, realized_action_of(other))
 
@@ -179,8 +180,42 @@ def test_declared_program_binds_inputs_and_outputs_to_the_same_indices(
     idle_gadget: qc.Gadget,
 ) -> None:
     """Pins the reference side of the action check: both operand sets are 0..n-1."""
-    (call,) = declared_program_of(idle_gadget).instructions
+    (call,) = declared_program_of(idle_gadget).calls
 
     assert call.mnemonic == idle_gadget.implements.mnemonic
-    assert dict(call.inputs) == {"0": 0, "1": 1}
-    assert dict(call.outputs) == {"0": 0, "1": 1}
+    assert call.operands == [0, 1]
+
+
+def test_declared_circuit_preserves_parameter_names() -> None:
+    operand = qc.instructions.BlockOperand("qubit")
+    parameter = qc.instructions.Parameter("theta", "number")
+    instruction = qc.Instruction(
+        "rotate",
+        inputs=[operand],
+        outputs=[operand],
+        parameters=[parameter],
+        action=[qc.actions.Rotate("Z_0", "theta")],
+    )
+    instruction_set = qc.InstructionSet(
+        "rotations",
+        blocks=[qc.instructions.Block("qubit", encodes=1)],
+        instructions=[instruction],
+    )
+    circuit = qc.gadgets.Circuit(
+        instruction_set,
+        "- rotate: {operands: [0], arguments: {theta: angle}}",
+        format="yaml",
+    )
+    encoding = Encoding(
+        qc.Code("qubit", stabilizers=[], x=["X_0"], z=["Z_0"]), support=["0"]
+    )
+    gadget = qc.Gadget(
+        instruction,
+        circuit,
+        inputs=[encoding],
+        outputs=[encoding],
+        parameter_bindings={"theta": "angle"},
+    )
+    declared = declared_program_of(gadget)
+    assert declared.instruction_set.instructions["rotate"].parameters == [parameter]
+    assert declared.calls[0].arguments == {"theta": "theta"}

@@ -1,10 +1,7 @@
-"""The qubit labels carried by a qodec instruction-call operand.
+"""The block labels carried by a qodec instruction-call operand.
 
-A block operand names one or more qubits, and qodec's IR renders that naming as
-an ``int``, a ``list[int]``, a whitespace-joined ``str``, or a ``list[str]``
-depending on how the call was built. "Which qubits does this operand name?" is
-therefore a question every compiler, allocator, and walker in ``qdk.ec`` has to
-ask, and this module is the one place that answers it.
+Each positional operand names one block, as an integer or a string. Variadic
+operands occupy successive entries in the same flat operand list.
 
 A :data:`QubitLabel` is an ``int`` (an authored qubit index) or a ``str`` (a
 symbolic label such as the namespaced ``"alice.0"`` that lowering emits). A
@@ -17,12 +14,7 @@ re-parsing text.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
-
-import qodec as qc
-
-if TYPE_CHECKING:
-    Argument = qc.instructions.InstructionCall.Argument
+from typing import Union
 
 #: One qubit named by a block operand: an authored index or a symbolic label.
 QubitLabel = Union[int, str]
@@ -45,16 +37,8 @@ def _as_label(item: object) -> QubitLabel:
     return number if str(number) == text else text
 
 
-def qubit_labels(value: "Argument") -> list[QubitLabel]:
-    """The qubit labels ``value`` names, in order.
-
-    An ``int`` names one qubit, a ``list`` one per element, and a ``str`` one
-    per whitespace-separated token.
-    """
-    if isinstance(value, str):
-        return [_as_label(token) for token in value.split()]
-    if isinstance(value, list):
-        return [_as_label(item) for item in value]
+def qubit_labels(value: int | str) -> list[QubitLabel]:
+    """The single block label this positional operand names."""
     return [_as_label(value)]
 
 

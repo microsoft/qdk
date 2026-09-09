@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Sequence, Union
 from warnings import warn
@@ -9,7 +10,7 @@ from warnings import warn
 import qodec as qc
 from paulimer import PauliGroup
 from qodec.actions import Stabilize
-from qodec.circuits import Program
+from qodec.gadgets import Circuit
 
 from .._layout import ProgramLayout
 from .propagation.conditional import conditional_choi_state
@@ -28,13 +29,37 @@ from .separable_code import SeparableCode
 from .stabilizer_code import StabilizerCode
 
 
-@dataclass
+@dataclass(init=False, repr=False, match_args=False, slots=True)
 class ChannelAction:
-    """Input/output stabilizers and logical mapping of a program."""
+    """Opaque channel behavior returned by ``GadgetProfile.action`` or ``.objective``.
 
-    observables: FrameGroup
-    stabilizers: FrameGroup
-    mapping: Mapping[Pauli, PauliFrame]
+    Compare results with :meth:`is_equivalent_to` or
+    :meth:`why_not_equivalent_to`. Direct construction and access to the
+    internal stabilizers, observables, and logical mapping are not supported.
+    """
+
+    _observables: FrameGroup
+    _stabilizers: FrameGroup
+    _mapping: Mapping[Pauli, PauliFrame]
+
+    def __new__(cls) -> "ChannelAction":
+        raise TypeError(
+            "ChannelAction cannot be constructed directly; "
+            "use GadgetProfile.action or GadgetProfile.objective"
+        )
+
+    @classmethod
+    def _create(
+        cls,
+        observables: FrameGroup,
+        stabilizers: FrameGroup,
+        mapping: Mapping[Pauli, PauliFrame],
+    ) -> "ChannelAction":
+        action = object.__new__(cls)
+        action._observables = observables
+        action._stabilizers = stabilizers
+        action._mapping = mapping
+        return action
 
     def is_equivalent_to(
         self, other: "ChannelAction", *, modulo_paulis: bool = False
@@ -52,18 +77,18 @@ class ChannelAction:
 
     def __str__(self) -> str:
         return (
-            f"observables: {self.observables}\n"
-            f"stabilizers: {self.stabilizers}\n"
-            f"mapping: {self.mapping}"
+            f"observables: {self._observables}\n"
+            f"stabilizers: {self._stabilizers}\n"
+            f"mapping: {self._mapping}"
         )
 
 
-def input_qubits_of(program: Program) -> frozenset[int]:
+def input_qubits_of(program: Circuit) -> frozenset[int]:
     seen: set[int] = set()
     prepared: set[int] = set()
     layout = ProgramLayout.of(program)
-    for call in program.instructions:
-        instruction = program.lookup(call.mnemonic)
+    for call in program.calls:
+        instruction = program.instruction_set.instructions[call.mnemonic]
         qubit_map = layout.call_qubit_map(call)
         for action in instruction.action:
             touched: set[int] = set()
@@ -83,7 +108,7 @@ def input_qubits_of(program: Program) -> frozenset[int]:
 
 
 def action_of(
-    program: Program,
+    program: Circuit,
     with_respect_to: Union[
         SubsystemCode, tuple[SubsystemCode, SubsystemCode], None
     ] = None,
@@ -103,7 +128,7 @@ def action_of(
 
 
 def _action_of(
-    program: Program,
+    program: Circuit,
     *,
     input_qubits: Sequence[int],
     codespace_projector: Sequence[Pauli] = (),
@@ -172,11 +197,11 @@ def _assemble_action(
         PauliFrame(input_adjust(framed.pauli), framed.frame)
         for framed in stabilizers_in.standardized().generators
     )
-    return ChannelAction(observables, stabilizers_out.standardized(), mapping)
+    return ChannelAction._create(observables, stabilizers_out.standardized(), mapping)
 
 
 def _aux_origin_of(
-    program: Program,
+    program: Circuit,
     *,
     input_qubits: Sequence[int],
     codespace_projector: Sequence[Pauli],
@@ -197,7 +222,7 @@ def _decode(
 ) -> ChannelAction:
     _validate(action, with_respect_to=with_respect_to)
     code_in, code_out = with_respect_to
-    stabilizers_group = action.stabilizers.unframed
+    stabilizers_group = action._stabilizers.unframed
 
     def phase_of(pauli: Pauli) -> Pauli:
         return _phase_of(pauli, within=stabilizers_group)
@@ -207,13 +232,13 @@ def _decode(
         logical_basis=code_out.logical_basis,
         gauge_basis=code_out.gauge_basis,
     )
-    observables = _logical_form_of(action.observables, with_respect_to=code_in)
-    stabilizers = _logical_form_of(action.stabilizers, with_respect_to=code_out)
+    observables = _logical_form_of(action._observables, with_respect_to=code_in)
+    stabilizers = _logical_form_of(action._stabilizers, with_respect_to=code_out)
     input_generators = [
-        _quotient_of(key, action.observables.unframed) for key in action.mapping
+        _quotient_of(key, action._observables.unframed) for key in action._mapping
     ]
     output_generators = FrameGroup(
-        _quotient_framed(value, action.stabilizers) for value in action.mapping.values()
+        _quotient_framed(value, action._stabilizers) for value in action._mapping.values()
     )
     indexed_inputs = FrameGroup(
         PauliFrame(generator, frozenset({index}))
@@ -221,7 +246,7 @@ def _decode(
     )
     mapping = {}
     for basis_element in code_in.logical_basis:
-        target = _quotient_of(basis_element, action.observables.unframed)
+        target = _quotient_of(basis_element, action._observables.unframed)
         # A logical with no image is normal here, not a failure to characterize:
         # a destructive measurement produces both cases below.
         if not target.weight:
@@ -240,7 +265,7 @@ def _decode(
         mapping[code_in.logical_action_of(target)] = PauliFrame(
             code_out.logical_action_of(output.pauli), output.frame
         ) * (target.phase**3)
-    return ChannelAction(observables, stabilizers, mapping)
+    return ChannelAction._create(observables, stabilizers, mapping)
 
 
 def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
@@ -287,8 +312,8 @@ def _validate(
     with_respect_to: tuple[SubsystemCode, SubsystemCode],
 ) -> None:
     code_in, code_out = with_respect_to
-    observables_group = action.observables.unframed
-    stabilizers_group = action.stabilizers.unframed
+    observables_group = action._observables.unframed
+    stabilizers_group = action._stabilizers.unframed
     _validate_group(observables_group, against=code_in)
     _validate_group(stabilizers_group, against=code_out)
     observables = observables_group % (observables_group % code_in.stabilizer)
@@ -334,14 +359,14 @@ def are_equivalent_mod_paulis(action1: ChannelAction, action2: ChannelAction) ->
     pair of codes satisfy this; two actions decoded against different logical
     bases for the same code do not.
     """
-    if _unsigned(action1.observables.unframed) != _unsigned(
-        action2.observables.unframed
-    ) or _unsigned(action1.stabilizers.unframed) != _unsigned(
-        action2.stabilizers.unframed
+    if _unsigned(action1._observables.unframed) != _unsigned(
+        action2._observables.unframed
+    ) or _unsigned(action1._stabilizers.unframed) != _unsigned(
+        action2._stabilizers.unframed
     ):
         return False
-    mapping1 = {abs(key): abs(value.pauli) for key, value in action1.mapping.items()}
-    mapping2 = {abs(key): abs(value.pauli) for key, value in action2.mapping.items()}
+    mapping1 = {abs(key): abs(value.pauli) for key, value in action1._mapping.items()}
+    mapping2 = {abs(key): abs(value.pauli) for key, value in action2._mapping.items()}
     return mapping1 == mapping2
 
 
@@ -380,11 +405,11 @@ def _outcome_items(
     action: ChannelAction,
 ) -> list[tuple[complex, frozenset[int], bool]]:
     items = []
-    for framed in action.observables.standardized().generators:
+    for framed in action._observables.standardized().generators:
         items.append((framed.pauli.phase, framed.frame, False))
-    for framed in action.stabilizers.standardized().generators:
+    for framed in action._stabilizers.standardized().generators:
         items.append((framed.pauli.phase, framed.frame, False))
-    mapping = sorted(action.mapping.items(), key=lambda item: _sort_key(item[0]))
+    mapping = sorted(action._mapping.items(), key=lambda item: _sort_key(item[0]))
     for key, _ in mapping:
         items.append((key.phase, frozenset(), False))
     for _, value in mapping:
@@ -397,7 +422,7 @@ def _sort_key(pauli: Pauli) -> tuple[tuple[int, ...], tuple[str, ...]]:
     return tuple(pauli.support), tuple(str(character) for character in pauli.characters)
 
 
-def declared_program_of(gadget: qc.Gadget) -> Program:
+def declared_program_of(gadget: qc.Gadget) -> Circuit:
     instruction = gadget.implements
     input_count, output_count = _declared_logical_counts(gadget)
     unit = qc.instructions.BlockOperand("declared")
@@ -405,16 +430,28 @@ def declared_program_of(gadget: qc.Gadget) -> Program:
         mnemonic=instruction.mnemonic,
         inputs=[unit for _ in range(input_count)],
         outputs=[unit for _ in range(output_count)],
+        parameters=list(instruction.parameters),
         flags=list(instruction.flags),
         action=list(instruction.action),
     )
     isa = _declared_isa(synthetic)
-    call = qc.instructions.InstructionCall(
-        instruction.mnemonic,
-        inputs={str(index): index for index in range(input_count)},
-        outputs={str(index): index for index in range(output_count)},
+    return Circuit(
+        isa,
+        json.dumps(
+            [
+                {
+                    instruction.mnemonic: {
+                        "operands": list(range(max(input_count, output_count))),
+                        "arguments": {
+                            parameter.name: parameter.name
+                            for parameter in instruction.parameters
+                        },
+                    }
+                }
+            ]
+        ),
+        format="yaml",
     )
-    return Program([call], isa)
 
 
 def _declared_isa(
@@ -466,7 +503,7 @@ def realized_codes_of(
     )
 
 
-def _stack_encodings(encodings: Sequence[qc.Encoding]) -> SeparableCode:
+def _stack_encodings(encodings: Sequence[qc.gadgets.Encoding]) -> SeparableCode:
     blocks = []
     for encoding in encodings:
         code = subsystem_code_of(encoding.code)

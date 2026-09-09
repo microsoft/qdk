@@ -369,10 +369,10 @@ def _candidates(
     all_data = _targets(range(data_width))
     order = range(logical_count)
 
-    z_tokens = [f"Z_{index}" for index in order]
-    x_tokens = [f"X_{index}" for index in order]
-    z_observables: list[qc.actions.Observable | str] = list(z_tokens)
-    x_observables: list[qc.actions.Observable | str] = list(x_tokens)
+    z_tokens: list[qc.PauliLike] = [f"Z_{index}" for index in order]
+    x_tokens: list[qc.PauliLike] = [f"X_{index}" for index in order]
+    z_observables = list(z_tokens)
+    x_observables = list(x_tokens)
 
     candidates = [
         _Candidate(
@@ -492,7 +492,7 @@ def _rebound(gadget: qc.Gadget, instruction: Instruction) -> qc.Gadget:
         outputs=list(gadget.outputs),
         checks=[as_references(check) for check in gadget.checks],
         readouts=[as_readout(entry) for entry in gadget.readouts],
-        parameters=dict(gadget.parameters),
+        parameter_bindings=dict(gadget.parameter_bindings),
         metadata=dict(gadget.metadata),
     )
 
@@ -611,7 +611,7 @@ def _synthesize(
     for candidate in candidates:
         attempt = _attempt_candidate(
             candidate,
-            provisional.instruction(candidate.mnemonic),
+            provisional.instructions[candidate.mnemonic],
             code,
             physical,
             data_width,
@@ -640,7 +640,7 @@ def _synthesize(
         instructions=[candidate.instruction for candidate, _ in completed],
     )
     gadgets = [
-        _rebound(gadget, logical.instruction(candidate.mnemonic))
+        _rebound(gadget, logical.instructions[candidate.mnemonic])
         for candidate, gadget in completed
     ]
 
