@@ -4,8 +4,8 @@
 /.github/workflows/fuzz.yml @billti @idavis @swernli
 /source/compiler @idavis @swernli
 /source/compiler/qsc_codegen @idavis @swernli
-/source/compiler/qsc_doc_gen @billti
-/source/compiler/qsc_formatter @billti
+/source/compiler/qsc_doc_gen @billti @amcasey
+/source/compiler/qsc_formatter @billti @amcasey
 /source/compiler/qsc_project @idavis @swernli
 /source/compiler/qsc_partial_eval @idavis @swernli
 /source/compiler/qsc_rca @idavis @swernli
@@ -24,7 +24,7 @@
 /source/playground @billti @amcasey
 /source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @swernli
-/samples @swernli
+/samples @swernli @fedimser
 /source/vscode @billti @idavis @amcasey
 /source/vscode/resources/qdk-learning @billti @HABER7789 @amcasey
 /source/wasm @billti @idavis @swernli
