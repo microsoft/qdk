@@ -5,12 +5,15 @@ required packages are importable. Renders results as styled HTML in the
 notebook output.
 """
 
+import importlib.metadata
 import importlib.util
 import json
 import sys
 from pathlib import Path
 
 from IPython.display import HTML, display
+
+QDK_CHEMISTRY_VERSION = "2.1.0"
 
 
 def check() -> None:
@@ -54,6 +57,25 @@ def check() -> None:
         )
     elif import_checks:
         results.append(("Packages", ", ".join(import_checks), True))
+
+    if _can_import("qdk_chemistry"):
+        installed_version = importlib.metadata.version("qdk-chemistry")
+        version_ok = installed_version == QDK_CHEMISTRY_VERSION
+        results.append(
+            (
+                "QDK/Chemistry version",
+                installed_version,
+                version_ok,
+            )
+        )
+        if not version_ok:
+            errors.append(
+                "This course requires "
+                f"<code>qdk-chemistry=={QDK_CHEMISTRY_VERSION}</code>, but "
+                f"version <code>{installed_version}</code> is installed. "
+                "Install the course requirements and re-run this cell:"
+                f"<pre>  %pip install -r ../requirements.txt</pre>"
+            )
 
     # --- Render ---
     _render(results, errors)
