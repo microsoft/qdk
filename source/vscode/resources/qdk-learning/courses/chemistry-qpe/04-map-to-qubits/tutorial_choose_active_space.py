@@ -2,10 +2,9 @@
 
 The workflow progresses from Hartree--Fock orbitals through valence-space CASCI,
 natural orbitals, entropy-based autoCAS refinement, and a deterministic choice
-of coordinates inside occupation-degenerate natural-orbital subspaces. The last
-step coordinate-minimizes the mapped Hamiltonian coefficient norm
-``lambda = sum(abs(h_l))`` while preserving the selected orbital subspace and its
-CASCI energy.
+of coordinates inside occupation-degenerate natural-orbital subspaces. Native
+gauge fixing minimizes a mapped Hamiltonian coefficient norm while preserving
+the selected orbital subspace and its CASCI energy.
 """
 
 # --------------------------------------------------------------------------------------------
@@ -17,13 +16,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from qdk_chemistry.algorithms import create
-from qdk_chemistry.data import Orbitals, Structure, Wavefunction
+from qdk_chemistry.data import BasisSet, Orbitals, Structure, Wavefunction
 from qdk_chemistry.data.symmetry import SymmetryLabel, axes
 from qdk_chemistry.utils import Logger, compute_valence_space_parameters
-from tutorial_orbital_coordinates import (
-    NaturalOrbitalCoordinateMinimizationResult,
-    coordinate_minimize_natural_orbital_coefficient_norm,
-)
 
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
@@ -61,8 +56,8 @@ class ActiveSpaceResult:
         orbital_entropies: One entropy per valence spatial orbital, ordered like
             ``valence_indices``.
         refined_wavefunction: autoCAS wavefunction carrying the selected orbital
-            partition before coordinate minimization.
-        refined_orbitals: Selected orbitals after coordinate minimization inside
+            partition before gauge fixing.
+        refined_orbitals: Selected orbitals after native gauge fixing inside
             occupation-degenerate blocks.
         inactive_indices: Frozen doubly occupied spatial-orbital indices.
         refined_indices: Spatial-orbital indices retained as active by autoCAS.
@@ -71,9 +66,8 @@ class ActiveSpaceResult:
         refined_energy: Selected-space CASCI energy in Hartree and the later
             algorithmic reference.
         refined_casci_wavefunction: Complete selected-space CASCI wavefunction in
-            the coordinate-minimized orbital representation.
+            the gauge-fixed orbital representation.
         num_refined_determinants: Determinants in the complete selected-space CI.
-        natural_orbital_coordinate_minimization: Coordinate-minimization diagnostics.
     """
 
     structure: Structure
@@ -97,9 +91,6 @@ class ActiveSpaceResult:
     refined_energy: float
     refined_casci_wavefunction: Wavefunction
     num_refined_determinants: int
-    natural_orbital_coordinate_minimization: (
-        "NaturalOrbitalCoordinateMinimizationResult"
-    )
 
 
 def run_active_space_workflow() -> ActiveSpaceResult:
@@ -107,13 +98,13 @@ def run_active_space_workflow() -> ActiveSpaceResult:
 
     The workflow computes Hartree--Fock orbitals, forms a complete valence-space
     CASCI reference, diagonalizes its one-particle RDM to obtain natural
-    orbitals, applies entropy-based autoCAS refinement, coordinate-minimizes the
-    selected degenerate-orbital gauge, and solves the final selected-space CASCI
+    orbitals, applies entropy-based autoCAS refinement, fixes the selected
+    degenerate-orbital gauge, and solves the final selected-space CASCI
     problem.
 
     Returns:
         Energies, wavefunctions, orbital partitions, mapping diagnostics, and
-        coordinate-minimized selected orbitals needed by mapping, state
+        gauge-fixed selected orbitals needed by mapping, state
         preparation, and visualization.
     """
     ################################################################################
@@ -245,14 +236,23 @@ def run_active_space_workflow() -> ActiveSpaceResult:
     )
 
     # Natural occupations can be degenerate, leaving the corresponding orbital
-    # vectors free to rotate. Choose that gauge only after autoCAS has selected
-    # the final active subspace, because lambda belongs to its mapped Hamiltonian.
-    coordinate_minimization = coordinate_minimize_natural_orbital_coefficient_norm(
-        valence_casci_wavefunction,
-        refined_orbitals,
-        valence_indices,
+    # vectors free to rotate. Fix the selected complete blocks deterministically
+    # before applying the reduced autoCAS partition to the transformed orbitals.
+    gauge_fixer = create("orbital_localizer", "qdk_gauge_fixing")
+    gauge_fixed_wavefunction = gauge_fixer.run(
+        natural_orbital_casci_wavefunction,
+        refined_indices,
+        refined_indices,
     )
-    refined_orbitals = coordinate_minimization.orbitals
+    gauge_fixed_orbitals = gauge_fixed_wavefunction.get_orbitals()
+    refined_orbitals = Orbitals(
+        coefficients=gauge_fixed_orbitals.coefficients(),
+        energies=None,
+        ao_overlap=gauge_fixed_orbitals.get_overlap_matrix(),
+        basis_set=gauge_fixed_orbitals.get_basis_set(),
+        active_indices=refined_orbitals.active_indices(),
+        inactive_indices=refined_orbitals.inactive_indices(),
+    )
     # end-cell-refine
     ################################################################################
 
@@ -290,7 +290,6 @@ def run_active_space_workflow() -> ActiveSpaceResult:
         refined_energy=refined_energy,
         refined_casci_wavefunction=refined_casci_wavefunction,
         num_refined_determinants=num_refined_determinants,
-        natural_orbital_coordinate_minimization=coordinate_minimization,
     )
 
 
@@ -298,8 +297,8 @@ def print_active_space_results(result: ActiveSpaceResult) -> None:
     """Print active-space evidence for the cumulative lab notebook.
 
     The output distinguishes energy invariance under the natural-orbital
-    rotation, entropy-based orbital selection, coordinate-minimization
-    diagnostics, and the energy cost of reducing the active space.
+    rotation, entropy-based orbital selection, and the energy cost of reducing
+    the active space.
 
     Args:
         result: Completed active-space workflow.
@@ -332,20 +331,6 @@ def print_active_space_results(result: ActiveSpaceResult) -> None:
     print(f"Inactive orbital indices: {result.inactive_indices}")
     print(f"Active orbital indices: {result.refined_indices}")
     print(f"Virtual orbitals: {result.num_virtual_orbitals}")
-    print(
-        "Degenerate selected orbital blocks: "
-        f"{result.natural_orbital_coordinate_minimization.selected_blocks}"
-    )
-    print(
-        "Mapped coefficient norm before/after coordinate minimization: "
-        f"{result.natural_orbital_coordinate_minimization.coefficient_norm_before:.12f} / "
-        f"{result.natural_orbital_coordinate_minimization.coefficient_norm_after:.12f} Hartree"
-    )
-    print(
-        "Effective Pauli terms before/after coordinate minimization: "
-        f"{result.natural_orbital_coordinate_minimization.effective_pauli_terms_before} / "
-        f"{result.natural_orbital_coordinate_minimization.effective_pauli_terms_after}"
-    )
     print(f"Final CASCI energy: {result.refined_energy:.12f} Hartree")
     print(f"Final CASCI determinants: {result.num_refined_determinants}")
     energy_increase = result.refined_energy - result.natural_orbital_energy
@@ -476,27 +461,35 @@ def generate_basis_function_cube_data(
 
     """
     import numpy as np
-    from pyscf import gto
-    from qdk_chemistry.plugins.pyscf.conversion import (
-        pyscf_mol_to_qdk_basis,
-        structure_to_pyscf_atom_labels,
-    )
     from qdk_chemistry.utils.cubegen import generate_cubefiles_from_orbitals
 
-    atoms, _, _ = structure_to_pyscf_atom_labels(structure)
-    pyscf_molecule = gto.Mole(
-        atom=atoms,
-        basis=basis_name,
-        charge=0,
-        spin=0,
-        unit="Bohr",
-    )
-    pyscf_molecule.build()
-    basis_set = pyscf_mol_to_qdk_basis(pyscf_molecule, structure, basis_name)
-    num_basis_functions = pyscf_molecule.nao_nr()
-    basis_function_labels = [
-        " ".join(label.split()[1:]) for label in pyscf_molecule.ao_labels()
-    ]
+    basis_set = BasisSet.from_basis_name(basis_name, structure)
+    component_labels = {
+        0: ("s",),
+        1: ("px", "py", "pz"),
+        2: ("dxy", "dyz", "dz^2", "dxz", "dx2-y2"),
+    }
+    shell_counts: dict[tuple[int, int], int] = {}
+    basis_function_labels: list[str] = []
+    for shell in basis_set.get_shells():
+        atom_index = shell.atom_index
+        angular_momentum = shell.get_angular_momentum()
+        if angular_momentum not in component_labels:
+            raise ValueError(
+                f"Basis set {basis_name!r} contains unsupported shell angular momentum "
+                f"l={angular_momentum}; basis-function labels support only spherical "
+                "s, p, and d shells."
+            )
+        shell_key = (atom_index, angular_momentum)
+        shell_counts[shell_key] = shell_counts.get(shell_key, 0) + 1
+        principal_number = angular_momentum + shell_counts[shell_key]
+        center = f"{structure.get_atom_symbol(atom_index)}{atom_index + 1}"
+        basis_function_labels.extend(
+            f"{center} {principal_number}{component}"
+            for component in component_labels[angular_momentum]
+        )
+
+    num_basis_functions = basis_set.get_num_atomic_orbitals()
     if len(basis_function_labels) != num_basis_functions:
         raise ValueError("Expected one atom-centered label for each basis function.")
     basis_functions = Orbitals(
@@ -569,14 +562,15 @@ def generate_active_orbital_cube_data(
             grid_size=grid_size,
             margin=margin,
             indices=result.valence_indices,
+            label_maker=lambda index: f"orbital_{index:04d}",
         ),
     )
 
     cube_data = {}
     for raw_label, cube_file in raw_cube_data.items():
-        # Cube labels number orbitals from one, while QDK/Chemistry indices start
-        # from zero, so convert before looking up occupations and entropies.
-        orbital_index = int(raw_label.split("_")[1]) - 1
+        # Cube labels use zero-based orbital indices, matching QDK/Chemistry
+        # indexing, so parse directly before looking up occupations and entropies.
+        orbital_index = int(raw_label.split("_")[1])
         position = active_position[orbital_index]
         # Add the alpha and beta occupations to report the total occupation of
         # each spatial orbital in the viewer.

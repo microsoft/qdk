@@ -1,6 +1,6 @@
 """Map the selected stretched-N2 active-space Hamiltonian to qubits.
 
-The workflow constructs the fermionic Hamiltonian from the coordinate-minimized
+The workflow constructs the fermionic Hamiltonian from the gauge-fixed
 selected orbitals, applies Jordan--Wigner mapping in blocked spin ordering, and
 verifies the mapped ground-state energy in the fixed-electron-number sector.
 """
@@ -28,7 +28,7 @@ class QubitMappingResult:
     """Selected-space Hamiltonian and its Jordan--Wigner representation.
 
     Attributes:
-        active_space_result: Molecular model and coordinate-minimized selected orbitals.
+        active_space_result: Molecular model and gauge-fixed selected orbitals.
         active_hamiltonian: Fermionic Hamiltonian for the selected orbital space.
         qubit_hamiltonian: Weighted Pauli representation of the active Hamiltonian.
         num_active_spatial_orbitals: Selected spatial-orbital count.

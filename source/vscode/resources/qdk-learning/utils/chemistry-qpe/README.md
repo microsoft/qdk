@@ -3,9 +3,9 @@
 Scripts used to generate the QDK/Chemistry ground-state QPE tutorial as the
 notebook course at `source/vscode/resources/qdk-learning/courses/chemistry-qpe`.
 
-The course currently targets `qdk-chemistry==2.1.0`. Its source tutorial and
-companion Python files come from QDK/Chemistry PR #604, commit
-`87e3b9f2156e7a47713587b97d421529acc36d94`.
+The course supports `qdk-chemistry>=2.2.0`. Its source tutorial and
+companion Python files come from QDK/Chemistry tag `v2.2.0`, commit
+`f28a4f87a0fc0aa0308b67b1f507c9692cc655df`.
 
 These are authoring tools, not product code, and are excluded from the extension
 package by `.vscodeignore`. They locate the course relative to this folder.
