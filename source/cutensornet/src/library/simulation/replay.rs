@@ -1267,6 +1267,31 @@ fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
                 Complex64Abi::new(0.0, 0.0),
             ],
         ),
+        Gate::Rzz { theta, q1, q2 } => {
+            let (sine, cosine) = (theta / 2.0).sin_cos();
+            let zero = Complex64Abi::new(0.0, 0.0);
+            (
+                vec![mode_id(q1)?, mode_id(q2)?],
+                vec![
+                    Complex64Abi::new(cosine, -sine),
+                    zero,
+                    zero,
+                    zero,
+                    zero,
+                    Complex64Abi::new(cosine, sine),
+                    zero,
+                    zero,
+                    zero,
+                    zero,
+                    Complex64Abi::new(cosine, sine),
+                    zero,
+                    zero,
+                    zero,
+                    zero,
+                    Complex64Abi::new(cosine, -sine),
+                ],
+            )
+        }
     };
     OwnedOperator::new(modes, matrix)
 }
@@ -1972,6 +1997,13 @@ fn apply_sparse_circuit(simulator: &mut qdk_simulators::SparseStateSim, circuit:
             Gate::Rz { theta, target } => simulator.rz(theta, target as usize),
             Gate::Cnot { control, target } => {
                 simulator.mcx(&[control as usize], target as usize);
+            }
+            Gate::Rzz { theta, q1, q2 } => {
+                // Rzz(theta) = CNOT(q1, q2) . (I (x) Rz(theta)) . CNOT(q1, q2)
+                let (q1, q2) = (q1 as usize, q2 as usize);
+                simulator.mcx(&[q1], q2);
+                simulator.rz(theta, q2);
+                simulator.mcx(&[q1], q2);
             }
         }
     }

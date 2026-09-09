@@ -11,6 +11,7 @@ pub enum Gate {
     Rx { theta: f64, target: u32 },
     Rz { theta: f64, target: u32 },
     Cnot { control: u32, target: u32 },
+    Rzz { theta: f64, q1: u32, q2: u32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
@@ -51,6 +52,11 @@ impl Gate {
                 control: gate_qubit("Cx", control)?,
                 target: gate_qubit("Cx", target)?,
             },
+            UnitaryOperation::Rzz { angle, q1, q2 } => Self::Rzz {
+                theta: angle,
+                q1: gate_qubit("Rzz", q1)?,
+                q2: gate_qubit("Rzz", q2)?,
+            },
             UnitaryOperation::Y { .. } => return unsupported_operation("Y"),
             UnitaryOperation::Z { .. } => return unsupported_operation("Z"),
             UnitaryOperation::S { .. } => return unsupported_operation("S"),
@@ -64,7 +70,6 @@ impl Gate {
             UnitaryOperation::Cz { .. } => return unsupported_operation("Cz"),
             UnitaryOperation::Rxx { .. } => return unsupported_operation("Rxx"),
             UnitaryOperation::Ryy { .. } => return unsupported_operation("Ryy"),
-            UnitaryOperation::Rzz { .. } => return unsupported_operation("Rzz"),
             UnitaryOperation::Swap { .. } => return unsupported_operation("Swap"),
         };
         Ok(Some(gate))
@@ -134,6 +139,20 @@ impl Circuit {
                     });
                 }
             }
+            Gate::Rzz { theta, q1, q2 } => {
+                self.validate_qubit(q1)?;
+                self.validate_qubit(q2)?;
+                if q1 == q2 {
+                    return Err(SimulationError::InvalidCircuit {
+                        reason: "Rzz requires two different qubits".to_string(),
+                    });
+                }
+                if !theta.is_finite() {
+                    return Err(SimulationError::InvalidCircuit {
+                        reason: "rotation angle must be finite".to_string(),
+                    });
+                }
+            }
         }
         self.gates.push(gate);
         Ok(())
@@ -177,13 +196,20 @@ impl Circuit {
                 Gate::X { target } => write!(description, "x:{target};"),
                 Gate::H { target } => write!(description, "h:{target};"),
                 Gate::Rx { theta, target } => {
-                    write!(description, "rx:{target}:{:016x};", theta.to_bits())
+                    write!(description, "rx:{target}:{};", canonical_angle_bits(*theta))
                 }
                 Gate::Rz { theta, target } => {
-                    write!(description, "rz:{target}:{:016x};", theta.to_bits())
+                    write!(description, "rz:{target}:{};", canonical_angle_bits(*theta))
                 }
                 Gate::Cnot { control, target } => {
                     write!(description, "cx:{control}:{target};")
+                }
+                Gate::Rzz { theta, q1, q2 } => {
+                    write!(
+                        description,
+                        "rzz:{q1}:{q2}:{};",
+                        canonical_angle_bits(*theta)
+                    )
                 }
             }
             .expect("writing to a String should not fail");
@@ -203,6 +229,12 @@ impl Circuit {
             Ok(())
         }
     }
+}
+
+/// Formats a rotation angle's exact bit pattern for `canonical_description`, so
+/// every angle-bearing gate hashes on the same fixed-width hex encoding.
+fn canonical_angle_bits(theta: f64) -> String {
+    format!("{:016x}", theta.to_bits())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -421,6 +453,18 @@ mod tests {
                     target: 8,
                 },
             ),
+            (
+                UnitaryOperation::Rzz {
+                    angle: 0.5,
+                    q1: 9,
+                    q2: 10,
+                },
+                Gate::Rzz {
+                    theta: 0.5,
+                    q1: 9,
+                    q2: 10,
+                },
+            ),
         ];
 
         for (operation, expected) in operations {
@@ -483,14 +527,6 @@ mod tests {
                     q2: 1,
                 },
                 "Ryy",
-            ),
-            (
-                UnitaryOperation::Rzz {
-                    angle: 0.5,
-                    q1: 0,
-                    q2: 1,
-                },
-                "Rzz",
             ),
             (UnitaryOperation::Swap { q1: 0, q2: 1 }, "Swap"),
         ];
@@ -704,6 +740,7 @@ mod tests {
                     simulator.mcx(&[control as usize], target as usize);
                 }
                 Gate::H { .. } => panic!("the Trotter fixture contains no Hadamard gates"),
+                Gate::Rzz { .. } => panic!("the Trotter fixture contains no Rzz gates"),
             }
         }
         let query = (0..usize::try_from(width - 1).expect("width should fit usize"))
