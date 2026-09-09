@@ -33,9 +33,9 @@ class UnreferencedBlockRule:
                 yield Diagnostic(
                     self.name,
                     self.severity,
-                    f"block type {block.name!r} is declared but not referenced "
-                    "by any instruction operand",
+                    f"block type {block.name!r} is unused by instruction inputs and outputs",
                     f"isa[{target.name!r}]",
+                    f"Declared capacity: {block.encodes} qubit(s).",
                 )
 
 

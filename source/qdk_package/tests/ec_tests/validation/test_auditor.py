@@ -9,6 +9,8 @@ loaded qodec.
 from __future__ import annotations
 
 from collections.abc import Iterator
+import json
+from pathlib import Path
 
 import qodec as qc
 from qdk.ec._audit import (
@@ -69,6 +71,133 @@ def test_repetition3_audits_clean_with_informational(
 ) -> None:
     report = Auditor(include_informational=True).audit(rep3_qodec)
     assert report.ok, str(report)
+
+
+def test_c4_measure_xx_readouts_are_consistent() -> None:
+    protocol = qc.Qodec.load(
+        str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
+    )
+    report = Auditor().audit_gadget(
+        protocol.layers[0].gadgets["measure_xx"], qodec=protocol
+    )
+    assert not [
+        item for item in report.errors if item.rule == "gadget/readout-mismatch"
+    ], str(report)
+
+
+def test_readout_message_has_layer_observable_and_verified_parity() -> None:
+    protocol = qc.Qodec.load(
+        str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
+    )
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts = [
+        ["circuit.readouts[0]", "in[0].x[0]"],
+        ["circuit.readouts[0]", "circuit.readouts[2]"],
+    ]
+    errors = [
+        item
+        for item in audit(protocol).errors
+        if item.rule == "gadget/readout-mismatch"
+    ]
+    assert len(errors) == 1
+    diagnostic = errors[0]
+    assert diagnostic.where == "layers[0].gadgets['measure_xx'] (C4 -> stim)"
+    assert (
+        diagnostic.summary == "readouts[0] (logical X_0): measurement parity mismatch"
+    )
+    assert 'Declared: ["circuit.readouts[0]", "in[0].x[0]"]' in diagnostic.detail
+    assert (
+        'Verified measurement parity: ["circuit.readouts[0]", "circuit.readouts[1]"]'
+        in diagnostic.detail
+    )
+    expected = json.loads(diagnostic.detail.splitlines()[1].split(": ", 1)[1])
+    gadget.readouts = [expected, list(gadget.readouts[1].equation)]
+    assert not [
+        item
+        for item in Auditor().audit_gadget(gadget, qodec=protocol).errors
+        if item.rule == "gadget/readout-mismatch"
+    ]
+    assert "encoding-sign terms not checked" in diagnostic.detail
+
+
+def test_same_gadget_at_two_layers_has_distinct_locations(rep3_qodec: qc.Qodec) -> None:
+    source, target = rep3_qodec.layers
+    gadget = source.gadgets["idle"]
+    gadget.checks = []
+    protocol = qc.Qodec(layers=[source, source, target])
+    report = audit(protocol)
+    locations = {
+        item.where
+        for item in report.warnings
+        if item.rule == "gadget/incomplete-output-frame"
+        and ".gadgets['idle']" in item.where
+    }
+    assert locations == {
+        "layers[0].gadgets['idle'] (repetition3 -> repetition3)",
+        f"layers[1].gadgets['idle'] (repetition3 -> {target.instruction_set.name})",
+    }
+
+
+def test_detached_gadget_location_does_not_guess_layer(rep3_qodec: qc.Qodec) -> None:
+    detached = _clone(rep3_qodec.layers[0].gadgets["idle"], checks=[])
+    report = Auditor().audit_gadget(detached, qodec=rep3_qodec)
+    assert {item.where for item in report.warnings} == {"gadget['idle']"}
+
+
+def test_c4_readout_equivalent_modulo_check_is_accepted() -> None:
+    protocol = qc.Qodec.load(
+        str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
+    )
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts = [
+        ["circuit.readouts[2]", "circuit.readouts[3]"],
+        ["circuit.readouts[1]", "circuit.readouts[3]"],
+    ]
+    report = Auditor().audit_gadget(gadget, qodec=protocol)
+    assert not [
+        item for item in report.errors if item.rule == "gadget/readout-mismatch"
+    ]
+
+
+def test_output_frame_message_contains_verified_relation() -> None:
+    protocol = qc.Qodec.load(
+        str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
+    )
+    gadget = protocol.layers[0].gadgets["transversal_cx"]
+    report = Auditor().audit_gadget(gadget, qodec=protocol)
+    diagnostic = next(
+        item for item in report.warnings if "out[0].stabilizers[0]" in item.summary
+    )
+    assert diagnostic.where == "layers[0].gadgets['transversal_cx'] (C4 -> stim)"
+    assert "X_0 X_1 X_2 X_3" in diagnostic.summary
+    assert (
+        'Verified relation: ["out[0].stabilizers[0]", "in[0].stabilizers[0]", "in[1].stabilizers[0]"]'
+        in diagnostic.detail
+    )
+    relation = json.loads(diagnostic.detail.split("Verified relation: ", 1)[1])
+    gadget.checks = [relation]
+    assert [str(term) for term in gadget.checks[0]] == relation
+    assert "Include" not in diagnostic.detail
+
+
+def test_output_frame_relation_preserves_constant_sign() -> None:
+    protocol = qc.Qodec.load(
+        str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
+    )
+    gadget = protocol.layers[0].gadgets["x0"]
+    gadget.circuit = qc.gadgets.Circuit(
+        gadget.circuit.instruction_set, "X 0", format="stim"
+    )
+    report = Auditor().audit_gadget(gadget, qodec=protocol)
+    diagnostic = next(
+        item for item in report.warnings if "out[0].stabilizers[1]" in item.summary
+    )
+    assert (
+        'Relation terms: ["out[0].stabilizers[1]", "in[0].stabilizers[1]"]\n'
+        "Parity: 1 (not a valid zero-parity check)."
+        in diagnostic.detail
+    )
+    assert "Verified relation:" not in diagnostic.detail
 
 
 # ----------------------------------------------------------------------------

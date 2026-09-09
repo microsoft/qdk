@@ -105,6 +105,25 @@ def checks_of(gadget: qc.Gadget) -> list[Equation]:
     return _emit_checks(result, _deterministic_rows(result))
 
 
+def _output_relations_of(gadget: qc.Gadget) -> list[tuple[Equation, int]]:
+    """Noiseless relations retaining input-to-output stabilizer transport."""
+    result = simulate_channel(gadget)
+    relations = []
+    for row in _deterministic_rows(result):
+        if not row.out_stabs:
+            continue
+        positions = (
+            [result.in_stab_outcomes[index] for index in row.in_stabs]
+            + [result.program_outcomes[index] for index in row.outcomes]
+            + [result.out_stab_outcomes[index] for index in row.out_stabs]
+        )
+        offset = (
+            sum(bool(result.simulation.outcome_shift[index]) for index in positions) % 2
+        )
+        relations.append((_check_equation(result, row), offset))
+    return relations
+
+
 def profile_of(gadget: qc.Gadget) -> Profile:
     result = simulate_channel(gadget, with_declared=True)
     rows = _deterministic_rows(result)

@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Iterator
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import qodec as qc
 
 from ._diagnostic import Diagnostic, Phase, Severity
 from ._report import Report
 from ._rule import Rule, filter_rules
+
+
+@dataclass(frozen=True)
+class _Target:
+    artifact: object
+    local: str = ""
+    where: str = ""
+
+    def locate(self, diagnostic: Diagnostic) -> Diagnostic:
+        if self.local and diagnostic.where == self.local:
+            return replace(diagnostic, where=self.where)
+        return diagnostic
 
 
 class Auditor:
@@ -39,7 +51,7 @@ class Auditor:
         return self._run(qodec, self._qodec_targets(qodec))
 
     def audit_code(self, code: qc.Code, *, qodec: qc.Qodec) -> Report:
-        return self._run(qodec, [code])
+        return self._run(qodec, self._targets_for(code, qodec))
 
     def audit_instruction_set(
         self,
@@ -47,7 +59,7 @@ class Auditor:
         *,
         qodec: qc.Qodec,
     ) -> Report:
-        return self._run(qodec, [isa])
+        return self._run(qodec, self._targets_for(isa, qodec))
 
     def audit_gadget(
         self,
@@ -55,7 +67,7 @@ class Auditor:
         *,
         qodec: qc.Qodec,
     ) -> Report:
-        return self._run(qodec, [gadget])
+        return self._run(qodec, self._targets_for(gadget, qodec))
 
     def audit_layer(
         self,
@@ -63,13 +75,17 @@ class Auditor:
         *,
         qodec: qc.Qodec,
     ) -> Report:
-        targets = [layer, *layer.gadgets.values()]
+        targets = [
+            target
+            for artifact in (layer, *layer.gadgets.values())
+            for target in self._targets_for(artifact, qodec)
+        ]
         return self._run(qodec, targets)
 
     def _run(
         self,
         qodec: qc.Qodec,
-        targets: Iterable[object],
+        targets: Iterable[_Target],
     ) -> Report:
         target_list = list(targets)
         diagnostics: list[Diagnostic] = []
@@ -81,8 +97,7 @@ class Auditor:
                 blocked.add(id(target))
         diagnostics.extend(
             self._apply_policy(item)
-            for target, item in self._run_phase(qodec, target_list, Phase.SEMANTIC)
-            if id(target) not in blocked
+            for _, item in self._run_phase(qodec, target_list, Phase.SEMANTIC, blocked)
         )
         if self._include_informational:
             diagnostics.extend(
@@ -99,24 +114,57 @@ class Auditor:
     def _run_phase(
         self,
         qodec: qc.Qodec,
-        targets: list[object],
+        targets: list[_Target],
         phase: Phase,
-    ) -> Iterator[tuple[object, Diagnostic]]:
+        blocked: Collection[int] = (),
+    ) -> Iterator[tuple[_Target, Diagnostic]]:
         for rule in filter_rules(self._rules, phase=phase, disabled=self._disabled):
             for target in targets:
-                if isinstance(target, rule.target):
-                    for diagnostic in rule(target, qodec=qodec):
-                        yield target, diagnostic
+                if id(target) not in blocked and isinstance(
+                    target.artifact, rule.target
+                ):
+                    for diagnostic in rule(target.artifact, qodec=qodec):
+                        yield target, target.locate(diagnostic)
 
     @staticmethod
-    def _qodec_targets(qodec: qc.Qodec) -> list[object]:
-        targets: list[object] = [qodec]
-        targets.extend(qodec.instruction_sets.values())
-        targets.extend(qodec.codes.values())
-        for layer in qodec.layers[:-1]:
-            targets.append(layer)
-            targets.extend(layer.gadgets.values())
+    def _qodec_targets(qodec: qc.Qodec) -> list[_Target]:
+        targets = [_Target(qodec)]
+        targets.extend(_Target(code) for code in qodec.codes.values())
+        layers = qodec.layers
+        for index, layer in enumerate(layers):
+            source = layer.instruction_set.name
+            context = source
+            if index + 1 < len(layers):
+                context += f" -> {layers[index + 1].instruction_set.name}"
+            targets.append(
+                _Target(
+                    layer.instruction_set,
+                    f"isa[{source!r}]",
+                    f"layers[{index}].instruction_set ({source})",
+                )
+            )
+            if index + 1 == len(layers):
+                continue
+            targets.append(
+                _Target(layer, f"layer[{source!r}]", f"layers[{index}] ({context})")
+            )
+            targets.extend(
+                _Target(
+                    gadget,
+                    f"gadget[{gadget.implements.mnemonic!r}]",
+                    f"layers[{index}].gadgets[{mnemonic!r}] ({context})",
+                )
+                for mnemonic, gadget in layer.gadgets.items()
+            )
         return targets
+
+    @classmethod
+    def _targets_for(cls, artifact: object, qodec: qc.Qodec) -> list[_Target]:
+        return [
+            target
+            for target in cls._qodec_targets(qodec)
+            if target.artifact is artifact
+        ] or [_Target(artifact)]
 
 
 def audit(

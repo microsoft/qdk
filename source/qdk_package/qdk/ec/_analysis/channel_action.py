@@ -71,9 +71,44 @@ class ChannelAction:
     def why_not_equivalent_to(self, other: "ChannelAction") -> str:
         if self.is_equivalent_to(other):
             return ""
-        if self.is_equivalent_to(other, modulo_paulis=True):
-            return "Channels differ in their outcome-dependent Pauli signs."
-        return "Channels differ."
+        for name, expected, actual in (
+            ("measured logical observable", self._observables, other._observables),
+            ("output logical stabilizer", self._stabilizers, other._stabilizers),
+        ):
+            expected_group = _unsigned(expected.unframed)
+            actual_group = _unsigned(actual.unframed)
+            for generator in expected_group.standard_generators:
+                if actual_group.factorization_of(generator) is None:
+                    return (
+                        f"Expected {name} {generator}; absent from the circuit's group."
+                    )
+            for generator in actual_group.standard_generators:
+                if expected_group.factorization_of(generator) is None:
+                    return f"Circuit has unexpected {name} {generator}."
+        expected_mapping = {abs(key): value for key, value in self._mapping.items()}
+        actual_mapping = {abs(key): value for key, value in other._mapping.items()}
+        for operator in sorted(
+            expected_mapping.keys() | actual_mapping.keys(), key=_sort_key
+        ):
+            expected_image = expected_mapping.get(operator)
+            actual_image = actual_mapping.get(operator)
+            if (
+                expected_image is None
+                or actual_image is None
+                or abs(expected_image.pauli) != abs(actual_image.pauli)
+            ):
+                expected_text = (
+                    str(expected_image.pauli)
+                    if expected_image is not None
+                    else "no output image"
+                )
+                actual_text = (
+                    str(actual_image.pauli)
+                    if actual_image is not None
+                    else "no output image"
+                )
+                return f"Logical {operator}: expected {expected_text}; circuit gives {actual_text}."
+        return _sign_difference(self, other)
 
     def __str__(self) -> str:
         return (
@@ -420,6 +455,58 @@ def _outcome_items(
 def _sort_key(pauli: Pauli) -> tuple[tuple[int, ...], tuple[str, ...]]:
     """A structural order, so comparison does not depend on Pauli formatting."""
     return tuple(pauli.support), tuple(str(character) for character in pauli.characters)
+
+
+def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
+    labels = [
+        *(
+            f"observable {abs(item.pauli)}"
+            for item in expected._observables.standardized().generators
+        ),
+        *(
+            f"output stabilizer {abs(item.pauli)}"
+            for item in expected._stabilizers.standardized().generators
+        ),
+        *(
+            f"input {abs(operator)}"
+            for operator in sorted(expected._mapping, key=_sort_key)
+        ),
+        *(
+            f"output image of {abs(operator)}"
+            for operator in sorted(expected._mapping, key=_sort_key)
+        ),
+    ]
+    products = []
+    for index, (
+        (expected_phase, expected_frame, expected_correctable),
+        (actual_phase, actual_frame, actual_correctable),
+    ) in enumerate(zip(_outcome_items(expected), _outcome_items(actual))):
+        if (expected_correctable and expected_frame) or (
+            actual_correctable and actual_frame
+        ):
+            continue
+        product = (
+            Pauli({2 * bit: "Z" for bit in expected_frame})
+            * Pauli({2 * bit + 1: "Z" for bit in actual_frame})
+            * identity(expected_phase * actual_phase)
+        )
+        products.append(PauliFrame(product, frozenset({index})))
+    support = {qubit for item in products for qubit in item.pauli.support}
+    group = FrameGroup(products)
+    for side in (0, 1):
+        restricted, _, _ = group.partition(
+            over={qubit for qubit in support if qubit % 2 == side}
+        )
+        for witness in restricted.generators:
+            if not witness.pauli.weight and witness.pauli.phase == 1:
+                continue
+            terms = " ⊕ ".join(labels[index] for index in sorted(witness.frame))
+            if not witness.pauli.weight:
+                return f"Opposite sign parity: {terms}."
+            variable = "expected" if side == 0 else "circuit"
+            fixed = "circuit" if side == 0 else "expected"
+            return f"Sign parity ({terms}): {variable} varies with outcomes; {fixed} is fixed."
+    return "Logical operators agree, but their outcome-dependent sign relations differ."
 
 
 def declared_program_of(gadget: qc.Gadget) -> Circuit:

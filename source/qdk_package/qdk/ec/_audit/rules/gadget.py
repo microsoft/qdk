@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+import json
 
 import qodec as qc
 
-from ..._readouts import flag_slots, observable_slots, readout_slots
+from ..._readouts import flag_slots, observable_slots, observe_count_of, readout_slots
 from ..._layout import ProgramLayout
 from ..._references import (
     Atom,
     LogicalSign,
+    Outcome,
     StabilizerSign,
     parse_equations,
     stabilizer_signs_of,
@@ -21,6 +23,7 @@ from ..._analysis.channel_action import (
     input_qubits_of,
     realized_action_of,
 )
+from ..._analysis.check_discovery import _output_relations_of
 from ..._analysis.propagation.interpreter import program_of
 from ..._analysis.propagation.pauli_remap import encoding_qubit_relocation
 from ..._analysis.declaration_issues import declaration_issues
@@ -39,6 +42,21 @@ def _gadget(target: object) -> qc.Gadget:
     return target
 
 
+def _equation(terms: Iterable[object]) -> str:
+    return json.dumps([str(term) for term in terms])
+
+
+def _observable(gadget: qc.Gadget, position: int) -> str:
+    return str(
+        [
+            observable
+            for action in gadget.implements.action
+            if isinstance(action, qc.actions.Observe)
+            for observable in action.observables
+        ][position]
+    )
+
+
 @dataclass(frozen=True)
 class MissingObservableRule:
     name: str = "gadget/missing-observable"
@@ -52,10 +70,10 @@ class MissingObservableRule:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"instruction declares observable {missing!r}, circuit does not emit it",
+                f"readouts[{missing}] is unbound (logical {_observable(gadget, int(missing))})",
                 _where(gadget),
-                f"realized observables: "
-                f"{sorted(slot.name for slot in observable_slots(gadget))}",
+                f"Expected: {observe_count_of(gadget.implements)} observable bindings; "
+                f"declared: {len(observable_slots(gadget))}.",
             )
 
 
@@ -69,13 +87,16 @@ class MissingFlagRule:
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         for missing in declaration_issues(gadget).missing_flags:
+            position = observe_count_of(gadget.implements) + list(
+                gadget.implements.flags
+            ).index(missing)
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"instruction declares flag {missing!r}, circuit does not bind it",
+                f"readouts[{position}] is unbound (flag {missing!r})",
                 _where(gadget),
-                f"instruction flags: {list(gadget.implements.flags)}; bound "
-                f"readout slots: {len(flag_slots(gadget))}",
+                f"Expected: {len(gadget.implements.flags)} flag bindings; "
+                f"declared: {len(flag_slots(gadget))}.",
             )
 
 
@@ -88,15 +109,22 @@ class UnsupportedActionAtomRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for atom_name in declaration_issues(gadget).unsupported_atoms:
+        unsupported = set(declaration_issues(gadget).unsupported_atoms)
+        for index, action in enumerate(gadget.implements.action):
+            atom_name = type(action).__name__
+            if atom_name not in unsupported:
+                continue
+            if (
+                isinstance(action, (qc.actions.Pauli, qc.actions.Clifford))
+                and action.condition is None
+            ):
+                continue
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"implemented instruction contains an action atom of type "
-                f"{atom_name!r}, which the verifier does not handle",
+                f"implements.action[{index}] ({atom_name}) is not supported by the action verifier",
                 _where(gadget),
-                "The instruction's logical action could not be lifted; "
-                "gadget/action-mismatch will be skipped.",
+                "Logical action not checked.",
             )
 
 
@@ -125,12 +153,18 @@ class PreparedInputRule:
             return
         overlap = declared & prepared
         if overlap:
+            encodings = [
+                f"in[{entry}] ({encoding.code.name}): "
+                f"circuit qubits {sorted(overlap & set(encoding_qubit_relocation(encoding).values()))}"
+                for entry, encoding in enumerate(gadget.inputs)
+                if overlap & set(encoding_qubit_relocation(encoding).values())
+            ]
             yield Diagnostic(
                 self.name,
                 self.severity,
-                "gadget circuit prepares qubits declared as encoded inputs",
+                "circuit prepares qubits declared as encoded inputs",
                 _where(gadget),
-                f"prepared input qubits: {sorted(overlap)}",
+                "\n".join(encodings),
             )
 
 
@@ -143,13 +177,13 @@ class FlagContentRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for flag_name in declaration_issues(gadget).bound_flags:
+        for slot in flag_slots(gadget):
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"flag {flag_name!r} is bound but its content is decoder-blind; "
-                "only structural presence is verified",
+                f"readouts[{slot.position}] (flag {slot.name!r}): binding present; meaning not checked",
                 _where(gadget),
+                f"Declared: {_equation(gadget.readouts[slot.position].equation)}",
             )
 
 
@@ -162,7 +196,8 @@ class ActionMismatchRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        mnemonic = gadget.implements.mnemonic
+        if declaration_issues(gadget).unsupported_atoms:
+            return
         try:
             expected = declared_action_of(gadget)
             actual = realized_action_of(gadget)
@@ -171,29 +206,27 @@ class ActionMismatchRule:
                 yield Diagnostic(
                     self.name,
                     Severity.INFO,
-                    f"{mnemonic!r} prepares from vacuum; no input encoding to "
-                    "compare, so its logical action is not action-checked",
+                    "Logical action not checked: preparation has no input encoding",
                     _where(gadget),
+                    f"{type(error).__name__}: {error}",
                 )
                 return
             yield Diagnostic(
                 self.name,
                 Severity.WARNING,
-                f"could not compute logical action for {mnemonic!r}; skipping",
+                "Logical action not checked: analysis failed",
                 _where(gadget),
                 f"{type(error).__name__}: {error}",
             )
             return
         if expected.is_equivalent_to(actual):
             return
-        modulo_paulis = expected.is_equivalent_to(actual, modulo_paulis=True)
         yield Diagnostic(
             self.name,
             self.severity,
-            f"realized logical action does not match the action of "
-            f"instruction {mnemonic!r}"
-            + (" (matches up to Pauli signs only)" if modulo_paulis else ""),
+            "circuit action differs from implements.action",
             _where(gadget),
+            expected.why_not_equivalent_to(actual),
         )
 
 
@@ -206,32 +239,45 @@ class ReadoutMismatchRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        mnemonic = gadget.implements.mnemonic
         try:
             mismatches = readout_disagreements(gadget)
         except (KeyError, ValueError, TypeError, NotImplementedError) as error:
             yield Diagnostic(
                 self.name,
                 Severity.WARNING,
-                f"could not check readouts for {mnemonic!r}; skipping",
+                "Readouts not checked: analysis failed",
                 _where(gadget),
                 f"{type(error).__name__}: {error}",
             )
             return
         for mismatch in mismatches:
-            verbiage = (
-                "disagrees with"
-                if mismatch.verifiable
-                else "could not be verified against"
-            )
+            position = int(mismatch.name)
+            declared = _equation(gadget.readouts[position].equation)
+            detail = [f"Declared: {declared}"]
+            if mismatch.expected_positions is not None:
+                expected = _equation(
+                    Outcome(index) for index in mismatch.expected_positions
+                )
+                detail.append(f"Verified measurement parity: {expected}")
+            elif mismatch.verifiable:
+                detail.append("No equivalent measurement parity was derived.")
+            if mismatch.verifiable:
+                detail.append(
+                    "Compared on noiseless codewords; encoding-sign terms not checked."
+                )
+            else:
+                detail.append(mismatch.reason)
             yield Diagnostic(
                 self.name,
                 self.severity if mismatch.verifiable else Severity.WARNING,
-                f"readout {mismatch.name!r} of {mnemonic!r} XOR pattern "
-                f"{verbiage} the circuit's discovered signature",
+                f"readouts[{position}] (logical {_observable(gadget, position)}): "
+                + (
+                    "measurement parity mismatch"
+                    if mismatch.verifiable
+                    else "not verified"
+                ),
                 _where(gadget),
-                f"declared positions: {list(mismatch.declared_positions)}; "
-                f"{mismatch.reason}",
+                "\n".join(detail),
             )
 
 
@@ -266,21 +312,46 @@ class IncompleteOutputFrameRule:
             yield Diagnostic(
                 self.name,
                 Severity.WARNING,
-                f"could not check output frames for "
-                f"{gadget.implements.mnemonic!r}; skipping",
+                "Output frames not checked: analysis failed",
                 _where(gadget),
                 f"{type(error).__name__}: {error}",
             )
             return
+        if not missing:
+            return
+        try:
+            relations = _output_relations_of(gadget)
+            unavailable = "No noiseless relation was derived."
+        except (KeyError, ValueError, TypeError, NotImplementedError) as error:
+            relations = []
+            unavailable = f"Relation not derived: {type(error).__name__}: {error}"
         for operand, index in sorted(missing):
+            sign = StabilizerSign("out", operand, index)
+            encoding = gadget.outputs[operand]
+            relation = next(
+                (
+                    (equation, offset)
+                    for equation, offset in relations
+                    if sign in equation
+                ),
+                None,
+            )
+            detail = unavailable
+            if relation is not None:
+                terms = _equation(
+                    (sign, *(term for term in relation[0] if term != sign))
+                )
+                detail = (
+                    f"Relation terms: {terms}\nParity: 1 (not a valid zero-parity check)."
+                    if relation[1]
+                    else f"Verified relation: {terms}"
+                )
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"{gadget.implements.mnemonic!r} does not declare a sign for "
-                f"output stabilizer out[{operand}].stabilizers[{index}]",
+                f"No check references {sign} ({encoding.code.stabilizers[index]})",
                 _where(gadget),
-                "Every output-encoding stabilizer needs an "
-                "out[<entry>].stabilizers[i] declaration.",
+                f"Code: {encoding.code.name}; circuit support: {list(encoding.support)}.\n{detail}",
             )
 
 
@@ -293,10 +364,7 @@ def _encoding_atom_violation(gadget: qc.Gadget, atom: Atom) -> str | None:
         return None
     encodings = gadget.inputs if atom.side == "in" else gadget.outputs
     if atom.entry >= len(encodings):
-        return (
-            f"{atom.side}[{atom.entry}], but the gadget declares "
-            f"{len(encodings)} {atom.side} encoding(s)"
-        )
+        return f"Valid {atom.side} entries: [0, {len(encodings)}) (stop exclusive)."
     code = encodings[atom.entry].code
     operators = (
         code.stabilizers
@@ -306,8 +374,7 @@ def _encoding_atom_violation(gadget: qc.Gadget, atom: Atom) -> str | None:
     bound = len(list(operators))
     if atom.index >= bound:
         return (
-            f"{atom.side}[{atom.entry}].{basis}[{atom.index}], "
-            f"but that code has {bound} {basis} operator(s)"
+            f"Code {code.name!r}: valid {basis} indices [0, {bound}) (stop exclusive)."
         )
     return None
 
@@ -322,10 +389,10 @@ class ReferenceOutOfBoundsRule:
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         equations = [
-            (f"check[{index}]", check)
+            (f"checks[{index}]", check)
             for index, check in enumerate(parse_equations(gadget.checks))
         ] + [
-            (f"readout[{slot.position}]", slot.equation)
+            (f"readouts[{slot.position}]", slot.equation)
             for slot in readout_slots(gadget)
         ]
         for label, equation in equations:
@@ -335,8 +402,9 @@ class ReferenceOutOfBoundsRule:
                     yield Diagnostic(
                         self.name,
                         self.severity,
-                        f"{label} references {violation}",
+                        f"{label}: {atom} is out of bounds",
                         _where(gadget),
+                        violation,
                     )
 
 
