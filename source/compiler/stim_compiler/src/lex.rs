@@ -47,7 +47,7 @@ pub enum Error {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
