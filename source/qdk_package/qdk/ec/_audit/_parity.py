@@ -379,6 +379,68 @@ class ParityAnalysis:
             else tuple(paths[index] for index in solution.support)
         )
 
+    def missing_checks(self) -> tuple[tuple[str, ...], ...]:
+        """Independent measurement checks absent from the declared relation span.
+
+        Candidates use circuit bits and incoming stabilizer signs. Input-only
+        identities supply no measurement information; output-frame relations
+        are checked separately. Readout definitions permit substitution, while
+        verified zero-valued flags already expose their syndrome information.
+        """
+        if not self.gadget.circuit.readouts:
+            return ()
+        paths = [
+            path
+            for path in self.values
+            if path.startswith("circuit.")
+            or (path.startswith("in[") and "].stabilizers[" in path)
+        ]
+        signatures = _rows((self.values[path] for path in paths), len(self.values["0"]))
+        candidates = [
+            tuple(paths[index] for index in row.support)
+            for row in signatures.T.kernel().rows
+        ]
+        known = []
+        for equation in self.checks:
+            try:
+                if self.value(equation).is_zero:
+                    known.append(equation)
+            except (KeyError, ValueError, TypeError, NotImplementedError):
+                continue
+        if self.readouts:
+            values, unresolved, error = self.resolved
+            if error is None:
+                for position, equation in enumerate(self.readouts):
+                    if position in unresolved:
+                        continue
+                    path = f"readouts[{position}]"
+                    known.append(
+                        terms_of(Reference(term) for term in (path, *equation))
+                    )
+                    if (
+                        self.gadget.readouts[position].is_flag
+                        and values[position].is_zero
+                    ):
+                        known.append((path,))
+        known.extend(
+            equation
+            for equation in candidates
+            if not any(path.startswith("circuit.") for path in equation)
+        )
+        columns = tuple(
+            dict.fromkeys((*paths, *(path for equation in known for path in equation)))
+        )
+        rows = [BitVector(path in equation for path in columns) for equation in known]
+        missing = []
+        for equation in candidates:
+            if not any(path.startswith("circuit.") for path in equation):
+                continue
+            target = BitVector(path in equation for path in columns)
+            if solve(_rows(rows, len(columns)).T, target) is None:
+                missing.append(equation)
+                rows.append(target)
+        return tuple(missing)
+
     def unresolved_outputs(self) -> tuple[str, ...]:
         output_signs = [
             f"out[{entry}].stabilizers[{index}]"

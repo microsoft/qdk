@@ -162,6 +162,28 @@ are zero but provide no constraint. Unsupported parity analysis produces
 warnings rather than claiming a result. These checks do not establish fault
 tolerance or verify a particular fault model.
 
+`gadget/missing-check` is informational. It reports an independent noiseless
+measurement check that is available but not implied by valid declared checks,
+readout definitions, and verified zero-valued flags. Candidates combine circuit
+bits and incoming stabilizer signs, under the same arbitrary-frame contract.
+Equivalent XOR bases are accepted; duplicate and invalid checks do not hide
+omissions. Each finding includes a copyable equation. Unsupported discovery
+produces an informational notice, never an invented equation. Authors may
+intentionally leave checks for derivation, so these findings are not promoted
+by `promote_warnings=True` and do not claim inadequate fault tolerance.
+
+Input and output frames are not symmetric requirements. Input signs are supplied
+boundary information; output stabilizer signs must be determined from that
+information and the circuit results. A gadget need not remeasure or reconstruct
+every input sign. There is therefore no `gadget/incomplete-input-frame` rule.
+Missing dependence on an input sign is caught by check/readout verification;
+an omitted available syndrome relation is a missing check. Pure input-to-output
+transport remains the responsibility of `gadget/incomplete-output-frame`.
+
+The registry has 14 built-in rule IDs. This adds no public Python exports:
+`missing-check` follows `missing-observable` and `missing-flag`; `no-checks`
+would miss incomplete nonempty check lists.
+
 ### Submodules
 
 Submodules:
