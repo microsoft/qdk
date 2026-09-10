@@ -191,6 +191,113 @@ type SamplerSampleFn = unsafe extern "C" fn(
 ) -> v2_13::cutensornetStatus_t;
 type DestroySamplerFn =
     unsafe extern "C" fn(v2_13::cutensornetStateSampler_t) -> v2_13::cutensornetStatus_t;
+type CreateNetworkFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    *mut v2_13::cutensornetNetworkDescriptor_t,
+) -> v2_13::cutensornetStatus_t;
+type DestroyNetworkFn =
+    unsafe extern "C" fn(v2_13::cutensornetNetworkDescriptor_t) -> v2_13::cutensornetStatus_t;
+type NetworkAppendTensorFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i32,
+    *const i64,
+    *const i32,
+    *const v2_13::cutensornetTensorQualifiers_t,
+    v2_13::cudaDataType_t,
+    *mut i64,
+) -> v2_13::cutensornetStatus_t;
+type NetworkSetOutputTensorFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i32,
+    *const i32,
+    v2_13::cudaDataType_t,
+) -> v2_13::cutensornetStatus_t;
+type NetworkSetAttributeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    v2_13::cutensornetNetworkAttributes_t,
+    *const c_void,
+    usize,
+) -> v2_13::cutensornetStatus_t;
+type WorkspaceComputeContractionSizesFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    v2_13::cutensornetContractionOptimizerInfo_t,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+) -> v2_13::cutensornetStatus_t;
+type CreateOptimizerConfigFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    *mut v2_13::cutensornetContractionOptimizerConfig_t,
+) -> v2_13::cutensornetStatus_t;
+type DestroyOptimizerConfigFn = unsafe extern "C" fn(
+    v2_13::cutensornetContractionOptimizerConfig_t,
+) -> v2_13::cutensornetStatus_t;
+type OptimizerConfigSetAttributeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetContractionOptimizerConfig_t,
+    v2_13::cutensornetContractionOptimizerConfigAttributes_t,
+    *const c_void,
+    usize,
+) -> v2_13::cutensornetStatus_t;
+type CreateOptimizerInfoFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    *mut v2_13::cutensornetContractionOptimizerInfo_t,
+) -> v2_13::cutensornetStatus_t;
+type DestroyOptimizerInfoFn = unsafe extern "C" fn(
+    v2_13::cutensornetContractionOptimizerInfo_t,
+) -> v2_13::cutensornetStatus_t;
+type ContractionOptimizeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    v2_13::cutensornetContractionOptimizerConfig_t,
+    u64,
+    v2_13::cutensornetContractionOptimizerInfo_t,
+) -> v2_13::cutensornetStatus_t;
+type OptimizerInfoGetAttributeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetContractionOptimizerInfo_t,
+    v2_13::cutensornetContractionOptimizerInfoAttributes_t,
+    *mut c_void,
+    usize,
+) -> v2_13::cutensornetStatus_t;
+type NetworkPrepareContractionFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+) -> v2_13::cutensornetStatus_t;
+type CreateSliceGroupFromIdRangeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    i64,
+    i64,
+    i64,
+    *mut v2_13::cutensornetSliceGroup_t,
+) -> v2_13::cutensornetStatus_t;
+type DestroySliceGroupFn =
+    unsafe extern "C" fn(v2_13::cutensornetSliceGroup_t) -> v2_13::cutensornetStatus_t;
+type NetworkSetInputTensorMemoryFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i64,
+    *const c_void,
+    *const i64,
+) -> v2_13::cutensornetStatus_t;
+type NetworkSetOutputTensorMemoryFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    *mut c_void,
+    *const i64,
+) -> v2_13::cutensornetStatus_t;
+type NetworkContractFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    i32,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    v2_13::cutensornetSliceGroup_t,
+    v2_13::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;
 
 #[allow(dead_code)]
 struct CuTensorNetFunctions {
@@ -226,6 +333,25 @@ struct CuTensorNetFunctions {
     sampler_prepare: SamplerPrepareFn,
     sampler_sample: SamplerSampleFn,
     destroy_sampler: DestroySamplerFn,
+    create_network: CreateNetworkFn,
+    destroy_network: DestroyNetworkFn,
+    network_append_tensor: NetworkAppendTensorFn,
+    network_set_output_tensor: NetworkSetOutputTensorFn,
+    network_set_attribute: NetworkSetAttributeFn,
+    workspace_compute_contraction_sizes: WorkspaceComputeContractionSizesFn,
+    create_optimizer_config: CreateOptimizerConfigFn,
+    destroy_optimizer_config: DestroyOptimizerConfigFn,
+    optimizer_config_set_attribute: OptimizerConfigSetAttributeFn,
+    create_optimizer_info: CreateOptimizerInfoFn,
+    destroy_optimizer_info: DestroyOptimizerInfoFn,
+    contraction_optimize: ContractionOptimizeFn,
+    optimizer_info_get_attribute: OptimizerInfoGetAttributeFn,
+    network_prepare_contraction: NetworkPrepareContractionFn,
+    create_slice_group_from_id_range: CreateSliceGroupFromIdRangeFn,
+    destroy_slice_group: DestroySliceGroupFn,
+    network_set_input_tensor_memory: NetworkSetInputTensorMemoryFn,
+    network_set_output_tensor_memory: NetworkSetOutputTensorMemoryFn,
+    network_contract: NetworkContractFn,
 }
 
 #[allow(dead_code)]
@@ -648,6 +774,139 @@ fn resolve_cutensornet_functions<R: SymbolResolver>(
             path,
             "cutensornetDestroySampler",
             b"cutensornetDestroySampler\0",
+        )?,
+        create_network: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetCreateNetwork",
+            b"cutensornetCreateNetwork\0",
+        )?,
+        destroy_network: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetDestroyNetwork",
+            b"cutensornetDestroyNetwork\0",
+        )?,
+        network_append_tensor: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkAppendTensor",
+            b"cutensornetNetworkAppendTensor\0",
+        )?,
+        network_set_output_tensor: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkSetOutputTensor",
+            b"cutensornetNetworkSetOutputTensor\0",
+        )?,
+        network_set_attribute: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkSetAttribute",
+            b"cutensornetNetworkSetAttribute\0",
+        )?,
+        workspace_compute_contraction_sizes: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetWorkspaceComputeContractionSizes",
+            b"cutensornetWorkspaceComputeContractionSizes\0",
+        )?,
+        create_optimizer_config: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetCreateContractionOptimizerConfig",
+            b"cutensornetCreateContractionOptimizerConfig\0",
+        )?,
+        destroy_optimizer_config: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetDestroyContractionOptimizerConfig",
+            b"cutensornetDestroyContractionOptimizerConfig\0",
+        )?,
+        optimizer_config_set_attribute: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetContractionOptimizerConfigSetAttribute",
+            b"cutensornetContractionOptimizerConfigSetAttribute\0",
+        )?,
+        create_optimizer_info: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetCreateContractionOptimizerInfo",
+            b"cutensornetCreateContractionOptimizerInfo\0",
+        )?,
+        destroy_optimizer_info: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetDestroyContractionOptimizerInfo",
+            b"cutensornetDestroyContractionOptimizerInfo\0",
+        )?,
+        contraction_optimize: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetContractionOptimize",
+            b"cutensornetContractionOptimize\0",
+        )?,
+        optimizer_info_get_attribute: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetContractionOptimizerInfoGetAttribute",
+            b"cutensornetContractionOptimizerInfoGetAttribute\0",
+        )?,
+        network_prepare_contraction: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkPrepareContraction",
+            b"cutensornetNetworkPrepareContraction\0",
+        )?,
+        create_slice_group_from_id_range: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetCreateSliceGroupFromIDRange",
+            b"cutensornetCreateSliceGroupFromIDRange\0",
+        )?,
+        destroy_slice_group: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetDestroySliceGroup",
+            b"cutensornetDestroySliceGroup\0",
+        )?,
+        network_set_input_tensor_memory: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkSetInputTensorMemory",
+            b"cutensornetNetworkSetInputTensorMemory\0",
+        )?,
+        network_set_output_tensor_memory: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkSetOutputTensorMemory",
+            b"cutensornetNetworkSetOutputTensorMemory\0",
+        )?,
+        network_contract: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetNetworkContract",
+            b"cutensornetNetworkContract\0",
         )?,
     })
 }

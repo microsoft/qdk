@@ -51,6 +51,25 @@ const CUTENSORNET_REQUIRED_SYMBOLS: &[&str] = &[
     "cutensornetSamplerPrepare",
     "cutensornetSamplerSample",
     "cutensornetDestroySampler",
+    "cutensornetCreateNetwork",
+    "cutensornetDestroyNetwork",
+    "cutensornetNetworkAppendTensor",
+    "cutensornetNetworkSetOutputTensor",
+    "cutensornetNetworkSetAttribute",
+    "cutensornetWorkspaceComputeContractionSizes",
+    "cutensornetCreateContractionOptimizerConfig",
+    "cutensornetDestroyContractionOptimizerConfig",
+    "cutensornetContractionOptimizerConfigSetAttribute",
+    "cutensornetCreateContractionOptimizerInfo",
+    "cutensornetDestroyContractionOptimizerInfo",
+    "cutensornetContractionOptimize",
+    "cutensornetContractionOptimizerInfoGetAttribute",
+    "cutensornetNetworkPrepareContraction",
+    "cutensornetCreateSliceGroupFromIDRange",
+    "cutensornetDestroySliceGroup",
+    "cutensornetNetworkSetInputTensorMemory",
+    "cutensornetNetworkSetOutputTensorMemory",
+    "cutensornetNetworkContract",
 ];
 #[cfg(test)]
 const CUDART_REQUIRED_SYMBOLS: &[&str] = &[
@@ -220,7 +239,7 @@ mod tests {
 
     #[test]
     fn symbol_inventories_match_the_frozen_surface() {
-        assert_eq!(CUTENSORNET_REQUIRED_SYMBOLS.len(), 30);
+        assert_eq!(CUTENSORNET_REQUIRED_SYMBOLS.len(), 49);
         assert_eq!(CUDART_REQUIRED_SYMBOLS.len(), 12);
         assert!(!CUTENSORNET_REQUIRED_SYMBOLS.contains(&"cutensornetGetLastError"));
     }
