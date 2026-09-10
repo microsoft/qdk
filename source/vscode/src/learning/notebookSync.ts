@@ -56,7 +56,7 @@ async function syncActiveNotebook(
   void vscode.commands.executeCommand(
     "setContext",
     LEARNING_NOTEBOOK_ACTIVE_CONTEXT,
-    editor !== undefined && isCourseWorkbook(service, editor.notebook.uri),
+    editor !== undefined && service.isCourseWorkbook(editor.notebook.uri),
   );
 }
 
@@ -85,20 +85,4 @@ function isCandidateWorkbookUri(uri: vscode.Uri): boolean {
     }
   }
   return false;
-}
-
-/**
- * True when the URI is a course workbook belonging to the loaded learning
- * workspace. Scopes notebook toolbar actions to learning content rather
- * than every Jupyter notebook the user has open.
- */
-function isCourseWorkbook(service: LearningService, uri: vscode.Uri): boolean {
-  if (!service.initialized) {
-    return false;
-  }
-  const target = uri.toString();
-  return (
-    target.startsWith(service.learningContentRoot.toString()) &&
-    target.endsWith(WORKBOOK_SUFFIX)
-  );
 }
