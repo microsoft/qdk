@@ -47,7 +47,7 @@ _Note_: The folders in this example are numbered, but that's not required - the 
     }
   ],
   "environment": {
-    "importChecks": ["qdk_chemistry", "pyscf"]
+    "importChecks": ["qdk_chemistry"]
   }
 }
 ```

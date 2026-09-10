@@ -79,18 +79,8 @@ const packageChoices: PackageChoice[] = [
   },
   {
     packageName: "qdk-chemistry",
-    description: "Microsoft Quantum Development Kit for Chemistry (core)",
-    detail: "Chemistry library only, without the notebook or PySCF plugins",
-    picked: false,
-  },
-  {
-    // The `jupyter` extra pulls in `plugins`, which is where qdk-chemistry
-    // bounds pyscf. Without it pyscf would be left unconstrained.
-    packageName: "qdk-chemistry",
-    extra: "jupyter",
-    description: "QDK/Chemistry optional support for Jupyter notebooks",
-    detail:
-      "Add the notebook and simulation plugins, including PySCF. Required by the chemistry course.",
+    description: "Microsoft Quantum Development Kit for Chemistry",
+    detail: "Toolkit for quantum chemistry",
     picked: false,
   },
   {
