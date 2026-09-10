@@ -377,6 +377,7 @@ impl Display for FcmpConditionCode {
 pub enum Instruction {
     Store(Operand, Variable),
     StoreArray(Vec<Operand>, Variable),
+    StoreIndex(Operand, Operand, Variable),
     Call(
         CallableId,
         Vec<Operand>,
@@ -416,6 +417,8 @@ pub enum Instruction {
     Load(Variable, Variable),
     Alloca(Variable),
     Index(Operand, Operand, Variable),
+    CopyArray(Variable, Variable),
+    SliceArray(Variable, i64, i64, i64, Variable),
     Return(Option<Operand>),
 }
 
@@ -430,11 +433,16 @@ impl Instruction {
 }
 
 impl Display for Instruction {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::StoreArray(value, variable) => {
                 write_store_array_instruction(f, value, *variable)?;
+            }
+            Self::StoreIndex(value, index, array_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "StoreIndex {value}, {index}, {array_var}")?;
             }
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
             Self::Call(callable_id, args, variable, metadata) => {
@@ -523,6 +531,17 @@ impl Display for Instruction {
             Self::Index(array_var, index_opr, result_var) => {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
+            }
+            Self::CopyArray(source_array, dest_array) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{dest_array} = CopyArray {source_array}")?;
+            }
+            Self::SliceArray(array_var, start, step, end, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(
+                    indent,
+                    "{result_var} = SliceArray {array_var}, {start}, {step}, {end}"
+                )?;
             }
             Self::Return(None) => write!(f, "Return")?,
             Self::Return(Some(operand)) => write!(f, "Return {operand}")?,

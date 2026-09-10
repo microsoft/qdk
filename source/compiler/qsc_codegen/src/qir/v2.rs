@@ -239,6 +239,16 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Index(array_op, index_op, result_var) => {
                 index_to_qir(array_op, index_op, result_var, program)
             }
+            rir::Instruction::CopyArray(src, dest) => {
+                // A direct copy of an array can be represented as a single store instruction in the IR.
+                store_to_qir(rir::Operand::Variable(*src), *dest, program)
+            }
+            rir::Instruction::SliceArray(array, start, step, end, var) => {
+                slice_array_to_qir(*array, *start, *step, *end, *var, program)
+            }
+            rir::Instruction::StoreIndex(..) => {
+                unreachable!("StoreIndex instructions should be eliminated by passes")
+            }
         }
     }
 }
@@ -349,6 +359,59 @@ fn store_array_to_qir(
         )
         .expect("writing to string should succeed");
         if i != final_operand_idx {
+            writeln!(qir).expect("writing to string should succeed");
+        }
+    }
+    qir
+}
+
+fn slice_array_to_qir(
+    array: rir::Variable,
+    start: i64,
+    step: i64,
+    end: i64,
+    var: rir::Variable,
+    program: &rir::Program,
+) -> String {
+    // To avoid introducing a loop, we emit explicit individual store instructions into the returned QIR string for reading
+    // each element of the original array and storing it into the expected location of the new array representing the slice.
+    // This produces 4N instructions for an array slice of N elements:
+    // 1. Get the pointer offset into the original array.
+    // 2. Load the element from the original array.
+    // 3. Get the pointer offset into the new array representing the slice.
+    // 4. Store the element into the new array.
+    let var_str = ToQir::<String>::to_qir(&var.variable_id, program);
+    let array_ty = get_variable_ty(array);
+    let var_ty = get_variable_ty(var);
+    let elem_ty = if let rir::Ty::Array(_, elem_ty) = array.ty {
+        get_prim_ty(elem_ty)
+    } else {
+        panic!("expected array type for variable {array:?}");
+    };
+    let array_str = ToQir::<String>::to_qir(&array.variable_id, program);
+    let mut qir = String::new();
+    let mut idx = start;
+    let mut new_idx = 0;
+    while (step > 0 && idx <= end) || (step < 0 && idx >= end) {
+        let temp_var = format!("{var_str}_{new_idx}");
+        let offset = i32::from(idx < 0);
+        writeln!(
+            qir,
+            "  {temp_var}_src = getelementptr {array_ty}, ptr {array_str}, i64 {offset}, i64 {idx}"
+        )
+        .expect("writing to string should succeed");
+        writeln!(qir, "  {temp_var} = load {elem_ty}, ptr {temp_var}_src")
+            .expect("writing to string should succeed");
+        writeln!(
+            qir,
+            "  {temp_var}_dst = getelementptr {var_ty}, ptr {var_str}, i64 0, i64 {new_idx}"
+        )
+        .expect("writing to string should succeed");
+        write!(qir, "  store {elem_ty} {temp_var}, ptr {temp_var}_dst")
+            .expect("writing to string should succeed");
+        idx += step;
+        new_idx += 1;
+        if (step > 0 && idx <= end) || (step < 0 && idx >= end) {
             writeln!(qir).expect("writing to string should succeed");
         }
     }
@@ -689,7 +752,10 @@ impl ToQir<String> for rir::Block {
     fn to_qir(&self, program: &rir::Program) -> String {
         self.0
             .iter()
-            .map(|instr| ToQir::<String>::to_qir(instr, program))
+            .filter_map(|instr| {
+                let s = ToQir::<String>::to_qir(instr, program);
+                if s.is_empty() { None } else { Some(s) }
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }

@@ -40,3 +40,13 @@ fn load_pointer_from_pointer() {
     );
     expect!["  %var_0 = load ptr, ptr %var_1"].assert_eq(&inst.to_qir(&rir::Program::default()));
 }
+
+#[test]
+fn load_array_from_pointer() {
+    let inst = rir::Instruction::Load(
+        rir::Variable::new_ptr(rir::VariableId(1)),
+        rir::Variable::new_array(rir::VariableId(0), 2, rir::Prim::Integer),
+    );
+    expect!["  %var_0 = load [2 x i64], ptr %var_1"]
+        .assert_eq(&inst.to_qir(&rir::Program::default()));
+}
