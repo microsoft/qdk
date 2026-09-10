@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import qodec as qc
 from qodec.gadgets import Encoding
 
@@ -16,7 +17,9 @@ from qdk.ec._analysis.channel_action import (
     gadget_action_mismatch,
     input_qubits_of,
     realized_action_of,
+    realized_codes_of,
 )
+from qdk.ec._analysis.propagation.conditional import conditional_choi_state
 from qdk.ec._analysis.propagation.interpreter import program_of
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
@@ -25,6 +28,40 @@ from qdk.ec._layout import ProgramLayout
 
 def _action_of_gadget(gadget: qc.Gadget) -> ChannelAction:
     return action_of(program_of(gadget))
+
+
+@pytest.mark.parametrize("decoded", [False, True])
+def test_action_frames_use_simulator_outcomes(
+    measure_zz_gadget: qc.Gadget,
+    idle_gadget: qc.Gadget,
+    prepare_xx_gadget: qc.Gadget,
+    decoded: bool,
+) -> None:
+    for gadget in (measure_zz_gadget, idle_gadget, prepare_xx_gadget):
+        program = program_of(gadget)
+        if decoded:
+            input_code, _ = realized_codes_of(gadget)
+            input_qubits = sorted(input_code.support)
+            projectors = tuple(input_code.stabilizers)
+            action = realized_action_of(gadget)
+        else:
+            input_qubits = sorted(input_qubits_of(program))
+            projectors = ()
+            action = action_of(program)
+        simulation = conditional_choi_state(
+            program, input_qubits=input_qubits, codespace_projector=projectors
+        ).simulation
+        random_outcomes = simulation.random_outcome_indicator.support
+        rows = list(simulation.outcome_matrix.rows)
+        for random_bit, outcome in enumerate(random_outcomes):
+            assert set(rows[outcome].support) == {random_bit}
+            assert not simulation.outcome_shift[outcome]
+        generators = (
+            *action._stabilizers.generators,
+            *action._observables.generators,
+            *action._mapping.values(),
+        )
+        assert all(generator.frame <= set(random_outcomes) for generator in generators)
 
 
 def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> None:
@@ -53,6 +90,89 @@ def test_action_is_equivalent_to_itself(idle_gadget: qc.Gadget) -> None:
     assert are_outcome_equivalent(action, action)
 
 
+@pytest.mark.parametrize(
+    "expected_frames,actual_frames,negated_output,equivalent",
+    [
+        (((0,),), ((17,),), None, True),
+        (((0,), (0,)), ((3,), (4,)), None, False),
+        (((0,), (1,)), ((2,), (2, 7)), None, True),
+        (((),), ((),), 0, False),
+        (((0,),), ((3,),), 0, True),
+        (((0,), (0,)), ((3,), (3,)), 1, False),
+        (((0,), (1,), (0, 1)), ((3,), (4,), (3, 4)), None, True),
+        (((0,), (1,), (0, 1)), ((3,), (4,), (5,)), None, False),
+        (((0,), (1,), (0, 1)), ((3,), (4,), (3, 4)), 2, False),
+        ((), (), None, True),
+    ],
+)
+def test_action_comparison_and_explanation_agree_on_sign_relations(
+    expected_frames: tuple[tuple[int, ...], ...],
+    actual_frames: tuple[tuple[int, ...], ...],
+    negated_output: int | None,
+    equivalent: bool,
+) -> None:
+    expected = ChannelAction._create(
+        FrameGroup([]),
+        FrameGroup(
+            PauliFrame(Pauli({index: "Z"}), frozenset(frame))
+            for index, frame in enumerate(expected_frames)
+        ),
+        {},
+    )
+    actual = ChannelAction._create(
+        FrameGroup([]),
+        FrameGroup(
+            PauliFrame(
+                (
+                    -Pauli({index: "Z"})
+                    if index == negated_output
+                    else Pauli({index: "Z"})
+                ),
+                frozenset(frame),
+            )
+            for index, frame in enumerate(actual_frames)
+        ),
+        {},
+    )
+    for left, right in ((expected, actual), (actual, expected)):
+        assert left.is_equivalent_to(right) == equivalent
+        assert are_outcome_equivalent(left, right) == equivalent
+        assert (left.why_not_equivalent_to(right) == "") == equivalent
+        assert left.is_equivalent_to(right, modulo_paulis=True)
+
+
+def test_action_comparison_keeps_measurement_and_preparation_sign_correlations() -> (
+    None
+):
+    expected = ChannelAction._create(
+        FrameGroup([PauliFrame(Pauli("Z_0"), frozenset({2}))]),
+        FrameGroup([PauliFrame(Pauli("Z_0"), frozenset({2}))]),
+        {},
+    )
+    independent = ChannelAction._create(
+        FrameGroup([PauliFrame(Pauli("Z_0"), frozenset({4}))]),
+        FrameGroup([PauliFrame(Pauli("Z_0"), frozenset({6}))]),
+        {},
+    )
+    assert expected.is_equivalent_to(independent, modulo_paulis=True)
+    assert not expected.is_equivalent_to(independent)
+    assert expected.why_not_equivalent_to(independent)
+
+
+def test_action_comparison_retains_mapping_correction_convention() -> None:
+    operator = Pauli("X_0")
+    expected = ChannelAction._create(
+        FrameGroup([]), FrameGroup([]), {operator: PauliFrame(operator)}
+    )
+    actual = ChannelAction._create(
+        FrameGroup([]),
+        FrameGroup([]),
+        {operator: PauliFrame(-operator, frozenset({7}))},
+    )
+    assert expected.is_equivalent_to(actual)
+    assert expected.why_not_equivalent_to(actual) == ""
+
+
 def test_distinct_gadgets_are_not_equivalent(
     idle_gadget: qc.Gadget, measure_xx_gadget: qc.Gadget
 ) -> None:
@@ -70,7 +190,9 @@ def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
     if not action._mapping:
         return
     flipped_mapping = {key: value * -1 for key, value in action._mapping.items()}
-    flipped = ChannelAction._create(action._observables, action._stabilizers, flipped_mapping)
+    flipped = ChannelAction._create(
+        action._observables, action._stabilizers, flipped_mapping
+    )
     assert are_equivalent_mod_paulis(action, flipped)
     assert flipped.is_equivalent_to(action, modulo_paulis=True)
     assert not are_outcome_equivalent(action, flipped)
@@ -121,12 +243,12 @@ def test_idle_declared_and_realized_actions_match_golden_values(
     assert str(profile.objective) == (
         "observables: FrameGroup(generators=())\n"
         "stabilizers: FrameGroup(generators=())\n"
-        "mapping: {X: X^{0}, Z: Z, IX: IX^{1}, IZ: IZ}"
+        "mapping: {X: X^{0}, Z: Z, IX: IX^{2}, IZ: IZ}"
     )
     assert str(profile.action) == (
         "observables: FrameGroup(generators=())\n"
         "stabilizers: FrameGroup(generators=())\n"
-        "mapping: {X: X^{2,3}, Z: Z, IX: IX^{1,3}, IZ: IZ}"
+        "mapping: {X: X^{4,6}, Z: Z, IX: IX^{2,6}, IZ: IZ}"
     )
 
 

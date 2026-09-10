@@ -244,11 +244,36 @@ def propagate_faults(
     program: Circuit,
     fault_basis: Sequence[Any],
     residual_probes: Sequence[Pauli],
+    *,
+    residual_frames: Sequence[frozenset[int]] | None = None,
 ) -> tuple[BitMatrix, int, int]:
+    """Propagate probes, optionally signed by circuit-walk outcome indices."""
+    calls = program.calls
+    for call in calls:
+        instruction = program.instruction_set.instructions[call.mnemonic]
+        if (
+            call.predicates
+            or call.select
+            or any(
+                getattr(action, "condition", None) is not None
+                for action in instruction.action
+            )
+        ):
+            raise NotImplementedError(
+                "conditional or selected circuits are not supported by fault propagation"
+            )
+        if instruction.flags:
+            raise NotImplementedError(
+                "circuit instruction flags are not supported by fault propagation"
+            )
     propagator = _FramePropagator(len(fault_basis))
     injections: dict[int, list[tuple[int, Pauli]]] = {}
     for fault_index, fault in enumerate(fault_basis):
         for instruction_index, pauli in fault.locations.items():
+            if not 0 <= instruction_index < len(calls):
+                raise ValueError(
+                    f"fault call index {instruction_index} is out of bounds for {len(calls)} calls"
+                )
             injections.setdefault(instruction_index, []).append((fault_index, pauli))
 
     def inject_at(instruction_index: int) -> None:
@@ -262,7 +287,31 @@ def propagate_faults(
     )
     for probe in residual_probes:
         propagator.measure(probe)
-    return propagator.outcome_deltas, result.hidden_count, result.outcome_count
+    deltas = propagator.outcome_deltas
+    observed = set(result.observe_outcomes)
+    circuit_rows = result.hidden_count + result.outcome_count
+    if residual_frames is not None:
+        for probe, frame in zip(
+            range(len(residual_probes)), residual_frames, strict=True
+        ):
+            for outcome in frame:
+                if not 0 <= outcome < circuit_rows:
+                    raise ValueError(f"probe outcome index {outcome} is out of bounds")
+                for fault in range(len(fault_basis)):
+                    deltas[circuit_rows + probe, fault] ^= deltas[outcome, fault]
+    row_order = [
+        *(row for row in range(circuit_rows) if row not in observed),
+        *result.observe_outcomes,
+        *range(circuit_rows, circuit_rows + len(residual_probes)),
+    ]
+    if row_order != list(range(len(row_order))):
+        deltas = BitMatrix(
+            [
+                [bool(deltas[row, fault]) for fault in range(len(fault_basis))]
+                for row in row_order
+            ]
+        )
+    return deltas, result.hidden_count, result.outcome_count
 
 
 def program_of(gadget: qc.Gadget) -> Circuit:

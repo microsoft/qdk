@@ -1,4 +1,4 @@
-"""Internal code-distance analysis."""
+"""Internal code and circuit-fault distance adapters."""
 
 from __future__ import annotations
 
@@ -19,13 +19,38 @@ from ._analysis.distance_solvers import (
     CustomBoundsSolver,
     CustomExactSolver,
     ExactSolver,
-    ExhaustiveSolverOptions,
+    EnumerationSolverOptions,
     MwpfSolverOptions,
 )
 from ._analysis.odd_cycles import OddCycles, cycle_labels
 from ._analysis.propagation.pauli import Pauli
+from ._faults import FaultEffect, FaultEvent
 
 Errors = Union[str, Sequence[Pauli]]
+
+
+@dataclass
+class _FaultDistanceData:
+    faults: tuple[FaultEvent, ...]
+    odd_cycles: OddCycles
+
+    @classmethod
+    def of(
+        cls,
+        faults: tuple[FaultEvent, ...],
+        effects: Sequence[FaultEffect],
+        output_syndromes: Sequence[frozenset[int]],
+        indicators: Sequence[frozenset[int]],
+    ) -> _FaultDistanceData:
+        output_offset = 1 + max(
+            (index for effect in effects for index in effect.syndrome), default=-1
+        )
+        constraints = [
+            effect.syndrome
+            | frozenset(output_offset + index for index in output_syndrome)
+            for effect, output_syndrome in zip(effects, output_syndromes, strict=True)
+        ]
+        return cls(faults, OddCycles(constraints, indicators))
 
 
 def _code_view(code: qc.Code | SubsystemCode) -> SubsystemCode:
@@ -51,7 +76,7 @@ class CodeDistanceData:
     odd_cycles: OddCycles
 
     @staticmethod
-    def of(code: qc.Code | SubsystemCode, errors: Errors = "XZ") -> "CodeDistanceData":
+    def of(code: qc.Code | SubsystemCode, errors: Errors = "XYZ") -> "CodeDistanceData":
         view = _code_view(code)
         error_paulis = _errors_of(view, errors)
         return CodeDistanceData(
@@ -76,15 +101,15 @@ class CodeDistanceData:
 def code_distance_of(
     code: qc.Code | SubsystemCode,
     *,
-    errors: Errors = "XZ",
+    errors: Errors = "XYZ",
     distance_upper_bound: Optional[int] = None,
     coset_representative: Optional[Pauli] = None,
     solver: Optional[ExactSolver] = None,
 ) -> tuple[int, list[Pauli]]:
-    """Return the exact distance of ``code`` and a minimum-weight witness."""
+    """Return the minimum allowed-error count and its list of Pauli factors."""
     data = CodeDistanceData.of(code, errors)
     size, cycle = data.odd_cycles.shortest(
-        solver or ExhaustiveSolverOptions(),
+        EnumerationSolverOptions() if solver is None else solver,
         coset_indicator=data.parity_indicator(coset_representative),
         cycle_size_upper_bound=distance_upper_bound,
     )
@@ -94,17 +119,17 @@ def code_distance_of(
 def code_distance_bounds_of(
     code: qc.Code | SubsystemCode,
     *,
-    errors: Errors = "XZ",
+    errors: Errors = "XYZ",
     distance_upper_bound: Optional[int] = None,
     coset_representative: Optional[Pauli] = None,
     solver: Optional[BoundsSolver] = None,
 ) -> tuple[int, int, list[Pauli]]:
-    """Return lower/upper distance bounds for ``code`` and a witness."""
+    """Bound the allowed-error count and return factors witnessing the upper bound."""
     data = CodeDistanceData.of(code, errors)
     lower, upper, cycle = data.odd_cycles.bounds(
         odd_cycle_length_upper_bound=distance_upper_bound,
         coset_indicator=data.parity_indicator(coset_representative),
-        solver=solver or MwpfSolverOptions(),
+        solver=MwpfSolverOptions() if solver is None else solver,
     )
     return lower, upper, cycle_labels(cycle, data.errors)
 
@@ -115,7 +140,7 @@ __all__ = [
     "CustomBoundsSolver",
     "CustomExactSolver",
     "ExactSolver",
-    "ExhaustiveSolverOptions",
+    "EnumerationSolverOptions",
     "MwpfSolverOptions",
     "OddCycles",
     "SubsystemCode",

@@ -6,18 +6,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
+from binar import BitMatrix, BitVector
 import qodec as qc
 
 from ._analysis.propagation.interpreter import program_of, propagate_faults
-from ._analysis.propagation.pauli import Pauli, PauliCharacter
+from ._analysis.propagation.frames import FrameGroup
+from ._analysis.propagation.pauli import Pauli, PauliCharacter, relabel
 from ._analysis.propagation.pauli_remap import (
     Basis,
     encoding_qubit_relocation,
     logical_chars,
     remap_to_global,
 )
-from ._readouts import readout_slots
-from ._references import outcomes_of, parse_equations
 
 
 @dataclass(frozen=True)
@@ -90,36 +90,62 @@ def fault_effects_of(
     Positionally aligned with ``basis``. The whole basis is evaluated in one
     simulation, which is why there is no single-fault entry point.
     """
+    return _gadget_fault_data(gadget, basis)[0]
+
+
+def _gadget_fault_data(
+    gadget: qc.Gadget,
+    basis: Sequence[FaultEvent],
+    *,
+    observables: FrameGroup = FrameGroup(()),
+) -> tuple[
+    tuple[FaultEffect, ...], tuple[frozenset[int], ...], tuple[frozenset[int], ...]
+]:
+    """Return effects, output syndromes, and extra probe flips from one propagation."""
     fault_basis = tuple(basis)
     if not fault_basis:
-        return ()
+        return (), (), ()
 
     program = program_of(gadget)
-    checks = [outcomes_of(check) for check in parse_equations(gadget.checks)]
-    readouts = [outcomes_of(slot.equation) for slot in readout_slots(gadget)]
     z_probes, z_layout = _build_basis_probes(gadget.outputs, "Z")
     x_probes, x_layout = _build_basis_probes(gadget.outputs, "X")
+    stabilizer_probes = []
+    stabilizer_paths = []
+    for entry, encoding in enumerate(gadget.outputs):
+        relocation = encoding_qubit_relocation(encoding)
+        for index, operator in enumerate(encoding.code.stabilizers):
+            stabilizer_probes.append(relabel(Pauli(operator), relocation))
+            stabilizer_paths.append(f"out[{entry}].stabilizers[{index}]")
+    probes = z_probes + x_probes + stabilizer_probes
     deltas, hidden_count, outcome_count = propagate_faults(
-        program, fault_basis, z_probes + x_probes
+        program,
+        fault_basis,
+        probes + [item.pauli for item in observables.generators],
+        residual_frames=[frozenset() for _ in probes]
+        + [item.frame for item in observables.generators],
     )
     z_offset = hidden_count + outcome_count
     x_offset = z_offset + len(z_probes)
+    paths = [
+        *(f"circuit.readouts[{index}]" for index in range(outcome_count)),
+        *(f"out[{entry}].z[{index}]" for entry, index in z_layout),
+        *(f"out[{entry}].x[{index}]" for entry, index in x_layout),
+        *stabilizer_paths,
+    ]
+    values = {
+        path: BitVector(
+            bool(deltas[hidden_count + row, fault]) for fault in range(len(fault_basis))
+        )
+        for row, path in enumerate(paths)
+    }
+    checks, readouts = _parity_effects(gadget, values, len(fault_basis))
     effects = []
     for fault_index in range(len(fault_basis)):
-        flipped_outcomes = {
-            index
-            for index in range(outcome_count)
-            if deltas[hidden_count + index, fault_index]
-        }
         flipped_checks = frozenset(
-            index
-            for index, positions in enumerate(checks)
-            if sum(position in flipped_outcomes for position in positions) % 2
+            index for index, value in enumerate(checks) if value[fault_index]
         )
         readout_flips = frozenset(
-            index
-            for index, positions in enumerate(readouts)
-            if sum(position in flipped_outcomes for position in positions) % 2
+            index for index, value in enumerate(readouts) if value[fault_index]
         )
         z_flips = {
             index
@@ -144,7 +170,97 @@ def fault_effects_of(
                 ),
             )
         )
-    return tuple(effects)
+    output_syndromes = tuple(
+        frozenset(
+            index
+            for index, path in enumerate(stabilizer_paths)
+            if values[path][fault_index]
+        )
+        for fault_index in range(len(fault_basis))
+    )
+    indicators = _probe_flips(
+        deltas,
+        hidden_count + outcome_count + len(probes),
+        len(observables.generators),
+        len(fault_basis),
+    )
+    return tuple(effects), output_syndromes, indicators
+
+
+def _probe_flips(
+    deltas: BitMatrix, offset: int, probe_count: int, fault_count: int
+) -> tuple[frozenset[int], ...]:
+    return tuple(
+        frozenset(
+            probe for probe in range(probe_count) if deltas[offset + probe, fault]
+        )
+        for fault in range(fault_count)
+    )
+
+
+def _parity_effects(
+    gadget: qc.Gadget, values: Mapping[str, BitVector], fault_count: int
+) -> tuple[list[BitVector], list[BitVector]]:
+    count = len(gadget.readouts)
+
+    def equation(
+        references: Sequence[qc.gadgets.Reference],
+    ) -> tuple[BitVector, BitVector]:
+        external = BitVector.zeros(fault_count)
+        readouts = BitVector.zeros(count)
+        for reference in references:
+            for term in reference.expand():
+                if term.kind == "readout":
+                    if term.index >= count:
+                        raise ValueError(f"readout reference {term} is out of bounds")
+                    readouts[term.index] = not readouts[term.index]
+                    continue
+                if term.kind == "encoding":
+                    encodings = (
+                        gadget.inputs if term.boundary == "in" else gadget.outputs
+                    )
+                    entry, field = term.entry, term.encoding_property
+                    assert entry is not None and field is not None
+                    if entry >= len(encodings) or term.index >= len(
+                        getattr(encodings[entry].code, field)
+                    ):
+                        raise ValueError(f"encoding reference {term} is out of bounds")
+                    if term.boundary == "in":
+                        continue
+                    path = f"out[{entry}].{field}[{term.index}]"
+                else:
+                    path = f"circuit.readouts[{term.index}]"
+                if path not in values:
+                    raise ValueError(f"circuit reference {term} is out of bounds")
+                external = external ^ values[path]
+        return external, readouts
+
+    definitions = [equation(readout.equation) for readout in gadget.readouts]
+    readout_values = [value for value, _ in definitions]
+    if any(dependencies.weight for _, dependencies in definitions):
+        matrix = BitMatrix.zeros(count, count + fault_count)
+        for index, (value, dependencies) in enumerate(definitions):
+            for dependency in dependencies.support:
+                matrix[index, dependency] = True
+            matrix[index, index] = not matrix[index, index]
+            for fault in range(fault_count):
+                matrix[index, count + fault] = value[fault]
+        if matrix.echelonize() != list(range(count)):
+            raise ValueError(
+                "readout equations do not uniquely determine fault effects"
+            )
+        readout_values = list(
+            matrix.submatrix(
+                list(range(count)), list(range(count, count + fault_count))
+            ).rows
+        )
+    checks = []
+    for check in gadget.checks:
+        value, dependencies = equation(check)
+        for index in dependencies.support:
+            value = value ^ readout_values[index]
+        checks.append(value)
+    return checks, readout_values
 
 
 def _build_basis_probes(

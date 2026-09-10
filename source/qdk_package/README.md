@@ -140,6 +140,114 @@ containing artifact. Source metadata does not affect diagnostic equality.
 Constructed or modified models may have no source locations. The 11 top-level
 `qdk.ec` exports are unchanged.
 
+`SubsystemCode.distance()` and `distance_bounds()` default to single-qubit
+`"XYZ"` errors, each with unit cost. Supplying `errors` restricts those Pauli
+kinds or replaces them with an explicit sequence of allowed Pauli errors,
+including correlated errors. The witness remains a list of selected factors.
+
+`GadgetProfile.distance()` and `distance_bounds()` apply the same search to
+circuit faults:
+
+```python
+profile = ec.GadgetProfile(gadget)
+distance, witness = profile.distance()
+lower, upper, bounded_witness = profile.distance_bounds()
+
+faults = [ec.FaultEvent.after(0, ec.Pauli({0: "X", 1: "X"}))]
+distance, witness = profile.distance(faults=faults)
+```
+
+The default is all nonidentity Pauli errors over each parsed instruction call's
+qubit support: 3 errors for a one-qubit call, 15 for a two-qubit call, and
+`4**n - 1` for an n-qubit call. Each fault is injected after its call and costs
+one, even when its Pauli acts on multiple qubits. Instruction support is expanded
+from block operands; an instruction with no qubits contributes no faults.
+This is a set of possible faults, not a probability distribution. For measurement
+calls, an after-call Pauli does not retroactively flip the recorded bit.
+
+Pass `faults=...` to replace the default set; `faults=[]` means no allowed faults.
+An explicit event may span several call positions and still counts as one allowed
+factor. The reported distance counts witness factors, not `FaultEvent.weight`,
+which sums Pauli support weights. Fault positions index `Circuit.calls` from zero,
+not lines of source text. Witnesses retain `FaultEvent` factors so their locations
+and correlations can be inspected and their product replayed with `effects_of`.
+
+Detection means a nonzero **declared check** syndrome. The search also requires
+the combined fault to commute with every stabilizer of every output encoding.
+This ensures that its residual preserves the output codespace; a lone detectable
+data error must not count as a logical error merely because a logical probe flips.
+Individual fault factors need not preserve the codespace: their output syndromes
+may cancel in combination. Syndromes on different output blocks cannot cancel
+each other. This is a constraint on what constitutes a logical error, not a new
+declared detector, and it does not change `FaultEffect.syndrome`.
+
+Among combinations satisfying both constraints, failure means changing the
+**realized logical action**. Indicators come from its prepared-state stabilizers,
+preserved logical mappings, and logical measurement signs. A logical Z fault on
+a prepared logical zero is harmless; a logical X fault changes the prepared state.
+Output errors and measurement-dependent signs are evaluated together, so their
+changes can cancel. A nonidentity output Pauli alone does not establish failure.
+No logical measurement is required; readout-free gadgets use their output
+encodings. With no quantum outputs the codespace constraint is empty, so destructive
+measurements are assessed through their logical readouts. Flag readouts are not
+automatically detectors or logical failures. The effect evaluator
+uses complete check/readout equations, including output signs and uniquely defined
+readout dependencies; circuit-internal faults do not change incoming frame signs.
+Distance computes check, output-code, and action changes in one fault-propagation
+pass. Independent readout equations are evaluated directly; dependent equations
+are reduced once with all fault columns. Physical action probes are cached on
+the profile and shared by both distance methods.
+A bare circuit uses its discovered checks and the action on its identity-encoded
+boundary: the qubits it does not prepare.
+No decoder or additional output recovery is assumed. Full noiseless validation remains an
+explicit `ec.audit(protocol)` call, not an implicit part of every distance search.
+Distance still rejects missing information that would make the result partial,
+including declared but unbound logical readouts, and requires an action that can
+be interpreted against the boundary codes. These guards are calculation
+preconditions, not a validity certificate.
+
+Both methods accept keyword-only `upper_bound` and `solver` like the code methods.
+Both accept `solver="enumeration"`, `"mwpf"`, or `"highs"`. The defaults remain
+enumeration search for `distance()` and MWPF for `distance_bounds()`.
+HiGHS is a lazily loaded, optional mixed-integer solver:
+
+```bash
+pip install 'qdk[ec,ec-highs]'
+```
+
+```python
+distance, witness = profile.distance(solver="highs")
+lower, upper, witness = profile.distance_bounds(solver="highs")
+```
+
+The same selection works on `SubsystemCode`. No solver classes or interfaces
+are exported. Enumeration search enumerates subsets; HiGHS minimizes fault count
+subject to the binary check and logical constraints. Enumeration and HiGHS use
+`upper_bound` as an inclusive search cutoff; MWPF ignores it. The proven
+distance-1/2 shortcuts can answer without invoking a backend.
+
+Internally all backends return bounds and a witness. `distance()` returns only
+when the optimum is proved; it raises `RuntimeError` if a cutoff or solver limit
+leaves a gap. `distance_bounds()` can return that gap. When the witness is empty,
+the numeric upper value is a sentinel, not a certified finite distance. Matching
+sentinel bounds with an empty witness mean no allowed logical failure exists.
+HiGHS limits with no feasible witness, backend failures, invalid witnesses, or
+missing bound certificates raise rather than claiming a result. Only logical
+searches proved impossible are skipped. This applies to both code and gadget
+distance. The solver algorithms are internal and may change without a public
+interface change.
+The default fault set itself grows exponentially with instruction support.
+Invalid call indices or parity references, unbound logical readouts, and ambiguous
+readout dependencies raise rather than silently omitting effects. Conditional or
+selected circuits and circuit instruction flags are not supported.
+
+These are two new methods on `GadgetProfile`, bringing it to 10 named members;
+there are no new top-level exports. Names follow `SubsystemCode.distance` and
+`distance_bounds`; separate `gadget_distance_*` free functions would duplicate
+the profile's ownership. `faults` follows `effects_of(faults)`, rather than `errors`,
+because the inputs include circuit locations. The existing `fault_effects` property
+still uses a compact X/Z propagation basis, not the full unit-cost circuit fault set.
+
 `ec.audit` checks code algebra, complete Clifford maps (including implicit
 identities), gadget actions, and check, flag, and readout equations. It also
 owns protocol completeness, code-list shapes and capacities, reference bounds,
@@ -228,7 +336,7 @@ Missing dependence on an input sign is caught by check/readout verification;
 an omitted available syndrome relation is a missing check. Pure input-to-output
 transport remains the responsibility of `gadget/incomplete-output-frame`.
 
-The registry has 14 built-in rule IDs. This adds no public Python exports:
+The registry has 17 built-in rule IDs. This adds no public Python exports:
 `missing-check` follows `missing-observable` and `missing-flag`; `no-checks`
 would miss incomplete nonempty check lists.
 

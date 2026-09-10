@@ -5,6 +5,8 @@ from typing import Iterable
 import operator
 from functools import reduce
 import pytest
+import qodec as qc
+from qdk.ec import SubsystemCode
 from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from ec_tests.testing import code_catalog as catalog
 from qdk.ec._analysis.propagation.pauli import Pauli
@@ -13,9 +15,9 @@ from qdk.ec._distance import (
     code_distance_bounds_of,
     code_distance_of,
 )
-from ec_tests.testing.optional import requires_mwpf
+from ec_tests.testing.optional import requires_highs, requires_mwpf
 
-exhaustive_cases: list[tuple[str, StabilizerCode, int]] = [
+enumeration_cases: list[tuple[str, StabilizerCode, int]] = [
     ("five_qubit", catalog.make_five_qubit_code(), 3),
     ("steane", catalog.make_steane_code(), 3),
     ("shor", catalog.make_shor_code(), 3),
@@ -31,15 +33,15 @@ exhaustive_cases: list[tuple[str, StabilizerCode, int]] = [
     ("carbon", catalog.make_carbon_code(), 4),
 ]
 
-mwpf_cases: list[tuple[str, StabilizerCode, int]] = exhaustive_cases + [
+mwpf_cases: list[tuple[str, StabilizerCode, int]] = enumeration_cases + [
     ("golay", catalog.make_quantum_golay_code(), 7),
     ("surface_3", catalog.make_rotated_surface_code(x_distance=3, z_distance=3), 3),
     ("surface_5", catalog.make_rotated_surface_code(x_distance=5, z_distance=5), 5),
 ]
 
 
-@pytest.mark.parametrize("name, code, expected", exhaustive_cases)
-def test_exhaustive_code_distance_matches_known_value(
+@pytest.mark.parametrize("name, code, expected", enumeration_cases)
+def test_enumeration_code_distance_matches_known_value(
     name: str, code: StabilizerCode, expected: int
 ) -> None:
     distance, witness = code_distance_of(code)
@@ -60,8 +62,8 @@ def test_mwpf_upper_bound_matches_known_distance(
 
 
 @requires_mwpf
-@pytest.mark.parametrize("name, code, expected", exhaustive_cases)
-def test_mwpf_agrees_with_exhaustive_oracle(
+@pytest.mark.parametrize("name, code, expected", enumeration_cases)
+def test_mwpf_agrees_with_enumeration_oracle(
     name: str, code: StabilizerCode, expected: int
 ) -> None:
     exact, _ = code_distance_of(code)
@@ -82,9 +84,70 @@ def test_per_basis_distance_for_css_code() -> None:
 
 def test_distance_upper_bound_short_circuits_search() -> None:
     code = catalog.make_five_qubit_code()
-    distance, witness = code_distance_of(code, distance_upper_bound=2)
-    assert distance > 2
-    assert witness == []
+    with pytest.raises(RuntimeError, match="exact distance"):
+        code_distance_of(code, distance_upper_bound=2)
+    lower, upper, witness = code.distance_bounds(solver="enumeration", upper_bound=2)
+    assert lower == 3 and upper > lower and witness == []
+
+
+@requires_highs
+@pytest.mark.parametrize("name, code, expected", enumeration_cases)
+def test_highs_code_distance_matches_known_value(
+    name: str, code: StabilizerCode, expected: int
+) -> None:
+    distance, witness = code.distance(solver="highs")
+    lower, upper, bounded = code.distance_bounds(solver="highs")
+    assert distance == lower == upper == expected, name
+    assert len(witness) == len(bounded) == expected
+    assert code.is_non_trivial_logical_error(product_of(witness))
+    assert code.is_non_trivial_logical_error(product_of(bounded))
+
+
+def test_distance_and_bounds_default_to_unit_cost_y_errors() -> None:
+    code = SubsystemCode.of(qc.Code("Y repetition", ["Y_0 Y_1"], ["Y_0"], ["X_0 X_1"]))
+    for distance, witness in (code.distance(), code_distance_of(code)):
+        assert distance == 1
+        assert isinstance(witness, list) and len(witness) == 1
+        assert witness[0] in (Pauli("Y_0"), Pauli("Y_1"))
+        assert code.is_non_trivial_logical_error(product_of(witness))
+    for lower, upper, witness in (
+        code.distance_bounds(),
+        code_distance_bounds_of(code),
+    ):
+        assert lower == upper == 1
+        assert isinstance(witness, list) and len(witness) == 1
+        assert witness[0] in (Pauli("Y_0"), Pauli("Y_1"))
+        assert code.is_non_trivial_logical_error(product_of(witness))
+    assert code.distance(errors="XZ")[0] == 2
+    assert code.distance_bounds(errors="XZ")[:2] == (2, 2)
+    assert code_distance_of(code, errors="XZ")[0] == 2
+    assert code_distance_bounds_of(code, errors="XZ")[:2] == (2, 2)
+
+
+def test_correlated_errors_remain_single_witness_factors() -> None:
+    code = SubsystemCode.of(
+        qc.Code(
+            "C4",
+            ["X_0 X_1 X_2 X_3", "Z_0 Z_1 Z_2 Z_3"],
+            ["X_0 X_1", "X_0 X_2"],
+            ["Z_0 Z_2", "Z_0 Z_1"],
+        )
+    )
+    errors = [Pauli("X_0 X_1")]
+    for distance, witness in (
+        code.distance(errors=errors),
+        code_distance_of(code, errors=errors),
+    ):
+        assert distance == 1
+        assert witness == errors
+        assert product_of(witness).weight == 2
+    for lower, upper, witness in (
+        code.distance_bounds(errors=errors),
+        code_distance_bounds_of(code, errors=errors),
+    ):
+        assert lower == upper == 1
+        assert witness == errors
+        assert product_of(witness).weight == 2
 
 
 def product_of(paulis: Iterable[Pauli]) -> Pauli:

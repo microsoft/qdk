@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Sequence
+from itertools import product
+from typing import TYPE_CHECKING, Sequence
 
 import qodec as qc
 from qodec.gadgets import Circuit
@@ -11,19 +12,26 @@ from qodec.gadgets import Circuit
 from ._analysis.check_discovery import checks_of, profile_of
 from ._analysis.channel_action import (
     ChannelAction,
+    _identity_codes_over,
     action_of,
     declared_action_of,
     input_qubits_of,
     realized_action_of,
+    realized_codes_of,
 )
 from ._analysis.equivalence import gadgets_equivalent, why_not_equivalent
+from ._analysis.propagation.frames import FrameGroup, PauliFrame
 from ._analysis.propagation.interpreter import propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._layout import ProgramLayout
-from ._readouts import as_readout, observe_count_of
+from ._readouts import observe_count_of
 from ._references import outcomes_of
 from ._checks import OutcomeCode, outcome_code_of
-from ._faults import FaultEffect, FaultEvent, fault_effects_of
+from ._faults import FaultEffect, FaultEvent, _probe_flips, fault_effects_of
+
+if TYPE_CHECKING:
+    from ._analysis.distance_solvers import BoundsSolver, ExactSolver
+    from ._distance import _FaultDistanceData
 
 
 class GadgetProfile:
@@ -54,7 +62,7 @@ class GadgetProfile:
         """What the circuit does."""
         if isinstance(self._target, qc.Gadget):
             return realized_action_of(self._target)
-        return action_of(_program(self._target))
+        return action_of(self._target)
 
     @cached_property
     def objective(self) -> ChannelAction | None:
@@ -111,7 +119,8 @@ class GadgetProfile:
         every qubit it touches. That spans every circuit-level Pauli fault: a
         multi-qubit fault at one location is the product of single-qubit faults
         there, and effects are linear over GF(2), so any other basis follows by
-        change of basis.
+        change of basis. This compact propagation basis is not the unit-cost
+        circuit fault set used by distance and distance_bounds.
         """
         basis = self._canonical_fault_basis()
         return tuple(zip(basis, self.effects_of(basis)))
@@ -120,10 +129,149 @@ class GadgetProfile:
         """Effects of an explicit fault basis, positionally aligned with it.
 
         Plural because the whole basis is evaluated in one simulation.
+        For gadgets, evaluate the complete declared checks and readouts,
+        including output signs and uniquely defined readout dependencies.
+        Incoming signs have zero change for circuit-internal faults.
+        Invalid references or ambiguous readouts raise ValueError.
+        Conditional/selected calls and circuit instruction flags are unsupported.
         """
         if isinstance(self._target, qc.Gadget):
             return fault_effects_of(self._target, faults)
-        return self._circuit_effects_of(tuple(faults))
+        return self._circuit_fault_data(tuple(faults))[0]
+
+    def distance(
+        self,
+        *,
+        faults: Sequence[FaultEvent] | None = None,
+        upper_bound: int | None = None,
+        solver: ExactSolver | None = None,
+    ) -> tuple[int, list[FaultEvent]]:
+        """Return the smallest undetected fault count and its fault factors.
+
+        By default, allow every nonidentity Pauli on each call's support,
+        injected after that call: 3 faults on one qubit, 15 on two, and
+        4**n - 1 on n qubits. Each allowed event costs one, including a
+        correlated multi-qubit event; this is not FaultEvent.weight.
+        Pass an explicit sequence to replace that fault set, including [].
+        An explicit event may span several call positions and still costs one.
+
+        Detected means a nonzero declared check syndrome. The combined fault
+        must also commute with every output-code stabilizer: a nonzero output
+        syndrome is not a logical error. Failure means changing the realized
+        logical action: its prepared-state stabilizers, preserved logical
+        mappings, or logical measurement signs. A logical Z on a prepared
+        logical zero is harmless. Output errors and measurement-dependent
+        signs are evaluated together and may cancel. Individual factors may leave
+        the codespace as long as their combined output syndromes cancel.
+        This constraint does not add declared checks or alter FaultEffect.syndrome.
+        Flags are not automatically detectors or failures. A bare circuit
+        uses its discovered checks and identity encodings on the qubits it
+        does not prepare. No decoder or additional output recovery is assumed.
+
+        No logical measurement is required: a readout-free gadget is assessed
+        through its output encodings. Audit noiseless validity separately with
+        ec.audit(protocol). Distance retains only calculation preconditions;
+        the action must be interpretable against the boundary codes, and
+        declared but unbound logical readouts cannot silently be ignored.
+
+        The witness is a list of selected FaultEvents, not their product.
+        Select solver="enumeration" (the default), "mwpf", or "highs".
+        HiGHS requires the optional qdk[ec,ec-highs] installation.
+        Return an empty list and a sentinel greater than the number of distinct
+        constraint columns only when no logical failure is possible. A cutoff
+        or an open bound gap raises RuntimeError rather than claiming exactness.
+        Fault positions are zero-based Circuit.calls indices. Invalid indices,
+        references, or unbound logical readouts raise ValueError. Propagation
+        restrictions are the same as for effects_of. The fault set grows
+        exponentially with call support; exact search is also combinatorial.
+        """
+        from ._analysis.distance_solvers import EnumerationSolverOptions
+
+        data = self._distance_data(faults)
+        size, cycle = data.odd_cycles.shortest(
+            EnumerationSolverOptions() if solver is None else solver,
+            cycle_size_upper_bound=upper_bound,
+        )
+        return size, [data.faults[index] for index in cycle]
+
+    def distance_bounds(
+        self,
+        *,
+        faults: Sequence[FaultEvent] | None = None,
+        upper_bound: int | None = None,
+        solver: BoundsSolver | None = None,
+    ) -> tuple[int, int, list[FaultEvent]]:
+        """Bound the undetected fault count and return an upper-bound witness.
+
+        Faults, detection, and failure have the same meaning as in distance.
+        Select solver="mwpf" (the default), "enumeration", or "highs".
+        HiGHS requires qdk[ec,ec-highs]. Enumeration and HiGHS searches use
+        upper_bound as a search cutoff; MWPF does not use it. An empty list
+        means no witness was found; the numeric upper value is then a sentinel,
+        not a certified finite distance. Limits may leave a gap between bounds.
+        Backend failures, invalid witnesses, or unavailable bound certificates
+        raise RuntimeError rather than returning a partial or uncertified bound.
+        """
+        from ._analysis.distance_solvers import MwpfSolverOptions
+
+        data = self._distance_data(faults)
+        lower, upper, cycle = data.odd_cycles.bounds(
+            odd_cycle_length_upper_bound=upper_bound,
+            solver=MwpfSolverOptions() if solver is None else solver,
+        )
+        return lower, upper, [data.faults[index] for index in cycle]
+
+    def _distance_data(self, faults: Sequence[FaultEvent] | None) -> _FaultDistanceData:
+        from ._distance import _FaultDistanceData
+        from ._faults import _gadget_fault_data
+
+        allowed = self._circuit_faults() if faults is None else tuple(faults)
+        observable_count = (
+            observe_count_of(self._target.implements)
+            if isinstance(self._target, qc.Gadget)
+            else len(self.readouts)
+        )
+        if (
+            isinstance(self._target, qc.Gadget)
+            and len(self._target.readouts) < observable_count
+        ):
+            raise ValueError(
+                "distance requires every logical measurement readout to be bound"
+            )
+        observables = self._fault_probes if allowed else FrameGroup(())
+        if isinstance(self._target, qc.Gadget):
+            effects, output_syndromes, indicators = _gadget_fault_data(
+                self._target, allowed, observables=observables
+            )
+        else:
+            effects, indicators = self._circuit_fault_data(
+                allowed, observables=observables
+            )
+            output_syndromes = tuple(frozenset() for _ in allowed)
+        return _FaultDistanceData.of(allowed, effects, output_syndromes, indicators)
+
+    @cached_property
+    def _fault_probes(self) -> FrameGroup:
+        """Physical action probes with signs indexed by circuit-walk outcomes."""
+        if isinstance(self._target, qc.Gadget):
+            input_code, output_code = realized_codes_of(self._target)
+            action = self.action
+        else:
+            input_code = output_code = _identity_codes_over(self._circuit_outputs)
+            action = action_of(self._circuit, with_respect_to=(input_code, output_code))
+        observables = _fault_observables(action).generators
+        outcome_offset = 2 * len(input_code.support) + len(input_code.stabilizers)
+        return FrameGroup(
+            PauliFrame(
+                abs(output_code.representative_of(observable.pauli)),
+                frozenset(
+                    outcome - outcome_offset
+                    for outcome in observable.frame
+                    if outcome >= outcome_offset
+                ),
+            )
+            for observable in observables
+        )
 
     def is_equivalent_to(self, other: "GadgetProfile") -> bool:
         if isinstance(self._target, qc.Gadget) and isinstance(other._target, qc.Gadget):
@@ -146,23 +294,27 @@ class GadgetProfile:
 
     @cached_property
     def _outcome_code(self) -> OutcomeCode:
-        return outcome_code_of(_program(self._circuit))
+        return outcome_code_of(self._circuit)
 
     @cached_property
     def _circuit_outputs(self) -> tuple[int, ...]:
         """The qubits a bare circuit carries through: those it does not prepare."""
-        return tuple(sorted(input_qubits_of(_program(self._circuit))))
+        return tuple(sorted(input_qubits_of(self._circuit)))
 
-    def _circuit_effects_of(
-        self, basis: tuple[FaultEvent, ...]
-    ) -> tuple[FaultEffect, ...]:
+    def _circuit_fault_data(
+        self, basis: tuple[FaultEvent, ...], *, observables: FrameGroup = FrameGroup(())
+    ) -> tuple[tuple[FaultEffect, ...], tuple[frozenset[int], ...]]:
         if not basis:
-            return ()
+            return (), ()
         outputs = self._circuit_outputs
         z_probes = [Pauli({qubit: "Z"}) for qubit in outputs]
         x_probes = [Pauli({qubit: "X"}) for qubit in outputs]
         deltas, hidden_count, outcome_count = propagate_faults(
-            _program(self._circuit), basis, z_probes + x_probes
+            self._circuit,
+            basis,
+            z_probes + x_probes + [item.pauli for item in observables.generators],
+            residual_frames=[frozenset() for _ in z_probes + x_probes]
+            + [item.frame for item in observables.generators],
         )
         z_offset = hidden_count + outcome_count
         x_offset = z_offset + len(z_probes)
@@ -191,10 +343,13 @@ class GadgetProfile:
                     },
                 )
             )
-        return tuple(effects)
+        indicators = _probe_flips(
+            deltas, x_offset + len(x_probes), len(observables.generators), len(basis)
+        )
+        return tuple(effects), indicators
 
     def _canonical_fault_basis(self) -> tuple[FaultEvent, ...]:
-        program = _program(self._circuit)
+        program = self._circuit
         layout = ProgramLayout.of(program)
         return tuple(
             FaultEvent.after(index, Pauli({qubit: basis}))
@@ -203,8 +358,40 @@ class GadgetProfile:
             for basis in ("X", "Z")
         )
 
+    def _circuit_faults(self) -> tuple[FaultEvent, ...]:
+        program = self._circuit
+        layout = ProgramLayout.of(program)
+        faults = []
+        for index, call in enumerate(program.calls):
+            support = sorted(set(layout.call_qubit_map(call).values()))
+            for characters in product(("I", "X", "Y", "Z"), repeat=len(support)):
+                error = Pauli(
+                    {
+                        qubit: character
+                        for qubit, character in zip(support, characters)
+                        if character != "I"
+                    }
+                )
+                if error.weight:
+                    faults.append(FaultEvent.after(index, error))
+        return tuple(faults)
+
 
 __all__ = ["GadgetProfile"]
+
+
+def _fault_observables(action: ChannelAction) -> FrameGroup:
+    """Distance indicators with signs indexed by simulation outcomes."""
+    return FrameGroup(
+        (
+            *action._stabilizers.generators,
+            *action._mapping.values(),
+            *(
+                PauliFrame(Pauli.identity(), observable.frame)
+                for observable in action._observables.generators
+            ),
+        )
+    )
 
 
 def _residual(z_probe_flipped: bool, x_probe_flipped: bool) -> Pauli:
@@ -234,11 +421,7 @@ def _snapshot(target: qc.Gadget | Circuit) -> qc.Gadget | Circuit:
         inputs=list(target.inputs),
         outputs=list(target.outputs),
         checks=[list(check) for check in target.checks],
-        readouts=[as_readout(readout) for readout in target.readouts],
+        readouts=target.readouts,
         parameter_bindings=dict(target.parameter_bindings),
         metadata=dict(target.metadata),
     )
-
-
-def _program(circuit: Circuit) -> Circuit:
-    return circuit

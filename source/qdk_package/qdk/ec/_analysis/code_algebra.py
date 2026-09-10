@@ -146,11 +146,22 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def distance(
         self,
         *,
-        errors: "str | Sequence[Pauli]" = "XZ",
+        errors: "str | Sequence[Pauli]" = "XYZ",
         coset_representative: Pauli | None = None,
         upper_bound: int | None = None,
         solver: "_ExactSolver | None" = None,
     ) -> tuple[int, list[Pauli]]:
+        """Return the minimum number of allowed errors and their witness factors.
+
+        The default counts each single-qubit X, Y, or Z error once, giving
+        ordinary Pauli-weight distance. A string restricts the allowed
+        single-qubit errors; a sequence supplies explicit errors, including
+        correlated multi-qubit Paulis, each counted once. The witness remains
+        a list of selected factors, not their product. Select solver="enumeration"
+        (the default), "mwpf", or "highs". HiGHS requires qdk[ec,ec-highs].
+        A cutoff or an unresolved bound gap raises RuntimeError. An empty
+        witness with a numeric sentinel means no allowed logical error exists.
+        """
         from .._distance import code_distance_of
 
         return code_distance_of(
@@ -164,11 +175,24 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def distance_bounds(
         self,
         *,
-        errors: "str | Sequence[Pauli]" = "XZ",
+        errors: "str | Sequence[Pauli]" = "XYZ",
         coset_representative: Pauli | None = None,
         upper_bound: int | None = None,
         solver: "_BoundsSolver | None" = None,
     ) -> tuple[int, int, list[Pauli]]:
+        """Return lower and upper distance bounds and witness factors.
+
+        Uses the same error counting as :meth:`distance`: X, Y, and Z each
+        cost one by default; an explicit error sequence can include correlated
+        Paulis. A nonempty witness is the list of factors establishing the
+        upper bound. An empty list means no witness was found.
+        Select solver="mwpf" (the default), "enumeration", or "highs".
+        HiGHS requires qdk[ec,ec-highs]. With no witness, the upper value is
+        a sentinel, not a certified finite distance. Enumeration and HiGHS use
+        upper_bound as a search cutoff; MWPF ignores it. Backend failures,
+        invalid witnesses, or unavailable bound certificates
+        raise RuntimeError rather than returning a partial or uncertified bound.
+        """
         from .._distance import code_distance_bounds_of
 
         return code_distance_bounds_of(
