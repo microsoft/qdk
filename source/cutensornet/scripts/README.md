@@ -181,6 +181,26 @@ run on a non-x86_64 host rather than reporting a misleading pass, then checks:
 6. With `--archive`, that `generate-bindings.sh` reproduces `src/bindings/v2_13.rs`
    byte for byte. Self-validating, so it needs no hash pinned in this script.
 
+The heading is a slight misnomer, and it is worth being precise about what each
+part actually requires, because the three requirements are independent:
+
+| Step                                                  | x86-64 | The real `.so` | A GPU   |
+| ----------------------------------------------------- | ------ | -------------- | ------- |
+| `generate-bindings.sh` &rarr; `src/bindings/v2_13.rs` | yes    | no             | **no**  |
+| `generate-loader` and its tests                       | **no** | no             | no      |
+| `library::tests::*` (resolver tests, `FakeResolver`)  | yes    | no             | **no**  |
+| `tests/availability.rs`                               | yes    | yes            | **no**  |
+| `src/library/simulation/replay.rs` (7 `#[ignore]`d)   | yes    | yes            | **yes** |
+
+So only the last row needs hardware. Everything else needs an x86-64 host with
+the libraries present, and the loader work needs neither &mdash; it runs on any
+dev box, which is why its tests are worth having in Rust.
+
+The x86-64 requirement for the bindings is an ABI requirement, not a hardware
+one: `generate-bindings.sh` passes no `--target` triple to clang, so bindgen
+inherits the host ABI. Combined with the pinned clang build, that makes the
+environment "Ubuntu 22.04 x86-64", which is what the GPU host happens to be.
+
 The seven `#[ignore]`d A100 tests in `replay.rs` are **not** run by default. They
 are numerical qualification runs — expensive, requiring a real GPU, and some are
 steered by `QDK_CUTENSORNET_*` environment variables — so they answer "does the
