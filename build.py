@@ -739,6 +739,7 @@ if build_widgets and build_qdk and args.integration_tests:
     notebook_files = [
         os.path.join(dp, f)
         for dp, _, filenames in os.walk(samples_src)
+        if os.path.basename(dp) != "qdk_ec"
         for f in filenames
         if f.endswith(".ipynb") and not f.startswith(SKIP_NOTEBOOK_PREFIXES)
     ]

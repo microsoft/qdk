@@ -38,6 +38,8 @@ Optional extras enable additional submodules:
 - ``qdk[cirq]``: Cirq interoperability (:mod:`qdk.cirq`).
 - ``qdk[jupyter]``: interactive Jupyter widgets and JupyterLab integration
   (``qdk.widgets``).
+- ``qdk[ec]`` — develop and test quantum error correction schemes
+  (:mod:`qdk.ec`).
 """
 
 from .telemetry_events import on_qdk_import
