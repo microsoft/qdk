@@ -482,3 +482,46 @@ output, generates the approved reduced declarations twice, requires the two
 outputs to be byte-identical, and reports the final SHA-256. The full reference
 hash verifies the complete input closure; the reduced output hash identifies
 the exact declarations checked into `src/bindings/v2_13.rs`.
+
+## TODO: a guided environment tool
+
+Today the two environment questions are answered by different means: a
+maintainer regenerates bindings with `scripts/generate-bindings.sh`, and a user
+finds out whether acceleration works by calling `discover()` and reading an
+`AvailabilityError`. Both are usable but neither is guided.
+
+The intended end state is one tool that asks a few questions, diagnoses the
+machine it is running on, and names the next action rather than just the
+failure. Most of the vocabulary already exists:
+
+| Question                         | Already available                         | Missing                                                                   |
+| -------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
+| Is this a supported platform?    | `UnsupportedPlatform`                     | phrasing the remedy                                                       |
+| Is a GPU present?                | `cudaGetDeviceCount` is resolved          | it is not reported; `AvailabilityReport` carries versions only            |
+| Is a driver present?             | `cuda_driver_version`                     | mapping "0" to "install a driver"                                         |
+| Are the libraries installed?     | `LibraryNotFound { attempted }`           | pointing at the redist archive that supplies them                         |
+| Are they the right version?      | `UnsupportedVersion { found, supported }` | the supported version is already named; only the download hint is missing |
+| Is the library the one we bound? | `MissingRequiredSymbol { symbol }`        | explaining that this means a version skew                                 |
+
+So this is mostly an ergonomics layer over `discover()`, plus surfacing the
+device count, plus a table mapping each variant to a remedy.
+
+**Keep the two axes separate.** It is tempting to have this tool demand a GPU
+before doing anything, but generating bindings does not need one: it needs the
+headers, the pinned clang, and an x86-64 ABI. A GPU is needed to _run_ the
+simulator, not to _bind_ it. A tool that refuses to proceed without a GPU would
+block a legitimate workflow.
+
+|                       | Needs GPU | Needs the `.so` | Needs x86-64 | Who does it         |
+| --------------------- | --------- | --------------- | ------------ | ------------------- |
+| Generate bindings     | no        | no              | yes          | maintainer, rarely  |
+| Preflight the runtime | yes       | yes             | yes          | user, every install |
+
+A second, related step is fetching the SDK. Both `redistrib_<version>.json`
+manifests are machine-readable and carry per-archive SHA-256 values, which is
+where the hashes in **Binding provenance** came from. Reading them instead of
+transcribing them would let the tool offer a supported version and verify what
+it downloaded, and would let `scripts/generate-bindings.sh` be pointed at a
+version rather than a file. See `scripts/README.md` for the generation side.
+
+Neither piece is started, and neither blocks current work.

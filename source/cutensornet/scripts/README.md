@@ -208,3 +208,20 @@ Every guard above verifies that the surface we _asked_ for was delivered
 consistently. None of them can tell you a symbol is missing from the manifest in
 the first place — the upstream library exports considerably more than this crate
 binds, and widening that surface is a deliberate act.
+
+## TODO: fetch the SDK by version instead of by path
+
+`generate-bindings.sh` takes a path to an archive you already have, and the
+hashes it checks were transcribed by hand. NVIDIA publishes a machine-readable
+`redistrib_<version>.json` for both cuQuantum and CUDA, listing every archive
+with its SHA-256 &mdash; that is where the pinned artifact hash came from, and it
+still matches. Reading the manifest instead of transcribing it would let the
+script take a version rather than a file, and would make moving to a new SDK a
+version bump plus a regeneration.
+
+This is the generation half of the guided tool sketched under **TODO: a guided
+environment tool** in the crate README. Not started; nothing depends on it.
+
+Note that this removes a manual download, not the environment requirement: the
+pinned clang build and the x86-64 ABI are still needed, because the script
+passes no `--target` triple and so inherits the host ABI.
