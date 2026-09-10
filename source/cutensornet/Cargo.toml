@@ -20,3 +20,9 @@ workspace = true
 
 [lib]
 doctest = false
+
+[[bin]]
+name = "generate-loader"
+path = "src/bin/generate-loader.rs"
+bench = false
+test = false

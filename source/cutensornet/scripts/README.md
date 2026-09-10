@@ -1,21 +1,30 @@
 # cuTensorNet FFI generation
 
 Everything under `src/bindings/` and `src/library/symbols{,/*}.rs` is generated.
-Never hand-edit those files: `generate-loader.py --check` and the `cargo test`
+Never hand-edit those files: `generate-loader --check` and the `cargo test`
 cross-checks exist specifically to reject that, and a hand-edit is silently lost
 the next time anyone regenerates.
 
 ## What lives here
 
-| File                       | Role                                                                                 |
+| File / target              | Role                                                                                 |
 | -------------------------- | ------------------------------------------------------------------------------------ |
 | `cutensornet-symbols.txt`  | The symbol manifest. Single source of truth for **which functions** the crate binds. |
 | `generate-bindings.sh`     | Header &rarr; `src/bindings/v2_13.rs`. Requires a CUDA host.                         |
-| `generate-loader.py`       | Manifest + bindings &rarr; `src/library/symbols{,/*}.rs`. Runs anywhere.             |
+| `src/generator.rs`         | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.   |
+| `--bin generate-loader`    | The I/O wrapper around `src/generator.rs`. Runs anywhere.                            |
 | `validate-on-cuda-host.sh` | Runs the checks that only a CUDA x86_64 host can run. Copy to the GPU host and run.  |
 
-The two generators consume the same manifest, so the bindgen allowlist and the
+Both generators consume the same manifest, so the bindgen allowlist and the
 dynamic loader cannot disagree about which symbols exist.
+
+The loader generator is Rust rather than a script for two reasons: it is covered
+by the workspace-wide `cargo test` that CI already runs, and its logic is a pure
+function of two strings, so every failure mode is a unit test. It is split into
+a **model** (`Loader`, built by `Loader::build`, which performs all validation)
+and a **serializer** (`serialize`, which is infallible text assembly). Tests
+assert against the model wherever possible, so they describe what the loader
+binds rather than how the file happens to be laid out.
 
 ## The manifest
 
@@ -46,7 +55,7 @@ cutensornetGetLastError          get_last_error          context      optional
 2. Regenerate the bindings **on a CUDA host** (see below). This is required even
    though the header is unchanged: the new symbol has no declaration until the
    allowlist widens, and `cargo test` fails until it does.
-3. Run `python3 scripts/generate-loader.py` and commit the result.
+3. Run `cargo run -p qdk_cutensornet --bin generate-loader` and commit the result.
 4. If the symbol is `required`, add it to `CUTENSORNET_REQUIRED_SYMBOLS` in
    `src/lib.rs`; `manifest_agrees_with_the_required_symbol_inventory` enforces
    this.
@@ -89,13 +98,18 @@ manifest change must reproduce the committed file byte for byte.
 ## Regenerating the loader (any host)
 
 ```sh
-python3 scripts/generate-loader.py           # rewrite the generated files
-python3 scripts/generate-loader.py --check   # fail if they are stale or edited
+cargo run -p qdk_cutensornet --bin generate-loader             # rewrite the generated files
+cargo run -p qdk_cutensornet --bin generate-loader -- --check  # fail if stale or edited
 ```
 
 No CUDA, bindgen or archive needed — signatures are read from the checked-in
 `src/bindings/v2_13.rs`, so the function-pointer types are transcribed from the
 same header the declarations came from rather than by hand.
+
+The generator emits unformatted source and pipes it through `rustfmt`; it never
+tries to predict how rustfmt will lay the file out. `checked_in_loader_matches_freshly_generated_output`
+formats freshly rendered text the same way and compares it byte for byte, so
+drift is caught without emulating the formatter.
 
 ## Validating on the GPU host
 
@@ -145,9 +159,11 @@ ranges — belongs in this script; that would go stale on the next commit.
 
 | Guard                                                                                         | Catches                                                                                                                                                                      |
 | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate-loader.py --check`                                                                  | A hand-edited or stale generated loader file.                                                                                                                                |
+| `generate-loader --check`                                                                     | A hand-edited or stale generated loader file.                                                                                                                                |
 | Manifest symbol missing from bindings (generation)                                            | A manifest row added without regenerating the bindings.                                                                                                                      |
-| `required_symbols_are_declared_in_bindings_and_resolved_by_the_loader`                        | The same, from `cargo test` on any host, including non-x86_64 where the loader does not compile.                                                                             |
+| `checked_in_loader_matches_freshly_generated_output`                                          | The same, from `cargo test` on any host, including non-x86_64 where the loader does not compile. Byte-exact, so it also catches a stale or hand-edited signature.            |
+| `required_symbols_are_declared_in_bindings_and_resolved_by_the_loader`                        | A manifest row added without regenerating the bindings, from `cargo test`.                                                                                                   |
+| `generator::tests::*`                                                                         | Every rejected manifest or bindings shape, and the model the serializer is fed.                                                                                              |
 | `manifest_agrees_with_the_required_symbol_inventory`                                          | The `lib.rs` inventory drifting from the manifest.                                                                                                                           |
 | `discovers_audited_native_libraries_without_gpu_work` (`tests/availability.rs`, `#[ignore]`d) | A required symbol absent from the real `libcutensornet.so.2` — `discover()` resolves the whole required set. Needs the native libraries: `scripts/validate-on-cuda-host.sh`. |
 

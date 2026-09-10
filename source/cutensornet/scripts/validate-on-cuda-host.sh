@@ -113,10 +113,10 @@ for tool in cargo rustc rustfmt python3; do
 done
 
 step "2. generated loader is current and unedited"
-if python3 scripts/generate-loader.py --check; then
+if cargo run -q -p "$PACKAGE" --bin generate-loader -- --check; then
     printf 'OK: src/library/symbols{,/*}.rs match the manifest\n'
 else
-    fail "generated loader is stale or hand-edited (run scripts/generate-loader.py)"
+    fail "generated loader is stale or hand-edited (run: cargo run -p $PACKAGE --bin generate-loader)"
 fi
 
 step "3. cargo fmt"

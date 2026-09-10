@@ -7,6 +7,7 @@
 mod bindings;
 mod error;
 mod execution;
+pub mod generator;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod library;
 mod simulation;
@@ -189,162 +190,48 @@ mod tests {
         Availability, AvailabilityError, CUDART_REQUIRED_SYMBOLS, CUTENSORNET_REQUIRED_SYMBOLS,
         SYMBOL_MANIFEST, validate_override_path,
     };
+    use crate::generator::{Loader, ManifestRow, Requirement, parse_manifest, serialize};
     use std::ffi::OsString;
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
 
-    /// One row of the symbol manifest.
+    /// The generated loader as it is checked in, keyed by the path
+    /// [`render`] assigns each file.
     ///
-    /// The manifest plus the generated bindings are the entire *input* to the
-    /// loader generation process; everything in `src/library/symbols{,/*}.rs`
-    /// is its *output*. Spelling that contract out here is what lets the tests
-    /// below check it mechanically:
-    ///
-    /// | Input | Output |
-    /// | --- | --- |
-    /// | `symbol`, and its `pub fn` in the bindings | `pub(crate) type <Alias> = unsafe extern "C" fn(..)` in `symbols/<family>.rs` |
-    /// | `field`, `family`, `requirement` | a `CuTensorNetFunctions` field and its `resolve_*` initializer in `symbols.rs` |
-    ///
-    /// Adding a symbol is therefore exactly: one manifest row, regenerated
-    /// bindings, and a rerun of `scripts/generate-loader.py`. Nothing about the
-    /// signature is written by hand, which is the point.
-    struct ManifestRow {
-        symbol: &'static str,
-        field: &'static str,
-        family: &'static str,
-        requirement: &'static str,
-    }
-
-    const BINDINGS: &str = include_str!("bindings/v2_13.rs");
-    const SYMBOLS_RS: &str = include_str!("library/symbols.rs");
-
-    /// Every generated family file. Listing them here also asserts that the
-    /// families named by the manifest are the families that actually exist.
-    const FAMILY_SOURCES: &[(&str, &str)] = &[
-        ("context", include_str!("library/symbols/context.rs")),
+    /// The manifest plus the bindings are the entire *input* to loader
+    /// generation, and these files are its entire *output*. Stating both sides
+    /// here is what lets a single assertion below check the whole contract.
+    const GENERATED_SOURCES: &[(&str, &str)] = &[
+        ("symbols.rs", include_str!("library/symbols.rs")),
         (
-            "contraction",
-            include_str!("library/symbols/contraction.rs"),
+            "symbols/context.rs",
+            include_str!("library/symbols/context.rs"),
+        ),
+        ("symbols/state.rs", include_str!("library/symbols/state.rs")),
+        (
+            "symbols/workspace.rs",
+            include_str!("library/symbols/workspace.rs"),
         ),
         (
-            "expectation",
+            "symbols/operator.rs",
+            include_str!("library/symbols/operator.rs"),
+        ),
+        (
+            "symbols/expectation.rs",
             include_str!("library/symbols/expectation.rs"),
         ),
-        ("operator", include_str!("library/symbols/operator.rs")),
-        ("sampler", include_str!("library/symbols/sampler.rs")),
-        ("state", include_str!("library/symbols/state.rs")),
-        ("workspace", include_str!("library/symbols/workspace.rs")),
+        (
+            "symbols/sampler.rs",
+            include_str!("library/symbols/sampler.rs"),
+        ),
+        (
+            "symbols/contraction.rs",
+            include_str!("library/symbols/contraction.rs"),
+        ),
     ];
 
     fn manifest_rows() -> Vec<ManifestRow> {
-        SYMBOL_MANIFEST
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .map(|line| {
-                let columns: Vec<&str> = line.split_whitespace().collect();
-                assert_eq!(columns.len(), 4, "malformed manifest row: {line}");
-                assert!(
-                    matches!(columns[3], "required" | "optional"),
-                    "unknown requirement in manifest row: {line}"
-                );
-                ManifestRow {
-                    symbol: columns[0],
-                    field: columns[1],
-                    family: columns[2],
-                    requirement: columns[3],
-                }
-            })
-            .collect()
-    }
-
-    fn family_source(family: &str) -> &'static str {
-        FAMILY_SOURCES
-            .iter()
-            .find(|(name, _)| *name == family)
-            .unwrap_or_else(|| {
-                panic!("manifest names family {family:?}, which has no generated file")
-            })
-            .1
-    }
-
-    /// `network_append_tensor` becomes `NetworkAppendTensorFn`.
-    fn alias_name(field: &str) -> String {
-        let mut alias = String::new();
-        for part in field.split('_') {
-            let mut characters = part.chars();
-            if let Some(first) = characters.next() {
-                alias.extend(first.to_uppercase());
-                alias.push_str(&characters.as_str().to_lowercase());
-            }
-        }
-        alias.push_str("Fn");
-        alias
-    }
-
-    /// Erase the differences that are pure spelling, so a declaration and the
-    /// function pointer generated from it can be compared: the bindings say
-    /// `::std::os::raw::c_void` where the loader is in a module that imports
-    /// `v2_13`, and rustfmt wraps the two at different points.
-    fn normalize_type(raw: &str) -> String {
-        raw.replace("v2_13::", "")
-            .replace("::std::os::raw::", "")
-            .chars()
-            .filter(|character| !character.is_whitespace())
-            .collect()
-    }
-
-    /// Split `(a, b, c) -> R;` starting from `from`, returning the parameter
-    /// text and the return type.
-    fn split_signature(source: &str, from: usize) -> (&str, &str) {
-        let open = from + source[from..].find('(').expect("a parameter list");
-        let close = open + source[open..].find(')').expect("a closing parenthesis");
-        let parameters = &source[open + 1..close];
-        assert!(
-            !parameters.contains('('),
-            "nested parentheses are not supported: {parameters}"
-        );
-        let tail = &source[close + 1..];
-        let end = tail.find(';').expect("a terminating semicolon");
-        let returns = tail[..end]
-            .trim()
-            .strip_prefix("->")
-            .expect("an explicit return type");
-        (parameters, returns)
-    }
-
-    /// The signature cuTensorNet actually declares, from the generated bindings.
-    fn declared_signature(symbol: &str) -> (Vec<String>, String) {
-        let at = BINDINGS
-            .find(&format!("pub fn {symbol}("))
-            .unwrap_or_else(|| panic!("{symbol} is not declared in the generated bindings"));
-        let (parameters, returns) = split_signature(BINDINGS, at);
-        let types = parameters
-            .split(',')
-            .map(str::trim)
-            .filter(|parameter| !parameter.is_empty())
-            .map(|parameter| {
-                let (_name, declared) = parameter
-                    .split_once(':')
-                    .unwrap_or_else(|| panic!("unparsable parameter {parameter:?} of {symbol}"));
-                normalize_type(declared)
-            })
-            .collect();
-        (types, normalize_type(returns))
-    }
-
-    /// The signature the loader will call through, from the generated alias.
-    fn alias_signature(family: &str, alias: &str) -> (Vec<String>, String) {
-        let source = family_source(family);
-        let at = source
-            .find(&format!("type {alias} ="))
-            .unwrap_or_else(|| panic!("{alias} is missing from symbols/{family}.rs"));
-        let (parameters, returns) = split_signature(source, at);
-        let types = parameters
-            .split(',')
-            .map(str::trim)
-            .filter(|parameter| !parameter.is_empty())
-            .map(normalize_type)
-            .collect();
-        (types, normalize_type(returns))
+        parse_manifest(SYMBOL_MANIFEST).expect("the checked-in manifest should be well formed")
     }
 
     fn assert_send_sync<T: Send + Sync>() {}
@@ -465,8 +352,8 @@ mod tests {
 
         let mut required: Vec<&str> = rows
             .iter()
-            .filter(|row| row.requirement == "required")
-            .map(|row| row.symbol)
+            .filter(|row| row.requirement == Requirement::Required)
+            .map(|row| row.symbol.as_str())
             .collect();
         let mut inventory = CUTENSORNET_REQUIRED_SYMBOLS.to_vec();
         required.sort_unstable();
@@ -478,70 +365,78 @@ mod tests {
 
         let optional: Vec<&str> = rows
             .iter()
-            .filter(|row| row.requirement == "optional")
-            .map(|row| row.symbol)
+            .filter(|row| row.requirement == Requirement::Optional)
+            .map(|row| row.symbol.as_str())
             .collect();
         assert_eq!(optional, vec!["cutensornetGetLastError"]);
     }
 
-    /// The structural half of the generation contract: every manifest row must
-    /// produce an alias, a struct field and a resolve call, in the shapes the
-    /// hand-written code depends on.
-    #[test]
-    fn every_manifest_row_is_wired_into_the_generated_loader() {
-        for row in manifest_rows() {
-            let ManifestRow {
-                symbol,
-                field,
-                family,
-                requirement,
-            } = row;
-            let alias = alias_name(field);
-
-            assert!(
-                family_source(family).contains(&format!("pub(crate) type {alias} =")),
-                "{symbol}: no `{alias}` alias in symbols/{family}.rs"
-            );
-
-            let declaration = if requirement == "optional" {
-                format!("pub(crate) {field}: Option<{family}::{alias}>,")
-            } else {
-                format!("pub(crate) {field}: {family}::{alias},")
-            };
-            assert!(
-                SYMBOLS_RS.contains(&declaration),
-                "{symbol}: expected `{declaration}` on CuTensorNetFunctions"
-            );
-
-            let initializer = if requirement == "optional" {
-                format!("{field}: resolve_optional(resolver, b\"{symbol}\\0\")")
-            } else {
-                format!("{field}: resolve_required(")
-            };
-            assert!(
-                SYMBOLS_RS.contains(&initializer),
-                "{symbol}: expected `{initializer}` in resolve_cutensornet_functions"
-            );
-        }
+    /// Format source the way the generator binary does, so rendered text can
+    /// be compared byte for byte with a checked-in file.
+    ///
+    /// rustfmt is invoked rather than emulated: it reorders `mod` declarations
+    /// and adds trailing commas when it explodes a parameter list, and
+    /// reproducing those rules here would be a maintenance trap.
+    fn rustfmt(source: &str) -> String {
+        let mut child = Command::new("rustfmt")
+            .args(["--edition", "2024", "--emit", "stdout"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("rustfmt should be installed alongside cargo");
+        child
+            .stdin
+            .take()
+            .expect("stdin was piped")
+            .write_all(source.as_bytes())
+            .expect("rustfmt should accept source on stdin");
+        let output = child.wait_with_output().expect("rustfmt should terminate");
+        assert!(
+            output.status.success(),
+            "rustfmt rejected generated source: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).expect("rustfmt should emit UTF-8")
     }
 
-    /// The semantic half of the contract, and the reason the loader is
-    /// generated at all: every function pointer must have the signature the
-    /// header declares.
+    /// The entire generation contract in one assertion: the checked-in loader
+    /// must be exactly what the generator produces from the manifest and the
+    /// bindings. Any hand-edit, stale file or unregenerated manifest row fails
+    /// here, and the message names the file to regenerate.
     ///
-    /// The hand-written loader this replaced declared three parameters of
-    /// `cutensornetNetworkOperatorAppendProduct` as `*const *const T` where the
-    /// header says `*mut *const T`. Constness does not affect the ABI, so it
-    /// never failed at runtime and nothing compared the two. This test does.
+    /// This subsumes the structural and signature checks that used to be
+    /// written out by hand. The hand-written loader this replaced declared
+    /// three parameters of `cutensornetNetworkOperatorAppendProduct` as
+    /// `*const *const T` where the header says `*mut *const T`; constness does
+    /// not affect the ABI, so it never failed at runtime and nothing compared
+    /// the two. Deriving both sides from one source makes that class of defect
+    /// unrepresentable.
     #[test]
-    fn every_generated_signature_matches_its_bindings_declaration() {
-        for row in manifest_rows() {
-            let alias = alias_name(row.field);
+    fn checked_in_loader_matches_freshly_generated_output() {
+        let loader = Loader::build(SYMBOL_MANIFEST, include_str!("bindings/v2_13.rs"))
+            .expect("the checked-in manifest and bindings should build a loader");
+        let files = serialize(&loader);
+
+        assert_eq!(
+            files.len(),
+            GENERATED_SOURCES.len(),
+            "the generator and the checked-in tree disagree on how many files exist"
+        );
+
+        for file in &files {
+            let checked_in = GENERATED_SOURCES
+                .iter()
+                .find(|(path, _)| *path == file.path)
+                .map_or_else(
+                    || panic!("{} is generated but not checked in", file.path),
+                    |(_, source)| *source,
+                );
             assert_eq!(
-                alias_signature(row.family, &alias),
-                declared_signature(row.symbol),
-                "{}: the generated function pointer disagrees with the header",
-                row.symbol
+                rustfmt(&file.contents),
+                checked_in,
+                "{} is out of date; run `cargo run -p qdk_cutensornet --bin generate-loader`",
+                file.path
             );
         }
     }

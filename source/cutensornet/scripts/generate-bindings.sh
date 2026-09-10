@@ -41,7 +41,7 @@ fail() {
 }
 
 # The symbol manifest is the single source of truth for the FFI surface; the
-# same file drives scripts/generate-loader.py, so the bindgen allowlist and the
+# same file drives the generate-loader binary, so the bindgen allowlist and the
 # loader can never disagree about which symbols exist.
 readonly manifest_path="$(dirname -- "${BASH_SOURCE[0]}")/${MANIFEST_NAME}"
 [[ -f "$manifest_path" ]] || fail "symbol manifest not found: $manifest_path"
