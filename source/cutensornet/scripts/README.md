@@ -65,11 +65,10 @@ there is no second list to update and no way for two of them to disagree.
 
 ## Adding a type or a constant
 
-The manifest covers functions only. Types, enum variants and constants are still
-hand-maintained in `generate-bindings.sh`:
+The manifest covers functions only. Types are hand-maintained in
+`generate-bindings.sh`:
 
 - `TYPE_PATTERN` — bindgen `--allowlist-type`.
-- `CONSTANT_PATTERN` — bindgen `--allowlist-var`.
 - `REQUIRED_DECLARATIONS` — names asserted to be present in the output.
 
 bindgen pulls in types reachable from an allowlisted function signature, so a
@@ -78,16 +77,29 @@ reached only through a `void *` attribute buffer — `cutensornetComputeType_t`,
 for instance — is _not_ pulled in transitively and must be named explicitly.
 Adding to these lists requires regenerating the bindings.
 
-**Add enum variants through `TYPE_PATTERN`, not `CONSTANT_PATTERN`.** Every
+**There is no constant allowlist, and adding one would not help.** Every
 constant this crate uses is an enumerator, and bindgen emits enumerators as
-`<type>_<VARIANT>` when the enclosing _type_ is allowlisted — `--allowlist-var`
-plays no part. `src/bindings/v2_13.rs` contains **no** `pub const CUTENSORNET_*`
-in bare form at all, so `CONSTANT_PATTERN` currently matches nothing and every
-name in it is inert, including entries that look load-bearing such as
-`CUTENSORNET_TENSOR_SVD_ALGO_GESVD`. Name the mangled form
-(`cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD`) in
-`REQUIRED_DECLARATIONS` if you want a variant's presence actually enforced;
-that assertion is what has teeth.
+`<type>_<VARIANT>` once the enclosing _type_ is reachable — including
+transitively, which is how all 22 `cutensornetStatus_t_CUTENSORNET_STATUS_*`
+values arrive without `cutensornetStatus_t` appearing in `TYPE_PATTERN` at all.
+So allowlist the **type**, then name the mangled variant in
+`REQUIRED_DECLARATIONS` if you want its presence enforced. That assertion is the
+part with teeth.
+
+The reduced pass therefore passes no `--allowlist-var`. The full reference pass
+still does, because its output is checked against `REFERENCE_SHA256` as the
+pinned-toolchain test and must not change.
+
+## Adding a family
+
+`family` selects which generated file a symbol's declarations land in. To add a
+new one, add it to `FAMILY_ORDER` in `src/generator.rs` **and** add at least one
+manifest row naming it, in the same change: a family with no rows fails with
+`EmptyFamily`, and a row naming an unlisted family fails with `UnknownFamily`,
+so the two cannot drift apart.
+
+Append new families rather than inserting them. Generated output follows
+`FAMILY_ORDER`, so appending keeps the diff to additions.
 
 ## What this does not cover: cudart
 
