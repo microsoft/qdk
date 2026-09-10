@@ -110,6 +110,33 @@ fn add_alloca_load_to_block(
                 *next_var_id = next_var_id.successor();
                 continue;
             }
+            Instruction::CopyArray(src, dest) => {
+                vars_to_alloca.insert(dest.variable_id, *dest);
+                let new_src = map_or_load_variable(
+                    *src,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    vars_to_alloca.contains_key(src.variable_id),
+                );
+                block.0.push(Instruction::CopyArray(new_src, *dest));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&dest.variable_id);
+                *next_var_id = next_var_id.successor();
+                continue;
+            }
+            Instruction::SliceArray(array, start, step, end, dest) => {
+                vars_to_alloca.insert(dest.variable_id, *dest);
+                block
+                    .0
+                    .push(Instruction::SliceArray(*array, *start, *step, *end, *dest));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&dest.variable_id);
+                *next_var_id = next_var_id.successor();
+                continue;
+            }
 
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _, _) => {
@@ -203,6 +230,37 @@ fn add_alloca_load_to_block(
                     .0
                     .push(Instruction::Index(*array, *operand, *variable));
                 load_from_variable(variable, &mut var_map, &mut block.0, next_var_id);
+                // Continue here to avoid pushing the instruction again below.
+                continue;
+            }
+
+            // For array index updates, the array remains a pointer and does not need to be loaded, but we must
+            // update the index and value operands, immediately add the updated instruction, and store the result.
+            Instruction::StoreIndex(op1, op2, var) => {
+                let new_op1 = map_or_load_operand(
+                    op1,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    should_load_operand(op1, vars_to_alloca),
+                );
+                let new_op2 = map_or_load_operand(
+                    op2,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    should_load_operand(op2, vars_to_alloca),
+                );
+                let array_operand = Operand::Variable(*var);
+                let new_ptr_var = Variable {
+                    variable_id: *next_var_id,
+                    ty: new_op1.get_type(),
+                };
+                *next_var_id = next_var_id.successor();
+                block
+                    .0
+                    .push(Instruction::Index(array_operand, new_op2, new_ptr_var));
+                block.0.push(Instruction::Store(new_op1, new_ptr_var));
                 // Continue here to avoid pushing the instruction again below.
                 continue;
             }
