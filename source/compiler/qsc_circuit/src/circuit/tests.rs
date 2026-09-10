@@ -67,6 +67,7 @@ fn unitary(gate: &str, targets: Vec<Register>) -> Operation {
         children: vec![],
         metadata: None,
         is_conditional: false,
+        error: None,
     })
 }
 
@@ -80,6 +81,7 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
         children: vec![],
         metadata: None,
         is_conditional: false,
+        error: None,
     })
 }
 
@@ -93,6 +95,7 @@ fn unitary_with_children(gate: &str, targets: Vec<Register>, children: Component
         children,
         metadata: None,
         is_conditional: false,
+        error: None,
     })
 }
 
@@ -111,6 +114,7 @@ fn ctl_unitary_with_children(
         children,
         metadata: None,
         is_conditional: false,
+        error: None,
     })
 }
 
@@ -249,6 +253,7 @@ fn with_args() {
             is_conditional: false,
             children: vec![],
             metadata: None,
+            error: None,
         })]]),
     };
 
@@ -271,6 +276,7 @@ fn two_targets() {
             targets: vec![Register::quantum(0), Register::quantum(2)],
             children: vec![],
             metadata: None,
+            error: None,
         })]]),
     };
 

@@ -125,6 +125,19 @@
     pointer-events: all;
   }
 
+  .gate-error-badge {
+    fill: #ffe9bb;
+    stroke: #9a0000;
+    stroke-width: 1;
+  }
+
+  .gate .gate-error-label {
+    fill: #2f1a08;
+    font-family: "KaTeX_Main", "MJXZERO", "MJXTEX", sans-serif;
+    font-weight: 600;
+    font-size: xx-small;
+  }
+
   /* Dot and line for controlled gates */
   .control-line,
   .control-dot {

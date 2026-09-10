@@ -32,7 +32,7 @@ use qdk_simulators::noise_config::NoiseConfig;
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
-    rir_to_circuit::rir_to_circuit,
+    rir_to_circuit::rir_to_circuit_with_noise,
 };
 use qsc_codegen::qir::{
     fir_to_qir, fir_to_qir_from_callable, fir_to_rir, fir_to_rir_from_callable,
@@ -1320,6 +1320,23 @@ impl Interpreter {
         method: CircuitGenerationMethod,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
+        self.circuit_with_noise(
+            entry,
+            method,
+            tracer_config,
+            None,
+            qsc_circuit::ErrorDisplayConfig::default(),
+        )
+    }
+
+    pub fn circuit_with_noise(
+        &mut self,
+        entry: CircuitEntryPoint,
+        method: CircuitGenerationMethod,
+        tracer_config: TracerConfig,
+        noise_config: Option<&NoiseConfig<f64, f64>>,
+        error_display: qsc_circuit::ErrorDisplayConfig,
+    ) -> std::result::Result<Circuit, Vec<Error>> {
         let (entry_expr, qubit_params, invoke_params) = match entry {
             CircuitEntryPoint::Operation(operation_expr) => {
                 let (package_id, item, functor_app) = self.eval_to_operation(&operation_expr)?;
@@ -1395,9 +1412,20 @@ impl Interpreter {
             }
             CircuitGenerationMethod::Static => {
                 if let Some((callable, args)) = invoke_params {
-                    return self.static_circuit_from_callable(&callable, args, tracer_config);
+                    return self.static_circuit_from_callable(
+                        &callable,
+                        args,
+                        tracer_config,
+                        noise_config,
+                        error_display,
+                    );
                 }
-                return self.static_circuit(entry_expr.as_deref(), tracer_config);
+                return self.static_circuit(
+                    entry_expr.as_deref(),
+                    tracer_config,
+                    noise_config,
+                    error_display,
+                );
             }
         }
         let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
@@ -1408,17 +1436,21 @@ impl Interpreter {
         &mut self,
         entry_expr: Option<&str>,
         tracer_config: TracerConfig,
+        noise_config: Option<&NoiseConfig<f64, f64>>,
+        error_display: qsc_circuit::ErrorDisplayConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
         if self.capabilities > Profile::AdaptiveRIF.into() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
         let (program, fir_store) = self.compile_to_rir_with_debug_metadata(entry_expr)?;
-        rir_to_circuit(
+        rir_to_circuit_with_noise(
             &program,
             tracer_config,
             &[self.package, self.source_package],
             &(self.compiler.package_store(), &fir_store),
+            noise_config,
+            error_display,
         )
         .map_err(|e| vec![e.into()])
     }
@@ -1428,6 +1460,8 @@ impl Interpreter {
         callable: &Value,
         args: Value,
         tracer_config: TracerConfig,
+        noise_config: Option<&NoiseConfig<f64, f64>>,
+        error_display: qsc_circuit::ErrorDisplayConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
         if self.capabilities > Profile::AdaptiveRIF.into() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
@@ -1462,11 +1496,13 @@ impl Interpreter {
                 )
                 .map_err(|e| self.partial_evaluation_error(e))?;
 
-                rir_to_circuit(
+                rir_to_circuit_with_noise(
                     &transformed,
                     tracer_config,
                     &[self.package, self.source_package],
                     &(self.compiler.package_store(), &fir_store),
+                    noise_config,
+                    error_display,
                 )
                 .map_err(|e| vec![e.into()])
             }
@@ -1489,11 +1525,13 @@ impl Interpreter {
                 )
                 .map_err(|e| self.partial_evaluation_error(e))?;
 
-                rir_to_circuit(
+                rir_to_circuit_with_noise(
                     &transformed,
                     tracer_config,
                     &[self.package, self.source_package],
                     &(self.compiler.package_store(), &fir_store),
+                    noise_config,
+                    error_display,
                 )
                 .map_err(|e| vec![e.into()])
             }
