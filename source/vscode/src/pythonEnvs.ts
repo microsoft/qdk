@@ -80,7 +80,8 @@ const packageChoices: PackageChoice[] = [
   {
     packageName: "qdk-chemistry",
     description: "Microsoft Quantum Development Kit for Chemistry",
-    detail: "Toolkit for quantum chemistry",
+    detail:
+      "Toolkit that bridges classical computational chemistry with quantum computing",
     picked: false,
   },
   {
