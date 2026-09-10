@@ -100,6 +100,28 @@ pub const cutensornetStatus_t_CUTENSORNET_STATUS_DISTRIBUTED_FAILURE: cutensorne
 pub const cutensornetStatus_t_CUTENSORNET_STATUS_INTERRUPTED: cutensornetStatus_t = 28;
 #[doc = " \\brief cuTensorNet status type returns\n\n \\details The type is used for function status returns. All cuTensorNet library functions return their status, which can have the following values."]
 pub type cutensornetStatus_t = ::std::os::raw::c_uint;
+#[doc = "< floating-point: 5-bit exponent and 10-bit mantissa (aka half)"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_16F: cutensornetComputeType_t = 1;
+#[doc = "< floating-point: 8-bit exponent and 7-bit mantissa (aka bfloat)"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_16BF: cutensornetComputeType_t = 1024;
+#[doc = "< floating-point: 8-bit exponent and 10-bit mantissa (aka tensor-float-32)"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_TF32: cutensornetComputeType_t = 4096;
+#[doc = "< floating-point: More precise than TF32, but less precise than float"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_3XTF32: cutensornetComputeType_t = 8192;
+#[doc = "< floating-point: 8-bit exponent and 23-bit mantissa (aka float)"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_32F: cutensornetComputeType_t = 4;
+#[doc = "< floating-point: 11-bit exponent and 52-bit mantissa (aka double)"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F: cutensornetComputeType_t = 16;
+#[doc = "< 8-bit unsigned integer"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_8U: cutensornetComputeType_t = 64;
+#[doc = "< 8-bit signed integer"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_8I: cutensornetComputeType_t = 256;
+#[doc = "< 32-bit unsigned integer"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_32U: cutensornetComputeType_t = 128;
+#[doc = "< 32-bit signed integer"]
+pub const cutensornetComputeType_t_CUTENSORNET_COMPUTE_32I: cutensornetComputeType_t = 512;
+#[doc = " \\brief Encodes cuTensorNet's compute type (see \"User Guide - Accuracy Guarantees\" for details)."]
+pub type cutensornetComputeType_t = ::std::os::raw::c_uint;
 #[doc = "< int32_t: The number of input tensors that are constant (get-only)."]
 pub const cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_INPUT_TENSORS_NUM_CONSTANT:
     cutensornetNetworkAttributes_t = 0;
@@ -572,6 +594,19 @@ unsafe extern "C" {
         sliceGroup: cutensornetSliceGroup_t,
         stream: cudaStream_t,
     ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief This function opens a logging output file in the given path.\n \\param[in] logFile Path to the logging output file."]
+    pub fn cutensornetLoggerOpenFile(logFile: *const ::std::os::raw::c_char)
+    -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief This function sets the value of the logging level.\n \\param[in] level Log level, should be one of the following:\n Level| Summary           | Long Description\n -----|-------------------|-----------------\n  \"0\" | Off               | logging is disabled (default)\n  \"1\" | Errors            | only errors will be logged\n  \"2\" | Performance Trace | API calls that launch CUDA kernels will log their parameters and important information\n  \"3\" | Performance Hints | hints that can potentially improve the application's performance\n  \"4\" | Heuristics Trace  | provides general information about the library execution, may contain details about heuristic status\n  \"5\" | API Trace         | API Trace - API calls will log their parameter and important information"]
+    pub fn cutensornetLoggerSetLevel(level: i32) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief This function disables logging for the entire run."]
+    pub fn cutensornetLoggerForceDisable() -> cutensornetStatus_t;
 }
 unsafe extern "C" {
     #[doc = " \\brief Returns Version number of the cuTensorNet library"]

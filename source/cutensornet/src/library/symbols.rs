@@ -5,6 +5,7 @@
 pub(crate) mod context;
 pub(crate) mod contraction;
 pub(crate) mod expectation;
+pub(crate) mod logging;
 pub(crate) mod operator;
 pub(crate) mod sampler;
 pub(crate) mod state;
@@ -68,6 +69,9 @@ pub(crate) struct CuTensorNetFunctions {
     pub(crate) network_set_output_tensor_memory: contraction::NetworkSetOutputTensorMemoryFn,
     pub(crate) optimizer_config_set_attribute: contraction::OptimizerConfigSetAttributeFn,
     pub(crate) optimizer_info_get_attribute: contraction::OptimizerInfoGetAttributeFn,
+    pub(crate) logger_set_level: logging::LoggerSetLevelFn,
+    pub(crate) logger_open_file: logging::LoggerOpenFileFn,
+    pub(crate) logger_force_disable: logging::LoggerForceDisableFn,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -419,6 +423,27 @@ pub(crate) fn resolve_cutensornet_functions<R: SymbolResolver>(
             path,
             "cutensornetContractionOptimizerInfoGetAttribute",
             b"cutensornetContractionOptimizerInfoGetAttribute\0",
+        )?,
+        logger_set_level: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetLoggerSetLevel",
+            b"cutensornetLoggerSetLevel\0",
+        )?,
+        logger_open_file: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetLoggerOpenFile",
+            b"cutensornetLoggerOpenFile\0",
+        )?,
+        logger_force_disable: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetLoggerForceDisable",
+            b"cutensornetLoggerForceDisable\0",
         )?,
     })
 }

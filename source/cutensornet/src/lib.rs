@@ -197,6 +197,10 @@ mod tests {
             "symbols/contraction.rs",
             include_str!("library/symbols/contraction.rs"),
         ),
+        (
+            "symbols/logging.rs",
+            include_str!("library/symbols/logging.rs"),
+        ),
     ];
 
     fn assert_send_sync<T: Send + Sync>() {}

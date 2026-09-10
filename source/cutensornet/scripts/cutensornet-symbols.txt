@@ -75,3 +75,8 @@ cutensornetNetworkSetOutputTensor                  network_set_output_tensor    
 cutensornetNetworkSetOutputTensorMemory            network_set_output_tensor_memory     contraction  required
 cutensornetContractionOptimizerConfigSetAttribute  optimizer_config_set_attribute       contraction  required
 cutensornetContractionOptimizerInfoGetAttribute    optimizer_info_get_attribute         contraction  required
+
+# logging
+cutensornetLoggerSetLevel                          logger_set_level                     logging      required
+cutensornetLoggerOpenFile                          logger_open_file                     logging      required
+cutensornetLoggerForceDisable                      logger_force_disable                 logging      required

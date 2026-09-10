@@ -13,8 +13,11 @@ readonly CUDA_INCLUDE_DIR="/usr/local/cuda-12.9/targets/x86_64-linux/include"
 readonly MANIFEST_NAME="cutensornet-symbols.txt"
 
 readonly TYPE_PATTERN='^(cuDoubleComplex|cutensornetExpectationAttributes_t|cutensornetNetworkOperator_t|cutensornetStateExpectation_t|cutensornetTensorSVDAlgo_t|cutensornetStateMPSGaugeOption_t|cutensornetNetworkDescriptor_t|cutensornetContractionOptimizerConfig_t|cutensornetContractionOptimizerInfo_t|cutensornetSliceGroup_t|cutensornetNetworkAttributes_t|cutensornetContractionOptimizerConfigAttributes_t|cutensornetContractionOptimizerInfoAttributes_t|cutensornetTensorQualifiers_t|cutensornetComputeType_t)$'
+# The reduced pass deliberately allowlists no vars: every constant this crate
+# uses is an enumerator, and bindgen emits those as <type>_<VARIANT> once the
+# enclosing type is reachable. The full reference pass below still allowlists
+# vars because its output is the pinned toolchain check and must not change.
 readonly REQUIRED_DECLARATIONS='cuDoubleComplex cutensornetExpectationAttributes_t cutensornetNetworkOperator_t cutensornetStateExpectation_t cutensornetExpectationAttributes_t_CUTENSORNET_EXPECTATION_CONFIG_NUM_HYPER_SAMPLES cutensornetTensorSVDAlgo_t cutensornetStateMPSGaugeOption_t cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_SIMPLE cutensornetNetworkDescriptor_t cutensornetContractionOptimizerConfig_t cutensornetContractionOptimizerInfo_t cutensornetSliceGroup_t cutensornetNetworkAttributes_t cutensornetContractionOptimizerConfigAttributes_t cutensornetContractionOptimizerInfoAttributes_t cutensornetTensorQualifiers_t cutensornetComputeType_t cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F cutensornetComputeType_t_CUTENSORNET_COMPUTE_32F cutensornetComputeType_t_CUTENSORNET_COMPUTE_TF32 cutensornetComputeType_t_CUTENSORNET_COMPUTE_3XTF32'
-readonly CONSTANT_PATTERN='^(CUTENSORNET_STATUS_.*|CUTENSORNET_STATE_PURITY_PURE|CUTENSORNET_BOUNDARY_CONDITION_OPEN|CUTENSORNET_STATE_CONFIG_MPS_SVD_ABS_CUTOFF|CUTENSORNET_STATE_CONFIG_MPS_SVD_REL_CUTOFF|CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO|CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION|CUTENSORNET_TENSOR_SVD_ALGO_GESVD|CUTENSORNET_STATE_MPS_GAUGE_SIMPLE|CUTENSORNET_WORKSIZE_PREF_RECOMMENDED|CUTENSORNET_MEMSPACE_DEVICE|CUTENSORNET_WORKSPACE_SCRATCH|CUTENSORNET_EXPECTATION_CONFIG_NUM_HYPER_SAMPLES)$'
 
 usage() {
         cat <<EOF
@@ -156,7 +159,6 @@ for generated in "$temp_dir/reduced-a.rs" "$temp_dir/reduced-b.rs"; do
         --no-layout-tests \
         --allowlist-function "$FUNCTION_PATTERN" \
         --allowlist-type "$TYPE_PATTERN" \
-        --allowlist-var "$CONSTANT_PATTERN" \
         -- \
         -I"$header_dir" \
         -I"$CUDA_INCLUDE_DIR"

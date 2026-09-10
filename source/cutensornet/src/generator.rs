@@ -21,7 +21,7 @@ use std::fmt::Write as _;
 
 /// Families are emitted in this order so that adding a symbol produces a diff
 /// local to its family rather than reshuffling the whole file.
-pub const FAMILY_ORDER: [&str; 7] = [
+pub const FAMILY_ORDER: [&str; 8] = [
     "context",
     "state",
     "workspace",
@@ -29,6 +29,7 @@ pub const FAMILY_ORDER: [&str; 7] = [
     "expectation",
     "sampler",
     "contraction",
+    "logging",
 ];
 
 const BANNER: &str = concat!(
@@ -611,9 +612,14 @@ unsafe extern "C" {
     pub fn fnExpectation(handle: cutensornetHandle_t) -> cutensornetStatus_t;
     pub fn fnSampler(handle: cutensornetHandle_t) -> cutensornetStatus_t;
     pub fn fnContraction(handle: cutensornetHandle_t) -> cutensornetStatus_t;
+    pub fn fnLogging(handle: cutensornetHandle_t) -> cutensornetStatus_t;
     pub fn fnPlain(count: i32) -> i32;
 }
 "#;
+
+    /// The 1-based line number of a row appended after [`manifest`], which
+    /// emits exactly one row per family.
+    const APPENDED_ROW: usize = FAMILY_ORDER.len() + 1;
 
     /// One row per family, which is the minimum [`Loader::build`] accepts.
     fn manifest() -> String {
@@ -744,7 +750,10 @@ unsafe extern "C" {
         let source = format!("{}fnPlain do_plain sampler\n", manifest());
         assert_eq!(
             parse_manifest(&source),
-            Err(GenerationError::ColumnCount { line: 8, found: 3 }),
+            Err(GenerationError::ColumnCount {
+                line: APPENDED_ROW,
+                found: 3,
+            }),
         );
     }
 
@@ -754,7 +763,7 @@ unsafe extern "C" {
         assert_eq!(
             parse_manifest(&source),
             Err(GenerationError::UnknownFamily {
-                line: 8,
+                line: APPENDED_ROW,
                 family: "nowhere".to_owned(),
             }),
         );
@@ -766,7 +775,7 @@ unsafe extern "C" {
         assert_eq!(
             parse_manifest(&source),
             Err(GenerationError::UnknownRequirement {
-                line: 8,
+                line: APPENDED_ROW,
                 requirement: "maybe".to_owned(),
             }),
         );
@@ -871,19 +880,14 @@ unsafe extern "C" {
             .into_iter()
             .map(|file| file.path)
             .collect();
-        assert_eq!(
-            paths,
-            vec![
-                "symbols.rs",
-                "symbols/context.rs",
-                "symbols/state.rs",
-                "symbols/workspace.rs",
-                "symbols/operator.rs",
-                "symbols/expectation.rs",
-                "symbols/sampler.rs",
-                "symbols/contraction.rs",
-            ],
-        );
+        let expected: Vec<String> = std::iter::once("symbols.rs".to_owned())
+            .chain(
+                FAMILY_ORDER
+                    .iter()
+                    .map(|family| format!("symbols/{family}.rs")),
+            )
+            .collect();
+        assert_eq!(paths, expected);
     }
 
     /// The module path is applied here, not in the model, and only to types the

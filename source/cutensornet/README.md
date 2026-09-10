@@ -458,8 +458,12 @@ The checked-in cuTensorNet declarations are generated from NVIDIA cuQuantum
 - bindgen CLI: 0.72.1
 - clang: Ubuntu 14.0.0-1ubuntu1.1
 - full reference output SHA-256: `8921d1acf0ff6d384a793893e92e10cadc850dfb29a0312726c31c4d692c3d7a`
-- reduced output SHA-256: `074f43ebc97494b8311d0deb9b2cc92fb86d2782af527e5121b867962f8e7eb8`
-- reduced output line count: 449
+- reduced output SHA-256: `434f2415577a82a4a054d3e10eb137e456f413a75fe7d3158085402980dd4a2c`
+- reduced output line count: 828
+
+Only the reduced output moves when the manifest changes. The artifact, header,
+and full reference hashes are properties of the upstream SDK, so they stay
+fixed until the pinned cuQuantum version is bumped.
 
 The source artifact is identified by NVIDIA's `redistrib_26.06.0.json`.
 NVIDIA headers, archives, and binaries are not stored in this repository. See
