@@ -2,14 +2,15 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ComputeKind, RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, MutableFixedSizeArraysParamApplication,
+    RuntimeFeatureFlags, ValueKind,
     common::{Local, LocalKind, LocalsLookup, initialize_locals_map},
     scaffolding::InternalPackageComputeProperties,
 };
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::{
     extensions::{InputParam, InputParamIndex},
-    fir::{BlockId, ExprId, LocalVarId, StmtId},
+    fir::{BlockId, ExprId, LocalVarId, StmtId, StoreItemSpecializationKey},
     ty::Ty,
 };
 use rustc_hash::FxHashMap;
@@ -456,6 +457,215 @@ impl GeneratorSetsBuilder {
                 .unresolved_callee_exprs
                 .push(unresolved_callee_expr_id);
         }
+
+        // Save the mutable fixed size arrays.
+        save_mutable_fixed_size_arrays(
+            inherent_application_compute_properties,
+            dynamic_param_applications_compute_properties,
+            package_compute_properties,
+            input_params_count,
+        );
+    }
+}
+
+fn save_mutable_fixed_size_arrays(
+    inherent_application_compute_properties: &mut ApplicationInstanceComputeProperties,
+    dynamic_param_applications_compute_properties: &mut [ParamApplicationComputeProperties],
+    package_compute_properties: &mut InternalPackageComputeProperties,
+    input_params_count: usize,
+) {
+    // For each analyzed application of parameters, iterate through the mutable fixed-size arrays and save them into the corresponding
+    // package store compute properties. This allows later checks to identify when a particular application causes a given local variable
+    // id to require a mutable fixed-size array.
+    for (key, mutable_fixed_size_array) in inherent_application_compute_properties
+        .mutable_fixed_size_arrays
+        .drain(..)
+    {
+        let entry = package_compute_properties
+            .mutable_fixed_size_arrays
+            .entry(key)
+            .or_default();
+        entry.inherent.insert(mutable_fixed_size_array);
+        entry.param_application.resize_with(input_params_count, || {
+            MutableFixedSizeArraysParamApplication::None
+        });
+    }
+    for (idx, param_application) in dynamic_param_applications_compute_properties
+        .iter_mut()
+        .enumerate()
+    {
+        match param_application {
+            ParamApplicationComputeProperties::Element(
+                element_param_application_compute_properties,
+            ) => {
+                save_element_param_mutable_fixed_size_arrays(
+                    package_compute_properties,
+                    input_params_count,
+                    idx,
+                    element_param_application_compute_properties,
+                );
+            }
+            ParamApplicationComputeProperties::Array(
+                array_param_application_compute_properties,
+            ) => {
+                save_array_param_mutable_fixed_size_arrays(
+                    package_compute_properties,
+                    input_params_count,
+                    idx,
+                    array_param_application_compute_properties,
+                );
+            }
+        }
+    }
+}
+
+fn save_array_param_mutable_fixed_size_arrays(
+    package_compute_properties: &mut InternalPackageComputeProperties,
+    input_params_count: usize,
+    idx: usize,
+    array_param_application_compute_properties: &mut Box<ArrayParamApplicationComputeProperties>,
+) {
+    for (key, mutable_fixed_size_array) in array_param_application_compute_properties
+        .constant_content
+        .mutable_fixed_size_arrays
+        .drain(..)
+    {
+        let mutable_fixed_size_arrays_param_application = &mut package_compute_properties
+            .mutable_fixed_size_arrays
+            .entry(key)
+            .or_default()
+            .param_application;
+        if mutable_fixed_size_arrays_param_application.is_empty() {
+            mutable_fixed_size_arrays_param_application.resize_with(input_params_count, || {
+                MutableFixedSizeArraysParamApplication::None
+            });
+        }
+        let entry = mutable_fixed_size_arrays_param_application
+            .get_mut(idx)
+            .expect("expected an array param application entry");
+        if matches!(entry, MutableFixedSizeArraysParamApplication::None) {
+            *entry = MutableFixedSizeArraysParamApplication::Array(Default::default());
+        }
+        let MutableFixedSizeArraysParamApplication::Array(array_entry) = entry else {
+            panic!("expected an array param application entry");
+        };
+        array_entry
+            .constant_content
+            .insert(mutable_fixed_size_array);
+    }
+    for (key, mutable_fixed_size_array) in array_param_application_compute_properties
+        .static_size
+        .mutable_fixed_size_arrays
+        .drain(..)
+    {
+        let mutable_fixed_size_arrays_param_application = &mut package_compute_properties
+            .mutable_fixed_size_arrays
+            .entry(key)
+            .or_default()
+            .param_application;
+        if mutable_fixed_size_arrays_param_application.is_empty() {
+            mutable_fixed_size_arrays_param_application.resize_with(input_params_count, || {
+                MutableFixedSizeArraysParamApplication::None
+            });
+        }
+        let entry = mutable_fixed_size_arrays_param_application
+            .get_mut(idx)
+            .expect("expected an array param application entry");
+        if matches!(entry, MutableFixedSizeArraysParamApplication::None) {
+            *entry = MutableFixedSizeArraysParamApplication::Array(Default::default());
+        }
+        let MutableFixedSizeArraysParamApplication::Array(array_entry) = entry else {
+            panic!("expected an array param application entry");
+        };
+        array_entry.static_size.insert(mutable_fixed_size_array);
+    }
+    for (key, mutable_fixed_size_array) in array_param_application_compute_properties
+        .dynamic_size
+        .mutable_fixed_size_arrays
+        .drain(..)
+    {
+        let mutable_fixed_size_arrays_param_application = &mut package_compute_properties
+            .mutable_fixed_size_arrays
+            .entry(key)
+            .or_default()
+            .param_application;
+        if mutable_fixed_size_arrays_param_application.is_empty() {
+            mutable_fixed_size_arrays_param_application.resize_with(input_params_count, || {
+                MutableFixedSizeArraysParamApplication::None
+            });
+        }
+        let entry = mutable_fixed_size_arrays_param_application
+            .get_mut(idx)
+            .expect("expected an array param application entry");
+        if matches!(entry, MutableFixedSizeArraysParamApplication::None) {
+            *entry = MutableFixedSizeArraysParamApplication::Array(Default::default());
+        }
+        let MutableFixedSizeArraysParamApplication::Array(array_entry) = entry else {
+            panic!("expected an array param application entry");
+        };
+        array_entry.dynamic_size.insert(mutable_fixed_size_array);
+    }
+}
+
+fn save_element_param_mutable_fixed_size_arrays(
+    package_compute_properties: &mut InternalPackageComputeProperties,
+    input_params_count: usize,
+    idx: usize,
+    element_param_application_compute_properties: &mut Box<
+        ElementParamApplicationComputeProperties,
+    >,
+) {
+    for (key, mutable_fixed_size_array) in element_param_application_compute_properties
+        .constant
+        .mutable_fixed_size_arrays
+        .drain(..)
+    {
+        let mutable_fixed_size_arrays_param_application = &mut package_compute_properties
+            .mutable_fixed_size_arrays
+            .entry(key)
+            .or_default()
+            .param_application;
+        if mutable_fixed_size_arrays_param_application.is_empty() {
+            mutable_fixed_size_arrays_param_application.resize_with(input_params_count, || {
+                MutableFixedSizeArraysParamApplication::None
+            });
+        }
+        let entry = mutable_fixed_size_arrays_param_application
+            .get_mut(idx)
+            .expect("expected an element param application entry");
+        if matches!(entry, MutableFixedSizeArraysParamApplication::None) {
+            *entry = MutableFixedSizeArraysParamApplication::Element(Default::default());
+        }
+        let MutableFixedSizeArraysParamApplication::Element(element_entry) = entry else {
+            panic!("expected an element param application entry");
+        };
+        element_entry.constant.insert(mutable_fixed_size_array);
+    }
+    for (key, mutable_fixed_size_array) in element_param_application_compute_properties
+        .variable
+        .mutable_fixed_size_arrays
+        .drain(..)
+    {
+        let mutable_fixed_size_arrays_param_application = &mut package_compute_properties
+            .mutable_fixed_size_arrays
+            .entry(key)
+            .or_default()
+            .param_application;
+        if mutable_fixed_size_arrays_param_application.is_empty() {
+            mutable_fixed_size_arrays_param_application.resize_with(input_params_count, || {
+                MutableFixedSizeArraysParamApplication::None
+            });
+        }
+        let entry = mutable_fixed_size_arrays_param_application
+            .get_mut(idx)
+            .expect("expected an element param application entry");
+        if matches!(entry, MutableFixedSizeArraysParamApplication::None) {
+            *entry = MutableFixedSizeArraysParamApplication::Element(Default::default());
+        }
+        let MutableFixedSizeArraysParamApplication::Element(element_entry) = entry else {
+            panic!("expected an element param application entry");
+        };
+        element_entry.variable.insert(mutable_fixed_size_array);
     }
 }
 
@@ -479,6 +689,8 @@ pub struct ApplicationInstance {
     /// The compute kind of the expressions related to the application instance.
     exprs: Vec<(ExprId, ComputeKind)>,
     pub unresolved_callee_exprs: Vec<ExprId>,
+    /// The local variable ids of any mutable fixed size arrays detected during analysis.
+    pub mutable_fixed_size_arrays: Vec<(StoreItemSpecializationKey, LocalVarId)>,
 }
 
 // Default starting capacities for the per-callable application instance data structures.
@@ -579,6 +791,7 @@ impl ApplicationInstance {
             stmts: Vec::with_capacity(INITIAL_STMTS_CAPACITY),
             exprs: Vec::with_capacity(INITIAL_EXPRS_CAPACITY),
             unresolved_callee_exprs: Vec::new(),
+            mutable_fixed_size_arrays: Vec::new(),
         }
     }
 
@@ -635,6 +848,7 @@ impl ApplicationInstance {
             exprs: self.exprs.into_iter().collect(),
             unresolved_callee_exprs: self.unresolved_callee_exprs,
             value_kind,
+            mutable_fixed_size_arrays: self.mutable_fixed_size_arrays,
         }
     }
 }
@@ -687,6 +901,7 @@ struct ApplicationInstanceComputeProperties {
     exprs: FxHashMap<ExprId, ComputeKind>,
     value_kind: Option<ValueKind>,
     unresolved_callee_exprs: Vec<ExprId>,
+    mutable_fixed_size_arrays: Vec<(StoreItemSpecializationKey, LocalVarId)>,
 }
 
 impl ApplicationInstanceComputeProperties {
