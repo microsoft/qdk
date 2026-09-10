@@ -83,7 +83,7 @@ def test_readout_sign_mismatch_and_dependency_errors_are_reported() -> None:
     for readouts, expected in (
         (
             [["circuit.readouts[0]", "circuit.readouts[2]", "in[0].x[0]"]],
-            "arbitrary incoming frames",
+            "Verified readout equation:",
         ),
         ([["readouts[0]"]], "not uniquely determined"),
         ([["readouts[0]", "circuit.readouts[0]"]], "Inconsistent readout equations"),
@@ -111,8 +111,13 @@ def test_invalid_check_has_concrete_witness() -> None:
         for item in ec.audit(protocol).errors
         if item.rule == "gadget/check-mismatch"
     )
-    assert 'Declared: ["circuit.readouts[0]"]' in diagnostic.detail
-    assert 'Witness: {"circuit.readouts[0]": 1}' in diagnostic.detail
+    assert 'Declared equation: ["circuit.readouts[0]"]' in diagnostic.detail
+    assert 'Equation term values: {"circuit.readouts[0]": 1}' in diagnostic.detail
+    assert "can fire without a fault" in diagnostic.summary
+    assert (
+        "Declared equation produces: 1\nRequired noiseless value: 0"
+        in diagnostic.detail
+    )
 
 
 def test_always_one_flag_fails_and_zero_flag_passes() -> None:
@@ -156,7 +161,11 @@ def test_always_one_flag_fails_and_zero_flag_passes() -> None:
         ]
         assert len(errors) == expected_errors
         if errors:
-            assert "Parity: 1; expected: 0." in errors[0].detail
+            assert "always fires, even without a fault" in errors[0].summary
+            assert (
+                "Declared equation always produces: 1\nRequired noiseless value: 0"
+                in errors[0].detail
+            )
 
 
 def test_solvable_readout_cycle_is_not_rejected() -> None:
@@ -242,7 +251,8 @@ def test_random_flag_and_constant_one_check_are_errors() -> None:
         diagnostic = next(
             item for item in ec.audit(protocol).errors if item.rule == rule
         )
-        assert "Parity" in diagnostic.detail
+        assert "Declared equation" in diagnostic.detail
+        assert "Required noiseless value: 0" in diagnostic.detail
 
 
 def test_logical_readout_reference_in_check_is_not_dropped() -> None:
@@ -365,4 +375,7 @@ def test_constant_one_check_with_incoming_frames() -> None:
         for item in ec.audit(protocol).errors
         if item.rule == "gadget/check-mismatch" and "gadgets['x0']" in item.where
     )
-    assert "Parity: 1; expected: 0." in diagnostic.detail
+    assert (
+        "Declared equation always produces: 1\nRequired noiseless value: 0"
+        in diagnostic.detail
+    )

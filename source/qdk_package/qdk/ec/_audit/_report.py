@@ -1,6 +1,7 @@
 """Audit reports."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ._diagnostic import Diagnostic, Severity
 
@@ -48,13 +49,17 @@ class Report:
             return "audit: ok (no diagnostics)"
         lines = []
         for diagnostic in (*self.errors, *self.warnings):
-            lines.extend(
-                (
-                    f"[{diagnostic.severity.name}] {diagnostic.rule}",
-                    diagnostic.where,
-                    diagnostic.summary,
-                )
-            )
+            lines.append(f"[{diagnostic.severity.name}] {diagnostic.rule}")
+            location = diagnostic.source_location
+            if location is not None:
+                display_path = str(location.path)
+                try:
+                    relative = location.path.relative_to(Path.home())
+                    display_path = f"~/{relative.as_posix()}"
+                except (ValueError, RuntimeError):
+                    pass
+                lines.append(f"{display_path}:{location.line}")
+            lines.extend((diagnostic.where, diagnostic.summary))
             lines.extend(f"    {line}" for line in diagnostic.detail.splitlines())
             lines.append("")
         lines.append(

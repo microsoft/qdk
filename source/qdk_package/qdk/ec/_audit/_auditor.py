@@ -21,9 +21,25 @@ class _Target:
     path: str = ""
     dependencies: frozenset[str | int] = frozenset()
 
-    def locate(self, diagnostic: Diagnostic) -> Diagnostic:
+    def locate(self, diagnostic: Diagnostic, qodec: qc.Qodec) -> Diagnostic:
         if self.where and diagnostic.where in (self.local, self.path):
-            return replace(diagnostic, where=self.where)
+            diagnostic = replace(diagnostic, where=self.where)
+        if diagnostic.source_location is None and (
+            self.path or isinstance(self.artifact, qc.Qodec)
+        ):
+            try:
+                node = qodec.resolve(self.path)
+                location = None
+                if diagnostic._path:
+                    try:
+                        location = node.resolve(diagnostic._path).source_location
+                    except (LookupError, ValueError):
+                        pass
+                if location is None:
+                    location = node.source_location
+                diagnostic = replace(diagnostic, source_location=location)
+            except (LookupError, ValueError):
+                pass
         return diagnostic
 
     @property
@@ -133,7 +149,7 @@ class Auditor:
                 if item.where and not whole_model and item.where not in relevant:
                     continue
                 target = located.get(item.where, target)
-            diagnostic = self._apply_policy(target.locate(item))
+            diagnostic = self._apply_policy(target.locate(item, qodec))
             diagnostics.append(diagnostic)
             if diagnostic.severity is Severity.ERROR:
                 blocked.add(target.key)
@@ -145,7 +161,7 @@ class Auditor:
         for target, item in self._run_phase(
             qodec, target_list, Phase.SEMANTIC, blocked
         ):
-            diagnostic = self._apply_policy(item)
+            diagnostic = self._apply_policy(target.locate(item, qodec))
             diagnostics.append(diagnostic)
             if diagnostic.severity is Severity.ERROR and (
                 isinstance(target.artifact, (qc.Code, qc.InstructionSet))
@@ -154,8 +170,8 @@ class Auditor:
                 blocked.add(target.key)
         if self._include_informational:
             diagnostics.extend(
-                self._apply_policy(item)
-                for _, item in self._run_phase(
+                self._apply_policy(target.locate(item, qodec))
+                for target, item in self._run_phase(
                     qodec, target_list, Phase.INFORMATIONAL, blocked
                 )
             )
@@ -190,7 +206,7 @@ class Auditor:
                     or any(path in blocked for path in target.dependencies)
                 ) and isinstance(target.artifact, rule.target):
                     for diagnostic in rule(target.artifact, qodec=qodec):
-                        yield target, target.locate(diagnostic)
+                        yield target, diagnostic
 
     @staticmethod
     def _qodec_targets(qodec: qc.Qodec) -> list[_Target]:

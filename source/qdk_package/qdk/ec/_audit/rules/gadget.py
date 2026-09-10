@@ -81,8 +81,8 @@ class MissingCheckRule:
 @dataclass(frozen=True)
 class MissingObservableRule:
     name: str = "gadget/missing-observable"
-    severity: Severity = Severity.INFO
-    phase: Phase = Phase.INFORMATIONAL
+    severity: Severity = Severity.ERROR
+    phase: Phase = Phase.SEMANTIC
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
@@ -91,7 +91,7 @@ class MissingObservableRule:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"readouts[{missing}] is unbound (logical {_observable(gadget, int(missing))})",
+                f"readouts[{missing}] has no equation for the required logical {_observable(gadget, int(missing))} measurement",
                 _where(gadget),
                 f"Expected: {observe_count_of(gadget.implements)} observable bindings; "
                 f"declared: {len(observable_slots(gadget))}.",
@@ -101,8 +101,8 @@ class MissingObservableRule:
 @dataclass(frozen=True)
 class MissingFlagRule:
     name: str = "gadget/missing-flag"
-    severity: Severity = Severity.INFO
-    phase: Phase = Phase.INFORMATIONAL
+    severity: Severity = Severity.ERROR
+    phase: Phase = Phase.SEMANTIC
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
@@ -114,26 +114,27 @@ class MissingFlagRule:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"readouts[{position}] is unbound (flag {missing!r})",
+                f"readouts[{position}] has no equation for flag {missing!r}",
                 _where(gadget),
                 f"Expected: {len(gadget.implements.flags)} flag bindings; "
-                f"declared: {len(flag_slots(gadget))}.",
+                f"declared: {len(flag_slots(gadget))}.\n"
+                "An omitted equation is undefined; an explicit [] equation is zero.",
             )
 
 
 @dataclass(frozen=True)
-class UnsupportedActionAtomRule:
-    name: str = "gadget/unsupported-action-atom"
+class UnsupportedActionStepRule:
+    name: str = "gadget/unsupported-action-step"
     severity: Severity = Severity.WARNING
     phase: Phase = Phase.SEMANTIC
     target: type = qc.Gadget
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        unsupported = set(declaration_issues(gadget).unsupported_atoms)
+        unsupported = set(declaration_issues(gadget).unsupported_steps)
         for index, action in enumerate(gadget.implements.action):
-            atom_name = type(action).__name__
-            if atom_name not in unsupported:
+            step_name = type(action).__name__
+            if step_name not in unsupported:
                 continue
             if (
                 isinstance(action, (qc.actions.Pauli, qc.actions.Clifford))
@@ -143,9 +144,10 @@ class UnsupportedActionAtomRule:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"implements.action[{index}] ({atom_name}) is not supported by the action verifier",
+                f"implements.action[{index}] ({step_name}) is not supported by the action verifier",
                 _where(gadget),
                 "Logical action not checked.",
+                _path=f"implements.action[{index}]",
             )
 
 
@@ -167,6 +169,7 @@ class CheckMismatchRule:
                 equation,
                 f"checks[{index}]",
                 _equation(gadget.checks[index]),
+                f"checks[{index}]",
             )
 
 
@@ -177,6 +180,7 @@ def _zero_parity_diagnostic(
     equation: tuple[str, ...],
     label: str,
     declared: str,
+    path: str,
 ) -> Iterator[Diagnostic]:
     if not equation:
         return
@@ -185,24 +189,34 @@ def _zero_parity_diagnostic(
         if value.is_zero:
             return
         if not any(value[index] for index in range(len(value) - 1)):
-            evidence = "Parity: 1; expected: 0."
+            summary = f"{label} always fires, even without a fault"
+            evidence = (
+                "Declared equation always produces: 1\nRequired noiseless value: 0"
+            )
         else:
-            evidence = f"Parity can be 1; expected: 0.\nWitness: {analysis.witness(equation, value)}"
+            summary = f"{label} can fire without a fault"
+            evidence = (
+                "Counterexample from noiseless execution with arbitrary incoming frames:\n"
+                f"Equation term values: {analysis.witness(equation, value)}\n"
+                "Declared equation produces: 1\nRequired noiseless value: 0"
+            )
     except (KeyError, ValueError, TypeError, NotImplementedError) as error:
         yield Diagnostic(
             rule,
             Severity.WARNING,
             f"{label}: parity not checked",
             _where(gadget),
-            f"Declared: {declared}\n{type(error).__name__}: {error}",
+            f"Declared equation: {declared}\n{type(error).__name__}: {error}",
+            _path=path,
         )
         return
     yield Diagnostic(
         rule,
         Severity.ERROR,
-        f"{label}: nonzero parity on noiseless execution",
+        summary,
         _where(gadget),
-        f"Declared: {declared}\n{evidence}",
+        f"Declared equation: {declared}\n{evidence}",
+        _path=path,
     )
 
 
@@ -236,12 +250,22 @@ class FlagMismatchRule:
         for slot in slots:
             label = f"readouts[{slot.position}] (flag {slot.name!r})"
             if error or slot.position in unresolved:
+                problem = (
+                    "contradictory readout equations"
+                    if error
+                    else "equations allow either bit value"
+                )
                 yield Diagnostic(
                     self.name,
                     Severity.ERROR,
-                    f"{label}: inconsistent or undetermined binding",
+                    f"{label} has no well-defined value: {problem}",
                     _where(gadget),
-                    error or f"readouts[{slot.position}] is not uniquely determined.",
+                    f"Declared equation: {_equation(gadget.readouts[slot.position].equation)}\n"
+                    + (
+                        error
+                        or f"readouts[{slot.position}] is not uniquely determined by the defining equations."
+                    ),
+                    _path=f"readouts[{slot.position}].equation",
                 )
             else:
                 yield from _zero_parity_diagnostic(
@@ -251,6 +275,7 @@ class FlagMismatchRule:
                     analysis.readouts[slot.position],
                     label,
                     _equation(gadget.readouts[slot.position].equation),
+                    f"readouts[{slot.position}].equation",
                 )
 
 
@@ -263,7 +288,7 @@ class ActionMismatchRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        if declaration_issues(gadget).unsupported_atoms:
+        if declaration_issues(gadget).unsupported_steps:
             return
         try:
             expected = declared_action_of(gadget)
@@ -294,6 +319,7 @@ class ActionMismatchRule:
             "circuit action differs from implements.action",
             _where(gadget),
             expected.why_not_equivalent_to(actual),
+            _path="circuit.source",
         )
 
 
@@ -320,18 +346,20 @@ class ReadoutMismatchRule:
         for mismatch in mismatches:
             position = mismatch.position
             declared = _equation(gadget.readouts[position].equation)
-            detail = [f"Declared: {declared}"]
+            detail = [f"Declared equation: {declared}"]
             if mismatch.expected_equation is not None:
                 detail.append(
-                    f"Verified relation: {_equation(mismatch.expected_equation)}"
+                    f"Verified readout equation: {_equation(mismatch.expected_equation)}"
                 )
-            detail.append(mismatch.reason)
+            if mismatch.reason:
+                detail.append(mismatch.reason)
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"readouts[{position}] (logical {_observable(gadget, position)}): readout equation mismatch",
+                mismatch.summary,
                 _where(gadget),
                 "\n".join(detail),
+                _path=f"readouts[{position}].equation",
             )
 
 
@@ -406,7 +434,7 @@ RULES: tuple[Rule, ...] = (
     MissingCheckRule(),
     MissingObservableRule(),
     MissingFlagRule(),
-    UnsupportedActionAtomRule(),
+    UnsupportedActionStepRule(),
     CheckMismatchRule(),
     FlagMismatchRule(),
     ActionMismatchRule(),
@@ -424,5 +452,5 @@ __all__ = [
     "MissingObservableRule",
     "ReadoutMismatchRule",
     "RULES",
-    "UnsupportedActionAtomRule",
+    "UnsupportedActionStepRule",
 ]

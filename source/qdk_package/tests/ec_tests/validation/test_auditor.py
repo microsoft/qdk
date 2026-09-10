@@ -106,10 +106,15 @@ def test_readout_message_has_layer_observable_and_verified_parity() -> None:
     assert len(errors) == 1
     diagnostic = errors[0]
     assert diagnostic.where == "layers[0].gadgets['measure_xx'] (C4 -> stim)"
-    assert diagnostic.summary == "readouts[0] (logical X_0): readout equation mismatch"
-    assert 'Declared: ["circuit.readouts[0]", "in[0].x[0]"]' in diagnostic.detail
     assert (
-        'Verified relation: ["in[0].x[0]", "circuit.readouts[0]", "circuit.readouts[1]"]'
+        diagnostic.summary
+        == "readouts[0] does not report the required logical X_0 measurement"
+    )
+    assert (
+        'Declared equation: ["circuit.readouts[0]", "in[0].x[0]"]' in diagnostic.detail
+    )
+    assert (
+        'Verified readout equation: ["in[0].x[0]", "circuit.readouts[0]", "circuit.readouts[1]"]'
         in diagnostic.detail
     )
     expected = json.loads(diagnostic.detail.splitlines()[1].split(": ", 1)[1])
@@ -119,7 +124,7 @@ def test_readout_message_has_layer_observable_and_verified_parity() -> None:
         for item in Auditor().audit_gadget(gadget, qodec=protocol).errors
         if item.rule == "gadget/readout-mismatch"
     ]
-    assert "arbitrary incoming frames" in diagnostic.detail
+    assert len(diagnostic.detail.splitlines()) == 2
 
 
 def test_same_gadget_at_two_layers_has_distinct_locations(rep3_qodec: qc.Qodec) -> None:
@@ -237,11 +242,11 @@ def test_dropped_readouts_triggers_missing_observable(
 ) -> None:
     measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     stripped = _clone(measure_z, readouts=[])
-    report = Auditor(include_informational=True, strict=True).audit_gadget(
-        stripped, qodec=rep3_qodec
-    )
-    assert report.ok
-    assert "gadget/missing-observable" in {d.rule for d in report.informational}
+    for strict in (False, True):
+        report = Auditor(strict=strict).audit_gadget(stripped, qodec=rep3_qodec)
+        assert not report.ok
+        assert "gadget/missing-observable" in {d.rule for d in report.errors}
+        assert "gadget/missing-observable" not in {d.rule for d in report.informational}
 
 
 # ----------------------------------------------------------------------------
@@ -334,8 +339,17 @@ def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
     encoding = qc.gadgets.Encoding(code, support=["0", "1", "2"])
     # readouts=[] leaves the declared 'reject' flag unbound.
     gadget = qc.Gadget(flagged, circuit, outputs=[encoding], readouts=[])
-    report = Auditor(include_informational=True).audit_gadget(gadget, qodec=rep3_qodec)
-    assert "gadget/missing-flag" in {d.rule for d in report.informational}
+    report = Auditor().audit_gadget(gadget, qodec=rep3_qodec)
+    assert not report.ok
+    diagnostic = next(d for d in report.errors if d.rule == "gadget/missing-flag")
+    assert "omitted equation is undefined" in diagnostic.detail
+    strict_report = Auditor(strict=True).audit_gadget(gadget, qodec=rep3_qodec)
+    assert not strict_report.ok
+    assert "gadget/missing-flag" in {d.rule for d in strict_report.errors}
+    gadget.readouts = [{"reject": []}]
+    assert "gadget/missing-flag" not in {
+        d.rule for d in Auditor().audit_gadget(gadget, qodec=rep3_qodec).diagnostics
+    }
 
 
 def test_reset_of_declared_input_is_checked_against_instruction() -> None:

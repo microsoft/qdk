@@ -25,7 +25,7 @@ def test_builtin_rule_ids_are_exact() -> None:
         "gadget/missing-observable",
         "gadget/missing-flag",
         "gadget/missing-realization",
-        "gadget/unsupported-action-atom",
+        "gadget/unsupported-action-step",
         "gadget/check-mismatch",
         "gadget/flag-mismatch",
         "gadget/action-mismatch",
