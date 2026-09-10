@@ -9,6 +9,8 @@ mod branch;
 mod circuit;
 #[path = "library/simulation/consumer.rs"]
 mod consumer;
+#[path = "library/simulation/contraction.rs"]
+mod contraction;
 #[path = "library/simulation/error.rs"]
 mod error;
 #[path = "library/simulation/ffi.rs"]
@@ -22,6 +24,8 @@ mod replay;
 #[path = "library/simulation/sampler.rs"]
 mod sampler;
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use contraction::ContractionApi;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use sampler::SamplerApi;
 

@@ -11,8 +11,8 @@ pub(crate) use session::Session;
 use super::NativeApi;
 use crate::bindings::{cudart_12, v2_13};
 use crate::simulation::{
-    Complex64Abi, MpsTarget, OpaqueHandle, OutputMetadata, ReplayApi, SamplerApi, SimulationError,
-    StateF64Attribute, StateU32Configuration, Stream,
+    Complex64Abi, ContractionApi, MpsTarget, OpaqueHandle, OutputMetadata, ReplayApi, SamplerApi,
+    SimulationError, StateF64Attribute, StateU32Configuration, Stream,
 };
 use session::SessionApi;
 use std::{
@@ -249,6 +249,116 @@ where
         Ok(())
     } else {
         Err(SimulationError::InvalidSamplerConfiguration { reason })
+    }
+}
+
+impl ContractionApi for NativeApi {
+    fn create_network(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
+        let mut network = std::ptr::null_mut();
+        // SAFETY: `handle` is a live cuTensorNet context and `network` is a
+        // valid writable out-pointer.
+        let status = unsafe {
+            (self.cutensornet_functions.create_network)(handle.as_ptr(), &raw mut network)
+        };
+        self.check_cutensornet("cutensornetCreateNetwork", status)?;
+        NonNull::new(network).ok_or(SimulationError::MissingNativeResource {
+            operation: "cutensornetCreateNetwork",
+            resource: "tensor network descriptor",
+        })
+    }
+
+    fn destroy_network(&self, network: OpaqueHandle) -> Result<(), SimulationError> {
+        // SAFETY: the owning resources consume this descriptor exactly once,
+        // after every object derived from it has been destroyed.
+        let status = unsafe { (self.cutensornet_functions.destroy_network)(network.as_ptr()) };
+        self.check_cutensornet("cutensornetDestroyNetwork", status)
+    }
+
+    fn create_optimizer_config(
+        &self,
+        handle: OpaqueHandle,
+    ) -> Result<OpaqueHandle, SimulationError> {
+        let mut config = std::ptr::null_mut();
+        // SAFETY: `handle` is a live cuTensorNet context and `config` is a
+        // valid writable out-pointer.
+        let status = unsafe {
+            (self.cutensornet_functions.create_optimizer_config)(handle.as_ptr(), &raw mut config)
+        };
+        self.check_cutensornet("cutensornetCreateContractionOptimizerConfig", status)?;
+        NonNull::new(config).ok_or(SimulationError::MissingNativeResource {
+            operation: "cutensornetCreateContractionOptimizerConfig",
+            resource: "contraction optimizer config",
+        })
+    }
+
+    fn destroy_optimizer_config(&self, config: OpaqueHandle) -> Result<(), SimulationError> {
+        // SAFETY: the owning resources consume this config exactly once.
+        let status =
+            unsafe { (self.cutensornet_functions.destroy_optimizer_config)(config.as_ptr()) };
+        self.check_cutensornet("cutensornetDestroyContractionOptimizerConfig", status)
+    }
+
+    fn create_optimizer_info(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+    ) -> Result<OpaqueHandle, SimulationError> {
+        let mut info = std::ptr::null_mut();
+        // SAFETY: `handle` and `network` are live, `network` outlives the
+        // returned info because the owning resources destroy it first, and
+        // `info` is a valid writable out-pointer.
+        let status = unsafe {
+            (self.cutensornet_functions.create_optimizer_info)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                &raw mut info,
+            )
+        };
+        self.check_cutensornet("cutensornetCreateContractionOptimizerInfo", status)?;
+        NonNull::new(info).ok_or(SimulationError::MissingNativeResource {
+            operation: "cutensornetCreateContractionOptimizerInfo",
+            resource: "contraction optimizer info",
+        })
+    }
+
+    fn destroy_optimizer_info(&self, info: OpaqueHandle) -> Result<(), SimulationError> {
+        // SAFETY: the owning resources consume this info exactly once, before
+        // the network descriptor it was created from is destroyed.
+        let status = unsafe { (self.cutensornet_functions.destroy_optimizer_info)(info.as_ptr()) };
+        self.check_cutensornet("cutensornetDestroyContractionOptimizerInfo", status)
+    }
+
+    fn create_slice_group_from_id_range(
+        &self,
+        handle: OpaqueHandle,
+        start: i64,
+        stop: i64,
+        increment: i64,
+    ) -> Result<OpaqueHandle, SimulationError> {
+        let mut slice_group = std::ptr::null_mut();
+        // SAFETY: `handle` is live, the caller has rejected a zero increment, and
+        // `slice_group` is a valid writable out-pointer.
+        let status = unsafe {
+            (self.cutensornet_functions.create_slice_group_from_id_range)(
+                handle.as_ptr(),
+                start,
+                stop,
+                increment,
+                &raw mut slice_group,
+            )
+        };
+        self.check_cutensornet("cutensornetCreateSliceGroupFromIDRange", status)?;
+        NonNull::new(slice_group).ok_or(SimulationError::MissingNativeResource {
+            operation: "cutensornetCreateSliceGroupFromIDRange",
+            resource: "contraction slice group",
+        })
+    }
+
+    fn destroy_slice_group(&self, slice_group: OpaqueHandle) -> Result<(), SimulationError> {
+        // SAFETY: the owning slice group consumes this object exactly once.
+        let status =
+            unsafe { (self.cutensornet_functions.destroy_slice_group)(slice_group.as_ptr()) };
+        self.check_cutensornet("cutensornetDestroySliceGroup", status)
     }
 }
 

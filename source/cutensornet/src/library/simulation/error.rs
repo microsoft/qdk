@@ -11,6 +11,9 @@ pub enum SimulationError {
     #[error("invalid sampler configuration: {reason}")]
     InvalidSamplerConfiguration { reason: &'static str },
 
+    #[error("invalid contraction configuration: {reason}")]
+    InvalidContractionConfiguration { reason: &'static str },
+
     #[error("no CUDA-capable device is available")]
     NoDevice,
 
