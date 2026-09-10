@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Callable, Iterable, Mapping, Sequence, Union
-from warnings import warn
+from typing import Mapping, Sequence, Union
 
 import qodec as qc
 from paulimer import PauliGroup
@@ -36,6 +35,8 @@ class ChannelAction:
     Compare results with :meth:`is_equivalent_to` or
     :meth:`why_not_equivalent_to`. Direct construction and access to the
     internal stabilizers, observables, and logical mapping are not supported.
+    All internal frames index simulation measurement outcomes, including input
+    preparation, code projection, and resets, not Circuit.readouts positions.
     """
 
     _observables: FrameGroup
@@ -64,12 +65,21 @@ class ChannelAction:
     def is_equivalent_to(
         self, other: "ChannelAction", *, modulo_paulis: bool = False
     ) -> bool:
+        """Compare operators and their joint outcome-sign relations.
+
+        Outcome labels are local to each action, so renumbering them does not
+        change equivalence. Outcome-dependent signs on mapping images are
+        compared modulo Pauli corrections. With modulo_paulis, ignore all signs.
+        """
+        if self is other:
+            return True
         return are_equivalent_mod_paulis(self, other) and (
             modulo_paulis or are_outcome_equivalent(self, other)
         )
 
     def why_not_equivalent_to(self, other: "ChannelAction") -> str:
-        if self.is_equivalent_to(other):
+        """Return the first difference, or an empty string for equivalent actions."""
+        if self is other:
             return ""
         for name, expected, actual in (
             ("measured logical observable", self._observables, other._observables),
@@ -77,6 +87,8 @@ class ChannelAction:
         ):
             expected_group = _unsigned(expected.unframed)
             actual_group = _unsigned(actual.unframed)
+            if expected_group == actual_group:
+                continue
             for generator in expected_group.standard_generators:
                 if actual_group.factorization_of(generator) is None:
                     return (
@@ -175,19 +187,27 @@ def _action_of(
         codespace_projector=codespace_projector,
         output_support=output_support,
     )
-    choi = conditional_choi_state(
+    result = conditional_choi_state(
         program,
         input_qubits=input_qubits,
         codespace_projector=codespace_projector,
         aux_origin=auxiliary_origin,
-    ).group
+    )
     auxiliary = {auxiliary_origin + offset for offset in range(len(input_qubits))}
     physical_support = frozenset(
         range(ProgramLayout.of(program).total_qubits)
         if output_support is None
         else output_support
     )
-    stabilizers_out, stabilizers_in, logicals = choi.partition(over=physical_support)
+    random_to_outcome = tuple(result.simulation.random_outcome_indicator.support)
+    group = FrameGroup(
+        PauliFrame(
+            generator.pauli,
+            frozenset(random_to_outcome[index] for index in generator.frame),
+        )
+        for generator in result.group.generators
+    )
+    stabilizers_out, stabilizers_in, logicals = group.partition(over=physical_support)
     auxiliary_to_input = {
         auxiliary_origin + offset: qubit for offset, qubit in enumerate(input_qubits)
     }
@@ -220,11 +240,9 @@ def _assemble_action(
         return complex_conjugate_of(relabeled)
 
     logicals = logicals % (stabilizers_in | stabilizers_out)
-    to_input = _abs_restricting_to(auxiliary)
-    to_output = _restricting_to(physical_support)
     mapping = {
-        input_adjust(to_input(framed.pauli)): PauliFrame(
-            to_output(framed.pauli), framed.frame
+        input_adjust(abs(framed.pauli)): PauliFrame(
+            restrict(framed.pauli, physical_support), framed.frame
         )
         for framed in logicals.standardized().generators
     }
@@ -257,6 +275,7 @@ def _decode(
 ) -> ChannelAction:
     _validate(action, with_respect_to=with_respect_to)
     code_in, code_out = with_respect_to
+    observables_group = action._observables.unframed
     stabilizers_group = action._stabilizers.unframed
 
     def phase_of(pauli: Pauli) -> Pauli:
@@ -270,10 +289,11 @@ def _decode(
     observables = _logical_form_of(action._observables, with_respect_to=code_in)
     stabilizers = _logical_form_of(action._stabilizers, with_respect_to=code_out)
     input_generators = [
-        _quotient_of(key, action._observables.unframed) for key in action._mapping
+        (PauliGroup([key]) % observables_group).generators[0] for key in action._mapping
     ]
     output_generators = FrameGroup(
-        _quotient_framed(value, action._stabilizers) for value in action._mapping.values()
+        (FrameGroup([value]) % action._stabilizers).generators[0]
+        for value in action._mapping.values()
     )
     indexed_inputs = FrameGroup(
         PauliFrame(generator, frozenset({index}))
@@ -281,7 +301,7 @@ def _decode(
     )
     mapping = {}
     for basis_element in code_in.logical_basis:
-        target = _quotient_of(basis_element, action._observables.unframed)
+        target = (PauliGroup([basis_element]) % observables_group).generators[0]
         # A logical with no image is normal here, not a failure to characterize:
         # a destructive measurement produces both cases below.
         if not target.weight:
@@ -305,26 +325,10 @@ def _decode(
 
 def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
     reduced = (PauliGroup([pauli]) % within).generators[0]
-    phases = (
-        [reduced * identity(1j**exponent) for exponent in within.phases]
-        if not reduced.weight
-        else []
-    )
-    if len(phases) != 1:
+    phases = within.phases
+    if reduced.weight or len(phases) != 1:
         raise ValueError(f"{pauli} does not have a unique phase.")
-    return phases[0]
-
-
-def _abs_restricting_to(support: Iterable[int]) -> Callable[[Pauli], Pauli]:
-    support_set = frozenset(support)
-    return lambda pauli: Pauli(
-        {qubit: pauli[qubit] for qubit in set(pauli.support) & support_set}
-    )
-
-
-def _restricting_to(support: Iterable[int]) -> Callable[[Pauli], Pauli]:
-    support_set = frozenset(support)
-    return lambda pauli: restrict(pauli, support_set)
+    return reduced * identity(1j ** phases[0])
 
 
 def _logical_form_of(
@@ -356,29 +360,16 @@ def _validate(
     relative_syndrome = observables % stabilizers
     if -Pauli.identity() in relative_syndrome.generators:
         raise ValueError("Syndrome mapping is non-linear.")
-    if any(
-        complex(generator.phase) != generator.phase
-        for generator in relative_syndrome.generators
-    ):
-        warn("Output code signs are conditional.", RuntimeWarning, stacklevel=3)
 
 
 def _validate_group(group: PauliGroup, *, against: SubsystemCode) -> None:
     quotient = PauliGroup(against.stabilizers) % group
-    if sum(generator.weight for generator in quotient.generators) > 0:
+    if any(generator.weight for generator in quotient.generators):
         raise ValueError(
             "Circuit generators do not include the respective code stabilizers."
         )
     if not against.support >= set(group.support):
         raise ValueError("Code support does not include the circuit support.")
-
-
-def _quotient_of(pauli: Pauli, group: PauliGroup) -> Pauli:
-    return (PauliGroup([pauli]) % group).generators[0]
-
-
-def _quotient_framed(framed: PauliFrame, group: FrameGroup) -> PauliFrame:
-    return (FrameGroup([framed]) % group).generators[0]
 
 
 def _unsigned(group: PauliGroup) -> PauliGroup:
@@ -406,34 +397,7 @@ def are_equivalent_mod_paulis(action1: ChannelAction, action2: ChannelAction) ->
 
 
 def are_outcome_equivalent(action1: ChannelAction, action2: ChannelAction) -> bool:
-    items1 = _outcome_items(action1)
-    items2 = _outcome_items(action2)
-    if len(items1) != len(items2):
-        return False
-    conditions1: list[Pauli] = []
-    conditions2: list[Pauli] = []
-    for (phase1, frame1, correctable1), (
-        phase2,
-        frame2,
-        correctable2,
-    ) in zip(items1, items2):
-        if (correctable1 and frame1) or (correctable2 and frame2):
-            continue
-        conditions1.append(
-            Pauli({2 * outcome: "Z" for outcome in frame1}) * identity(phase1)
-        )
-        conditions2.append(
-            Pauli({2 * outcome + 1: "Z" for outcome in frame2}) * identity(phase2)
-        )
-    products = [left * right for left, right in zip(conditions1, conditions2)]
-    for generator in PauliGroup(products).standard_generators:
-        only1 = sum(qubit % 2 == 0 for qubit in generator.support)
-        only2 = sum(qubit % 2 == 1 for qubit in generator.support)
-        if 0 in (only1, only2) and only1 + only2 > 0:
-            return False
-        if generator.weight == 0 and complex(generator.phase) != 1:
-            return False
-    return PauliGroup(conditions1).binary_rank == PauliGroup(conditions2).binary_rank
+    return not _sign_difference(action1, action2)
 
 
 def _outcome_items(
@@ -458,6 +422,12 @@ def _sort_key(pauli: Pauli) -> tuple[tuple[int, ...], tuple[str, ...]]:
 
 
 def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
+    expected_items = _outcome_items(expected)
+    actual_items = _outcome_items(actual)
+    if len(expected_items) != len(actual_items):
+        return "Different numbers of outcome-sign relations."
+    if expected_items == actual_items:
+        return ""
     labels = [
         *(
             f"observable {abs(item.pauli)}"
@@ -480,7 +450,7 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
     for index, (
         (expected_phase, expected_frame, expected_correctable),
         (actual_phase, actual_frame, actual_correctable),
-    ) in enumerate(zip(_outcome_items(expected), _outcome_items(actual))):
+    ) in enumerate(zip(expected_items, actual_items, strict=True)):
         if (expected_correctable and expected_frame) or (
             actual_correctable and actual_frame
         ):
@@ -506,7 +476,7 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
             variable = "expected" if side == 0 else "circuit"
             fixed = "circuit" if side == 0 else "expected"
             return f"Sign parity ({terms}): {variable} varies with outcomes; {fixed} is fixed."
-    return "Logical operators agree, but their outcome-dependent sign relations differ."
+    return ""
 
 
 def declared_program_of(gadget: qc.Gadget) -> Circuit:
@@ -552,8 +522,8 @@ def _declared_isa(
 
 def _declared_logical_counts(gadget: qc.Gadget) -> tuple[int, int]:
     return (
-        sum(len(list(encoding.code.x)) for encoding in gadget.inputs),
-        sum(len(list(encoding.code.x)) for encoding in gadget.outputs),
+        sum(len(encoding.code.x) for encoding in gadget.inputs),
+        sum(len(encoding.code.x) for encoding in gadget.outputs),
     )
 
 
@@ -617,11 +587,11 @@ def realized_action_of(gadget: qc.Gadget) -> ChannelAction:
 def gadget_action_mismatch(gadget: qc.Gadget) -> str | None:
     expected = declared_action_of(gadget)
     actual = realized_action_of(gadget)
-    if expected.is_equivalent_to(actual):
-        return None
-    if expected.is_equivalent_to(actual, modulo_paulis=True):
+    if not are_equivalent_mod_paulis(expected, actual):
+        return "logical action differs between declared and realized"
+    if not are_outcome_equivalent(expected, actual):
         return "logical action matches up to Pauli signs but not outcome-wise"
-    return "logical action differs between declared and realized"
+    return None
 
 
 __all__ = [

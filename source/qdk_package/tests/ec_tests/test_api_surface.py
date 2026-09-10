@@ -125,6 +125,18 @@ def test_gadget_profile_contract(idle_gadget) -> None:
     assert isinstance(fault, ec.FaultEvent)
     assert isinstance(effect, ec.FaultEffect)
     assert profile.effects_of([fault]) == (effect,)
+    assert {name for name in dir(ec.GadgetProfile) if not name.startswith("_")} == {
+        "action",
+        "objective",
+        "checks",
+        "readouts",
+        "fault_effects",
+        "effects_of",
+        "distance",
+        "distance_bounds",
+        "is_equivalent_to",
+        "why_not_equivalent_to",
+    }
 
 
 def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
@@ -144,6 +156,19 @@ def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
         )
     assert any(
         effect.syndrome or effect.readout_flips for _, effect in profile.fault_effects
+    )
+
+
+def test_profile_distance_signatures() -> None:
+    assert str(inspect.signature(ec.GadgetProfile.distance)) == (
+        "(self, *, faults: 'Sequence[FaultEvent] | None' = None, "
+        "upper_bound: 'int | None' = None, solver: 'ExactSolver | None' = None) "
+        "-> 'tuple[int, list[FaultEvent]]'"
+    )
+    assert str(inspect.signature(ec.GadgetProfile.distance_bounds)) == (
+        "(self, *, faults: 'Sequence[FaultEvent] | None' = None, "
+        "upper_bound: 'int | None' = None, solver: 'BoundsSolver | None' = None) "
+        "-> 'tuple[int, int, list[FaultEvent]]'"
     )
 
 

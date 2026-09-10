@@ -5,14 +5,10 @@ from __future__ import annotations
 from typing import Iterable, Optional, Sequence, TypeVar
 
 from .distance_solvers import (
-    BoundsSolver,
-    CustomBoundsSolver,
-    CustomExactSolver,
-    ExactSolver,
-    ExhaustiveSolverOptions,
     MwpfSolverOptions,
-    exhaustive_shortest_odd_cycle,
-    mwpf_bounds,
+    Solver,
+    solver_options,
+    solve_bounds,
 )
 
 Label = TypeVar("Label")
@@ -48,6 +44,15 @@ class OddCycles:
         parity_indicators: Sequence[frozenset[int]],
         unique_columns_ids: Optional[Sequence[int]] = None,
     ) -> None:
+        if len(check_matrix) != len(parity_indicators):
+            raise ValueError("check and logical columns must have equal lengths")
+        self._source_checks = tuple(check_matrix)
+        self._source_parities = tuple(parity_indicators)
+        self._source_ids = (
+            tuple(range(len(check_matrix)))
+            if unique_columns_ids is None
+            else tuple(unique_columns_ids)
+        )
         self.odd_cycle_length: Optional[int] = None
         self.short_odd_cycle: Optional[list[int]] = None
         self.short_odd_cycle_lower_bound = 3
@@ -79,30 +84,47 @@ class OddCycles:
 
     def shortest(
         self,
-        solver: ExactSolver,
+        solver: Solver,
         coset_indicator: Optional[frozenset[int]] = None,
         cycle_size_upper_bound: Optional[int] = None,
     ) -> tuple[int, list[int]]:
-        if self.odd_cycle_length is not None:
-            assert self.short_odd_cycle is not None
-            return self.odd_cycle_length, self.short_odd_cycle
-        if isinstance(solver, ExhaustiveSolverOptions):
-            size, cycle = exhaustive_shortest_odd_cycle(
-                self, cycle_size_upper_bound, coset_indicator, solver
+        lower, upper, cycle = self.bounds(
+            cycle_size_upper_bound, coset_indicator, solver
+        )
+        if lower != upper:
+            raise RuntimeError(
+                f"solver did not prove exact distance: bounds are {lower} and {upper}"
             )
-        elif isinstance(solver, CustomExactSolver):
-            size, cycle = solver.solver(self, cycle_size_upper_bound, coset_indicator)
-        else:
-            raise NotImplementedError(f"Unsupported exact solver {solver!r}")
-        return size, cycle_labels(cycle, self.unique_columns_ids)
+        return upper, cycle
 
     def bounds(
         self,
         odd_cycle_length_upper_bound: Optional[int] = None,
         coset_indicator: Optional[frozenset[int]] = None,
-        solver: Optional[BoundsSolver] = None,
+        solver: Optional[Solver] = None,
     ) -> tuple[int, int, list[int]]:
-        solver = solver or MwpfSolverOptions()
+        solver = solver_options(MwpfSolverOptions() if solver is None else solver)
+        if (
+            odd_cycle_length_upper_bound is not None
+            and odd_cycle_length_upper_bound < 0
+        ):
+            raise ValueError("upper_bound must be nonnegative")
+        if coset_indicator is not None:
+            projected = OddCycles(
+                self._source_checks,
+                [
+                    (
+                        frozenset({0})
+                        if len(indicator & coset_indicator) % 2
+                        else frozenset()
+                    )
+                    for indicator in self._source_parities
+                ],
+            )
+            lower, upper, cycle = projected.bounds(
+                odd_cycle_length_upper_bound, solver=solver
+            )
+            return lower, upper, cycle_labels(cycle, self._source_ids)
         if self.odd_cycle_length is not None:
             assert self.short_odd_cycle is not None
             return (
@@ -110,27 +132,9 @@ class OddCycles:
                 self.odd_cycle_length,
                 self.short_odd_cycle,
             )
-        if isinstance(solver, MwpfSolverOptions):
-            lower, upper, cycle = mwpf_bounds(
-                self,
-                odd_cycle_length_upper_bound,
-                coset_indicator,
-                solver,
-            )
-        elif isinstance(solver, ExhaustiveSolverOptions):
-            size, cycle = exhaustive_shortest_odd_cycle(
-                self,
-                odd_cycle_length_upper_bound,
-                coset_indicator,
-                solver,
-            )
-            lower = upper = size
-        elif isinstance(solver, CustomBoundsSolver):
-            lower, upper, cycle = solver.solver(
-                self, odd_cycle_length_upper_bound, coset_indicator
-            )
-        else:
-            raise NotImplementedError(f"Unsupported bounds solver {solver!r}")
+        lower, upper, cycle = solve_bounds(
+            self, odd_cycle_length_upper_bound, coset_indicator, solver
+        )
         return lower, upper, cycle_labels(cycle, self.unique_columns_ids)
 
 

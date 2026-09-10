@@ -43,6 +43,7 @@ ec = [
   "more-itertools>=10.0",
   "mwpf>=0.2.2",
 ]
+ec-highs = ["highspy>=1.11,<2"]
 all = [
   "qsharp-widgets==0.0.0",
   "azure-quantum>=3.8.0",
@@ -57,6 +58,7 @@ all = [
   "binar>=0.1.2",
   "more-itertools>=10.0",
   "mwpf>=0.2.2",
+  "highspy>=1.11,<2",
 ]
 
 [tool.pytest.ini_options]

@@ -19,5 +19,9 @@ def _requires(module: str) -> pytest.MarkDecorator:
 
 
 requires_mwpf = _requires("mwpf")
+requires_highs = pytest.mark.skipif(
+    find_spec("highspy") is None,
+    reason="highspy is not installed (pip install 'qdk[ec,ec-highs]')",
+)
 
-__all__ = ["requires_mwpf"]
+__all__ = ["requires_mwpf", "requires_highs"]
