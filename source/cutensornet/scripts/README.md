@@ -78,6 +78,41 @@ reached only through a `void *` attribute buffer — `cutensornetComputeType_t`,
 for instance — is _not_ pulled in transitively and must be named explicitly.
 Adding to these lists requires regenerating the bindings.
 
+## What this does not cover: cudart
+
+The manifest describes **cuTensorNet only**. The twelve cudart symbols the crate
+also resolves are still hand-maintained:
+
+|                                | cuTensorNet                              | cudart                                                                      |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------- |
+| Header &rarr; declarations     | `bindgen` &rarr; `src/bindings/v2_13.rs` | none                                                                        |
+| What is checked in             | `pub fn cutensornetX(..) -> ..`          | `src/bindings/cudart_12.rs` &mdash; the function-pointer aliases themselves |
+| Where the signature comes from | read from `cutensornet.h`                | transcribed by hand                                                         |
+| Struct and `resolve_*` calls   | generated                                | hand-written in `library.rs`                                                |
+
+This is a **bindings** gap, not a generator gap. The generator earns its keep by
+deriving each signature from a machine-read header; for cudart there is no
+`pub fn cudaMalloc(..)` declaration anywhere to derive from or check against, so
+pointing the generator at it today would give it nothing to read.
+
+Closing the gap is deliberately not done, because twelve symbols have been
+stable across CUDA 12.x and nothing planned adds to them. It is worth doing the
+moment a new cudart symbol is needed or the crate moves off CUDA 12. It would
+take:
+
+1. A bindgen pass over `cuda_runtime_api.h` producing real declarations, with a
+   tight allowlist &mdash; that header is far larger than `cutensornet.h`.
+2. Manifest rows for the twelve symbols, plus a column naming the library.
+3. Replacing the hand-written `CudaError` and `CudaMemcpyKind` aliases with the
+   bindgen types, which touches the call sites that use them.
+4. Four cuTensorNet assumptions in `src/generator.rs` becoming parameters: the
+   family list, the `v2_13::` prefix applied by `qualify`, the output paths, and
+   the `CuTensorNetFunctions` / `CUTENSORNET_NAME` /
+   `resolve_cutensornet_functions` names emitted by `render_root`. The model and
+   serializer are already separate, so this is contained.
+
+Only step 4 touches the generator; the rest is bindings work.
+
 ## Regenerating the bindings (CUDA host only)
 
 ```sh
