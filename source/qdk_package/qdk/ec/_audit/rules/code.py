@@ -3,11 +3,13 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 from itertools import combinations
+import json
 
 import qodec as qc
 
-from ..._analysis.code_algebra import SubsystemCode
+from ..._analysis.code_algebra import SubsystemCode, sparse_paulis_as_bitmatrix
 from ..._analysis.propagation.pauli import Pauli
+from .._dependencies import row_dependencies
 from .._diagnostic import Diagnostic, Phase, Severity
 
 from .._rule import Rule
@@ -66,6 +68,46 @@ class CodeAlgebraRule:
             )
 
 
-RULES: tuple[Rule, ...] = (CodeAlgebraRule(),)
+@dataclass(frozen=True)
+class RedundantStabilizerRule:
+    name: str = "code/redundant-stabilizer"
+    severity: Severity = Severity.INFO
+    phase: Phase = Phase.INFORMATIONAL
+    target: type = qc.Code
 
-__all__ = ["CodeAlgebraRule", "RULES"]
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        if not isinstance(target, qc.Code):
+            raise TypeError(f"expected qodec.Code, got {type(target).__name__}")
+        try:
+            SubsystemCode.of(target)
+        except ValueError:
+            return
+        operators = [Pauli(text) for text in target.stabilizers]
+        if not operators:
+            return
+        matrix, _ = sparse_paulis_as_bitmatrix(operators)
+        dependencies = row_dependencies(list(matrix.rows))
+        rank = sum(dependency is None for dependency in dependencies)
+        for index, dependency in enumerate(dependencies):
+            if dependency is None:
+                continue
+            factors = [f"stabilizers[{position}]" for position in dependency]
+            product = (
+                f"Product of generators: {json.dumps(factors)}"
+                if factors
+                else "The declared operator is +I."
+            )
+            yield Diagnostic(
+                self.name,
+                self.severity,
+                f"stabilizers[{index}] adds no independent constraint",
+                f"code[{target.name!r}]",
+                f"Declared operator: {target.stabilizers[index]}\n{product}\n"
+                f"Independent stabilizer rank: {rank} of {len(operators)} declared generators.",
+                _path=f"stabilizers[{index}]",
+            )
+
+
+RULES: tuple[Rule, ...] = (CodeAlgebraRule(), RedundantStabilizerRule())
+
+__all__ = ["CodeAlgebraRule", "RedundantStabilizerRule", "RULES"]

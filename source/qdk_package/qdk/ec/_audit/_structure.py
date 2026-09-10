@@ -180,9 +180,17 @@ def _gadget_issues(
         ("out", gadget.outputs, gadget.implements.outputs),
     ):
         boundary_types: dict[str, str] = {}
+        boundary_support: dict[str, tuple[int, int]] = {}
         if len(encodings) != len(operands):
             yield f"{side}: {len(encodings)} encodings for {len(operands)} operands"
         for entry, (encoding, operand) in enumerate(zip(encodings, operands)):
+            for position, label in enumerate(encoding.support):
+                previous = boundary_support.get(label)
+                if previous is not None:
+                    previous_entry, previous_position = previous
+                    yield f"{side}[{entry}].support[{position}] and {side}[{previous_entry}].support[{previous_position}] both use circuit label {label!r}"
+                else:
+                    boundary_support[label] = (entry, position)
             code = encoding.code
             if (
                 blocks is not None

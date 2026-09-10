@@ -150,10 +150,36 @@ This replaces `gadget/reference-out-of-bounds` and
 `gadget/missing-source-instruction`; update any rule filters using those IDs.
 Use `gadget/unsupported-action-step` for unsupported instruction steps. It
 replaces `gadget/unsupported-action-atom`; "step" follows the action model and
-avoids confusion with physical atoms. The registry still has 14 rule IDs.
+avoids confusion with physical atoms. The registry has 17 rule IDs.
 Invalid prerequisites block dependent gadget analyses, including shared
 definitions, while unrelated gadgets remain analyzable. Direct analysis calls
 still check their mathematical preconditions.
+
+Repeated circuit labels within an encoding, or shared by two encodings on the
+same boundary, are `qodec/invalid-structure` errors. The message identifies both
+support positions. Input and output boundaries are checked separately; reusing
+a label across them is normal. An overlap blocks that gadget's dependent analyses
+without suppressing unrelated gadgets. qodec loading and saving are unchanged.
+
+Three informational rules describe declaration redundancy:
+
+- `gadget/vacuous-check`: an explicit check is empty or all its reference terms
+    cancel. It is valid, but cannot detect a fault. An omitted checks list has no
+    entry to report.
+- `gadget/redundant-check`: a nonvacuous check is the exact XOR of earlier
+    independent checks. The finding lists those check positions. It compares formal
+    reference equations, not noiseless values, and does not substitute readouts.
+    Distinct measurements that agree noiselessly can still detect faults differently.
+- `code/redundant-stabilizer`: a valid code has a generator that is the product of
+    earlier independent generators, or is +I. The finding shows the dependency and
+    the rank of the full stabilizer list. Inconsistent signs remain algebra errors.
+
+These notices preserve authored declarations and positions, remain INFO under
+`promote_warnings=True`, and can be disabled by rule ID. They add no top-level
+Python exports. The names use the existing check and stabilizer terms:
+`duplicate-*` would miss combinations of earlier declarations, while `invalid-*`
+would wrongly label harmless redundancy. Fault-model-dependent diagnostics remain
+deferred until an explicit fault set and detection requirement are supplied.
 
 Algebraically incorrect drafts can be constructed, loaded, and saved by
 qodec, as can unequal code lists, incomplete protocols, and malformed circuit

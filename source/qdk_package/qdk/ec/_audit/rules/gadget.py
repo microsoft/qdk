@@ -6,6 +6,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 import json
 
+from binar import BitVector
 import qodec as qc
 
 from ..._readouts import flag_slots, observable_slots, observe_count_of
@@ -16,8 +17,9 @@ from ..._analysis.channel_action import (
 )
 from ..._analysis.check_discovery import _output_relations_of
 from ..._analysis.declaration_issues import declaration_issues
+from .._dependencies import row_dependencies
 from .._diagnostic import Diagnostic, Phase, Severity
-from .._parity import ParityAnalysis
+from .._parity import ParityAnalysis, terms_of
 from .._readout_check import readout_disagreements
 from .._rule import Rule
 
@@ -45,6 +47,58 @@ def _observable(gadget: qc.Gadget, position: int) -> str:
             for observable in action.observables
         ][position]
     )
+
+
+@dataclass(frozen=True)
+class VacuousCheckRule:
+    name: str = "gadget/vacuous-check"
+    severity: Severity = Severity.INFO
+    phase: Phase = Phase.INFORMATIONAL
+    target: type = qc.Gadget
+
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        gadget = _gadget(target)
+        for index, equation in enumerate(gadget.checks):
+            if terms_of(equation):
+                continue
+            yield Diagnostic(
+                self.name,
+                self.severity,
+                f"checks[{index}] is identically zero and cannot detect a fault",
+                _where(gadget),
+                f"Declared equation: {_equation(equation)}\n"
+                "All terms cancel, or the equation is empty. This is valid but supplies no constraint.",
+                _path=f"checks[{index}]",
+            )
+
+
+@dataclass(frozen=True)
+class RedundantCheckRule:
+    name: str = "gadget/redundant-check"
+    severity: Severity = Severity.INFO
+    phase: Phase = Phase.INFORMATIONAL
+    target: type = qc.Gadget
+
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        gadget = _gadget(target)
+        equations = [frozenset(terms_of(check)) for check in gadget.checks]
+        columns = sorted(set().union(*equations))
+        rows = [
+            BitVector(path in equation for path in columns) for equation in equations
+        ]
+        for index, dependency in enumerate(row_dependencies(rows)):
+            if not dependency:
+                continue
+            yield Diagnostic(
+                self.name,
+                self.severity,
+                f"checks[{index}] is an XOR of earlier checks",
+                _where(gadget),
+                f"Declared equation: {_equation(gadget.checks[index])}\n"
+                f"XOR of checks: {_equation(f'checks[{position}]' for position in dependency)}\n"
+                "This formal identity holds for every assignment of the referenced bits and signs.",
+                _path=f"checks[{index}]",
+            )
 
 
 @dataclass(frozen=True)
@@ -431,6 +485,8 @@ class IncompleteOutputFrameRule:
 
 
 RULES: tuple[Rule, ...] = (
+    VacuousCheckRule(),
+    RedundantCheckRule(),
     MissingCheckRule(),
     MissingObservableRule(),
     MissingFlagRule(),
@@ -451,6 +507,8 @@ __all__ = [
     "MissingFlagRule",
     "MissingObservableRule",
     "ReadoutMismatchRule",
+    "RedundantCheckRule",
     "RULES",
     "UnsupportedActionStepRule",
+    "VacuousCheckRule",
 ]
