@@ -14,7 +14,7 @@ from .._readouts import readouts_of
 class DeclarationIssues:
     missing_observables: tuple[str, ...] = ()
     missing_flags: tuple[str, ...] = ()
-    unsupported_atoms: tuple[str, ...] = ()
+    unsupported_steps: tuple[str, ...] = ()
     bound_flags: tuple[str, ...] = ()
 
 
@@ -49,7 +49,7 @@ def declaration_issues(gadget: qc.Gadget) -> DeclarationIssues:
     return DeclarationIssues(
         missing_observables=missing_observables,
         missing_flags=missing_flags,
-        unsupported_atoms=tuple(unsupported),
+        unsupported_steps=tuple(unsupported),
         bound_flags=bound_flags,
     )
 

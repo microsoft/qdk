@@ -493,14 +493,7 @@ class ParityAnalysis:
                 missing.append(path)
         return tuple(missing)
 
-    def witness(
-        self,
-        equation: Iterable[str],
-        difference: BitVector,
-        *,
-        actual: BitVector | None = None,
-        expected: BitVector | None = None,
-    ) -> str:
+    def witness(self, equation: Iterable[str], difference: BitVector) -> str:
         assignment = BitVector.zeros(len(difference))
         assignment[len(difference) - 1] = True
         if not difference[len(difference) - 1]:
@@ -513,7 +506,4 @@ class ParityAnalysis:
             path: int(self.value((path,)).dot(assignment))
             for path in dict.fromkeys(equation)
         }
-        text = json.dumps(values)
-        if actual is not None and expected is not None:
-            text += f"\nDeclared value: {int(actual.dot(assignment))}; expected: {int(expected.dot(assignment))}."
-        return text
+        return json.dumps(values)

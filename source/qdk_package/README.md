@@ -129,7 +129,16 @@ are immutable tuple snapshots; assign new collections to change the gadget.
 Bundle fixtures use schema version 7;
 `Qodec.load` takes an explicit manifest or bundle file path, not a directory.
 
-The `qdk.ec` public API is unchanged by this qodec migration.
+Diagnostics add one optional keyword-only field, `source_location`. It contains
+the actual source file and 1-based line when qodec retained a reliable location.
+Reports print `filename:line` on the line after the severity and rule, before
+the existing layer and artifact context. Printed paths under the current user's
+home directory use `~/`; other paths remain absolute. The stored
+`SourceLocation.path` remains absolute in either case.
+Equation failures point to the equation; other findings fall back to the
+containing artifact. Source metadata does not affect diagnostic equality.
+Constructed or modified models may have no source locations. The 11 top-level
+`qdk.ec` exports are unchanged.
 
 `ec.audit` checks code algebra, complete Clifford maps (including implicit
 identities), gadget actions, and check, flag, and readout equations. It also
@@ -139,6 +148,9 @@ parameter uses, and circuit-call validity. These declaration findings use
 such as unambiguous resolution and bindings that can survive a round trip.
 This replaces `gadget/reference-out-of-bounds` and
 `gadget/missing-source-instruction`; update any rule filters using those IDs.
+Use `gadget/unsupported-action-step` for unsupported instruction steps. It
+replaces `gadget/unsupported-action-atom`; "step" follows the action model and
+avoids confusion with physical atoms. The registry still has 14 rule IDs.
 Invalid prerequisites block dependent gadget analyses, including shared
 definitions, while unrelated gadgets remain analyzable. Direct analysis calls
 still check their mathematical preconditions.
@@ -146,14 +158,24 @@ still check their mathematical preconditions.
 Algebraically incorrect drafts can be constructed, loaded, and saved by
 qodec, as can unequal code lists, incomplete protocols, and malformed circuit
 text. Parsed accessors can fail on a loadable draft. Entirely omitted readout
-lists are allowed for later derivation and reported as informational; partially
-supplied lists also persist but are audit errors.
+lists are allowed for later derivation, but audit reports missing observable
+and flag equations as errors. Partially supplied
+lists also persist but are audit errors. An omitted flag equation is undefined;
+an explicit `[]` equation declares zero.
 
 Parity verification assumes valid noiseless input
 codewords with arbitrary incoming Pauli frames. A measurement readout that
 omits a required logical-frame correction is an error even if it works for a
 zero-frame input. The authored C4 example currently has such omissions; the
 audit reports them without changing the protocol.
+
+Readout diagnostics distinguish an incorrect equation from a result the circuit
+does not provide. A recoverable mismatch shows only the declared and verified
+equations. Otherwise, a short explanation identifies missing information,
+a required constant inversion, or contradictory/undetermined definitions.
+Readout messages do not include counterexamples. Check and flag failures retain
+term values when needed to demonstrate firing without a fault, and label the
+required noiseless value as zero.
 
 Readout references are solved as binary linear equations, including cycles
 with unique consistent solutions. Output stabilizer signs must be determined

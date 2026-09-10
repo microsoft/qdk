@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+import qodec as qc
+
 from qdk.ec._audit import Diagnostic, Phase, Report, Severity
+from qdk.ec._audit._auditor import Auditor
+from qdk.ec._audit.rules.gadget import CheckMismatchRule
 
 
 def _make(rule: str, severity: Severity, where: str = "x") -> Diagnostic:
@@ -108,16 +115,16 @@ def test_report_formats_location_and_evidence_without_extra_advice() -> None:
     diagnostic = Diagnostic(
         rule="gadget/readout-mismatch",
         severity=Severity.ERROR,
-        summary="readouts[0] (logical X_0): measurement parity mismatch",
+        summary="readouts[0] does not report the required logical X_0 measurement",
         where="layers[0].gadgets['measure_xx'] (C4 -> stim)",
-        detail='Declared: ["circuit.readouts[0]"]\nVerified measurement parity: ["circuit.readouts[0]", "circuit.readouts[1]"]',
+        detail='Declared equation: ["circuit.readouts[0]"]\nVerified readout equation: ["circuit.readouts[0]", "circuit.readouts[1]"]',
     )
     assert str(Report((diagnostic,))) == (
         "[ERROR] gadget/readout-mismatch\n"
         "layers[0].gadgets['measure_xx'] (C4 -> stim)\n"
-        "readouts[0] (logical X_0): measurement parity mismatch\n"
-        '    Declared: ["circuit.readouts[0]"]\n'
-        '    Verified measurement parity: ["circuit.readouts[0]", "circuit.readouts[1]"]\n\n'
+        "readouts[0] does not report the required logical X_0 measurement\n"
+        '    Declared equation: ["circuit.readouts[0]"]\n'
+        '    Verified readout equation: ["circuit.readouts[0]", "circuit.readouts[1]"]\n\n'
         "audit: 1 error(s), 0 warning(s), 0 informational"
     )
 
@@ -126,3 +133,64 @@ def test_diagnostic_phase_enum_values() -> None:
     """Phase enum is used by rules; sanity-check the three members exist."""
     members = {p.name for p in Phase}
     assert members == {"STRUCTURAL", "SEMANTIC", "INFORMATIONAL"}
+
+
+@pytest.mark.parametrize("severity", [Severity.ERROR, Severity.WARNING])
+@pytest.mark.parametrize("home_kind", ["parent", "prefix", "unavailable"])
+def test_report_abbreviates_home_only_for_display(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    severity: Severity,
+    home_kind: str,
+) -> None:
+    directory = tmp_path / "home-extra"
+    directory.mkdir()
+    file = directory / "protocol.bundle"
+    file.write_text('{"layers": []}')
+    location = qc.Qodec.load(file).resolve("").source_location
+    assert location is not None
+
+    def home() -> Path:
+        if home_kind == "unavailable":
+            raise RuntimeError("Cannot determine home directory")
+        return directory if home_kind == "parent" else tmp_path / "home"
+
+    monkeypatch.setattr(Path, "home", home)
+    diagnostic = Diagnostic(
+        "test/location", severity, "message", "qodec", source_location=location
+    )
+    display_path = "~/protocol.bundle" if home_kind == "parent" else str(file)
+    assert str(Report((diagnostic,))).splitlines()[:4] == [
+        f"[{severity.name}] test/location",
+        f"{display_path}:{location.line}",
+        "qodec",
+        "message",
+    ]
+    assert diagnostic.source_location is location
+    assert location.path == file and location.path.is_absolute()
+
+
+def test_report_points_to_loaded_check_equation(tmp_path: Path) -> None:
+    protocol = qc.Qodec.load(Path(__file__).parents[2] / "testing/qodecs/c4.qodec.yaml")
+    gadget = protocol.layers[0].gadgets["measure_zz"]
+    gadget.checks = [["circuit.readouts[0]"]]
+    file = tmp_path / "protocol.bundle"
+    file.write_text(protocol.dumps())
+    loaded = qc.Qodec.load(file)
+    report = Auditor(rules=[CheckMismatchRule()]).audit(loaded)
+    diagnostic = report.errors[0]
+    location = diagnostic.source_location
+    assert location is not None and location.path == file
+    assert "circuit.readouts[0]" in file.read_text().splitlines()[location.line - 1]
+    assert str(report).splitlines()[:4] == [
+        "[ERROR] gadget/check-mismatch",
+        f"{file}:{location.line}",
+        diagnostic.where,
+        diagnostic.summary,
+    ]
+    assert diagnostic.where == "layers[0].gadgets['measure_zz'] (C4 -> stim)"
+    assert Auditor(rules=[CheckMismatchRule()]).audit(loaded) == report
+    assert (
+        Auditor(rules=[CheckMismatchRule()]).audit(protocol).errors[0].source_location
+        is None
+    )
