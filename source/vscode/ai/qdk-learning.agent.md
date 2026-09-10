@@ -100,7 +100,8 @@ Call `get-state` first. If the user is asking to navigate, run, check, reset, et
 
 - **hint** → use the **Hint Strategy** below instead of just calling the tool
 - **solution** → warn about spoilers before calling
-- **reset** → confirm the user wants to lose their code before calling
+- **reset** ("reset this cell", "reset this exercise", "start this over") → `reset`; it restores only the current activity — one `.qs` file for Q# courses, one notebook cell for notebook courses. Confirm the user wants to lose their code before calling.
+- **reset unit** ("start this kata over", "clear my progress on this unit") → `reset-unit`; it restores every exercise **and** clears completion for the whole unit, so confirm explicitly and name the unit. Use `list-units` to find the `unitId` when resetting a unit the user isn't currently on.
 - **switch course / list courses / course info** → use the **Courses** tools (`switch-course`, `list-courses`, `course-info`); call `show` after a switch
 - **"help with my code" / "debug"** → call `read-code`, then give personalized feedback
 - **Q# or QDK question** → if the answer isn't obvious from the current lesson context, **always** read the `/qdk-programming` skill before responding.
@@ -134,3 +135,4 @@ Render the result, offer a brief reaction. Don't auto-call `next` — the user m
 - Don't reveal the solution without a spoiler warning
 - Don't invent state — call `get-state` if unsure
 - Don't dump raw state JSON to the user
+- **Don't hand-edit the learner's workbook or `.qs` files to restore them.** To undo the learner's work, call `reset` or `reset-unit` — they copy the original content verbatim from the course source. Editing the file yourself risks writing code that was never part of the course.

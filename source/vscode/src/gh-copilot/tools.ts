@@ -184,11 +184,17 @@ const toolDefinitions: {
   {
     name: "qdk-learning-reset",
     tool: async () => await learningTools!.resetExercise(),
-    confirm: () => ({
+    confirm: () => learningTools!.confirmReset(),
+  },
+  {
+    name: "qdk-learning-reset-unit",
+    tool: async (input) => await learningTools!.resetUnit(input),
+    confirm: (input: { unitId?: string }): vscode.PreparedToolInvocation => ({
       confirmationMessages: {
-        title: "Reset Exercise",
-        message:
-          "Reset the current exercise to the original placeholder? Your code will be lost.",
+        title: "Reset Unit",
+        message: input?.unitId
+          ? `Reset unit "${input.unitId}" to its original state? All of your work in this unit will be lost.`
+          : "Reset the current unit to its original state? All of your work in this unit will be lost.",
       },
     }),
   },
