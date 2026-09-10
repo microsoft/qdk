@@ -78,6 +78,17 @@ reached only through a `void *` attribute buffer — `cutensornetComputeType_t`,
 for instance — is _not_ pulled in transitively and must be named explicitly.
 Adding to these lists requires regenerating the bindings.
 
+**Add enum variants through `TYPE_PATTERN`, not `CONSTANT_PATTERN`.** Every
+constant this crate uses is an enumerator, and bindgen emits enumerators as
+`<type>_<VARIANT>` when the enclosing _type_ is allowlisted — `--allowlist-var`
+plays no part. `src/bindings/v2_13.rs` contains **no** `pub const CUTENSORNET_*`
+in bare form at all, so `CONSTANT_PATTERN` currently matches nothing and every
+name in it is inert, including entries that look load-bearing such as
+`CUTENSORNET_TENSOR_SVD_ALGO_GESVD`. Name the mangled form
+(`cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD`) in
+`REQUIRED_DECLARATIONS` if you want a variant's presence actually enforced;
+that assertion is what has teeth.
+
 ## What this does not cover: cudart
 
 The manifest describes **cuTensorNet only**. The twelve cudart symbols the crate
