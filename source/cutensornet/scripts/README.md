@@ -51,15 +51,17 @@ cutensornetGetLastError          get_last_error          context      optional
 
 ## Adding a function
 
-1. Add a manifest row.
+1. Add a manifest row, in its family's block so the generated diff stays local.
 2. Regenerate the bindings **on a CUDA host** (see below). This is required even
    though the header is unchanged: the new symbol has no declaration until the
    allowlist widens, and `cargo test` fails until it does.
 3. Run `cargo run -p qdk_cutensornet --bin generate-loader` and commit the result.
-4. If the symbol is `required`, add it to `CUTENSORNET_REQUIRED_SYMBOLS` in
-   `src/lib.rs`; `manifest_agrees_with_the_required_symbol_inventory` enforces
-   this.
-5. Write the safe wrapper by hand — the generator stops at the raw pointer.
+4. Write the safe wrapper by hand — the generator stops at the raw pointer.
+
+That row is the only place the symbol is named. The function-pointer alias, the
+`CuTensorNetFunctions` field, the `resolve_*` call, the bindgen allowlist and the
+required-symbol inventory the tests assert against are all derived from it, so
+there is no second list to update and no way for two of them to disagree.
 
 ## Adding a type or a constant
 
@@ -164,7 +166,7 @@ ranges — belongs in this script; that would go stale on the next commit.
 | `checked_in_loader_matches_freshly_generated_output`                                          | The same, from `cargo test` on any host, including non-x86_64 where the loader does not compile. Byte-exact, so it also catches a stale or hand-edited signature.            |
 | `required_symbols_are_declared_in_bindings_and_resolved_by_the_loader`                        | A manifest row added without regenerating the bindings, from `cargo test`.                                                                                                   |
 | `generator::tests::*`                                                                         | Every rejected manifest or bindings shape, and the model the serializer is fed.                                                                                              |
-| `manifest_agrees_with_the_required_symbol_inventory`                                          | The `lib.rs` inventory drifting from the manifest.                                                                                                                           |
+| `only_the_last_error_helper_is_optional`                                                      | A symbol made `optional` — which weakens discovery — without that being a deliberate, reviewed change.                                                                       |
 | `discovers_audited_native_libraries_without_gpu_work` (`tests/availability.rs`, `#[ignore]`d) | A required symbol absent from the real `libcutensornet.so.2` — `discover()` resolves the whole required set. Needs the native libraries: `scripts/validate-on-cuda-host.sh`. |
 
 Every guard above verifies that the surface we _asked_ for was delivered

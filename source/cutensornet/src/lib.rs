@@ -23,58 +23,27 @@ use std::{fmt, path::PathBuf};
 #[cfg(test)]
 const SYMBOL_MANIFEST: &str = include_str!("../scripts/cutensornet-symbols.txt");
 
+/// The cuTensorNet symbols whose absence must abort discovery.
+///
+/// Derived from the manifest rather than restated, so adding a symbol is one
+/// manifest row and nothing else. There is no second list to fall out of step
+/// with, which is the property that makes widening the surface for a newer
+/// cuTensorNet release a mechanical edit.
 #[cfg(test)]
-const CUTENSORNET_REQUIRED_SYMBOLS: &[&str] = &[
-    "cutensornetGetVersion",
-    "cutensornetGetCudartVersion",
-    "cutensornetGetErrorString",
-    "cutensornetCreate",
-    "cutensornetDestroy",
-    "cutensornetCreateState",
-    "cutensornetDestroyState",
-    "cutensornetStateApplyTensorOperator",
-    "cutensornetStateFinalizeMPS",
-    "cutensornetStateCaptureMPS",
-    "cutensornetStateConfigure",
-    "cutensornetCreateWorkspaceDescriptor",
-    "cutensornetDestroyWorkspaceDescriptor",
-    "cutensornetStatePrepare",
-    "cutensornetWorkspaceGetMemorySize",
-    "cutensornetWorkspaceSetMemory",
-    "cutensornetStateCompute",
-    "cutensornetCreateNetworkOperator",
-    "cutensornetNetworkOperatorAppendProduct",
-    "cutensornetDestroyNetworkOperator",
-    "cutensornetCreateExpectation",
-    "cutensornetExpectationConfigure",
-    "cutensornetExpectationPrepare",
-    "cutensornetExpectationCompute",
-    "cutensornetDestroyExpectation",
-    "cutensornetCreateSampler",
-    "cutensornetSamplerConfigure",
-    "cutensornetSamplerPrepare",
-    "cutensornetSamplerSample",
-    "cutensornetDestroySampler",
-    "cutensornetCreateNetwork",
-    "cutensornetDestroyNetwork",
-    "cutensornetNetworkAppendTensor",
-    "cutensornetNetworkSetOutputTensor",
-    "cutensornetNetworkSetAttribute",
-    "cutensornetWorkspaceComputeContractionSizes",
-    "cutensornetCreateContractionOptimizerConfig",
-    "cutensornetDestroyContractionOptimizerConfig",
-    "cutensornetContractionOptimizerConfigSetAttribute",
-    "cutensornetCreateContractionOptimizerInfo",
-    "cutensornetDestroyContractionOptimizerInfo",
-    "cutensornetContractionOptimize",
-    "cutensornetContractionOptimizerInfoGetAttribute",
-    "cutensornetNetworkPrepareContraction",
-    "cutensornetCreateSliceGroupFromIDRange",
-    "cutensornetDestroySliceGroup",
-    "cutensornetNetworkSetInputTensorMemory",
-    "cutensornetNetworkSetOutputTensorMemory",
-    "cutensornetNetworkContract",
-];
+fn cutensornet_required_symbols() -> Vec<String> {
+    manifest_rows()
+        .into_iter()
+        .filter(|row| row.requirement == generator::Requirement::Required)
+        .map(|row| row.symbol)
+        .collect()
+}
+
+/// Every row of the checked-in manifest.
+#[cfg(test)]
+fn manifest_rows() -> Vec<generator::ManifestRow> {
+    generator::parse_manifest(SYMBOL_MANIFEST)
+        .expect("the checked-in manifest should be well formed")
+}
 #[cfg(test)]
 const CUDART_REQUIRED_SYMBOLS: &[&str] = &[
     "cudaRuntimeGetVersion",
@@ -187,10 +156,10 @@ fn validate_override_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        Availability, AvailabilityError, CUDART_REQUIRED_SYMBOLS, CUTENSORNET_REQUIRED_SYMBOLS,
-        SYMBOL_MANIFEST, validate_override_path,
+        Availability, AvailabilityError, CUDART_REQUIRED_SYMBOLS, SYMBOL_MANIFEST,
+        cutensornet_required_symbols, manifest_rows, validate_override_path,
     };
-    use crate::generator::{Loader, ManifestRow, Requirement, parse_manifest, serialize};
+    use crate::generator::{Loader, Requirement, serialize};
     use std::ffi::OsString;
     use std::io::Write as _;
     use std::process::{Command, Stdio};
@@ -229,10 +198,6 @@ mod tests {
             include_str!("library/symbols/contraction.rs"),
         ),
     ];
-
-    fn manifest_rows() -> Vec<ManifestRow> {
-        parse_manifest(SYMBOL_MANIFEST).expect("the checked-in manifest should be well formed")
-    }
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -283,11 +248,28 @@ mod tests {
         ));
     }
 
+    /// `CUDART_REQUIRED_SYMBOLS` is still written out by hand, because the
+    /// cudart loader is hand-written and the manifest is cuTensorNet-only, so
+    /// it keeps a frozen count. The cuTensorNet side deliberately has none: it
+    /// is derived from the manifest, and asserting a count there would mean
+    /// every new symbol needed a second edit.
     #[test]
-    fn symbol_inventories_match_the_frozen_surface() {
-        assert_eq!(CUTENSORNET_REQUIRED_SYMBOLS.len(), 49);
+    fn cudart_inventory_matches_the_frozen_surface() {
         assert_eq!(CUDART_REQUIRED_SYMBOLS.len(), 12);
-        assert!(!CUTENSORNET_REQUIRED_SYMBOLS.contains(&"cutensornetGetLastError"));
+    }
+
+    /// Optional symbols weaken discovery: absence is tolerated rather than
+    /// rejected. That is a deliberate exception, so the set is pinned even
+    /// though the required set is not.
+    #[test]
+    fn only_the_last_error_helper_is_optional() {
+        let optional: Vec<String> = manifest_rows()
+            .into_iter()
+            .filter(|row| row.requirement == Requirement::Optional)
+            .map(|row| row.symbol)
+            .collect();
+        assert_eq!(optional, vec!["cutensornetGetLastError".to_owned()]);
+        assert!(!cutensornet_required_symbols().contains(&"cutensornetGetLastError".to_owned()));
     }
 
     /// Every required symbol must be declared in the generated bindings *and*
@@ -311,7 +293,7 @@ mod tests {
             include_str!("library/symbols.rs")
         );
 
-        for symbol in CUTENSORNET_REQUIRED_SYMBOLS {
+        for symbol in &cutensornet_required_symbols() {
             assert!(
                 BINDINGS.contains(&format!("pub fn {symbol}(")),
                 "{symbol} is required but not declared in the generated bindings"
@@ -343,32 +325,6 @@ mod tests {
                 "{symbol} is in the manifest but never resolved by the loader"
             );
         }
-    }
-    /// The manifest drives both generators, so it must agree with the inventory
-    /// this module asserts against.
-    #[test]
-    fn manifest_agrees_with_the_required_symbol_inventory() {
-        let rows = manifest_rows();
-
-        let mut required: Vec<&str> = rows
-            .iter()
-            .filter(|row| row.requirement == Requirement::Required)
-            .map(|row| row.symbol.as_str())
-            .collect();
-        let mut inventory = CUTENSORNET_REQUIRED_SYMBOLS.to_vec();
-        required.sort_unstable();
-        inventory.sort_unstable();
-        assert_eq!(
-            required, inventory,
-            "the manifest and the required-symbol inventory disagree"
-        );
-
-        let optional: Vec<&str> = rows
-            .iter()
-            .filter(|row| row.requirement == Requirement::Optional)
-            .map(|row| row.symbol.as_str())
-            .collect();
-        assert_eq!(optional, vec!["cutensornetGetLastError"]);
     }
 
     /// Format source the way the generator binary does, so rendered text can

@@ -341,7 +341,7 @@ fn probe_cuda_version(
 #[cfg(test)]
 mod tests {
     use super::{SymbolResolver, resolve_cuda_functions, resolve_cutensornet_functions};
-    use crate::{AvailabilityError, CUDART_REQUIRED_SYMBOLS, CUTENSORNET_REQUIRED_SYMBOLS};
+    use crate::{AvailabilityError, CUDART_REQUIRED_SYMBOLS, cutensornet_required_symbols};
     use std::{
         ffi::c_char,
         fs,
@@ -362,7 +362,7 @@ mod tests {
     }
 
     struct FakeResolver {
-        missing: Option<&'static str>,
+        missing: Option<String>,
     }
 
     struct RemoveFile(PathBuf);
@@ -386,7 +386,7 @@ mod tests {
             let name = std::str::from_utf8(symbol)
                 .map_err(|error| error.to_string())?
                 .trim_end_matches('\0');
-            if self.missing == Some(name) {
+            if self.missing.as_deref() == Some(name) {
                 return Err("deliberately missing".to_string());
             }
             let pointer = fake_symbol as *const ();
@@ -400,10 +400,10 @@ mod tests {
 
     #[test]
     fn every_missing_cutensornet_symbol_is_reported() {
-        for &missing in CUTENSORNET_REQUIRED_SYMBOLS {
+        for missing in cutensornet_required_symbols() {
             let error = resolve_cutensornet_functions(
                 &FakeResolver {
-                    missing: Some(missing),
+                    missing: Some(missing.clone()),
                 },
                 Path::new("/fixture/libcutensornet.so.2"),
             )
@@ -422,7 +422,7 @@ mod tests {
         for &missing in CUDART_REQUIRED_SYMBOLS {
             let error = resolve_cuda_functions(
                 &FakeResolver {
-                    missing: Some(missing),
+                    missing: Some(missing.to_owned()),
                 },
                 Path::new("/fixture/libcudart.so.12"),
             )
@@ -440,7 +440,7 @@ mod tests {
     fn optional_last_error_does_not_reject_table() {
         let functions = resolve_cutensornet_functions(
             &FakeResolver {
-                missing: Some("cutensornetGetLastError"),
+                missing: Some("cutensornetGetLastError".to_owned()),
             },
             Path::new("/fixture/libcutensornet.so.2"),
         )

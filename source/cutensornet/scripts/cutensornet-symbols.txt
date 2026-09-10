@@ -1,8 +1,10 @@
 # cuTensorNet symbol manifest -- the single source of truth for the FFI surface.
 #
-# scripts/generate-bindings.sh derives its bindgen allowlist from this file, and
-# scripts/generate-loader.py generates src/library/symbols{,/*}.rs from it. Adding
-# a symbol here and regenerating is the only supported way to widen the surface.
+# scripts/generate-bindings.sh derives its bindgen allowlist from this file, the
+# generate-loader binary generates src/library/symbols{,/*}.rs from it, and the
+# required-symbol inventory the tests assert against is derived from it too.
+# Adding a row here and regenerating is the only supported way to widen the
+# surface; nothing about a symbol is restated anywhere else.
 #
 # Columns: <c_symbol>  <rust_field>  <family>  <required|optional>
 #
