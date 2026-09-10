@@ -8,11 +8,13 @@
 )]
 
 use super::{
-    assert_block_instructions, assert_callable, assert_error, get_partial_evaluation_error,
-    get_rir_program,
+    assert_block_instructions, assert_blocks, assert_callable, assert_error,
+    get_partial_evaluation_error, get_partial_evaluation_error_with_capabilities, get_rir_program,
+    get_rir_program_with_adaptive_profile,
 };
 use expect_test::expect;
 use indoc::indoc;
+use qsc_data_structures::target::Profile;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
@@ -1105,4 +1107,437 @@ fn result_array_index_range_returns_length_as_end() {
             tags:
                 [0]: 0_i
     "#]].assert_eq(&program.to_string());
+}
+
+#[test]
+fn mutable_fixed_size_array_dynamic_index_update() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int[] {
+            use qs = Qubit[4];
+            mutable arr = [0, size = Length(qs)];
+            for idx in 0..Length(qs)-1 {
+                if M(qs[idx]) == One {
+                    arr[idx] = 1;
+                }
+            }
+            arr
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(0, Integer) = Store Integer(4)
+            Variable(1, Array(4, Integer)) = StoreArray [Integer(0), Integer(0), Integer(0), Integer(0)]
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(9, Array(4, Integer)) = CopyArray Variable(1, Array(4, Integer))
+            Variable(10, Integer) = Index Variable(9, Array(4, Integer)), Integer(0)
+            Variable(11, Integer) = Index Variable(9, Array(4, Integer)), Integer(1)
+            Variable(12, Integer) = Index Variable(9, Array(4, Integer)), Integer(2)
+            Variable(13, Integer) = Index Variable(9, Array(4, Integer)), Integer(3)
+            Call id(4), args( Integer(4), Tag(0, 3), )
+            Call id(5), args( Variable(10, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(11, Integer), Tag(2, 5), )
+            Call id(5), args( Variable(12, Integer), Tag(3, 5), )
+            Call id(5), args( Variable(13, Integer), Tag(4, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Call id(2), args( Variable(5, Qubit), Result(0), )
+            Variable(6, Boolean) = Call id(3), args( Result(0), )
+            Variable(7, Boolean) = Store Variable(6, Boolean)
+            Branch Variable(7, Boolean), 7, 6
+        Block 6:Block:
+            Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(8, Integer)
+            Jump(1)
+        Block 7:Block:
+            StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
+            Jump(6)"#]],
+    );
+}
+
+#[test]
+fn mutable_fixed_size_array_dynamic_range_update() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {r#"
+        @EntryPoint()
+        operation Main() : Bool[] {
+            use qs = Qubit[2];
+            mutable arr = [false, size = 4];
+            arr[...2...] = Std.Convert.ResultArrayAsBoolArray(MResetEachZ(qs));
+            arr
+        }
+    "#},
+        Profile::Adaptive.into(),
+    );
+    expect![[r#"
+        Unimplemented(
+            "range indexing for mutation of fixed size array",
+            PackageSpan {
+                package: PackageId(
+                    2,
+                ),
+                span: Span {
+                    lo: 111,
+                    hi: 118,
+                },
+            },
+        )
+    "#]]
+    .assert_debug_eq(&error);
+}
+
+#[test]
+fn mutable_fixed_size_array_length_emitted_as_constant() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint()
+        operation Main() : (Int[], Int) {
+            use qs = Qubit[4];
+            mutable arr = [0, size = Length(qs)];
+            for idx in 0..Length(qs)-1 {
+                if M(qs[idx]) == One {
+                    arr[idx] = 1;
+                }
+            }
+            (arr, Length(arr))
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(0, Integer) = Store Integer(4)
+            Variable(1, Array(4, Integer)) = StoreArray [Integer(0), Integer(0), Integer(0), Integer(0)]
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(9, Integer) = Index Variable(1, Array(4, Integer)), Integer(0)
+            Variable(10, Integer) = Index Variable(1, Array(4, Integer)), Integer(1)
+            Variable(11, Integer) = Index Variable(1, Array(4, Integer)), Integer(2)
+            Variable(12, Integer) = Index Variable(1, Array(4, Integer)), Integer(3)
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Integer(4), Tag(1, 5), )
+            Call id(6), args( Variable(9, Integer), Tag(2, 7), )
+            Call id(6), args( Variable(10, Integer), Tag(3, 7), )
+            Call id(6), args( Variable(11, Integer), Tag(4, 7), )
+            Call id(6), args( Variable(12, Integer), Tag(5, 7), )
+            Call id(6), args( Integer(4), Tag(6, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Call id(2), args( Variable(5, Qubit), Result(0), )
+            Variable(6, Boolean) = Call id(3), args( Result(0), )
+            Variable(7, Boolean) = Store Variable(6, Boolean)
+            Branch Variable(7, Boolean), 7, 6
+        Block 6:Block:
+            Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(8, Integer)
+            Jump(1)
+        Block 7:Block:
+            StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
+            Jump(6)"#]],
+    );
+}
+
+#[test]
+fn mutable_fixed_size_array_length_usable_in_ranges() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint()
+        operation Main() : (Int[], Int) {
+            use qs = Qubit[4];
+            mutable arr = [0, size = Length(qs)];
+            for idx in 0..Length(arr)-1 {
+                if M(qs[idx]) == One {
+                    arr[idx] = 1;
+                }
+            }
+            (arr, Length(arr))
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(0, Integer) = Store Integer(4)
+            Variable(1, Array(4, Integer)) = StoreArray [Integer(0), Integer(0), Integer(0), Integer(0)]
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(9, Integer) = Index Variable(1, Array(4, Integer)), Integer(0)
+            Variable(10, Integer) = Index Variable(1, Array(4, Integer)), Integer(1)
+            Variable(11, Integer) = Index Variable(1, Array(4, Integer)), Integer(2)
+            Variable(12, Integer) = Index Variable(1, Array(4, Integer)), Integer(3)
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Integer(4), Tag(1, 5), )
+            Call id(6), args( Variable(9, Integer), Tag(2, 7), )
+            Call id(6), args( Variable(10, Integer), Tag(3, 7), )
+            Call id(6), args( Variable(11, Integer), Tag(4, 7), )
+            Call id(6), args( Variable(12, Integer), Tag(5, 7), )
+            Call id(6), args( Integer(4), Tag(6, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Call id(2), args( Variable(5, Qubit), Result(0), )
+            Variable(6, Boolean) = Call id(3), args( Result(0), )
+            Variable(7, Boolean) = Store Variable(6, Boolean)
+            Branch Variable(7, Boolean), 7, 6
+        Block 6:Block:
+            Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(8, Integer)
+            Jump(1)
+        Block 7:Block:
+            StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
+            Jump(6)"#]],
+    );
+}
+
+#[test]
+fn mutable_fixed_size_array_slicing() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int[] {
+            use qs = Qubit[4];
+            mutable arr = [0, size = Length(qs)];
+            for idx in 0..Length(qs)-1 {
+                if M(qs[idx]) == One {
+                    arr[idx] = 1;
+                }
+            }
+            arr[...2...]
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(0, Integer) = Store Integer(4)
+            Variable(1, Array(4, Integer)) = StoreArray [Integer(0), Integer(0), Integer(0), Integer(0)]
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(9, Array(2, Integer)) = SliceArray Variable(1, Array(4, Integer)), 0, 2, 3
+            Variable(10, Array(2, Integer)) = CopyArray Variable(9, Array(2, Integer))
+            Variable(11, Integer) = Index Variable(10, Array(2, Integer)), Integer(0)
+            Variable(12, Integer) = Index Variable(10, Array(2, Integer)), Integer(1)
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Variable(11, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(12, Integer), Tag(2, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Call id(2), args( Variable(5, Qubit), Result(0), )
+            Variable(6, Boolean) = Call id(3), args( Result(0), )
+            Variable(7, Boolean) = Store Variable(6, Boolean)
+            Branch Variable(7, Boolean), 7, 6
+        Block 6:Block:
+            Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(8, Integer)
+            Jump(1)
+        Block 7:Block:
+            StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
+            Jump(6)"#]],
+    );
+}
+
+#[test]
+fn mutable_fixed_size_array_reverse_slicing() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int[] {
+            use qs = Qubit[4];
+            mutable arr = [0, size = Length(qs)];
+            for idx in 0..Length(qs)-1 {
+                if M(qs[idx]) == One {
+                    arr[idx] = 1;
+                }
+            }
+            arr[...-2...]
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(0, Integer) = Store Integer(4)
+            Variable(1, Array(4, Integer)) = StoreArray [Integer(0), Integer(0), Integer(0), Integer(0)]
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(9, Array(2, Integer)) = SliceArray Variable(1, Array(4, Integer)), 3, -2, 0
+            Variable(10, Array(2, Integer)) = CopyArray Variable(9, Array(2, Integer))
+            Variable(11, Integer) = Index Variable(10, Array(2, Integer)), Integer(0)
+            Variable(12, Integer) = Index Variable(10, Array(2, Integer)), Integer(1)
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Variable(11, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(12, Integer), Tag(2, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Call id(2), args( Variable(5, Qubit), Result(0), )
+            Variable(6, Boolean) = Call id(3), args( Result(0), )
+            Variable(7, Boolean) = Store Variable(6, Boolean)
+            Branch Variable(7, Boolean), 7, 6
+        Block 6:Block:
+            Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(8, Integer)
+            Jump(1)
+        Block 7:Block:
+            StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
+            Jump(6)"#]],
+    );
+}
+
+#[test]
+fn immutable_array_dynamic_content_generates_store_array() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Bool[] {
+            use qs = Qubit[3];
+            mutable arr = [false, size = Length(qs) + 1];
+            let res = Std.Convert.ResultArrayAsBoolArray(MResetEachZ(qs));
+            for i in 0..Length(res)-1 {
+                arr[i + 1] = res[i];
+            }
+            arr
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(1, Array(4, Boolean)) = StoreArray [Bool(false), Bool(false), Bool(false), Bool(false)]
+            Variable(2, Integer) = Store Integer(0)
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(2, Integer) = Store Integer(1)
+            Call id(2), args( Qubit(1), Result(1), )
+            Variable(2, Integer) = Store Integer(2)
+            Call id(2), args( Qubit(2), Result(2), )
+            Variable(2, Integer) = Store Integer(3)
+            Variable(3, Integer) = Store Integer(0)
+            Variable(4, Boolean) = Call id(3), args( Result(0), )
+            Variable(5, Boolean) = Store Variable(4, Boolean)
+            Variable(3, Integer) = Store Integer(1)
+            Variable(6, Boolean) = Call id(3), args( Result(1), )
+            Variable(7, Boolean) = Store Variable(6, Boolean)
+            Variable(3, Integer) = Store Integer(2)
+            Variable(8, Boolean) = Call id(3), args( Result(2), )
+            Variable(9, Boolean) = Store Variable(8, Boolean)
+            Variable(3, Integer) = Store Integer(3)
+            Variable(10, Array(3, Boolean)) = StoreArray [Variable(5, Boolean), Variable(7, Boolean), Variable(9, Boolean)]
+            Variable(11, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(12, Boolean) = Icmp Sle, Variable(11, Integer), Integer(2)
+            Variable(13, Boolean) = Store Bool(true)
+            Branch Variable(12, Boolean), 3, 4
+        Block 2:Block:
+            Variable(18, Array(4, Boolean)) = CopyArray Variable(1, Array(4, Boolean))
+            Variable(19, Boolean) = Index Variable(18, Array(4, Boolean)), Integer(0)
+            Variable(20, Boolean) = Index Variable(18, Array(4, Boolean)), Integer(1)
+            Variable(21, Boolean) = Index Variable(18, Array(4, Boolean)), Integer(2)
+            Variable(22, Boolean) = Index Variable(18, Array(4, Boolean)), Integer(3)
+            Call id(4), args( Integer(4), Tag(0, 3), )
+            Call id(5), args( Variable(19, Boolean), Tag(1, 5), )
+            Call id(5), args( Variable(20, Boolean), Tag(2, 5), )
+            Call id(5), args( Variable(21, Boolean), Tag(3, 5), )
+            Call id(5), args( Variable(22, Boolean), Tag(4, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(13, Boolean), 5, 2
+        Block 4:Block:
+            Variable(13, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(14, Integer) = Add Variable(11, Integer), Integer(1)
+            Variable(15, Integer) = Store Variable(14, Integer)
+            Variable(16, Boolean) = Index Variable(10, Array(3, Boolean)), Variable(11, Integer)
+            StoreIndex Variable(16, Boolean), Variable(15, Integer), Variable(1, Array(4, Boolean))
+            Variable(17, Integer) = Add Variable(11, Integer), Integer(1)
+            Variable(11, Integer) = Store Variable(17, Integer)
+            Jump(1)"#]],
+    );
 }

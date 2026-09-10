@@ -354,6 +354,30 @@ impl From<(PackageId, StmtId)> for StoreStmtId {
     }
 }
 
+/// A key to uniquely identify the context an expression or variable usage occurs in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StoreItemSpecializationKey {
+    /// The expression comes from a top-level context outside of any one specific item.
+    /// This only occurs in Python interop scenarios.
+    TopLevel,
+    /// The expression comes from the context of a specific item specialization.
+    Item {
+        /// The store item ID.
+        id: StoreItemId,
+        /// The specific specialization of the expression.
+        spec: FunctorSetValue,
+    },
+}
+
+impl From<(StoreItemId, FunctorSetValue)> for StoreItemSpecializationKey {
+    fn from(tuple: (StoreItemId, FunctorSetValue)) -> Self {
+        Self::Item {
+            id: tuple.0,
+            spec: tuple.1,
+        }
+    }
+}
+
 /// A trait to find elements in a package store.
 pub trait PackageStoreLookup {
     /// Gets a block.
