@@ -128,12 +128,12 @@
     @media print { .titles { padding: 18px 0; } .titles ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>
 </head>
-<body data-diagnostic-count="14" data-example-count="39">
+<body data-diagnostic-count="17" data-example-count="47">
   <a href="#reference" class="skip">Skip to diagnostic details</a>
   <header class="masthead"><div class="masthead-inner">
     <span class="brand">qdk.ec</span><h1>Audit diagnostics</h1>
     <p class="lede">Every built-in diagnostic, what triggers it, and a real example of its message.</p>
-    <p class="stamp">14 rules &middot; 39 captured message examples &middot; Working-tree snapshot, 10 September 2026</p>
+    <p class="stamp">17 rules &middot; 47 captured message examples &middot; Working-tree snapshot, 10 September 2026</p>
   </div></header>
   <section class="titles" aria-labelledby="titles-heading">
     <h2 id="titles-heading">Complete diagnostic listing</h2>
@@ -149,13 +149,16 @@
 <li><a href="#gadget-readout-mismatch">Readout mismatch<code>gadget/readout-mismatch</code></a></li>
 <li><a href="#gadget-incomplete-output-frame">Incomplete output frame<code>gadget/incomplete-output-frame</code></a></li>
 <li><a href="#instruction-set-unreferenced-block">Unreferenced block<code>instruction-set/unreferenced-block</code></a></li>
+<li><a href="#code-redundant-stabilizer">Redundant stabilizer<code>code/redundant-stabilizer</code></a></li>
+<li><a href="#gadget-vacuous-check">Vacuous check<code>gadget/vacuous-check</code></a></li>
+<li><a href="#gadget-redundant-check">Redundant check<code>gadget/redundant-check</code></a></li>
 <li><a href="#gadget-missing-check">Missing check<code>gadget/missing-check</code></a></li>
 <li><a href="#gadget-missing-realization">Missing realization<code>gadget/missing-realization</code></a></li></ol>
   </section>
   <div class="layout">
     <nav class="index" aria-label="Diagnostic index"><div><h2>Structural <span class="count">1</span></h2><a href="#qodec-invalid-structure">Invalid model structure</a></div>
 <div><h2>Semantic <span class="count">10</span></h2><a href="#instruction-set-invalid-clifford">Invalid Clifford map</a><a href="#code-invalid-algebra">Invalid code algebra</a><a href="#gadget-missing-observable">Missing observable</a><a href="#gadget-missing-flag">Missing flag</a><a href="#gadget-unsupported-action-step">Unsupported action step</a><a href="#gadget-check-mismatch">Check mismatch</a><a href="#gadget-flag-mismatch">Flag mismatch</a><a href="#gadget-action-mismatch">Action mismatch</a><a href="#gadget-readout-mismatch">Readout mismatch</a><a href="#gadget-incomplete-output-frame">Incomplete output frame</a></div>
-<div><h2>Informational <span class="count">3</span></h2><a href="#instruction-set-unreferenced-block">Unreferenced block</a><a href="#gadget-missing-check">Missing check</a><a href="#gadget-missing-realization">Missing realization</a></div>
+<div><h2>Informational <span class="count">6</span></h2><a href="#instruction-set-unreferenced-block">Unreferenced block</a><a href="#code-redundant-stabilizer">Redundant stabilizer</a><a href="#gadget-vacuous-check">Vacuous check</a><a href="#gadget-redundant-check">Redundant check</a><a href="#gadget-missing-check">Missing check</a><a href="#gadget-missing-realization">Missing realization</a></div>
     <div><h2>Report</h2><a href="#reading-the-report">Reading the report</a><a href="#source-locations">Source locations</a><a href="#report-options">Report options</a><a href="#coverage">Coverage and provenance</a></div>
     </nav>
     <main id="reference">
@@ -165,7 +168,7 @@
         <ol class="stages" aria-label="Audit phases in execution order">
           <li><strong>01 Structural</strong><span>1 declaration and reference rules</span></li>
           <li><strong>02 Semantic</strong><span>10 algebra, action, and parity rules</span></li>
-          <li><strong>03 Informational</strong><span>3 declaration-coverage rules</span></li>
+          <li><strong>03 Informational</strong><span>6 completeness and redundancy rules</span></li>
         </ol>
         <p><code>print(report)</code> prints errors and warnings, followed by totals. Informational entries remain in <code>report.informational</code> but are not printed individually. INFO examples below use the same block layout to show those fields.</p>
         <p><strong>Parity contract:</strong> noiseless execution on valid input codewords, with arbitrary incoming Pauli-frame signs. An encoding sign tracks the known Pauli correction associated with that block; it is not a second measurement of the logical state. Readouts must account for these signs. The authored C4 measurement readouts omit them and now receive mismatch diagnostics.</p>
@@ -187,7 +190,7 @@ if location is not None:
       <section class="phase" aria-labelledby="structural-title"><h2 id="structural-title">Structural diagnostics</h2><article class="diagnostic" id="qodec-invalid-structure" data-rule="qodec/invalid-structure" data-title="Invalid model structure" data-phase="structural">
 <div class="meta"><span class="severity error">ERROR</span><span>Target: Qodec and detached artifacts</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/qodec.py#L13">Rule source</a></div>
 <h3>Invalid model structure<br><code>qodec/invalid-structure</code></h3>
-<p class="description">Audit finds an invalid protocol declaration: incomplete layers, code-list shapes or capacities, action or parameter uses, circuit calls, reference bounds, or artifact connections.</p>
+<p class="description">Audit finds an invalid protocol declaration: incomplete layers, code-list shapes or capacities, repeated or overlapping boundary supports, action or parameter uses, circuit calls, reference bounds, or artifact connections.</p>
 <p class="scope">These checks live in audit. qodec load/save enforce only preservation preconditions, so incomplete protocols, unequal code lists, partial readouts, and invalid source text can persist. Findings carry locations; dependent analysis is skipped while unrelated artifacts remain checkable. Opaque circuit-record bounds remain unknown. Whole readout omission is handled by missing-observable and missing-flag errors; a supplied partial list is a structural audit error.</p>
 <div class="example"><p class="example-label">Example &middot; Encoding entry out of range</p><p class="setup">Add out[5].stabilizers[0] to a measure_zz check. This destructive measurement has no output encodings.</p><pre data-example="Encoding entry out of range"><code>[ERROR] qodec/invalid-structure
 layers[0].gadgets[&#x27;measure_zz&#x27;] (C4 -&gt; stim)
@@ -219,6 +222,12 @@ circuit: line 1: unknown stim gate &#x27;NOT_A_GATE&#x27;</code></pre></details>
 <details><summary>Gadget without a source instruction <span class="severity error">ERROR</span></summary><p class="setup">Remove measure_xx from the C4 instruction set but retain its gadget.</p><pre data-example="Gadget without a source instruction"><code>[ERROR] qodec/invalid-structure
 layers[0].gadgets[&#x27;measure_xx&#x27;] (C4 -&gt; stim)
 instruction &#x27;measure_xx&#x27; is not declared by the layer</code></pre></details>
+<details><summary>Overlapping input encodings <span class="severity error">ERROR</span></summary><p class="setup">Reuse the first input encoding&#x27;s first circuit label in the second input encoding of transversal_cx. Overlap on one boundary is an error; input-to-output reuse is allowed.</p><pre data-example="Overlapping input encodings"><code>[ERROR] qodec/invalid-structure
+layers[0].gadgets[&#x27;transversal_cx&#x27;] (C4 -&gt; stim)
+in[1].support[0] and in[0].support[0] both use circuit label &#x27;0&#x27;</code></pre></details>
+<details><summary>Repeated support label <span class="severity error">ERROR</span></summary><p class="setup">Repeat a circuit label within one input encoding. The diagnostic identifies both support positions.</p><pre data-example="Repeated support label"><code>[ERROR] qodec/invalid-structure
+layers[0].gadgets[&#x27;transversal_cx&#x27;] (C4 -&gt; stim)
+in[0].support[1] and in[0].support[0] both use circuit label &#x27;0&#x27;</code></pre></details>
 </article></section>
 <section class="phase" aria-labelledby="semantic-title"><h2 id="semantic-title">Semantic diagnostics</h2><article class="diagnostic" id="instruction-set-invalid-clifford" data-rule="instruction-set/invalid-clifford" data-title="Invalid Clifford map" data-phase="semantic">
 <div class="meta"><span class="severity error">ERROR</span><span>Target: InstructionSet and detached Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/instruction_set.py#L44">Rule source</a></div>
@@ -231,7 +240,7 @@ instruction &#x27;invalid_map&#x27; action[0]: invalid Clifford map
     Images of X_0 and Z_0 must anticommute: X_0 -&gt; Z, Z_0 -&gt; Z. Unlisted generators have identity images.</code></pre></div>
 </article>
 <article class="diagnostic" id="code-invalid-algebra" data-rule="code/invalid-algebra" data-title="Invalid code algebra" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Target: Code</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/code.py#L16">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Target: Code</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/code.py#L18">Rule source</a></div>
 <h3>Invalid code algebra<br><code>code/invalid-algebra</code></h3>
 <p class="description">Declared stabilizers or logical operators violate the algebra required of a code.</p>
 <p class="scope">Stabilizers must commute with each other and all logicals. Each logical X/Z pair must anticommute; distinct logical pairs must commute. The message names conflicting operators. Algebraic code analysis enforces its own preconditions, including consistency of the stabilizer group. qodec can load and save these drafts; audit reports their mathematical errors.</p>
@@ -242,7 +251,7 @@ x[0] and z[0] must anticommute
     z[0]: X_0 X_1</code></pre></div>
 </article>
 <article class="diagnostic" id="gadget-missing-observable" data-rule="gadget/missing-observable" data-title="Missing observable" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L81">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L135">Rule source</a></div>
 <h3>Missing observable<br><code>gadget/missing-observable</code></h3>
 <p class="description">An instruction declares an Observe outcome, but the gadget has no readout binding at that position. One finding is emitted per missing outcome.</p>
 <p class="scope">A missing observable equation is an error: the gadget does not define how to report a required measurement result. Loading and saving still permit the draft. The check runs after structural and algebraic prerequisites, including when informational findings are excluded. Logical observables precede flags.</p>
@@ -252,7 +261,7 @@ readouts[0] has no equation for the required logical X_0 measurement
     Expected: 2 observable bindings; declared: 0.</code></pre></div>
 </article>
 <article class="diagnostic" id="gadget-missing-flag" data-rule="gadget/missing-flag" data-title="Missing flag" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L101">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L155">Rule source</a></div>
 <h3>Missing flag<br><code>gadget/missing-flag</code></h3>
 <p class="description">An instruction declares a flag, but the gadget has no binding for it after the Observe outcomes in its readout list.</p>
 <p class="scope">A missing flag equation is an error: a declared output is undefined. Omission is not an automatic zero; an explicit empty [] equation declares zero and avoids this error. Loading and saving still permit the draft. A supplied partial list remains a structural error. The flag-mismatch rule separately verifies bound equations.</p>
@@ -263,7 +272,7 @@ readouts[0] has no equation for flag &#x27;reject&#x27;
     An omitted equation is undefined; an explicit [] equation is zero.</code></pre></div>
 </article>
 <article class="diagnostic" id="gadget-unsupported-action-step" data-rule="gadget/unsupported-action-step" data-title="Unsupported action step" data-phase="semantic">
-<div class="meta"><span class="severity warning">WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L125">Rule source</a></div>
+<div class="meta"><span class="severity warning">WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L179">Rule source</a></div>
 <h3>Unsupported action step<br><code>gadget/unsupported-action-step</code></h3>
 <p class="description">An instruction contains an action step that the logical-action verifier cannot handle. The message identifies the step index and type.</p>
 <p class="scope">The action verifier accepts Stabilize, Observe, and unconditional Pauli/Clifford steps. An unsupported step skips the action comparison; it does not establish that the instruction is invalid.</p>
@@ -273,7 +282,7 @@ implements.action[0] (Rotate) is not supported by the action verifier
     Logical action not checked.</code></pre></div>
 </article>
 <article class="diagnostic" id="gadget-check-mismatch" data-rule="gadget/check-mismatch" data-title="Check mismatch" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Also WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L154">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Also WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L208">Rule source</a></div>
 <h3>Check mismatch<br><code>gadget/check-mismatch</code></h3>
 <p class="description">A check fires without a fault: its declared equation produces 1 when the required noiseless value is 0.</p>
 <p class="scope">The message distinguishes a check that always fires from one that can fire in a counterexample. Equation term values show how the XOR was evaluated, including encoding signs and resolved readouts. Repeated terms cancel. Unavailable analysis is a warning. An empty or algebraically empty equation is zero, but supplies no constraint.</p>
@@ -298,7 +307,7 @@ checks[0]: parity not checked
     ValueError: No source parser registered for &#x27;.openqasm&#x27;</code></pre></details>
 </article>
 <article class="diagnostic" id="gadget-flag-mismatch" data-rule="gadget/flag-mismatch" data-title="Flag mismatch" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Also WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L223">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Also WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L277">Rule source</a></div>
 <h3>Flag mismatch<br><code>gadget/flag-mismatch</code></h3>
 <p class="description">A bound flag can be one without a fault, violating the noiseless-zero flag contract. The message identifies the flag and its declared equation.</p>
 <p class="scope">An always-one or sometimes-one noiseless flag is an error. Counterexamples label the equation output and required noiseless value. Contradictory equations are distinguished from definitions that allow either bit value. Unsupported analysis produces a warning; a trivial empty flag is valid.</p>
@@ -322,7 +331,7 @@ Flags not checked: analysis failed
     ValueError: No source parser registered for &#x27;.openqasm&#x27;</code></pre></details>
 </article>
 <article class="diagnostic" id="gadget-action-mismatch" data-rule="gadget/action-mismatch" data-title="Action mismatch" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Also INFO / WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L282">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Also INFO / WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L336">Rule source</a></div>
 <h3>Action mismatch<br><code>gadget/action-mismatch</code></h3>
 <p class="description">The circuit action differs from the implemented instruction. One witness identifies a missing or unexpected logical observable/stabilizer, a differing output image, or a sign-parity difference.</p>
 <p class="scope">A completed comparison emits an error. A handled failure emits a warning, or an informational entry if the failed comparison concerns a preparation with outputs and no inputs. Resetting an input is allowed when it matches the instruction action.</p>
@@ -340,7 +349,7 @@ Logical action not checked: preparation has no input encoding
     ValueError: No source parser registered for &#x27;.openqasm&#x27;</code></pre></details>
 </article>
 <article class="diagnostic" id="gadget-readout-mismatch" data-rule="gadget/readout-mismatch" data-title="Readout mismatch" data-phase="semantic">
-<div class="meta"><span class="severity error">ERROR</span><span>Also WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L326">Rule source</a></div>
+<div class="meta"><span class="severity error">ERROR</span><span>Also WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L380">Rule source</a></div>
 <h3>Readout mismatch<br><code>gadget/readout-mismatch</code></h3>
 <p class="description">A readout does not report the required logical measurement. The message distinguishes an incorrect equation, a result not provided by the circuit, an unexpressible constant inversion, and contradictory or undetermined definitions.</p>
 <p class="scope">A recoverable mismatch shows only the declared and verified equations. An unavailable result gets a short explanation that circuit bits and incoming signs cannot recover it. Constant inversion is a separate representation limitation, shown as the required expression plus a caveat. Readout messages omit counterexamples. Verification still includes arbitrary incoming frames; unsupported analysis produces a warning.</p>
@@ -383,7 +392,7 @@ Readouts not checked: analysis failed
     ValueError: No source parser registered for &#x27;.openqasm&#x27;</code></pre></details>
 </article>
 <article class="diagnostic" id="gadget-incomplete-output-frame" data-rule="gadget/incomplete-output-frame" data-title="Incomplete output frame" data-phase="semantic">
-<div class="meta"><span class="severity warning">WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L366">Rule source</a></div>
+<div class="meta"><span class="severity warning">WARNING</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L420">Rule source</a></div>
 <h3>Incomplete output frame<br><code>gadget/incomplete-output-frame</code></h3>
 <p class="description">The valid declared relations do not determine an output stabilizer sign from available input signs and circuit measurements.</p>
 <p class="scope">The test uses the span of the equations, not mere reference presence. Duplicate terms, dependent equations, and invalid checks cannot manufacture a complete frame. Readout definitions do not count as independent known bits. Missing declarations remain warnings. A derived parity-one relation is shown as terms plus a separate caveat; it is not a valid zero-parity check.</p>
@@ -420,8 +429,60 @@ layers[0].instruction_set (C4)
 block type &#x27;spare&#x27; is unused by instruction inputs and outputs
     Declared capacity: 1 qubit(s).</code></pre></div>
 </article>
+<article class="diagnostic" id="code-redundant-stabilizer" data-rule="code/redundant-stabilizer" data-title="Redundant stabilizer" data-phase="informational">
+<div class="meta"><span class="severity info">INFO</span><span>Target: Code</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/code.py#L71">Rule source</a></div>
+<h3>Redundant stabilizer<br><code>code/redundant-stabilizer</code></h3>
+<p class="description">A stabilizer generator is a product of earlier independent generators, or is +I. The message identifies the dependency and the independent rank of the whole declared list.</p>
+<p class="scope">Only algebraically valid codes receive this informational notice. Inconsistent signs, noncommuting generators, and invalid logical bases remain code/invalid-algebra errors. Redundant generators may be intentional; the rule neither rewrites the code nor changes generator indices. Distinct measurements of related stabilizers may still supply useful fault information. A generator dependency is not evidence that their measurement circuits are redundant.</p>
+<div class="example"><p class="example-label">Example &middot; Duplicate stabilizer declaration</p><p class="setup">Repeat the C4 X stabilizer. The code remains valid, with two independent generators among three declarations. Displayed from <code>report.informational</code>.</p><pre data-example="Duplicate stabilizer declaration"><code>[INFO] code/redundant-stabilizer
+codes[&#x27;C4&#x27;]
+stabilizers[2] adds no independent constraint
+    Declared operator: X_0 X_1 X_2 X_3
+    Product of generators: [&quot;stabilizers[0]&quot;]
+    Independent stabilizer rank: 2 of 3 declared generators.</code></pre></div>
+<details><summary>Product of earlier stabilizers <span class="severity info">INFO</span></summary><p class="setup">Add Y_0 Y_1 Y_2 Y_3 to C4. It is the signed product of the existing X and Z stabilizers, so it adds no constraint. Displayed from <code>report.informational</code>.</p><pre data-example="Product of earlier stabilizers"><code>[INFO] code/redundant-stabilizer
+codes[&#x27;C4&#x27;]
+stabilizers[2] adds no independent constraint
+    Declared operator: Y_0 Y_1 Y_2 Y_3
+    Product of generators: [&quot;stabilizers[0]&quot;, &quot;stabilizers[1]&quot;]
+    Independent stabilizer rank: 2 of 3 declared generators.</code></pre></details>
+</article>
+<article class="diagnostic" id="gadget-vacuous-check" data-rule="gadget/vacuous-check" data-title="Vacuous check" data-phase="informational">
+<div class="meta"><span class="severity info">INFO</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L52">Rule source</a></div>
+<h3>Vacuous check<br><code>gadget/vacuous-check</code></h3>
+<p class="description">A declared check is identically zero after expanding selectors and cancelling repeated reference terms, or is explicitly empty.</p>
+<p class="scope">This is a formal identity for every assignment of the referenced bits and signs, not merely zero on noiseless executions. Such a check cannot detect a fault. Explicit [] remains valid; the notice is informational and is not promoted by promote_warnings=True. An omitted checks list has no entry to report. Vacuous checks are excluded from redundant-check notices. No circuit simulation or readout substitution is used.</p>
+<div class="example"><p class="example-label">Example &middot; Cancelling check terms</p><p class="setup">Declare circuit.readouts[0] twice, using equivalent index spellings. Its XOR is zero for every possible bit value. Displayed from <code>report.informational</code>.</p><pre data-example="Cancelling check terms"><code>[INFO] gadget/vacuous-check
+layers[0].gadgets[&#x27;measure_zz&#x27;] (C4 -&gt; stim)
+checks[0] is identically zero and cannot detect a fault
+    Declared equation: [&quot;circuit.readouts[0]&quot;, &quot;circuit.readouts[00]&quot;]
+    All terms cancel, or the equation is empty. This is valid but supplies no constraint.</code></pre></div>
+<details><summary>Explicit empty check <span class="severity info">INFO</span></summary><p class="setup">Supply checks: [[]]. The explicit zero equation is valid but cannot detect a fault; an omitted checks list has no such entry to report. Displayed from <code>report.informational</code>.</p><pre data-example="Explicit empty check"><code>[INFO] gadget/vacuous-check
+layers[0].gadgets[&#x27;measure_zz&#x27;] (C4 -&gt; stim)
+checks[0] is identically zero and cannot detect a fault
+    Declared equation: []
+    All terms cancel, or the equation is empty. This is valid but supplies no constraint.</code></pre></details>
+</article>
+<article class="diagnostic" id="gadget-redundant-check" data-rule="gadget/redundant-check" data-title="Redundant check" data-phase="informational">
+<div class="meta"><span class="severity info">INFO</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L75">Rule source</a></div>
+<h3>Redundant check<br><code>gadget/redundant-check</code></h3>
+<p class="description">A nonzero formal check equation is the XOR of earlier independent check declarations. The message lists those check positions.</p>
+<p class="scope">Reference spelling and term order do not affect the test: slices and unions are expanded, and repeated terms cancel. The test treats distinct reference targets as independent symbols, without substituting readout definitions or using noiseless measurement correlations. Repeated measurements at different record positions are therefore not automatically redundant. The rule reports redundant declarations in authored order and does not remove or change them. Redundancy is informational, not a validity or fault-tolerance judgment.</p>
+<div class="example"><p class="example-label">Example &middot; Duplicate check declaration</p><p class="setup">Repeat the first of two declared output-frame checks. Its information is already present, regardless of the circuit&#x27;s noiseless behavior. Displayed from <code>report.informational</code>.</p><pre data-example="Duplicate check declaration"><code>[INFO] gadget/redundant-check
+layers[0].gadgets[&#x27;transversal_cx&#x27;] (C4 -&gt; stim)
+checks[2] is an XOR of earlier checks
+    Declared equation: [&quot;out[0].stabilizers[0]&quot;, &quot;in[0].stabilizers[0]&quot;, &quot;in[1].stabilizers[0]&quot;]
+    XOR of checks: [&quot;checks[0]&quot;]
+    This formal identity holds for every assignment of the referenced bits and signs.</code></pre></div>
+<details><summary>XOR of earlier checks <span class="severity info">INFO</span></summary><p class="setup">Declare a third check by concatenating the first two equations. After cancelling repeated terms, it is exactly their XOR. Displayed from <code>report.informational</code>.</p><pre data-example="XOR of earlier checks"><code>[INFO] gadget/redundant-check
+layers[0].gadgets[&#x27;transversal_cx&#x27;] (C4 -&gt; stim)
+checks[2] is an XOR of earlier checks
+    Declared equation: [&quot;out[0].stabilizers[0]&quot;, &quot;in[0].stabilizers[0]&quot;, &quot;in[1].stabilizers[0]&quot;, &quot;out[0].stabilizers[1]&quot;, &quot;in[0].stabilizers[1]&quot;]
+    XOR of checks: [&quot;checks[0]&quot;, &quot;checks[1]&quot;]
+    This formal identity holds for every assignment of the referenced bits and signs.</code></pre></details>
+</article>
 <article class="diagnostic" id="gadget-missing-check" data-rule="gadget/missing-check" data-title="Missing check" data-phase="informational">
-<div class="meta"><span class="severity info">INFO</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L50">Rule source</a></div>
+<div class="meta"><span class="severity info">INFO</span><span>Target: Gadget</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/gadget.py#L104">Rule source</a></div>
 <h3>Missing check<br><code>gadget/missing-check</code></h3>
 <p class="description">An independent noiseless measurement check is available but undeclared. Each suggestion is a copyable equation over circuit bits and incoming stabilizer signs.</p>
 <p class="scope">Candidates satisfy the arbitrary-incoming-frame contract. The rule compares equation spans, so an equivalent XOR basis is complete. Readout definitions permit substitution, and verified zero-valued flags already expose their checks. Duplicate, vacuous, or invalid checks do not hide omissions. Input-only identities and pure output-frame transport are excluded. This is informational, including unavailable analysis, because fewer checks or later derivation may be intentional.</p>
@@ -477,10 +538,10 @@ for diagnostic in report.informational:
 strict_report = ec.audit(protocol, promote_warnings=True)</code></pre>
         <p class="scope">Informational entries are not promoted. Structural and algebraic failures block dependent analyses, including shared instruction-set occurrences. A whole-model failure blocks all semantic analysis; unrelated gadgets continue when the failure is local. Code and instruction-set algebra run before gadget verification.</p>
         <h2 id="coverage">Coverage and provenance</h2>
-        <p>The catalog matches <a href="../source/qdk_package/qdk/ec/_audit/rules/__init__.py"><code>default_rules()</code></a> exactly: 14 IDs, with 9 ERROR, 2 WARNING, and 3 INFO defaults. The obsolete prepared-input rule and unconditional flag-content-not-checked notice are not registered.</p>
+        <p>The catalog matches <a href="../source/qdk_package/qdk/ec/_audit/rules/__init__.py"><code>default_rules()</code></a> exactly: 17 IDs, with 9 ERROR, 2 WARNING, and 6 INFO defaults. The obsolete prepared-input rule and unconditional flag-content-not-checked notice are not registered.</p>
         <p>Message examples were captured from fresh loads of <a href="../samples/notebooks/qdk_ec/c4.qodec.yaml">the notebook's C4 protocol</a>, with the described in-memory edits, or small circuits over its physical instruction set. Each scenario appears alongside its captured diagnostic text. Apart from omitted totals, error and warning blocks match <code>Report</code> output exactly; INFO entries use the same layout. Line numbers were checked against the loaded files. Source links identify the implementation used for this snapshot.</p>
         <p><strong>Analysis limits:</strong> the parity verifier currently declines opaque source formats, conditional or selected circuit calls, conditional circuit actions, and circuit flag bits. Logical readout verification declines interleaved logical actions and noncommuting logical measurements. Output logical-frame references after logical measurements or outcome-dependent output frames are reported as unsupported. These cases produce scoped warnings, or informational notices for missing-check discovery, not invented parity results. Empty equations remain identically zero.</p>
-        <p class="scope">A clean report does not prove fault tolerance. qodec preserves resolved declarations; audit checks protocol correctness, including declaration validity and mathematics. Loading a draft is not certification. Missing files, ambiguous definitions, and values that cannot survive a faithful round trip still fail in qodec. Redundant-check notices and fault-model-dependent checks are not included.</p>
+        <p class="scope">A clean report does not prove fault tolerance. qodec preserves resolved declarations; audit checks protocol correctness, including declaration validity and mathematics. Loading a draft is not certification. Missing files, ambiguous definitions, and values that cannot survive a faithful round trip still fail in qodec. Fault-model-dependent checks remain deferred: they need an explicit fault set and a declared detection requirement.</p>
       </section>
     </main>
   </div>
