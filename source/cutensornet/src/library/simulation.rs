@@ -846,11 +846,11 @@ impl ReplayApi for NativeApi {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mode_pointers = factor_modes
+        let mut mode_pointers = factor_modes
             .iter()
             .map(|modes| modes.as_ptr())
             .collect::<Vec<_>>();
-        let tensor_pointers = factor_tensors
+        let mut tensor_pointers = factor_tensors
             .iter()
             .map(|tensor| tensor.as_ptr().cast_const())
             .collect::<Vec<_>>();
@@ -858,6 +858,8 @@ impl ReplayApi for NativeApi {
         // SAFETY: all pointer tables contain `factor_count` retained entries;
         // operator tensors remain allocated until operator destruction. Null
         // strides request default layout for each single-mode Pauli factor.
+        // cuTensorNet declares the two pointer tables as mutable even though it
+        // only reads them, so they are passed as `*mut` over owned local tables.
         let status = unsafe {
             (self.cutensornet_functions.append_product)(
                 handle.as_ptr(),
@@ -865,9 +867,9 @@ impl ReplayApi for NativeApi {
                 coefficient,
                 factor_count,
                 mode_counts.as_ptr(),
-                mode_pointers.as_ptr(),
-                std::ptr::null(),
-                tensor_pointers.as_ptr(),
+                mode_pointers.as_mut_ptr(),
+                std::ptr::null_mut(),
+                tensor_pointers.as_mut_ptr(),
                 &raw mut component_id,
             )
         };

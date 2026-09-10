@@ -1,0 +1,75 @@
+# cuTensorNet symbol manifest -- the single source of truth for the FFI surface.
+#
+# scripts/generate-bindings.sh derives its bindgen allowlist from this file, and
+# scripts/generate-loader.py generates src/library/symbols{,/*}.rs from it. Adding
+# a symbol here and regenerating is the only supported way to widen the surface.
+#
+# Columns: <c_symbol>  <rust_field>  <family>  <required|optional>
+#
+# `required` symbols abort discovery when absent; `optional` ones degrade to None.
+# `family` selects the generated file the declarations are grouped into.
+
+
+# context
+cutensornetCreate                                  create                               context      required
+cutensornetDestroy                                 destroy                              context      required
+cutensornetGetCudartVersion                        get_cudart_version                   context      required
+cutensornetGetErrorString                          get_error_string                     context      required
+cutensornetGetLastError                            get_last_error                       context      optional
+cutensornetGetVersion                              get_version                          context      required
+
+# state
+cutensornetStateApplyTensorOperator                apply_tensor_operator                state        required
+cutensornetStateCaptureMPS                         capture_mps                          state        required
+cutensornetCreateState                             create_state                         state        required
+cutensornetDestroyState                            destroy_state                        state        required
+cutensornetStateFinalizeMPS                        finalize_mps                         state        required
+cutensornetStateCompute                            state_compute                        state        required
+cutensornetStateConfigure                          state_configure                      state        required
+cutensornetStatePrepare                            state_prepare                        state        required
+
+# workspace
+cutensornetCreateWorkspaceDescriptor               create_workspace                     workspace    required
+cutensornetDestroyWorkspaceDescriptor              destroy_workspace                    workspace    required
+cutensornetWorkspaceComputeContractionSizes        workspace_compute_contraction_sizes  workspace    required
+cutensornetWorkspaceGetMemorySize                  workspace_get_memory_size            workspace    required
+cutensornetWorkspaceSetMemory                      workspace_set_memory                 workspace    required
+
+# operator
+cutensornetNetworkOperatorAppendProduct            append_product                       operator     required
+cutensornetCreateNetworkOperator                   create_network_operator              operator     required
+cutensornetDestroyNetworkOperator                  destroy_network_operator             operator     required
+
+# expectation
+cutensornetCreateExpectation                       create_expectation                   expectation  required
+cutensornetDestroyExpectation                      destroy_expectation                  expectation  required
+cutensornetExpectationCompute                      expectation_compute                  expectation  required
+cutensornetExpectationConfigure                    expectation_configure                expectation  required
+cutensornetExpectationPrepare                      expectation_prepare                  expectation  required
+
+# sampler
+cutensornetCreateSampler                           create_sampler                       sampler      required
+cutensornetDestroySampler                          destroy_sampler                      sampler      required
+cutensornetSamplerConfigure                        sampler_configure                    sampler      required
+cutensornetSamplerPrepare                          sampler_prepare                      sampler      required
+cutensornetSamplerSample                           sampler_sample                       sampler      required
+
+# contraction
+cutensornetContractionOptimize                     contraction_optimize                 contraction  required
+cutensornetCreateNetwork                           create_network                       contraction  required
+cutensornetCreateContractionOptimizerConfig        create_optimizer_config              contraction  required
+cutensornetCreateContractionOptimizerInfo          create_optimizer_info                contraction  required
+cutensornetCreateSliceGroupFromIDRange             create_slice_group_from_id_range     contraction  required
+cutensornetDestroyNetwork                          destroy_network                      contraction  required
+cutensornetDestroyContractionOptimizerConfig       destroy_optimizer_config             contraction  required
+cutensornetDestroyContractionOptimizerInfo         destroy_optimizer_info               contraction  required
+cutensornetDestroySliceGroup                       destroy_slice_group                  contraction  required
+cutensornetNetworkAppendTensor                     network_append_tensor                contraction  required
+cutensornetNetworkContract                         network_contract                     contraction  required
+cutensornetNetworkPrepareContraction               network_prepare_contraction          contraction  required
+cutensornetNetworkSetAttribute                     network_set_attribute                contraction  required
+cutensornetNetworkSetInputTensorMemory             network_set_input_tensor_memory      contraction  required
+cutensornetNetworkSetOutputTensor                  network_set_output_tensor            contraction  required
+cutensornetNetworkSetOutputTensorMemory            network_set_output_tensor_memory     contraction  required
+cutensornetContractionOptimizerConfigSetAttribute  optimizer_config_set_attribute       contraction  required
+cutensornetContractionOptimizerInfoGetAttribute    optimizer_info_get_attribute         contraction  required

@@ -20,6 +20,9 @@ pub use execution::{MpsExecutionError, run_mps_shots};
 use std::{fmt, path::PathBuf};
 
 #[cfg(test)]
+const SYMBOL_MANIFEST: &str = include_str!("../scripts/cutensornet-symbols.txt");
+
+#[cfg(test)]
 const CUTENSORNET_REQUIRED_SYMBOLS: &[&str] = &[
     "cutensornetGetVersion",
     "cutensornetGetCudartVersion",
@@ -184,9 +187,27 @@ fn validate_override_path(
 mod tests {
     use super::{
         Availability, AvailabilityError, CUDART_REQUIRED_SYMBOLS, CUTENSORNET_REQUIRED_SYMBOLS,
-        validate_override_path,
+        SYMBOL_MANIFEST, validate_override_path,
     };
     use std::ffi::OsString;
+
+    /// The manifest rows as `(symbol, requirement)` pairs.
+    fn manifest_rows() -> Vec<(&'static str, &'static str)> {
+        SYMBOL_MANIFEST
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .map(|line| {
+                let columns: Vec<&str> = line.split_whitespace().collect();
+                assert_eq!(columns.len(), 4, "malformed manifest row: {line}");
+                assert!(
+                    matches!(columns[3], "required" | "optional"),
+                    "unknown requirement in manifest row: {line}"
+                );
+                (columns[0], columns[3])
+            })
+            .collect()
+    }
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -252,10 +273,18 @@ mod tests {
     /// as text keeps this check running everywhere, so a symbol added to the
     /// inventory but never resolved is caught on the development host instead
     /// of only on a CUDA-capable one.
+    ///
+    /// This still has teeth now that the loader is generated: the bindings are
+    /// regenerated from `cutensornet.h` on a CUDA host while the loader is
+    /// generated from the manifest anywhere, so the check catches a symbol
+    /// added to the manifest without regenerating the bindings.
     #[test]
     fn required_symbols_are_declared_in_bindings_and_resolved_by_the_loader() {
         const BINDINGS: &str = include_str!("bindings/v2_13.rs");
-        const LOADER: &str = include_str!("library.rs");
+        const LOADER: &str = concat!(
+            include_str!("library.rs"),
+            include_str!("library/symbols.rs")
+        );
 
         for symbol in CUTENSORNET_REQUIRED_SYMBOLS {
             assert!(
@@ -274,6 +303,47 @@ mod tests {
                 "{symbol} is required but never resolved by the loader"
             );
         }
+
+        // Optional symbols are exempt from the inventory but must still exist
+        // on both sides, so widening the manifest without regenerating the
+        // bindings on a CUDA host fails here rather than at load time.
+        for (symbol, _) in manifest_rows() {
+            assert!(
+                BINDINGS.contains(&format!("pub fn {symbol}(")),
+                "{symbol} is in the manifest but not declared in the generated bindings"
+            );
+            assert!(
+                LOADER.contains(&format!("b\"{symbol}\\0\"")),
+                "{symbol} is in the manifest but never resolved by the loader"
+            );
+        }
+    }
+
+    /// The manifest drives both generators, so it must agree with the inventory
+    /// this module asserts against.
+    #[test]
+    fn manifest_agrees_with_the_required_symbol_inventory() {
+        let rows = manifest_rows();
+
+        let mut required: Vec<&str> = rows
+            .iter()
+            .filter(|(_, requirement)| *requirement == "required")
+            .map(|(symbol, _)| *symbol)
+            .collect();
+        let mut inventory = CUTENSORNET_REQUIRED_SYMBOLS.to_vec();
+        required.sort_unstable();
+        inventory.sort_unstable();
+        assert_eq!(
+            required, inventory,
+            "the manifest and the required-symbol inventory disagree"
+        );
+
+        let optional: Vec<&str> = rows
+            .iter()
+            .filter(|(_, requirement)| *requirement == "optional")
+            .map(|(symbol, _)| *symbol)
+            .collect();
+        assert_eq!(optional, vec!["cutensornetGetLastError"]);
     }
 
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
