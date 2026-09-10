@@ -7,11 +7,12 @@ the next time anyone regenerates.
 
 ## What lives here
 
-| File                      | Role                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------ |
-| `cutensornet-symbols.txt` | The symbol manifest. Single source of truth for **which functions** the crate binds. |
-| `generate-bindings.sh`    | Header &rarr; `src/bindings/v2_13.rs`. Requires a CUDA host.                         |
-| `generate-loader.py`      | Manifest + bindings &rarr; `src/library/symbols{,/*}.rs`. Runs anywhere.             |
+| File                       | Role                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------ |
+| `cutensornet-symbols.txt`  | The symbol manifest. Single source of truth for **which functions** the crate binds. |
+| `generate-bindings.sh`     | Header &rarr; `src/bindings/v2_13.rs`. Requires a CUDA host.                         |
+| `generate-loader.py`       | Manifest + bindings &rarr; `src/library/symbols{,/*}.rs`. Runs anywhere.             |
+| `validate-on-cuda-host.sh` | Runs the checks that only a CUDA x86_64 host can run. Copy to the GPU host and run.  |
 
 The two generators consume the same manifest, so the bindgen allowlist and the
 dynamic loader cannot disagree about which symbols exist.
@@ -96,15 +97,59 @@ No CUDA, bindgen or archive needed — signatures are read from the checked-in
 `src/bindings/v2_13.rs`, so the function-pointer types are transcribed from the
 same header the declarations came from rather than by hand.
 
+## Validating on the GPU host
+
+`mod library` is gated to linux/x86_64, so on any other machine its tests do not
+fail — they silently do not exist. A green `cargo test` on a dev box therefore
+says nothing about the loader. `validate-on-cuda-host.sh` closes that gap:
+
+```sh
+scripts/validate-on-cuda-host.sh                      # the FFI surface, fast
+scripts/validate-on-cuda-host.sh --archive <archive>  # also regenerate and diff the bindings
+scripts/validate-on-cuda-host.sh --qualification      # also run the slow A100 suite
+scripts/validate-on-cuda-host.sh --skip-hardware      # CUDA host without a usable library
+```
+
+Copy the checkout (or just this crate) to the GPU host and run it from anywhere;
+it validates the tree it lives in and writes nothing outside it. It refuses to
+run on a non-x86_64 host rather than reporting a misleading pass, then checks:
+
+1. The generated loader is current and unedited.
+2. `cargo fmt --check` and `cargo clippy --all-targets -D warnings`.
+3. `cargo test`, **and** that `library::tests::*` actually appeared in the
+   output — the property that matters is that the gated modules compiled and
+   ran, not how many tests there were. Expected counts are deliberately not
+   asserted; they go stale as tests move between modules and produce false
+   failures.
+4. That `libcutensornet.so.2` and `libcudart.so.12` are present, falling back to
+   the `QDK_CUTENSORNET_LIBRARY` / `QDK_CUDART_LIBRARY` overrides when they live
+   somewhere other than the reference paths.
+5. `cargo test --test availability -- --ignored`, which resolves every required
+   symbol against the real library — the only mechanical proof the manifest's
+   symbol names exist.
+6. With `--archive`, that `generate-bindings.sh` reproduces `src/bindings/v2_13.rs`
+   byte for byte. Self-validating, so it needs no hash pinned in this script.
+
+The seven `#[ignore]`d A100 tests in `replay.rs` are **not** run by default. They
+are numerical qualification runs — expensive, requiring a real GPU, and some are
+steered by `QDK_CUTENSORNET_*` environment variables — so they answer "does the
+simulation still produce the right numbers", not "is the FFI surface intact".
+A manifest or loader change cannot plausibly pass step 5 and fail them for a
+reason worth blocking on, and folding them in would turn a two-minute check into
+a long one. Pass `--qualification` when you do want them.
+
+Nothing about a particular transfer workflow — bundle hashes, clone URLs, commit
+ranges — belongs in this script; that would go stale on the next commit.
+
 ## What the guards catch
 
-| Guard                                                                       | Catches                                                                                                                                                                             |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `generate-loader.py --check`                                                | A hand-edited or stale generated loader file.                                                                                                                                       |
-| Manifest symbol missing from bindings (generation)                          | A manifest row added without regenerating the bindings.                                                                                                                             |
-| `required_symbols_are_declared_in_bindings_and_resolved_by_the_loader`      | The same, from `cargo test` on any host, including non-x86_64 where the loader does not compile.                                                                                    |
-| `manifest_agrees_with_the_required_symbol_inventory`                        | The `lib.rs` inventory drifting from the manifest.                                                                                                                                  |
-| `#[ignore]`d A100 qualification tests in `src/library/simulation/replay.rs` | A required symbol absent from the real `libcutensornet.so.2` — `discover()` resolves the whole required set before any test body runs. Needs a GPU host: `cargo test -- --ignored`. |
+| Guard                                                                                         | Catches                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generate-loader.py --check`                                                                  | A hand-edited or stale generated loader file.                                                                                                                                |
+| Manifest symbol missing from bindings (generation)                                            | A manifest row added without regenerating the bindings.                                                                                                                      |
+| `required_symbols_are_declared_in_bindings_and_resolved_by_the_loader`                        | The same, from `cargo test` on any host, including non-x86_64 where the loader does not compile.                                                                             |
+| `manifest_agrees_with_the_required_symbol_inventory`                                          | The `lib.rs` inventory drifting from the manifest.                                                                                                                           |
+| `discovers_audited_native_libraries_without_gpu_work` (`tests/availability.rs`, `#[ignore]`d) | A required symbol absent from the real `libcutensornet.so.2` — `discover()` resolves the whole required set. Needs the native libraries: `scripts/validate-on-cuda-host.sh`. |
 
 Every guard above verifies that the surface we _asked_ for was delivered
 consistently. None of them can tell you a symbol is missing from the manifest in
