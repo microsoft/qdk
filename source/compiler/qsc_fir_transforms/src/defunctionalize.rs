@@ -4,9 +4,9 @@
 //! Defunctionalization pass — runs after return unification, before UDT
 //! erasure.
 //!
-//! Eliminates all callable-valued expressions — arrow-typed locals, closures,
-//! and functor-applied callable values — in entry-reachable code. Required for
-//! QIR, which mandates direct calls to known callees.
+//! Specializes statically resolvable callable values in entry-reachable code.
+//! Unresolved callable residue is deferred to capability analysis and partial
+//! evaluation, which must resolve dispatch or reject it before QIR generation.
 //!
 //! # What to know before diving in
 //!
@@ -18,9 +18,9 @@
 //!   `Apply_specialized_Y` clone. A callable value nested inside a single tuple
 //!   parameter is located by a top-level parameter slot plus a nested field
 //!   path.
-//! - **Establishes [`crate::invariants::InvariantLevel::PostDefunc`]:** no
-//!   `ExprKind::Closure`, no arrow-typed parameters, and all dispatch is
-//!   direct in reachable code.
+//! - **Establishes [`crate::invariants::InvariantLevel::PostDefunc`]:** resolved
+//!   callables use direct dispatch. Reported residue relaxes callable-elimination
+//!   checks, not structural type, scope, or call-shape guarantees.
 //! - **Fixpoint loop.** Each iteration runs five steps in order. The pre-pass
 //!   promotes single-use callable locals and collapses identity closures such
 //!   as `(a) => f(a)` down to `f`. Analysis finds callable parameters and
@@ -36,9 +36,9 @@
 //!   `MIN_ITERATIONS` and `MAX_ITERATIONS`. Non-convergence appends
 //!   [`Error::FixpointNotReached`], but only when no other diagnostic already
 //!   fired, so a real earlier error is not buried.
-//! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a non-fatal
-//!   warning. Other errors are fatal because the intermediate FIR may violate
-//!   downstream invariants.
+//! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a warning.
+//!   [`Error::DynamicCallable`] and [`Error::FixpointNotReached`] are deferred
+//!   to downstream analysis. Unsupported-shape and resource backstops are fatal.
 //! - **Relies on an acyclic UDT graph.** Several type walks in this pass and
 //!   its submodules expand `Ty::Udt` through the referenced type's definition
 //!   and keep descending, with no visited set — `ty_contains_arrow_through_udts`,
@@ -84,8 +84,8 @@ use qsc_fir::fir::{
 use qsc_fir::ty::{Arrow, FunctorSet, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 use types::{
-    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey,
-    DynamicSiteEvidence, SpecKey, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey,
+    peel_body_functors,
 };
 
 /// Lower bound on the analysis => specialize => rewrite iteration limit.
@@ -119,10 +119,9 @@ pub(crate) struct DefuncOutcome {
 /// Defunctionalizes all callable-valued expressions in the entry-reachable
 /// portion of a package.
 ///
-/// After this pass:
-/// - No `ExprKind::Closure` nodes remain in reachable code.
-/// - No arrow-typed parameters remain in reachable callable declarations.
-/// - All indirect callable dispatch is replaced with direct dispatch calls.
+/// Resolved callable arguments are replaced by direct dispatch and captures
+/// are threaded as ordinary arguments. Unresolved forms remain for downstream
+/// analysis, subject to the pipeline's structural invariants.
 ///
 /// Returns diagnostics and item-keyed callable-valued residue.
 ///
@@ -153,7 +152,6 @@ pub(crate) fn defunctionalize(
     let mut iteration_count = 0;
     let mut specialized_closure_targets: FxHashSet<StoreItemId> = FxHashSet::default();
     let mut specialized_items: FxHashSet<StoreItemId> = FxHashSet::default();
-    let mut specialized_item_origins: FxHashMap<StoreItemId, StoreItemId> = FxHashMap::default();
 
     // Distinct specializations accumulated per HOF across every iteration.
     // Keyed by HOF item and holding the set of `SpecKey`s generated for it,
@@ -173,19 +171,6 @@ pub(crate) fn defunctionalize(
     // `emit_fixpoint_error`), so transient forwarding calls resolved by a later
     // specialization never reach that terminal state.
     let mut unresolved_direct_call_sites: Vec<StoreExprId> = Vec::new();
-    let mut dynamic_site_owners: FxHashMap<(PackageId, ExprId), StoreItemId> = FxHashMap::default();
-    let mut dynamic_site_evidence: FxHashMap<(PackageId, ExprId), DynamicSiteEvidence> =
-        FxHashMap::default();
-    let mut dynamic_site_ids: FxHashSet<(PackageId, ExprId)> = FxHashSet::default();
-    let mut diagnosed_hof_items: FxHashSet<StoreItemId> = FxHashSet::default();
-    let mut subordinate_hof_site_ids: FxHashSet<(PackageId, ExprId)> = FxHashSet::default();
-    let mut incomplete_site_ids: FxHashSet<(PackageId, ExprId)> = FxHashSet::default();
-    // Dynamic residue authorization is iteration-local, like the diagnostics
-    // themselves. Replace it after every analysis so transient sites cannot
-    // exempt terminal residue.
-    let mut deferrable_residue_items: FxHashSet<StoreItemId> = FxHashSet::default();
-    let mut deferrable_entry_residue = false;
-
     // Callables outside a rewritten package that are side-effect free and total.
     // Dead-binding cleanup needs them to prove that discarding a producer call
     // is unobservable, and the package set does not change during the loop.
@@ -255,31 +240,7 @@ pub(crate) fn defunctionalize(
         // `Dynamic`; emission is deferred to `emit_fixpoint_error` so calls
         // that are only transiently `Dynamic` never produce spurious errors.
         unresolved_direct_call_sites.clone_from(&analysis.unresolved_direct_call_sites);
-        dynamic_site_owners.clone_from(&analysis.dynamic_site_owners);
-        dynamic_site_evidence.clone_from(&analysis.dynamic_site_evidence);
-        incomplete_site_ids.clone_from(&analysis.incomplete_site_ids);
-        deferrable_residue_items.clone_from(&analysis.deferrable_residue_items);
-        deferrable_entry_residue = analysis.deferrable_entry_residue;
-
-        let prior_error_count = errors.len();
         let spec_map = run_specialization(store, &analysis, assigners, &mut errors, &mut warnings);
-        for (key, specialized) in &spec_map {
-            let origin = specialized_item_origins
-                .get(&key.hof_id)
-                .copied()
-                .unwrap_or(key.hof_id);
-            specialized_item_origins.insert(*specialized, origin);
-        }
-        dynamic_site_ids =
-            diagnosed_hof_dynamic_site_ids(store, &analysis, &errors[prior_error_count..]);
-        (diagnosed_hof_items, subordinate_hof_site_ids) = classify_causal_hof_sites(
-            &analysis,
-            &dynamic_site_ids,
-            &dynamic_site_owners,
-            &dynamic_site_evidence,
-            &specialized_item_origins,
-        );
-
         // Fold this pass's specializations into the cumulative per-HOF budget
         // and fail closed if any HOF has now required more distinct
         // specializations than the hard cap allows. This backstops the
@@ -374,46 +335,6 @@ pub(crate) fn defunctionalize(
         errors.retain(|e| !matches!(e, Error::DynamicCallable(_)));
     }
 
-    let has_independent_error = errors.iter().any(|error| {
-        !matches!(
-            error,
-            Error::DynamicCallable(..) | Error::FixpointNotReached(..)
-        )
-    });
-    dynamic_site_ids.retain(|site_id| !subordinate_hof_site_ids.contains(site_id));
-    remove_dynamic_diagnostics_for_sites(
-        store,
-        &subordinate_hof_site_ids,
-        &dynamic_site_evidence,
-        &mut errors,
-    );
-    let unmatched_dynamic_spans = unmatched_dynamic_diagnostic_spans(
-        store,
-        &dynamic_site_ids,
-        &dynamic_site_evidence,
-        &errors,
-    );
-    if !has_independent_error
-        && remaining_callable_value_info(store, package_id, &consumed_closures).0
-    {
-        dynamic_site_ids.extend(unresolved_direct_call_sites.iter().filter_map(|site| {
-            let site_id = (site.package, site.expr);
-            let is_subordinate = dynamic_site_owners
-                .get(&site_id)
-                .map(|owner| {
-                    specialized_item_origins
-                        .get(owner)
-                        .copied()
-                        .unwrap_or(*owner)
-                })
-                .is_some_and(|owner| diagnosed_hof_items.contains(&owner))
-                && dynamic_site_evidence
-                    .get(&site_id)
-                    .is_some_and(|evidence| evidence.is_formal_only());
-            (!is_subordinate).then_some(site_id)
-        }));
-    }
-
     emit_fixpoint_error(
         store,
         package_id,
@@ -422,233 +343,17 @@ pub(crate) fn defunctionalize(
         &consumed_closures,
         &mut errors,
     );
-    if !has_independent_error {
-        replace_terminal_dynamic_diagnostics(
-            store,
-            &dynamic_site_ids,
-            &incomplete_site_ids,
-            &dynamic_site_evidence,
-            &unmatched_dynamic_spans,
-            &mut errors,
-        );
-    }
     errors.extend(warnings);
 
-    // The driver uses these items to defer invariant enforcement to downstream
-    // analysis when convergence fails.
-    let (mut residue_items, mut entry_has_residue) = collect_residue_items(store, package_id);
-    let has_fixpoint_error = errors
-        .iter()
-        .any(|error| matches!(error, Error::FixpointNotReached(..)));
-    let has_dynamic_error = errors
-        .iter()
-        .any(|error| matches!(error, Error::DynamicCallable(..)));
-    if has_dynamic_error && !has_fixpoint_error {
-        residue_items.retain(|item| deferrable_residue_items.contains(item));
-        entry_has_residue &= deferrable_entry_residue;
-    }
+    // The driver relaxes callable-elimination checks for discovered residue;
+    // structural invariants remain enforced at their pipeline checkpoints.
+    let (residue_items, entry_has_residue) = collect_residue_items(store, package_id);
 
     DefuncOutcome {
         diagnostics: errors,
         residue_items,
         entry_has_residue,
     }
-}
-
-fn diagnosed_hof_dynamic_site_ids(
-    store: &PackageStore,
-    analysis: &AnalysisResult,
-    emitted_errors: &[Error],
-) -> FxHashSet<(PackageId, ExprId)> {
-    let mut diagnosed = FxHashSet::default();
-    for error in emitted_errors {
-        let Error::DynamicCallable(error_span) = error else {
-            continue;
-        };
-        if let Some(site_id) = analysis.call_sites.iter().find_map(|site| {
-            let site_id = (site.call_pkg_id, site.call_expr_id);
-            if diagnosed.contains(&site_id) || !analysis.dynamic_site_ids.contains(&site_id) {
-                return None;
-            }
-            let site_span = store.get(site.call_pkg_id).get_expr(site.call_expr_id).span;
-            (site_span == *error_span).then_some(site_id)
-        }) {
-            diagnosed.insert(site_id);
-        }
-    }
-    diagnosed
-}
-
-fn classify_causal_hof_sites(
-    analysis: &AnalysisResult,
-    dynamic_site_ids: &FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_owners: &FxHashMap<(PackageId, ExprId), StoreItemId>,
-    dynamic_site_evidence: &FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    specialized_item_origins: &FxHashMap<StoreItemId, StoreItemId>,
-) -> (FxHashSet<StoreItemId>, FxHashSet<(PackageId, ExprId)>) {
-    let normalize =
-        |item: StoreItemId| specialized_item_origins.get(&item).copied().unwrap_or(item);
-    let mut targets = FxHashMap::default();
-    for site in &analysis.call_sites {
-        let site_id = (site.call_pkg_id, site.call_expr_id);
-        if dynamic_site_ids.contains(&site_id)
-            && matches!(site.callable_arg, ConcreteCallable::Dynamic)
-        {
-            targets.insert(
-                site_id,
-                normalize(StoreItemId::from((
-                    site.hof_item_id.package,
-                    site.hof_item_id.item,
-                ))),
-            );
-        }
-    }
-    let all_targets: FxHashSet<_> = targets.values().copied().collect();
-
-    let mut causal_items = FxHashSet::default();
-    for (&site_id, &target) in &targets {
-        if !dynamic_site_evidence
-            .get(&site_id)
-            .is_some_and(|evidence| evidence.is_formal_only())
-            || !dynamic_site_owners.contains_key(&site_id)
-        {
-            causal_items.insert(target);
-        }
-    }
-
-    let mut subordinate_sites = FxHashSet::default();
-    loop {
-        let mut changed = false;
-        for (&site_id, &target) in &targets {
-            if !dynamic_site_evidence
-                .get(&site_id)
-                .is_some_and(|evidence| evidence.is_formal_only())
-            {
-                continue;
-            }
-            let Some(owner) = dynamic_site_owners.get(&site_id).copied().map(normalize) else {
-                continue;
-            };
-            if causal_items.contains(&owner) {
-                subordinate_sites.insert(site_id);
-                changed |= causal_items.insert(target);
-            }
-        }
-        if !changed {
-            return (all_targets, subordinate_sites);
-        }
-    }
-}
-
-fn remove_dynamic_diagnostics_for_sites(
-    store: &PackageStore,
-    sites: &FxHashSet<(PackageId, ExprId)>,
-    evidence: &FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    errors: &mut Vec<Error>,
-) {
-    let mut spans: Vec<_> = sites
-        .iter()
-        .flat_map(|&(package_id, expression)| {
-            let span = store.get(package_id).get_expr(expression).span;
-            std::iter::repeat_n(
-                span,
-                evidence
-                    .get(&(package_id, expression))
-                    .map_or(1, |evidence| evidence.rows),
-            )
-        })
-        .collect();
-    errors.retain(|error| {
-        let Error::DynamicCallable(span) = error else {
-            return true;
-        };
-        let Some(index) = spans.iter().position(|site| site == span) else {
-            return true;
-        };
-        spans.swap_remove(index);
-        false
-    });
-}
-
-fn unmatched_dynamic_diagnostic_spans(
-    store: &PackageStore,
-    dynamic_site_ids: &FxHashSet<(PackageId, ExprId)>,
-    evidence: &FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    errors: &[Error],
-) -> Vec<PackageSpan<PackageId>> {
-    let mut represented: Vec<_> = dynamic_site_ids
-        .iter()
-        .flat_map(|&(package_id, expression)| {
-            let span = store.get(package_id).get_expr(expression).span;
-            std::iter::repeat_n(
-                span,
-                evidence
-                    .get(&(package_id, expression))
-                    .map_or(1, |evidence| evidence.rows),
-            )
-        })
-        .collect();
-    let mut unmatched = Vec::new();
-    for error in errors {
-        let Error::DynamicCallable(span) = error else {
-            continue;
-        };
-        if let Some(index) = represented
-            .iter()
-            .position(|represented| represented == span)
-        {
-            represented.swap_remove(index);
-        } else {
-            unmatched.push(*span);
-        }
-    }
-    unmatched
-}
-
-fn replace_terminal_dynamic_diagnostics(
-    store: &PackageStore,
-    dynamic_site_ids: &FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: &FxHashSet<(PackageId, ExprId)>,
-    evidence: &FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    unmatched_dynamic_spans: &[PackageSpan<PackageId>],
-    errors: &mut Vec<Error>,
-) {
-    if dynamic_site_ids.is_empty() {
-        return;
-    }
-
-    errors.retain(|error| {
-        !matches!(
-            error,
-            Error::DynamicCallable(..) | Error::FixpointNotReached(..)
-        )
-    });
-    let mut sites: Vec<_> = dynamic_site_ids.iter().copied().collect();
-    sites.sort_unstable();
-    for (package_id, expression) in sites {
-        let span = store.get(package_id).get_expr(expression).span;
-        let (rows, incomplete_rows) = evidence.get(&(package_id, expression)).map_or_else(
-            || {
-                (
-                    1,
-                    usize::from(incomplete_site_ids.contains(&(package_id, expression))),
-                )
-            },
-            |evidence| (evidence.rows, evidence.incomplete_rows),
-        );
-        for _ in 0..incomplete_rows {
-            errors.push(Error::UnsupportedProducerLineage(span));
-        }
-        for _ in incomplete_rows..rows {
-            errors.push(Error::DynamicCallable(span));
-        }
-    }
-    errors.extend(
-        unmatched_dynamic_spans
-            .iter()
-            .copied()
-            .map(Error::DynamicCallable),
-    );
 }
 
 /// Computes the reachable local callable IDs and expression IDs for scoping

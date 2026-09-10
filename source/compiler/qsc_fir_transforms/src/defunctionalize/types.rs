@@ -11,7 +11,7 @@
 mod tests;
 
 use miette::Diagnostic;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use thiserror::Error;
 
 use qsc_data_structures::functors::FunctorApp;
@@ -434,20 +434,6 @@ pub enum ConcreteCallableKey {
 /// analysis.
 pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>>;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct DynamicSiteEvidence {
-    pub rows: usize,
-    pub formal_only_rows: usize,
-    pub incomplete_rows: usize,
-}
-
-impl DynamicSiteEvidence {
-    #[must_use]
-    pub fn is_formal_only(self) -> bool {
-        self.rows > 0 && self.formal_only_rows == self.rows
-    }
-}
-
 /// Output of the analysis phase.
 #[derive(Clone, Debug, Default)]
 pub struct AnalysisResult {
@@ -462,24 +448,6 @@ pub struct AnalysisResult {
     /// diagnostic with the call-site span. `Bottom` callees are excluded to
     /// avoid spurious errors on intermediate fixpoint iterations.
     pub unresolved_direct_call_sites: Vec<StoreExprId>,
-    /// Callable owner of each dynamic site. Entry-owned sites are absent.
-    pub dynamic_site_owners: FxHashMap<(PackageId, ExprId), StoreItemId>,
-    /// Dynamic sites whose complete callable causality is formal-only.
-    pub formal_only_dynamic_site_ids: FxHashSet<(PackageId, ExprId)>,
-    /// Per-expression counts for dynamic callable-parameter or direct rows.
-    pub dynamic_site_evidence: FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    /// Every HOF or direct dynamic call site in this analysis iteration,
-    /// retained as package and expression IDs for exact terminal correlation.
-    pub dynamic_site_ids: FxHashSet<(PackageId, ExprId)>,
-    /// Dynamic-root sites whose producer lineage is unsupported or incomplete
-    /// in this analysis iteration.
-    pub incomplete_site_ids: FxHashSet<(PackageId, ExprId)>,
-    /// Callable items whose residue is explained by a dynamic call site in
-    /// this analysis iteration.
-    pub deferrable_residue_items: FxHashSet<StoreItemId>,
-    /// Whether a dynamic call site in this analysis iteration belongs to the
-    /// package entry expression.
-    pub deferrable_entry_residue: bool,
     /// Per-callable lattice states for all callable-typed local variables
     /// after flow analysis.
     pub lattice_states: LatticeStates,
@@ -489,8 +457,9 @@ pub struct AnalysisResult {
 ///
 /// # Severity
 ///
-/// All variants are fatal to the FIR transform pipeline except
-/// [`Error::ExcessiveSpecializations`], which is emitted as a warning.
+/// [`Error::DynamicCallable`] and [`Error::FixpointNotReached`] are deferred
+/// to downstream analysis. [`Error::ExcessiveSpecializations`] is a warning;
+/// the remaining variants are fatal to the FIR transform pipeline.
 /// [`Error::RecursiveSpecialization`] is the fatal counterpart of that warning:
 /// it fires when a single HOF's cumulative specialization count across all
 /// fixpoint iterations exceeds a hard cap, backstopping any runaway-growth
@@ -515,15 +484,6 @@ pub enum Error {
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.DynamicCallable"))]
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
     DynamicCallable(#[label] PackageSpan),
-
-    /// Emitted when a terminal dynamic call depends on producer lineage that
-    /// the supported arrow, tuple, and UDT selectors cannot represent.
-    #[error("producer lineage could not be resolved through a supported return path")]
-    #[diagnostic(code("Qdk.Qsc.Defunctionalize.UnsupportedProducerLineage"))]
-    #[diagnostic(help(
-        "return callable values directly or through tuple and UDT fields instead of dynamic arrays or unsupported mutable aggregates"
-    ))]
-    UnsupportedProducerLineage(#[label] PackageSpan),
 
     /// Emitted when a higher-order function forwards two or more distinct
     /// arrays of callables through a single call. The callables are statically
@@ -615,7 +575,6 @@ impl Error {
     pub fn package_span(&self) -> PackageSpan {
         match self {
             Self::DynamicCallable(span)
-            | Self::UnsupportedProducerLineage(span)
             | Self::UnsupportedMultipleCallableArrays(span)
             | Self::RecursiveSpecialization(_, _, span)
             | Self::FixpointNotReached(_, _, span)
@@ -633,12 +592,11 @@ impl Error {
     /// Returns `true` when the diagnostic reports a defunctionalization
     /// convergence failure that may be safely deferred to downstream analysis.
     ///
-    /// `FixpointNotReached` and `DynamicCallable` are static over-approximations
-    /// of unresolvable dispatch: the residue they leave is always well-typed
-    /// arrow FIR that resource counting and partial evaluation can either
-    /// resolve or authoritatively reject. They are therefore suppressed rather
-    /// than treated as fatal, distinct from `is_warning`, which still surfaces
-    /// its diagnostic on the standing-warning channel.
+    /// `FixpointNotReached` and `DynamicCallable` report dispatch that this
+    /// pass cannot resolve. The pipeline retains its structural checks for the
+    /// residual FIR; resource counting and partial evaluation then resolve or
+    /// reject its callable behavior. These diagnostics are suppressed rather
+    /// than surfaced on the warning channel.
     ///
     /// The remaining resource and unsupported-shape backstops are not
     /// deferrable: they signal a shape the transform cannot lower and must stay

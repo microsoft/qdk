@@ -4,6 +4,90 @@
 use indoc::formatdoc;
 use proptest::prelude::*;
 
+#[test]
+fn residual_callable_sources_preserve_semantics() {
+    let mut failures = Vec::new();
+    for (name, source) in residual_callable_sources() {
+        if std::panic::catch_unwind(|| crate::test_utils::check_semantic_equivalence(&source))
+            .is_err()
+        {
+            failures.push(name);
+        }
+        eprintln!("checked {name}");
+    }
+    assert!(failures.is_empty(), "semantic failures: {failures:?}");
+}
+
+fn residual_callable_sources() -> Vec<(&'static str, String)> {
+    let mut sources = Vec::new();
+    for (name, body) in [
+        ("false_branch", "if false { ApplyOp(ops[index], q); }"),
+        ("false_loop", "while false { ApplyOp(ops[index], q); }"),
+        ("post_return", "return (); ApplyOp(ops[index], q);"),
+    ] {
+        sources.push((
+            name,
+            format!(
+                r#"
+            namespace Test {{
+                operation MakeCandidates(q : Qubit) : (Qubit => Unit)[] {{ Y(q); [H, X] }}
+                operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {{ op(target); }}
+                @EntryPoint()
+                operation Main() : Unit {{
+                    use q = Qubit();
+                    let ops = MakeCandidates(q);
+                    let index = if MResetZ(q) == Zero {{ 0 }} else {{ 1 }};
+                    {body}
+                }}
+            }}
+        "#
+            ),
+        ));
+    }
+    sources.push((
+        "killed_producer",
+        r#"
+        namespace Test {
+            operation MakeOp(q : Qubit) : Qubit => Unit { X(q); Rx(0.0, _) }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit { op(target); }
+            operation Replacement(q : Qubit) : Unit { H(q); }
+            operation LoopValue(q : Qubit) : Unit { X(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable op = MakeOp(q);
+                op = Replacement;
+                for _ in 0..2 { op = LoopValue; }
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#
+        .to_string(),
+    ));
+    sources.push((
+        "unrelated_callable",
+        r#"
+        namespace Test {
+            function Identity(value : Int) : Int { value }
+            operation Unrelated() : Unit { let decoy = Identity; }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Unrelated();
+                mutable op = H;
+                for _ in 0..3 { op = X; }
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#
+        .to_string(),
+    ));
+    sources
+}
+
 /// Regression for a consumed-closure stand-in reaching a live call.
 ///
 /// A call expression dispatched over several distinct closure candidates gets a

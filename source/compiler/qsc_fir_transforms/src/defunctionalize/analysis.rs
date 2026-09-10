@@ -27,8 +27,8 @@
 use super::rewrite::{ConsumptionSite, EvaluationDisposition, consumed_callable_expr_disposition};
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CalleeLattice, CaptureScope, CapturedVar,
-    ConcreteCallable, DirectCallSite, DynamicSiteEvidence, LatticeStates, ScopedLocal,
-    compose_functors, peel_body_functors,
+    ConcreteCallable, DirectCallSite, LatticeStates, ScopedLocal, compose_functors,
+    peel_body_functors,
 };
 use crate::fir_builder::functored_specs;
 use crate::walk_utils::{
@@ -39,9 +39,9 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field, FieldAssign,
-    FieldPath, Functor, Global, ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability,
-    Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, SpecImpl, Stmt,
-    StmtId, StmtKind, StoreExprId, StoreItemId, StringComponent, UnOp,
+    FieldPath, Global, ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package,
+    PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, SpecImpl, Stmt, StmtId,
+    StmtKind, StoreExprId, StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
@@ -81,110 +81,11 @@ pub(super) struct LocalState {
     closure_capturable_var_types: FxHashMap<LocalVarId, Ty>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct ProducerSummaryKey {
-    item: StoreItemId,
-    output_path: Vec<usize>,
-}
+/// Maximum recursion depth when resolving callee expressions to prevent
+/// infinite loops from unexpected circular references.
+const MAX_RESOLVE_DEPTH: usize = 32;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum ProducerLineageAtom {
-    Owner(StoreItemId),
-    Formal(Vec<usize>),
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum SymbolicCallable {
-    Global {
-        item: StoreItemId,
-        functor: FunctorApp,
-    },
-    Other,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct CallableCausality {
-    formal: bool,
-    independent: bool,
-}
-
-impl CallableCausality {
-    fn formal() -> Self {
-        Self {
-            formal: true,
-            independent: false,
-        }
-    }
-
-    fn independent() -> Self {
-        Self {
-            formal: false,
-            independent: true,
-        }
-    }
-
-    fn join(&mut self, other: Self) {
-        self.formal |= other.formal;
-        self.independent |= other.independent;
-    }
-
-    fn is_formal_only(self) -> bool {
-        self.formal && !self.independent
-    }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct SymbolicLeaf {
-    atoms: FxHashSet<ProducerLineageAtom>,
-    callables: FxHashSet<SymbolicCallable>,
-    causality: CallableCausality,
-    incomplete: bool,
-}
-
-impl SymbolicLeaf {
-    fn join(&mut self, other: &Self) {
-        self.atoms.extend(other.atoms.iter().cloned());
-        self.callables.extend(other.callables.iter().copied());
-        self.causality.join(other.causality);
-        self.incomplete |= other.incomplete;
-    }
-
-    fn instantiated(&self, arguments: &SymbolicValue) -> Self {
-        let mut result = Self {
-            callables: self.callables.clone(),
-            causality: CallableCausality {
-                formal: false,
-                independent: self.causality.independent,
-            },
-            incomplete: self.incomplete,
-            ..Self::default()
-        };
-        for atom in &self.atoms {
-            match atom {
-                ProducerLineageAtom::Owner(item) => {
-                    result.atoms.insert(ProducerLineageAtom::Owner(*item));
-                }
-                ProducerLineageAtom::Formal(path) => {
-                    result.join(&arguments.project(path).collapsed_leaf());
-                }
-            }
-        }
-        result
-    }
-
-    fn is_formal_only(&self) -> bool {
-        self.causality.is_formal_only()
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum SymbolicSelector {
-    Field(usize),
-    ArrayElement { index: usize, length: usize },
-    ArrayRepeat(Option<usize>),
-}
-
-fn normalize_symbolic_index(length: usize, index: i64) -> Option<usize> {
+fn normalize_index(length: usize, index: i64) -> Option<usize> {
     if index >= 0 {
         usize::try_from(index).ok().filter(|&index| index < length)
     } else {
@@ -192,1312 +93,6 @@ fn normalize_symbolic_index(length: usize, index: i64) -> Option<usize> {
         length.checked_sub(from_end)
     }
 }
-
-fn symbolic_static_int(package: &Package, expression: ExprId) -> Option<i64> {
-    match package.get_expr(expression).kind {
-        ExprKind::Lit(Lit::Int(value)) => Some(value),
-        ExprKind::UnOp(UnOp::Neg, value) => symbolic_static_int(package, value)?.checked_neg(),
-        ExprKind::UnOp(UnOp::Pos, value) => symbolic_static_int(package, value),
-        _ => None,
-    }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct SymbolicValue {
-    leaves: FxHashMap<Vec<SymbolicSelector>, SymbolicLeaf>,
-}
-
-impl SymbolicValue {
-    fn leaf(leaf: SymbolicLeaf) -> Self {
-        Self {
-            leaves: FxHashMap::from_iter([(Vec::new(), leaf)]),
-        }
-    }
-
-    fn global(item: StoreItemId) -> Self {
-        Self::leaf(SymbolicLeaf {
-            callables: FxHashSet::from_iter([SymbolicCallable::Global {
-                item,
-                functor: FunctorApp::default(),
-            }]),
-            causality: CallableCausality::independent(),
-            ..SymbolicLeaf::default()
-        })
-    }
-
-    fn opaque_callable() -> Self {
-        Self::leaf(SymbolicLeaf {
-            callables: FxHashSet::from_iter([SymbolicCallable::Other]),
-            causality: CallableCausality::independent(),
-            ..SymbolicLeaf::default()
-        })
-    }
-
-    fn opaque_callable_from(source: &SymbolicLeaf) -> Self {
-        Self::leaf(SymbolicLeaf {
-            atoms: source.atoms.clone(),
-            callables: FxHashSet::from_iter([SymbolicCallable::Other]),
-            causality: source.causality,
-            incomplete: source.incomplete,
-        })
-    }
-
-    fn for_type(store: &PackageStore, ty: &Ty, incomplete: bool) -> Self {
-        let mut value = Self::default();
-        collect_symbolic_arrow_leaves(store, ty, &mut Vec::new(), incomplete, &mut value);
-        value
-    }
-
-    fn unknown_callable_result(store: &PackageStore, ty: &Ty, source: &SymbolicLeaf) -> Self {
-        let mut value = Self::for_type(store, ty, true);
-        for leaf in value.leaves.values_mut() {
-            leaf.atoms.extend(source.atoms.iter().cloned());
-            leaf.callables.insert(SymbolicCallable::Other);
-            leaf.causality = if source.causality == CallableCausality::default() {
-                CallableCausality::independent()
-            } else {
-                source.causality
-            };
-            leaf.incomplete |= source.incomplete;
-        }
-        value
-    }
-
-    fn join(&mut self, other: &Self) {
-        for (path, leaf) in &other.leaves {
-            self.leaves.entry(path.clone()).or_default().join(leaf);
-        }
-    }
-
-    fn prefixed(&self, prefix: &[usize]) -> Self {
-        let mut result = Self::default();
-        for (path, leaf) in &self.leaves {
-            let mut prefixed: Vec<_> = prefix
-                .iter()
-                .copied()
-                .map(SymbolicSelector::Field)
-                .collect();
-            prefixed.extend_from_slice(path);
-            result.leaves.insert(prefixed, leaf.clone());
-        }
-        result
-    }
-
-    fn prefixed_array_element(&self, index: usize, length: usize) -> Self {
-        self.prefixed_selector(SymbolicSelector::ArrayElement { index, length })
-    }
-
-    fn prefixed_array_repeat(&self, extent: Option<usize>) -> Self {
-        self.prefixed_selector(SymbolicSelector::ArrayRepeat(extent))
-    }
-
-    fn prefixed_selector(&self, selector: SymbolicSelector) -> Self {
-        let mut result = Self::default();
-        for (path, leaf) in &self.leaves {
-            let mut prefixed = Vec::with_capacity(path.len() + 1);
-            prefixed.push(selector);
-            prefixed.extend_from_slice(path);
-            result.leaves.insert(prefixed, leaf.clone());
-        }
-        result
-    }
-
-    fn project(&self, prefix: &[usize]) -> Self {
-        if prefix.is_empty() {
-            return self.clone();
-        }
-        let mut result = Self::default();
-        for (path, leaf) in &self.leaves {
-            if path.len() < prefix.len() {
-                continue;
-            }
-            let matches = path
-                .iter()
-                .zip(prefix)
-                .all(|(selector, expected)| *selector == SymbolicSelector::Field(*expected));
-            if matches {
-                result
-                    .leaves
-                    .insert(path[prefix.len()..].to_vec(), leaf.clone());
-            }
-        }
-        result
-    }
-
-    fn indexed(&self, index: Option<i64>) -> Self {
-        let mut result = Self::default();
-        for (path, leaf) in &self.leaves {
-            let Some((&selector, remainder)) = path.split_first() else {
-                let mut incomplete = leaf.clone();
-                incomplete.incomplete = true;
-                result
-                    .leaves
-                    .entry(Vec::new())
-                    .or_default()
-                    .join(&incomplete);
-                continue;
-            };
-            match selector {
-                SymbolicSelector::ArrayElement {
-                    index: element,
-                    length,
-                } if index.is_none_or(|selected| {
-                    normalize_symbolic_index(length, selected) == Some(element)
-                }) =>
-                {
-                    result
-                        .leaves
-                        .entry(remainder.to_vec())
-                        .or_default()
-                        .join(leaf);
-                }
-                SymbolicSelector::ArrayRepeat(extent)
-                    if !extent.is_some_and(|extent| {
-                        extent == 0
-                            || index.is_some_and(|selected| {
-                                normalize_symbolic_index(extent, selected).is_none()
-                            })
-                    }) =>
-                {
-                    let mut repeated = leaf.clone();
-                    if extent.is_none() {
-                        repeated.incomplete = true;
-                    }
-                    result
-                        .leaves
-                        .entry(remainder.to_vec())
-                        .or_default()
-                        .join(&repeated);
-                }
-                SymbolicSelector::Field(_) => {
-                    let mut incomplete = leaf.clone();
-                    incomplete.incomplete = true;
-                    result
-                        .leaves
-                        .entry(path.clone())
-                        .or_default()
-                        .join(&incomplete);
-                }
-                SymbolicSelector::ArrayElement { .. } | SymbolicSelector::ArrayRepeat(_) => {}
-            }
-        }
-        result
-    }
-
-    fn replace_path(&mut self, path: &[usize], replacement: &Self) {
-        self.leaves.retain(|existing, _| {
-            existing.len() < path.len()
-                || !existing
-                    .iter()
-                    .zip(path)
-                    .all(|(selector, expected)| *selector == SymbolicSelector::Field(*expected))
-        });
-        self.join(&replacement.prefixed(path));
-    }
-
-    fn mark_path_incomplete(&mut self, path: &[usize]) {
-        let mut matched = false;
-        for (existing, leaf) in &mut self.leaves {
-            if existing.len() >= path.len()
-                && existing
-                    .iter()
-                    .zip(path)
-                    .all(|(selector, expected)| *selector == SymbolicSelector::Field(*expected))
-            {
-                leaf.incomplete = true;
-                matched = true;
-            }
-        }
-        if !matched {
-            self.leaves
-                .entry(path.iter().copied().map(SymbolicSelector::Field).collect())
-                .or_default()
-                .incomplete = true;
-        }
-    }
-
-    fn mark_all_incomplete(&mut self) {
-        if self.leaves.is_empty() {
-            self.leaves.entry(Vec::new()).or_default().incomplete = true;
-        } else {
-            for leaf in self.leaves.values_mut() {
-                leaf.incomplete = true;
-            }
-        }
-    }
-
-    fn add_owner(&mut self, owner: StoreItemId) {
-        for leaf in self.leaves.values_mut() {
-            leaf.atoms.insert(ProducerLineageAtom::Owner(owner));
-            leaf.causality.independent = true;
-        }
-    }
-
-    fn collapsed_leaf(&self) -> SymbolicLeaf {
-        let mut result = SymbolicLeaf::default();
-        for leaf in self.leaves.values() {
-            result.join(leaf);
-        }
-        result
-    }
-}
-
-type ProducerSummaries = FxHashMap<ProducerSummaryKey, SymbolicLeaf>;
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct SymbolicState {
-    locals: FxHashMap<LocalVarId, SymbolicValue>,
-}
-
-impl SymbolicState {
-    fn join(&mut self, other: &Self) {
-        for (&local, value) in &other.locals {
-            self.locals.entry(local).or_default().join(value);
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default)]
-struct SymbolicEvalResult {
-    live: Option<SymbolicState>,
-    value: SymbolicValue,
-    returned: SymbolicValue,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct SymbolicCallSnapshot {
-    callee: SymbolicValue,
-    arguments: SymbolicValue,
-}
-
-impl SymbolicCallSnapshot {
-    fn join(&mut self, other: &Self) {
-        self.callee.join(&other.callee);
-        self.arguments.join(&other.arguments);
-    }
-}
-
-fn collect_symbolic_arrow_leaves(
-    store: &PackageStore,
-    ty: &Ty,
-    path: &mut Vec<usize>,
-    incomplete: bool,
-    value: &mut SymbolicValue,
-) {
-    match ty {
-        Ty::Arrow(_) => {
-            value.leaves.insert(
-                path.iter().copied().map(SymbolicSelector::Field).collect(),
-                SymbolicLeaf {
-                    causality: if incomplete {
-                        CallableCausality::independent()
-                    } else {
-                        CallableCausality::default()
-                    },
-                    incomplete,
-                    ..SymbolicLeaf::default()
-                },
-            );
-        }
-        Ty::Array(element) => {
-            if symbolic_type_contains_arrow(store, element) {
-                value.leaves.insert(
-                    path.iter().copied().map(SymbolicSelector::Field).collect(),
-                    SymbolicLeaf {
-                        causality: CallableCausality::independent(),
-                        incomplete: true,
-                        ..SymbolicLeaf::default()
-                    },
-                );
-            }
-        }
-        Ty::Tuple(items) => {
-            for (index, item) in items.iter().enumerate() {
-                path.push(index);
-                collect_symbolic_arrow_leaves(store, item, path, incomplete, value);
-                path.pop();
-            }
-        }
-        Ty::Udt(Res::Item(item_id)) => {
-            let package = store.get(item_id.package);
-            if let ItemKind::Ty(_, udt) = &package.get_item(item_id.item).kind {
-                collect_symbolic_arrow_leaves(store, &udt.get_pure_ty(), path, incomplete, value);
-            }
-        }
-        Ty::Err | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) => {}
-    }
-}
-
-fn symbolic_type_contains_arrow(store: &PackageStore, ty: &Ty) -> bool {
-    match ty {
-        Ty::Array(element) => symbolic_type_contains_arrow(store, element),
-        Ty::Arrow(_) => true,
-        Ty::Tuple(items) => items
-            .iter()
-            .any(|item| symbolic_type_contains_arrow(store, item)),
-        Ty::Udt(Res::Item(item_id)) => {
-            let package = store.get(item_id.package);
-            matches!(
-                &package.get_item(item_id.item).kind,
-                ItemKind::Ty(_, udt) if symbolic_type_contains_arrow(store, &udt.get_pure_ty())
-            )
-        }
-        Ty::Err | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) => false,
-    }
-}
-
-fn collect_producer_output_paths(
-    store: &PackageStore,
-    ty: &Ty,
-    path: &mut Vec<usize>,
-    paths: &mut Vec<Vec<usize>>,
-) {
-    match ty {
-        Ty::Arrow(_) => paths.push(path.clone()),
-        Ty::Tuple(items) => {
-            for (index, item) in items.iter().enumerate() {
-                path.push(index);
-                collect_producer_output_paths(store, item, path, paths);
-                path.pop();
-            }
-        }
-        Ty::Udt(Res::Item(item_id)) => {
-            let package = store.get(item_id.package);
-            if let ItemKind::Ty(_, udt) = &package.get_item(item_id.item).kind {
-                collect_producer_output_paths(store, &udt.get_pure_ty(), path, paths);
-            }
-        }
-        Ty::Array(_) | Ty::Err | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) => {}
-    }
-}
-
-fn seed_symbolic_pattern(
-    store: &PackageStore,
-    package: &Package,
-    pattern: PatId,
-    input_path: &mut Vec<usize>,
-    formal: bool,
-    state: &mut SymbolicState,
-) {
-    let pattern = package.get_pat(pattern);
-    match &pattern.kind {
-        PatKind::Bind(identifier) => {
-            let mut value = SymbolicValue::for_type(store, &pattern.ty, false);
-            if formal {
-                for (path, leaf) in &mut value.leaves {
-                    let mut formal_path = input_path.clone();
-                    formal_path.extend(path.iter().filter_map(|selector| match selector {
-                        SymbolicSelector::Field(index) => Some(*index),
-                        SymbolicSelector::ArrayElement { .. }
-                        | SymbolicSelector::ArrayRepeat(_) => None,
-                    }));
-                    leaf.atoms.insert(ProducerLineageAtom::Formal(formal_path));
-                    leaf.causality = CallableCausality::formal();
-                }
-            }
-            state.locals.insert(identifier.id, value);
-        }
-        PatKind::Tuple(items) => {
-            for (index, &item) in items.iter().enumerate() {
-                input_path.push(index);
-                seed_symbolic_pattern(store, package, item, input_path, formal, state);
-                input_path.pop();
-            }
-        }
-        PatKind::Discard => {}
-    }
-}
-
-fn bind_symbolic_pattern(
-    package: &Package,
-    pattern: PatId,
-    value: &SymbolicValue,
-    state: &mut SymbolicState,
-) {
-    let pattern = package.get_pat(pattern);
-    match &pattern.kind {
-        PatKind::Bind(identifier) => {
-            state.locals.insert(identifier.id, value.clone());
-        }
-        PatKind::Tuple(items) => {
-            for (index, &item) in items.iter().enumerate() {
-                bind_symbolic_pattern(package, item, &value.project(&[index]), state);
-            }
-        }
-        PatKind::Discard => {}
-    }
-}
-
-fn join_symbolic_live_states(
-    first: Option<SymbolicState>,
-    second: Option<SymbolicState>,
-) -> Option<SymbolicState> {
-    match (first, second) {
-        (Some(mut first), Some(second)) => {
-            first.join(&second);
-            Some(first)
-        }
-        (Some(state), None) | (None, Some(state)) => Some(state),
-        (None, None) => None,
-    }
-}
-
-struct SymbolicEvaluator<'store, 'snapshots> {
-    store: &'store PackageStore,
-    summaries: &'store ProducerSummaries,
-    snapshots: Option<&'snapshots mut FxHashMap<ExprId, SymbolicCallSnapshot>>,
-}
-
-impl SymbolicEvaluator<'_, '_> {
-    fn record_snapshot(&mut self, expression: ExprId, snapshot: &SymbolicCallSnapshot) {
-        if let Some(snapshots) = self.snapshots.as_deref_mut() {
-            snapshots.entry(expression).or_default().join(snapshot);
-        }
-    }
-
-    fn without_snapshots<T>(&mut self, action: impl FnOnce(&mut Self) -> T) -> T {
-        let snapshots = self.snapshots.take();
-        let result = action(self);
-        self.snapshots = snapshots;
-        result
-    }
-
-    fn eval_block(
-        &mut self,
-        package: &Package,
-        block: BlockId,
-        state: SymbolicState,
-    ) -> SymbolicEvalResult {
-        let mut live = Some(state);
-        let mut value = SymbolicValue::default();
-        let mut returned = SymbolicValue::default();
-        for &statement in &package.get_block(block).stmts {
-            let Some(current) = live.take() else {
-                break;
-            };
-            match &package.get_stmt(statement).kind {
-                StmtKind::Local(_, pattern, initializer) => {
-                    let mut result = self.eval_expr(package, *initializer, current);
-                    returned.join(&result.returned);
-                    live = result.live.take();
-                    if let Some(state) = &mut live {
-                        bind_symbolic_pattern(package, *pattern, &result.value, state);
-                    }
-                    value = SymbolicValue::default();
-                }
-                StmtKind::Expr(expression) => {
-                    let mut result = self.eval_expr(package, *expression, current);
-                    returned.join(&result.returned);
-                    live = result.live.take();
-                    value = result.value;
-                }
-                StmtKind::Semi(expression) => {
-                    let mut result = self.eval_expr(package, *expression, current);
-                    returned.join(&result.returned);
-                    live = result.live.take();
-                    value = SymbolicValue::default();
-                }
-                StmtKind::Item(_) => {
-                    live = Some(current);
-                    value = SymbolicValue::default();
-                }
-            }
-        }
-        SymbolicEvalResult {
-            live,
-            value,
-            returned,
-        }
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn eval_expr(
-        &mut self,
-        package: &Package,
-        expression: ExprId,
-        state: SymbolicState,
-    ) -> SymbolicEvalResult {
-        let expr = package.get_expr(expression);
-        match &expr.kind {
-            ExprKind::Array(items) | ExprKind::ArrayLit(items) => {
-                let mut live = Some(state);
-                let mut value = SymbolicValue::default();
-                let mut returned = SymbolicValue::default();
-                for (index, &item) in items.iter().enumerate() {
-                    let Some(current) = live.take() else {
-                        break;
-                    };
-                    let mut result = self.eval_expr(package, item, current);
-                    returned.join(&result.returned);
-                    value.join(&result.value.prefixed_array_element(index, items.len()));
-                    live = result.live.take();
-                }
-                SymbolicEvalResult {
-                    live,
-                    value,
-                    returned,
-                }
-            }
-            ExprKind::Tuple(items) => {
-                let mut live = Some(state);
-                let mut value = SymbolicValue::default();
-                let mut returned = SymbolicValue::default();
-                for (index, &item) in items.iter().enumerate() {
-                    let Some(current) = live.take() else {
-                        break;
-                    };
-                    let mut result = self.eval_expr(package, item, current);
-                    returned.join(&result.returned);
-                    value.join(&result.value.prefixed(&[index]));
-                    live = result.live.take();
-                }
-                SymbolicEvalResult {
-                    live,
-                    value,
-                    returned,
-                }
-            }
-            ExprKind::ArrayRepeat(value, size) => {
-                let mut value_result = self.eval_expr(package, *value, state);
-                let Some(live) = value_result.live.take() else {
-                    return value_result;
-                };
-                let mut size_result = self.eval_expr(package, *size, live);
-                value_result.returned.join(&size_result.returned);
-                let extent = match package.get_expr(*size).kind {
-                    ExprKind::Lit(Lit::Int(size)) => usize::try_from(size).ok(),
-                    _ => None,
-                };
-                SymbolicEvalResult {
-                    live: size_result.live.take(),
-                    value: value_result.value.prefixed_array_repeat(extent),
-                    returned: value_result.returned,
-                }
-            }
-            ExprKind::Assign(lhs, rhs) => {
-                let mut result = self.eval_expr(package, *rhs, state);
-                if let Some(state) = &mut result.live
-                    && let ExprKind::Var(Res::Local(local), _) = package.get_expr(*lhs).kind
-                {
-                    state.locals.insert(local, result.value.clone());
-                }
-                result.value = SymbolicValue::default();
-                result
-            }
-            ExprKind::AssignOp(_, lhs, rhs) => {
-                let mut lhs_result = self.eval_expr(package, *lhs, state);
-                let Some(live) = lhs_result.live.take() else {
-                    return lhs_result;
-                };
-                let mut rhs_result = self.eval_expr(package, *rhs, live);
-                lhs_result.returned.join(&rhs_result.returned);
-                if let Some(state) = &mut rhs_result.live
-                    && let Some(local) = assignment_written_local(package, expr)
-                    && let Some(value) = state.locals.get_mut(&local)
-                {
-                    value.mark_all_incomplete();
-                }
-                SymbolicEvalResult {
-                    live: rhs_result.live.take(),
-                    value: SymbolicValue::default(),
-                    returned: lhs_result.returned,
-                }
-            }
-            ExprKind::AssignField(record, field, replacement) => {
-                let mut replacement_result = self.eval_expr(package, *replacement, state);
-                let Some(live) = replacement_result.live.take() else {
-                    return replacement_result;
-                };
-                let mut record_result = self.eval_expr(package, *record, live);
-                replacement_result.returned.join(&record_result.returned);
-                if let Some(state) = &mut record_result.live
-                    && let Some(local) = assign_lhs_base_local(package, *record)
-                    && let Some(value) = state.locals.get_mut(&local)
-                {
-                    if let Field::Path(path) = field {
-                        value.replace_path(&path.indices, &replacement_result.value);
-                        value.mark_path_incomplete(&path.indices);
-                    } else {
-                        value.mark_all_incomplete();
-                    }
-                }
-                SymbolicEvalResult {
-                    live: record_result.live.take(),
-                    value: SymbolicValue::default(),
-                    returned: replacement_result.returned,
-                }
-            }
-            ExprKind::AssignIndex(container, index, replacement) => {
-                let mut index_result = self.eval_expr(package, *index, state);
-                let Some(live) = index_result.live.take() else {
-                    return index_result;
-                };
-                let mut replacement_result = self.eval_expr(package, *replacement, live);
-                index_result.returned.join(&replacement_result.returned);
-                let Some(live) = replacement_result.live.take() else {
-                    return SymbolicEvalResult {
-                        returned: index_result.returned,
-                        ..replacement_result
-                    };
-                };
-                let mut container_result = self.eval_expr(package, *container, live);
-                index_result.returned.join(&container_result.returned);
-                if let Some(state) = &mut container_result.live
-                    && let Some(local) = assign_lhs_base_local(package, *container)
-                    && let Some(value) = state.locals.get_mut(&local)
-                {
-                    value.mark_all_incomplete();
-                }
-                SymbolicEvalResult {
-                    live: container_result.live.take(),
-                    value: SymbolicValue::default(),
-                    returned: index_result.returned,
-                }
-            }
-            ExprKind::BinOp(operator @ (BinOp::AndL | BinOp::OrL), lhs, rhs) => {
-                let mut lhs_result = self.eval_expr(package, *lhs, state);
-                let Some(live) = lhs_result.live.take() else {
-                    return lhs_result;
-                };
-                if let ExprKind::Lit(Lit::Bool(value)) = package.get_expr(*lhs).kind {
-                    let evaluates_rhs = match operator {
-                        BinOp::AndL => value,
-                        BinOp::OrL => !value,
-                        _ => unreachable!("matched only short-circuit operators"),
-                    };
-                    if !evaluates_rhs {
-                        return SymbolicEvalResult {
-                            live: Some(live),
-                            value: SymbolicValue::default(),
-                            returned: lhs_result.returned,
-                        };
-                    }
-                    let mut rhs_result = self.eval_expr(package, *rhs, live);
-                    lhs_result.returned.join(&rhs_result.returned);
-                    return SymbolicEvalResult {
-                        live: rhs_result.live.take(),
-                        value: SymbolicValue::default(),
-                        returned: lhs_result.returned,
-                    };
-                }
-                let mut rhs_result = self.eval_expr(package, *rhs, live.clone());
-                lhs_result.returned.join(&rhs_result.returned);
-                SymbolicEvalResult {
-                    live: join_symbolic_live_states(Some(live), rhs_result.live.take()),
-                    value: SymbolicValue::default(),
-                    returned: lhs_result.returned,
-                }
-            }
-            ExprKind::BinOp(_, lhs, rhs) => {
-                let mut lhs_result = self.eval_expr(package, *lhs, state);
-                let Some(live) = lhs_result.live.take() else {
-                    return lhs_result;
-                };
-                let mut rhs_result = self.eval_expr(package, *rhs, live);
-                lhs_result.returned.join(&rhs_result.returned);
-                SymbolicEvalResult {
-                    live: rhs_result.live.take(),
-                    value: SymbolicValue::for_type(self.store, &expr.ty, true),
-                    returned: lhs_result.returned,
-                }
-            }
-            ExprKind::Block(block) => self.eval_block(package, *block, state),
-            ExprKind::Call(callee, arguments) => {
-                let mut callee_result = self.eval_expr(package, *callee, state);
-                let Some(live) = callee_result.live.take() else {
-                    return callee_result;
-                };
-                let callee_value = callee_result.value.clone();
-                let mut argument_result = self.eval_expr(package, *arguments, live);
-                callee_result.returned.join(&argument_result.returned);
-                let Some(live) = argument_result.live.take() else {
-                    return SymbolicEvalResult {
-                        returned: callee_result.returned,
-                        ..argument_result
-                    };
-                };
-                let snapshot = SymbolicCallSnapshot {
-                    callee: callee_value.clone(),
-                    arguments: argument_result.value.clone(),
-                };
-                self.record_snapshot(expression, &snapshot);
-                let value = if expr_contains_hole(package, *arguments) {
-                    SymbolicValue::opaque_callable_from(&callee_value.collapsed_leaf())
-                } else {
-                    self.eval_call_result(&expr.ty, &callee_value, &argument_result.value)
-                };
-                SymbolicEvalResult {
-                    live: Some(live),
-                    value,
-                    returned: callee_result.returned,
-                }
-            }
-            ExprKind::Closure(_, _) => SymbolicEvalResult {
-                live: Some(state),
-                value: SymbolicValue::opaque_callable(),
-                returned: SymbolicValue::default(),
-            },
-            ExprKind::Fail(message) => {
-                let mut result = self.eval_expr(package, *message, state);
-                result.live = None;
-                result.value = SymbolicValue::default();
-                result
-            }
-            ExprKind::Field(value, field) => {
-                let mut result = self.eval_expr(package, *value, state);
-                result.value = match field {
-                    Field::Path(path) => result.value.project(&path.indices),
-                    Field::Err | Field::Prim(_) => {
-                        SymbolicValue::for_type(self.store, &expr.ty, true)
-                    }
-                };
-                result
-            }
-            ExprKind::If(condition, body, otherwise) => {
-                let mut condition_result = self.eval_expr(package, *condition, state);
-                let Some(live) = condition_result.live.take() else {
-                    return condition_result;
-                };
-                if let ExprKind::Lit(Lit::Bool(selected)) = package.get_expr(*condition).kind {
-                    let branch = if selected { Some(*body) } else { *otherwise };
-                    if let Some(branch) = branch {
-                        let mut result = self.eval_expr(package, branch, live);
-                        condition_result.returned.join(&result.returned);
-                        result.returned = condition_result.returned;
-                        return result;
-                    }
-                    return SymbolicEvalResult {
-                        live: Some(live),
-                        value: SymbolicValue::default(),
-                        returned: condition_result.returned,
-                    };
-                }
-                let mut true_result = self.eval_expr(package, *body, live.clone());
-                let mut false_result = if let Some(otherwise) = otherwise {
-                    self.eval_expr(package, *otherwise, live)
-                } else {
-                    SymbolicEvalResult {
-                        live: Some(live),
-                        value: SymbolicValue::default(),
-                        returned: SymbolicValue::default(),
-                    }
-                };
-                condition_result.returned.join(&true_result.returned);
-                condition_result.returned.join(&false_result.returned);
-                true_result.value.join(&false_result.value);
-                SymbolicEvalResult {
-                    live: join_symbolic_live_states(
-                        true_result.live.take(),
-                        false_result.live.take(),
-                    ),
-                    value: true_result.value,
-                    returned: condition_result.returned,
-                }
-            }
-            ExprKind::Index(container, index) => {
-                let mut container_result = self.eval_expr(package, *container, state);
-                let Some(live) = container_result.live.take() else {
-                    return container_result;
-                };
-                let mut index_result = self.eval_expr(package, *index, live);
-                container_result.returned.join(&index_result.returned);
-                let index = symbolic_static_int(package, *index);
-                SymbolicEvalResult {
-                    live: index_result.live.take(),
-                    value: container_result.value.indexed(index),
-                    returned: container_result.returned,
-                }
-            }
-            ExprKind::Parallel(limit, value) => {
-                let mut limit_returned = SymbolicValue::default();
-                let live = if let Some(limit) = limit {
-                    let mut result = self.eval_expr(package, *limit, state);
-                    limit_returned.join(&result.returned);
-                    result.live.take()
-                } else {
-                    Some(state)
-                };
-                let Some(live) = live else {
-                    return SymbolicEvalResult {
-                        live: None,
-                        value: SymbolicValue::default(),
-                        returned: limit_returned,
-                    };
-                };
-                let mut result = self.eval_expr(package, *value, live);
-                limit_returned.join(&result.returned);
-                result.returned = limit_returned;
-                result
-            }
-            ExprKind::Range(start, step, end) => {
-                let mut live = Some(state);
-                let mut returned = SymbolicValue::default();
-                for child in [start, step, end].into_iter().flatten() {
-                    let Some(current) = live.take() else {
-                        break;
-                    };
-                    let mut result = self.eval_expr(package, *child, current);
-                    returned.join(&result.returned);
-                    live = result.live.take();
-                }
-                SymbolicEvalResult {
-                    live,
-                    value: SymbolicValue::default(),
-                    returned,
-                }
-            }
-            ExprKind::Return(value) => {
-                let mut result = self.eval_expr(package, *value, state);
-                result.returned.join(&result.value);
-                result.live = None;
-                result.value = SymbolicValue::default();
-                result
-            }
-            ExprKind::Struct(_, copy, fields) => {
-                let mut live = Some(state);
-                let mut value = SymbolicValue::default();
-                let mut returned = SymbolicValue::default();
-                if let Some(copy) = copy {
-                    let mut result = self.eval_expr(
-                        package,
-                        *copy,
-                        live.take().expect("struct copy should have live state"),
-                    );
-                    returned.join(&result.returned);
-                    value = result.value;
-                    live = result.live.take();
-                }
-                for field in fields {
-                    let Some(current) = live.take() else {
-                        break;
-                    };
-                    let mut result = self.eval_expr(package, field.value, current);
-                    returned.join(&result.returned);
-                    if let Field::Path(path) = &field.field {
-                        value.replace_path(&path.indices, &result.value);
-                    } else {
-                        value.mark_all_incomplete();
-                    }
-                    live = result.live.take();
-                }
-                SymbolicEvalResult {
-                    live,
-                    value,
-                    returned,
-                }
-            }
-            ExprKind::String(components) => {
-                let mut live = Some(state);
-                let mut returned = SymbolicValue::default();
-                for component in components {
-                    let StringComponent::Expr(child) = component else {
-                        continue;
-                    };
-                    let Some(current) = live.take() else {
-                        break;
-                    };
-                    let mut result = self.eval_expr(package, *child, current);
-                    returned.join(&result.returned);
-                    live = result.live.take();
-                }
-                SymbolicEvalResult {
-                    live,
-                    value: SymbolicValue::default(),
-                    returned,
-                }
-            }
-            ExprKind::UnOp(operator, value) => {
-                let mut result = self.eval_expr(package, *value, state);
-                match operator {
-                    UnOp::Functor(functor) => {
-                        for leaf in result.value.leaves.values_mut() {
-                            let mut callables = FxHashSet::default();
-                            for callable in &leaf.callables {
-                                callables.insert(match callable {
-                                    SymbolicCallable::Global { item, functor: app } => {
-                                        let applied = match functor {
-                                            Functor::Adj => FunctorApp {
-                                                adjoint: true,
-                                                controlled: 0,
-                                            },
-                                            Functor::Ctl => FunctorApp {
-                                                adjoint: false,
-                                                controlled: 1,
-                                            },
-                                        };
-                                        SymbolicCallable::Global {
-                                            item: *item,
-                                            functor: compose_functors(app, &applied),
-                                        }
-                                    }
-                                    SymbolicCallable::Other => SymbolicCallable::Other,
-                                });
-                            }
-                            leaf.callables = callables;
-                        }
-                    }
-                    UnOp::Unwrap => {}
-                    UnOp::Neg | UnOp::NotB | UnOp::NotL | UnOp::Pos => {
-                        result.value = SymbolicValue::for_type(self.store, &expr.ty, true);
-                    }
-                }
-                result
-            }
-            ExprKind::UpdateField(record, field, replacement) => {
-                let mut replacement_result = self.eval_expr(package, *replacement, state);
-                let Some(live) = replacement_result.live.take() else {
-                    return replacement_result;
-                };
-                let mut record_result = self.eval_expr(package, *record, live);
-                replacement_result.returned.join(&record_result.returned);
-                if let Field::Path(path) = field {
-                    record_result
-                        .value
-                        .replace_path(&path.indices, &replacement_result.value);
-                } else {
-                    record_result.value.mark_all_incomplete();
-                }
-                record_result.returned = replacement_result.returned;
-                record_result
-            }
-            ExprKind::UpdateIndex(container, index, replacement) => {
-                let mut index_result = self.eval_expr(package, *index, state);
-                let Some(live) = index_result.live.take() else {
-                    return index_result;
-                };
-                let mut replacement_result = self.eval_expr(package, *replacement, live);
-                index_result.returned.join(&replacement_result.returned);
-                let Some(live) = replacement_result.live.take() else {
-                    return SymbolicEvalResult {
-                        returned: index_result.returned,
-                        ..replacement_result
-                    };
-                };
-                let mut container_result = self.eval_expr(package, *container, live);
-                index_result.returned.join(&container_result.returned);
-                container_result.value.mark_all_incomplete();
-                SymbolicEvalResult {
-                    live: container_result.live.take(),
-                    value: container_result.value,
-                    returned: index_result.returned,
-                }
-            }
-            ExprKind::Var(Res::Item(item), _) => SymbolicEvalResult {
-                live: Some(state),
-                value: SymbolicValue::global(StoreItemId::from((item.package, item.item))),
-                returned: SymbolicValue::default(),
-            },
-            ExprKind::Var(Res::Local(local), _) => SymbolicEvalResult {
-                live: Some(state.clone()),
-                value: state
-                    .locals
-                    .get(local)
-                    .cloned()
-                    .unwrap_or_else(|| SymbolicValue::for_type(self.store, &expr.ty, false)),
-                returned: SymbolicValue::default(),
-            },
-            ExprKind::Hole | ExprKind::Var(_, _) | ExprKind::Lit(_) => SymbolicEvalResult {
-                live: Some(state),
-                value: SymbolicValue::for_type(self.store, &expr.ty, true),
-                returned: SymbolicValue::default(),
-            },
-            ExprKind::While(condition, body) => {
-                if matches!(
-                    package.get_expr(*condition).kind,
-                    ExprKind::Lit(Lit::Bool(false))
-                ) {
-                    let mut condition_result = self.eval_expr(package, *condition, state);
-                    condition_result.value = SymbolicValue::default();
-                    return condition_result;
-                }
-                let entry = state;
-                let mut head = entry.clone();
-                loop {
-                    let next = self.without_snapshots(|evaluator| {
-                        let condition_result =
-                            evaluator.eval_expr(package, *condition, head.clone());
-                        let body_live = condition_result
-                            .live
-                            .and_then(|live| evaluator.eval_block(package, *body, live).live);
-                        let mut next = entry.clone();
-                        if let Some(body_live) = body_live {
-                            next.join(&body_live);
-                        }
-                        next
-                    });
-                    if next == head {
-                        break;
-                    }
-                    head = next;
-                }
-                let mut condition_result = self.eval_expr(package, *condition, head);
-                let Some(condition_live) = condition_result.live.take() else {
-                    return condition_result;
-                };
-                let body_result = self.eval_block(package, *body, condition_live.clone());
-                condition_result.returned.join(&body_result.returned);
-                SymbolicEvalResult {
-                    live: if matches!(
-                        package.get_expr(*condition).kind,
-                        ExprKind::Lit(Lit::Bool(true))
-                    ) {
-                        None
-                    } else {
-                        Some(condition_live)
-                    },
-                    value: SymbolicValue::default(),
-                    returned: condition_result.returned,
-                }
-            }
-        }
-    }
-
-    fn eval_call_result(
-        &self,
-        output_type: &Ty,
-        callee: &SymbolicValue,
-        arguments: &SymbolicValue,
-    ) -> SymbolicValue {
-        let callee = callee.collapsed_leaf();
-        let mut result = SymbolicValue::default();
-        let mut saw_supported = false;
-        for callable in &callee.callables {
-            let SymbolicCallable::Global { item, functor } = callable else {
-                if symbolic_type_contains_arrow(self.store, output_type) {
-                    result.join(&SymbolicValue::unknown_callable_result(
-                        self.store,
-                        output_type,
-                        &callee,
-                    ));
-                }
-                continue;
-            };
-            let package = self.store.get(item.package);
-            match package.get_global(item.item) {
-                None => {
-                    if symbolic_type_contains_arrow(self.store, output_type) {
-                        result.join(&SymbolicValue::unknown_callable_result(
-                            self.store,
-                            output_type,
-                            &callee,
-                        ));
-                    }
-                }
-                Some(Global::Udt) => {
-                    result.join(arguments);
-                    saw_supported = true;
-                }
-                Some(Global::Callable(declaration)) => {
-                    if !symbolic_type_contains_arrow(self.store, &declaration.output) {
-                        saw_supported = true;
-                        continue;
-                    }
-                    let mut output_shape = SymbolicValue::for_type(self.store, output_type, false);
-                    output_shape.add_owner(*item);
-                    result.join(&output_shape);
-                    let mut paths = Vec::new();
-                    collect_producer_output_paths(
-                        self.store,
-                        &declaration.output,
-                        &mut Vec::new(),
-                        &mut paths,
-                    );
-                    if *functor != FunctorApp::default() {
-                        let mut value = SymbolicValue::for_type(self.store, output_type, true);
-                        value.add_owner(*item);
-                        result.join(&value);
-                        saw_supported = true;
-                        continue;
-                    }
-                    if paths.is_empty() {
-                        saw_supported = true;
-                        continue;
-                    }
-                    for path in paths {
-                        let key = ProducerSummaryKey {
-                            item: *item,
-                            output_path: path.clone(),
-                        };
-                        let mut leaf = if let Some(summary) = self.summaries.get(&key) {
-                            summary.instantiated(arguments)
-                        } else {
-                            SymbolicLeaf {
-                                causality: CallableCausality::independent(),
-                                incomplete: true,
-                                ..SymbolicLeaf::default()
-                            }
-                        };
-                        leaf.atoms.insert(ProducerLineageAtom::Owner(*item));
-                        leaf.causality.independent = true;
-                        result
-                            .leaves
-                            .entry(path.into_iter().map(SymbolicSelector::Field).collect())
-                            .or_default()
-                            .join(&leaf);
-                    }
-                    saw_supported = true;
-                }
-            }
-        }
-        if callee.incomplete {
-            result.join(&SymbolicValue::unknown_callable_result(
-                self.store,
-                output_type,
-                &callee,
-            ));
-        }
-        if !saw_supported && symbolic_type_contains_arrow(self.store, output_type) {
-            result.join(&SymbolicValue::unknown_callable_result(
-                self.store,
-                output_type,
-                &callee,
-            ));
-        }
-        result
-    }
-}
-
-fn evaluate_symbolic_body(
-    store: &PackageStore,
-    package: &Package,
-    input: PatId,
-    block: BlockId,
-    formal: bool,
-    summaries: &ProducerSummaries,
-    snapshots: Option<&mut FxHashMap<ExprId, SymbolicCallSnapshot>>,
-) -> SymbolicEvalResult {
-    let mut state = SymbolicState::default();
-    seed_symbolic_pattern(store, package, input, &mut Vec::new(), formal, &mut state);
-    SymbolicEvaluator {
-        store,
-        summaries,
-        snapshots,
-    }
-    .eval_block(package, block, state)
-}
-
-fn compute_producer_summaries(
-    store: &PackageStore,
-    reachable: &FxHashSet<StoreItemId>,
-) -> ProducerSummaries {
-    let mut work = Vec::new();
-    let mut summaries = ProducerSummaries::default();
-    for &item in reachable {
-        let package = store.get(item.package);
-        let ItemKind::Callable(declaration) = &package.get_item(item.item).kind else {
-            continue;
-        };
-        let CallableImpl::Spec(implementation) = &declaration.implementation else {
-            continue;
-        };
-        let mut paths = Vec::new();
-        collect_producer_output_paths(store, &declaration.output, &mut Vec::new(), &mut paths);
-        if paths.is_empty() {
-            continue;
-        }
-        for path in &paths {
-            summaries
-                .entry(ProducerSummaryKey {
-                    item,
-                    output_path: path.clone(),
-                })
-                .or_default();
-        }
-        work.push((
-            item,
-            implementation.body.block,
-            implementation.body.input,
-            declaration.input,
-            paths,
-        ));
-    }
-
-    loop {
-        let prior = summaries.clone();
-        let mut next = prior.clone();
-        for (item, body_block, body_input, declaration_input, paths) in &work {
-            let package = store.get(item.package);
-            let result = evaluate_symbolic_body(
-                store,
-                package,
-                body_input.unwrap_or(*declaration_input),
-                *body_block,
-                true,
-                &prior,
-                None,
-            );
-            let mut returned = result.returned;
-            if result.live.is_some() {
-                returned.join(&result.value);
-            }
-            for path in paths {
-                next.entry(ProducerSummaryKey {
-                    item: *item,
-                    output_path: path.clone(),
-                })
-                .or_default()
-                .join(&returned.project(path).collapsed_leaf());
-            }
-        }
-        if next == summaries {
-            return summaries;
-        }
-        summaries = next;
-    }
-}
-
-fn collect_symbolic_call_snapshots(
-    store: &PackageStore,
-    package: &Package,
-    declaration: &qsc_fir::fir::CallableDecl,
-    summaries: &ProducerSummaries,
-) -> FxHashMap<ExprId, SymbolicCallSnapshot> {
-    let mut snapshots = FxHashMap::default();
-    let CallableImpl::Spec(implementation) = &declaration.implementation else {
-        return snapshots;
-    };
-    evaluate_symbolic_body(
-        store,
-        package,
-        implementation.body.input.unwrap_or(declaration.input),
-        implementation.body.block,
-        true,
-        summaries,
-        Some(&mut snapshots),
-    );
-    for specialization in functored_specs(implementation) {
-        evaluate_symbolic_body(
-            store,
-            package,
-            specialization.input.unwrap_or(declaration.input),
-            specialization.block,
-            true,
-            summaries,
-            Some(&mut snapshots),
-        );
-    }
-    snapshots
-}
-
-fn collect_entry_symbolic_call_snapshots(
-    store: &PackageStore,
-    package: &Package,
-    entry: ExprId,
-    summaries: &ProducerSummaries,
-) -> FxHashMap<ExprId, SymbolicCallSnapshot> {
-    let mut snapshots = FxHashMap::default();
-    SymbolicEvaluator {
-        store,
-        summaries,
-        snapshots: Some(&mut snapshots),
-    }
-    .eval_expr(package, entry, SymbolicState::default());
-    snapshots
-}
-
-/// Maximum recursion depth when resolving callee expressions to prevent
-/// infinite loops from unexpected circular references.
-const MAX_RESOLVE_DEPTH: usize = 32;
 
 /// Runs the analysis phase: finds callable parameters and collects call sites.
 ///
@@ -1519,18 +114,10 @@ pub(super) fn analyze(
     total_foreign: &FxHashSet<ItemId>,
 ) -> AnalysisResult {
     let hof_params = find_callable_params(store, reachable);
-    let producer_summaries = compute_producer_summaries(store, reachable);
     let CollectedCallSites {
         call_sites,
         direct_call_sites,
         unresolved_direct_call_sites,
-        dynamic_site_owners,
-        formal_only_dynamic_site_ids,
-        dynamic_site_evidence,
-        dynamic_site_ids,
-        incomplete_site_ids,
-        deferrable_residue_items,
-        deferrable_entry_residue,
         lattice_states,
     } = collect_call_sites(
         store,
@@ -1541,20 +128,12 @@ pub(super) fn analyze(
         collapsed_spans,
         preserved_direct_lambda_calls,
         total_foreign,
-        &producer_summaries,
     );
     AnalysisResult {
         callable_params: hof_params.into_values().flatten().collect(),
         call_sites,
         direct_call_sites,
         unresolved_direct_call_sites,
-        dynamic_site_owners,
-        formal_only_dynamic_site_ids,
-        dynamic_site_evidence,
-        dynamic_site_ids,
-        incomplete_site_ids,
-        deferrable_residue_items,
-        deferrable_entry_residue,
         lattice_states,
     }
 }
@@ -1719,16 +298,6 @@ struct CallRecorder<'a> {
     /// `Dynamic`, recorded so the driver can emit a `DynamicCallable`
     /// diagnostic instead of only `FixpointNotReached`.
     unresolved_direct_call_sites: &'a mut Vec<StoreExprId>,
-    dynamic_site_owners: &'a mut FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: &'a mut FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: &'a mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    dynamic_site_ids: &'a mut FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: &'a mut FxHashSet<(PackageId, ExprId)>,
-    symbolic_snapshots: &'a FxHashMap<ExprId, SymbolicCallSnapshot>,
-    /// Item owners causally associated with dynamic sites in this iteration.
-    deferrable_residue_items: &'a mut FxHashSet<StoreItemId>,
-    /// Whether this iteration has a dynamic site in the package entry.
-    deferrable_entry_residue: &'a mut bool,
     /// Spans of lambda bodies discarded by the identity-closure peephole,
     /// keyed by the collapsed init-expr node, stamped onto surviving direct
     /// calls so circuit instructions point at the original lambda body.
@@ -1752,13 +321,6 @@ struct CollectedCallSites {
     call_sites: Vec<CallSite>,
     direct_call_sites: Vec<DirectCallSite>,
     unresolved_direct_call_sites: Vec<StoreExprId>,
-    dynamic_site_owners: FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    dynamic_site_ids: FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: FxHashSet<(PackageId, ExprId)>,
-    deferrable_residue_items: FxHashSet<StoreItemId>,
-    deferrable_entry_residue: bool,
     lattice_states: LatticeStates,
 }
 
@@ -1778,19 +340,11 @@ fn collect_call_sites(
     collapsed_spans: &FxHashMap<ExprId, Span>,
     preserved_direct_lambda_calls: &[DirectCallSite],
     total_foreign: &FxHashSet<ItemId>,
-    producer_summaries: &ProducerSummaries,
 ) -> CollectedCallSites {
     let package = store.get(package_id);
     let mut call_sites = Vec::new();
     let mut direct_call_sites = Vec::new();
     let mut unresolved_direct_call_sites = Vec::new();
-    let mut dynamic_site_owners = FxHashMap::default();
-    let mut formal_only_dynamic_site_ids = FxHashSet::default();
-    let mut dynamic_site_evidence = FxHashMap::default();
-    let mut dynamic_site_ids = FxHashSet::default();
-    let mut incomplete_site_ids = FxHashSet::default();
-    let mut deferrable_residue_items = FxHashSet::default();
-    let mut deferrable_entry_residue = false;
     let mut lattice_states: LatticeStates = FxHashMap::default();
     let clone_items = Rc::new(specialized_items.clone());
 
@@ -1799,8 +353,6 @@ fn collect_call_sites(
         let body_pkg = store.get(body_pkg_id);
         let item = body_pkg.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
-            let symbolic_snapshots =
-                collect_symbolic_call_snapshots(store, body_pkg, decl, producer_summaries);
             // Foreign bodies record only HOF call sites and closure callees;
             // the entry package records every already-direct concrete call.
             let record_direct_calls = body_pkg_id == package_id;
@@ -1812,14 +364,6 @@ fn collect_call_sites(
                 call_sites: &mut call_sites,
                 direct_call_sites: &mut direct_call_sites,
                 unresolved_direct_call_sites: &mut unresolved_direct_call_sites,
-                dynamic_site_owners: &mut dynamic_site_owners,
-                formal_only_dynamic_site_ids: &mut formal_only_dynamic_site_ids,
-                dynamic_site_evidence: &mut dynamic_site_evidence,
-                dynamic_site_ids: &mut dynamic_site_ids,
-                incomplete_site_ids: &mut incomplete_site_ids,
-                symbolic_snapshots: &symbolic_snapshots,
-                deferrable_residue_items: &mut deferrable_residue_items,
-                deferrable_entry_residue: &mut deferrable_entry_residue,
                 collapsed_spans,
                 preserved_direct_lambda_calls,
                 record_direct_calls,
@@ -1859,12 +403,6 @@ fn collect_call_sites(
     }
 
     if let Some(entry_expr_id) = package.entry {
-        let symbolic_snapshots = collect_entry_symbolic_call_snapshots(
-            store,
-            package,
-            entry_expr_id,
-            producer_summaries,
-        );
         let mut locals = LocalState {
             owner: CaptureScope::Entry,
             clone_items,
@@ -1880,14 +418,6 @@ fn collect_call_sites(
             call_sites: &mut call_sites,
             direct_call_sites: &mut direct_call_sites,
             unresolved_direct_call_sites: &mut unresolved_direct_call_sites,
-            dynamic_site_owners: &mut dynamic_site_owners,
-            formal_only_dynamic_site_ids: &mut formal_only_dynamic_site_ids,
-            dynamic_site_evidence: &mut dynamic_site_evidence,
-            dynamic_site_ids: &mut dynamic_site_ids,
-            incomplete_site_ids: &mut incomplete_site_ids,
-            symbolic_snapshots: &symbolic_snapshots,
-            deferrable_residue_items: &mut deferrable_residue_items,
-            deferrable_entry_residue: &mut deferrable_entry_residue,
             collapsed_spans,
             preserved_direct_lambda_calls,
             record_direct_calls: true,
@@ -1907,13 +437,6 @@ fn collect_call_sites(
         call_sites,
         direct_call_sites,
         unresolved_direct_call_sites,
-        dynamic_site_owners,
-        formal_only_dynamic_site_ids,
-        dynamic_site_evidence,
-        dynamic_site_ids,
-        incomplete_site_ids,
-        deferrable_residue_items,
-        deferrable_entry_residue,
         lattice_states,
     }
 }
@@ -2055,14 +578,6 @@ fn inspect_call_expr(
     call_sites: &mut Vec<CallSite>,
     direct_call_sites: &mut Vec<DirectCallSite>,
     unresolved_direct_call_sites: &mut Vec<StoreExprId>,
-    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    symbolic_snapshots: &FxHashMap<ExprId, SymbolicCallSnapshot>,
-    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
-    deferrable_entry_residue: &mut bool,
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
     preserved_direct_lambda_calls: &[DirectCallSite],
@@ -2077,10 +592,6 @@ fn inspect_call_expr(
         return;
     }
 
-    let Some(symbolic_snapshot) = symbolic_snapshots.get(&expr_id) else {
-        return;
-    };
-
     if let Some((hof_store_id, hof_functor, hof_callable_params)) =
         resolve_hof_callee(pkg, *callee_expr_id, hof_params)
     {
@@ -2094,14 +605,6 @@ fn inspect_call_expr(
             hof_functor,
             hof_callable_params,
             call_sites,
-            dynamic_site_owners,
-            formal_only_dynamic_site_ids,
-            dynamic_site_evidence,
-            dynamic_site_ids,
-            incomplete_site_ids,
-            Some(symbolic_snapshot),
-            deferrable_residue_items,
-            deferrable_entry_residue,
             package_id,
             total_foreign,
         );
@@ -2168,14 +671,6 @@ fn inspect_call_expr(
         hof_params,
         direct_call_sites,
         unresolved_direct_call_sites,
-        dynamic_site_owners,
-        formal_only_dynamic_site_ids,
-        dynamic_site_evidence,
-        dynamic_site_ids,
-        incomplete_site_ids,
-        Some(symbolic_snapshot),
-        deferrable_residue_items,
-        deferrable_entry_residue,
         package_id,
         collapsed_spans,
         preserved_direct_lambda_calls,
@@ -2256,14 +751,6 @@ fn record_hof_call_sites(
     hof_functor: FunctorApp,
     hof_callable_params: &[CallableParam],
     call_sites: &mut Vec<CallSite>,
-    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    symbolic_snapshot: Option<&SymbolicCallSnapshot>,
-    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
-    deferrable_entry_residue: &mut bool,
     package_id: PackageId,
     total_foreign: &FxHashSet<ItemId>,
 ) {
@@ -2271,10 +758,6 @@ fn record_hof_call_sites(
     for cp in hof_callable_params {
         let input_path = super::build_param_input_path(uses_tuple_input, cp, hof_functor);
         let resolved_arg_id = extract_arg_at_path(pkg, args_expr_id, &input_path);
-        let symbolic_argument = symbolic_snapshot.map_or_else(
-            || SymbolicValue::for_type(store, &pkg.get_expr(resolved_arg_id).ty, true),
-            |snapshot| snapshot.arguments.project(&input_path),
-        );
         let allow_scoped_capture_exprs = matches!(
             pkg.get_expr(resolved_arg_id).kind,
             ExprKind::Block(_) | ExprKind::If(_, _, _)
@@ -2304,30 +787,6 @@ fn record_hof_call_sites(
             )
         };
         let mut record_dynamic_call_site = || {
-            let site = (package_id, expr_id);
-            dynamic_site_ids.insert(site);
-            record_dynamic_site_causality(
-                locals.owner,
-                package_id,
-                site,
-                &symbolic_argument,
-                dynamic_site_owners,
-                formal_only_dynamic_site_ids,
-                dynamic_site_evidence,
-            );
-            record_deferrable_residue_owner(
-                locals.owner,
-                package_id,
-                deferrable_residue_items,
-                deferrable_entry_residue,
-            );
-            deferrable_residue_items.insert(hof_store_id);
-            record_dynamic_producer_value(
-                &symbolic_argument,
-                site,
-                deferrable_residue_items,
-                incomplete_site_ids,
-            );
             call_sites.push(CallSite {
                 call_expr_id: expr_id,
                 call_pkg_id: package_id,
@@ -2398,65 +857,6 @@ fn record_hof_call_sites(
     }
 }
 
-fn record_deferrable_residue_owner(
-    owner: CaptureScope,
-    package_id: PackageId,
-    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
-    deferrable_entry_residue: &mut bool,
-) {
-    match owner {
-        CaptureScope::Callable(item) | CaptureScope::CloneScope(item) => {
-            deferrable_residue_items.insert(StoreItemId::from((package_id, item)));
-        }
-        CaptureScope::Entry => *deferrable_entry_residue = true,
-    }
-}
-
-fn record_dynamic_site_causality(
-    owner: CaptureScope,
-    package_id: PackageId,
-    site: (PackageId, ExprId),
-    value: &SymbolicValue,
-    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-) {
-    if let CaptureScope::Callable(item) | CaptureScope::CloneScope(item) = owner {
-        dynamic_site_owners.insert(site, StoreItemId::from((package_id, item)));
-    }
-    let leaf = value.collapsed_leaf();
-    let evidence = dynamic_site_evidence.entry(site).or_default();
-    evidence.rows += 1;
-    if leaf.is_formal_only() {
-        evidence.formal_only_rows += 1;
-    }
-    if leaf.incomplete {
-        evidence.incomplete_rows += 1;
-    }
-    if evidence.is_formal_only() {
-        formal_only_dynamic_site_ids.insert(site);
-    } else {
-        formal_only_dynamic_site_ids.remove(&site);
-    }
-}
-
-fn record_dynamic_producer_value(
-    value: &SymbolicValue,
-    site: (PackageId, ExprId),
-    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
-    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-) {
-    let leaf = value.collapsed_leaf();
-    for atom in leaf.atoms {
-        if let ProducerLineageAtom::Owner(owner) = atom {
-            deferrable_residue_items.insert(owner);
-        }
-    }
-    if leaf.incomplete {
-        incomplete_site_ids.insert(site);
-    }
-}
-
 /// Returns `true` when an expression subtree contains an `ExprKind::Hole`
 /// placeholder, which marks partial applications that the pass does not
 /// yet specialize.
@@ -2483,14 +883,6 @@ fn inspect_direct_call_expr(
     hof_params: &FxHashMap<StoreItemId, Vec<CallableParam>>,
     direct_call_sites: &mut Vec<DirectCallSite>,
     unresolved_direct_call_sites: &mut Vec<StoreExprId>,
-    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    symbolic_snapshot: Option<&SymbolicCallSnapshot>,
-    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
-    deferrable_entry_residue: &mut bool,
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
     preserved_direct_lambda_calls: &[DirectCallSite],
@@ -2576,20 +968,7 @@ fn inspect_direct_call_expr(
                 &callable,
                 package_id,
             ) else {
-                record_unresolved_direct_site(
-                    expr_id,
-                    locals,
-                    unresolved_direct_call_sites,
-                    dynamic_site_owners,
-                    formal_only_dynamic_site_ids,
-                    dynamic_site_evidence,
-                    dynamic_site_ids,
-                    incomplete_site_ids,
-                    symbolic_snapshot,
-                    deferrable_residue_items,
-                    deferrable_entry_residue,
-                    package_id,
-                );
+                unresolved_direct_call_sites.push((package_id, expr_id).into());
                 return;
             };
             direct_call_sites.push(DirectCallSite {
@@ -2612,20 +991,7 @@ fn inspect_direct_call_expr(
                     &callable,
                     package_id,
                 ) else {
-                    record_unresolved_direct_site(
-                        expr_id,
-                        locals,
-                        unresolved_direct_call_sites,
-                        dynamic_site_owners,
-                        formal_only_dynamic_site_ids,
-                        dynamic_site_evidence,
-                        dynamic_site_ids,
-                        incomplete_site_ids,
-                        symbolic_snapshot,
-                        deferrable_residue_items,
-                        deferrable_entry_residue,
-                        package_id,
-                    );
+                    unresolved_direct_call_sites.push((package_id, expr_id).into());
                     return;
                 };
                 resolved_candidates.push((callable, captures, condition));
@@ -2664,20 +1030,7 @@ fn inspect_direct_call_expr(
                 // dispatch. Record the site so the driver emits an actionable
                 // `DynamicCallable` (cleared per-pass by the driver's `retain`,
                 // so only the converged state surfaces).
-                record_unresolved_direct_site(
-                    expr_id,
-                    locals,
-                    unresolved_direct_call_sites,
-                    dynamic_site_owners,
-                    formal_only_dynamic_site_ids,
-                    dynamic_site_evidence,
-                    dynamic_site_ids,
-                    incomplete_site_ids,
-                    symbolic_snapshot,
-                    deferrable_residue_items,
-                    deferrable_entry_residue,
-                    package_id,
-                );
+                unresolved_direct_call_sites.push((package_id, expr_id).into());
             }
         }
         // `Bottom`: the callee has not yet been observed reaching this point
@@ -2685,57 +1038,6 @@ fn inspect_direct_call_expr(
         // spurious, so it is a no-op.
         CalleeLattice::Bottom => {}
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn record_unresolved_direct_site(
-    expr_id: ExprId,
-    locals: &LocalState,
-    unresolved_direct_call_sites: &mut Vec<StoreExprId>,
-    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
-    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
-    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
-    symbolic_snapshot: Option<&SymbolicCallSnapshot>,
-    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
-    deferrable_entry_residue: &mut bool,
-    package_id: PackageId,
-) {
-    let site = (package_id, expr_id);
-    unresolved_direct_call_sites.push((package_id, expr_id).into());
-    let symbolic_callee = symbolic_snapshot.map_or_else(
-        || {
-            SymbolicValue::leaf(SymbolicLeaf {
-                causality: CallableCausality::independent(),
-                incomplete: true,
-                ..SymbolicLeaf::default()
-            })
-        },
-        |snapshot| snapshot.callee.clone(),
-    );
-    record_dynamic_site_causality(
-        locals.owner,
-        package_id,
-        site,
-        &symbolic_callee,
-        dynamic_site_owners,
-        formal_only_dynamic_site_ids,
-        dynamic_site_evidence,
-    );
-    dynamic_site_ids.insert(site);
-    record_deferrable_residue_owner(
-        locals.owner,
-        package_id,
-        deferrable_residue_items,
-        deferrable_entry_residue,
-    );
-    record_dynamic_producer_value(
-        &symbolic_callee,
-        site,
-        deferrable_residue_items,
-        incomplete_site_ids,
-    );
 }
 
 fn resolve_direct_call_captures(
@@ -4795,7 +3097,7 @@ fn resolve_indexed_array_element(
 
     let index = resolve_static_int_expr(pkg, locals, index_expr_id, depth + 1)?;
     let length = resolve_array_elements(pkg, store, locals, array_expr_id, depth + 1)?.len();
-    let index = normalize_symbolic_index(length, index)?;
+    let index = normalize_index(length, index)?;
     resolve_array_element_at_index(pkg, store, locals, array_expr_id, index, depth + 1)
 }
 
@@ -5899,14 +4201,6 @@ fn analyze_expr_flow(
             rec.call_sites,
             rec.direct_call_sites,
             rec.unresolved_direct_call_sites,
-            rec.dynamic_site_owners,
-            rec.formal_only_dynamic_site_ids,
-            rec.dynamic_site_evidence,
-            rec.dynamic_site_ids,
-            rec.incomplete_site_ids,
-            rec.symbolic_snapshots,
-            rec.deferrable_residue_items,
-            rec.deferrable_entry_residue,
             package_id,
             rec.collapsed_spans,
             rec.preserved_direct_lambda_calls,

@@ -35,7 +35,7 @@ pub mod qir {
     /// Invariants (when created with full pipeline):
     /// - No type parameters remain (monomorphization complete)
     /// - No return statements (return unification complete)
-    /// - No arrow types or closures (defunctionalization complete)
+    /// - Resolvable callable values specialized; valid residue deferred to RCA and partial evaluation
     /// - No UDT types (UDT erasure complete)
     /// - Execution graphs fully populated
     pub struct CodegenFir {
@@ -187,7 +187,7 @@ pub mod qir {
         //     shape is not convertible; those are reported as non-fatal warnings and retain a
         //     residual `Return`. The invariant checker skips exactly the residual-`Return`
         //     checks for that skip-set while enforcing every other invariant on them.
-        //   - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
+        //   - Resolvable callable values specialized; residue remains subject to RCA and partial evaluation.
         //   - No `Ty::Udt` / `ExprKind::Struct`; `Field::Path` only on tuple records
         //     (UDT erasure completed).
         //   - All exec-graph ranges populated (exec-graph rebuild completed).
