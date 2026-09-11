@@ -1,55 +1,19 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Regressions for closure-dispatch argument-layout matching.
+//! Internal contracts for closure-dispatch argument layouts and capture scope.
 //!
-//! When a higher-order operation is specialized, the dispatch rewrite must
-//! splice the closure's captured values in front of the original call
-//! arguments and reshape the result into the target's declared input. A
-//! captured operation carries its *runtime* functor set — `Adj + Ctl` in the
-//! shape modeled here — while the target's input slot records only the
-//! capability its body *requires*, which is `Empty`. Those two types are not
-//! equal, so a strictly structural comparison rejects the entire layout,
-//! leaves the original scalar payload in place, and yields a call whose
-//! argument type does not match its callee. That is the `PostArgPromote`
-//! violation these regressions pin down.
-//!
-//! [`dispatch_layout_types_compatible`] therefore compares callable functor
-//! sets as capability requirements and everything else exactly. The tests
-//! below prove both halves: the capability relation is load-bearing, and it
-//! does not leak into general type compatibility.
-//!
-//! # Why hand-built FIR
-//!
-//! Reduced Q# shapes resolve a captured callable into a specialization *key*
-//! rather than a value slot, so compiled source does not reach this builder with
-//! an arrow-typed capture in the dispatch layout. These fixtures make the
-//! matcher's contract directly testable.
+//! Source-level QIR tests cover capability matching for a callable-valued
+//! original payload. These hand-built fixtures additionally test grouped
+//! arrow captures, whose source reachability is not established, and reject
+//! incompatible layouts or captures owned by another scope.
 
 // Fixtures pair layout construction with structural assertions, which pushes
 // the table-driven negative test past the line limit.
 #![allow(clippy::too_many_lines)]
 
 use super::*;
-use crate::test_utils::assert_panics_with;
 use qsc_fir::fir::{CallableKind, Lit};
-
-/// Restores the dispatch-layout capability control on scope exit, including
-/// when the test body panics.
-struct CapabilityMatchingGuard(bool);
-
-impl CapabilityMatchingGuard {
-    /// Disables capability matching so callable functors must match exactly.
-    fn disable() -> Self {
-        Self(DISPATCH_LAYOUT_CAPABILITY_MATCHING.with(|enabled| enabled.replace(false)))
-    }
-}
-
-impl Drop for CapabilityMatchingGuard {
-    fn drop(&mut self) {
-        DISPATCH_LAYOUT_CAPABILITY_MATCHING.with(|enabled| enabled.set(self.0));
-    }
-}
 
 /// `Qubit[]`, the scalar payload and the captured operation's input.
 fn qubit_array_ty() -> Ty {
@@ -80,25 +44,6 @@ fn qubit_array_op_ty(functors: FunctorSetValue) -> Ty {
 /// only the functor capability the target body requires.
 fn target_input_ty(op_ty: Ty, tag_ty: Ty) -> Ty {
     Ty::Tuple(vec![op_ty, tag_ty, qubit_array_ty()])
-}
-
-/// Reads an expression's arrow functor set, panicking if it is not an arrow.
-fn expr_functors(package: &Package, expr_id: ExprId) -> FunctorSet {
-    match &package.get_expr(expr_id).ty {
-        Ty::Arrow(arrow) => arrow.functors,
-        other => panic!("expected an arrow-typed expression, found {other:?}"),
-    }
-}
-
-/// Reads the functor set of a tuple type's element, panicking on a mismatch.
-fn tuple_element_functors(ty: &Ty, index: usize) -> FunctorSet {
-    let Ty::Tuple(items) = ty else {
-        panic!("expected a tuple type, found {ty:?}");
-    };
-    match &items[index] {
-        Ty::Arrow(arrow) => arrow.functors,
-        other => panic!("expected element {index} to be an arrow, found {other:?}"),
-    }
 }
 
 /// One hand-built closure-dispatch site.
@@ -206,37 +151,6 @@ fn make_ctladj_into_empty_fixture(
     )
 }
 
-/// Wraps the fixture's dispatch argument in a direct call to a target-typed
-/// callee, mirroring the specialized call site the rewrite must repair.
-///
-/// Returns `(call_id, callee_id)`.
-fn add_direct_target_call(fixture: &mut DispatchLayoutFixture) -> (ExprId, ExprId) {
-    let span = fixture.package.synthetic_span();
-    let callee_ty = arrow_ty(
-        CallableKind::Operation,
-        fixture.target_input.clone(),
-        Ty::UNIT,
-        FunctorSetValue::Empty,
-    );
-    let callee_id = alloc_local_var_expr(
-        &mut fixture.package,
-        &mut fixture.assigner,
-        LocalVarId::from(0_u32),
-        callee_ty,
-        span,
-    );
-    let call_id = alloc_call_expr(
-        &mut fixture.package,
-        &mut fixture.assigner,
-        callee_id,
-        fixture.args_id,
-        Ty::UNIT,
-        span,
-    );
-
-    (call_id, callee_id)
-}
-
 /// Runs the dispatch-argument builder and asserts the grouped layout
 /// `(op, tag, payload)` was produced with the target's declared type.
 ///
@@ -321,24 +235,21 @@ fn build_and_assert_grouped_dispatch_layout(fixture: &mut DispatchLayoutFixture)
 
 #[test]
 fn dispatch_layout_groups_ctladj_capture_into_empty_target_slot() {
-    // Two independent fixtures with distinct capture locals, distinct payload
-    // locals, and distinct tag literals. Building both proves the matcher
-    // reshapes each site from its own captures rather than conflating them.
-    let mut first = make_ctladj_into_empty_fixture(10, 12, 7);
-    let mut second = make_ctladj_into_empty_fixture(20, 22, 9);
-
-    let first_elements = build_and_assert_grouped_dispatch_layout(&mut first);
-    let second_elements = build_and_assert_grouped_dispatch_layout(&mut second);
-
-    for (fixture, elements) in [(&first, &first_elements), (&second, &second_elements)] {
+    for (op_capture_id, payload_local_id, tag_value) in [(10, 12, 7), (20, 22, 9)] {
+        let mut fixture =
+            make_ctladj_into_empty_fixture(op_capture_id, payload_local_id, tag_value);
+        let elements = build_and_assert_grouped_dispatch_layout(&mut fixture);
         assert_eq!(
-            expr_functors(&fixture.package, elements[0]),
-            FunctorSet::Value(FunctorSetValue::CtlAdj),
+            fixture.package.get_expr(elements[0]).ty,
+            qubit_array_op_ty(FunctorSetValue::CtlAdj),
             "the captured operation must still be `Adj + Ctl` after the layout is built",
         );
         assert_eq!(
-            tuple_element_functors(&fixture.target_input, 0),
-            FunctorSet::Value(FunctorSetValue::Empty),
+            fixture.target_input,
+            target_input_ty(
+                qubit_array_op_ty(FunctorSetValue::Empty),
+                Ty::Prim(Prim::Int)
+            ),
             "the target slot must still declare only the capability its body requires",
         );
     }
@@ -374,103 +285,6 @@ fn callable_and_clone_scope_collision_declines_capture_write() {
     assert_eq!(
         after.ty, before.ty,
         "a declined write must preserve its type"
-    );
-}
-
-#[test]
-fn dispatch_layout_capability_control_proves_grouped_capture_rewrite_causality() {
-    // With capability matching disabled, the `CtlAdj` capture cannot populate
-    // the `Empty` slot, so no layout is produced for either fixture.
-    {
-        let _guard = CapabilityMatchingGuard::disable();
-        for (op_capture_id, payload_local_id, tag_value) in [(10, 12, 7), (20, 22, 9)] {
-            let mut fixture =
-                make_ctladj_into_empty_fixture(op_capture_id, payload_local_id, tag_value);
-            let built = build_closure_dispatch_branch_args_data(
-                &mut fixture.package,
-                fixture.destination,
-                fixture.args_id,
-                &fixture.captures,
-                &fixture.target_input,
-                &mut fixture.assigner,
-            );
-            assert!(
-                built.is_none(),
-                "exact functor equality must reject the capture layout, leaving the scalar \
-                 payload in place",
-            );
-        }
-    }
-
-    // The rejected layout is not a benign no-op: the surrounding direct call
-    // still passes the bare payload to a callee expecting the full tuple,
-    // which is exactly what the `PostArgPromote` call-shape check forbids.
-    let mut fixture = make_ctladj_into_empty_fixture(10, 12, 7);
-    let (call_id, callee_id) = add_direct_target_call(&mut fixture);
-    {
-        let _guard = CapabilityMatchingGuard::disable();
-        rewrite_closure_dispatch_branch_args(
-            &mut fixture.package,
-            fixture.destination,
-            fixture.args_id,
-            &fixture.captures,
-            &fixture.target_input,
-            0,
-            &mut fixture.assigner,
-        );
-    }
-    assert_eq!(
-        fixture.package.get_expr(fixture.args_id).ty,
-        qubit_array_ty(),
-        "the disabled control must leave the malformed scalar argument untouched",
-    );
-
-    // The callee is an arrow-typed local, so signature resolution reads the
-    // callee expression's own type and never consults the store.
-    let store = PackageStore::new();
-    assert_panics_with("PostArgPromote/PostAll call invariant violation", || {
-        crate::invariants::check_call_shape_matches_callee(
-            &store,
-            &fixture.package,
-            call_id,
-            callee_id,
-            fixture.args_id,
-        );
-    });
-
-    // With capability matching enabled, the same rewrite repairs the call in
-    // place and the identical check now passes.
-    let mut repaired = make_ctladj_into_empty_fixture(10, 12, 7);
-    let (repaired_call_id, repaired_callee_id) = add_direct_target_call(&mut repaired);
-    rewrite_closure_dispatch_branch_args(
-        &mut repaired.package,
-        repaired.destination,
-        repaired.args_id,
-        &repaired.captures,
-        &repaired.target_input,
-        0,
-        &mut repaired.assigner,
-    );
-    assert_eq!(
-        repaired.package.get_expr(repaired.args_id).ty,
-        repaired.target_input,
-        "the repaired argument must adopt the target's declared input type",
-    );
-    assert!(
-        matches!(
-            &repaired.package.get_expr(repaired.args_id).kind,
-            ExprKind::Tuple(elements) if elements.len() == 3,
-        ),
-        "the repaired argument must carry both captures ahead of the payload",
-    );
-
-    let repaired_store = PackageStore::new();
-    crate::invariants::check_call_shape_matches_callee(
-        &repaired_store,
-        &repaired.package,
-        repaired_call_id,
-        repaired_callee_id,
-        repaired.args_id,
     );
 }
 

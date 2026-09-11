@@ -28,8 +28,8 @@ use super::types::{
     ConcreteCallableKey, Error, ScopedLocal, SpecKey, compose_functors, peel_body_functors,
 };
 use super::{
-    build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
-    concrete_callable_key, dispatched_precedes_detached_static,
+    apply_target_input_at_control_path, build_combined_spec_key, build_combined_spec_key_for_group,
+    build_spec_key, concrete_callable_key, dispatched_precedes_detached_static,
     has_multiple_forwarded_callable_arrays, is_combined_eligible, partition_mixed_branch_split,
     resolve_self_call_arg_key,
 };
@@ -3579,36 +3579,6 @@ fn grouped_capture_arg_data(
     Some((kind, target_input.clone()))
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Test-only control over the callable-functor capability relation applied
-    /// by [`dispatch_layout_types_compatible`].
-    ///
-    /// Regressions flip this off to prove that capability matching — and not
-    /// some other part of the dispatch-argument builder — is what lets a
-    /// `CtlAdj` capture populate a target slot declaring only `Empty`. The
-    /// control is compiled out of non-test builds, which always use capability
-    /// matching. It is thread-local so parallel test threads cannot observe
-    /// each other's setting.
-    static DISPATCH_LAYOUT_CAPABILITY_MATCHING: std::cell::Cell<bool> =
-        const { std::cell::Cell::new(true) };
-}
-
-/// Returns whether callable functor sets are compared as capability
-/// requirements. Always `true` outside tests.
-#[cfg(not(test))]
-fn dispatch_layout_capability_matching_enabled() -> bool {
-    true
-}
-
-/// Returns whether callable functor sets are compared as capability
-/// requirements, honoring the test-only
-/// [`DISPATCH_LAYOUT_CAPABILITY_MATCHING`] control.
-#[cfg(test)]
-fn dispatch_layout_capability_matching_enabled() -> bool {
-    DISPATCH_LAYOUT_CAPABILITY_MATCHING.with(std::cell::Cell::get)
-}
-
 /// Returns whether an actual capture layout can populate an expected dispatch
 /// input. Only callable functor sets use capability matching; all other type
 /// structure must match exactly.
@@ -3621,11 +3591,7 @@ fn dispatch_layout_types_compatible(actual: &Ty, expected: &Ty) -> bool {
             actual_arrow.kind == expected_arrow.kind
                 && dispatch_layout_types_compatible(&actual_arrow.input, &expected_arrow.input)
                 && dispatch_layout_types_compatible(&actual_arrow.output, &expected_arrow.output)
-                && if dispatch_layout_capability_matching_enabled() {
-                    dispatch_functors_compatible(actual_arrow.functors, expected_arrow.functors)
-                } else {
-                    actual_arrow.functors == expected_arrow.functors
-                }
+                && dispatch_functors_compatible(actual_arrow.functors, expected_arrow.functors)
         }
         (Ty::Tuple(actual_items), Ty::Tuple(expected_items)) => {
             actual_items.len() == expected_items.len()
@@ -3865,37 +3831,6 @@ fn build_direct_target_callee_ty(
         output: arrow.output.clone(),
         functors: arrow.functors,
     })))
-}
-
-/// Replaces the innermost input slot beneath `controlled_layers` nested
-/// controlled-operation tuples with `target_input`, returning the rewritten
-/// outer type.
-///
-/// A copy of this helper also lives in
-/// `super::rewrite::apply_target_input_at_control_path`; keep the two in
-/// sync when changing controlled-layer handling. See the module-level note
-/// in `rewrite.rs` for why both copies exist.
-fn apply_target_input_at_control_path(
-    current_input: &Ty,
-    target_input: &Ty,
-    controlled_layers: usize,
-) -> Ty {
-    if controlled_layers == 0 {
-        return target_input.clone();
-    }
-
-    match current_input {
-        Ty::Tuple(items) if items.len() > 1 => {
-            let mut new_items = items.clone();
-            new_items[1] = apply_target_input_at_control_path(
-                &new_items[1],
-                target_input,
-                controlled_layers - 1,
-            );
-            Ty::Tuple(new_items)
-        }
-        _ => target_input.clone(),
-    }
 }
 
 /// When the HOF body contains a closure that captures the callable parameter

@@ -30,11 +30,8 @@
 //!
 //! # Notes
 //!
-//! - A copy of the `apply_target_input_at_control_path` helper also lives
-//!   in `super::specialize`. The copy is retained so that specialize and
-//!   rewrite can evolve their controlled-layer handling independently
-//!   without forcing a shared abstraction boundary; update both copies in
-//!   lockstep when controlled-layer semantics change.
+//! - Controlled input substitution is shared with specialization through
+//!   [`super::apply_target_input_at_control_path`].
 
 use super::captures::{CaptureDestination, allocate_capture_exprs, captures_belong_to_destination};
 use super::types::{
@@ -42,9 +39,9 @@ use super::types::{
     DirectCallSite, ScopedLocal, SpecKey, peel_body_functors,
 };
 use super::{
-    build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
-    dispatched_precedes_detached_static, is_combined_eligible, partition_mixed_branch_split,
-    ty_contains_arrow,
+    apply_target_input_at_control_path, build_combined_spec_key, build_combined_spec_key_for_group,
+    build_spec_key, dispatched_precedes_detached_static, is_combined_eligible,
+    partition_mixed_branch_split, ty_contains_arrow,
 };
 use crate::fir_builder::{
     alloc_bin_op_expr, alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr, alloc_expr_stmt,
@@ -3417,37 +3414,6 @@ fn build_direct_global_callee_ty(
         output: arrow.output.clone(),
         functors: arrow.functors,
     })))
-}
-
-/// Replaces the innermost input slot beneath `controlled_layers` nested
-/// controlled-operation tuples with `target_input`, returning the rewritten
-/// outer type.
-///
-/// A copy of this helper also lives in
-/// `super::specialize::apply_target_input_at_control_path`; keep the two
-/// in sync when changing controlled-layer handling (see the module-level
-/// note for why both copies exist).
-fn apply_target_input_at_control_path(
-    current_input: &Ty,
-    target_input: &Ty,
-    controlled_layers: usize,
-) -> Ty {
-    if controlled_layers == 0 {
-        return target_input.clone();
-    }
-
-    match current_input {
-        Ty::Tuple(items) if items.len() > 1 => {
-            let mut new_items = items.clone();
-            new_items[1] = apply_target_input_at_control_path(
-                &new_items[1],
-                target_input,
-                controlled_layers - 1,
-            );
-            Ty::Tuple(new_items)
-        }
-        _ => target_input.clone(),
-    }
 }
 
 /// Returns the packaged input tuple type for a direct call to a lambda

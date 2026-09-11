@@ -88,6 +88,32 @@ use types::{
     peel_body_functors,
 };
 
+/// Replaces the innermost input slot beneath `controlled_layers` nested
+/// controlled-operation tuples with `target_input`, returning the rewritten
+/// outer type.
+fn apply_target_input_at_control_path(
+    current_input: &Ty,
+    target_input: &Ty,
+    controlled_layers: usize,
+) -> Ty {
+    if controlled_layers == 0 {
+        return target_input.clone();
+    }
+
+    match current_input {
+        Ty::Tuple(items) if items.len() > 1 => {
+            let mut new_items = items.clone();
+            new_items[1] = apply_target_input_at_control_path(
+                &new_items[1],
+                target_input,
+                controlled_layers - 1,
+            );
+            Ty::Tuple(new_items)
+        }
+        _ => target_input.clone(),
+    }
+}
+
 /// Lower bound on the analysis => specialize => rewrite iteration limit.
 ///
 /// The loop always runs at least this many iterations. After the first

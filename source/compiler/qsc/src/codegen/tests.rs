@@ -92,6 +92,98 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn callable_payload_dispatch_preserves_qir_acceptance() {
+    let source = r#"
+        namespace Test {
+            operation Dispatch(
+                choices : ((Qubit => Unit) => Unit)[],
+                index : Int,
+                payload : Qubit => Unit
+            ) : Unit {
+                choices[index](payload);
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use selector = Qubit();
+                H(selector);
+                let choices : ((Qubit => Unit) => Unit)[] = [
+                    op => { H(target); op(target); },
+                    op => { X(target); op(target); }
+                ];
+                Dispatch(choices, 0, S);
+                Reset(selector);
+                MResetZ(target)
+            }
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+    assert!(qir.contains("call void @__quantum__qis__s__body("));
+}
+
+#[test]
+fn controlled_struct_factory_preserves_qir_acceptance() {
+    let source = r#"
+        struct PauliSelectParams {
+            paulis : Pauli[][],
+            qubitIndices : Int[],
+            signs : Int[]
+        }
+
+        operation ApplySelect(params : PauliSelectParams, systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+            if Length(params.signs) != 0 {
+                X(systems[0]);
+            }
+        }
+
+        operation ApplyPrepare(systems : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            let params = new PauliSelectParams {
+                paulis = [[PauliX]],
+                qubitIndices = [0],
+                signs = [1]
+            };
+            let sel = ApplySelect(params, _, _);
+            MakeControlledPrepSelPrepCircuit(ApplyPrepare, sel, 1, 1);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+    assert!(qir.contains("call void @__quantum__qis__cx__body("));
+}
+
+#[test]
 fn residual_callable_sources_preserve_profile_acceptance() {
     use qsc_rca::errors::Error as CapabilityError;
 
