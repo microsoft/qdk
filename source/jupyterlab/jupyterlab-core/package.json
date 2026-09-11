@@ -1,6 +1,6 @@
 {
   "name": "@jupyterlab/core",
-  "version": "4.4.3",
+  "version": "4.6.0",
   "jupyterlab": {
     "singletonPackages": [
       "@codemirror/language",
