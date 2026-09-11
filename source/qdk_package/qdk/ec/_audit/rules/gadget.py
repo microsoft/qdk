@@ -15,7 +15,6 @@ from ..._analysis.channel_action import (
     declared_action_of,
     realized_action_of,
 )
-from ..._analysis.check_discovery import _output_relations_of
 from ..._analysis.declaration_issues import declaration_issues
 from .._dependencies import row_dependencies
 from .._diagnostic import Diagnostic, Phase, Severity
@@ -427,7 +426,10 @@ class IncompleteOutputFrameRule:
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         try:
-            missing = ParityAnalysis(gadget).unresolved_outputs()
+            analysis = ParityAnalysis(gadget)
+            missing = analysis.unresolved_outputs()
+            if missing:
+                _ = analysis.values
         except (
             KeyError,
             ValueError,
@@ -445,34 +447,25 @@ class IncompleteOutputFrameRule:
             return
         if not missing:
             return
-        try:
-            relations = _output_relations_of(gadget)
-            unavailable = "No noiseless relation was derived."
-        except (KeyError, ValueError, TypeError, NotImplementedError) as error:
-            relations = []
-            unavailable = f"Relation not derived: {type(error).__name__}: {error}"
         for path in missing:
             reference = qc.gadgets.Reference(path)
             operand, index = reference.entry, reference.index
             assert operand is not None
             sign = StabilizerSign("out", operand, index)
             encoding = gadget.outputs[operand]
-            relation = next(
-                (
-                    (equation, offset)
-                    for equation, offset in relations
-                    if sign in equation
-                ),
-                None,
-            )
-            detail = unavailable
+            expected = analysis.external(path)
+            relation = analysis.candidate(expected)
+            offset = relation is None
+            if offset:
+                inverted = expected.copy()
+                inverted[len(inverted) - 1] = not inverted[len(inverted) - 1]
+                relation = analysis.candidate(inverted)
+            detail = "No noiseless relation was derived."
             if relation is not None:
-                terms = _equation(
-                    (sign, *(term for term in relation[0] if term != sign))
-                )
+                terms = _equation((path, *relation))
                 detail = (
                     f"Relation terms: {terms}\nParity: 1 (not a valid zero-parity check)."
-                    if relation[1]
+                    if offset
                     else f"Verified relation: {terms}"
                 )
             yield Diagnostic(

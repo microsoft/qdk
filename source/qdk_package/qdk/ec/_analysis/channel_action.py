@@ -299,6 +299,7 @@ def _decode(
         PauliFrame(generator, frozenset({index}))
         for index, generator in enumerate(input_generators)
     )
+    phased_inputs = indexed_inputs | FrameGroup([PauliFrame(identity(1j))])
     mapping = {}
     for basis_element in code_in.logical_basis:
         target = (PauliGroup([basis_element]) % observables_group).generators[0]
@@ -308,15 +309,24 @@ def _decode(
             # Read out by the circuit rather than carried forward.
             continue
         factorization = indexed_inputs.factorization_of(target)
+        phase_extended = factorization is None
+        if phase_extended:
+            factorization = phased_inputs.factorization_of(target)
         if factorization is None:
             # Nothing the channel carries reproduces it, so no output holds it.
             continue
         factors: frozenset[int] = frozenset()
         for factor in factorization:
             factors ^= factor.frame
+        input_product = identity()
+        for index, generator in enumerate(input_generators):
+            if index in factors:
+                input_product *= generator
         output = output_generators.subgroup(
             [[index in factors for index in range(len(input_generators))]]
         ).generators[0]
+        if phase_extended:
+            output *= target.phase / input_product.phase
         mapping[code_in.logical_action_of(target)] = PauliFrame(
             code_out.logical_action_of(output.pauli), output.frame
         ) * (target.phase**3)
