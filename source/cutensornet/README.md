@@ -498,14 +498,14 @@ The intended end state is one tool that asks a few questions, diagnoses the
 machine it is running on, and names the next action rather than just the
 failure. Most of the vocabulary already exists:
 
-| Question                         | Already available                         | Missing                                                                   |
-| -------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
-| Is this a supported platform?    | `UnsupportedPlatform`                     | phrasing the remedy                                                       |
-| Is a GPU present?                | `cudaGetDeviceCount` is resolved          | it is not reported; `AvailabilityReport` carries versions only            |
-| Is a driver present?             | `cuda_driver_version`                     | mapping "0" to "install a driver"                                         |
-| Are the libraries installed?     | `LibraryNotFound { attempted }`           | pointing at the redist archive that supplies them                         |
-| Are they the right version?      | `UnsupportedVersion { found, supported }` | the supported version is already named; only the download hint is missing |
-| Is the library the one we bound? | `MissingRequiredSymbol { symbol }`        | explaining that this means a version skew                                 |
+| Question                         | Already available                         | Missing                                                                                   |
+| -------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Is this a supported platform?    | `UnsupportedPlatform`                     | phrasing the remedy                                                                       |
+| Is a GPU present?                | `cudaGetDeviceCount` is resolved          | it is not reported; `AvailabilityReport` carries versions only                            |
+| Is a driver present?             | `cuda_driver_version`                     | mapping "0" to "install a driver"                                                         |
+| Are the libraries installed?     | `LibraryNotFound { attempted }`           | pointing at the redist archive that supplies them                                         |
+| Are they the right version?      | `UnsupportedVersion { found, supported }` | the supported version is already named; only the download hint is missing                 |
+| Is the library the one we bound? | `MissingRequiredSymbol { symbol }`        | explaining that this means a version skew, and reporting it as one (see the next section) |
 
 So this is mostly an ergonomics layer over `discover()`, plus surfacing the
 device count, plus a table mapping each variant to a remedy.
@@ -529,3 +529,40 @@ it downloaded, and would let `scripts/generate-bindings.sh` be pointed at a
 version rather than a file. See `scripts/README.md` for the generation side.
 
 Neither piece is started, and neither blocks current work.
+
+## TODO: validate versions before resolving the symbol table
+
+`discover()` resolves the whole cuTensorNet function table and only afterwards
+probes and validates the versions. That order means a library of the wrong
+version is usually reported as a missing symbol rather than as a version
+mismatch:
+
+- what a user sees today, for a cuTensorNet older than the audited one:
+  `MissingRequiredSymbol { symbol: "cutensornetLoggerSetLevel" }`
+- what is actually wrong:
+  `UnsupportedVersion { found: 21200, supported: "21300" }`
+
+Both paths fail closed, so nothing is silently wrong and no result is affected.
+The cost is diagnostic: the error names a symptom instead of the cause, and
+points the reader at the wrong repair. The older-library case is the most
+likely real misconfiguration, and it is exactly the one the message misleads on.
+
+The fix is to resolve only `cutensornetGetVersion` and
+`cutensornetGetCudartVersion`, validate them against `POLICY`, and resolve the
+rest of the table afterwards. The CUDA Runtime side has the same ordering.
+
+What makes this more than a reordering is that `discover()` has no seam: it
+calls `load_library` itself, so every test that reaches it needs real
+libraries, which is why the existing coverage is either `#[ignore]`d or lives
+in `tests/availability.rs`. Extracting the version step behind
+`SymbolResolver` is what turns the regression guard into a plain unit test
+that needs no GPU and no x86-64 host. Each piece has a precedent to copy:
+
+| Step                                             | Precedent to copy                                                        |
+| ------------------------------------------------ | ------------------------------------------------------------------------ |
+| Extract a resolver-generic version check         | `probe_cuda_version` already takes its function pointers as parameters   |
+| Report a chosen version from a fake              | `failing_version_probe` is already a callable `extern "C"` test fake     |
+| Assert a wrong version outranks a missing symbol | `every_missing_cutensornet_symbol_is_reported` already iterates that set |
+
+Not started, and it does not block current work: the version policy accepts one
+exact runtime, so a library that resolves today is the audited one.
