@@ -116,11 +116,10 @@ class GadgetProfile:
         """Effects over the canonical fault basis, paired with their cause.
 
         The canonical basis is one X and one Z fault after every instruction on
-        every qubit it touches. That spans every circuit-level Pauli fault: a
-        multi-qubit fault at one location is the product of single-qubit faults
-        there, and effects are linear over GF(2), so any other basis follows by
-        change of basis. This compact propagation basis is not the unit-cost
-        circuit fault set used by distance and distance_bounds.
+        every qubit it touches, plus one recorded-bit flip per circuit readout.
+        Products span the Pauli/readout fault model, and effects are linear over
+        GF(2). This compact propagation basis is not the unit-cost circuit fault
+        set used by distance and distance_bounds.
         """
         basis = self._canonical_fault_basis()
         return tuple(zip(basis, self.effects_of(basis)))
@@ -132,6 +131,10 @@ class GadgetProfile:
         For gadgets, evaluate the complete declared checks and readouts,
         including output signs and uniquely defined readout dependencies.
         Incoming signs have zero change for circuit-internal faults.
+        FaultEvent.after(..., readout_flips=...) indexes the selected call's
+        own readouts, starting at zero, whereas
+        FaultEffect.readout_flips indexes the gadget's declared logical readouts.
+        Recorded-bit flips do not themselves change the surviving quantum state.
         Invalid references or ambiguous readouts raise ValueError.
         Conditional/selected calls and circuit instruction flags are unsupported.
         """
@@ -148,10 +151,13 @@ class GadgetProfile:
     ) -> tuple[int, list[FaultEvent]]:
         """Return the smallest undetected fault count and its fault factors.
 
-        By default, allow every nonidentity Pauli on each call's support,
-        injected after that call: 3 faults on one qubit, 15 on two, and
-        4**n - 1 on n qubits. Each allowed event costs one, including a
-        correlated multi-qubit event; this is not FaultEvent.weight.
+        By default, allow every combination of a post-call Pauli on a call's
+        qubits and flips of its recorded readout bits, except the identity event.
+        A call with n qubits and r readouts contributes 4**n * 2**r - 1 events.
+        Calls without readouts retain 3 one-qubit or 15 two-qubit Pauli faults.
+        Each event costs one, including correlated quantum/readout errors at
+        one call; this is not FaultEvent.weight. A pure readout flip changes
+        only the reported bit, not the quantum state after measurement.
         Pass an explicit sequence to replace that fault set, including [].
         An explicit event may span several call positions and still costs one.
 
@@ -180,8 +186,9 @@ class GadgetProfile:
         Return an empty list and a sentinel greater than the number of distinct
         constraint columns only when no logical failure is possible. A cutoff
         or an open bound gap raises RuntimeError rather than claiming exactness.
-        Fault positions are zero-based Circuit.calls indices. Invalid indices,
-        references, or unbound logical readouts raise ValueError. Propagation
+        FaultEvent.after selects a zero-based Circuit.calls index; its readout
+        indexes are local to that call, excluding hidden reset outcomes.
+        Invalid indices, references, or unbound logical readouts raise ValueError. Propagation
         restrictions are the same as for effects_of. The fault set grows
         exponentially with call support; exact search is also combinatorial.
         """
@@ -351,11 +358,19 @@ class GadgetProfile:
     def _canonical_fault_basis(self) -> tuple[FaultEvent, ...]:
         program = self._circuit
         layout = ProgramLayout.of(program)
-        return tuple(
+        calls = program.calls
+        quantum = tuple(
             FaultEvent.after(index, Pauli({qubit: basis}))
-            for index, call in enumerate(program.calls)
+            for index, call in enumerate(calls)
             for qubit in sorted(set(layout.call_qubit_map(call).values()))
             for basis in ("X", "Z")
+        )
+        return quantum + tuple(
+            FaultEvent.after(index, readout_flips=readout)
+            for index, call in enumerate(calls)
+            for readout in range(
+                observe_count_of(program.instruction_set.instructions[call.mnemonic])
+            )
         )
 
     def _circuit_faults(self) -> tuple[FaultEvent, ...]:
@@ -364,6 +379,9 @@ class GadgetProfile:
         faults = []
         for index, call in enumerate(program.calls):
             support = sorted(set(layout.call_qubit_map(call).values()))
+            readout_count = observe_count_of(
+                program.instruction_set.instructions[call.mnemonic]
+            )
             for characters in product(("I", "X", "Y", "Z"), repeat=len(support)):
                 error = Pauli(
                     {
@@ -372,8 +390,14 @@ class GadgetProfile:
                         if character != "I"
                     }
                 )
-                if error.weight:
-                    faults.append(FaultEvent.after(index, error))
+                for flipped in product((False, True), repeat=readout_count):
+                    readouts = tuple(
+                        position for position, flip in enumerate(flipped) if flip
+                    )
+                    if error.weight or readouts:
+                        faults.append(
+                            FaultEvent.after(index, error, readout_flips=readouts)
+                        )
         return tuple(faults)
 
 

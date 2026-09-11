@@ -1,4 +1,4 @@
-"""Synthesize a runnable qodec from a bare stabilizer code.
+"""Build a runnable qodec from a bare stabilizer code.
 
 A :class:`qodec.Code` is a *static* object: it says which Pauli operators
 stabilize the codespace and which represent the logical qubits, but it says
@@ -7,25 +7,31 @@ nothing about how to prepare, preserve, or read out an encoded state. A
 gadgets lower each logical instruction into a concrete circuit.
 
 :func:`build_qodec` bridges the two. Given a code, it emits a two-layer
-qodec — a synthesized logical ISA over the code's ``k`` logical qubits,
+qodec — a logical ISA over the code's ``k`` logical qubits,
 lowering to a physical stim ISA — with a textbook circuit for each logical
 instruction:
 
-===============  ===========================================================
-instruction      synthesized circuit
-===============  ===========================================================
-``prepare_z``    reset all data to :math:`|0\\rangle`, then one syndrome round
-``prepare_x``    reset all data, Hadamard all, then one syndrome round
-``idle``         one syndrome-extraction round
-``measure_z``    destructive transversal ``M``
-``measure_x``    transversal ``H`` then destructive ``M``
-``x{i}``         the code's i-th logical X operator, gate by gate
-``z{i}``         the code's i-th logical Z operator, gate by gate
-===============  ===========================================================
+==================  ===========================================================
+instruction         built circuit
+==================  ===========================================================
+``prepare_z``       reset all data to :math:`|0\\rangle`, then one syndrome round
+``prepare_x``       reset all data, Hadamard all, then one syndrome round
+``idle``            one syndrome-extraction round
+``measure_z``       destructive transversal ``M``
+``measure_x``       transversal ``H`` then destructive ``M``
+``transversal_h``   ``H`` on every data qubit of one block
+``transversal_cx``  ``CX`` between corresponding data qubits of two blocks
+==================  ===========================================================
 
-Syndrome extraction is fault tolerant. Each stabilizer gets a syndrome ancilla
-prepared in :math:`|+\\rangle` and coupled by a controlled Pauli to every qubit
-of its support, plus ``t`` nested **flag qubits** that catch the hook errors
+Logical Pauli operations are frame updates, not circuit candidates. The
+transversal candidates must realize H on every logical qubit or CNOT between
+corresponding logical qubits of the two blocks; verification rejects codes or
+logical bases for which these circuits do not implement those actions.
+
+The flagged strategy adds flag qubits to syndrome extraction. Each stabilizer
+gets a syndrome ancilla prepared in :math:`|+\\rangle` and coupled by a controlled
+Pauli to every qubit of its support, plus ``t`` nested **flag qubits** that catch
+the hook errors
 that construction would otherwise admit (see :func:`_syndrome_round`). A single
 uncaught ancilla fault would propagate onto several data qubits at once and cap
 the circuit at distance 2 no matter how good the code is; the flags make every
@@ -34,10 +40,11 @@ Beverland (arXiv:1708.02246), whose ``t = 1`` case is Chao & Reichardt's
 two-extra-qubit circuit for distance-3 codes (arXiv:1705.02329).
 
 The default ``t`` is ``(d - 1) // 2`` for a code of distance ``d``, which is the
-fault-tolerant answer; ``flags=0`` synthesizes the naive, non-fault-tolerant
-circuit deliberately and is not reachable from :func:`build_qodec`.
+fault-tolerant answer for ``strategy="flagged-css/v1"``. The alternative
+``strategy="bare-css/v1"`` sets ``flags=0`` and builds the non-fault-tolerant
+circuit without flag qubits or the distance computation.
 
-Checks and readouts are *not* hand-derived: each synthesized gadget is a draft
+Checks and readouts are *not* hand-derived: each built gadget is a draft
 that :func:`~qdk.ec._completion.complete_gadget` finishes by exact
 simulation. Every finished gadget is then verified with
 the internal gadget-action comparison, so an instruction
@@ -46,7 +53,7 @@ survives only if its circuit provably realizes the action it declares. See
 
 .. _unsupported-instructions:
 
-Instructions that cannot be synthesized
+Instructions that cannot be built
 ---------------------------------------
 Not every logical instruction is available for every code. Some omissions are
 mathematical: ``prepare_z`` prepares :math:`|0\\rangle^{\\otimes n}` and projects
@@ -72,9 +79,9 @@ construction even with flags.
 
 :func:`build_qodec` refuses to guess which case applies: by default an
 instruction whose gadget does not complete *and* verify raises. Pass
-``strict=False`` to the internal synthesizer instead to keep only the
+``strict=False`` instead to keep only the
 instructions that survive and record every omission with its reason under the
-returned qodec's ``metadata["qdk.ec"]["synthesis"]["omitted"]``.
+returned qodec's ``metadata["qdk.ec"]["build"]["omitted"]``.
 """
 
 from __future__ import annotations
@@ -84,7 +91,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional
 
 import qodec as qc
-from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
+from qodec.actions import Clifford, Observe, Stabilize
 from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
@@ -99,10 +106,10 @@ from ._references import as_references
 if TYPE_CHECKING:
     from ._analysis.code_algebra import SubsystemCode
 
-#: Name given to the synthesized physical instruction set.
+#: Name given to the built physical instruction set.
 _PHYSICAL_ISA_NAME = "stim"
 
-#: Key under which synthesis notes are recorded in the qodec's metadata.
+#: Key under which build notes are recorded in the qodec's metadata.
 _METADATA_KEY = "qdk.ec"
 
 
@@ -115,7 +122,7 @@ def _reject_y_components(code: qc.Code) -> None:
     """Raise if any operator has a Y component.
 
     Y components would need ``S`` / ``S_DAG`` in the physical ISA, whose sign
-    conventions are not covered by this synthesizer. Every operator is reported
+    conventions are not covered by this builder. Every operator is reported
     at once so a caller sees the full picture rather than the first offender.
     """
     offenders = [
@@ -126,18 +133,18 @@ def _reject_y_components(code: qc.Code) -> None:
     ]
     if offenders:
         raise NotImplementedError(
-            "qodec_from_code cannot synthesize circuits for operators with Y "
+            "build_qodec cannot build circuits for operators with Y "
             f"components: {', '.join(sorted(offenders))}. Re-express the code "
             "in an X/Z basis, or author the gadgets by hand."
         )
 
 
 def _physical_isa() -> InstructionSet:
-    """The stim ISA the synthesized gadget circuits target.
+    """The stim ISA the built gadget circuits target.
 
     Deliberately small: reset, Hadamard, the two controlled Paulis syndrome
-    extraction needs, destructive measurement, and the two Pauli gates logical
-    Pauli gadgets need. Each carries the action that makes it simulable by
+    extraction needs, and destructive measurement. Each carries the action
+    that makes it simulable by
     :mod:`qdk.ec._analysis.propagation`.
     """
 
@@ -181,20 +188,6 @@ def _physical_isa() -> InstructionSet:
                 inputs=[operand()],
                 action=[Observe(["Z_0"])],
             ),
-            Instruction(
-                "X",
-                description="Pauli X.",
-                inputs=[operand()],
-                outputs=[operand()],
-                action=[PauliAction("X_0")],
-            ),
-            Instruction(
-                "Z",
-                description="Pauli Z.",
-                inputs=[operand()],
-                outputs=[operand()],
-                action=[PauliAction("Z_0")],
-            ),
         ],
     )
 
@@ -216,7 +209,7 @@ def _flag_capacity(weight: int) -> int:
 def _syndrome_round(
     stabilizers: Sequence[qc.PauliString], data_width: int, flags: int
 ) -> list[str]:
-    """Stim lines measuring every stabilizer once, fault-tolerantly.
+    """Stim lines measuring every stabilizer once, with optional flag qubits.
 
     Each stabilizer gets a syndrome ancilla prepared in :math:`|+\\rangle`,
     coupled by a controlled Pauli to every qubit of its support, then rotated
@@ -297,19 +290,6 @@ def _syndrome_round(
     return lines
 
 
-def _pauli_lines(operator: qc.PauliString) -> list[str]:
-    """Stim lines applying a Pauli operator gate by gate."""
-    characters = _characters(operator)
-    x_targets = sorted(q for q, c in characters.items() if c == "X")
-    z_targets = sorted(q for q, c in characters.items() if c == "Z")
-    lines = []
-    if x_targets:
-        lines.append(f"X {_targets(x_targets)}")
-    if z_targets:
-        lines.append(f"Z {_targets(z_targets)}")
-    return lines
-
-
 class _Candidate:
     """One logical instruction plus the circuit that is meant to realize it."""
 
@@ -317,14 +297,9 @@ class _Candidate:
         self,
         instruction: Instruction,
         source_lines: list[str],
-        *,
-        takes_input: bool,
-        gives_output: bool,
     ) -> None:
         self.instruction = instruction
         self.source = "\n".join(source_lines) + "\n" if source_lines else "\n"
-        self.takes_input = takes_input
-        self.gives_output = gives_output
 
     @property
     def mnemonic(self) -> str:
@@ -332,7 +307,7 @@ class _Candidate:
 
 
 @dataclass(frozen=True)
-class _SynthesisFailure:
+class _BuildFailure:
     stage: Literal["completion", "verification"]
     kind: str
     message: str
@@ -355,7 +330,7 @@ def _candidates(
     data_width: int,
     flags: int,
 ) -> list[_Candidate]:
-    """Every logical instruction this synthesizer knows how to attempt.
+    """Every logical instruction this builder knows how to attempt.
 
     ``flags`` is the number of nested flag qubits per stabilizer (see
     :func:`_syndrome_round`).
@@ -374,7 +349,16 @@ def _candidates(
     z_observables = list(z_tokens)
     x_observables = list(x_tokens)
 
-    candidates = [
+    hadamard_images: dict[qc.PauliLike, qc.PauliLike] = {}
+    cnot_images: dict[qc.PauliLike, qc.PauliLike] = {}
+    for index in order:
+        hadamard_images[f"X_{index}"] = f"Z_{index}"
+        hadamard_images[f"Z_{index}"] = f"X_{index}"
+        target = logical_count + index
+        cnot_images[f"X_{index}"] = f"X_{index} X_{target}"
+        cnot_images[f"Z_{target}"] = f"Z_{index} Z_{target}"
+
+    return [
         _Candidate(
             Instruction(
                 "prepare_z",
@@ -383,8 +367,6 @@ def _candidates(
                 action=[Stabilize(z_tokens)],
             ),
             [f"R {all_data}", *syndrome],
-            takes_input=False,
-            gives_output=True,
         ),
         _Candidate(
             Instruction(
@@ -394,8 +376,6 @@ def _candidates(
                 action=[Stabilize(x_tokens)],
             ),
             [f"R {all_data}", f"H {all_data}", *syndrome],
-            takes_input=False,
-            gives_output=True,
         ),
         _Candidate(
             Instruction(
@@ -405,8 +385,6 @@ def _candidates(
                 outputs=[operand()],
             ),
             list(syndrome),
-            takes_input=True,
-            gives_output=True,
         ),
         _Candidate(
             Instruction(
@@ -416,8 +394,6 @@ def _candidates(
                 action=[Observe(z_observables)],
             ),
             [f"M {all_data}"],
-            takes_input=True,
-            gives_output=False,
         ),
         _Candidate(
             Instruction(
@@ -427,42 +403,28 @@ def _candidates(
                 action=[Observe(x_observables)],
             ),
             [f"H {all_data}", f"M {all_data}"],
-            takes_input=True,
-            gives_output=False,
+        ),
+        _Candidate(
+            Instruction(
+                "transversal_h",
+                description="Hadamard on every logical qubit.",
+                inputs=[operand()],
+                outputs=[operand()],
+                action=[Clifford(hadamard_images)],
+            ),
+            [f"H {all_data}"],
+        ),
+        _Candidate(
+            Instruction(
+                "transversal_cx",
+                description="CNOT from the first block to the second, pairing logical qubits.",
+                inputs=[operand(), operand()],
+                outputs=[operand(), operand()],
+                action=[Clifford(cnot_images)],
+            ),
+            [f"CX {qubit} {data_width + qubit}" for qubit in range(data_width)],
         ),
     ]
-
-    for index, operator in enumerate(code.x):
-        candidates.append(
-            _Candidate(
-                Instruction(
-                    f"x{index}",
-                    description=f"Logical X on logical qubit {index}.",
-                    inputs=[operand()],
-                    outputs=[operand()],
-                    action=[PauliAction(f"X_{index}")],
-                ),
-                _pauli_lines(operator),
-                takes_input=True,
-                gives_output=True,
-            )
-        )
-    for index, operator in enumerate(code.z):
-        candidates.append(
-            _Candidate(
-                Instruction(
-                    f"z{index}",
-                    description=f"Logical Z on logical qubit {index}.",
-                    inputs=[operand()],
-                    outputs=[operand()],
-                    action=[PauliAction(f"Z_{index}")],
-                ),
-                _pauli_lines(operator),
-                takes_input=True,
-                gives_output=True,
-            )
-        )
-    return candidates
 
 
 def _draft(
@@ -472,14 +434,24 @@ def _draft(
     physical: InstructionSet,
     data_width: int,
 ) -> qc.Gadget:
-    support = [str(qubit) for qubit in range(data_width)]
+    def encodings(operands: Sequence[BlockOperand]) -> list[Encoding]:
+        return [
+            Encoding(
+                code,
+                support=[
+                    str(qubit)
+                    for qubit in range(index * data_width, (index + 1) * data_width)
+                ],
+                block_types=["qubit"] * data_width,
+            )
+            for index in range(len(operands))
+        ]
+
     return qc.Gadget(
         instruction,
         Circuit(physical, candidate.source, format="stim"),
-        inputs=[Encoding(code, support=list(support))] if candidate.takes_input else [],
-        outputs=(
-            [Encoding(code, support=list(support))] if candidate.gives_output else []
-        ),
+        inputs=encodings(instruction.inputs),
+        outputs=encodings(instruction.outputs),
     )
 
 
@@ -503,12 +475,12 @@ def _attempt_candidate(
     code: qc.Code,
     physical: InstructionSet,
     data_width: int,
-) -> qc.Gadget | _SynthesisFailure:
+) -> qc.Gadget | _BuildFailure:
     draft = _draft(candidate, instruction, code, physical, data_width)
     try:
         gadget = complete_gadget(draft)
     except (KeyError, ValueError, NotImplementedError) as error:
-        return _SynthesisFailure(
+        return _BuildFailure(
             "completion",
             type(error).__name__,
             str(error),
@@ -516,17 +488,17 @@ def _attempt_candidate(
     try:
         mismatch = gadget_action_mismatch(gadget)
     except (KeyError, ValueError, NotImplementedError) as error:
-        return _SynthesisFailure(
+        return _BuildFailure(
             "verification",
             type(error).__name__,
             str(error),
         )
     if mismatch is not None:
-        return _SynthesisFailure("verification", "ActionMismatch", mismatch)
+        return _BuildFailure("verification", "ActionMismatch", mismatch)
     return gadget
 
 
-def _synthesize(
+def _build(
     code: qc.Code,
     *,
     name: Optional[str] = None,
@@ -534,7 +506,7 @@ def _synthesize(
     flags: Optional[int] = None,
     strict: bool = False,
 ) -> qc.Qodec:
-    """Synthesize a runnable qodec that implements ``code``.
+    """Build a runnable qodec that implements ``code``.
 
     Returns a two-layer qodec: a logical ISA over the code's ``k`` logical
     qubits, lowering to a physical stim ISA, with one completed gadget per
@@ -570,7 +542,7 @@ def _synthesize(
         If any stabilizer or logical operator has a Y component.
     ValueError
         If the code declares no logical qubits, or — with ``strict=True`` — if
-        any instruction could not be synthesized.
+        any instruction could not be built.
     """
     _reject_y_components(code)
 
@@ -616,10 +588,10 @@ def _synthesize(
             physical,
             data_width,
         )
-        if isinstance(attempt, _SynthesisFailure):
+        if isinstance(attempt, _BuildFailure):
             if strict:
                 raise ValueError(
-                    f"could not synthesize {candidate.mnemonic!r} for code "
+                    f"could not build {candidate.mnemonic!r} for code "
                     f"{resolved_name!r}: {attempt}"
                 )
             omitted[candidate.mnemonic] = attempt.as_metadata()
@@ -628,7 +600,7 @@ def _synthesize(
 
     if not completed:
         raise ValueError(
-            f"no instruction could be synthesized for code {resolved_name!r}; "
+            f"no instruction could be built for code {resolved_name!r}; "
             f"reasons: {omitted}"
         )
 
@@ -646,7 +618,7 @@ def _synthesize(
 
     metadata: dict[str, object] = {
         _METADATA_KEY: {
-            "synthesis": {
+            "build": {
                 "source": "qdk.ec.build_qodec",
                 "code": code.name,
                 "physical_qubits": data_width,
@@ -664,7 +636,7 @@ def _synthesize(
             description
             if description is not None
             else (
-                f"Synthesized from the {code.name!r} stabilizer code "
+                f"Built from the {code.name!r} stabilizer code "
                 f"([[{data_width}, {logical_count}]])."
             )
         ),
@@ -682,22 +654,25 @@ def build_qodec(
     strategy: str = "flagged-css/v1",
     strict: bool = True,
 ) -> qc.Qodec:
-    """Synthesize a two-layer qodec from a bare stabilizer code.
+    """Build a two-layer qodec from a bare stabilizer code.
 
     ``strict`` defaults to ``True``: an instruction whose gadget does not
     complete and verify raises rather than being silently omitted.
 
-    ``strategy`` is reserved for a future second construction and is named in
-    the returned qodec's description.
+    ``strategy="flagged-css/v1"`` (the default) uses flag qubits during syndrome
+    extraction. ``strategy="bare-css/v1"`` omits those flags and is not fault
+    tolerant; it also skips the distance computation used to choose the flag
+    count. Both strategies attempt the same instructions and verify their
+    logical actions. The strategy is named in the default qodec description.
     """
     from ._analysis.code_algebra import SubsystemCode, as_qodec_code
 
-    if strategy != "flagged-css/v1":
+    if strategy not in ("flagged-css/v1", "bare-css/v1"):
         raise ValueError(f"unknown qodec construction strategy {strategy!r}")
     materialized = (
         as_qodec_code(code, name or "code") if isinstance(code, SubsystemCode) else code
     )
-    return _synthesize(
+    return _build(
         materialized,
         name=name,
         description=(
@@ -705,6 +680,7 @@ def build_qodec(
             if description is not None
             else _default_description(materialized, strategy)
         ),
+        flags=0 if strategy == "bare-css/v1" else None,
         strict=strict,
     )
 
@@ -713,7 +689,7 @@ def _default_description(code: qc.Code, strategy: str) -> str:
     physical = code_qubit_count(code)
     logical = len(list(code.x))
     return (
-        f"Synthesized from the {code.name!r} stabilizer code "
+        f"Built from the {code.name!r} stabilizer code "
         f"([[{physical}, {logical}]]). Strategy: {strategy}."
     )
 

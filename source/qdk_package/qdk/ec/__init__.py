@@ -1,7 +1,7 @@
 """Develop and test quantum error-correction schemes described by qodecs.
 
 The ``qodec`` package owns the data model and persistence. This module derives
-facts by exact simulation, synthesizes a qodec from a code, and audits complete
+facts by exact simulation, builds a qodec from a code, and audits complete
 qodecs. Its public API is intentionally flat and small.
 
 There is no qodec-wide profile. A qodec is a stack of lowering layers, so its
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from ._completion import derive
     from ._faults import FaultEffect, FaultEvent
     from ._profile import GadgetProfile
-    from ._synthesis import build_qodec
+    from ._build import build_qodec
 
 __all__ = [
     "ChannelAction",
@@ -56,7 +56,7 @@ _EXPORTS = {
     "Report": ("._audit._report", "Report"),
     "SubsystemCode": ("._analysis.code_algebra", "SubsystemCode"),
     "audit": ("._audit._auditor", "audit"),
-    "build_qodec": ("._synthesis", "build_qodec"),
+    "build_qodec": ("._build", "build_qodec"),
     "derive": ("._completion", "derive"),
 }
 

@@ -76,6 +76,183 @@ def _measurement_gadget(physical: qc.InstructionSet, qubit_count: int) -> qc.Gad
     )
 
 
+def test_measurement_only_distance_includes_readout_flips(rep3_qodec: qc.Qodec) -> None:
+    physical = rep3_qodec.layers[1].instruction_set
+    gadget = _measurement_gadget(physical, 3)
+    gadget.circuit = qc.gadgets.Circuit(physical, "M 0 1 2", format="stim")
+    profile = GadgetProfile(gadget)
+
+    distance, witness = profile.distance()
+    assert distance == len(witness) == 3
+    lower, upper, bounded = profile.distance_bounds(solver=EnumerationSolverOptions())
+    assert lower == upper == len(bounded) == 3
+    (effect,) = profile.effects_of([reduce(mul, witness, FaultEvent({}))])
+    assert not effect.syndrome
+    assert effect.readout_flips == {0}
+
+
+@pytest.mark.parametrize(
+    "observable,error,width",
+    [("Z_0", "X_0", 1), ("X_0", "Z_0", 1), ("Z_0 Z_1", "X_1", 2)],
+)
+def test_nondestructive_readout_flip_matches_pauli_sandwich(
+    observable: str, error: str, width: int
+) -> None:
+    operands = [qc.instructions.BlockOperand("qubit") for _ in range(width)]
+    physical = qc.InstructionSet(
+        "physical",
+        blocks=[qc.instructions.Block("qubit", encodes=1)],
+        instructions=[
+            qc.Instruction("wait", inputs=operands, outputs=operands),
+            qc.Instruction(
+                "measure",
+                inputs=operands,
+                outputs=operands,
+                action=[qc.actions.Observe([observable])],
+            ),
+        ],
+    )
+    targets = ", ".join(str(index) for index in range(width))
+    circuit = qc.gadgets.Circuit(
+        physical, f"- wait: [{targets}]\n- measure: [{targets}]", format="yaml"
+    )
+    code = qc.Code(
+        "data",
+        [],
+        [f"X_{index}" for index in range(width)],
+        [f"Z_{index}" for index in range(width)],
+    )
+    encoding = qc.gadgets.Encoding(code, support=[str(index) for index in range(width)])
+    logical = qc.instructions.BlockOperand("data")
+    gadget = qc.Gadget(
+        qc.Instruction(
+            "measure",
+            inputs=[logical],
+            outputs=[logical],
+            action=[qc.actions.Observe([observable])],
+        ),
+        circuit,
+        inputs=[encoding],
+        outputs=[encoding],
+        readouts=[["circuit.readouts[0]"]],
+    )
+    profile = GadgetProfile(gadget)
+    readout_fault = FaultEvent.after(1, readout_flips=0)
+    sandwich = FaultEvent.after(0, Pauli(error)) * FaultEvent.after(1, Pauli(error))
+    direct_effect, sandwich_effect = profile.effects_of([readout_fault, sandwich])
+    assert direct_effect == sandwich_effect
+    assert direct_effect.readout_flips == {0}
+    assert all(not pauli.weight for pauli in direct_effect.output_error.values())
+    assert profile.distance(faults=[readout_fault]) == (1, [readout_fault])
+    post_fault = FaultEvent.after(1, Pauli(error))
+    (post_effect,) = profile.effects_of([post_fault])
+    assert not post_effect.readout_flips
+    assert any(pauli.weight for pauli in post_effect.output_error.values())
+    assert readout_fault in profile._circuit_faults()
+    assert readout_fault * post_fault in profile._circuit_faults()
+    assert readout_fault in dict(profile.fault_effects)
+
+
+def test_readout_noise_uses_call_local_positions_not_reset_rows(
+    rep3_qodec: qc.Qodec,
+) -> None:
+    circuit = qc.gadgets.Circuit(
+        rep3_qodec.layers[1].instruction_set, "R 0\nM 0\nR 1\nM 1", format="stim"
+    )
+    profile = GadgetProfile(circuit)
+    first, second, both = profile.effects_of(
+        [
+            FaultEvent.after(1, readout_flips=0),
+            FaultEvent.after(3, readout_flips=[0]),
+            FaultEvent.after(1, readout_flips=0) * FaultEvent.after(3, readout_flips=0),
+        ]
+    )
+    assert first.readout_flips == {0}
+    assert second.readout_flips == {1}
+    assert both.readout_flips == {0, 1}
+    assert first.output_error == second.output_error == both.output_error == {}
+    for index in (-1, 1):
+        with pytest.raises(ValueError, match="fault readout index"):
+            profile.effects_of([FaultEvent.after(3, readout_flips=index)])
+    with pytest.raises(ValueError, match="call 0 with 0 readouts"):
+        profile.effects_of([FaultEvent.after(0, readout_flips=0)])
+    for call in (-1, 4):
+        with pytest.raises(ValueError, match="fault call index"):
+            profile.effects_of([FaultEvent.after(call, readout_flips=0)])
+
+
+@pytest.mark.parametrize(
+    "readout_flips,expected", [(0, {1}), ([1], {2}), ([0, 1], {1, 2}), ([0, 0], {1})]
+)
+def test_local_readouts_can_address_repeated_measurements_in_one_call(
+    rep3_qodec: qc.Qodec, readout_flips: int | list[int], expected: set[int]
+) -> None:
+    physical = rep3_qodec.layers[1].instruction_set
+    qubit = qc.instructions.BlockOperand("qubit")
+    physical.instructions = [
+        *physical.instructions.values(),
+        qc.Instruction(
+            "twice",
+            inputs=[qubit],
+            outputs=[qubit],
+            action=[qc.actions.Observe(["Z_0"]), qc.actions.Observe(["Z_0"])],
+        ),
+    ]
+    circuit = qc.gadgets.Circuit(
+        physical, "- R: [0]\n- M: [0]\n- twice: [1]", format="yaml"
+    )
+    profile = GadgetProfile(circuit)
+    fault = FaultEvent.after(2, readout_flips=readout_flips)
+    (effect,) = profile.effects_of([fault])
+    assert effect.readout_flips == expected
+    assert all(not error.weight for error in effect.output_error.values())
+    assert fault in profile._circuit_faults()
+    with pytest.raises(ValueError, match="call 2 with 2 readouts"):
+        profile.effects_of([FaultEvent.after(2, readout_flips=2)])
+
+
+def test_one_call_can_corrupt_several_readouts_as_one_fault(
+    rep3_qodec: qc.Qodec,
+) -> None:
+    physical = rep3_qodec.layers[1].instruction_set
+    gadget = _measurement_gadget(physical, 2)
+    physical.instructions = [
+        *physical.instructions.values(),
+        qc.Instruction(
+            "measure_pair",
+            inputs=[
+                qc.instructions.BlockOperand("qubit"),
+                qc.instructions.BlockOperand("qubit"),
+            ],
+            action=[qc.actions.Observe(["Z_0", "Z_1"])],
+        ),
+    ]
+    gadget.circuit = qc.gadgets.Circuit(
+        physical, "- measure_pair: [0, 1]", format="yaml"
+    )
+    profile = GadgetProfile(gadget)
+    fault = FaultEvent.after(0, readout_flips=[0, 1])
+    assert fault in profile._circuit_faults()
+    distance, witness = profile.distance()
+    assert distance == len(witness) == 1
+    assert profile.distance(faults=[fault]) == (1, [fault])
+    (effect,) = profile.effects_of(witness)
+    assert not effect.syndrome and effect.readout_flips == {0}
+
+
+def test_c4_z_measurement_has_distance_two_with_readout_noise() -> None:
+    gadget = c4().layers[0].gadgets["measure_zz"]
+    gadget.readouts = [
+        [*readout.equation, f"in[0].z[{index}]"]
+        for index, readout in enumerate(gadget.readouts)
+    ]
+    profile = GadgetProfile(gadget)
+    distance, witness = profile.distance()
+    assert distance == len(witness) == 2
+    (effect,) = profile.effects_of([reduce(mul, witness, FaultEvent())])
+    assert not effect.syndrome and effect.readout_flips
+
+
 @requires_highs
 def test_highs_gadget_distance_returns_replayable_witness(rep3_qodec: qc.Qodec) -> None:
     gadget = _measurement_gadget(rep3_qodec.layers[1].instruction_set, 3)
@@ -203,14 +380,23 @@ def test_action_signs_combine_measurement_and_output_faults(
         - 1
     )
     record_fault = FaultEvent.after(before_measurement, Pauli({measured_qubit: "X"}))
+    measurement_call = next(
+        index
+        for index, call in enumerate(gadget.circuit.calls)
+        if call.mnemonic == "M" and call.operands == [measured_qubit]
+    )
+    readout_fault = FaultEvent.after(measurement_call, readout_flips=0)
     output_fault = FaultEvent.after(before_measurement, Pauli({output_qubit: "X"}))
     assert not gadget.readouts and not gadget.checks
-    for fault in (record_fault, output_fault):
+    for fault in (record_fault, readout_fault, output_fault):
         assert profile.distance(faults=[fault]) == (1, [fault])
         assert profile.distance_bounds(faults=[fault]) == (1, 1, [fault])
     combined = record_fault * output_fault
     assert profile.distance(faults=[combined])[1] == []
     assert profile.distance_bounds(faults=[combined])[2] == []
+    combined_readout = readout_fault * output_fault
+    assert profile.distance(faults=[combined_readout])[1] == []
+    assert profile.distance_bounds(faults=[combined_readout])[2] == []
 
 
 def test_action_probes_follow_output_encoding_order(rep3_qodec: qc.Qodec) -> None:
@@ -311,11 +497,19 @@ def test_circuit_faults_use_qubit_support_not_operand_count() -> None:
     )
     faults = profile._circuit_faults()
     assert len(faults) == 15
-    assert all(set(fault.locations) == {0} for fault in faults)
-    assert {frozenset(fault.locations[0].support) for fault in faults} == {
-        frozenset({0}),
-        frozenset({1}),
-        frozenset({0, 1}),
+    assert set(faults) == {
+        FaultEvent.after(
+            0,
+            Pauli(
+                {
+                    qubit: character
+                    for qubit, character in enumerate(characters)
+                    if character != "I"
+                }
+            ),
+        )
+        for characters in product(("I", "X", "Y", "Z"), repeat=2)
+        if characters != ("I", "I")
     }
 
 
@@ -340,7 +534,11 @@ def test_default_correlated_fault_is_cheaper_than_single_qubit_events(
     ]
     distance, witness = profile.distance()
     assert distance == 1 and len(witness) == 1
-    assert witness[0].weight == 2 and set(witness[0].locations) == {0}
+    assert witness[0].weight == 2
+    assert witness[0] in {
+        FaultEvent.after(0, Pauli({0: control, 1: target}))
+        for control, target in product(("X", "Y"), repeat=2)
+    }
     assert profile.distance(faults=single_qubit)[0] == 2
     assert profile.distance_bounds()[:2] == (1, 1)
     assert profile.distance_bounds(faults=single_qubit)[:2] == (2, 2)
@@ -395,7 +593,7 @@ def test_distance_finds_combinations_and_returns_replayable_faults(
     (combined,) = profile.effects_of([witness[0] * witness[1]])
     assert not combined.syndrome and combined.readout_flips == {0}
     event = witness[0] * witness[1]
-    assert len(event.locations) == 2
+    assert event == FaultEvent({0: Pauli("X_0"), 1: Pauli("X_1")})
     assert profile.distance(faults=[event]) == (1, [event])
     assert profile.distance_bounds(faults=[event]) == (1, 1, [event])
     assert profile.distance(faults=[])[1] == []
@@ -499,7 +697,7 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
     assert witness == bounded == faults
     residual = reduce(
         mul,
-        (next(iter(fault.locations.values())) for fault in witness),
+        (Pauli({faults.index(fault): "X"}) for fault in witness),
         Pauli.identity(),
     )
     assert SubsystemCode.of(code).is_non_trivial_logical_error(residual)

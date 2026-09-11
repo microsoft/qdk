@@ -1,4 +1,4 @@
-"""Internal intrinsic Pauli-fault effects of qodec gadgets."""
+"""Internal intrinsic Pauli and readout-fault effects of qodec gadgets."""
 
 from __future__ import annotations
 
@@ -20,46 +20,122 @@ from ._analysis.propagation.pauli_remap import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False, repr=False)
 class FaultEvent:
-    """One deterministic Pauli fault injected after named instructions."""
+    """One immutable, deterministic event affecting circuit-call outputs.
 
-    locations: Mapping[int, Pauli]
+    Use ``after`` for quantum errors, readout errors, or both. Multiply events
+    to combine their changes, including across calls. One event costs one in a
+    distance search regardless of its weight. The representation is private;
+    ``repr`` shows equivalent constructor expressions using call-local indexes.
 
-    def __post_init__(self) -> None:
+    ``FaultEvent()`` is the identity event. The optional ``locations`` mapping
+    constructs post-call Pauli errors, with the same call indexes as ``after``.
+    """
+
+    _locations: Mapping[int, tuple[Pauli, frozenset[int]]]
+
+    def __init__(
+        self,
+        locations: Mapping[int, Pauli] | None = None,
+    ) -> None:
         normalized = {
-            int(location): error
-            for location, error in self.locations.items()
+            int(location): (error, frozenset())
+            for location, error in (locations or {}).items()
             if error.weight
         }
-        object.__setattr__(self, "locations", MappingProxyType(normalized))
+        object.__setattr__(self, "_locations", MappingProxyType(normalized))
 
     @classmethod
-    def after(cls, instruction: int, error: Pauli) -> "FaultEvent":
-        return cls({instruction: error})
+    def _from_locations(
+        cls, locations: Mapping[int, tuple[Pauli, frozenset[int]]]
+    ) -> "FaultEvent":
+        event = cls()
+        object.__setattr__(
+            event,
+            "_locations",
+            MappingProxyType(
+                {
+                    call: (error, flips)
+                    for call, (error, flips) in locations.items()
+                    if error.weight or flips
+                }
+            ),
+        )
+        return event
+
+    @classmethod
+    def after(
+        cls,
+        instruction: int,
+        error: Pauli | None = None,
+        *,
+        readout_flips: int | Sequence[int] = (),
+    ) -> "FaultEvent":
+        """Affect the outputs of the call at a zero-based Circuit.calls index.
+
+        ``error`` is a post-call Pauli on circuit qubits. ``readout_flips`` is
+        one index or a sequence of indexes into this call's own readouts, starting
+        at zero, not the full circuit record or gadget logical readouts. A bit
+        flip changes the reported result without changing the quantum state.
+        Booleans are not indexes. Call and readout bounds are checked on replay.
+        """
+        if not isinstance(instruction, int) or isinstance(instruction, bool):
+            raise TypeError("fault call index must be an integer")
+        flips = (
+            (readout_flips,) if isinstance(readout_flips, int) else tuple(readout_flips)
+        )
+        if any(
+            not isinstance(index, int) or isinstance(index, bool) for index in flips
+        ):
+            raise TypeError("readout indexes must be integers")
+        return cls._from_locations(
+            {
+                instruction: (
+                    Pauli.identity() if error is None else error,
+                    frozenset(flips),
+                )
+            }
+        )
 
     @property
     def weight(self) -> int:
-        return sum(error.weight for error in self.locations.values())
+        """Sum of Pauli weights and recorded-bit flips, not distance-search cost."""
+        return sum(
+            error.weight + len(flips) for error, flips in self._locations.values()
+        )
 
     def __mul__(self, other: "FaultEvent") -> "FaultEvent":
-        combined = dict(self.locations)
-        for location, error in other.locations.items():
-            product = combined.get(location, Pauli.identity()) * error
-            if product.weight:
-                combined[location] = product
-            else:
-                combined.pop(location, None)
-        return FaultEvent(combined)
+        combined = dict(self._locations)
+        for location, (error, flips) in other._locations.items():
+            previous_error, previous_flips = combined.get(
+                location, (Pauli.identity(), frozenset())
+            )
+            combined[location] = (previous_error * error, previous_flips ^ flips)
+        return type(self)._from_locations(combined)
 
     def __hash__(self) -> int:
         return hash(
             tuple(
-                sorted(
-                    (location, str(error)) for location, error in self.locations.items()
-                )
+                (location, str(error), flips)
+                for location, (error, flips) in sorted(self._locations.items())
             )
         )
+
+    def __repr__(self) -> str:
+        name = type(self).__name__
+        parts = []
+        for location, (error, flips) in sorted(self._locations.items()):
+            arguments = [str(location)]
+            if error.weight:
+                arguments.append(f"Pauli({str(error)!r})")
+            if flips:
+                readouts = sorted(flips)
+                arguments.append(
+                    f"readout_flips={readouts[0] if len(readouts) == 1 else readouts}"
+                )
+            parts.append(f"{name}.after({', '.join(arguments)})")
+        return " * ".join(parts) if parts else f"{name}()"
 
 
 @dataclass(frozen=True)
@@ -85,7 +161,7 @@ class FaultEffect:
 def fault_effects_of(
     gadget: qc.Gadget, basis: Sequence[FaultEvent]
 ) -> tuple[FaultEffect, ...]:
-    """Map an explicit Pauli fault basis to probability-free effects.
+    """Map an explicit Pauli/readout fault basis to probability-free effects.
 
     Positionally aligned with ``basis``. The whole basis is evaluated in one
     simulation, which is why there is no single-fault entry point.

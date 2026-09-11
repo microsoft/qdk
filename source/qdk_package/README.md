@@ -155,22 +155,60 @@ lower, upper, bounded_witness = profile.distance_bounds()
 
 faults = [ec.FaultEvent.after(0, ec.Pauli({0: "X", 1: "X"}))]
 distance, witness = profile.distance(faults=faults)
+
+measurement_call = next(
+    index for index, call in enumerate(gadget.circuit.calls)
+        if any(isinstance(action, qc.actions.Observe)
+            for action in gadget.circuit.instruction_set.instructions[call.mnemonic].action)
+)
+readout_fault = ec.FaultEvent.after(measurement_call, readout_flips=0)
+effect, = profile.effects_of([readout_fault])
 ```
 
-The default is all nonidentity Pauli errors over each parsed instruction call's
-qubit support: 3 errors for a one-qubit call, 15 for a two-qubit call, and
-`4**n - 1` for an n-qubit call. Each fault is injected after its call and costs
-one, even when its Pauli acts on multiple qubits. Instruction support is expanded
-from block operands; an instruction with no qubits contributes no faults.
-This is a set of possible faults, not a probability distribution. For measurement
-calls, an after-call Pauli does not retroactively flip the recorded bit.
+The default includes post-call Pauli errors and flips of the readout bits produced
+by that call, including every combination except the identity event. A call with
+`n` qubits and `r` readouts contributes `4**n * 2**r - 1` events. Calls without
+readouts retain 3 faults for one qubit and 15 for two. Instruction support is
+expanded from block operands. This is a set of possible faults, not a probability
+distribution; every event at one call costs one, including correlated quantum
+and readout errors.
+
+A readout flip changes the reported bit without changing the surviving quantum
+state. For a non-destructive Pauli measurement it is equivalent to applying an
+anticommuting Pauli before and after measurement. For destructive measurement,
+the trailing Pauli has no surviving quantum output to affect. Use the same
+constructor for quantum, readout, and correlated errors:
+
+```python
+ec.FaultEvent.after(7, ec.Pauli("X_0"))
+ec.FaultEvent.after(7, readout_flips=0)
+ec.FaultEvent.after(7, ec.Pauli("X_0"), readout_flips=[0, 2])
+```
+
+The first argument always indexes `Circuit.calls` from zero. `readout_flips`
+accepts one integer or a sequence of indexes into that call's own readouts;
+`0` and `[0]` mean the same thing. These are not absolute `Circuit.readouts`
+indexes or gadget logical-readout positions. Booleans are rejected. Call and
+readout bounds are checked when the event is applied to a circuit, including
+readout faults on a call that has no readouts.
 
 Pass `faults=...` to replace the default set; `faults=[]` means no allowed faults.
 An explicit event may span several call positions and still counts as one allowed
 factor. The reported distance counts witness factors, not `FaultEvent.weight`,
-which sums Pauli support weights. Fault positions index `Circuit.calls` from zero,
-not lines of source text. Witnesses retain `FaultEvent` factors so their locations
-and correlations can be inspected and their product replayed with `effects_of`.
+which sums Pauli support weights and the number of flipped readout bits.
+`FaultEvent` is immutable and opaque; its `repr` shows equivalent `after(...)`
+expressions with call-local indexes. Witness products combine Pauli errors and
+XOR readout flips at each call for replay with `effects_of`. `FaultEvent()` is
+the identity; the mapping constructor remains available for post-call Pauli
+errors. `FaultEffect.readout_flips` still reports changes to gadget logical
+readouts (or the full record when profiling a bare circuit).
+
+`FaultEvent` has two named members, `after` and `weight`; there are no public
+`locations` or `readout_flips` fields. The 11 top-level exports are unchanged.
+`after` keeps the existing call-location convention, and the `readout_flips`
+keyword follows the existing effect vocabulary. A separate `flip_readout`
+method would duplicate this constructor; a boolean shortcut would need an
+extra rule for calls with multiple readouts.
 
 Detection means a nonzero **declared check** syndrome. The search also requires
 the combined fault to commute with every stabilizer of every output encoding.
@@ -246,7 +284,8 @@ there are no new top-level exports. Names follow `SubsystemCode.distance` and
 `distance_bounds`; separate `gadget_distance_*` free functions would duplicate
 the profile's ownership. `faults` follows `effects_of(faults)`, rather than `errors`,
 because the inputs include circuit locations. The existing `fault_effects` property
-still uses a compact X/Z propagation basis, not the full unit-cost circuit fault set.
+uses a compact X/Z and readout-flip propagation basis, not the full unit-cost
+circuit fault set.
 
 `ec.audit` checks code algebra, complete Clifford maps (including implicit
 identities), gadget actions, and check, flag, and readout equations. It also

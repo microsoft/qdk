@@ -500,7 +500,7 @@ Check completeness not checked: analysis unavailable
 <div class="meta"><span class="severity info">INFO</span><span>Target: Qodec</span><a class="source" href="../source/qdk_package/qdk/ec/_audit/rules/qodec.py#L27">Rule source</a></div>
 <h3>Missing realization<br><code>gadget/missing-realization</code></h3>
 <p class="description">An instruction in a non-bottom layer has no explicit gadget under the same name.</p>
-<p class="scope">This can be intentional: synthesis may supply the lowering instead of a stored gadget. The finding remains informational even with promote_warnings=True. The bottom layer is excluded.</p>
+<p class="scope">This can be intentional: a builder may supply the lowering instead of a stored gadget. The finding remains informational even with promote_warnings=True. The bottom layer is excluded.</p>
 <div class="example"><p class="example-label">Example &middot; Instruction without a gadget</p><p class="setup">Remove the idle gadget while retaining the idle instruction. Displayed from <code>report.informational</code>.</p><pre data-example="Instruction without a gadget"><code>[INFO] gadget/missing-realization
 layers[0].instruction_set.instructions[&#x27;idle&#x27;] (C4 -&gt; stim)
 No explicit gadget for instruction &#x27;idle&#x27;
