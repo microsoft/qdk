@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Callable, Protocol, Sequence, runtime_checkable
 
 from binar import BitMatrix
 import qodec as qc
@@ -17,11 +17,15 @@ from qodec.actions import (
 from qodec.gadgets import Circuit
 
 from ..._layout import ProgramLayout
+from ..._readouts import observe_count_of
 from .isa_actions import (
     build_clifford_images,
     remap_pauli,
 )
 from .pauli import Pauli, PauliCharacter, characters_of
+
+if TYPE_CHECKING:
+    from ..._faults import FaultEvent
 
 
 @runtime_checkable
@@ -242,13 +246,20 @@ def walk_for_outcome_code(
 
 def propagate_faults(
     program: Circuit,
-    fault_basis: Sequence[Any],
+    fault_basis: Sequence[FaultEvent],
     residual_probes: Sequence[Pauli],
     *,
     residual_frames: Sequence[frozenset[int]] | None = None,
 ) -> tuple[BitMatrix, int, int]:
-    """Propagate probes, optionally signed by circuit-walk outcome indices."""
+    """Propagate quantum and recorded-bit errors in one batch.
+
+    Readout flips change only Observe rows, not hidden reset outcomes or
+    physical residuals. Signed probes use those changed rows when evaluating
+    their circuit-walk outcome frames.
+    """
     calls = program.calls
+    readout_ranges = []
+    readout_offset = 0
     for call in calls:
         instruction = program.instruction_set.instructions[call.mnemonic]
         if (
@@ -266,15 +277,30 @@ def propagate_faults(
             raise NotImplementedError(
                 "circuit instruction flags are not supported by fault propagation"
             )
+        readout_count = observe_count_of(instruction)
+        readout_ranges.append(range(readout_offset, readout_offset + readout_count))
+        readout_offset += readout_count
     propagator = _FramePropagator(len(fault_basis))
     injections: dict[int, list[tuple[int, Pauli]]] = {}
+    readout_injections: list[tuple[int, int]] = []
     for fault_index, fault in enumerate(fault_basis):
-        for instruction_index, pauli in fault.locations.items():
+        for instruction_index, (pauli, readouts) in fault._locations.items():
             if not 0 <= instruction_index < len(calls):
                 raise ValueError(
                     f"fault call index {instruction_index} is out of bounds for {len(calls)} calls"
                 )
-            injections.setdefault(instruction_index, []).append((fault_index, pauli))
+            if pauli.weight:
+                injections.setdefault(instruction_index, []).append(
+                    (fault_index, pauli)
+                )
+            call_readouts = readout_ranges[instruction_index]
+            for readout in readouts:
+                if not 0 <= readout < len(call_readouts):
+                    raise ValueError(
+                        f"fault readout index {readout} is out of bounds for call {instruction_index} "
+                        f"with {len(call_readouts)} readouts"
+                    )
+                readout_injections.append((fault_index, call_readouts[readout]))
 
     def inject_at(instruction_index: int) -> None:
         for shot_index, pauli in injections.get(instruction_index, ()):
@@ -288,6 +314,8 @@ def propagate_faults(
     for probe in residual_probes:
         propagator.measure(probe)
     deltas = propagator.outcome_deltas
+    for fault_index, readout in readout_injections:
+        deltas[result.observe_outcomes[readout], fault_index] ^= True
     observed = set(result.observe_outcomes)
     circuit_rows = result.hidden_count + result.outcome_count
     if residual_frames is not None:

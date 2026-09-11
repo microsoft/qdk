@@ -98,9 +98,68 @@ def test_fault_event_composition_and_weight() -> None:
     fault = ec.FaultEvent.after(4, x) * ec.FaultEvent.after(6, z)
 
     assert fault.weight == 2
-    assert fault.locations == {4: x, 6: z}
+    assert fault == ec.FaultEvent({4: x, 6: z})
     assert fault * fault == ec.FaultEvent({})
     assert hash(fault)
+
+
+def test_readout_faults_are_immutable_and_compose_by_parity() -> None:
+    flips = [0, 2]
+    readout_fault = ec.FaultEvent.after(3, readout_flips=flips)
+    flips.clear()
+    assert readout_fault == ec.FaultEvent.after(3, readout_flips=[0, 2])
+    assert readout_fault.weight == 2
+    assert readout_fault * readout_fault == ec.FaultEvent()
+    assert hash(readout_fault) == hash(ec.FaultEvent.after(3, readout_flips=[2, 0]))
+    combined = readout_fault * ec.FaultEvent.after(3, ec.Pauli("X_0"))
+    assert combined == ec.FaultEvent.after(3, ec.Pauli("X_0"), readout_flips=[0, 2])
+    assert combined.weight == 3
+    assert combined * ec.FaultEvent.after(3, readout_flips=2) == ec.FaultEvent.after(
+        3, ec.Pauli("X_0"), readout_flips=0
+    )
+    assert {name for name in dir(readout_fault) if not name.startswith("_")} == {
+        "after",
+        "weight",
+    }
+    assert (
+        inspect.signature(ec.FaultEvent.after).parameters["readout_flips"].kind
+        is inspect.Parameter.KEYWORD_ONLY
+    )
+    with pytest.raises(TypeError, match="integers"):
+        ec.FaultEvent.after(3, readout_flips=[True])
+
+
+def test_fault_event_after_accepts_single_or_multiple_local_readouts() -> None:
+    single = ec.FaultEvent.after(7, readout_flips=0)
+    assert single == ec.FaultEvent.after(7, readout_flips=[0])
+    assert single.weight == 1
+    assert single * single == ec.FaultEvent()
+    assert single != ec.FaultEvent.after(8, readout_flips=0)
+    combined = ec.FaultEvent.after(7, ec.Pauli("X_0"), readout_flips=[0, 2])
+    assert combined == (
+        ec.FaultEvent.after(7, ec.Pauli("X_0"))
+        * single
+        * ec.FaultEvent.after(7, readout_flips=2)
+    )
+    for invalid in (True, False, [True], [0, False]):
+        with pytest.raises(TypeError, match="integers"):
+            ec.FaultEvent.after(7, readout_flips=invalid)
+
+
+def test_fault_event_repr_is_replayable() -> None:
+    quantum = ec.FaultEvent.after(2, ec.Pauli("X_0"))
+    readout = ec.FaultEvent.after(7, readout_flips=0)
+    mixed = ec.FaultEvent.after(7, ec.Pauli("Z_0"), readout_flips=[2, 0])
+    assert repr(readout) == "FaultEvent.after(7, readout_flips=0)"
+    assert repr(mixed) == "FaultEvent.after(7, Pauli('Z'), readout_flips=[0, 2])"
+    assert (
+        repr(readout * quantum)
+        == "FaultEvent.after(2, Pauli('X')) * FaultEvent.after(7, readout_flips=0)"
+    )
+    for event in (ec.FaultEvent(), quantum, readout, mixed, mixed * quantum):
+        assert (
+            eval(repr(event), {"FaultEvent": ec.FaultEvent, "Pauli": ec.Pauli}) == event
+        )
 
 
 def test_subsystem_code_view_is_idempotent(bundle) -> None:
