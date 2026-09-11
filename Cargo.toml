@@ -34,6 +34,7 @@ members = [
     "source/qre",
     "source/resource_estimator",
     "source/samples_test",
+    "source/tensornet",
     "source/wasm",
 ]
 resolver = "2"

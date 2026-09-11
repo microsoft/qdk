@@ -2877,6 +2877,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tensornet"
+version = "0.0.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
