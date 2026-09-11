@@ -32,7 +32,7 @@ fn check_rca_for_dynamic_result() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -67,7 +67,7 @@ fn check_rca_for_dynamic_bool() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -104,7 +104,7 @@ fn check_rca_for_dynamic_int() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -138,7 +138,7 @@ fn check_rca_for_dynamic_pauli() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicPauli | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicPauli)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -173,7 +173,7 @@ fn check_rca_for_dynamic_range() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -211,7 +211,7 @@ fn check_rca_for_dynamic_double() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -245,7 +245,7 @@ fn check_rca_for_dynamic_big_int() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBigInt | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBigInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

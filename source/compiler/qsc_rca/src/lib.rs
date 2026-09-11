@@ -37,6 +37,7 @@ use std::{
 };
 
 pub use crate::analyzer::Analyzer;
+use crate::common::GlobalSpecId;
 
 /// A trait to look for the compute properties of elements in a package store.
 pub trait ComputePropertiesLookup {
@@ -66,6 +67,12 @@ pub struct PackageStoreComputeProperties {
     // The alternative compute properties for each package if the callables are invoked
     // from within a parallel expression, keyed by package ID.
     parallel_props: IndexMap<PackageId, PackageComputeProperties>,
+    // The set of global callables that must be inlined (usually due to qubit allocation) and
+    // cause any caller to also require inlining.
+    must_inline_callables: FxHashSet<GlobalSpecId>,
+    // The set of call expressions that must be inlined either because of the callable being invoked,
+    // or because of the combination of callable and runtime features of the arguments to the call expr.
+    must_inline_call_exprs: FxHashSet<StoreExprId>,
 }
 
 impl ComputePropertiesLookup for PackageStoreComputeProperties {
@@ -143,6 +150,11 @@ impl PackageStoreComputeProperties {
         self.get(id.package, parallel)
             .unresolved_callee_exprs
             .contains(&id.expr)
+    }
+
+    #[must_use]
+    pub fn is_must_inline_call(&self, id: &GlobalSpecId, expr: &StoreExprId) -> bool {
+        self.must_inline_callables.contains(id) || self.must_inline_call_exprs.contains(expr)
     }
 }
 
@@ -557,11 +569,10 @@ impl ComputeKind {
         };
 
         // Determine the aggregated runtime features, use the value kind equivalent from self or the default.
-        // We don't propagate the `MustBeInlined` runtime feature because it is only relevant at call expressions.
         match self {
             Self::Static => {
                 *self = ComputeKind::Dynamic {
-                    runtime_features: runtime_features & !RuntimeFeatureFlags::MustBeInlined,
+                    runtime_features,
                     value_kind: default_value_kind,
                 }
             }
@@ -570,7 +581,6 @@ impl ComputeKind {
                 ..
             } => {
                 *self_runtime_features |= runtime_features;
-                self_runtime_features.remove(RuntimeFeatureFlags::MustBeInlined);
             }
         }
     }
@@ -650,7 +660,7 @@ bitflags! {
     /// Runtime features represent anything a program can do that is more complex than executing quantum operations on
     /// statically allocated qubits and using constant arguments.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RuntimeFeatureFlags: u64 {
+    pub struct RuntimeFeatureFlags: u32 {
         /// Use of a dynamic `Bool`.
         const UseOfDynamicBool = 1 << 0;
         /// Use of a dynamic `Int`.
@@ -709,16 +719,12 @@ bitflags! {
         const CallToCustomReset = 1 << 27;
         /// Use of a dynamic generic parameter.
         const UseOfDynamicGeneric = 1 << 28;
-        /// A callable allocates qubits (directly or transitively).
-        const QubitAllocation = 1 << 29;
         /// A dynamic release of a qubit.
-        const UseOfDynamicQubitRelease = 1 << 30;
-        /// A callable whose required features mean it must be inlined rather than emitted as an IR function.
-        const MustBeInlined = 1 << 31;
+        const UseOfDynamicQubitRelease = 1 << 29;
         /// Use of dynamic branching in a parallel expression.
-        const UseOfDynamicBranchingInParallelExpr = 1 << 32;
+        const UseOfDynamicBranchingInParallelExpr = 1 << 30;
         /// Use of a dynamic limit in a parallel expression.
-        const UseOfDynamicLimitInParallelExpr = 1 << 33;
+        const UseOfDynamicLimitInParallelExpr = 1 << 31;
     }
 }
 

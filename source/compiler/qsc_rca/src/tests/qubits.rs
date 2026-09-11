@@ -20,7 +20,7 @@ fn check_rca_for_static_single_qubit_allcation() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -50,7 +50,7 @@ fn check_rca_for_dynamic_single_qubit_allcation() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -73,7 +73,7 @@ fn check_rca_for_static_multi_qubit_allcation() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -95,7 +95,7 @@ fn check_rca_for_dynamic_multi_qubit_allcation() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -118,7 +118,7 @@ fn check_rca_for_leaf_operation_allocating_qubit_shows_qubit_allocation() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -147,7 +147,7 @@ fn check_rca_for_caller_of_allocating_operation_shows_qubit_allocation() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -173,7 +173,7 @@ fn check_rca_for_leaf_operation_borrowing_qubit_shows_qubit_allocation() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -232,7 +232,7 @@ fn check_rca_for_leaf_operation_allocating_qubit_array_shows_qubit_allocation() 
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
