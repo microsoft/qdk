@@ -269,7 +269,7 @@ def walk_program(
                     outcome_count += 1
             else:
                 raise TypeError(
-                    f"unrecognised action type {type(action).__name__!r} "
+                    f"unrecognized action type {type(action).__name__!r} "
                     f"in instruction {call.mnemonic!r}"
                 )
 
