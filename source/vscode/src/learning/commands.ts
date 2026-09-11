@@ -326,15 +326,6 @@ async function openCourseNotebook(
   } else if (cellId) {
     revealNotebookCell(notebookUri, cellId);
   }
-
-  // The notebook may appear dirty immediately after opening (e.g. cell
-  // language adjustments). Save so the user starts with a clean state.
-  const doc = vscode.workspace.notebookDocuments.find(
-    (n) => n.uri.toString() === notebookUri.toString(),
-  );
-  if (doc?.isDirty) {
-    await doc.save();
-  }
 }
 
 /**
