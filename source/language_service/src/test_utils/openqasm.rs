@@ -3,6 +3,7 @@
 
 use super::get_sources_and_markers;
 use crate::Compilation;
+use crate::protocol::OpenQasmMode;
 use qsc::{
     PackageType,
     line_column::{Position, Range},
@@ -21,6 +22,7 @@ fn compile_project_with_markers_cursor_optional(
             sources,
             vec![],
             &Arc::from("test project"),
+            OpenQasmMode::Auto,
         ),
         cursor_location,
         target_spans,

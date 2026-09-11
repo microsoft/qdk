@@ -217,7 +217,9 @@ class InlineDebugAdapterFactory
     const worker = debugServiceWorkerFactory();
     const uri = vscode.Uri.parse(session.configuration.programUri);
     const file = await vscode.workspace.openTextDocument(uri);
-    const program = await getProgramForDocument(file);
+    const program = await getProgramForDocument(file, {
+      resumeAfterSpecModeSwitch: true,
+    });
     if (!program.success) {
       throw new Error(program.errorMsg);
     }
