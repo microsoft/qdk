@@ -8,19 +8,12 @@ import re
 
 import qodec as qc
 
-from .._analysis.propagation.pauli import parse_term
+from .._analysis.propagation.pauli import Pauli
 from .._readouts import observe_count_of
 
 
 def _pauli_indices(text: str) -> set[int]:
-    result = set()
-    for token in text.split():
-        basis, index = parse_term(token)
-        if index < 0:
-            raise ValueError(f"negative Pauli index in {text!r}")
-        if basis != "I":
-            result.add(index)
-    return result
+    return set(Pauli(text).support)
 
 
 def _instruction_issues(

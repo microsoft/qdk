@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Protocol, Sequence, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    Mapping,
+    Protocol,
+    Sequence,
+    runtime_checkable,
+)
 
 from binar import BitMatrix
 import qodec as qc
@@ -73,9 +80,10 @@ class _FramePropagator:
         outcomes: Sequence[int],
         parity: bool = True,
     ) -> None:
+        del parity
         for shot, frame in enumerate(self._frames):
             condition = sum(self._outcomes[index][shot] for index in outcomes) % 2
-            if bool(condition) == parity:
+            if condition:
                 self._frames[shot] = abs(pauli * frame)
 
     def apply_clifford(
@@ -137,6 +145,47 @@ def _eigenstate_correction(observable: Pauli) -> Pauli:
     return correction
 
 
+def _condition_indices(
+    condition: qc.actions.Condition, arguments: Mapping[str, object], record_size: int
+) -> tuple[list[int], bool]:
+    indices = []
+    parity = not condition.invert
+    for predicate in condition.predicates:
+        value = arguments.get(predicate, predicate)
+        if isinstance(value, (bool, int)) and value in (0, 1):
+            parity ^= bool(value)
+        elif isinstance(value, str):
+            reference = qc.gadgets.Reference(value)
+            if reference.kind != "circuit_readout" or reference.index >= record_size:
+                raise ValueError(
+                    f"condition {predicate!r} must reference a preceding circuit readout"
+                )
+            indices.append(reference.index)
+        else:
+            raise ValueError(f"condition {predicate!r} has no bit argument")
+    return indices, parity
+
+
+def _apply_guarded_pauli(
+    engine: PropagationEngine | OutcomeCompleteSimulation,
+    pauli: Pauli,
+    indices: Sequence[int],
+    parity: bool,
+    rows: Sequence[int | None],
+) -> None:
+    if indices:
+        selected = [rows[index] for index in indices]
+        if any(row is None for row in selected):
+            raise NotImplementedError(
+                "conditions on circuit flag bits are not simulated"
+            )
+        engine.apply_conditional_pauli(
+            pauli, [row for row in selected if row is not None], parity
+        )
+    elif not parity:
+        engine.apply_pauli(pauli)
+
+
 def walk_program(
     program: Circuit,
     *,
@@ -163,6 +212,8 @@ def walk_program(
 
     outcome_count = 0
     observe_rows: list[int] = []
+    record_rows: list[int | None] = []
+    engine_record_rows: list[list[int | None]] = [[] for _ in extra_engines]
     layout = ProgramLayout.of(program)
     for instruction_index, call in enumerate(program.calls):
         instruction = program.instruction_set.instructions[call.mnemonic]
@@ -196,16 +247,25 @@ def walk_program(
                     engine.apply_clifford(clifford, qubits)
             elif isinstance(action, PauliAction):
                 remapped = remap_pauli(action.operator, qubit_map)
-                oracle.apply_pauli(remapped)
-                for engine in extra_engines:
-                    engine.apply_pauli(remapped)
+                if action.condition is None:
+                    oracle.apply_pauli(remapped)
+                    for engine in extra_engines:
+                        engine.apply_pauli(remapped)
+                else:
+                    indices, parity = _condition_indices(
+                        action.condition, call.arguments, len(record_rows)
+                    )
+                    _apply_guarded_pauli(oracle, remapped, indices, parity, record_rows)
+                    for engine, rows in zip(extra_engines, engine_record_rows):
+                        _apply_guarded_pauli(engine, remapped, indices, parity, rows)
             elif isinstance(action, Observe):
                 for observable in action.observables:
                     remapped = remap_pauli(observable, qubit_map)
                     observe_rows.append(oracle.outcome_count)
+                    record_rows.append(oracle.outcome_count)
                     oracle.measure(remapped)
-                    for engine in extra_engines:
-                        engine.measure(remapped)
+                    for engine, rows in zip(extra_engines, engine_record_rows):
+                        rows.append(engine.measure(remapped))
                     outcome_count += 1
             else:
                 raise TypeError(
@@ -213,6 +273,9 @@ def walk_program(
                     f"in instruction {call.mnemonic!r}"
                 )
 
+        record_rows.extend([None] * len(instruction.flags))
+        for rows in engine_record_rows:
+            rows.extend([None] * len(instruction.flags))
         if on_instruction is not None:
             on_instruction(instruction_index)
 

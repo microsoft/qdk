@@ -14,10 +14,12 @@ from .._analysis.channel_action import declared_action_of, realized_codes_of
 from .._analysis.check_discovery import choi_prepare
 from .._analysis.propagation.frames import FrameGroup, PauliFrame
 from .._analysis.propagation.interpreter import _FramePropagator, walk_program
+from .._analysis.propagation.isa_actions import remap_pauli
 from .._analysis.propagation.pauli import Pauli, complex_conjugate_of, identity, relabel
 from .._analysis.propagation.pauli_remap import (
     encoding_qubit_relocation,
 )
+from .._layout import ProgramLayout
 
 
 def terms_of(equation: Iterable[Reference]) -> tuple[str, ...]:
@@ -42,11 +44,69 @@ def _rows(rows: Iterable[BitVector], width: int) -> BitMatrix:
     return BitMatrix(values) if values else BitMatrix.zeros(0, width)
 
 
+def _unresolved_signs(
+    output_signs: list[str], equations: list[tuple[str, ...]]
+) -> tuple[str, ...]:
+    unknowns = dict.fromkeys(output_signs)
+    for equation in equations:
+        for path in equation:
+            if path.startswith(("out[", "readouts[")):
+                unknowns[path] = None
+    positions = {path: index for index, path in enumerate(unknowns)}
+    matrix = _rows(
+        (BitVector(path in equation for path in unknowns) for equation in equations),
+        len(unknowns),
+    )
+    return tuple(
+        path
+        for path in output_signs
+        if solve(
+            matrix.T,
+            BitVector(index == positions[path] for index in range(len(unknowns))),
+        )
+        is None
+    )
+
+
 class ParityAnalysis:
+    """Check parities against called instructions' noiseless, zero-flag contract.
+
+    Each called instruction's implementation is audited separately.
+    """
+
     def __init__(self, gadget: qc.Gadget) -> None:
         self.gadget = gadget
         self.checks = tuple(terms_of(check) for check in gadget.checks)
         self.readouts = tuple(terms_of(readout.equation) for readout in gadget.readouts)
+
+    def _rotation_invariants_only(self) -> bool:
+        """Replacing pure rotations by identity is exact for commuting stabilizers only."""
+        program = self.gadget.circuit
+        if program.readouts or any(
+            path.startswith("out[") and "].stabilizers[" not in path
+            for equation in (*self.checks, *self.readouts)
+            for path in equation
+        ):
+            return False
+        layout = ProgramLayout.of(program)
+        axes = []
+        for call in program.calls:
+            instruction = program.instruction_set.instructions[call.mnemonic]
+            for action in instruction.action:
+                if (
+                    not isinstance(action, qc.actions.Rotate)
+                    or action.condition is not None
+                ):
+                    return False
+                axes.append(remap_pauli(action.pauli, layout.call_qubit_map(call)))
+        return bool(axes) and all(
+            axis.commutes_with(
+                relabel(Pauli(str(operator)), encoding_qubit_relocation(encoding))
+            )
+            for axis in axes
+            for encoding in self.gadget.outputs
+            for operator in encoding.code.stabilizers
+        )
 
     @cached_property
     def _simulation(
@@ -55,13 +115,26 @@ class ParityAnalysis:
         gadget = self.gadget
         program = gadget.circuit
         for call in program.calls:
-            if call.predicates or call.select:
+            if call.predicates:
                 raise NotImplementedError(
-                    "conditional or selected circuit calls are not supported by parity verification"
+                    "conditional circuit calls are not supported by parity verification"
                 )
             instruction = program.instruction_set.instructions[call.mnemonic]
             if any(
+                name not in instruction.flags
+                for pattern in call.select
+                for name in pattern
+            ):
+                raise ValueError("selection names an undeclared instruction flag")
+            if call.select and not any(
+                all(value == 0 for value in pattern.values()) for pattern in call.select
+            ):
+                raise NotImplementedError(
+                    "selection rejects the noiseless zero-flag branch"
+                )
+            if any(
                 getattr(action, "condition", None) is not None
+                and not isinstance(action, qc.actions.Pauli)
                 for action in instruction.action
             ):
                 raise NotImplementedError(
@@ -113,13 +186,23 @@ class ParityAnalysis:
                         rows[path] = measure(pauli)
                         initial_rows.append(rows[path])
 
-        walk = walk_program(program, simulation=simulation, extra_engines=[frames])
-        if len(walk.observe_outcomes) != len(program.readouts):
-            raise NotImplementedError(
-                "circuit flag bits are not simulated by parity verification"
-            )
-        for position, row in enumerate(walk.observe_outcomes):
+        observe_outcomes = ()
+        if not self._rotation_invariants_only():
+            walk = walk_program(program, simulation=simulation, extra_engines=[frames])
+            observe_outcomes = walk.observe_outcomes
+            if len(observe_outcomes) != sum(
+                not isinstance(readout, qc.gadgets.Flag) for readout in program.readouts
+            ):
+                raise NotImplementedError(
+                    "circuit observations are not fully simulated by parity verification"
+                )
+        outcome_rows = iter(observe_outcomes)
+        for position, readout in enumerate(program.readouts):
             path = f"circuit.readouts[{position}]"
+            if isinstance(readout, qc.gadgets.Flag):
+                deltas[path] = [False] * len(frame_basis)
+                continue
+            row = next(outcome_rows)
             rows[path] = row
             deltas[path] = [
                 bool(frames.outcome_deltas[row - len(initial_rows), index])
@@ -235,9 +318,9 @@ class ParityAnalysis:
             for action in observe_actions
             for operator in action.observables
         ]
-        if observe_actions and any(
+        if any(
             not isinstance(action, qc.actions.Observe)
-            for action in gadget.implements.action
+            for action in gadget.implements.action[: len(observe_actions)]
         ):
             unavailable["observables"] = (
                 "readout verification of interleaved logical actions is not supported"
@@ -458,6 +541,8 @@ class ParityAnalysis:
                     equations.append(equation)
             except (KeyError, ValueError, TypeError, NotImplementedError):
                 continue
+        if not _unresolved_signs(output_signs, equations):
+            return ()
         values, unresolved, error = self.resolved
         if error is None:
             for position, equation in enumerate(self.readouts):
@@ -471,27 +556,7 @@ class ParityAnalysis:
                             for path in (f"readouts[{position}]", *equation)
                         )
                     )
-        unknowns = dict.fromkeys(output_signs)
-        for equation in equations:
-            for path in equation:
-                if path.startswith(("out[", "readouts[")):
-                    unknowns[path] = None
-        positions = {path: index for index, path in enumerate(unknowns)}
-        matrix = _rows(
-            (
-                BitVector(path in equation for path in unknowns)
-                for equation in equations
-            ),
-            len(unknowns),
-        )
-        missing = []
-        for path in output_signs:
-            target = BitVector(
-                index == positions[path] for index in range(len(unknowns))
-            )
-            if solve(matrix.T, target) is None:
-                missing.append(path)
-        return tuple(missing)
+        return _unresolved_signs(output_signs, equations)
 
     def witness(self, equation: Iterable[str], difference: BitVector) -> str:
         assignment = BitVector.zeros(len(difference))

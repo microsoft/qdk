@@ -21,6 +21,7 @@ from qdk.ec._analysis.channel_action import (
 )
 from qdk.ec._analysis.propagation.conditional import conditional_choi_state
 from qdk.ec._analysis.propagation.interpreter import program_of
+from qdk.ec._analysis.propagation.isa_actions import remap_pauli
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
 from qdk.ec._layout import ProgramLayout
@@ -28,6 +29,44 @@ from qdk.ec._layout import ProgramLayout
 
 def _action_of_gadget(gadget: qc.Gadget) -> ChannelAction:
     return action_of(program_of(gadget))
+
+
+def test_remap_pauli_preserves_signed_observable() -> None:
+    from qdk.ec._audit._structure import _instruction_issues
+
+    assert remap_pauli("-Y_0 Y_1", {0: 2, 1: 5}) == -Pauli("Y_2 Y_5")
+    instruction = qc.Instruction(
+        "signed_measure",
+        inputs=[qc.instructions.BlockOperand("pair")],
+        action=[qc.actions.Observe(["-Y_0 Y_1"])],
+    )
+    assert list(_instruction_issues(instruction, {"pair": 2})) == []
+
+
+def test_clifford_channel_keeps_all_logical_generator_images() -> None:
+    operand = qc.instructions.BlockOperand("pair")
+    instruction = qc.Instruction(
+        "green",
+        inputs=[operand],
+        outputs=[operand],
+        action=[qc.actions.Clifford({"Z_0": "Y_0 X_1", "Z_1": "X_0 Z_1"})],
+    )
+    instruction_set = qc.InstructionSet(
+        "logical", blocks=[qc.instructions.Block("pair", 2)], instructions=[instruction]
+    )
+    code = qc.Code("pair", [], ["X_0", "X_1"], ["Z_0", "Z_1"])
+    encoding = Encoding(code, support=["0"], block_types=["pair"])
+    gadget = qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(instruction_set, "- green: [0]", format="yaml"),
+        inputs=[encoding],
+        outputs=[encoding],
+    )
+    expected = {Pauli("X_0"), Pauli("Z_0"), Pauli("X_1"), Pauli("Z_1")}
+    declared, realized = declared_action_of(gadget), realized_action_of(gadget)
+    assert set(declared._mapping) == expected
+    assert set(realized._mapping) == expected
+    assert declared.is_equivalent_to(realized)
 
 
 @pytest.mark.parametrize("decoded", [False, True])

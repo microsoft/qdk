@@ -2,16 +2,288 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import qodec as qc
 import qdk.ec as ec
 
 from qdk.ec._audit._parity import ParityAnalysis
+from qdk.ec._analysis.propagation.interpreter import _FramePropagator, walk_program
+from qdk.ec._analysis.propagation.pauli import Pauli
+
+
+def _feedforward_instruction_set(
+    invert: bool, flagged: bool = False
+) -> qc.InstructionSet:
+    operand = qc.instructions.BlockOperand("qubit")
+    return qc.InstructionSet(
+        "physical",
+        blocks=[qc.instructions.Block("qubit", 1)],
+        instructions=[
+            qc.Instruction(
+                "R", outputs=[operand], action=[qc.actions.Stabilize(["Z_0"])]
+            ),
+            qc.Instruction(
+                "H",
+                inputs=[operand],
+                outputs=[operand],
+                action=[qc.actions.Clifford({"X_0": "Z_0", "Z_0": "X_0"})],
+            ),
+            qc.Instruction(
+                "M",
+                inputs=[operand],
+                flags=["flag"] if flagged else [],
+                action=[qc.actions.Observe(["Z_0"])],
+            ),
+            qc.Instruction(
+                "correct",
+                inputs=[operand],
+                outputs=[operand],
+                parameters=[qc.instructions.Parameter("bit", "bit")],
+                action=[
+                    qc.actions.Pauli(
+                        "X_0", condition=qc.actions.Condition(["bit"], invert=invert)
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+def test_walker_honors_measurement_conditioned_pauli() -> None:
+    for invert in (False, True):
+        physical = _feedforward_instruction_set(invert)
+        circuit = qc.gadgets.Circuit(
+            physical,
+            '- R: [0]\n- H: [0]\n- M: [0]\n- correct: [0, bit: "circuit.readouts[0]"]',
+            format="yaml",
+        )
+        frames = _FramePropagator(1)
+        frames.apply_pauli_to_shot(0, Pauli("X_0"))
+        simulation = walk_program(circuit, extra_engines=[frames]).simulation
+        assert simulation.is_stabilizer(Pauli("Z_0"), ignore_sign=True)
+        row = simulation.measure(Pauli("Z_0"))
+        assert not any(
+            simulation.outcome_matrix[row, index]
+            for index in range(simulation.outcome_matrix.column_count)
+        )
+        assert bool(simulation.outcome_shift[row]) is invert
+        frame_row = frames.measure(Pauli("Z_0"))
+        assert not frames.outcome_deltas[frame_row, 0]
+
+
+def test_feedforward_record_indices_include_preceding_flags() -> None:
+    physical = _feedforward_instruction_set(False, flagged=True)
+    circuit = qc.gadgets.Circuit(
+        physical,
+        '- R: [0]\n- H: [0]\n- M: [0]\n- R: [0]\n- M: [0]\n- correct: [0, bit: "circuit.readouts[2]"]',
+        format="yaml",
+    )
+    simulation = walk_program(circuit).simulation
+    row = simulation.measure(Pauli("Z_0"))
+    assert not simulation.outcome_shift[row]
+    assert not any(
+        simulation.outcome_matrix[row, index]
+        for index in range(simulation.outcome_matrix.column_count)
+    )
 
 
 def _c4() -> qc.Qodec:
     return qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing/qodecs/c4.qodec.yaml")
     )
+
+
+def _conditional_pauli_gadget() -> qc.Gadget:
+    physical = _feedforward_instruction_set(False)
+    operand = qc.instructions.BlockOperand("data")
+    instruction = qc.Instruction(
+        "correct_ancilla", inputs=[operand], outputs=[operand], flags=["reject"]
+    )
+    code = qc.Code("data", ["Z_1"], ["X_0"], ["Z_0"])
+    encoding = qc.gadgets.Encoding(code, support=["0", "1"])
+    source = '- M: [1]\n- correct: [1, bit: "circuit.readouts[0]"]\n- M: [1]'
+    return qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(physical, source, format="yaml"),
+        inputs=[encoding],
+        outputs=[encoding],
+        checks=[["out[0].stabilizers[0]"]],
+        readouts=[{"reject": ["circuit.readouts[1]"]}],
+    )
+
+
+def test_conditional_pauli_parities_include_incoming_frames() -> None:
+    analysis = ParityAnalysis(_conditional_pauli_gadget())
+    assert analysis.value(analysis.checks[0]).is_zero
+    assert analysis.value(analysis.readouts[0]).is_zero
+    assert not analysis.value(("circuit.readouts[0]",)).is_zero
+    assert analysis.unresolved_outputs() == ()
+
+
+def _measure_then_hadamard(*, measurement_first: bool) -> qc.Gadget:
+    operand = qc.instructions.BlockOperand("qubit")
+    observe = qc.actions.Observe(["Z_0"])
+    hadamard = qc.actions.Clifford({"X_0": "Z_0", "Z_0": "X_0"})
+    physical = _feedforward_instruction_set(False)
+    instruction = qc.Instruction(
+        "measure_h",
+        inputs=[operand],
+        outputs=[operand],
+        action=[observe, hadamard] if measurement_first else [hadamard, observe],
+    )
+    encoding = qc.gadgets.Encoding(
+        qc.Code("qubit", ["Z_1"], ["X_0"], ["Z_0"]), support=["0", "1"]
+    )
+    return qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(physical, "M 0\nH 0", format="stim"),
+        inputs=[encoding],
+        outputs=[encoding],
+        readouts=[["circuit.readouts[0]", "in[0].z[0]"]],
+        checks=[["out[0].stabilizers[0]", "in[0].stabilizers[0]"]],
+    )
+
+
+def test_leading_observation_can_precede_other_logical_actions() -> None:
+    analysis = ParityAnalysis(_measure_then_hadamard(measurement_first=True))
+    assert analysis.value(analysis.readouts[0]) == analysis.expected[0]
+    assert analysis.value(("circuit.readouts[0]",)) != analysis.expected[0]
+
+
+def test_observation_after_a_logical_transform_remains_unverified() -> None:
+    analysis = ParityAnalysis(_measure_then_hadamard(measurement_first=False))
+    with pytest.raises(NotImplementedError, match="interleaved logical actions"):
+        _ = analysis.expected
+
+
+def test_output_checks_do_not_require_logical_readout_verification() -> None:
+    gadget = _measure_then_hadamard(measurement_first=False)
+    assert ParityAnalysis(gadget).unresolved_outputs() == ()
+    gadget.checks = [["out[0].stabilizers[0]"]]
+    with pytest.raises(NotImplementedError, match="interleaved logical actions"):
+        ParityAnalysis(gadget).unresolved_outputs()
+
+
+def _rotation_gadget(axis: str) -> qc.Gadget:
+    operand = qc.instructions.BlockOperand("qubit")
+    rotation = qc.Instruction(
+        "rotate",
+        inputs=[operand],
+        outputs=[operand],
+        parameters=[qc.instructions.Parameter("theta", "number")],
+        action=[qc.actions.Rotate(axis, "theta")],
+    )
+    physical = qc.InstructionSet(
+        "physical", blocks=[qc.instructions.Block("qubit", 1)], instructions=[rotation]
+    )
+    encoding = qc.gadgets.Encoding(
+        qc.Code("repetition", ["Z_0 Z_1"], ["X_0 X_1"], ["Z_0"]), support=["2", "5"]
+    )
+    return qc.Gadget(
+        rotation,
+        qc.gadgets.Circuit(physical, "- rotate: [2, theta: theta]", format="yaml"),
+        inputs=[encoding],
+        outputs=[encoding],
+        checks=[["out[0].stabilizers[0]", "in[0].stabilizers[0]"]],
+    )
+
+
+def test_rotation_preserves_commuting_stabilizer_signs() -> None:
+    analysis = ParityAnalysis(_rotation_gadget("Z_0"))
+    assert analysis.value(analysis.checks[0]).is_zero
+    assert not analysis.value(("out[0].stabilizers[0]",)).is_zero
+    assert analysis.unresolved_outputs() == ()
+
+
+def test_noncommuting_rotation_is_not_treated_as_identity() -> None:
+    analysis = ParityAnalysis(_rotation_gadget("X_0"))
+    with pytest.raises(TypeError, match="Rotate"):
+        analysis.value(analysis.checks[0])
+
+
+def test_rotation_invariants_do_not_certify_logical_frames() -> None:
+    gadget = _rotation_gadget("Z_0")
+    gadget.checks = [["out[0].x[0]", "in[0].x[0]"]]
+    with pytest.raises(TypeError, match="Rotate"):
+        ParityAnalysis(gadget).value(("out[0].x[0]", "in[0].x[0]"))
+
+
+def _selected_flag_gadget(selection: str) -> qc.Gadget:
+    physical = _feedforward_instruction_set(False, flagged=True)
+    source = (
+        "- R: [0]\n- H: [0]\n"
+        f"- M: {{operands: [0], select: {selection}}}\n"
+        '- correct: [0, bit: "circuit.readouts[0]"]\n- M: [0]'
+    )
+    return qc.Gadget(
+        qc.Instruction("flag", flags=["reject"]),
+        qc.gadgets.Circuit(physical, source, format="yaml"),
+        readouts=[
+            {
+                "reject": [
+                    "circuit.readouts[1]",
+                    "circuit.readouts[2]",
+                    "circuit.readouts[3]",
+                ]
+            }
+        ],
+    )
+
+
+@pytest.mark.parametrize("selection", ["[{flag: 0}]", "[{flag: 1}, {flag: 0}]", "[{}]"])
+def test_zero_flag_selection_retains_measurement_record_positions(
+    selection: str,
+) -> None:
+    analysis = ParityAnalysis(_selected_flag_gadget(selection))
+    assert analysis.value(analysis.readouts[0]).is_zero
+    assert not analysis.value(("circuit.readouts[0]",)).is_zero
+    assert all(
+        analysis.value((f"circuit.readouts[{index}]",)).is_zero for index in (1, 2, 3)
+    )
+
+
+def test_selection_rejecting_noiseless_execution_stays_unverified() -> None:
+    analysis = ParityAnalysis(_selected_flag_gadget("[{flag: 1}]"))
+    with pytest.raises(
+        NotImplementedError, match="rejects the noiseless zero-flag branch"
+    ):
+        analysis.value(analysis.readouts[0])
+
+
+def test_selection_cannot_assume_an_unknown_flag_is_zero() -> None:
+    analysis = ParityAnalysis(_selected_flag_gadget("[{unknown: 0}]"))
+    with pytest.raises(ValueError, match="undeclared instruction flag"):
+        analysis.value(analysis.readouts[0])
+
+
+def test_missing_output_suggestions_include_preceding_flag_slots() -> None:
+    from qdk.ec._audit.rules.gadget import IncompleteOutputFrameRule
+
+    gadget = _selected_flag_gadget("[{flag: 0}]")
+    gadget.circuit.source = "- R: [0]\n- M: [0]\n- H: [0]\n- M: [0]"
+    gadget.outputs = [
+        qc.gadgets.Encoding(qc.Code("measured", ["Z_0"], [], []), support=["0"])
+    ]
+    gadget.readouts = []
+    diagnostics = list(IncompleteOutputFrameRule()(gadget, qodec=_c4()))
+    assert len(diagnostics) == 1
+    assert (
+        'Verified relation: ["out[0].stabilizers[0]", "circuit.readouts[2]"]'
+        in diagnostics[0].detail
+    )
+
+
+def test_missing_output_relations_do_not_claim_unsupported_analysis_succeeded() -> None:
+    from qdk.ec._audit.rules.gadget import IncompleteOutputFrameRule
+
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["transversal_cx"]
+    gadget.checks = []
+    gadget.circuit.format = "unknown"
+    diagnostics = list(IncompleteOutputFrameRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert diagnostics[0].summary == "Output frames not checked: analysis failed"
+    assert "Verified relation" not in diagnostics[0].detail
 
 
 def test_readout_requires_incoming_logical_frame() -> None:

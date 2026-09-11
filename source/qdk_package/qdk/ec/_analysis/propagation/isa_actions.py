@@ -2,24 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Mapping, TYPE_CHECKING
+from typing import Mapping
 
 from paulimer import DensePauli
 
-from .pauli import Pauli, parse_term
-
-if TYPE_CHECKING:
-    from paulimer import PauliCharacter
+from .pauli import Pauli, parse_term, relabel
 
 
 def remap_pauli(pauli_str: str, qubit_map: Mapping[int, int]) -> Pauli:
     """The Pauli ``pauli_str`` names, each term placed through ``qubit_map``."""
-    characters: dict[int, "PauliCharacter"] = {}
-    for token in pauli_str.split():
-        basis, index = parse_term(token)
-        if basis != "I":
-            characters[qubit_map[index]] = basis
-    return Pauli(characters)
+    operator = Pauli(pauli_str)
+    placement = {qubit: qubit_map[qubit] for qubit in operator.support}
+    return relabel(operator, placement)
 
 
 def build_clifford_images(
