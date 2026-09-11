@@ -77,6 +77,13 @@ pub mod qir {
 
     type RuntimeCallableResult<T> = Result<T, Box<Error>>;
 
+    type SyntheticTargetArrow = (
+        Vec<qsc_fir::ty::GenericArg>,
+        qsc_fir::ty::Ty,
+        qsc_fir::ty::Ty,
+        qsc_fir::ty::Ty,
+    );
+
     /// Extracts the entry point expression from codegen FIR.
     ///
     /// Forms a `ProgramEntry` suitable for downstream codegen (QIR, RIR generation)
@@ -961,37 +968,23 @@ pub mod qir {
 
     /// Seeds the package entry with a synthetic `Call(target, args)` expression.
     ///
-    /// Builds args matching the target callable's pure input type: callable-typed positions
-    /// are filled with Var references to the concrete callables from the `args` Value;
-    /// non-callable positions get typed placeholder literals (which are never evaluated —
-    /// they exist only to make the Call structurally valid for defunctionalization).
+    /// Builds args from validated runtime values and the instantiated target signature.
     fn seed_entry_with_call_to_target(
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         target_callable: qsc_fir::fir::StoreItemId,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        target_arrow: SyntheticTargetArrow,
     ) {
         use qsc_fir::fir::{Global, PackageLookup};
 
-        // Pre-compute target's arrow type and input pattern type (immutable borrow of store).
         let package = fir_store.get(target_callable.package);
         let Some(Global::Callable(callable_decl)) = package.get_global(target_callable.item) else {
             panic!("target callable must exist in lowered package");
         };
         let span = callable_decl.span;
-        let input_pat = package.get_pat(callable_decl.input);
-        let formal_input_ty = resolve_udt_ty(fir_store, &input_pat.ty);
-        let formal_output_ty = resolve_udt_ty(fir_store, &callable_decl.output);
-        let (generic_args, input_ty, output_ty, arrow_ty) = instantiate_synthetic_target_arrow(
-            callable_decl.generics.as_slice(),
-            callable_decl.kind,
-            callable_decl.functors,
-            &formal_input_ty,
-            &formal_output_ty,
-            args,
-            callable_types,
-        );
+        let (generic_args, input_ty, output_ty, arrow_ty) = target_arrow;
 
         // Build assigner from the package's current ID counters.
         let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_package_id));
@@ -1100,7 +1093,7 @@ pub mod qir {
         target_callable: qsc_fir::fir::StoreItemId,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> RuntimeCallableResult<()> {
+    ) -> RuntimeCallableResult<SyntheticTargetArrow> {
         use qsc_fir::fir::{Global, PackageLookup};
 
         let package = fir_store.get(target_callable.package);
@@ -1110,7 +1103,7 @@ pub mod qir {
         let formal_input_ty = resolve_udt_ty(fir_store, &package.get_pat(callable_decl.input).ty);
         let formal_output_ty = resolve_udt_ty(fir_store, &callable_decl.output);
         validate_runtime_callable_shapes(args, callable_types)?;
-        let (_, input_ty, _, _) = instantiate_synthetic_target_arrow(
+        let target_arrow = instantiate_synthetic_target_arrow(
             callable_decl.generics.as_slice(),
             callable_decl.kind,
             callable_decl.functors,
@@ -1119,7 +1112,8 @@ pub mod qir {
             args,
             callable_types,
         );
-        validate_runtime_callable_args(args, &input_ty, callable_types)
+        validate_runtime_callable_args(args, &target_arrow.1, callable_types)?;
+        Ok(target_arrow)
     }
 
     fn validate_runtime_callable_shapes(
@@ -1244,12 +1238,6 @@ pub mod qir {
     ) -> RuntimeCallableResult<()> {
         use qsc_fir::ty::Ty;
 
-        // Argument-to-slot alignment is decided here, and deliberately diverges from
-        // `build_synthetic_args`. That builder pairs element-wise only on matching
-        // arity; every other shape is fabricated from `Lit(Int(0))` placeholders, and
-        // when no slot is arrow-bearing the supplied value is discarded entirely.
-        // Those placeholders are live operands during partial evaluation, so a
-        // mismatch is rejected here instead of silently fabricating argument values.
         if let Ty::Tuple(items) = expected_ty
             && !items.is_empty()
         {
@@ -1430,12 +1418,7 @@ pub mod qir {
         formal_output_ty: &qsc_fir::ty::Ty,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> (
-        Vec<qsc_fir::ty::GenericArg>,
-        qsc_fir::ty::Ty,
-        qsc_fir::ty::Ty,
-        qsc_fir::ty::Ty,
-    ) {
+    ) -> SyntheticTargetArrow {
         let generic_args =
             infer_target_generic_args(generics, formal_input_ty, args, callable_types);
         let formal_arrow = qsc_fir::ty::Arrow {
@@ -1461,10 +1444,7 @@ pub mod qir {
 
     /// Builds an args expression matching the target's input type.
     ///
-    /// For callable-typed positions, uses the corresponding callable from `args`.
-    /// For non-callable positions, uses `lower_value_to_expr` if the value is available
-    /// in `args`, otherwise creates a typed placeholder literal.
-    #[allow(clippy::too_many_lines)]
+    /// Requires validated tuple shapes and FIR-lowerable runtime values.
     fn build_synthetic_args(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
@@ -1491,46 +1471,10 @@ pub mod qir {
                 expr_id
             }
             qsc_fir::ty::Ty::Tuple(elem_tys) => {
-                // Multi-param input — walk each position.
-                // If args is a Tuple of same length, pair element-wise.
-                // Otherwise, match the first callable-typed position to args.
-                let arg_elems: Vec<&Value> = match args {
-                    Value::Tuple(vs, _) if vs.len() == elem_tys.len() => vs.iter().collect(),
-                    _ => {
-                        // Args doesn't match tuple structure — build with
-                        // args placed at the first arrow-typed position.
-                        let mut elem_ids = Vec::with_capacity(elem_tys.len());
-                        let mut args_used = false;
-                        for elem_ty in elem_tys {
-                            if !args_used && ty_is_arrow_or_contains_arrow(elem_ty) {
-                                elem_ids.push(lower_value_to_expr(
-                                    package,
-                                    assigner,
-                                    args,
-                                    Some(elem_ty),
-                                    callable_types,
-                                    pending_stmts,
-                                ));
-                                args_used = true;
-                            } else {
-                                elem_ids.push(make_placeholder_expr(package, assigner, elem_ty));
-                            }
-                        }
-                        let expr_id = assigner.next_expr();
-                        package.exprs.insert(
-                            expr_id,
-                            qsc_fir::fir::Expr {
-                                id: expr_id,
-                                span: package.synthetic_span(),
-                                ty: input_ty.clone(),
-                                kind: qsc_fir::fir::ExprKind::Tuple(elem_ids),
-                                exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
-                                    ..qsc_fir::fir::ExecGraphIdx::ZERO,
-                            },
-                        );
-                        return expr_id;
-                    }
+                let Value::Tuple(arg_elems, _) = args else {
+                    unreachable!("validated tuple argument");
                 };
+                assert_eq!(elem_tys.len(), arg_elems.len(), "validated tuple arity");
 
                 // Element-wise matching: lower each arg against its declared type.
                 let mut elem_ids = Vec::with_capacity(elem_tys.len());
@@ -1558,46 +1502,14 @@ pub mod qir {
                 );
                 expr_id
             }
-            qsc_fir::ty::Ty::Arrow(_) => {
-                // Arrow-typed position — the args must be a callable value.
-                lower_value_to_expr(
-                    package,
-                    assigner,
-                    args,
-                    Some(input_ty),
-                    callable_types,
-                    pending_stmts,
-                )
-            }
-            qsc_fir::ty::Ty::Array(_) => {
-                // Array position — lower the value, threading the declared element
-                // type so empty (and nested-empty) arrays carry their real element
-                // type instead of `Ty::Err`.
-                lower_value_to_expr(
-                    package,
-                    assigner,
-                    args,
-                    Some(input_ty),
-                    callable_types,
-                    pending_stmts,
-                )
-            }
-            _ => {
-                // Non-callable position — lower value if possible, otherwise placeholder.
-                match args {
-                    Value::Qubit(_) | Value::Var(_) => {
-                        make_placeholder_expr(package, assigner, input_ty)
-                    }
-                    _ => lower_value_to_expr(
-                        package,
-                        assigner,
-                        args,
-                        Some(input_ty),
-                        callable_types,
-                        pending_stmts,
-                    ),
-                }
-            }
+            _ => lower_value_to_expr(
+                package,
+                assigner,
+                args,
+                Some(input_ty),
+                callable_types,
+                pending_stmts,
+            ),
         }
     }
 
@@ -1638,41 +1550,6 @@ pub mod qir {
             })),
             _ => ty.clone(),
         }
-    }
-
-    /// Returns true if the type is an Arrow or contains an Arrow in tuple structure.
-    fn ty_is_arrow_or_contains_arrow(ty: &qsc_fir::ty::Ty) -> bool {
-        match ty {
-            qsc_fir::ty::Ty::Arrow(_) => true,
-            qsc_fir::ty::Ty::Tuple(elems) => elems.iter().any(ty_is_arrow_or_contains_arrow),
-            _ => false,
-        }
-    }
-
-    /// Creates a typed placeholder expression for a non-callable input position.
-    ///
-    /// Uses `Lit(Int(0))` with the declared type. The placeholder is a live operand
-    /// during partial evaluation, so it is only sound at a slot the caller did not
-    /// supply. Argument validation rejects arity mismatches precisely so a caller-
-    /// supplied value is never silently replaced by one of these placeholders.
-    fn make_placeholder_expr(
-        package: &mut qsc_fir::fir::Package,
-        assigner: &mut qsc_fir::assigner::Assigner,
-        ty: &qsc_fir::ty::Ty,
-    ) -> qsc_fir::fir::ExprId {
-        let expr_id = assigner.next_expr();
-        package.exprs.insert(
-            expr_id,
-            qsc_fir::fir::Expr {
-                id: expr_id,
-                span: package.synthetic_span(),
-                ty: ty.clone(),
-                kind: qsc_fir::fir::ExprKind::Lit(qsc_fir::fir::Lit::Int(0)),
-                exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
-                    ..qsc_fir::fir::ExecGraphIdx::ZERO,
-            },
-        );
-        expr_id
     }
 
     /// Resolves `FunctorSet::Param` to `FunctorSet::Value(Empty)` recursively in a type.
@@ -2678,7 +2555,7 @@ pub mod qir {
         // signatures needed by monomorphization.
         let callable_types = build_callable_type_map(&fir_store, &concrete_callables)
             .map_err(|error| vec![*error])?;
-        validate_runtime_callable_values_for_target(
+        let target_arrow = validate_runtime_callable_values_for_target(
             &fir_store,
             target_callable,
             args,
@@ -2695,6 +2572,7 @@ pub mod qir {
             target_callable,
             args,
             &callable_types,
+            target_arrow,
         );
 
         // FIR-lowerable callable values — whether passed directly, captured by a
