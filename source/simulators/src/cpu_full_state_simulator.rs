@@ -835,4 +835,12 @@ impl Simulator for FullStateSimulator {
         };
         self.measurements[result_id] = new_measurement;
     }
+
+    fn write_result(&mut self, value: bool, result_id: ResultID) {
+        self.measurements[result_id] = if value {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
+    }
 }

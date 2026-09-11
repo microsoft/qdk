@@ -51,6 +51,7 @@ const OP_RECORD_OUTPUT: u8 = 0x14;
 const OP_READ_LOSS: u8 = 0x15;
 const OP_PEEK_LOSS: u8 = 0x16;
 const OP_READOUT_NOISE: u8 = 0x17;
+const OP_WRITE_RESULT: u8 = 0x18;
 
 // Integer arithmetic
 const OP_ADD: u8 = 0x20;
@@ -457,6 +458,17 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
                     0u64
                 };
                 rt.write_reg(instr.dst, val);
+                rt.pc += 1;
+            }
+
+            OP_WRITE_RESULT => {
+                let value = match rt.resolve_u64(instr.src0, flags, 0) {
+                    0 => false,
+                    1 => true,
+                    invalid => panic!("Invalid value for write_result: {invalid}"),
+                };
+                let result_id = rt.resolve_u64(instr.src1, flags, 1) as ResultID;
+                sim.write_result(value, result_id);
                 rt.pc += 1;
             }
 
