@@ -80,7 +80,7 @@ function normalizeZones(zones: ZoneDataInput[]): ZoneData[] {
 
 export type TraceData = {
   metadata: any;
-  qubits: Array<[number, number]>;
+  qubits: Location[];
   steps: Array<{
     id: string | number;
     ops: Array<string>;
@@ -97,7 +97,8 @@ export type TraceData = {
 //   ],
 // };
 
-type Location = [number, number, SVGElement?];
+type Location = [row: number, column: number];
+type RenderedLocation = [row: number, column: number, element: SVGElement];
 
 const qubitSize = 10;
 const zoneSpacing = 8;
@@ -110,10 +111,8 @@ const doublonCornerRadius = 5;
 
 // Used when no trace data is provided to fill the qubit mappings, assuming all register
 // zones are populated with sequentially numbered qubit ids from the top left to the bottom right.
-export function fillQubitLocations(
-  layout: ZoneLayout,
-): Array<[number, number]> {
-  const qubits: Array<[number, number]> = [];
+export function fillQubitLocations(layout: ZoneLayout): Location[] {
+  const qubits: Location[] = [];
   const normalizedZones = normalizeZones(layout.zones);
   normalizedZones.forEach((zone) => {
     if (zone.kind === "register") {
@@ -130,7 +129,7 @@ export function fillQubitLocations(
 }
 
 /** Maps each original instruction column index to its visual column index after skipped columns are removed. */
-function createColumnMap(cols: number, skipCols: number[]): number[] {
+function createColumnMap(cols: number, skipCols: readonly number[]): number[] {
   const columnMap = new Array<number>(cols);
   let skippedBefore = 0;
   for (let col = 0; col < cols; ++col) {
@@ -326,7 +325,7 @@ export class Layout {
   width: number;
   height: number;
   scale: number = initialScale;
-  qubits: Location[];
+  qubits: RenderedLocation[];
   rowOffsetMap: Map<number, number>; // Maps absolute row numbers to visual Y offsets
   normalizedZones: ZoneData[];
   effectiveCols: number; // Visual column count after accounting for skipCols
@@ -358,8 +357,6 @@ export class Layout {
     }
     this.trace = trace;
     this.getStepLayout = TraceToGetLayoutFn(trace, this.columnMap);
-
-    this.qubits = structuredClone(trace.qubits);
 
     this.container = document.createElementNS(
       "http://www.w3.org/2000/svg",
@@ -423,7 +420,7 @@ export class Layout {
 
     appendChildren(this.container, [this.trackParent]);
 
-    this.renderQubits();
+    this.qubits = this.renderQubits(trace.qubits);
   }
 
   private highlightQubit(qubit: number | null) {
@@ -545,9 +542,9 @@ export class Layout {
     return globalRowIndex;
   }
 
-  private renderQubits() {
-    const elems = this.qubits.map((location, index) => {
-      const [x, y] = this.getQubitCenter(index);
+  private renderQubits(locations: readonly Location[]): RenderedLocation[] {
+    const qubits = locations.map(([row, column], index): RenderedLocation => {
+      const [x, y] = this.getLocationCenter(row, column);
 
       // Safari has an issue animating multiple attributes concurrently, which we need
       // to do to move the qubit (animate 'cx' and 'cy'), so instead set cx and cy to 0
@@ -566,11 +563,14 @@ export class Layout {
       // Animation sets the transform as a style attribute, not an element attribute.
       // Also note, when animating the CSS it requires the 'px' length type (unlike the attribute).
       circle.style.transform = `translate(${x}px, ${y}px)`;
-      location[2] = circle;
-      return circle;
+      return [row, column, circle];
     });
 
-    appendChildren(this.container, elems);
+    appendChildren(
+      this.container,
+      qubits.map(([, , element]) => element),
+    );
+    return qubits;
   }
 
   private renderColNums(cols: number, offset: number) {
@@ -794,16 +794,16 @@ export class Layout {
     const qubitLayout = this.getStepLayout(qubitLocationIndex);
     const qubitCount = qubitLayout.length / 2;
     for (let idx = 0; idx < qubitCount; ++idx) {
-      const elem = this.qubits[idx][2];
-      if (elem === undefined) {
-        throw "Invalid qubit index in step";
-      }
-      const loc: Location = [qubitLayout[idx * 2], qubitLayout[idx * 2 + 1]];
-      this.qubits[idx] = [loc[0], loc[1], elem]; // Update the location
+      const element = this.qubits[idx][2];
+      const location: Location = [
+        qubitLayout[idx * 2],
+        qubitLayout[idx * 2 + 1],
+      ];
+      this.qubits[idx] = [location[0], location[1], element];
 
       // Get the offset for the location and move it there
       const [x, y] = this.getQubitCenter(idx);
-      elem.style.transform = `translate(${x}px, ${y}px)`;
+      element.style.transform = `translate(${x}px, ${y}px)`;
     }
 
     // Now apply the ops
