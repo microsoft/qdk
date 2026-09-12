@@ -11,7 +11,8 @@ license-files = ["LICENSE.txt", "KATEX_LICENSE.txt"]
 dependencies = ["anywidget>=0.9.21"]
 
 [project.optional-dependencies]
-dev = ["watchfiles", "jupyterlab"]
+dev = ["watchfiles", "jupyterlab", "pytest>=8"]
+test = ["pytest>=8"]
 
 # automatically add the dev feature to the default env (e.g., hatch shell)
 [tool.hatch.envs.default]
@@ -34,3 +35,6 @@ dependencies = ["hatch-jupyter-builder>=0.5.0"]
 [tool.hatch.build.hooks.jupyter-builder.build-kwargs]
 npm = "npm"
 build_cmd = "build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

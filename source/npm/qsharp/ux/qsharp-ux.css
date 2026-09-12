@@ -2,6 +2,7 @@
    Licensed under the MIT License. */
 
 @import "./qdk-theme.css";
+@import "./majorana/index.css";
 
 /* Styles for Q# UX components.
 

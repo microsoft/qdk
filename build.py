@@ -593,14 +593,28 @@ if build_qdk:
 if build_widgets:
     step_start("Building the Python widgets")
 
-    python_bin, _ = use_python_env(qdk_python_src)
+    python_bin, pip_env = use_python_env(qdk_python_src)
 
     if args.editable:
-        editable_install(python_bin, widgets_src, no_deps=False)
+        editable_install(python_bin, widgets_src, no_deps=False, env=pip_env)
     else:
         build_wheel(python_bin, widgets_src)
 
     step_end()
+
+    if args.test:
+        step_start("Running the Python widget tests")
+        if args.editable:
+            pip_install(python_bin, "pytest>=8", cwd=widgets_src, env=pip_env)
+        else:
+            pip_install(
+                python_bin,
+                f"{widgets_src}[test]",
+                cwd=widgets_src,
+                env=pip_env,
+            )
+        run_python_tests(widgets_src, python_bin, pip_env)
+        step_end()
 
 if build_wasm:
     step_start("Building the wasm files")
