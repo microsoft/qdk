@@ -59,7 +59,7 @@ class GadgetProfile:
 
     @cached_property
     def action(self) -> ChannelAction:
-        """What the circuit does."""
+        """The circuit's logical action, including declared output-frame corrections."""
         if isinstance(self._target, qc.Gadget):
             return realized_action_of(self._target)
         return action_of(self._target)
@@ -446,6 +446,7 @@ def _snapshot(target: qc.Gadget | Circuit) -> qc.Gadget | Circuit:
         outputs=list(target.outputs),
         checks=[list(check) for check in target.checks],
         readouts=target.readouts,
+        frames=target.frames,
         parameter_bindings=dict(target.parameter_bindings),
         metadata=dict(target.metadata),
     )

@@ -198,7 +198,7 @@ def test_action_comparison_keeps_measurement_and_preparation_sign_correlations()
     assert expected.why_not_equivalent_to(independent)
 
 
-def test_action_comparison_retains_mapping_correction_convention() -> None:
+def test_action_comparison_does_not_assume_mapping_corrections() -> None:
     operator = Pauli("X_0")
     expected = ChannelAction._create(
         FrameGroup([]), FrameGroup([]), {operator: PauliFrame(operator)}
@@ -208,8 +208,8 @@ def test_action_comparison_retains_mapping_correction_convention() -> None:
         FrameGroup([]),
         {operator: PauliFrame(-operator, frozenset({7}))},
     )
-    assert expected.is_equivalent_to(actual)
-    assert expected.why_not_equivalent_to(actual) == ""
+    assert not expected.is_equivalent_to(actual)
+    assert expected.why_not_equivalent_to(actual)
 
 
 def test_distinct_gadgets_are_not_equivalent(
@@ -282,12 +282,12 @@ def test_idle_declared_and_realized_actions_match_golden_values(
     assert str(profile.objective) == (
         "observables: FrameGroup(generators=())\n"
         "stabilizers: FrameGroup(generators=())\n"
-        "mapping: {X: X^{0}, Z: Z, IX: IX^{2}, IZ: IZ}"
+        "mapping: {X: X, Z: Z, IX: IX, IZ: IZ}"
     )
     assert str(profile.action) == (
         "observables: FrameGroup(generators=())\n"
         "stabilizers: FrameGroup(generators=())\n"
-        "mapping: {X: X^{4,6}, Z: Z, IX: IX^{2,6}, IZ: IZ}"
+        "mapping: {X: X, Z: Z, IX: IX, IZ: IZ}"
     )
 
 

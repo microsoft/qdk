@@ -214,10 +214,9 @@ def test_output_frame_relation_preserves_constant_sign() -> None:
         item for item in report.warnings if "out[0].stabilizers[1]" in item.summary
     )
     assert (
-        'Relation terms: ["out[0].stabilizers[1]", "in[0].stabilizers[1]"]\n'
-        "Parity: 1 (not a valid zero-parity check)." in diagnostic.detail
+        'Verified relation: ["out[0].stabilizers[1]", "in[0].stabilizers[1]", 1]'
+        in diagnostic.detail
     )
-    assert "Verified relation:" not in diagnostic.detail
 
 
 # ----------------------------------------------------------------------------

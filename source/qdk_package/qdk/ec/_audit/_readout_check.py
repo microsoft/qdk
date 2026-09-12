@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
-from binar import BitVector
 import qodec as qc
 
 from .._readouts import observe_count_of
@@ -64,19 +62,8 @@ def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
         if candidate is not None:
             reason = ""
         else:
-            constant = BitVector(
-                index == len(expected) - 1 for index in range(len(expected))
-            )
-            inverted = analysis.candidate(expected ^ constant)
-            if inverted is None:
-                summary = f"The circuit does not provide the required {required} result for readouts[{position}]"
-                reason = "No readout formula using circuit bits and incoming frame signs can recover this result."
-            else:
-                summary = f"readouts[{position}] requires a constant inversion to report the required {required}"
-                reason = (
-                    f"Required result: 1 XOR {json.dumps(list(inverted))}\n"
-                    "A qodec readout equation cannot express the constant 1."
-                )
+            summary = f"The circuit does not provide the required {required} result for readouts[{position}]"
+            reason = "No readout formula using circuit bits and incoming frame signs can recover this result."
         mismatches.append(ReadoutMismatch(position, candidate, summary, reason))
     return mismatches
 

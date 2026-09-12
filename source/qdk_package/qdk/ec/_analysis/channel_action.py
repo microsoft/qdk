@@ -6,12 +6,14 @@ import json
 from dataclasses import dataclass
 from typing import Mapping, Sequence, Union
 
+from binar import BitMatrix, BitVector, solve
 import qodec as qc
 from paulimer import PauliGroup
 from qodec.actions import Stabilize
 from qodec.gadgets import Circuit
 
 from .._layout import ProgramLayout
+from .._frames import FrameMap
 from .propagation.conditional import conditional_choi_state
 from .propagation.frames import FrameGroup, PauliFrame
 from .propagation.interpreter import program_of
@@ -68,8 +70,8 @@ class ChannelAction:
         """Compare operators and their joint outcome-sign relations.
 
         Outcome labels are local to each action, so renumbering them does not
-        change equivalence. Outcome-dependent signs on mapping images are
-        compared modulo Pauli corrections. With modulo_paulis, ignore all signs.
+        change equivalence. With modulo_paulis, ignore all signs. Otherwise,
+        outcome-dependent signs must agree; undeclared corrections are not assumed.
         """
         if self is other:
             return True
@@ -180,6 +182,7 @@ def _action_of(
     input_qubits: Sequence[int],
     codespace_projector: Sequence[Pauli] = (),
     output_support: Sequence[int] | None = None,
+    frames: FrameMap | None = None,
 ) -> ChannelAction:
     auxiliary_origin = _aux_origin_of(
         program,
@@ -193,6 +196,42 @@ def _action_of(
         codespace_projector=codespace_projector,
         aux_origin=auxiliary_origin,
     )
+    group = result.group
+    if frames is not None:
+        matrix = result.simulation.outcome_matrix
+        zero = BitVector.zeros(matrix.column_count + 1)
+        outcomes = iter(result.observe_outcome_rows)
+        one = zero.copy()
+        one[len(one) - 1] = True
+        values = {"1": one}
+        for position, readout in enumerate(program.readouts):
+            if isinstance(readout, qc.gadgets.Flag):
+                value = zero.copy()
+            else:
+                row = next(outcomes)
+                value = BitVector(
+                    [
+                        *(
+                            bool(matrix[row, column])
+                            for column in range(matrix.column_count)
+                        ),
+                        bool(result.simulation.outcome_shift[row]),
+                    ]
+                )
+            values[f"circuit.readouts[{position}]"] = value
+        corrected = []
+        for generator in group.generators:
+            delta = frames.for_probe(generator.pauli, values, zero)
+            corrected.append(
+                PauliFrame(
+                    -generator.pauli if delta[len(delta) - 1] else generator.pauli,
+                    generator.frame
+                    ^ frozenset(
+                        index for index in delta.support if index < len(delta) - 1
+                    ),
+                )
+            )
+        group = FrameGroup(corrected)
     auxiliary = {auxiliary_origin + offset for offset in range(len(input_qubits))}
     physical_support = frozenset(
         range(ProgramLayout.of(program).total_qubits)
@@ -200,12 +239,33 @@ def _action_of(
         else output_support
     )
     random_to_outcome = tuple(result.simulation.random_outcome_indicator.support)
+    initial_count = 2 * len(input_qubits) + len(codespace_projector)
+    matrix = result.simulation.outcome_matrix
+    constraints = (
+        BitMatrix(list(matrix.rows)[:initial_count])
+        if initial_count
+        else BitMatrix.zeros(0, matrix.column_count)
+    )
+    shifts = BitVector(
+        bool(result.simulation.outcome_shift[row]) for row in range(initial_count)
+    )
+    initial = solve(constraints, shifts)
+    if initial is None:
+        raise ValueError("input encoding has no positive codeword")
     group = FrameGroup(
         PauliFrame(
-            generator.pauli,
-            frozenset(random_to_outcome[index] for index in generator.frame),
+            (
+                -generator.pauli
+                if sum(bool(initial[index]) for index in generator.frame) % 2
+                else generator.pauli
+            ),
+            frozenset(
+                random_to_outcome[index]
+                for index in generator.frame
+                if random_to_outcome[index] >= initial_count
+            ),
         )
-        for generator in result.group.generators
+        for generator in group.generators
     )
     stabilizers_out, stabilizers_in, logicals = group.partition(over=physical_support)
     auxiliary_to_input = {
@@ -287,14 +347,20 @@ def _decode(
         gauge_basis=code_out.gauge_basis,
     )
     observables = _logical_form_of(action._observables, with_respect_to=code_in)
-    stabilizers = _logical_form_of(action._stabilizers, with_respect_to=code_out)
-    input_generators = [
-        (PauliGroup([key]) % observables_group).generators[0] for key in action._mapping
-    ]
-    output_generators = FrameGroup(
-        (FrameGroup([value]) % action._stabilizers).generators[0]
-        for value in action._mapping.values()
+    stabilizers = _logical_form_of(
+        action._stabilizers, with_respect_to=code_out, carry_code_frames=True
     )
+    input_generators = [
+        *action._mapping,
+        *(item.pauli for item in action._observables.generators),
+    ]
+    output_generators = [
+        *action._mapping.values(),
+        *(
+            PauliFrame(identity(), item.frame)
+            for item in action._observables.generators
+        ),
+    ]
     indexed_inputs = FrameGroup(
         PauliFrame(generator, frozenset({index}))
         for index, generator in enumerate(input_generators)
@@ -302,10 +368,10 @@ def _decode(
     phased_inputs = indexed_inputs | FrameGroup([PauliFrame(identity(1j))])
     mapping = {}
     for basis_element in code_in.logical_basis:
-        target = (PauliGroup([basis_element]) % observables_group).generators[0]
+        target = basis_element
         # A logical with no image is normal here, not a failure to characterize:
         # a destructive measurement produces both cases below.
-        if not target.weight:
+        if not (PauliGroup([target]) % observables_group).generators[0].weight:
             # Read out by the circuit rather than carried forward.
             continue
         factorization = indexed_inputs.factorization_of(target)
@@ -322,14 +388,20 @@ def _decode(
         for index, generator in enumerate(input_generators):
             if index in factors:
                 input_product *= generator
-        output = output_generators.subgroup(
-            [[index in factors for index in range(len(input_generators))]]
-        ).generators[0]
-        if phase_extended:
-            output *= target.phase / input_product.phase
-        mapping[code_in.logical_action_of(target)] = PauliFrame(
-            code_out.logical_action_of(output.pauli), output.frame
-        ) * (target.phase**3)
+        output = PauliFrame(identity())
+        for index in sorted(factors):
+            output = output * output_generators[index]
+        output = output * (target.phase / input_product.phase)
+        logical_output = _logical_form_of(
+            FrameGroup([*action._stabilizers.generators, output]),
+            with_respect_to=code_out,
+            carry_code_frames=True,
+        )
+        reduced = logical_output % stabilizers
+        images = [item for item in reduced.generators if item.pauli.weight]
+        if len(images) != 1:
+            continue
+        mapping[code_in.logical_action_of(target)] = images[0]
     return ChannelAction._create(observables, stabilizers, mapping)
 
 
@@ -342,12 +414,50 @@ def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
 
 
 def _logical_form_of(
-    group: FrameGroup, *, with_respect_to: SubsystemCode
+    group: FrameGroup,
+    *,
+    with_respect_to: SubsystemCode,
+    carry_code_frames: bool = False,
 ) -> FrameGroup:
-    logical_action = FrameGroup(
-        PauliFrame(with_respect_to.logical_action_of(framed.pauli), framed.frame)
-        for framed in group.generators
-    )
+    if not carry_code_frames:
+        logicals = FrameGroup(
+            PauliFrame(with_respect_to.logical_action_of(item.pauli), item.frame)
+            for item in group.generators
+        )
+        return FrameGroup(
+            item for item in logicals.standardized().generators if item.pauli.weight
+        )
+    code_frames = []
+    for operator in with_respect_to.stabilizers:
+        factors = group.factorization_of(operator)
+        if factors is None:
+            factors = group.factorization_of(-operator)
+        if factors is None:
+            raise ValueError(f"code stabilizer {operator} has no framed image")
+        product = PauliFrame(identity())
+        for factor in factors:
+            product = product * factor
+        code_frames.append(product)
+    stabilizers = FrameGroup(code_frames)
+    logicals = []
+    for framed in group.generators:
+        logical = with_respect_to.logical_action_of(framed.pauli)
+        if not logical.weight:
+            continue
+        representative = with_respect_to.representative_of(logical)
+        difference = framed.pauli * representative
+        factors = stabilizers.factorization_of(difference)
+        if factors is None:
+            factors = stabilizers.factorization_of(-difference)
+        if factors is None:
+            raise ValueError(
+                f"logical representative of {framed.pauli} has no framed stabilizer relation"
+            )
+        frame = framed.frame
+        for factor in factors:
+            frame ^= factor.frame
+        logicals.append(PauliFrame(logical, frame))
+    logical_action = FrameGroup(logicals)
     return FrameGroup(
         framed
         for framed in logical_action.standardized().generators
@@ -412,17 +522,17 @@ def are_outcome_equivalent(action1: ChannelAction, action2: ChannelAction) -> bo
 
 def _outcome_items(
     action: ChannelAction,
-) -> list[tuple[complex, frozenset[int], bool]]:
+) -> list[tuple[complex, frozenset[int]]]:
     items = []
     for framed in action._observables.standardized().generators:
-        items.append((framed.pauli.phase, framed.frame, False))
+        items.append((framed.pauli.phase, framed.frame))
     for framed in action._stabilizers.standardized().generators:
-        items.append((framed.pauli.phase, framed.frame, False))
+        items.append((framed.pauli.phase, framed.frame))
     mapping = sorted(action._mapping.items(), key=lambda item: _sort_key(item[0]))
     for key, _ in mapping:
-        items.append((key.phase, frozenset(), False))
+        items.append((key.phase, frozenset()))
     for _, value in mapping:
-        items.append((value.pauli.phase, value.frame, True))
+        items.append((value.pauli.phase, value.frame))
     return items
 
 
@@ -458,13 +568,9 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
     ]
     products = []
     for index, (
-        (expected_phase, expected_frame, expected_correctable),
-        (actual_phase, actual_frame, actual_correctable),
+        (expected_phase, expected_frame),
+        (actual_phase, actual_frame),
     ) in enumerate(zip(expected_items, actual_items, strict=True)):
-        if (expected_correctable and expected_frame) or (
-            actual_correctable and actual_frame
-        ):
-            continue
         product = (
             Pauli({2 * bit: "Z" for bit in expected_frame})
             * Pauli({2 * bit + 1: "Z" for bit in actual_frame})
@@ -588,10 +694,14 @@ def declared_action_of(gadget: qc.Gadget) -> ChannelAction:
 
 def realized_action_of(gadget: qc.Gadget) -> ChannelAction:
     codes_in, codes_out = realized_codes_of(gadget)
-    return action_of(
+    physical = _action_of(
         program_of(gadget),
-        with_respect_to=(codes_in, codes_out),
+        input_qubits=sorted(codes_in.support),
+        codespace_projector=tuple(codes_in.stabilizers),
+        output_support=sorted(codes_out.support),
+        frames=FrameMap(gadget) if gadget.frames else None,
     )
+    return _decode(physical, with_respect_to=(codes_in, codes_out))
 
 
 def gadget_action_mismatch(gadget: qc.Gadget) -> str | None:

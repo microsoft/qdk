@@ -464,6 +464,7 @@ def _rebound(gadget: qc.Gadget, instruction: Instruction) -> qc.Gadget:
         outputs=list(gadget.outputs),
         checks=[as_references(check) for check in gadget.checks],
         readouts=[as_readout(entry) for entry in gadget.readouts],
+        frames=gadget.frames,
         parameter_bindings=dict(gadget.parameter_bindings),
         metadata=dict(gadget.metadata),
     )

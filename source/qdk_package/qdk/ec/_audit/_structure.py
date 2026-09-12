@@ -275,6 +275,8 @@ def _gadget_issues(
     ]
     for label, equation in equations:
         for reference in equation:
+            if isinstance(reference, int):
+                continue
             capacity = None
             if reference.kind == "circuit_readout":
                 capacity = circuit_count
@@ -327,6 +329,12 @@ def structural_issues(target: object) -> Iterator[tuple[str, str]]:
             for issue in _instruction_issues(instruction, blocks):
                 yield "", f"instruction {instruction.mnemonic!r}: {issue}"
     elif isinstance(target, qc.Gadget):
+        from .._frames import FrameMap
+
+        try:
+            FrameMap(target)
+        except (ValueError, TypeError, KeyError) as error:
+            yield "frames", str(error)
         for issue in _instruction_issues(target.implements, None):
             yield "", issue
         for issue in _gadget_issues(target):

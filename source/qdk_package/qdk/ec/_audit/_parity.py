@@ -20,11 +20,23 @@ from .._analysis.propagation.pauli_remap import (
     encoding_qubit_relocation,
 )
 from .._layout import ProgramLayout
+from .._frames import FrameMap
 
 
-def terms_of(equation: Iterable[Reference]) -> tuple[str, ...]:
+def terms_of(equation: Iterable[Reference | int]) -> tuple[str, ...]:
     terms: dict[str, None] = {}
     for reference in equation:
+        if type(reference) is int:
+            if reference not in (0, 1):
+                raise ValueError("parity constants must be 0 or 1")
+            if reference == 1:
+                if "1" in terms:
+                    del terms["1"]
+                else:
+                    terms["1"] = None
+            continue
+        if not isinstance(reference, Reference):
+            raise ValueError("parity terms must be references or integer bits")
         for atom in reference.expand():
             if atom.kind == "circuit_readout":
                 path = f"circuit.readouts[{atom.index}]"
@@ -377,6 +389,11 @@ class ParityAnalysis:
             for position, row in expected_rows.items()
         }
         values["0"] = signature(None, [False] * len(frame_basis))
+        values["1"] = values["0"].copy()
+        values["1"][len(values["1"]) - 1] = True
+        for path, correction in FrameMap(gadget).evaluate(values, values["0"]).items():
+            if path in values:
+                values[path] = values[path] ^ correction
         return values, expected, unavailable
 
     @property
@@ -404,6 +421,9 @@ class ParityAnalysis:
         for position, equation in enumerate(self.readouts):
             value = self.values["0"].copy()
             for path in equation:
+                if path == "1":
+                    value = value ^ self.values["1"]
+                    continue
                 reference = Reference(path)
                 if reference.kind == "readout":
                     matrix[position, reference.index] = not matrix[
@@ -440,6 +460,9 @@ class ParityAnalysis:
     def value(self, equation: Iterable[str]) -> BitVector:
         result = self.values["0"].copy()
         for path in equation:
+            if path == "1":
+                result = result ^ self.values["1"]
+                continue
             reference = Reference(path)
             if reference.kind == "readout":
                 values, unresolved, error = self.resolved
@@ -453,7 +476,11 @@ class ParityAnalysis:
         return result
 
     def candidate(self, expected: BitVector) -> tuple[str, ...] | None:
-        paths = [path for path in self.values if path.startswith(("circuit.", "in["))]
+        paths = [
+            path
+            for path in self.values
+            if path.startswith(("circuit.", "in[")) or path == "1"
+        ]
         matrix = _rows((self.values[path] for path in paths), len(expected))
         solution = solve(matrix.T, expected)
         return (
@@ -498,7 +525,10 @@ class ParityAnalysis:
                         continue
                     path = f"readouts[{position}]"
                     known.append(
-                        terms_of(Reference(term) for term in (path, *equation))
+                        terms_of(
+                            1 if term == "1" else Reference(term)
+                            for term in (path, *equation)
+                        )
                     )
                     if (
                         self.gadget.readouts[position].is_flag
@@ -552,7 +582,7 @@ class ParityAnalysis:
                 if values[position] == expected:
                     equations.append(
                         terms_of(
-                            Reference(path)
+                            1 if path == "1" else Reference(path)
                             for path in (f"readouts[{position}]", *equation)
                         )
                     )

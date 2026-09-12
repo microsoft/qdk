@@ -34,6 +34,7 @@ Side = Literal["in", "out"]
 #: Which operator list of a boundary encoding a sign reference names.
 Basis = Literal["x", "z"]
 
+
 @dataclass(frozen=True)
 class Outcome:
     """One measurement record of the gadget's own circuit."""
@@ -87,13 +88,17 @@ class LogicalSign:
         return f"{self.side}[{self.entry}].{self.basis}[{self.index}]"
 
 
-Atom = Union[Outcome, StabilizerSign, LogicalSign]
+Atom = Union[Outcome, StabilizerSign, LogicalSign, Literal[0, 1]]
 
 #: One parity equation, parsed.
 Equation = tuple[Atom, ...]
 
 
-def _parse_atom(reference: ReferenceLike) -> list[Atom]:
+def _parse_atom(reference: ReferenceLike | Literal[0, 1]) -> list[Atom]:
+    if isinstance(reference, int):
+        if type(reference) is not int or reference not in (0, 1):
+            raise ValueError("parity constants must be integer bits 0 or 1")
+        return [reference]
     atoms: list[Atom] = []
     for term in Reference(reference).expand():
         if term.kind == "circuit_readout":
@@ -108,7 +113,7 @@ def _parse_atom(reference: ReferenceLike) -> list[Atom]:
     return atoms
 
 
-def parse_equation(references: Iterable[ReferenceLike]) -> Equation:
+def parse_equation(references: Iterable[ReferenceLike | Literal[0, 1]]) -> Equation:
     """Every atom of one parity equation, in declared order.
 
     References of a shape this module does not model are dropped rather than
@@ -119,7 +124,7 @@ def parse_equation(references: Iterable[ReferenceLike]) -> Equation:
 
 
 def parse_equations(
-    equations: Iterable[Iterable[ReferenceLike]],
+    equations: Iterable[Iterable[ReferenceLike | Literal[0, 1]]],
 ) -> tuple[Equation, ...]:
     """A list of parity equations — a gadget's ``checks``, say — parsed."""
     return tuple(parse_equation(equation) for equation in equations)
@@ -146,9 +151,11 @@ def outcome_equation(indices: Iterable[int]) -> Equation:
     return tuple(Outcome(index) for index in indices)
 
 
-def as_references(atoms: Iterable[ReferenceLike | Atom]) -> list[ReferenceLike]:
+def as_references(
+    atoms: Iterable[ReferenceLike | Atom],
+) -> list[ReferenceLike | Literal[0, 1]]:
     """One parity equation in the shape qodec's setters accept."""
-    return [str(atom) for atom in atoms]
+    return [atom if isinstance(atom, int) else str(atom) for atom in atoms]
 
 
 __all__ = [

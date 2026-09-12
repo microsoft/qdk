@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import pytest
 import qodec as qc
@@ -91,6 +92,180 @@ def _c4() -> qc.Qodec:
     return qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing/qodecs/c4.qodec.yaml")
     )
+
+
+def _framed_preparation() -> qc.Gadget:
+    operand = qc.instructions.BlockOperand("qubit")
+    instruction = qc.Instruction(
+        "prepare", outputs=[operand], action=[qc.actions.Stabilize(["Z_0"])]
+    )
+    encoding = qc.gadgets.Encoding(
+        qc.Code("qubit", [], ["X_0"], ["Z_0"]), support=["0"]
+    )
+    return qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(
+            _c4().layers[1].instruction_set, "R 0\nR 1\nH 0\nCX 0 1\nM 1", format="stim"
+        ),
+        outputs=[encoding],
+        frames={"out[0].z[0]": ["circuit.readouts[0]"]},
+    )
+
+
+def test_declared_frame_makes_measurement_based_preparation_match() -> None:
+    profile = ec.GadgetProfile(_framed_preparation())
+    assert profile.objective is not None
+    assert profile.action.is_equivalent_to(profile.objective)
+
+
+def test_missing_or_wrong_frame_does_not_fix_preparation() -> None:
+    gadget = _framed_preparation()
+    for frames in ({}, {"out[0].z[0]": []}, {"out[0].x[0]": ["circuit.readouts[0]"]}):
+        gadget.frames = frames
+        profile = ec.GadgetProfile(gadget)
+        assert profile.objective is not None
+        assert not profile.action.is_equivalent_to(profile.objective)
+
+
+def test_recorded_frame_bit_fault_changes_logical_output() -> None:
+    profile = ec.GadgetProfile(_framed_preparation())
+    fault = ec.FaultEvent.after(4, readout_flips=0)
+    (effect,) = profile.effects_of([fault])
+    assert effect.output_error[0] == Pauli("X_0")
+    assert profile.distance(faults=[fault])[0] == 1
+
+
+def test_constant_frame_flips_action_without_creating_faults() -> None:
+    gadget = _framed_preparation()
+    gadget.circuit.source = "R 0\nX 0"
+    gadget.frames = {"out[0].z[0]": [1]}
+    profile = ec.GadgetProfile(gadget)
+    assert profile.objective is not None
+    assert profile.action.is_equivalent_to(profile.objective)
+    (effect,) = profile.effects_of([ec.FaultEvent()])
+    assert not effect.output_error[0].weight
+
+
+@pytest.mark.parametrize(
+    "frames, message",
+    [
+        ({"in[0].z[0]": []}, "output logical"),
+        ({"out[0].stabilizers[0]": []}, "output logical"),
+        ({"out[1].z[0]": []}, "out of bounds"),
+        ({"out[0].z[1]": []}, "out of bounds"),
+        ({"out[0].z[0]": [], "out[00].z[0]": []}, "duplicate"),
+        ({"out[0].z[0]": ["out[0].z[0]"]}, "not available"),
+        ({"out[0].z[0]": ["circuit.readouts[1]"]}, "out of bounds"),
+    ],
+)
+def test_invalid_frames_are_rejected(
+    frames: dict[str, list[str | Literal[0, 1]]], message: str
+) -> None:
+    gadget = _framed_preparation()
+    gadget.frames = frames
+    with pytest.raises(ValueError, match=message):
+        _ = ec.GadgetProfile(gadget).action
+
+
+def test_frame_readout_cycles_are_rejected() -> None:
+    gadget = _framed_preparation()
+    gadget.readouts = [["readouts[0]"]]
+    gadget.frames = {"out[0].z[0]": ["readouts[0]"]}
+    with pytest.raises(ValueError, match="cyclic"):
+        _ = ec.GadgetProfile(gadget).action
+
+
+@pytest.mark.parametrize("field", ["x", "z", "stabilizers"])
+@pytest.mark.parametrize("through_readout", [False, True])
+def test_frames_reject_incoming_signs(field: str, through_readout: bool) -> None:
+    from qdk.ec._audit import Auditor
+    from qdk.ec._frames import FrameMap
+
+    gadget = _conditional_pauli_gadget()
+    reference = f"in[0].{field}[0]"
+    gadget.readouts = [{"reject": [reference, reference]}]
+    gadget.frames = {"out[0].z[0]": ["readouts[0]" if through_readout else reference]}
+    with pytest.raises(
+        ValueError, match="incoming signs are not allowed in frame deltas"
+    ):
+        FrameMap(gadget)
+    report = Auditor().audit_gadget(gadget, qodec=_c4())
+    assert any(item.rule == "qodec/invalid-structure" for item in report.errors)
+
+
+def test_local_frame_delta_tracks_measurements_flipped_by_incoming_signs() -> None:
+    gadget = _conditional_pauli_gadget()
+    gadget.circuit.source = "- M: [1]"
+    gadget.readouts = [{"reject": []}]
+    relation = ("out[0].z[0]", "in[0].z[0]", "circuit.readouts[0]")
+    gadget.checks = [relation]
+    gadget.frames = {"out[0].z[0]": ["circuit.readouts[0]"]}
+    analysis = ParityAnalysis(gadget)
+    assert not analysis.value(("circuit.readouts[0]",)).is_zero
+    assert analysis.value(relation).is_zero
+    assert not analysis.value(relation[:2]).is_zero
+    gadget.frames = {}
+    assert ParityAnalysis(gadget).value(relation[:2]).is_zero
+
+
+def test_frame_snapshot_and_readout_dependencies_preserve_constants() -> None:
+    gadget = _framed_preparation()
+    gadget.readouts = [["circuit.readouts[0]", 1]]
+    gadget.frames = {"out[0].z[0]": ["readouts[0]", 1]}
+    profile = ec.GadgetProfile(gadget)
+    gadget.frames = {}
+    assert profile.objective is not None
+    assert profile.action.is_equivalent_to(profile.objective)
+
+
+def test_physical_and_recorded_frame_faults_can_cancel() -> None:
+    profile = ec.GadgetProfile(_framed_preparation())
+    fault = ec.FaultEvent.after(4, Pauli("X_0"), readout_flips=0)
+    (effect,) = profile.effects_of([fault])
+    assert not effect.output_error[0].weight
+    assert profile.distance(faults=[fault])[1] == []
+
+
+def test_completion_preserves_explicit_frames() -> None:
+    gadget = _framed_preparation()
+    completed = ec.derive(gadget)
+    assert isinstance(completed, qc.Gadget)
+    assert completed.frames == gadget.frames
+    assert ec.GadgetProfile(completed).action.is_equivalent_to(
+        ec.GadgetProfile(gadget).action
+    )
+
+
+def test_literal_parities_retain_affine_signs_and_cancel_pairs() -> None:
+    gadget = _framed_preparation()
+    gadget.checks = [[1], [1, 1], [0], ["circuit.readouts[0]", 1]]
+    analysis = ParityAnalysis(gadget)
+    assert not analysis.value(analysis.checks[0]).is_zero
+    assert analysis.value(analysis.checks[1]).is_zero
+    assert analysis.value(analysis.checks[2]).is_zero
+    assert (
+        analysis.value(analysis.checks[3]) ^ analysis.value(("circuit.readouts[0]",))
+        == analysis.values["1"]
+    )
+
+
+def test_logical_preparation_is_independent_of_random_code_syndrome() -> None:
+    gadget = _framed_preparation()
+    gadget.frames = {}
+    gadget.implements = qc.Instruction(
+        "plus",
+        outputs=[qc.instructions.BlockOperand("qubit")],
+        action=[qc.actions.Stabilize(["X_0"])],
+    )
+    gadget.circuit.source = "R 0\nH 0\nR 1\nH 1\nM 1\nH 1"
+    gadget.outputs = [
+        qc.gadgets.Encoding(
+            qc.Code("pair", ["X_0 X_1"], ["X_0"], ["Z_0 Z_1"]), support=["0", "1"]
+        )
+    ]
+    profile = ec.GadgetProfile(gadget)
+    assert profile.objective is not None
+    assert profile.action.is_equivalent_to(profile.objective)
 
 
 def _conditional_pauli_gadget() -> qc.Gadget:

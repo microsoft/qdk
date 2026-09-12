@@ -34,7 +34,9 @@ def _gadget(target: object) -> qc.Gadget:
 
 
 def _equation(terms: Iterable[object]) -> str:
-    return json.dumps([str(term) for term in terms])
+    return json.dumps(
+        [int(str(term)) if str(term) in ("0", "1") else str(term) for term in terms]
+    )
 
 
 def _observable(gadget: qc.Gadget, position: int) -> str:

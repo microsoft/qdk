@@ -24,6 +24,7 @@ def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
         outputs=list(gadget.outputs),
         checks=[as_references(check) for check in discovered.checks],
         readouts=[as_readout(value) for value in gadget.readouts],
+        frames=gadget.frames,
         parameter_bindings=dict(gadget.parameter_bindings),
         metadata=dict(gadget.metadata),
     )
