@@ -22,7 +22,7 @@ class ProgramLayout:
     def of(cls, program: Circuit) -> "ProgramLayout":
         blocks = {block.name: block for block in program.instruction_set.blocks}
         bindings: list[tuple[QubitLabel, int]] = []
-        for call in program.calls:
+        for call in program.calls():
             instruction = program.instruction_set.instructions[call.mnemonic]
             pairs = [
                 *cls._bound_operands(instruction.inputs, call.operands),

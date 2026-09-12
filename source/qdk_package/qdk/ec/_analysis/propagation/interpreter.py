@@ -215,7 +215,7 @@ def walk_program(
     record_rows: list[int | None] = []
     engine_record_rows: list[list[int | None]] = [[] for _ in extra_engines]
     layout = ProgramLayout.of(program)
-    for instruction_index, call in enumerate(program.calls):
+    for instruction_index, call in enumerate(program.calls()):
         instruction = program.instruction_set.instructions[call.mnemonic]
         qubit_map = layout.call_qubit_map(call)
 
@@ -320,7 +320,7 @@ def propagate_faults(
     physical residuals. Signed probes use those changed rows when evaluating
     their circuit-walk outcome frames.
     """
-    calls = program.calls
+    calls = program.calls()
     readout_ranges = []
     readout_offset = 0
     for call in calls:

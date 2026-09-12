@@ -358,7 +358,7 @@ class GadgetProfile:
     def _canonical_fault_basis(self) -> tuple[FaultEvent, ...]:
         program = self._circuit
         layout = ProgramLayout.of(program)
-        calls = program.calls
+        calls = program.calls()
         quantum = tuple(
             FaultEvent.after(index, Pauli({qubit: basis}))
             for index, call in enumerate(calls)
@@ -377,7 +377,7 @@ class GadgetProfile:
         program = self._circuit
         layout = ProgramLayout.of(program)
         faults = []
-        for index, call in enumerate(program.calls):
+        for index, call in enumerate(program.calls()):
             support = sorted(set(layout.call_qubit_map(call).values()))
             readout_count = observe_count_of(
                 program.instruction_set.instructions[call.mnemonic]

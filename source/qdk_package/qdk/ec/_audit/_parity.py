@@ -102,7 +102,7 @@ class ParityAnalysis:
             return False
         layout = ProgramLayout.of(program)
         axes = []
-        for call in program.calls:
+        for call in program.calls():
             instruction = program.instruction_set.instructions[call.mnemonic]
             for action in instruction.action:
                 if (
@@ -126,7 +126,7 @@ class ParityAnalysis:
     ) -> tuple[dict[str, BitVector], dict[int, BitVector], dict[str, str]]:
         gadget = self.gadget
         program = gadget.circuit
-        for call in program.calls:
+        for call in program.calls():
             if call.predicates:
                 raise NotImplementedError(
                     "conditional circuit calls are not supported by parity verification"
