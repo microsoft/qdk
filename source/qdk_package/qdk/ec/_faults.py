@@ -11,6 +11,7 @@ import qodec as qc
 
 from ._analysis.propagation.interpreter import program_of, propagate_faults
 from ._analysis.propagation.frames import FrameGroup
+from ._frames import FrameMap
 from ._analysis.propagation.pauli import Pauli, PauliCharacter, relabel
 from ._analysis.propagation.pauli_remap import (
     Basis,
@@ -214,6 +215,19 @@ def _gadget_fault_data(
         )
         for row, path in enumerate(paths)
     }
+    frames = FrameMap(gadget)
+    zero = BitVector.zeros(len(fault_basis))
+    values["1"] = zero
+    frame_values = frames.evaluate(values, zero)
+    for target, correction in frame_values.items():
+        values[target] = values[target] ^ correction
+    for index, path in enumerate(paths[outcome_count:]):
+        for fault in range(len(fault_basis)):
+            deltas[hidden_count + outcome_count + index, fault] = values[path][fault]
+    for index, observable in enumerate(observables.generators):
+        correction = frames.for_probe(observable.pauli, values, zero)
+        for fault in correction.support:
+            deltas[hidden_count + outcome_count + len(probes) + index, fault] ^= True
     checks, readouts = _parity_effects(gadget, values, len(fault_basis))
     effects = []
     for fault_index in range(len(fault_basis)):
@@ -280,11 +294,13 @@ def _parity_effects(
     count = len(gadget.readouts)
 
     def equation(
-        references: Sequence[qc.gadgets.Reference],
+        references: Sequence[qc.gadgets.Reference | int],
     ) -> tuple[BitVector, BitVector]:
         external = BitVector.zeros(fault_count)
         readouts = BitVector.zeros(count)
         for reference in references:
+            if isinstance(reference, int):
+                continue
             for term in reference.expand():
                 if term.kind == "readout":
                     if term.index >= count:

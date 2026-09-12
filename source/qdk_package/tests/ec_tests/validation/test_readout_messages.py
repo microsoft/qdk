@@ -94,12 +94,14 @@ def test_constant_inversion_is_not_reported_as_a_missing_observable() -> None:
         ]
     )
     diagnostic = next(iter(ReadoutMismatchRule()(gadget, qodec=protocol)))
-    assert (
-        "A qodec readout equation cannot express the constant 1." in diagnostic.detail
+    required = json.loads(
+        diagnostic.detail.splitlines()[1].removeprefix("Verified readout equation: ")
     )
-    assert "Required result: 1 XOR" in diagnostic.detail
+    assert 1 in required
+    gadget.readouts = [required]
+    assert not list(ReadoutMismatchRule()(gadget, qodec=protocol))
     assert "does not provide" not in diagnostic.summary
-    assert len(diagnostic.detail.splitlines()) == 3
+    assert len(diagnostic.detail.splitlines()) == 2
 
 
 @pytest.mark.parametrize(
