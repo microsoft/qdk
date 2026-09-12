@@ -26,10 +26,10 @@ def test_explicit_operands_are_accepted(c4_isa: qc.InstructionSet) -> None:
         "- prepare_zz: [q]\n- idle: {operands: [q]}",
         format="yaml",
     )
-    assert [call.operands for call in program.calls] == [["q"], ["q"]]
+    assert [call.operands for call in program.calls()] == [["q"], ["q"]]
     layout = ProgramLayout.of(program)
     assert layout.total_qubits == 2
-    assert layout.call_qubit_map(program.calls[1]) == {0: 0, 1: 1}
+    assert layout.call_qubit_map(program.calls()[1]) == {0: 0, 1: 1}
 
 
 def test_multiqubit_blocks_keep_positional_order(c4_isa: qc.InstructionSet) -> None:
@@ -40,7 +40,7 @@ def test_multiqubit_blocks_keep_positional_order(c4_isa: qc.InstructionSet) -> N
     )
     layout = ProgramLayout.of(program)
     assert layout.total_qubits == 4
-    assert layout.call_qubit_map(program.calls[1]) == {0: 2, 1: 3, 2: 0, 3: 1}
+    assert layout.call_qubit_map(program.calls()[1]) == {0: 2, 1: 3, 2: 0, 3: 1}
 
 
 def test_unknown_mnemonic_is_rejected(c4_isa: qc.InstructionSet) -> None:
@@ -59,7 +59,9 @@ def test_variadic_operands_bind_every_block() -> None:
     circuit = Circuit(instruction_set, "- idle: [left, middle, right]", format="yaml")
     layout = ProgramLayout.of(circuit)
     assert layout.total_qubits == 6
-    assert layout.call_qubit_map(circuit.calls[0]) == {index: index for index in range(6)}
+    assert layout.call_qubit_map(circuit.calls()[0]) == {
+        index: index for index in range(6)
+    }
 
 
 def test_string_operand_is_one_label(c4_isa: qc.InstructionSet) -> None:

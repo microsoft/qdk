@@ -275,7 +275,7 @@ def test_preparation_distance_uses_the_prepared_logical_state(
     profile = GadgetProfile(gadget)
     assert profile.objective is not None
     assert profile.action.is_equivalent_to(profile.objective)
-    last = len(gadget.circuit.calls) - 1
+    last = len(gadget.circuit.calls()) - 1
     harmless = FaultEvent.after(last, Pauli("Z_0"))
     harmful = FaultEvent.after(last, Pauli("X_0 X_1 X_2"))
     assert profile.distance(faults=[harmless])[1] == []
@@ -374,7 +374,7 @@ def test_action_signs_combine_measurement_and_output_faults(
     before_measurement = (
         next(
             index
-            for index, call in enumerate(gadget.circuit.calls)
+            for index, call in enumerate(gadget.circuit.calls())
             if call.mnemonic == "M"
         )
         - 1
@@ -382,7 +382,7 @@ def test_action_signs_combine_measurement_and_output_faults(
     record_fault = FaultEvent.after(before_measurement, Pauli({measured_qubit: "X"}))
     measurement_call = next(
         index
-        for index, call in enumerate(gadget.circuit.calls)
+        for index, call in enumerate(gadget.circuit.calls())
         if call.mnemonic == "M" and call.operands == [measured_qubit]
     )
     readout_fault = FaultEvent.after(measurement_call, readout_flips=0)
@@ -712,7 +712,7 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
 def test_output_syndromes_on_different_blocks_do_not_cancel() -> None:
     gadget = c4().layers[0].gadgets["transversal_cx"]
     gadget.checks = []
-    last = len(gadget.circuit.calls) - 1
+    last = len(gadget.circuit.calls()) - 1
     faults = [FaultEvent.after(last, Pauli({qubit: "X"})) for qubit in (0, 4)]
     profile = GadgetProfile(gadget)
     effects = profile.effects_of(faults)
@@ -724,7 +724,7 @@ def test_output_syndromes_on_different_blocks_do_not_cancel() -> None:
 
 def test_declared_checks_still_exclude_a_codespace_preserving_error() -> None:
     gadget = c4().layers[0].gadgets["idle"]
-    last = len(gadget.circuit.calls) - 1
+    last = len(gadget.circuit.calls()) - 1
     fault = FaultEvent.after(last, Pauli("X_0 X_1"))
     profile = GadgetProfile(gadget)
     assert profile.distance(faults=[fault]) == (1, [fault])

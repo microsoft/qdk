@@ -223,49 +223,49 @@ def _gadget_issues(
                     if invalid:
                         yield f"{side}[{entry}].{property_name}[{index}]: code indices {invalid} are out of bounds for {capacity} support qubits"
     if declared is not None and gadget.readouts and len(gadget.readouts) != declared:
-        yield f"readouts: {len(gadget.readouts)} entries supplied; expected {declared}, or omit the entire list"
+        yield f"readouts: {len(gadget.readouts)} entries supplied; expected {declared}"
     parameters = {parameter.name for parameter in gadget.implements.parameters}
     for name in gadget.parameter_bindings:
         if name not in parameters:
             yield f"parameter binding {name!r} is not declared by the implemented instruction"
     circuit_count = None
-    if gadget.circuit.effective_format in ("yaml", "stim"):
-        try:
-            calls = gadget.circuit.calls
-        except (ValueError, TypeError) as error:
+    try:
+        calls = gadget.circuit.calls()
+    except (ValueError, TypeError) as error:
+        missing_parser = (
+            f"No source parser registered for '.{gadget.circuit.effective_format}'"
+        )
+        if str(error) != missing_parser:
             yield f"circuit: {error}"
-        else:
-            circuit_count = 0
-            for position, call in enumerate(calls):
-                instruction = gadget.circuit.instruction_set.instructions[call.mnemonic]
-                parameter_map = {
-                    parameter.name: parameter for parameter in instruction.parameters
-                }
-                for name, value in call.arguments.items():
-                    if name not in parameter_map:
-                        yield f"circuit.calls[{position}]: argument {name!r} is not declared by {call.mnemonic!r}"
-                    else:
-                        issue = _argument_issue(
-                            value, parameter_map[name], gadget, circuit_count
-                        )
-                        if issue:
-                            yield f"circuit.calls[{position}] argument {name!r}: {issue}"
-                for pattern in call.select:
-                    for reference in pattern:
-                        match = re.fullmatch(r"flags\[([0-9]+)\]", reference)
-                        if (
-                            match is not None
-                            and int(match[1]) >= len(instruction.flags)
-                        ) or (match is None and reference not in instruction.flags):
-                            yield f"circuit.calls[{position}]: select references unknown flag {reference!r}"
-                try:
-                    circuit_count += observe_count_of(instruction) + len(
-                        instruction.flags
+    else:
+        circuit_count = 0
+        for position, call in enumerate(calls):
+            instruction = gadget.circuit.instruction_set.instructions[call.mnemonic]
+            parameter_map = {
+                parameter.name: parameter for parameter in instruction.parameters
+            }
+            for name, value in call.arguments.items():
+                if name not in parameter_map:
+                    yield f"circuit.calls[{position}]: argument {name!r} is not declared by {call.mnemonic!r}"
+                else:
+                    issue = _argument_issue(
+                        value, parameter_map[name], gadget, circuit_count
                     )
-                except ValueError as error:
-                    yield f"circuit.calls[{position}]: {error}"
-                    circuit_count = None
-                    break
+                    if issue:
+                        yield f"circuit.calls[{position}] argument {name!r}: {issue}"
+            for pattern in call.select:
+                for reference in pattern:
+                    match = re.fullmatch(r"flags\[([0-9]+)\]", reference)
+                    if (
+                        match is not None and int(match[1]) >= len(instruction.flags)
+                    ) or (match is None and reference not in instruction.flags):
+                        yield f"circuit.calls[{position}]: select references unknown flag {reference!r}"
+            try:
+                circuit_count += observe_count_of(instruction) + len(instruction.flags)
+            except ValueError as error:
+                yield f"circuit.calls[{position}]: {error}"
+                circuit_count = None
+                break
     equations = [
         (f"checks[{index}]", equation) for index, equation in enumerate(gadget.checks)
     ]

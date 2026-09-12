@@ -341,7 +341,7 @@ def test_declared_program_binds_inputs_and_outputs_to_the_same_indices(
     idle_gadget: qc.Gadget,
 ) -> None:
     """Pins the reference side of the action check: both operand sets are 0..n-1."""
-    (call,) = declared_program_of(idle_gadget).calls
+    (call,) = declared_program_of(idle_gadget).calls()
 
     assert call.mnemonic == idle_gadget.implements.mnemonic
     assert call.operands == [0, 1]
@@ -379,7 +379,7 @@ def test_declared_circuit_preserves_parameter_names() -> None:
     )
     declared = declared_program_of(gadget)
     assert declared.instruction_set.instructions["rotate"].parameters == [parameter]
-    assert declared.calls[0].arguments == {"theta": "theta"}
+    assert declared.calls()[0].arguments == {"theta": "theta"}
 
 
 def test_action_explanation_identifies_missing_observable() -> None:

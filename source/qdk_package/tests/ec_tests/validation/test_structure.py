@@ -74,6 +74,49 @@ def test_invalid_source_and_reference_are_audit_findings(rep3_qodec: qc.Qodec) -
     assert not [item for item in report.warnings if "gadgets['idle']" in item.where]
 
 
+def test_registered_formats_get_all_call_structure_checks(rep3_qodec: qc.Qodec) -> None:
+    gadget = rep3_qodec.layers[0].gadgets["idle"]
+    qc.register(
+        lambda source, target: [
+            qc.instructions.InstructionCall(
+                "M", operands=[0], arguments={"typo": 1}, select=[{"missing": 0}]
+            )
+        ],
+        format="custom-structure-checks",
+    )
+    gadget.circuit.format = "custom-structure-checks"
+    gadget.checks = [["circuit.readouts[1]"]]
+    messages = [item.summary for item in audit(rep3_qodec).errors]
+    assert any(
+        "argument 'typo' is not declared" in message for message in messages
+    ), messages
+    assert any("unknown flag 'missing'" in message for message in messages), messages
+    assert any(
+        "index 1 is out of bounds for 1 entries" in message for message in messages
+    ), messages
+
+
+def test_registered_parser_failure_is_a_structure_finding(rep3_qodec: qc.Qodec) -> None:
+    def fail(
+        source: str, target: qc.InstructionSet
+    ) -> list[qc.instructions.InstructionCall]:
+        raise ValueError("invalid custom source")
+
+    qc.register(fail, format="custom-invalid-source")
+    gadget = rep3_qodec.layers[0].gadgets["idle"]
+    gadget.circuit.format = "custom-invalid-source"
+    messages = [message for _, message in structural_issues(gadget)]
+    assert "circuit: invalid custom source" in messages
+
+
+def test_missing_parser_does_not_claim_invalid_source(rep3_qodec: qc.Qodec) -> None:
+    gadget = rep3_qodec.layers[0].gadgets["idle"]
+    gadget.circuit.format = "unregistered-structure-review"
+    with pytest.raises(ValueError, match="No source parser registered"):
+        gadget.circuit.calls()
+    assert list(structural_issues(gadget)) == []
+
+
 def test_unequal_code_lists_round_trip_but_analysis_rejects(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -109,7 +152,7 @@ def test_source_text_round_trips_before_audit(
     assert circuit.source == source
     assert circuit.format == format
     with pytest.raises(ValueError):
-        _ = circuit.calls
+        _ = circuit.calls()
     report = audit(reloaded)
     if format != "custom":
         assert any("circuit:" in item.summary for item in report.errors)

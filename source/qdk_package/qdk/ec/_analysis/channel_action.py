@@ -136,7 +136,7 @@ def input_qubits_of(program: Circuit) -> frozenset[int]:
     seen: set[int] = set()
     prepared: set[int] = set()
     layout = ProgramLayout.of(program)
-    for call in program.calls:
+    for call in program.calls():
         instruction = program.instruction_set.instructions[call.mnemonic]
         qubit_map = layout.call_qubit_map(call)
         for action in instruction.action:
