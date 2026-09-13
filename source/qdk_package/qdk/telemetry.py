@@ -29,9 +29,9 @@ from queue import SimpleQueue, Empty
 from threading import Thread
 from typing import Any, Dict, Literal, List, TypedDict, Union
 
-logger = logging.getLogger(__name__)
+from . import __version__ as QSHARP_VERSION
 
-QSHARP_VERSION = "0.0.0.dev0"
+logger = logging.getLogger(__name__)
 
 AIKEY = os.environ.get("QSHARP_PYTHON_AI_KEY") or "95d25b22-8b6d-448e-9677-78ad4047a95a"
 AIURL = (
