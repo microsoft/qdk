@@ -127,10 +127,6 @@ class ParityAnalysis:
         gadget = self.gadget
         program = gadget.circuit
         for call in program.calls():
-            if call.predicates:
-                raise NotImplementedError(
-                    "conditional circuit calls are not supported by parity verification"
-                )
             instruction = program.instruction_set.instructions[call.mnemonic]
             if any(
                 name not in instruction.flags
