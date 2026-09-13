@@ -326,8 +326,7 @@ def propagate_faults(
     for call in calls:
         instruction = program.instruction_set.instructions[call.mnemonic]
         if (
-            call.predicates
-            or call.select
+            call.select
             or any(
                 getattr(action, "condition", None) is not None
                 for action in instruction.action
