@@ -261,12 +261,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('source/vscode/test/course-notebooks/test_requirements.txt', 'source/vscode/resources/qdk-learning/courses/*/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          cache: pip
+          cache-dependency-path: |
+            source/vscode/test/course-notebooks/test_requirements.txt
+            source/vscode/resources/qdk-learning/courses/*/requirements.txt
       - name: Test course notebooks
         run: python ./build.py --no-check --no-check-prereqs --course-notebook-tests
 
