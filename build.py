@@ -112,19 +112,25 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-# If no specific project given then build all
-build_all = (
-    not args.cli
-    and not args.widgets
-    and not args.qdk
-    and not args.course_notebook_tests  # No build required
-    and not args.wasm
-    and not args.npm
-    and not args.play
-    and not args.vscode
-    and not args.jupyterlab
-    and not args.ci_bench
+specific_project_requested = any(
+    (
+        args.cli,
+        args.widgets,
+        args.qdk,
+        args.wasm,
+        args.npm,
+        args.play,
+        args.vscode,
+        args.jupyterlab,
+    )
 )
+
+standalone_action_requested = args.course_notebook_tests or args.ci_bench
+
+build_all = not specific_project_requested and (
+    args.integration_tests or not standalone_action_requested
+)
+
 build_cli = build_all or args.cli
 build_widgets = build_all or args.widgets
 build_qdk = build_all or args.qdk
