@@ -330,11 +330,38 @@ export class LearningTools {
     return this.invoke(async () => {
       // Resolve the target from the editor — the selected cell for notebook
       // courses — rather than the stored position, matching hint/solution.
+      // A destructive reset must never silently act on a different cell, so
+      // if a workbook is focused but its selected cell can't be identified,
+      // fail loudly instead of falling back to the stored position.
+      if (this.notebookSelectionUnidentified()) {
+        throw new CopilotToolError(
+          "I couldn't tell which cell is selected — it has no stable id yet. " +
+            "Click into the exercise cell you want to reset and try again, or reset the whole unit.",
+        );
+      }
       const state = this.serializeState(true);
       await this.service.resetExerciseAt(state.position.location, "chat");
       await this.showActivity();
       return { state: this.serializeState(true) };
     });
+  }
+
+  /**
+   * True when the active editor is the current unit's workbook but the
+   * selected cell has no stable id. In that case {@link serializeState} would
+   * silently fall back to the stored position, which is unsafe for reset.
+   */
+  private notebookSelectionUnidentified(): boolean {
+    if (!isNotebookCourse(this.service.getActiveCourseInfo())) {
+      return false;
+    }
+    const editor = vscode.window.activeNotebookEditor;
+    const workbook = this.service.getCurrentCodeFileUri();
+    const onWorkbook =
+      !!editor &&
+      !!workbook &&
+      editor.notebook.uri.toString() === workbook.toString();
+    return onWorkbook && this.selectedNotebookCellId() === undefined;
   }
 
   /**

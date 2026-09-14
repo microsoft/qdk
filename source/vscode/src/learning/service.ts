@@ -1077,9 +1077,17 @@ export class LearningService {
 
     if (isNotebookCourse(course)) {
       const unit = this.findCourseUnit(course, unitId);
-      // Close any open notebook tabs for this unit before overwriting it.
-      await this.closeNotebookTab(workbookUri(unit));
-      await rematerializeUnitWorkbook(unit);
+      // Close any open notebook tab first. If the learner cancels a
+      // save-on-close prompt, abort — otherwise the still-open editor could
+      // later save stale content back over the reset.
+      if (!(await this.closeNotebookTab(workbookUri(unit)))) {
+        throw new Error(
+          "Couldn't close the open notebook. Save or close it, then try again.",
+        );
+      }
+      if (!(await rematerializeUnitWorkbook(unit))) {
+        throw new Error("Couldn't restore the unit's notebook.");
+      }
       return this.finishUnitReset(course.id, unit, source);
     }
 
@@ -1598,15 +1606,18 @@ export class LearningService {
   /**
    * Close every open text or notebook tab whose URI matches {@link predicate}.
    * Tabs backed by any other input kind (diff views, webviews, terminals) are
-   * skipped, since they have no single URI to match against.
+   * skipped, since they have no single URI to match against. Returns `false`
+   * if a matching tab could not be closed (e.g. the user cancelled a
+   * save-on-close prompt).
    */
   private async closeTabs(
     predicate: (uri: vscode.Uri, tab: vscode.Tab) => boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const matches = this.findTabs(predicate);
-    if (matches.length > 0) {
-      await vscode.window.tabGroups.close(matches);
+    if (matches.length === 0) {
+      return true;
     }
+    return vscode.window.tabGroups.close(matches);
   }
 
   /**
@@ -2128,10 +2139,11 @@ export class LearningService {
 
   /**
    * Close any open editor tabs whose URI matches the given notebook URI.
+   * Returns `false` if a matching tab could not be closed.
    */
-  private async closeNotebookTab(uri: vscode.Uri): Promise<void> {
+  private async closeNotebookTab(uri: vscode.Uri): Promise<boolean> {
     const uriStr = uri.toString();
-    await this.closeTabs(
+    return this.closeTabs(
       (tabUri, tab) =>
         tab.input instanceof vscode.TabInputNotebook &&
         tabUri.toString() === uriStr,

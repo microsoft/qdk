@@ -31,12 +31,13 @@ export async function materializeCourseWorkbooks(
 
 /**
  * Re-materialize a single unit: overwrite its `*.workbook.ipynb`
- * with a fresh copy derived from the authored notebook.
+ * with a fresh copy derived from the authored notebook. Returns `false` if
+ * the workbook could not be written.
  */
 export async function rematerializeUnitWorkbook(
   unit: NotebookCatalogUnit,
-): Promise<void> {
-  await materializeNotebook(
+): Promise<boolean> {
+  return materializeNotebook(
     sourceNotebookUri(unit),
     workbookUri(unit),
     unit.id,
@@ -45,9 +46,10 @@ export async function rematerializeUnitWorkbook(
 
 /**
  * Restore a single cell in a unit's working copy to its authored state,
- * leaving the learner's other cells untouched. Uses the notebook API when the
- * workbook is open, since an open notebook doesn't reliably pick up external
- * writes. Returns `false` when the cell can't be found.
+ * leaving the learner's other cells untouched. When the workbook is open the
+ * in-editor edit is authoritative — an open notebook won't reliably observe an
+ * external file write, and a later save would clobber it. Returns `false` when
+ * the cell can't be found or the restore fails.
  */
 export async function restoreUnitWorkbookCell(
   unit: NotebookCatalogUnit,
@@ -69,8 +71,8 @@ export async function restoreUnitWorkbookCell(
     const open = vscode.workspace.notebookDocuments.find(
       (n) => n.uri.toString() === dest.toString(),
     );
-    if (open && (await replaceOpenCell(open, cellId, original))) {
-      return true;
+    if (open) {
+      return replaceOpenCell(open, cellId, original);
     }
 
     const destText = new TextDecoder().decode(
@@ -99,7 +101,7 @@ export async function restoreUnitWorkbookCell(
 /**
  * Replace one cell of an open notebook, preserving its id and tags while
  * dropping outputs and execution state. Returns `false` if the cell isn't
- * present or the edit is rejected, leaving the caller to fall back to disk.
+ * present, the edit is rejected, or the save doesn't complete.
  */
 async function replaceOpenCell(
   notebook: vscode.NotebookDocument,
@@ -132,13 +134,13 @@ async function replaceOpenCell(
   if (!(await vscode.workspace.applyEdit(edit))) {
     return false;
   }
-  await notebook.save();
-  return true;
+  return notebook.save();
 }
 
 /**
  * Write a unit's working copy: the authored notebook minus its author-only
- * cells (hints, solutions, explanations).
+ * cells (hints, solutions, explanations). Returns `false` if the copy could
+ * not be written.
  *
  * If the notebook can't be parsed we fall back to copying it verbatim, so a
  * malformed notebook still leaves the learner with something to work in
@@ -148,7 +150,7 @@ async function materializeNotebook(
   src: vscode.Uri,
   dest: vscode.Uri,
   unitId: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await ensureParentDir(dest);
     const text = new TextDecoder().decode(
@@ -157,15 +159,17 @@ async function materializeNotebook(
     const stripped = stripAuthoringCells(text, unitId);
     if (stripped === undefined) {
       await vscode.workspace.fs.copy(src, dest, { overwrite: true });
-      return;
+    } else {
+      await vscode.workspace.fs.writeFile(
+        dest,
+        new TextEncoder().encode(stripped),
+      );
     }
-    await vscode.workspace.fs.writeFile(
-      dest,
-      new TextEncoder().encode(stripped),
-    );
+    return true;
   } catch (e) {
     log.warn(
       `Failed to materialize ${src.fsPath} → ${dest.fsPath}: ${String(e)}`,
     );
+    return false;
   }
 }
