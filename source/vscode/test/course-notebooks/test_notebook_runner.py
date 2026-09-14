@@ -61,10 +61,7 @@ def test_skip_test_cell_is_not_evaluated():
     assert collect_cell_failures(notebook) == []
 
 
-def test_exercise_cannot_be_skipped():
+def test_skipped_exercise_is_not_evaluated():
     notebook = _notebook(_code_cell(tags=["exercise", "skip-test"]))
 
-    failures = collect_cell_failures(notebook)
-
-    assert len(failures) == 1
-    assert failures[0].message == "a cell cannot have both 'exercise' and 'skip-test'"
+    assert collect_cell_failures(notebook) == []

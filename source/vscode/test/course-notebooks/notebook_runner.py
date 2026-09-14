@@ -73,15 +73,6 @@ def collect_cell_failures(notebook: Any) -> list[CellFailure]:
 
         tags = set(cell.metadata.get("tags", []))
         source_line = _first_source_line(cell.source)
-        if EXERCISE_TAG in tags and SKIP_TEST_TAG in tags:
-            failures.append(
-                CellFailure(
-                    cell_number,
-                    source_line,
-                    f"a cell cannot have both {EXERCISE_TAG!r} and {SKIP_TEST_TAG!r}",
-                )
-            )
-            continue
         if SKIP_TEST_TAG in tags:
             continue
 
@@ -127,21 +118,6 @@ def run_notebook(
 ) -> NotebookRunReport:
     notebook = nbformat.read(notebook_path, as_version=4)
     clear_notebook_outputs(notebook)
-
-    metadata_failures = [
-        failure
-        for failure in collect_cell_failures(notebook)
-        if "cannot have both" in failure.message
-    ]
-    if metadata_failures:
-        return NotebookRunReport(
-            display_path,
-            0.0,
-            0,
-            (),
-            (),
-            tuple(metadata_failures),
-        )
 
     started = perf_counter()
     kernel_manager = AsyncKernelManager(

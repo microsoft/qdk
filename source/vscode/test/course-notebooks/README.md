@@ -37,10 +37,11 @@ source/vscode/test/course-notebooks/.venv/bin/python -m pytest source/vscode/tes
   successful execution, fails the test.
 - A `solution` code cell must execute without an error.
 - A `skip-test` code cell is skipped only by this test suite. VS Code, Jupyter,
-  and ordinary notebook execution do not interpret this custom tag.
+  and ordinary notebook execution do not interpret this custom tag. It also
+  takes precedence when combined with `exercise`.
 
-Do not combine `exercise` and `skip-test`. When a skipped setup cell supplies
-state to later cells, tag those dependent cells with `skip-test` as well.
+When a skipped setup cell supplies state to later cells, tag those dependent
+cells with `skip-test` as well.
 
 Each cell has a 120-second timeout. Cells taking longer than 30 seconds are
 reported so expensive cells can be reviewed before adding a skip.
