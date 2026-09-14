@@ -297,7 +297,7 @@ fn cx_with_two_rec_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordWithoutQubit
+            Qdk.Stim.Compiler.BothTargetsAreMeasurementRecords
 
               x controlled instruction CX requires a qubit target, but both targets are
               | measurement records
@@ -599,7 +599,7 @@ fn cz_with_two_rec_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordWithoutQubit
+            Qdk.Stim.Compiler.BothTargetsAreMeasurementRecords
 
               x controlled instruction CZ requires a qubit target, but both targets are
               | measurement records

@@ -177,6 +177,14 @@ pub enum Pauli {
 }
 
 impl Pauli {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Z => "Z",
+        }
+    }
+
     /// Multiplies two Paulis acting on the same qubit. Returns the resulting Pauli (`None` when
     /// they cancel to the identity) and the exponent `k` of the accompanying phase `i^k`.
     pub fn multiply(self, other: Pauli) -> (Option<Pauli>, u8) {
@@ -194,12 +202,8 @@ impl Pauli {
 }
 
 impl Display for Pauli {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Pauli::X => write!(f, "X"),
-            Pauli::Y => write!(f, "Y"),
-            Pauli::Z => write!(f, "Z"),
-        }
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 
