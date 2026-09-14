@@ -1,13 +1,20 @@
+from collections.abc import Iterable
+
 import nbformat
+from nbformat import NotebookNode
 
 from notebook_runner import collect_cell_failures
 
 
-def _notebook(*cells):
+def _notebook(*cells: NotebookNode) -> NotebookNode:
     return nbformat.v4.new_notebook(cells=list(cells))
 
 
-def _code_cell(*, tags=(), error=None):
+def _code_cell(
+    *,
+    tags: Iterable[str] = (),
+    error: tuple[str, str] | None = None,
+) -> NotebookNode:
     cell = nbformat.v4.new_code_cell("answer = 42", metadata={"tags": list(tags)})
     if error is not None:
         name, value = error
@@ -22,7 +29,7 @@ def _code_cell(*, tags=(), error=None):
     return cell
 
 
-def test_exercise_requires_exercise_error():
+def test_exercise_requires_exercise_error() -> None:
     notebook = _notebook(
         _code_cell(tags=["exercise"], error=("ExerciseError", "try again"))
     )
@@ -30,7 +37,7 @@ def test_exercise_requires_exercise_error():
     assert collect_cell_failures(notebook) == []
 
 
-def test_exercise_that_succeeds_fails_policy():
+def test_exercise_that_succeeds_fails_policy() -> None:
     notebook = _notebook(_code_cell(tags=["exercise"]))
 
     failures = collect_cell_failures(notebook)
@@ -39,7 +46,7 @@ def test_exercise_that_succeeds_fails_policy():
     assert failures[0].message == "exercise cell did not raise ExerciseError"
 
 
-def test_exercise_with_wrong_error_fails_policy():
+def test_exercise_with_wrong_error_fails_policy() -> None:
     notebook = _notebook(
         _code_cell(tags=["exercise"], error=("ValueError", "bad value"))
     )
@@ -50,7 +57,7 @@ def test_exercise_with_wrong_error_fails_policy():
     assert failures[0].message == "exercise cell raised ValueError: bad value"
 
 
-def test_ordinary_cell_error_fails_policy():
+def test_ordinary_cell_error_fails_policy() -> None:
     notebook = _notebook(_code_cell(error=("RuntimeError", "broken")))
 
     failures = collect_cell_failures(notebook)
@@ -59,7 +66,7 @@ def test_ordinary_cell_error_fails_policy():
     assert failures[0].message == "unexpected error: RuntimeError: broken"
 
 
-def test_skip_test_cell_is_not_evaluated():
+def test_skip_test_cell_is_not_evaluated() -> None:
     notebook = _notebook(
         _code_cell(tags=["skip-test"], error=("RuntimeError", "ignored"))
     )
@@ -67,7 +74,7 @@ def test_skip_test_cell_is_not_evaluated():
     assert collect_cell_failures(notebook) == []
 
 
-def test_skipped_exercise_is_not_evaluated():
+def test_skipped_exercise_is_not_evaluated() -> None:
     notebook = _notebook(_code_cell(tags=["exercise", "skip-test"]))
 
     assert collect_cell_failures(notebook) == []
