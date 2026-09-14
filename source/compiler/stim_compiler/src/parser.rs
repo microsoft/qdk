@@ -293,7 +293,7 @@ pub enum Error {
 
 pub fn parse(input: &str) -> (Circuit, Vec<Error>) {
     let mut parser = Parser::new(input);
-    let circuit = parser.parse();
+    let circuit = parser.parse_circuit();
     (circuit, parser.errors)
 }
 
@@ -411,7 +411,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Circuit {
+    pub fn parse_circuit(&mut self) -> Circuit {
         let mut items = Vec::new();
 
         while self.peek().is_some() {
