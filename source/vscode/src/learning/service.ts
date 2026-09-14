@@ -960,14 +960,21 @@ export class LearningService {
     return new TextDecoder().decode(bytes);
   }
 
-  /** Save the document to disk if it's open and has unsaved edits. */
-  private async saveOpenDocument(uri: vscode.Uri): Promise<void> {
+  /**
+   * Save the document to disk if it's open and has unsaved edits. Returns
+   * `false` if the document is still dirty afterwards (the save didn't
+   * complete), so callers can avoid overwriting a file the editor would
+   * clobber back.
+   */
+  private async saveOpenDocument(uri: vscode.Uri): Promise<boolean> {
     const doc = vscode.workspace.textDocuments.find(
       (d) => d.uri.toString() === uri.toString(),
     );
-    if (doc?.isDirty) {
-      await doc.save();
+    if (!doc?.isDirty) {
+      return true;
     }
+    await doc.save();
+    return !doc.isDirty;
   }
 
   async markExampleRun(): Promise<void> {
@@ -1047,10 +1054,15 @@ export class LearningService {
 
     const exercise = this.resolveExerciseAt(location);
     const uri = this.exerciseFileUri(location.unitId, exercise.id);
-    // Save any unsaved edits first so the editor is clean, then overwrite
-    // the file on disk. The editor will pick up the change automatically
-    // because it's no longer dirty.
-    await this.saveOpenDocument(uri);
+    // Save any unsaved edits first so the editor is clean, then overwrite the
+    // file on disk, the editor picks up the change because it's no longer
+    // dirty. If the save didn't take, abort: a still-dirty editor would save
+    // the user's old code back over the placeholder.
+    if (!(await this.saveOpenDocument(uri))) {
+      throw new Error(
+        "Couldn't save your open file. Save or close it, then try again.",
+      );
+    }
     await vscode.workspace.fs.writeFile(
       uri,
       new TextEncoder().encode(exercise.placeholderCode),
@@ -1106,9 +1118,13 @@ export class LearningService {
         continue;
       }
       // Save any unsaved edits first so the editor is clean, then overwrite
-      // the file on disk. The editor will pick up the change automatically
-      // because it's no longer dirty.
-      await this.saveOpenDocument(uri);
+      // the file on disk. Abort the whole unit reset if a save didn't take,
+      // rather than clearing progress on a file we couldn't actually reset.
+      if (!(await this.saveOpenDocument(uri))) {
+        throw new Error(
+          "Couldn't save an open file in this unit. Save or close it, then try again.",
+        );
+      }
       await ensureParentDir(uri);
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code));
     }

@@ -59,8 +59,8 @@ export async function restoreUnitWorkbookCell(
     const srcText = new TextDecoder().decode(
       await vscode.workspace.fs.readFile(sourceNotebookUri(unit)),
     );
-    const original = findCellSource(srcText, cellId, unit.id);
-    if (original === undefined) {
+    const authoredSource = findCellSource(srcText, cellId, unit.id);
+    if (authoredSource === undefined) {
       log.warn(
         `Cell ${cellId} not found in the authored notebook for unit "${unit.id}".`,
       );
@@ -72,13 +72,18 @@ export async function restoreUnitWorkbookCell(
       (n) => n.uri.toString() === dest.toString(),
     );
     if (open) {
-      return replaceOpenCell(open, cellId, original);
+      return replaceOpenCell(open, cellId, authoredSource);
     }
 
     const destText = new TextDecoder().decode(
       await vscode.workspace.fs.readFile(dest),
     );
-    const updated = replaceCellSource(destText, cellId, original, unit.id);
+    const updated = replaceCellSource(
+      destText,
+      cellId,
+      authoredSource,
+      unit.id,
+    );
     if (updated === undefined) {
       log.warn(
         `Cell ${cellId} not found in the workbook for unit "${unit.id}".`,
@@ -99,9 +104,14 @@ export async function restoreUnitWorkbookCell(
 }
 
 /**
- * Replace one cell of an open notebook, preserving its id and tags while
- * dropping outputs and execution state. Returns `false` if the cell isn't
- * present, the edit is rejected, or the save doesn't complete.
+ * Replace one cell of an open notebook with its authored source, preserving
+ * the cell id and tags while dropping outputs and execution state. The
+ * in-editor edit is the reset: it takes effect the moment the cell shows the
+ * authored source, and the notebook is then saved to disk best-effort. Returns
+ * `false` only when the cell is missing or the edit is rejected. A save that
+ * can't complete leaves the reset cell unsaved in the editor — like any other
+ * pending edit — instead of undoing the reset, so we never leave the cell
+ * showing placeholder code and then report the reset as a failure.
  */
 async function replaceOpenCell(
   notebook: vscode.NotebookDocument,
@@ -134,7 +144,22 @@ async function replaceOpenCell(
   if (!(await vscode.workspace.applyEdit(edit))) {
     return false;
   }
-  return notebook.save();
+
+  // Persist the reset best-effort. The edit already updated the editor, so a
+  // save that doesn't land just leaves the cell unsaved, not un-reset; log it
+  // for diagnostics but still report the cell as reset.
+  try {
+    if (!(await notebook.save())) {
+      log.warn(
+        `Reset cell ${cellId} in the editor, but saving the workbook to disk didn't complete.`,
+      );
+    }
+  } catch (e) {
+    log.warn(
+      `Reset cell ${cellId} in the editor, but saving the workbook to disk failed: ${String(e)}`,
+    );
+  }
+  return true;
 }
 
 /**
