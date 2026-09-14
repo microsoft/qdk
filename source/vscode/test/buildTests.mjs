@@ -37,6 +37,7 @@ const platformBuildOptions = {
     entryPoints: [
       join(thisDir, "suites", "language-service", "index.node.ts"),
       join(thisDir, "suites", "debugger", "index.node.ts"),
+      join(thisDir, "suites", "jupyter-api-contract", "index.node.ts"),
     ],
     platform: "node",
     outdir: join(thisDir, "out", "node"),
