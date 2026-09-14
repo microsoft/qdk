@@ -348,28 +348,6 @@ extends:
               - script: |
                   ls target/wheels/*
 
-          - job: "Course_Notebook_Tests"
-            displayName: Course notebook tests
-            pool:
-              name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
-              os: linux
-            timeoutInMinutes: 45
-            steps:
-              - task: PipAuthenticate@1
-                displayName: Pip Authenticate
-                inputs:
-                  artifactFeeds: "AzureQuantum/azure-quantum"
-
-              - task: UsePythonVersion@0
-                inputs:
-                  versionSpec: "3.11"
-                  githubToken: "$(GH_PACKAGE_READ_TOKEN)"
-
-              - script: |
-                  python ./build.py --no-check --no-check-prereqs --course-notebook-tests
-                displayName: Test course notebooks
-
           - ${{ each target in parameters.matrix }}:
               - job: Python_${{ target.name }}_job
                 pool:
@@ -490,6 +468,10 @@ extends:
                       python build.py --qdk --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages (Other)
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
+
+                  - script: |
+                      python ./build.py --no-check --no-check-prereqs --course-notebook-tests
+                    displayName: Test course notebooks
 
                   - script: |
                       dir target\wheels\*

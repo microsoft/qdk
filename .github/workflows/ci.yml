@@ -250,40 +250,23 @@ jobs:
           echo "run-tests=$run_tests" >> "$GITHUB_OUTPUT"
 
   course-notebook-tests:
-    name: Course notebooks (${{ matrix.arch }})
+    name: Course notebooks
     needs: course-notebook-changes
     if: needs.course-notebook-changes.outputs.run-tests == 'true'
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            arch: x64
-            pip-cache: ~/.cache/pip
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-            pip-cache: ~/.cache/pip
-          - runner: windows-2025
-            arch: x64
-            pip-cache: ~/AppData/Local/pip/Cache
-          - runner: windows-11-arm
-            arch: arm64
-            pip-cache: ~/AppData/Local/pip/Cache
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          architecture: ${{ matrix.arch }}
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ matrix.pip-cache }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-pip-${{ hashFiles('source/vscode/test/course-notebooks/test_requirements.txt', 'source/vscode/resources/qdk-learning/courses/*/requirements.txt') }}
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('source/vscode/test/course-notebooks/test_requirements.txt', 'source/vscode/resources/qdk-learning/courses/*/requirements.txt') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-pip-
+            ${{ runner.os }}-pip-
       - name: Test course notebooks
         run: python ./build.py --no-check --no-check-prereqs --course-notebook-tests
 
