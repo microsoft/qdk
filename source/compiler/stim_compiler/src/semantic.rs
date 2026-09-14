@@ -16,8 +16,10 @@ pub type Probability = f64;
 
 const MAX_COORDINATES: usize = 16;
 
+#[derive(Clone, Copy)]
 pub struct MeasurementRecord {
     pub offset: u32,
+    pub span: Span,
 }
 
 pub struct NegatableMeasurementRecord {
@@ -375,8 +377,18 @@ impl FaultKind {
             Pauli::Z => Self::Z,
         }
     }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Z => "Z",
+            Self::Loss => "L",
+        }
+    }
 }
 
+#[derive(Clone, Copy)]
 pub struct Fault {
     pub kind: FaultKind,
     pub qubit: StimQubitId,
@@ -1877,7 +1889,10 @@ impl Lowerer {
             return None;
         };
         Some(NegatableMeasurementRecord {
-            record: MeasurementRecord { offset: value },
+            record: MeasurementRecord {
+                offset: value,
+                span: target.span,
+            },
             negated,
         })
     }
@@ -2103,13 +2118,6 @@ impl Lowerer {
         Some(args.clone())
     }
 
-    fn unsupported(&mut self, instruction: &parser::Instruction) {
-        self.push_error(Error::UnsupportedInstruction {
-            name: instruction.name.clone(),
-            span: instruction.span,
-        });
-    }
-
     fn unsupported_args(&mut self, instruction: &parser::Instruction) {
         if !instruction.args.is_empty() {
             self.push_error(Error::UnsupportedArgument {
@@ -2143,4 +2151,10 @@ impl Lowerer {
     fn push_error(&mut self, error: Error) {
         self.errors.push(error);
     }
+}
+
+pub fn lower(input: parser::Circuit) -> (Circuit, Vec<Error>) {
+    let mut lowerer = Lowerer::new();
+    let circuit = lowerer.lower_circuit(&input);
+    (circuit, lowerer.errors)
 }

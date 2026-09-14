@@ -8,14 +8,14 @@ use qdk_simulators::noise_config::{
     LossPolicy, NoiseConfig, NoiseTable, PauliAndLossString, encode_pauli,
 };
 
-use crate::parser::*;
+use crate::parser::Pauli;
+use crate::semantic;
 use Pauli::{X, Y, Z};
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::f64::consts::PI;
 use std::fmt::Write;
-use std::slice::Chunks;
 use thiserror::Error;
 
 type StimQubitId = u32;
@@ -309,56 +309,11 @@ block_c{pauli}_exit:
     }
 }
 
-/// A single fault term (`X`, `Y`, `Z`, or `L`) applied to a qubit.
-#[derive(Clone, Copy)]
-enum FaultChar {
-    X,
-    Y,
-    Z,
-    Loss,
-}
-
-impl FaultChar {
-    fn from_instruction_name(name: &str) -> Self {
-        match name {
-            "X_ERROR" => Self::X,
-            "Y_ERROR" => Self::Y,
-            "Z_ERROR" => Self::Z,
-            "LOSS_ERROR" => Self::Loss,
-            _ => unreachable!("unknown error name: {name}"),
-        }
-    }
-
-    fn from_pauli(pauli: Pauli) -> Self {
-        match pauli {
-            Pauli::X => Self::X,
-            Pauli::Y => Self::Y,
-            Pauli::Z => Self::Z,
-        }
-    }
-
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::X => "X",
-            Self::Y => "Y",
-            Self::Z => "Z",
-            Self::Loss => "L",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
     #[error("unsupported instruction: {name}")]
     #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedInstruction"))]
     UnsupportedInstruction {
-        name: String,
-        #[label]
-        span: Span,
-    },
-    #[error("unknown instruction: {name}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnknownInstruction"))]
-    UnknownInstruction {
         name: String,
         #[label]
         span: Span,
@@ -370,137 +325,9 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("{instruction} instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
-    InstructionWithoutBlock {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("unsupported argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedArgument"))]
-    UnsupportedArgument {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("argument for {instruction} cannot be specified in radians")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnexpectedRadians"))]
-    UnexpectedRadians {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("missing argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MissingArg"))]
-    MissingArg {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("too few arguments for instruction {instruction}; expected {expected}, found {found}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.TooFewArgs"))]
-    TooFewArgs {
-        instruction: String,
-        expected: usize,
-        found: usize,
-        #[label]
-        span: Span,
-    },
-    #[error("too many arguments for instruction {instruction}; expected {expected}, found {found}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.TooManyArgs"))]
-    TooManyArgs {
-        instruction: String,
-        expected: usize,
-        found: usize,
-        #[label]
-        span: Span,
-    },
-    #[error("angle for {instruction} must be finite and representable in radians")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidAngle"))]
-    InvalidAngle {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("probability for {instruction} must be between 0 and 1; found {probability}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidProbability"))]
-    InvalidProbability {
-        instruction: String,
-        probability: f64,
-        #[label]
-        span: Span,
-    },
-    #[error("probabilities for {instruction} must sum to at most 1.0, but they sum to {total}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidProbabilitySum"))]
-    InvalidProbabilitySum {
-        instruction: String,
-        total: f64,
-        #[label]
-        span: Span,
-    },
     #[error("NOTLEAKED cannot reference a record produced by PEEK_LOSS")]
     #[diagnostic(code("Qdk.Stim.Compiler.NotLeakedOnPeekLoss"))]
     NotLeakedOnPeekLoss {
-        #[label]
-        span: Span,
-    },
-    #[error("unsupported target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTarget"))]
-    UnsupportedTarget {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("missing target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MissingTarget"))]
-    MissingTarget {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("target cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NegatedTarget"))]
-    NegatedTarget {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("instruction {instruction} requires an even number of targets")]
-    #[diagnostic(code("Qdk.Stim.Compiler.OddTargetCount"))]
-    OddTargetCount {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("instruction {instruction} requires a multiple of three targets")]
-    #[diagnostic(code("Qdk.Stim.Compiler.TargetCountNotMultipleOfThree"))]
-    TargetCountNotMultipleOfThree {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("qubit {qubit} is repeated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.RepeatedQubit"))]
-    RepeatedQubit {
-        instruction: String,
-        qubit: StimQubitId,
-        #[label]
-        span: Span,
-    },
-    #[error("measurement record target in an unsupported position in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
-    MisplacedMeasurementRecord {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error(
-        "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
-    )]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordWithoutQubit"))]
-    MeasurementRecordWithoutQubit {
-        instruction: String,
         #[label]
         span: Span,
     },
@@ -525,39 +352,6 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("a REPEAT count of zero is not supported")]
-    #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
-    ZeroRepeatCount {
-        #[label]
-        span: Span,
-    },
-    #[error("Pauli product must be Hermitian")]
-    #[diagnostic(code("Qdk.Stim.Compiler.AntiHermitianPauliProduct"))]
-    AntiHermitianPauliProduct {
-        #[label]
-        span: Span,
-    },
-}
-
-// This enum keeps track of which side of a controlled operation the measurement record is allowed to appear on.
-// For example, in `CX rec[-1] 0', the measurement record comes on the first side, while in 'XCZ 0 rec[-1]' it's the opposite.
-#[derive(Clone, Copy)]
-enum AllowedRecPosition {
-    First,
-    Second,
-    Either,
-}
-
-impl AllowedRecPosition {
-    fn allows_first(self) -> bool {
-        matches!(self, AllowedRecPosition::First | AllowedRecPosition::Either)
-    }
-    fn allows_second(self) -> bool {
-        matches!(
-            self,
-            AllowedRecPosition::Second | AllowedRecPosition::Either
-        )
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -613,7 +407,7 @@ impl IdMap {
 
     fn record_in_scope(&self, record_id: ResultId) -> bool {
         let Scope::Select { first_record, .. } = self.current_scope() else {
-            return true; // top level scope can see all previous records
+            return true;
         };
         record_id >= first_record
     }
@@ -639,7 +433,7 @@ fn select_label(scope: u32) -> String {
 }
 
 struct CorrelatedRow {
-    terms: Vec<(FaultChar, StimQubitId)>,
+    faults: Vec<semantic::Fault>,
     probability: f64,
 }
 
@@ -723,8 +517,8 @@ impl<'noise> NoiseAccumulator<'noise> {
         let mut remaining_probability = 1.0;
         for row in rows {
             let mut pauli_string_chars = vec!["I"; pauli_string_width];
-            for (fault, qubit) in row.terms {
-                pauli_string_chars[column_of_qubit[&qubit]] = fault.as_str();
+            for fault in row.faults {
+                pauli_string_chars[column_of_qubit[&fault.qubit]] = fault.kind.as_str();
             }
             pauli_strings.push(encode_pauli(&pauli_string_chars.concat()));
             probabilities.push(remaining_probability * row.probability); // each row fires only if all previous ones didn't
@@ -738,7 +532,7 @@ impl<'noise> NoiseAccumulator<'noise> {
     fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<StimQubitId> {
         let mut qubits: Vec<StimQubitId> = rows
             .iter()
-            .flat_map(|row| row.terms.iter().map(|(_, qubit)| *qubit))
+            .flat_map(|row| row.faults.iter().map(|fault| fault.qubit))
             .collect();
         qubits.sort_unstable();
         qubits.dedup();
@@ -771,1000 +565,827 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn compile_circuit(&mut self, circuit: &Circuit) {
+    fn into_qir(mut self, circuit: &semantic::Circuit) -> Result<String, Vec<Error>> {
+        self.writer.write_header();
+        self.compile_circuit(circuit);
+        self.finish_correlated_noise();
+        self.writer
+            .write_footer(self.id_map.num_qubits(), self.id_map.record_count);
+        if self.errors.is_empty() {
+            Ok(self.writer.output)
+        } else {
+            Err(self.errors)
+        }
+    }
+
+    fn compile_circuit(&mut self, circuit: &semantic::Circuit) {
         for item in &circuit.items {
             self.compile_item(item);
         }
     }
 
-    fn compile_item(&mut self, item: &Item) {
+    fn compile_item(&mut self, item: &semantic::Item) {
         match item {
-            Item::Block(block) => self.compile_block(block),
-            Item::Instruction(instruction) => self.compile_instruction(instruction),
-        }
-    }
-
-    fn compile_block(&mut self, block: &Block) {
-        match block.block_instruction.name.as_str() {
-            "SELECT" => self.compile_select_block(block),
-            "REPEAT" => self.compile_repeat_block(block),
-            _ => {
-                self.unknown(&block.block_instruction);
+            semantic::Item::Block(block) => self.compile_block(block),
+            semantic::Item::Instruction(instruction) => {
+                self.compile_instruction(instruction);
             }
         }
     }
 
-    fn compile_select_block(&mut self, block: &Block) {
-        let Block {
-            block_instruction: instruction,
-            items,
-            ..
-        } = block;
+    fn compile_block(&mut self, block: &semantic::Block) {
+        match block {
+            semantic::Block::RepeatBlock { count, body } => {
+                let error_count_before_repeat = self.errors.len();
+                for _ in 0..*count {
+                    for item in body {
+                        self.compile_item(item);
+                    }
 
-        if !instruction.targets.is_empty() {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction
-                    .targets
-                    .first()
-                    .map(|t| t.span)
-                    .unwrap_or(instruction.span),
-            });
-            return;
-        }
-
-        self.unsupported_args(instruction);
-
-        self.id_map.enter_select_scope();
-        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
-            unreachable!("select scope was just entered");
-        };
-
-        let label = select_label(scope_id);
-        self.writer.write_jump(&label); // terminate the previous block
-        self.writer.write_label(&label); // start the new block
-
-        for item in items {
-            self.compile_item(item);
-        }
-        self.id_map.exit_select_scope();
-    }
-
-    fn compile_repeat_block(&mut self, block: &Block) {
-        let Block {
-            block_instruction: instruction,
-            items,
-            ..
-        } = block;
-
-        self.unsupported_args(instruction);
-
-        if instruction.targets.is_empty() {
-            self.push_error(Error::MissingTarget {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        } else if instruction.targets.len() > 1 {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction
-                    .targets
-                    .get(1)
-                    .map(|t| t.span)
-                    .unwrap_or(instruction.span),
-            });
-            return;
-        }
-
-        let repeat_target = &instruction.targets[0];
-        let TargetKind::Qubit {
-            // arbitrary choice by the parser, it's just a number of repeats, not a qubit
-            value: num_repeats,
-            negated: false,
-        } = repeat_target.kind
-        else {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: repeat_target.span,
-            });
-            return;
-        };
-
-        if num_repeats == 0 {
-            self.push_error(Error::ZeroRepeatCount {
-                span: repeat_target.span,
-            });
-            return;
-        }
-
-        for _ in 0..num_repeats {
-            for item in items {
-                self.compile_item(item);
+                    // Avoid repeating error reporting
+                    if self.errors.len() > error_count_before_repeat {
+                        return;
+                    }
+                }
             }
+            semantic::Block::SelectBlock { body } => {
+                self.id_map.enter_select_scope();
+                let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
+                    unreachable!("select scope was just entered");
+                };
 
-            if !self.errors.is_empty() {
-                // makes sure we don't issue repeated errors
-                return;
+                let label = select_label(scope_id);
+                self.writer.write_jump(&label); // terminate the previous block
+                self.writer.write_label(&label); // start the new block
+                for item in body {
+                    self.compile_item(item);
+                }
+                self.id_map.exit_select_scope();
             }
         }
     }
 
-    fn compile_instruction(&mut self, instruction: &Instruction) {
-        if self.noise_accumulator.current_correlated_group.is_some()
-            && instruction.name != "ELSE_CORRELATED_ERROR"
+    fn compile_instruction(&mut self, instruction: &semantic::Instruction) {
+        let continues_correlated_error = matches!(
+            &instruction.kind,
+            semantic::InstructionKind::Noise(semantic::Noise::CorrelatedError {
+                kind: semantic::CorrelatedErrorKind::Else,
+                ..
+            })
+        );
+        if self.noise_accumulator.current_correlated_group.is_some() && !continues_correlated_error
         {
             self.finish_correlated_noise();
         }
 
-        match instruction.name.as_str() {
-            // Pauli Gates
-            "I" => {
-                self.unsupported_args(instruction);
+        match &instruction.kind {
+            semantic::InstructionKind::Reset { qubit, basis } => {
+                self.compile_reset(*qubit, *basis);
             }
-            "X" | "Y" | "Z" => self.broadcast(instruction, |s, q| {
-                s.op(&instruction.name.to_lowercase(), q);
-            }),
-
-            // Single Qubit Clifford Gates
-            "C_NXYZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; S 0; S 0
-                s.op_adj("s", q);
-                s.op("h", q);
-                s.op("z", q);
-            }),
-            "C_NZYX" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0; S 0
-                s.op("z", q);
-                s.op("h", q);
-                s.op_adj("s", q);
-            }),
-            "C_XNYZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; H 0
-                s.op("s", q);
-                s.op("h", q);
-            }),
-            "C_XYNZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0
-                s.op("s", q);
-                s.op("h", q);
-                s.op("z", q);
-            }),
-            "C_XYZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0
-                s.op_adj("s", q);
-                s.op("h", q);
-            }),
-            "C_ZNYX" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; S 0
-                s.op("h", q);
-                s.op_adj("s", q);
-            }),
-            "C_ZYNX" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0
-                s.op("z", q);
-                s.op("h", q);
-                s.op("s", q);
-            }),
-            "C_ZYX" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; S 0
-                s.op("h", q);
-                s.op("s", q);
-            }),
-            "H" | "H_XZ" => self.broadcast(instruction, |s, q| s.op("h", q)),
-            "H_NXY" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0; H 0
-                s.op("s", q);
-                s.op("x", q);
-            }),
-            "H_NXZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0
-                s.op("z", q);
-                s.op("h", q);
-                s.op("z", q);
-            }),
-            "H_NYZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; H 0
-                s.op("z", q);
-                s.op("sx", q);
-            }),
-            "H_XY" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; H 0; S 0
-                s.op("x", q);
-                s.op("s", q);
-            }),
-            "H_YZ" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; H 0; S 0; S 0
-                s.op("sx", q);
-                s.op("z", q);
-            }),
-            "S" | "SQRT_Z" => self.broadcast(instruction, |s, q| s.op("s", q)),
-            "SQRT_X" => self.broadcast(instruction, |s, q| s.op("sx", q)),
-            "SQRT_X_DAG" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0
-                s.op("s", q);
-                s.op("h", q);
-                s.op("s", q);
-            }),
-            "SQRT_Y" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0
-                s.op("z", q);
-                s.op("h", q);
-            }),
-            "SQRT_Y_DAG" => self.broadcast(instruction, |s, q| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0
-                s.op("h", q);
-                s.op("z", q);
-            }),
-            "S_DAG" | "SQRT_Z_DAG" => self.broadcast(instruction, |s, q| s.op_adj("s", q)),
-
-            // Two Qubit Clifford Gates
-            "CX" | "CNOT" | "ZCX" => self.broadcast_controlled(
-                instruction,
-                AllowedRecPosition::First,
-                |s, q0, q1| {
-                    s.op_2("cx", q0, q1);
-                },
-                "x",
+            semantic::InstructionKind::SingleQubitGate { qubit, gate } => {
+                self.compile_single_qubit_gate(*qubit, *gate);
+            }
+            semantic::InstructionKind::TwoQubitGate { q0, q1, gate } => {
+                self.compile_two_qubit_gate(*q0, *q1, *gate);
+            }
+            semantic::InstructionKind::ThreeQubitGate { q0, q1, q2, gate } => {
+                self.compile_three_qubit_gate(*q0, *q1, *q2, *gate);
+            }
+            semantic::InstructionKind::PauliProductGate { product, gate } => {
+                self.compile_pauli_product_gate(product, *gate);
+            }
+            semantic::InstructionKind::ClassicallyControlledPauli {
+                control,
+                target,
+                pauli,
+            } => self.compile_classical_control(*control, *target, *pauli),
+            semantic::InstructionKind::Noise(noise) => {
+                self.compile_noise(instruction.span, noise);
+            }
+            semantic::InstructionKind::SingleQubitMeasurement {
+                reset,
+                observable,
+                readout_noise,
+                negated,
+                qubit,
+            } => self.compile_single_qubit_measurement(
+                *reset,
+                *observable,
+                *readout_noise,
+                *negated,
+                *qubit,
             ),
-            "CXSWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
-                s.op_2("cx", q1, q0);
-                s.op_2("cx", q0, q1);
-            }),
-            "CY" | "ZCY" => self.broadcast_controlled(
-                instruction,
-                AllowedRecPosition::First,
-                |s, q0, q1| {
-                    s.op_2("cy", q0, q1);
-                },
-                "y",
-            ),
-            "CZ" | "ZCZ" => self.broadcast_controlled(
-                instruction,
-                AllowedRecPosition::Either,
-                |s, q0, q1| {
-                    s.op_2("cz", q0, q1);
-                },
-                "z",
-            ),
-            "CZSWAP" | "SWAPCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op_2("cx", q1, q0);
-                s.op("h", q1);
-            }),
-            "II" => self.broadcast_pair(instruction, |_, _, _| {}),
-            "ISWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op_2("cx", q1, q0);
-                s.op("h", q1);
-                s.op("s", q1);
-                s.op("s", q0);
-            }),
-            "ISWAP_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 1; CX 1 0; CX 0 1; H 0
-                s.op_adj("s", q0);
-                s.op_adj("s", q1);
-                s.op("h", q1);
-                s.op_2("cx", q1, q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q0);
-            }),
-            "SQRT_XX" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q1);
-                s.op("s", q0);
-                s.op("s", q1);
-                s.op("h", q0);
-                s.op("h", q1);
-            }),
-            "SQRT_XX_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1; H 0; H 1
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q1);
-                s.op_adj("s", q0);
-                s.op_adj("s", q1);
-                s.op("h", q0);
-                s.op("h", q1);
-            }),
-            "SQRT_YY" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1
-                s.op_adj("s", q0); // S 0; S 0; S 0
-                s.op_adj("s", q1); // S 1; S 1; S 1
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q1);
-                s.op("s", q0);
-                s.op("s", q1);
-                s.op("h", q0);
-                s.op("h", q1);
-                s.op("s", q0);
-                s.op("s", q1);
-            }),
-            "SQRT_YY_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1; S 1; S 1
-                s.op_adj("s", q0); // S 0; S 0; S 0
-                s.op("s", q1); // S 1
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q1);
-                s.op("s", q0);
-                s.op("s", q1);
-                s.op("h", q0);
-                s.op("h", q1);
-                s.op("s", q0);
-                s.op_adj("s", q1); // S 1; S 1; S 1
-            }),
-            "SQRT_ZZ" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 1
-                s.op("h", q1);
-                s.op_2("cx", q0, q1);
-                s.op("h", q1);
-                s.op("s", q0);
-                s.op("s", q1);
-            }),
-            "SQRT_ZZ_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1
-                s.op("h", q1);
-                s.op_2("cx", q0, q1);
-                s.op("h", q1);
-                s.op_adj("s", q0);
-                s.op_adj("s", q1);
-            }),
-            "SWAP" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("swap", q0, q1)),
-            "SWAPCX" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): CX 0 1; CX 1 0
-                s.op_2("cx", q0, q1);
-                s.op_2("cx", q1, q0);
-            }),
-            "XCX" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 0
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q0);
-            }),
-            "XCY" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; S 1; S 1; S 1; CX 0 1; H 0; S 1
-                s.op("h", q0);
-                s.op_adj("s", q1);
-                s.op_2("cx", q0, q1);
-                s.op("h", q0);
-                s.op("s", q1);
-            }),
-            "XCZ" => self.broadcast_controlled(
-                instruction,
-                AllowedRecPosition::Second,
-                |s, q0, q1| {
-                    // Stim decomposition (into H, S, CX, M, R): CX 1 0
-                    s.op_2("cx", q1, q0);
-                },
-                "x",
-            ),
-            "YCX" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
-                s.op_adj("s", q0);
-                s.op("h", q1);
-                s.op_2("cx", q1, q0);
-                s.op("s", q0);
-                s.op("h", q1);
-            }),
-            "YCY" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 0; S 0; S 1
-                s.op_adj("s", q0);
-                s.op_adj("s", q1);
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("h", q0);
-                s.op("s", q0);
-                s.op("s", q1);
-            }),
-            "YCZ" => self.broadcast_controlled(
-                instruction,
-                AllowedRecPosition::Second,
-                |s, q0, q1| {
-                    // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
-                    s.op_adj("s", q0);
-                    s.op_2("cx", q1, q0);
-                    s.op("s", q0);
-                },
-                "y",
-            ),
-
-            // Noise Channels
-            "E" | "CORRELATED_ERROR" => self.accumulate_correlated_noise(instruction),
-            "ELSE_CORRELATED_ERROR" => self.continue_correlated_noise(instruction),
-
-            "DEPOLARIZE1" => self.broadcast_noise(instruction, |s, q, p| {
-                let table = s.noise_accumulator.build_noise_table(
-                    1,
-                    ["X", "Y", "Z"].map(encode_pauli).to_vec(),
-                    vec![p / 3.0; 3],
-                );
-                s.op_noise(table, &[q]);
-            }),
-            "DEPOLARIZE2" => self.broadcast_pair_noise(instruction, |s, q0, q1, p| {
-                let table = s.noise_accumulator.build_noise_table(
-                    2,
-                    [
-                        "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
-                        "ZX", "ZY", "ZZ",
-                    ]
-                    .map(encode_pauli)
-                    .to_vec(),
-                    vec![p / 15.0; 15],
-                );
-
-                s.op_noise(table, &[q0, q1]);
-            }),
-            "HERALDED_ERASE" | "HERALDED_PAULI_CHANNEL_1" => self.unsupported(instruction),
-            "II_ERROR" => self.for_each_pair(instruction, |_, _, _| {}),
-            "I_ERROR" => (),
-            "PAULI_CHANNEL_1" => {
-                let Some(probabilities) = self.expect_probabilities(instruction, 3) else {
-                    return;
+            semantic::InstructionKind::TwoQubitMeasurement {
+                readout_noise,
+                observable,
+                negated,
+                q0,
+                q1,
+            } => {
+                self.compile_two_qubit_measurement(*readout_noise, *observable, *negated, *q0, *q1)
+            }
+            semantic::InstructionKind::PauliProductMeasurement {
+                readout_noise,
+                product,
+            } => self.compile_pauli_product_measurement(*readout_noise, product),
+            semantic::InstructionKind::PeekLoss {
+                readout_noise,
+                qubit,
+            } => {
+                let result_id = self.op_peek_loss(*qubit);
+                self.op_optional_readout_noise(*readout_noise, result_id);
+            }
+            semantic::InstructionKind::Require { records } => {
+                self.compile_require(instruction.span, records);
+            }
+            semantic::InstructionKind::NotLeaked { records } => {
+                self.compile_not_leaked(instruction.span, records);
+            }
+            semantic::InstructionKind::Annotation(semantic::Annotation::MeasurementPadding {
+                ..
+            }) => self.unsupported("MPAD", instruction.span),
+            semantic::InstructionKind::Annotation(_) => {}
+            semantic::InstructionKind::SingleQubitRotation { axis, angle, qubit } => {
+                let intrinsic = match axis {
+                    X => "rx",
+                    Y => "ry",
+                    Z => "rz",
                 };
-                let table = self.noise_accumulator.build_noise_table(
-                    1,
-                    ["X", "Y", "Z"].map(encode_pauli).to_vec(),
-                    probabilities,
-                );
-                self.for_each_qubit(instruction, |s, q| {
-                    s.op_noise(table.clone(), &[q]);
-                });
+                self.op_rotation(intrinsic, *angle, *qubit);
             }
-            "PAULI_CHANNEL_2" => {
-                let Some(probabilities) = self.expect_probabilities(instruction, 15) else {
-                    return;
+            semantic::InstructionKind::TwoQubitRotation {
+                axis,
+                angle,
+                q0,
+                q1,
+            } => {
+                let intrinsic = match axis {
+                    semantic::PauliPair::XX => "rxx",
+                    semantic::PauliPair::YY => "ryy",
+                    semantic::PauliPair::ZZ => "rzz",
                 };
+                self.op_rotation_2(intrinsic, *angle, *q0, *q1);
+            }
+            semantic::InstructionKind::U3 {
+                theta,
+                phi,
+                lambda,
+                qubit,
+            } => {
+                self.op_rotation("rz", *lambda, *qubit);
+                self.op_rotation("ry", *theta, *qubit);
+                self.op_rotation("rz", *phi, *qubit);
+            }
+            semantic::InstructionKind::PauliProductRotation { angle, product } => {
+                self.compile_pauli_product_rotation(*angle, product);
+            }
+        }
+    }
 
-                let table = self.noise_accumulator.build_noise_table(
-                    2,
-                    [
-                        "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
-                        "ZX", "ZY", "ZZ",
-                    ]
-                    .map(encode_pauli)
-                    .to_vec(),
-                    probabilities,
-                );
-                self.for_each_pair(instruction, |s, q0, q1| {
-                    s.op_noise(table.clone(), &[q0, q1]);
-                });
-            }
-            "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
-                let fault = FaultChar::from_instruction_name(&instruction.name);
-                self.broadcast_noise(instruction, |s, q, p| {
-                    let table = s.noise_accumulator.build_noise_table(
-                        1,
-                        vec![encode_pauli(fault.as_str())],
-                        vec![p],
-                    );
-                    s.op_noise(table, &[q]);
-                });
-            }
-
-            // Collapsing Gates
-            "M" | "MZ" => {
-                self.broadcast_measure(instruction, |s, q, negated| s.op_measure("m", q, negated))
-            }
-            "MR" | "MRZ" => self.broadcast_measure(instruction, |s, q, negated| {
-                s.op_measure_reset("mresetz", q, negated)
-            }),
-            "MRX" => self.broadcast_measure(instruction, |s, q, negated| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
-                s.op("h", q); // X -> Z
-                let result_id = s.op_measure_reset("mresetz", q, negated); // MRZ
-                s.op("h", q); // Z -> X
-                result_id
-            }),
-            "MRY" => self.broadcast_measure(instruction, |s, q, negated| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
-                s.op_adj("s", q); // Y -> X
-                s.op("h", q); // X -> Z
-                let result_id = s.op_measure_reset("mresetz", q, negated); // MRZ
-                s.op("h", q); // Z -> X
-                s.op("s", q); // X -> Y
-                result_id
-            }),
-            "MX" => self.broadcast_measure(instruction, |s, q, negated| {
-                // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
-                s.op("h", q); // X -> Z
-                let result_id = s.op_measure("m", q, negated); // MZ
-                s.op("h", q); // Z -> X
-                result_id
-            }),
-            "MY" => self.broadcast_measure(instruction, |s, q, negated| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
-                s.op_adj("s", q); // Y -> X
-                s.op("h", q); // X -> Z
-                let result_id = s.op_measure("m", q, negated); // MZ
-                s.op("h", q); // Z -> X
-                s.op("s", q); // X -> Y
-                result_id
-            }),
-            "R" | "RZ" => self.broadcast(instruction, |s, q| s.op("reset", q)),
-            "RX" => self.broadcast(instruction, |s, q| {
+    fn compile_reset(&mut self, qubit: StimQubitId, basis: Pauli) {
+        self.op("reset", qubit);
+        match basis {
+            X => {
                 // Stim decomposition (into H, S, CX, M, R): R 0; H 0
-                s.op("reset", q); // RZ
-                s.op("h", q); // Z -> X
-            }),
-            "RY" => self.broadcast(instruction, |s, q| {
+                self.op("h", qubit); // Z -> X
+            }
+            Y => {
                 // Stim decomposition (into H, S, CX, M, R): R 0; H 0; S 0
-                s.op("reset", q); // RZ
-                s.op("h", q); // Z -> X
-                s.op("s", q); // X -> Y
-            }),
-
-            // Pair Measurement Gates
-            "MXX" => self.broadcast_pair_measure(instruction, |s, q0, q1, negated| {
-                // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
-                s.op_2("cx", q0, q1);
-                s.op("h", q0);
-                let result_id = s.op_measure("m", q0, negated);
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                result_id
-            }),
-            "MYY" => self.broadcast_pair_measure(instruction, |s, q0, q1, negated| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
-                s.op("s", q0);
-                s.op("s", q1);
-                s.op_2("cx", q0, q1);
-                s.op("h", q0);
-                let result_id = s.op_measure("m", q0, negated);
-                s.op("z", q1);
-                s.op("h", q0);
-                s.op_2("cx", q0, q1);
-                s.op("s", q0);
-                s.op("s", q1);
-                result_id
-            }),
-            "MZZ" => self.broadcast_pair_measure(instruction, |s, q0, q1, negated| {
-                // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
-                s.op_2("cx", q0, q1);
-                let result_id = s.op_measure("m", q1, negated);
-                s.op_2("cx", q0, q1);
-                result_id
-            }),
-
-            // Generalized Pauli Product Gates
-            "MPP" => self.broadcast_pauli_product_measure(instruction, |s, q, negated| {
-                s.op_measure("m", q, negated)
-            }),
-            "SPP" | "SPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
-                let invert = (instruction.name == "SPP_DAG") ^ negated;
-                if invert {
-                    s.op_adj("s", q);
-                } else {
-                    s.op("s", q);
-                }
-            }),
-
-            // Control Flow
-            "REPEAT" | "SELECT" => self.push_error(Error::InstructionWithoutBlock {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            }),
-            "REQUIRE" => self.compile_require(instruction),
-            "NOTLEAKED" => self.compile_notleaked(instruction),
-
-            // Miscellaneous
-            "PEEK_LOSS" => {
-                // similar to broadcast_measure, but doesn't allow negated qubits
-                let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
-                    return;
-                };
-                self.for_each_qubit(instruction, |s, q| {
-                    let result_id = s.op_peek_loss(q);
-                    s.op_readout_noise(readout_noise, result_id);
-                });
+                self.op("h", qubit); // Z -> X
+                self.op("s", qubit); // X -> Y
             }
+            Z => {}
+        }
+    }
 
-            // Annotations
-            "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
-            | "TICK" => (),
+    fn compile_single_qubit_gate(
+        &mut self,
+        qubit: StimQubitId,
+        gate: semantic::SingleQubitGateKind,
+    ) {
+        match gate {
+            semantic::SingleQubitGateKind::I => {}
+            semantic::SingleQubitGateKind::X => self.op("x", qubit),
+            semantic::SingleQubitGateKind::Y => self.op("y", qubit),
+            semantic::SingleQubitGateKind::Z => self.op("z", qubit),
+            semantic::SingleQubitGateKind::C_NXYZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; S 0; S 0
+                self.op_adj("s", qubit);
+                self.op("h", qubit);
+                self.op("z", qubit);
+            }
+            semantic::SingleQubitGateKind::C_NZYX => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0; S 0
+                self.op("z", qubit);
+                self.op("h", qubit);
+                self.op_adj("s", qubit);
+            }
+            semantic::SingleQubitGateKind::C_XNYZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0
+                self.op("s", qubit);
+                self.op("h", qubit);
+            }
+            semantic::SingleQubitGateKind::C_XYNZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0
+                self.op("s", qubit);
+                self.op("h", qubit);
+                self.op("z", qubit);
+            }
+            semantic::SingleQubitGateKind::C_XYZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0
+                self.op_adj("s", qubit);
+                self.op("h", qubit);
+            }
+            semantic::SingleQubitGateKind::C_ZNYX => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; S 0
+                self.op("h", qubit);
+                self.op_adj("s", qubit);
+            }
+            semantic::SingleQubitGateKind::C_ZYNX => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0
+                self.op("z", qubit);
+                self.op("h", qubit);
+                self.op("s", qubit);
+            }
+            semantic::SingleQubitGateKind::C_ZYX => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0
+                self.op("h", qubit);
+                self.op("s", qubit);
+            }
+            semantic::SingleQubitGateKind::H => self.op("h", qubit),
+            semantic::SingleQubitGateKind::H_NXY => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0; H 0
+                self.op("s", qubit);
+                self.op("x", qubit);
+            }
+            semantic::SingleQubitGateKind::H_NXZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0
+                self.op("z", qubit);
+                self.op("h", qubit);
+                self.op("z", qubit);
+            }
+            semantic::SingleQubitGateKind::H_NYZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; H 0
+                self.op("z", qubit);
+                self.op("sx", qubit);
+            }
+            semantic::SingleQubitGateKind::H_XY => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; H 0; S 0
+                self.op("x", qubit);
+                self.op("s", qubit);
+            }
+            semantic::SingleQubitGateKind::H_YZ => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; H 0; S 0; S 0
+                self.op("sx", qubit);
+                self.op("z", qubit);
+            }
+            semantic::SingleQubitGateKind::S => self.op("s", qubit),
+            semantic::SingleQubitGateKind::SQRT_X => self.op("sx", qubit),
+            semantic::SingleQubitGateKind::SQRT_X_DAG => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0
+                self.op("s", qubit);
+                self.op("h", qubit);
+                self.op("s", qubit);
+            }
+            semantic::SingleQubitGateKind::SQRT_Y => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0
+                self.op("z", qubit);
+                self.op("h", qubit);
+            }
+            semantic::SingleQubitGateKind::SQRT_Y_DAG => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0
+                self.op("h", qubit);
+                self.op("z", qubit);
+            }
+            semantic::SingleQubitGateKind::S_DAG => self.op_adj("s", qubit),
+            semantic::SingleQubitGateKind::T => self.op("t", qubit),
+            semantic::SingleQubitGateKind::T_DAG => self.op_adj("t", qubit),
+        }
+    }
 
-            // Non-Clifford Gates
-            "T" => self.broadcast(instruction, |s, q| s.op("t", q)),
-            "T_DAG" => self.broadcast(instruction, |s, q| s.op_adj("t", q)),
-            "TPP" | "TPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
-                let invert = (instruction.name == "TPP_DAG") ^ negated;
-                if invert {
-                    s.op_adj("t", q);
-                } else {
-                    s.op("t", q);
-                }
-            }),
-            "CH" => self.broadcast_pair(instruction, |s, q0, q1| {
+    fn compile_two_qubit_gate(
+        &mut self,
+        q0: StimQubitId,
+        q1: StimQubitId,
+        gate: semantic::TwoQubitGateKind,
+    ) {
+        match gate {
+            semantic::TwoQubitGateKind::CX => self.op_2("cx", q0, q1),
+            semantic::TwoQubitGateKind::CXSWAP => {
+                // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
+                self.op_2("cx", q1, q0);
+                self.op_2("cx", q0, q1);
+            }
+            semantic::TwoQubitGateKind::CY => self.op_2("cy", q0, q1),
+            semantic::TwoQubitGateKind::CZ => self.op_2("cz", q0, q1),
+            semantic::TwoQubitGateKind::CZSWAP => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op_2("cx", q1, q0);
+                self.op("h", q1);
+            }
+            semantic::TwoQubitGateKind::II => {}
+            semantic::TwoQubitGateKind::ISWAP => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op_2("cx", q1, q0);
+                self.op("h", q1);
+                self.op("s", q1);
+                self.op("s", q0);
+            }
+            semantic::TwoQubitGateKind::ISWAP_DAG => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 1; CX 1 0; CX 0 1; H 0
+                self.op_adj("s", q0);
+                self.op_adj("s", q1);
+                self.op("h", q1);
+                self.op_2("cx", q1, q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q0);
+            }
+            semantic::TwoQubitGateKind::SQRT_XX => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q1);
+                self.op("s", q0);
+                self.op("s", q1);
+                self.op("h", q0);
+                self.op("h", q1);
+            }
+            semantic::TwoQubitGateKind::SQRT_XX_DAG => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1; H 0; H 1
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q1);
+                self.op_adj("s", q0);
+                self.op_adj("s", q1);
+                self.op("h", q0);
+                self.op("h", q1);
+            }
+            semantic::TwoQubitGateKind::SQRT_YY => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1
+                self.op_adj("s", q0); // S 0; S 0; S 0
+                self.op_adj("s", q1); // S 1; S 1; S 1
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q1);
+                self.op("s", q0);
+                self.op("s", q1);
+                self.op("h", q0);
+                self.op("h", q1);
+                self.op("s", q0);
+                self.op("s", q1);
+            }
+            semantic::TwoQubitGateKind::SQRT_YY_DAG => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1; S 1; S 1
+                self.op_adj("s", q0); // S 0; S 0; S 0
+                self.op("s", q1); // S 1
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q1);
+                self.op("s", q0);
+                self.op("s", q1);
+                self.op("h", q0);
+                self.op("h", q1);
+                self.op("s", q0);
+                self.op_adj("s", q1); // S 1; S 1; S 1
+            }
+            semantic::TwoQubitGateKind::SQRT_ZZ => {
+                // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 1
+                self.op("h", q1);
+                self.op_2("cx", q0, q1);
+                self.op("h", q1);
+                self.op("s", q0);
+                self.op("s", q1);
+            }
+            semantic::TwoQubitGateKind::SQRT_ZZ_DAG => {
+                // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1
+                self.op("h", q1);
+                self.op_2("cx", q0, q1);
+                self.op("h", q1);
+                self.op_adj("s", q0);
+                self.op_adj("s", q1);
+            }
+            semantic::TwoQubitGateKind::SWAP => self.op_2("swap", q0, q1),
+            semantic::TwoQubitGateKind::SWAPCX => {
+                // Stim decomposition (into H, S, CX, M, R): CX 0 1; CX 1 0
+                self.op_2("cx", q0, q1);
+                self.op_2("cx", q1, q0);
+            }
+            semantic::TwoQubitGateKind::XCX => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 0
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q0);
+            }
+            semantic::TwoQubitGateKind::XCY => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 1; S 1; S 1; CX 0 1; H 0; S 1
+                self.op("h", q0);
+                self.op_adj("s", q1);
+                self.op_2("cx", q0, q1);
+                self.op("h", q0);
+                self.op("s", q1);
+            }
+            semantic::TwoQubitGateKind::XCZ => {
+                // Stim decomposition (into H, S, CX, M, R): CX 1 0
+                self.op_2("cx", q1, q0);
+            }
+            semantic::TwoQubitGateKind::YCX => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
+                self.op_adj("s", q0);
+                self.op("h", q1);
+                self.op_2("cx", q1, q0);
+                self.op("s", q0);
+                self.op("h", q1);
+            }
+            semantic::TwoQubitGateKind::YCY => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 0; S 0; S 1
+                self.op_adj("s", q0);
+                self.op_adj("s", q1);
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("h", q0);
+                self.op("s", q0);
+                self.op("s", q1);
+            }
+            semantic::TwoQubitGateKind::YCZ => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
+                self.op_adj("s", q0);
+                self.op_2("cx", q1, q0);
+                self.op("s", q0);
+            }
+            semantic::TwoQubitGateKind::CH => {
                 // Clifft decomposition: R_Y(0.25 pi) 1; CX 0 1; R_Y(-0.25 pi) 1
-                s.op_rotation("ry", 0.25 * PI, q1);
-                s.op_2("cx", q0, q1);
-                s.op_rotation("ry", -0.25 * PI, q1);
-            }),
-            "CCZ" => self.broadcast_triple(instruction, |s, q0, q1, q2| {
+                self.op_rotation("ry", 0.25 * PI, q1);
+                self.op_2("cx", q0, q1);
+                self.op_rotation("ry", -0.25 * PI, q1);
+            }
+        }
+    }
+
+    fn compile_three_qubit_gate(
+        &mut self,
+        q0: StimQubitId,
+        q1: StimQubitId,
+        q2: StimQubitId,
+        gate: semantic::ThreeQubitGateKind,
+    ) {
+        match gate {
+            semantic::ThreeQubitGateKind::CCZ => {
                 // Clifft decomposition: H 2; CCX 0 1 2; H 2
-                s.op("h", q2);
-                s.op_3("ccx", q0, q1, q2);
-                s.op("h", q2);
-            }),
-            "CCX" => self.broadcast_triple(instruction, |s, q0, q1, q2| {
-                s.op_3("ccx", q0, q1, q2);
-            }),
-            "R_X" | "R_Y" | "R_Z" => self.broadcast_rotation(instruction, |s, angle, q| {
-                s.op_rotation(&instruction.name.to_lowercase().replace("_", ""), angle, q);
-            }),
-            "U3" | "U" => {
-                let Some(angles) = self.expect_angles(instruction, 3) else {
-                    return;
-                };
-                self.for_each_qubit(instruction, |s, q| {
-                    s.op_rotation("rz", angles[2], q);
-                    s.op_rotation("ry", angles[0], q);
-                    s.op_rotation("rz", angles[1], q);
-                });
+                self.op("h", q2);
+                self.op_3("ccx", q0, q1, q2);
+                self.op("h", q2);
             }
-            "R_XX" | "R_YY" | "R_ZZ" => {
-                self.broadcast_pair_rotation(instruction, |s, angle, q0, q1| {
-                    s.op_rotation_2(
-                        &instruction.name.to_lowercase().replace("_", ""),
-                        angle,
-                        q0,
-                        q1,
-                    );
-                })
+            semantic::ThreeQubitGateKind::CCX => self.op_3("ccx", q0, q1, q2),
+        }
+    }
+
+    fn compile_pauli_product_gate(
+        &mut self,
+        product: &semantic::PauliProduct,
+        gate: semantic::PauliProductGateKind,
+    ) {
+        if product.factors.is_empty() {
+            return;
+        }
+        let (intrinsic, adjoint) = match gate {
+            semantic::PauliProductGateKind::S => ("s", false),
+            semantic::PauliProductGateKind::S_DAG => ("s", true),
+            semantic::PauliProductGateKind::T => ("t", false),
+            semantic::PauliProductGateKind::T_DAG => ("t", true),
+        };
+        self.decompose_pauli_product_operation(product, |compiler, qubit, negated| {
+            if adjoint ^ negated {
+                compiler.op_adj(intrinsic, qubit);
+            } else {
+                compiler.op(intrinsic, qubit);
             }
-            "R_PAULI" => {
-                let Some(angle) = self.expect_angle(instruction) else {
-                    return;
-                };
-                self.for_each_pauli_product(instruction, |s, q, negated| {
-                    s.op_rotation("rz", if negated { -angle } else { angle }, q);
-                });
-            }
-            _ => self.unknown(instruction),
-        }
-    }
-
-    fn for_each_qubit(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId),
-    ) {
-        for target in &instruction.targets {
-            let Some((q, _)) = self.expect_qubit(instruction, target, false) else {
-                continue;
-            };
-            operation(self, q);
-        }
-    }
-
-    fn for_each_negatable_qubit(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, bool),
-    ) {
-        for target in &instruction.targets {
-            let Some((q, negated)) = self.expect_qubit(instruction, target, true) else {
-                continue;
-            };
-            operation(self, q, negated);
-        }
-    }
-
-    fn for_each_pauli_product(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, bool),
-    ) {
-        for target in &instruction.targets {
-            let Some(factors) = self.expect_pauli_targets(instruction, target) else {
-                continue;
-            };
-            let Some((factors, negated)) =
-                self.canonicalize_pauli_product(instruction, target, factors)
-            else {
-                continue;
-            };
-            if factors.is_empty() {
-                continue;
-            }
-            self.decompose_pauli_product_operation(&factors, negated, &mut operation);
-        }
-    }
-
-    fn for_each_pair(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId),
-    ) {
-        let Some(pairs) = self.expect_target_pairs(instruction) else {
-            return;
-        };
-        for pair in pairs {
-            let Some([(q0, _), (q1, _)]) = self.expect_qubit_pair(instruction, pair, false) else {
-                continue;
-            };
-            operation(self, q0, q1);
-        }
-    }
-
-    fn for_each_negatable_pair(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool),
-    ) {
-        let Some(pairs) = self.expect_target_pairs(instruction) else {
-            return;
-        };
-        for pair in pairs {
-            let Some([(q0, neg0), (q1, neg1)]) = self.expect_qubit_pair(instruction, pair, true)
-            else {
-                continue;
-            };
-            operation(self, q0, q1, neg0 ^ neg1);
-        }
-    }
-
-    fn for_each_triple(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
-    ) {
-        let Some(triples) = self.expect_target_triples(instruction) else {
-            return;
-        };
-        for triple in triples {
-            let Some([q0, q1, q2]) = self.expect_qubit_triple(instruction, triple) else {
-                continue;
-            };
-            operation(self, q0, q1, q2);
-        }
-    }
-
-    fn broadcast(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_qubit(instruction, operation);
-    }
-
-    fn broadcast_pair(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_pair(instruction, operation);
-    }
-
-    fn broadcast_triple(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_triple(instruction, operation);
-    }
-
-    fn broadcast_measure(
-        &mut self,
-        instruction: &Instruction,
-        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
-    ) {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
-            return;
-        };
-        self.for_each_negatable_qubit(instruction, |s, q, negated| {
-            let result_id = measure(s, q, negated);
-            s.op_readout_noise(readout_noise, result_id);
         });
     }
 
-    fn broadcast_pair_measure(
-        &mut self,
-        instruction: &Instruction,
-        mut measure: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool) -> ResultId,
-    ) {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
+    fn compile_pauli_product_rotation(&mut self, angle: Radians, product: &semantic::PauliProduct) {
+        if product.factors.is_empty() {
             return;
-        };
-        self.for_each_negatable_pair(instruction, |s, q0, q1, negated| {
-            let result_id = measure(s, q0, q1, negated);
-            s.op_readout_noise(readout_noise, result_id);
+        }
+        self.decompose_pauli_product_operation(product, |compiler, qubit, negated| {
+            compiler.op_rotation("rz", if negated { -angle } else { angle }, qubit);
         });
     }
 
-    fn broadcast_noise(
+    fn compile_classical_control(
         &mut self,
-        instruction: &Instruction,
-        mut noise: impl FnMut(&mut Self, StimQubitId, f64),
+        control: semantic::MeasurementRecord,
+        target: StimQubitId,
+        pauli: Pauli,
     ) {
-        let Some(probability) = self.expect_probability(instruction) else {
-            return;
-        };
-        self.for_each_qubit(instruction, |s, q| noise(s, q, probability));
-    }
-
-    fn broadcast_pair_noise(
-        &mut self,
-        instruction: &Instruction,
-        mut noise: impl FnMut(&mut Self, StimQubitId, StimQubitId, f64),
-    ) {
-        let Some(probability) = self.expect_probability(instruction) else {
-            return;
-        };
-        self.for_each_pair(instruction, |s, q0, q1| noise(s, q0, q1, probability));
-    }
-
-    fn broadcast_pauli_product(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId, bool),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_pauli_product(instruction, operation);
-    }
-
-    fn broadcast_pauli_product_measure(
-        &mut self,
-        instruction: &Instruction,
-        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
-    ) {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
-            return;
-        };
-        self.for_each_pauli_product(instruction, |s, q, negated| {
-            let result_id = measure(s, q, negated);
-            s.op_readout_noise(readout_noise, result_id);
-        });
-    }
-
-    fn broadcast_rotation(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, Radians, StimQubitId),
-    ) {
-        let Some(angle) = self.expect_angle(instruction) else {
-            return;
-        };
-        self.for_each_qubit(instruction, |s, q| operation(s, angle, q));
-    }
-
-    fn broadcast_pair_rotation(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, Radians, StimQubitId, StimQubitId),
-    ) {
-        let Some(angle) = self.expect_angle(instruction) else {
-            return;
-        };
-        self.for_each_pair(instruction, |s, q0, q1| operation(s, angle, q0, q1));
-    }
-
-    fn broadcast_controlled(
-        &mut self,
-        instruction: &Instruction,
-        allowed_rec_position: AllowedRecPosition,
-        mut quantum: impl FnMut(&mut Self, StimQubitId, StimQubitId),
-        classical_pauli: &str,
-    ) {
-        self.unsupported_args(instruction);
-        let Some(pairs) = self.expect_target_pairs(instruction) else {
-            return;
-        };
-        for pair in pairs {
-            match (&pair[0].kind, &pair[1].kind) {
-                (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
-                    let Some([(control, _), (target, _)]) =
-                        self.expect_qubit_pair(instruction, pair, false)
-                    else {
-                        continue;
-                    };
-                    quantum(self, control, target);
-                }
-                (TargetKind::MeasurementRecord { .. }, TargetKind::Qubit { .. })
-                    if allowed_rec_position.allows_first() =>
-                {
-                    self.classical_control(instruction, &pair[0], &pair[1], classical_pauli);
-                }
-                (TargetKind::Qubit { .. }, TargetKind::MeasurementRecord { .. })
-                    if allowed_rec_position.allows_second() =>
-                {
-                    self.classical_control(instruction, &pair[1], &pair[0], classical_pauli);
-                }
-                (TargetKind::MeasurementRecord { .. }, TargetKind::MeasurementRecord { .. }) => {
-                    self.push_error(Error::MeasurementRecordWithoutQubit {
-                        instruction: instruction.name.clone(),
-                        span: Span {
-                            lo: pair[0].span.lo,
-                            hi: pair[1].span.hi,
-                        },
-                    });
-                }
-                // A `rec` that reached here sits on a side this gate doesn't allow
-                (TargetKind::MeasurementRecord { .. }, _) => {
-                    self.push_error(Error::MisplacedMeasurementRecord {
-                        instruction: instruction.name.clone(),
-                        span: pair[0].span,
-                    });
-                }
-                (_, TargetKind::MeasurementRecord { .. }) => {
-                    self.push_error(Error::MisplacedMeasurementRecord {
-                        instruction: instruction.name.clone(),
-                        span: pair[1].span,
-                    });
-                }
-                _ => self.push_error(Error::UnsupportedTarget {
-                    instruction: instruction.name.clone(),
-                    span: pair[0].span,
-                }),
-            }
-        }
-    }
-
-    fn classical_control(
-        &mut self,
-        instruction: &Instruction,
-        rec_target: &Target,
-        qubit_target: &Target,
-        pauli: &str,
-    ) {
-        let Some((offset, negated)) = self.expect_measurement_record(instruction, rec_target)
-        else {
-            return;
-        };
-        if negated {
-            self.push_error(Error::NegatedTarget {
-                instruction: instruction.name.clone(),
-                span: rec_target.span,
-            });
-            return;
-        }
-        let Some(result_id) = self.resolve_record_offset(rec_target, offset) else {
-            return;
-        };
-        let Some((target, _)) = self.expect_qubit(instruction, qubit_target, false) else {
+        let Some(result_id) = self.resolve_record(control) else {
             return;
         };
         let qubit = self.id_map.allocate_qubit(target);
-        self.writer.write_classical_control(pauli, result_id, qubit);
+        self.writer
+            .write_classical_control(&pauli.as_str().to_ascii_lowercase(), result_id, qubit);
     }
 
-    fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
-        let Some(probability) = self.expect_probability(instruction) else {
+    fn compile_noise(&mut self, instruction_span: Span, noise: &semantic::Noise) {
+        match noise {
+            semantic::Noise::CorrelatedError {
+                kind,
+                probability,
+                faults,
+            } => match kind {
+                semantic::CorrelatedErrorKind::Initial => {
+                    self.accumulate_correlated_noise(*probability, faults);
+                }
+                semantic::CorrelatedErrorKind::Else => {
+                    self.continue_correlated_noise(instruction_span, *probability, faults);
+                }
+            },
+            semantic::Noise::Depolarize2 {
+                probability,
+                q0,
+                q1,
+            } => {
+                let table = self.noise_accumulator.build_noise_table(
+                    2,
+                    [
+                        "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
+                        "ZX", "ZY", "ZZ",
+                    ]
+                    .map(encode_pauli)
+                    .to_vec(),
+                    vec![*probability / 15.0; 15],
+                );
+                self.op_noise(table, &[*q0, *q1]);
+            }
+            semantic::Noise::HeraldedPauliChannel1 { .. } => {
+                self.unsupported("HERALDED_PAULI_CHANNEL_1", instruction_span);
+            }
+            semantic::Noise::PauliChannel1 {
+                probabilities,
+                qubit,
+            } => {
+                let table = self.noise_accumulator.build_noise_table(
+                    1,
+                    ["X", "Y", "Z"].map(encode_pauli).to_vec(),
+                    probabilities.to_vec(),
+                );
+                self.op_noise(table, &[*qubit]);
+            }
+            semantic::Noise::PauliChannel2 {
+                probabilities,
+                q0,
+                q1,
+            } => {
+                let table = self.noise_accumulator.build_noise_table(
+                    2,
+                    [
+                        "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
+                        "ZX", "ZY", "ZZ",
+                    ]
+                    .map(encode_pauli)
+                    .to_vec(),
+                    probabilities.to_vec(),
+                );
+                self.op_noise(table, &[*q0, *q1]);
+            }
+            semantic::Noise::SingleQubitNoise {
+                kind,
+                probability,
+                qubit,
+            } => match kind {
+                semantic::SingleQubitNoiseKind::Depolarize => {
+                    let table = self.noise_accumulator.build_noise_table(
+                        1,
+                        ["X", "Y", "Z"].map(encode_pauli).to_vec(),
+                        vec![*probability / 3.0; 3],
+                    );
+                    self.op_noise(table, &[*qubit]);
+                }
+                semantic::SingleQubitNoiseKind::HeraldedErase => {
+                    self.unsupported("HERALDED_ERASE", instruction_span);
+                }
+                semantic::SingleQubitNoiseKind::Fault(kind) => {
+                    let table = self.noise_accumulator.build_noise_table(
+                        1,
+                        vec![encode_pauli(kind.as_str())],
+                        vec![*probability],
+                    );
+                    self.op_noise(table, &[*qubit]);
+                }
+            },
+        }
+    }
+
+    fn compile_single_qubit_measurement(
+        &mut self,
+        reset: bool,
+        observable: Pauli,
+        readout_noise: f64,
+        negated: bool,
+        qubit: StimQubitId,
+    ) {
+        let result_id = match (observable, reset) {
+            (Z, false) => self.op_measure("m", qubit, negated),
+            (Z, true) => self.op_measure_reset("mresetz", qubit, negated),
+            (X, false) => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
+                self.op("h", qubit); // X -> Z
+                let result_id = self.op_measure("m", qubit, negated); // MZ
+                self.op("h", qubit); // Z -> X
+                result_id
+            }
+            (X, true) => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
+                self.op("h", qubit); // X -> Z
+                let result_id = self.op_measure_reset("mresetz", qubit, negated); // MRZ
+                self.op("h", qubit); // Z -> X
+                result_id
+            }
+            (Y, false) => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
+                self.op_adj("s", qubit); // Y -> X
+                self.op("h", qubit); // X -> Z
+                let result_id = self.op_measure("m", qubit, negated); // MZ
+                self.op("h", qubit); // Z -> X
+                self.op("s", qubit); // X -> Y
+                result_id
+            }
+            (Y, true) => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
+                self.op_adj("s", qubit); // Y -> X
+                self.op("h", qubit); // X -> Z
+                let result_id = self.op_measure_reset("mresetz", qubit, negated); // MRZ
+                self.op("h", qubit); // Z -> X
+                self.op("s", qubit); // X -> Y
+                result_id
+            }
+        };
+        self.op_optional_readout_noise(readout_noise, result_id);
+    }
+
+    fn compile_two_qubit_measurement(
+        &mut self,
+        readout_noise: f64,
+        observable: semantic::PauliPair,
+        negated: bool,
+        q0: StimQubitId,
+        q1: StimQubitId,
+    ) {
+        let result_id = match observable {
+            semantic::PauliPair::XX => {
+                // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
+                self.op_2("cx", q0, q1);
+                self.op("h", q0);
+                let result_id = self.op_measure("m", q0, negated);
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                result_id
+            }
+            semantic::PauliPair::YY => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
+                self.op("s", q0);
+                self.op("s", q1);
+                self.op_2("cx", q0, q1);
+                self.op("h", q0);
+                let result_id = self.op_measure("m", q0, negated);
+                self.op("z", q1);
+                self.op("h", q0);
+                self.op_2("cx", q0, q1);
+                self.op("s", q0);
+                self.op("s", q1);
+                result_id
+            }
+            semantic::PauliPair::ZZ => {
+                // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
+                self.op_2("cx", q0, q1);
+                let result_id = self.op_measure("m", q1, negated);
+                self.op_2("cx", q0, q1);
+                result_id
+            }
+        };
+        self.op_optional_readout_noise(readout_noise, result_id);
+    }
+
+    fn compile_pauli_product_measurement(
+        &mut self,
+        readout_noise: f64,
+        product: &semantic::PauliProduct,
+    ) {
+        if product.factors.is_empty() {
+            return;
+        }
+        self.decompose_pauli_product_operation(product, |compiler, qubit, negated| {
+            let result_id = compiler.op_measure("m", qubit, negated);
+            compiler.op_optional_readout_noise(readout_noise, result_id);
+        });
+    }
+
+    fn compile_require(
+        &mut self,
+        instruction_span: Span,
+        records: &[semantic::NegatableMeasurementRecord],
+    ) {
+        let Some(scope_id) = self.expect_select_scope_id("REQUIRE", instruction_span) else {
             return;
         };
-        let mut terms = Vec::with_capacity(instruction.targets.len());
+        let Some(result_ids) = records
+            .iter()
+            .map(|negatable_record| self.resolve_record(negatable_record.record))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
 
-        for target in &instruction.targets {
-            let Some((fault, qubit)) = self.expect_fault_char(instruction, target) else {
-                continue;
-            };
-
-            terms.push((fault, qubit));
+        if !self.validate_record_scoping("REQUIRE", instruction_span, &result_ids) {
+            return;
         }
 
-        self.noise_accumulator
-            .push_correlated_row(CorrelatedRow { probability, terms });
+        let mut loss_registers = Vec::new();
+        let mut result_registers = Vec::new();
+        for (&result_id, record) in result_ids.iter().zip(records) {
+            loss_registers.push(self.read_loss_register(result_id));
+            result_registers.push(self.read_result_register(result_id, record.negated));
+        }
+
+        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
+        let parity = self.reduce_registers(&result_registers, "parity", QirWriter::write_xor);
+
+        let restart = self.id_map.fresh_name("restart");
+        self.writer.write_or(&restart, &loss, &parity);
+
+        let restart_label = select_label(scope_id);
+        let continue_label = self.id_map.fresh_name("continue");
+        self.writer
+            .write_branch(&restart, &restart_label, &continue_label);
+        self.writer.write_label(&continue_label);
     }
 
-    fn continue_correlated_noise(&mut self, instruction: &Instruction) {
+    fn compile_not_leaked(
+        &mut self,
+        instruction_span: Span,
+        records: &[semantic::MeasurementRecord],
+    ) {
+        let Some(scope_id) = self.expect_select_scope_id("NOTLEAKED", instruction_span) else {
+            return;
+        };
+        let Some(result_ids) = records
+            .iter()
+            .map(|record| self.resolve_record(*record))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
+        if !self.validate_record_scoping("NOTLEAKED", instruction_span, &result_ids) {
+            return;
+        }
+
+        let mut has_error = false;
+        for (&result_id, record) in result_ids.iter().zip(records) {
+            if self.id_map.peek_loss_record_ids.contains(&result_id) {
+                self.push_error(Error::NotLeakedOnPeekLoss { span: record.span });
+                has_error = true;
+            }
+        }
+        if has_error {
+            return;
+        }
+
+        let loss_registers: Vec<String> = result_ids
+            .into_iter()
+            .map(|result_id| self.read_loss_register(result_id))
+            .collect();
+        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
+
+        let restart_label = select_label(scope_id);
+        let continue_label = self.id_map.fresh_name("continue");
+        self.writer
+            .write_branch(&loss, &restart_label, &continue_label);
+        self.writer.write_label(&continue_label);
+    }
+
+    fn accumulate_correlated_noise(&mut self, probability: f64, faults: &[semantic::Fault]) {
+        self.noise_accumulator.push_correlated_row(CorrelatedRow {
+            probability,
+            faults: faults.to_vec(),
+        });
+    }
+
+    fn continue_correlated_noise(
+        &mut self,
+        instruction_span: Span,
+        probability: f64,
+        faults: &[semantic::Fault],
+    ) {
         if self.noise_accumulator.current_correlated_group.is_none() {
             self.push_error(Error::OrphanedElseCorrelatedError {
-                span: instruction.span,
+                span: instruction_span,
             });
             return;
         }
-        self.accumulate_correlated_noise(instruction);
+        self.accumulate_correlated_noise(probability, faults);
     }
 
     fn finish_correlated_noise(&mut self) {
@@ -1775,91 +1396,87 @@ impl<'noise> Compiler<'noise> {
         self.op_noise(noise_table, &qubits);
     }
 
-    /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
-    /// qubit index, with identity factors removed. Rejects anti-Hermitian products and
-    /// represents an overall phase of -1 as a negation.
-    fn canonicalize_pauli_product(
-        &mut self,
-        instruction: &Instruction,
-        target: &Target,
-        mut factors: Vec<PauliTarget>,
-    ) -> Option<(Vec<PauliTarget>, bool)> {
-        let mut phase = 0;
-        // must be stable so that same-qubit factors keep their relative order
-        factors.sort_by_key(|factor| factor.qubit);
-
-        let mut canonical_factors = Vec::new();
-        for same_qubit_factors in factors.chunk_by(|a, b| a.qubit == b.qubit) {
-            let mut accumulated = None;
-            for factor in same_qubit_factors {
-                if factor.negated {
-                    phase = (phase + 2) % 4;
-                }
-                accumulated = match accumulated {
-                    None => Some(factor.pauli),
-                    Some(pauli) => {
-                        let (product, product_phase) = pauli.multiply(factor.pauli);
-                        phase = (phase + product_phase) % 4;
-                        product
-                    }
-                };
-            }
-            if let Some(pauli) = accumulated {
-                canonical_factors.push(PauliTarget {
-                    negated: false,
-                    pauli,
-                    qubit: same_qubit_factors[0].qubit,
-                });
-            }
-        }
-
-        if phase % 2 != 0 {
-            // a phase of i or -i makes the product anti-Hermitian, so it has no measurable eigenvalues
-            self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
-            return None;
-        }
-        if canonical_factors.is_empty() && instruction.name == "MPP" {
-            // TODO: an empty product measures the identity, which needs support for appending to measurement records
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: target.span,
-            });
-            return None;
-        }
-
-        // a phase of i^2 = -1 flips the measurement result
-        let negated = phase == 2;
-        Some((canonical_factors, negated))
-    }
-
     /// Runs an operation on a Pauli product by reducing it to one qubit. Each factor is
     /// first rotated to the Z basis, then CNOTs combine their parity onto the first
     /// qubit. After `operation` runs on that qubit, the CNOTs and rotations are reversed.
     fn decompose_pauli_product_operation(
         &mut self,
-        factors: &[PauliTarget],
-        negated: bool,
+        product: &semantic::PauliProduct,
         operation: impl FnOnce(&mut Self, StimQubitId, bool),
     ) {
-        let focus_qubit = factors[0].qubit;
-
-        for factor in factors {
+        let focus_qubit = product.factors[0].qubit;
+        for factor in &product.factors {
             self.rotate_to_z_basis(factor.pauli, factor.qubit);
         }
-
-        // accumulate the parity of every qubit into the focus qubit
-        for factor in factors.iter().skip(1) {
+        for factor in product.factors.iter().skip(1) {
             self.op_2("cx", factor.qubit, focus_qubit);
         }
-
-        operation(self, focus_qubit, negated);
-
-        for factor in factors.iter().skip(1).rev() {
+        operation(self, focus_qubit, product.negated);
+        for factor in product.factors.iter().skip(1).rev() {
             self.op_2("cx", factor.qubit, focus_qubit);
         }
-        for factor in factors.iter().rev() {
+        for factor in product.factors.iter().rev() {
             self.rotate_from_z_basis(factor.pauli, factor.qubit);
         }
+    }
+
+    fn resolve_record(&mut self, record: semantic::MeasurementRecord) -> Option<ResultId> {
+        let record_count = self.id_map.record_count;
+        let Some(result_id) = record_count.checked_sub(record.offset) else {
+            self.push_error(Error::MeasurementRecordOutOfBounds { span: record.span });
+            return None;
+        };
+        Some(result_id)
+    }
+
+    fn expect_select_scope_id(&mut self, instruction: &str, instruction_span: Span) -> Option<u32> {
+        let Scope::Select { id, .. } = self.id_map.current_scope() else {
+            self.push_error(Error::InstructionOutsideSelectBlock {
+                instruction: instruction.to_string(),
+                span: instruction_span,
+            });
+            return None;
+        };
+        Some(id)
+    }
+
+    fn validate_record_scoping(
+        &mut self,
+        instruction_name: &str,
+        instruction_span: Span,
+        result_ids: &[ResultId],
+    ) -> bool {
+        if result_ids
+            .iter()
+            .any(|&result_id| self.id_map.record_in_scope(result_id))
+        {
+            true
+        } else {
+            self.push_error(Error::AllMeasurementRecordsOutOfScope {
+                instruction: instruction_name.to_string(),
+                span: instruction_span,
+            });
+            false
+        }
+    }
+
+    fn unsupported(&mut self, instruction_name: &str, instruction_span: Span) {
+        if self.errors.iter().any(|error| {
+            matches!(
+                error,
+                Error::UnsupportedInstruction {
+                    name: existing_name,
+                    span,
+                } if existing_name == instruction_name && *span == instruction_span
+            )
+        }) {
+            return;
+        }
+
+        self.push_error(Error::UnsupportedInstruction {
+            name: instruction_name.to_string(),
+            span: instruction_span,
+        });
     }
 
     fn rotate_to_z_basis(&mut self, pauli: Pauli, qubit: u32) {
@@ -1958,79 +1575,10 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_noise_call(&name, &ids);
     }
 
-    fn op_readout_noise(&mut self, probability: f64, result_id: ResultId) {
+    fn op_optional_readout_noise(&mut self, probability: f64, result_id: ResultId) {
         if probability > 0.0 {
             self.writer.write_readout_noise_call(probability, result_id);
         }
-    }
-
-    fn compile_require(&mut self, instruction: &Instruction) {
-        let Some(record_metadata) = self.validate_select_condition(instruction) else {
-            return;
-        };
-
-        let mut loss_registers = Vec::new();
-        let mut result_registers = Vec::new();
-        for &(result_id, negated) in &record_metadata {
-            loss_registers.push(self.read_loss_register(result_id));
-            result_registers.push(self.read_result_register(result_id, negated));
-        }
-
-        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
-        let parity = self.reduce_registers(&result_registers, "parity", QirWriter::write_xor);
-
-        let restart = self.id_map.fresh_name("restart");
-        self.writer.write_or(&restart, &loss, &parity);
-
-        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
-            unreachable!("REQUIRE runs inside a select block");
-        };
-        let restart_label = select_label(scope_id);
-        let continue_label = self.id_map.fresh_name("continue");
-        self.writer
-            .write_branch(&restart, &restart_label, &continue_label);
-        self.writer.write_label(&continue_label);
-    }
-
-    fn compile_notleaked(&mut self, instruction: &Instruction) {
-        let Some(record_metadata) = self.validate_select_condition(instruction) else {
-            return;
-        };
-
-        let mut has_error = false;
-        for (&(result_id, negated), target) in record_metadata.iter().zip(&instruction.targets) {
-            if negated {
-                self.push_error(Error::NegatedTarget {
-                    instruction: instruction.name.clone(),
-                    span: target.span,
-                });
-                has_error = true;
-            }
-            if self.id_map.peek_loss_record_ids.contains(&result_id) {
-                self.push_error(Error::NotLeakedOnPeekLoss { span: target.span });
-                has_error = true;
-            }
-        }
-        if has_error {
-            return;
-        }
-
-        let loss_registers: Vec<String> = record_metadata
-            .into_iter()
-            .map(|(result_id, _)| self.read_loss_register(result_id))
-            .collect();
-
-        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
-
-        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
-            unreachable!("NOTLEAKED runs inside a select block");
-        };
-
-        let restart_label = select_label(scope_id);
-        let continue_label = self.id_map.fresh_name("continue");
-        self.writer
-            .write_branch(&loss, &restart_label, &continue_label);
-        self.writer.write_label(&continue_label);
     }
 
     fn read_loss_register(&mut self, result_id: ResultId) -> String {
@@ -2072,392 +1620,13 @@ impl<'noise> Compiler<'noise> {
         acc
     }
 
-    fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<ResultId> {
-        let num_results = self.id_map.record_count;
-        let Some(result_id) = num_results.checked_sub(offset) else {
-            self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
-            return None;
-        };
-
-        Some(result_id)
-    }
-
-    fn validate_records(&mut self, instruction: &Instruction) -> Option<Vec<(ResultId, bool)>> {
-        let mut record_metadata = Vec::new();
-        let mut all_out_of_scope = true;
-        for target in &instruction.targets {
-            let (offset, negated) = self.expect_measurement_record(instruction, target)?;
-            let result_id = self.resolve_record_offset(target, offset)?;
-            record_metadata.push((result_id, negated));
-            if self.id_map.record_in_scope(result_id) {
-                all_out_of_scope = false;
-            }
-        }
-
-        if all_out_of_scope {
-            self.push_error(Error::AllMeasurementRecordsOutOfScope {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return None;
-        }
-        Some(record_metadata)
-    }
-
-    fn validate_select_condition(
-        &mut self,
-        instruction: &Instruction,
-    ) -> Option<Vec<(ResultId, bool)>> {
-        self.unsupported_args(instruction);
-        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
-            self.push_error(Error::InstructionOutsideSelectBlock {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return None;
-        }
-
-        if instruction.targets.is_empty() {
-            self.push_error(Error::MissingTarget {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return None;
-        }
-
-        self.validate_records(instruction)
-    }
-
-    fn expect_qubit(
-        &mut self,
-        instruction: &Instruction,
-        target: &Target,
-        allow_negated: bool,
-    ) -> Option<(StimQubitId, bool)> {
-        let TargetKind::Qubit { value, negated } = target.kind else {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: target.span,
-            });
-            return None;
-        };
-
-        if negated && !allow_negated {
-            self.push_error(Error::NegatedTarget {
-                instruction: instruction.name.clone(),
-                span: target.span,
-            });
-            return None;
-        }
-        Some((value, negated))
-    }
-
-    fn expect_qubit_pair(
-        &mut self,
-        instruction: &Instruction,
-        pair: &[Target],
-        allow_negated: bool,
-    ) -> Option<[(StimQubitId, bool); 2]> {
-        let (q0, neg0) = self.expect_qubit(instruction, &pair[0], allow_negated)?;
-        let (q1, neg1) = self.expect_qubit(instruction, &pair[1], allow_negated)?;
-
-        if q0 == q1 {
-            self.push_error(Error::RepeatedQubit {
-                instruction: instruction.name.clone(),
-                qubit: q1,
-                span: pair[1].span,
-            });
-            return None;
-        }
-
-        Some([(q0, neg0), (q1, neg1)])
-    }
-
-    fn expect_qubit_triple(
-        &mut self,
-        instruction: &Instruction,
-        triple: &[Target],
-    ) -> Option<[StimQubitId; 3]> {
-        let (q0, _) = self.expect_qubit(instruction, &triple[0], false)?;
-        let (q1, _) = self.expect_qubit(instruction, &triple[1], false)?;
-        let (q2, _) = self.expect_qubit(instruction, &triple[2], false)?;
-
-        let (repeated_qubit_value, repeated_qubit_span) = if q0 == q1 {
-            (q1, triple[1].span)
-        } else if q0 == q2 || q1 == q2 {
-            (q2, triple[2].span)
-        } else {
-            return Some([q0, q1, q2]);
-        };
-
-        self.push_error(Error::RepeatedQubit {
-            instruction: instruction.name.clone(),
-            qubit: repeated_qubit_value,
-            span: repeated_qubit_span,
-        });
-        None
-    }
-
-    fn expect_fault_char(
-        &mut self,
-        instruction: &Instruction,
-        target: &Target,
-    ) -> Option<(FaultChar, StimQubitId)> {
-        match &target.kind {
-            TargetKind::Loss { value } => Some((FaultChar::Loss, *value)),
-            TargetKind::Pauli(pauli_target) if pauli_target.negated => {
-                self.push_error(Error::NegatedTarget {
-                    instruction: instruction.name.clone(),
-                    span: target.span,
-                });
-                None
-            }
-            TargetKind::Pauli(pauli_target) => Some((
-                FaultChar::from_pauli(pauli_target.pauli),
-                pauli_target.qubit,
-            )),
-            _ => {
-                self.push_error(Error::UnsupportedTarget {
-                    instruction: instruction.name.clone(),
-                    span: target.span,
-                });
-                None
-            }
-        }
-    }
-
-    fn expect_measurement_record(
-        &mut self,
-        instruction: &Instruction,
-        target: &Target,
-    ) -> Option<(u32, bool)> {
-        let TargetKind::MeasurementRecord { negated, value } = target.kind else {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: target.span,
-            });
-            return None;
-        };
-        Some((value, negated))
-    }
-
-    fn expect_pauli_targets(
-        &mut self,
-        instruction: &Instruction,
-        target: &Target,
-    ) -> Option<Vec<PauliTarget>> {
-        match &target.kind {
-            TargetKind::PauliProduct { factors } => Some(factors.clone()),
-            TargetKind::Pauli(pauli_target) => Some(vec![*pauli_target]),
-            _ => {
-                self.push_error(Error::UnsupportedTarget {
-                    instruction: instruction.name.clone(),
-                    span: target.span,
-                });
-                None
-            }
-        }
-    }
-
-    fn expect_target_pairs<'a>(
-        &mut self,
-        instruction: &'a Instruction,
-    ) -> Option<Chunks<'a, Target>> {
-        if !instruction.targets.len().is_multiple_of(2) {
-            self.push_error(Error::OddTargetCount {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return None;
-        }
-        Some(instruction.targets.chunks(2))
-    }
-
-    fn expect_target_triples<'a>(
-        &mut self,
-        instruction: &'a Instruction,
-    ) -> Option<Chunks<'a, Target>> {
-        if !instruction.targets.len().is_multiple_of(3) {
-            self.push_error(Error::TargetCountNotMultipleOfThree {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return None;
-        }
-        Some(instruction.targets.chunks(3))
-    }
-
-    fn expect_angle(&mut self, instruction: &Instruction) -> Option<Radians> {
-        self.expect_angles(instruction, 1)?.pop()
-    }
-
-    fn expect_angles(
-        &mut self,
-        instruction: &Instruction,
-        expected: usize,
-    ) -> Option<Vec<Radians>> {
-        let args = self.expect_args(instruction, expected)?;
-        let mut radians = Vec::with_capacity(args.len());
-        let mut has_invalid_angle = false;
-
-        for arg in args {
-            let angle_in_radians = match arg.value {
-                ArgValue::Default(half_turns) => half_turns * PI,
-                ArgValue::Radians(radians) => radians,
-            };
-
-            if angle_in_radians.is_finite() {
-                radians.push(angle_in_radians);
-            } else {
-                self.push_error(Error::InvalidAngle {
-                    instruction: instruction.name.clone(),
-                    span: arg.span,
-                });
-                has_invalid_angle = true;
-            }
-        }
-
-        if !has_invalid_angle {
-            Some(radians)
-        } else {
-            None
-        }
-    }
-
-    fn expect_probability_or_zero(&mut self, instruction: &Instruction) -> Option<f64> {
-        if instruction.args.is_empty() {
-            return Some(0.0);
-        }
-        self.expect_probability(instruction)
-    }
-
-    fn expect_probability(&mut self, instruction: &Instruction) -> Option<f64> {
-        self.expect_probabilities(instruction, 1)?.pop()
-    }
-
-    fn expect_probabilities(
-        &mut self,
-        instruction: &Instruction,
-        expected: usize,
-    ) -> Option<Vec<f64>> {
-        let args = self.expect_args(instruction, expected)?;
-
-        let mut probabilities = Vec::with_capacity(args.len());
-        let mut has_invalid_probability = false;
-        for &arg in &args {
-            let value = match arg.value {
-                ArgValue::Default(value) => value,
-                ArgValue::Radians(value) => {
-                    self.push_error(Error::UnexpectedRadians {
-                        instruction: instruction.name.clone(),
-                        span: arg.span,
-                    });
-                    has_invalid_probability = true;
-                    value
-                }
-            };
-
-            if (0.0..=1.0).contains(&value) {
-                probabilities.push(value);
-            } else {
-                self.push_error(Error::InvalidProbability {
-                    instruction: instruction.name.clone(),
-                    probability: value,
-                    span: arg.span,
-                });
-                has_invalid_probability = true;
-            }
-        }
-        if has_invalid_probability {
-            return None;
-        }
-
-        let total: f64 = probabilities.iter().sum();
-        if total > 1.0 {
-            self.push_error(Error::InvalidProbabilitySum {
-                instruction: instruction.name.clone(),
-                total,
-                span: args_span(&args),
-            });
-            return None;
-        }
-
-        Some(probabilities)
-    }
-
-    fn expect_args(&mut self, instruction: &Instruction, expected: usize) -> Option<Vec<Arg>> {
-        let args = &instruction.args;
-        if args.is_empty() {
-            self.push_error(Error::MissingArg {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return None;
-        }
-
-        if args.len() > expected {
-            self.push_error(Error::TooManyArgs {
-                instruction: instruction.name.clone(),
-                expected,
-                found: args.len(),
-                span: args_span(&args[expected..]),
-            });
-            return None;
-        } else if args.len() < expected {
-            self.push_error(Error::TooFewArgs {
-                instruction: instruction.name.clone(),
-                expected,
-                found: args.len(),
-                span: args_span(args),
-            });
-            return None;
-        }
-        Some(args.clone())
-    }
-
-    fn unsupported(&mut self, instruction: &Instruction) {
-        self.push_error(Error::UnsupportedInstruction {
-            name: instruction.name.clone(),
-            span: instruction.span,
-        });
-    }
-
-    fn unsupported_args(&mut self, instruction: &Instruction) {
-        if !instruction.args.is_empty() {
-            self.push_error(Error::UnsupportedArgument {
-                instruction: instruction.name.clone(),
-                span: args_span(&instruction.args),
-            });
-        }
-    }
-
-    fn unknown(&mut self, instruction: &Instruction) {
-        self.push_error(Error::UnknownInstruction {
-            name: instruction.name.clone(),
-            span: instruction.span,
-        });
-    }
-
     fn push_error(&mut self, error: Error) {
         self.errors.push(error);
-    }
-
-    fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<Error>> {
-        self.writer.write_header();
-        self.compile_circuit(circuit);
-        self.finish_correlated_noise();
-        self.writer
-            .write_footer(self.id_map.num_qubits(), self.id_map.record_count);
-        if self.errors.is_empty() {
-            Ok(self.writer.output)
-        } else {
-            Err(self.errors)
-        }
     }
 }
 
 pub fn compile_to_qir(
-    circuit: &Circuit,
+    circuit: &semantic::Circuit,
     noise: &mut NoiseConfig<f64, f64>,
 ) -> Result<String, Vec<Error>> {
     Compiler::new(noise).into_qir(circuit)
