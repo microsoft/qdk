@@ -77,6 +77,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--course-notebook-tests",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Run the QDK learning course notebook tests (default is --no-course-notebook-tests)",
+)
+
+parser.add_argument(
     "--ci-bench",
     action=argparse.BooleanOptionalAction,
     default=False,
@@ -110,6 +117,7 @@ build_all = (
     not args.cli
     and not args.widgets
     and not args.qdk
+    and not args.course_notebook_tests  # No build required
     and not args.wasm
     and not args.npm
     and not args.play
@@ -171,6 +179,9 @@ wheels_dir = os.path.join(root_dir, "target", "wheels")
 raw_wheels_dir = os.path.join(root_dir, "target", "raw_wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
 jupyterlab_src = os.path.join(qdk_src_dir, "jupyterlab")
+course_notebook_tests_dir = os.path.join(
+    qdk_src_dir, "vscode", "test", "course-notebooks"
+)
 
 QISKIT_VERSION_MATRIX = [
     {
@@ -445,12 +456,12 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
 
 
-def run_python_tests(cwd, interpreter, pip_env):
+def run_python_tests(cwd, interpreter, pip_env, *pytest_args):
     test_env = pip_env.copy()
     if args.gpu_tests:
         test_env["QDK_GPU_TESTS"] = "1"
 
-    command_args = [interpreter, "-m", "pytest"]
+    command_args = [interpreter, "-m", "pytest", *pytest_args]
     subprocess.run(command_args, check=True, text=True, cwd=cwd, env=test_env)
 
 
@@ -588,6 +599,19 @@ if build_qdk:
             run_python_integration_tests(test_dir, python_bin)
 
             step_end()
+
+
+if args.course_notebook_tests:
+    python_bin, pip_env = use_python_env(course_notebook_tests_dir)
+
+    step_start("Installing course notebook test requirements")
+    install_python_test_requirements(course_notebook_tests_dir, python_bin)
+    step_end()
+
+    step_start("Testing course notebooks")
+    # Suppress output capturing since it's useful to have the timing information for successful runs too
+    run_python_tests(course_notebook_tests_dir, python_bin, pip_env, "-v", "-s")
+    step_end()
 
 
 if build_widgets:

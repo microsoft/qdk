@@ -250,7 +250,7 @@ jobs:
           echo "run-tests=$run_tests" >> "$GITHUB_OUTPUT"
 
   course-notebook-tests:
-    name: Course notebooks (${{ matrix.course }}, ${{ matrix.arch }})
+    name: Course notebooks (${{ matrix.arch }})
     needs: course-notebook-changes
     if: needs.course-notebook-changes.outputs.run-tests == 'true'
     timeout-minutes: 45
@@ -258,23 +258,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - course: chemistry-qpe
-            runner: ubuntu-24.04
+          - runner: ubuntu-24.04
             arch: x64
             machine: x86_64
             pip-cache: ~/.cache/pip
-          - course: chemistry-qpe
-            runner: ubuntu-24.04-arm
+          - runner: ubuntu-24.04-arm
             arch: arm64
             machine: aarch64
             pip-cache: ~/.cache/pip
-          - course: chemistry-qpe
-            runner: windows-2025
+          - runner: windows-2025
             arch: x64
             machine: amd64
             pip-cache: ~/AppData/Local/pip/Cache
-          - course: chemistry-qpe
-            runner: windows-11-arm
+          - runner: windows-11-arm
             arch: arm64
             machine: arm64
             pip-cache: ~/AppData/Local/pip/Cache
@@ -289,17 +285,13 @@ jobs:
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ matrix.pip-cache }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-pip-${{ hashFiles('source/vscode/test/course-notebooks/requirements.txt', format('source/vscode/resources/qdk-learning/courses/{0}/requirements.txt', matrix.course)) }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-pip-${{ hashFiles('source/vscode/test/course-notebooks/test_requirements.txt', 'source/vscode/resources/qdk-learning/courses/*/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-pip-
       - name: Verify runner architecture
         run: python -c "import platform; actual = platform.machine().lower(); expected = '${{ matrix.machine }}'; print(f'{actual=} {expected=}'); assert actual == expected"
-      - name: Install notebook dependencies
-        run: |
-          python -m pip install -r source/vscode/test/course-notebooks/requirements.txt
-          python -m pip install -r source/vscode/resources/qdk-learning/courses/${{ matrix.course }}/requirements.txt
       - name: Test course notebooks
-        run: python -m pytest source/vscode/test/course-notebooks -v -s --course ${{ matrix.course }}
+        run: python ./build.py --no-check --no-check-prereqs --course-notebook-tests
 
   status-check:
     name: Status Check

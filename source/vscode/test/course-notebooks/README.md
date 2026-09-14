@@ -1,32 +1,34 @@
 # Course notebook tests
 
 These tests execute the source notebooks for one QDK learning course in fresh
-Python kernels. Each notebook runs from an isolated copy of its full course
-directory so relative imports work and generated files do not modify the source
-tree.
+Python kernels. The notebooks run from one shared copy of the full course
+directory so relative imports work, generated files do not modify the source
+tree, and later notebooks see filesystem state produced by earlier notebooks.
+
+Pytest creates a `.venv` inside the temporary course copy and installs the
+course requirements there. Notebook kernels use that environment, while pytest
+continues to use the component's test environment.
 
 ## Local setup
 
-Create a Python 3.11 environment and install the test harness plus the selected
-course's dependencies:
+Run the course suite from the repository root with Python 3.11 or later:
 
 ```shell
-python3.11 -m venv .venv-course-notebooks
-source .venv-course-notebooks/bin/activate
-python -m pip install -r source/vscode/test/course-notebooks/requirements.txt
-python -m pip install -r source/vscode/resources/qdk-learning/courses/chemistry-qpe/requirements.txt
+python ./build.py --no-check --no-check-prereqs --course-notebook-tests
 ```
 
-Run the course suite from the repository root:
+Like `--integration-tests`, `--course-notebook-tests` runs independently of
+the regular `--test`/`--no-test` option.
+
+Following the other Python test suites, `build.py` uses an active Python
+environment when available. Otherwise, it creates
+`source/vscode/test/course-notebooks/.venv` and installs the test requirements
+there.
+
+Run only the fast runner policy tests without creating a course environment:
 
 ```shell
-python -m pytest source/vscode/test/course-notebooks -v -s --course chemistry-qpe
-```
-
-Run only the fast runner policy tests without installing course dependencies:
-
-```shell
-python -m pytest source/vscode/test/course-notebooks/test_notebook_runner.py -v
+source/vscode/test/course-notebooks/.venv/bin/python -m pytest source/vscode/test/course-notebooks/test_notebook_runner.py -v
 ```
 
 ## Cell metadata

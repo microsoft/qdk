@@ -7,6 +7,8 @@ from time import perf_counter
 from typing import Any
 
 import nbformat
+from jupyter_client import AsyncKernelManager
+from jupyter_client.kernelspec import KernelSpecManager
 from nbclient import NotebookClient
 
 CELL_TIMEOUT_SECONDS = 120
@@ -118,7 +120,11 @@ def collect_cell_failures(notebook: Any) -> list[CellFailure]:
     return failures
 
 
-def run_notebook(notebook_path: Path, display_path: Path | None = None) -> NotebookRunReport:
+def run_notebook(
+    notebook_path: Path,
+    display_path: Path,
+    kernel_specs_dir: Path,
+) -> NotebookRunReport:
     notebook = nbformat.read(notebook_path, as_version=4)
     clear_notebook_outputs(notebook)
 
@@ -129,7 +135,7 @@ def run_notebook(notebook_path: Path, display_path: Path | None = None) -> Noteb
     ]
     if metadata_failures:
         return NotebookRunReport(
-            display_path or notebook_path,
+            display_path,
             0.0,
             0,
             (),
@@ -138,15 +144,22 @@ def run_notebook(notebook_path: Path, display_path: Path | None = None) -> Noteb
         )
 
     started = perf_counter()
+    kernel_manager = AsyncKernelManager(
+        kernel_name="python3",
+        kernel_spec_manager=KernelSpecManager(
+            kernel_dirs=[str(kernel_specs_dir)],
+        ),
+    )
     NotebookClient(
         notebook,
+        km=kernel_manager,
         timeout=CELL_TIMEOUT_SECONDS,
         allow_errors=True,
         kernel_name="python3",
         resources={"metadata": {"path": str(notebook_path.parent)}},
         skip_cells_with_tag=SKIP_TEST_TAG,
         store_widget_state=False,
-    ).execute()
+    ).execute(cleanup_kc=True)
     elapsed_seconds = perf_counter() - started
 
     skipped_cells = tuple(
@@ -162,10 +175,11 @@ def run_notebook(notebook_path: Path, display_path: Path | None = None) -> Noteb
     executed_cells = sum(
         1
         for cell in notebook.cells
-        if cell.cell_type == "code" and SKIP_TEST_TAG not in cell.metadata.get("tags", [])
+        if cell.cell_type == "code"
+        and SKIP_TEST_TAG not in cell.metadata.get("tags", [])
     )
     report = NotebookRunReport(
-        display_path or notebook_path,
+        display_path,
         elapsed_seconds,
         executed_cells,
         skipped_cells,
