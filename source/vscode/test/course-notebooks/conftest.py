@@ -16,12 +16,20 @@ COURSES_ROOT = REPO_ROOT / "source/vscode/resources/qdk-learning/courses"
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    course_dirs = _course_dirs()
+    if "course_dir" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "course_dir",
+            course_dirs,
+            ids=[path.name for path in course_dirs],
+        )
+
     if "course_notebook" not in metafunc.fixturenames:
         return
 
     notebooks = [
         notebook
-        for course_dir in _course_dirs()
+        for course_dir in course_dirs
         for notebook in discover_notebooks(course_dir)
     ]
     if not notebooks:

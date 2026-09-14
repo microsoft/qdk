@@ -4,6 +4,8 @@ These tests execute the source notebooks for one QDK learning course in fresh
 Python kernels. The notebooks run from one shared copy of the full course
 directory so relative imports work, generated files do not modify the source
 tree, and later notebooks see filesystem state produced by earlier notebooks.
+The suite also verifies that each notebook corresponds one-to-one with a unit
+directory listed in the course's `course.json`.
 
 Pytest creates a `.venv` inside the temporary course copy and installs the
 course requirements there. Notebook kernels use that environment, while pytest
