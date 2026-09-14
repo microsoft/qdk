@@ -432,13 +432,6 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("{instruction} must appear inside a SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
-    InstructionOutsideSelectBlock {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
     #[error("{instruction} instruction must start a block")]
     #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
     InstructionWithoutBlock {
@@ -514,12 +507,6 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("NOTLEAKED cannot reference a record produced by PEEK_LOSS")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NotLeakedOnPeekLoss"))]
-    NotLeakedOnPeekLoss {
-        #[label]
-        span: Span,
-    },
     #[error("unsupported target in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTarget"))]
     UnsupportedTarget {
@@ -583,27 +570,6 @@ pub enum Error {
     #[diagnostic(code("Qdk.Stim.Compiler.BothTargetsAreMeasurementRecords"))]
     BothTargetsAreMeasurementRecords {
         instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("measurement record is out of bounds")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfBounds"))]
-    MeasurementRecordOutOfBounds {
-        #[label]
-        span: Span,
-    },
-    #[error("all measurement records referenced by {instruction} are out of scope")]
-    #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
-    AllMeasurementRecordsOutOfScope {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error(
-        "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
-    )]
-    #[diagnostic(code("Qdk.Stim.Compiler.OrphanedElseCorrelatedError"))]
-    OrphanedElseCorrelatedError {
         #[label]
         span: Span,
     },
@@ -891,10 +857,7 @@ impl Lowerer {
                 .into_iter()
                 .collect(),
             "QUBIT_COORDS" => self.broadcast_qubit_coords(instruction),
-            "SHIFT_COORDS" => self
-                .lower_shift_coords(instruction)
-                .into_iter()
-                .collect(),
+            "SHIFT_COORDS" => self.lower_shift_coords(instruction).into_iter().collect(),
             "TICK" => self.lower_tick(instruction).into_iter().collect(),
 
             // Non-Clifford Gates
