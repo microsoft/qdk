@@ -291,12 +291,6 @@ pub enum Error {
     InputTooLarge,
 }
 
-pub fn parse(input: &str) -> (Circuit, Vec<Error>) {
-    let mut parser = Parser::new(input);
-    let circuit = parser.parse_circuit();
-    (circuit, parser.errors)
-}
-
 struct Parser<'a> {
     input: &'a str,
     input_len: u32,
@@ -763,4 +757,10 @@ impl<'a> Parser<'a> {
     fn extract_string(&self, source_span: Span) -> String {
         self.slice_input(source_span).to_string()
     }
+}
+
+pub fn parse(input: &str) -> (Circuit, Vec<Error>) {
+    let mut parser = Parser::new(input);
+    let circuit = parser.parse_circuit();
+    (circuit, parser.errors)
 }
