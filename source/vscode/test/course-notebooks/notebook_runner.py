@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any
 
 import nbformat
-from jupyter_client import AsyncKernelManager
+from jupyter_client.manager import AsyncKernelManager
 from jupyter_client.kernelspec import KernelSpecManager
 from nbclient import NotebookClient
+from nbformat import NotebookNode
 
 CELL_TIMEOUT_SECONDS = 120
 SLOW_CELL_SECONDS = 30
@@ -56,7 +56,7 @@ def discover_notebooks(course_dir: Path) -> list[Path]:
     )
 
 
-def clear_notebook_outputs(notebook: Any) -> None:
+def clear_notebook_outputs(notebook: NotebookNode) -> None:
     for cell in notebook.cells:
         if cell.cell_type != "code":
             continue
@@ -65,7 +65,7 @@ def clear_notebook_outputs(notebook: Any) -> None:
         cell.metadata.pop("execution", None)
 
 
-def collect_cell_failures(notebook: Any) -> list[CellFailure]:
+def collect_cell_failures(notebook: NotebookNode) -> list[CellFailure]:
     failures: list[CellFailure] = []
     for cell_number, cell in enumerate(notebook.cells, start=1):
         if cell.cell_type != "code":
@@ -143,6 +143,8 @@ def run_notebook(
         for cell_number, cell in enumerate(notebook.cells, start=1)
         if cell.cell_type == "code" and SKIP_TEST_TAG in cell.metadata.get("tags", [])
     )
+    # Cells that are slow enough to consider skipping, but not slow enough to fail with a timeout.
+    # Reported as a convenience for test authors.
     slow_cells = tuple(
         slow_cell
         for cell_number, cell in enumerate(notebook.cells, start=1)
@@ -187,13 +189,13 @@ def _first_source_line(source: str) -> str:
     return "<empty>"
 
 
-def _format_error(error: Any) -> str:
+def _format_error(error: NotebookNode) -> str:
     name = error.get("ename", "Error")
     value = error.get("evalue", "")
     return f"{name}: {value}" if value else name
 
 
-def _slow_cell(cell_number: int, cell: Any) -> SlowCell | None:
+def _slow_cell(cell_number: int, cell: NotebookNode) -> SlowCell | None:
     if cell.cell_type != "code":
         return None
     execution = cell.metadata.get("execution", {})
@@ -213,4 +215,4 @@ def _slow_cell(cell_number: int, cell: Any) -> SlowCell | None:
 
 
 def _parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return datetime.fromisoformat(value)

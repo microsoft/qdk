@@ -23,7 +23,9 @@ def _code_cell(*, tags=(), error=None):
 
 
 def test_exercise_requires_exercise_error():
-    notebook = _notebook(_code_cell(tags=["exercise"], error=("ExerciseError", "try again")))
+    notebook = _notebook(
+        _code_cell(tags=["exercise"], error=("ExerciseError", "try again"))
+    )
 
     assert collect_cell_failures(notebook) == []
 
@@ -38,7 +40,9 @@ def test_exercise_that_succeeds_fails_policy():
 
 
 def test_exercise_with_wrong_error_fails_policy():
-    notebook = _notebook(_code_cell(tags=["exercise"], error=("ValueError", "bad value")))
+    notebook = _notebook(
+        _code_cell(tags=["exercise"], error=("ValueError", "bad value"))
+    )
 
     failures = collect_cell_failures(notebook)
 
@@ -56,7 +60,9 @@ def test_ordinary_cell_error_fails_policy():
 
 
 def test_skip_test_cell_is_not_evaluated():
-    notebook = _notebook(_code_cell(tags=["skip-test"], error=("RuntimeError", "ignored")))
+    notebook = _notebook(
+        _code_cell(tags=["skip-test"], error=("RuntimeError", "ignored"))
+    )
 
     assert collect_cell_failures(notebook) == []
 
