@@ -430,13 +430,6 @@ pub enum ObservableTarget {
 
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
-    #[error("unsupported instruction: {name}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedInstruction"))]
-    UnsupportedInstruction {
-        name: String,
-        #[label]
-        span: Span,
-    },
     #[error("unknown instruction: {name}")]
     #[diagnostic(code("Qdk.Stim.Compiler.UnknownInstruction"))]
     UnknownInstruction {
