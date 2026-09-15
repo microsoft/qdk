@@ -789,13 +789,13 @@ impl Lowerer {
             }
             "HERALDED_PAULI_CHANNEL_1" => self.broadcast_heralded_pauli_channel_1(instruction),
             "II_ERROR" => {
-                let _ = self.validate_probability_list(instruction);
-                let _ = self.validate_qubit_pairs(instruction, false);
+                self.expect_probabilities(instruction);
+                self.validate_qubit_pairs(instruction, false);
                 Vec::new()
             }
             "I_ERROR" => {
-                let _ = self.validate_probability_list(instruction);
-                let _ = self.validate_qubit_targets(instruction, false);
+                self.expect_probabilities(instruction);
+                self.validate_qubit_targets(instruction, false);
                 Vec::new()
             }
             "PAULI_CHANNEL_1" => self.broadcast_pauli_channel_1(instruction),
@@ -1063,7 +1063,7 @@ impl Lowerer {
         reset: bool,
         observable: Pauli,
     ) -> Vec<Instruction> {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
+        let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
         let qubit_targets = self.validate_qubit_targets(instruction, true);
@@ -1087,7 +1087,7 @@ impl Lowerer {
         instruction: &parser::Instruction,
         observable: PauliPair,
     ) -> Vec<Instruction> {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
+        let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
         let qubit_target_pairs = self.validate_qubit_pairs(instruction, true);
@@ -1110,7 +1110,7 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
     ) -> Vec<Instruction> {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
+        let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
         let pauli_products = self.validate_pauli_products(instruction);
@@ -1170,7 +1170,7 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
     ) -> Vec<Instruction> {
-        let Some(probabilities): Option<[Probability; 4]> = self.expect_probabilities(instruction)
+        let Some(probabilities): Option<[Probability; 4]> = self.expect_n_probabilities(instruction)
         else {
             return Vec::new();
         };
@@ -1188,7 +1188,7 @@ impl Lowerer {
     }
 
     fn broadcast_pauli_channel_1(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(probabilities): Option<[Probability; 3]> = self.expect_probabilities(instruction)
+        let Some(probabilities): Option<[Probability; 3]> = self.expect_n_probabilities(instruction)
         else {
             return Vec::new();
         };
@@ -1206,7 +1206,7 @@ impl Lowerer {
     }
 
     fn broadcast_pauli_channel_2(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(probabilities): Option<[Probability; 15]> = self.expect_probabilities(instruction)
+        let Some(probabilities): Option<[Probability; 15]> = self.expect_n_probabilities(instruction)
         else {
             return Vec::new();
         };
@@ -1225,7 +1225,7 @@ impl Lowerer {
     }
 
     fn broadcast_peek_loss(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
+        let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
         let qubit_targets = self.validate_qubit_targets(instruction, false);
@@ -1255,7 +1255,7 @@ impl Lowerer {
     }
 
     fn broadcast_mpad(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(readout_noise) = self.expect_probability_or_zero(instruction) else {
+        let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
 
@@ -1394,7 +1394,8 @@ impl Lowerer {
     }
 
     fn broadcast_u3(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(angles) = self.expect_angles(instruction, 3) else {
+        let angles: Option<[Radians; 3]> = self.expect_n_angles(instruction);
+        let Some([theta, phi, lambda]) = angles else {
             return Vec::new();
         };
 
@@ -1405,9 +1406,9 @@ impl Lowerer {
                 span: instruction.span,
                 kind: InstructionKind::U3 {
                     qubit,
-                    theta: angles[0],
-                    phi: angles[1],
-                    lambda: angles[2],
+                    theta,
+                    phi,
+                    lambda,
                 },
             })
             .collect()
@@ -1636,54 +1637,6 @@ impl Lowerer {
         } else {
             Some(observable_targets)
         }
-    }
-
-    // TODO: does this make sense?
-    fn validate_probability_list(
-        &mut self,
-        instruction: &parser::Instruction,
-    ) -> Option<Vec<Probability>> {
-        let mut probabilities = Vec::with_capacity(instruction.args.len());
-        let mut has_invalid_probability = false;
-        for arg in &instruction.args {
-            let value = match arg.value {
-                ArgValue::Default(value) => value,
-                ArgValue::Radians(value) => {
-                    self.push_error(Error::UnexpectedRadians {
-                        instruction: instruction.name.clone(),
-                        span: arg.span,
-                    });
-                    has_invalid_probability = true;
-                    value
-                }
-            };
-
-            if (0.0..=1.0).contains(&value) {
-                probabilities.push(value);
-            } else {
-                self.push_error(Error::InvalidProbability {
-                    instruction: instruction.name.clone(),
-                    probability: value,
-                    span: arg.span,
-                });
-                has_invalid_probability = true;
-            }
-        }
-        if has_invalid_probability {
-            return None;
-        }
-
-        let total: f64 = probabilities.iter().sum();
-        if total > 1.0 {
-            self.push_error(Error::InvalidProbabilitySum {
-                instruction: instruction.name.clone(),
-                total,
-                span: args_span(&instruction.args),
-            });
-            return None;
-        }
-
-        Some(probabilities)
     }
 
     /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
@@ -1942,26 +1895,26 @@ impl Lowerer {
     }
 
     fn expect_angle(&mut self, instruction: &parser::Instruction) -> Option<Radians> {
-        self.expect_angles(instruction, 1)?.pop()
+        let [angle]: [Radians; 1] = self.expect_n_angles(instruction)?;
+        Some(angle)
     }
 
-    fn expect_angles(
+    fn expect_n_angles<const N: usize>(
         &mut self,
         instruction: &parser::Instruction,
-        expected: usize,
-    ) -> Option<Vec<Radians>> {
-        let args = self.expect_arg_count(instruction, expected)?;
-        let mut radians = Vec::with_capacity(args.len());
+    ) -> Option<[Radians; N]> {
+        let args: &[parser::Arg; N] = self.expect_n_args(instruction)?;
+        let mut radians = [0.0; N];
         let mut has_invalid_angle = false;
 
-        for arg in args {
+        for (index, arg) in args.iter().enumerate() {
             let angle_in_radians = match arg.value {
                 ArgValue::Default(half_turns) => half_turns * PI,
                 ArgValue::Radians(radians) => radians,
             };
 
             if angle_in_radians.is_finite() {
-                radians.push(angle_in_radians);
+                radians[index] = angle_in_radians;
             } else {
                 self.push_error(Error::InvalidAngle {
                     instruction: instruction.name.clone(),
@@ -1971,11 +1924,26 @@ impl Lowerer {
             }
         }
 
-        if !has_invalid_angle {
-            Some(radians)
-        } else {
+        if has_invalid_angle {
             None
+        } else {
+            Some(radians)
         }
+    }
+
+    fn expect_default_arg_value(
+        &mut self,
+        instruction: &parser::Instruction,
+        arg: &parser::Arg,
+    ) -> Option<f64> {
+        let ArgValue::Default(value) = arg.value else {
+            self.push_error(Error::UnexpectedRadians {
+                instruction: instruction.name.clone(),
+                span: arg.span,
+            });
+            return None;
+        };
+        Some(value)
     }
 
     fn expect_coordinates(&mut self, instruction: &parser::Instruction) -> Option<Vec<f64>> {
@@ -1992,16 +1960,11 @@ impl Lowerer {
         let mut coordinates = Vec::with_capacity(instruction.args.len());
         let mut has_invalid_coordinate = false;
         for arg in &instruction.args {
-            match arg.value {
-                ArgValue::Default(value) => coordinates.push(value),
-                ArgValue::Radians(_) => {
-                    self.push_error(Error::UnexpectedRadians {
-                        instruction: instruction.name.clone(),
-                        span: arg.span,
-                    });
-                    has_invalid_coordinate = true;
-                }
-            }
+            let Some(value) = self.expect_default_arg_value(instruction, arg) else {
+                has_invalid_coordinate = true;
+                continue;
+            };
+            coordinates.push(value);
         }
 
         if has_invalid_coordinate {
@@ -2015,26 +1978,20 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
     ) -> Option<u32> {
-        let args = self.expect_arg_count(instruction, 1)?;
-        let arg = args[0];
-        let ArgValue::Default(value) = arg.value else {
-            self.push_error(Error::UnexpectedRadians {
-                instruction: instruction.name.clone(),
-                span: arg.span,
-            });
-            return None;
-        };
+        let args: &[parser::Arg; 1] = self.expect_n_args(instruction)?;
+        let value = self.expect_default_arg_value(instruction, &args[0])?;
 
+        // value is parsed as f64 but represents an unsigned integer
         let logical_observable = value as u32;
         if f64::from(logical_observable) != value {
-            self.push_error(Error::InvalidLogicalObservableIndex { span: arg.span });
+            self.push_error(Error::InvalidLogicalObservableIndex { span: args[0].span });
             return None;
         }
 
         Some(logical_observable)
     }
 
-    fn expect_probability_or_zero(
+    fn expect_optional_readout_probability(
         &mut self,
         instruction: &parser::Instruction,
     ) -> Option<Probability> {
@@ -2045,26 +2002,86 @@ impl Lowerer {
     }
 
     fn expect_probability(&mut self, instruction: &parser::Instruction) -> Option<Probability> {
-        let [probability]: [Probability; 1] = self.expect_probabilities(instruction)?;
+        let [probability]: [Probability; 1] = self.expect_n_probabilities(instruction)?;
         Some(probability)
     }
 
-    fn expect_probabilities<const N: usize>(
+    fn expect_n_probabilities<const N: usize>(
         &mut self,
         instruction: &parser::Instruction,
     ) -> Option<[Probability; N]> {
-        self.expect_arg_count(instruction, N)?;
-        let probabilities = self.validate_probability_list(instruction)?;
-        let mut result = [0.0; N];
-        result.copy_from_slice(&probabilities);
-        Some(result)
+        self.expect_n_args::<N>(instruction)?;
+        self.expect_probabilities(instruction)?.try_into().ok()
     }
 
-    fn expect_arg_count<'a>(
+    fn expect_probabilities(
+        &mut self,
+        instruction: &parser::Instruction,
+    ) -> Option<Vec<Probability>> {
+        let mut probabilities = Vec::with_capacity(instruction.args.len());
+        let mut has_invalid_probability = false;
+
+        for arg in &instruction.args {
+            let Some(value) = self.expect_default_arg_value(instruction, arg) else {
+                has_invalid_probability = true;
+                continue;
+            };
+            let Some(probability) = self.expect_probability_in_range(instruction, arg.span, value)
+            else {
+                has_invalid_probability = true;
+                continue;
+            };
+
+            probabilities.push(probability);
+        }
+
+        if has_invalid_probability {
+            return None;
+        }
+
+        self.validate_probability_sum(instruction, probabilities.iter().sum())?;
+        Some(probabilities)
+    }
+
+    fn expect_probability_in_range(
+        &mut self,
+        instruction: &parser::Instruction,
+        arg_span: Span,
+        probability: f64,
+    ) -> Option<Probability> {
+        if (0.0..=1.0).contains(&probability) {
+            Some(probability)
+        } else {
+            self.push_error(Error::InvalidProbability {
+                instruction: instruction.name.clone(),
+                probability,
+                span: arg_span,
+            });
+            None
+        }
+    }
+
+    fn validate_probability_sum(
+        &mut self,
+        instruction: &parser::Instruction,
+        total: f64,
+    ) -> Option<()> {
+        if total > 1.0 {
+            self.push_error(Error::InvalidProbabilitySum {
+                instruction: instruction.name.clone(),
+                total,
+                span: args_span(&instruction.args),
+            });
+            None
+        } else {
+            Some(())
+        }
+    }
+
+    fn expect_n_args<'a, const N: usize>(
         &mut self,
         instruction: &'a parser::Instruction,
-        expected: usize,
-    ) -> Option<&'a [parser::Arg]> {
+    ) -> Option<&'a [parser::Arg; N]> {
         let args = &instruction.args;
         if args.is_empty() {
             self.push_error(Error::MissingArg {
@@ -2074,24 +2091,24 @@ impl Lowerer {
             return None;
         }
 
-        if args.len() > expected {
+        if args.len() > N {
             self.push_error(Error::TooManyArgs {
                 instruction: instruction.name.clone(),
-                expected,
+                expected: N,
                 found: args.len(),
-                span: args_span(&args[expected..]),
+                span: args_span(&args[N..]),
             });
             return None;
-        } else if args.len() < expected {
+        } else if args.len() < N {
             self.push_error(Error::TooFewArgs {
                 instruction: instruction.name.clone(),
-                expected,
+                expected: N,
                 found: args.len(),
                 span: args_span(args),
             });
             return None;
         }
-        Some(args)
+        args.as_slice().try_into().ok()
     }
 
     fn unsupported_args(&mut self, instruction: &parser::Instruction) {

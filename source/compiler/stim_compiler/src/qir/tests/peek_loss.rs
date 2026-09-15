@@ -117,14 +117,6 @@ fn peek_loss_with_negative_readout_noise_in_radians_yields_errors() {
              1 | PEEK_LOSS(-0.1rad) 0
                :           ^^^^^^^
                `----
-
-            Qdk.Stim.Compiler.InvalidProbability
-
-              x probability for PEEK_LOSS must be between 0 and 1; found -0.1
-               ,----
-             1 | PEEK_LOSS(-0.1rad) 0
-               :           ^^^^^^^
-               `----
         "#]],
     );
 }
