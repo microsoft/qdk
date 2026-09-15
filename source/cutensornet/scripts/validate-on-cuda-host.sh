@@ -187,10 +187,11 @@ step "7. hardware tests"
 #   tests/availability.rs  - resolves every required symbol against the real
 #                            library and reads the version triple. Cheap,
 #                            deterministic, no GPU work. This is the FFI guard.
-#   replay.rs (7 tests)    - A100 numerical qualification runs. Expensive, need
-#                            a real GPU, and some are steered by QDK_CUTENSORNET_*
-#                            env vars. They validate simulation behaviour, not
-#                            the symbol surface.
+#   replay.rs (7 tests)    - A100 numerical qualification runs. Expensive and
+#                            need a real GPU. Each one sweeps its own parameters
+#                            from a pinned table, so no configuration is needed.
+#                            They validate simulation behaviour, not the symbol
+#                            surface.
 #
 # Default to the first, since that is what a manifest or loader change can
 # break. The second is opt-in via --qualification.

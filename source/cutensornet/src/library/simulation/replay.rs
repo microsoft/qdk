@@ -1812,24 +1812,22 @@ fn b1_a100_width_qualification() {
     reason = "the Phase 2 library guard is intentionally unused outside this internal fixture"
 )]
 fn b2_a100_trotter_query_qualification() {
-    let width = std::env::var("QDK_CUTENSORNET_B2_WIDTH")
-        .expect("QDK_CUTENSORNET_B2_WIDTH must be set")
-        .parse::<u32>()
-        .expect("B2 width must be an integer");
-    let expected = match width {
-        12 => 4.332_869_154_633,
-        16 => 6.347_012_657_087,
-        20 => 8.361_156_159_877,
-        _ => panic!("unsupported B2 qualification width {width}"),
-    };
-    run_trotter_query_qualification(
-        "B2",
-        width,
-        8,
-        expected,
-        1.0e-9,
-        ExecutionPolicy::base_qualification(),
-    );
+    // The three widths pin extensivity: the expectation grows by a constant 2.014_143_502 per
+    // four added sites, so a per-site error would move one width without moving the others.
+    for (width, expected) in [
+        (12, 4.332_869_154_633),
+        (16, 6.347_012_657_087),
+        (20, 8.361_156_159_877),
+    ] {
+        run_trotter_query_qualification(
+            "B2",
+            width,
+            8,
+            expected,
+            1.0e-9,
+            ExecutionPolicy::base_qualification(),
+        );
+    }
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -1858,24 +1856,24 @@ fn b3_a100_matched_bond_qualification() {
     reason = "the Phase 2 library guard is intentionally unused outside this internal fixture"
 )]
 fn b4_a100_convergence_qualification() {
-    let bond_cap = std::env::var("QDK_CUTENSORNET_B4_CAP")
-        .expect("QDK_CUTENSORNET_B4_CAP must be set")
-        .parse::<i64>()
-        .expect("B4 bond cap must be an integer");
-    let expected = match bond_cap {
-        32 => 122.350_509_319_616,
-        64 => 122.350_509_321_997,
-        128 | 256 => 122.350_509_322_001,
-        _ => panic!("unsupported B4 qualification bond cap {bond_cap}"),
-    };
-    run_trotter_query_qualification(
-        "B4",
-        256,
-        16,
-        expected,
-        1.0e-9,
-        ExecutionPolicy::b4_convergence_qualification(bond_cap),
-    );
+    // Convergence is the claim, so the whole ladder has to run: the expectation must still be
+    // moving between caps 32 and 64, and must have stopped moving by 128, where truncation is
+    // already cutoff-driven rather than cap-driven. Caps 128 and 256 therefore share a constant.
+    for (bond_cap, expected) in [
+        (32, 122.350_509_319_616),
+        (64, 122.350_509_321_997),
+        (128, 122.350_509_322_001),
+        (256, 122.350_509_322_001),
+    ] {
+        run_trotter_query_qualification(
+            "B4",
+            256,
+            16,
+            expected,
+            1.0e-9,
+            ExecutionPolicy::b4_convergence_qualification(bond_cap),
+        );
+    }
 }
 
 #[allow(
@@ -1892,6 +1890,16 @@ fn run_trotter_query_qualification(
     relative_error_limit: f64,
     policy: ExecutionPolicy,
 ) {
+    /// A Pauli-Z expectation is real by construction; anything above this is not round-off.
+    const IMAGINARY_PART_LIMIT: f64 = 1.0e-12;
+
+    // Every stage below sweeps at least one parameter, so the stage name alone no longer says
+    // which case failed. Name the whole point in the sweep instead.
+    let case = format!(
+        "{stage} qualification (width {width}, {steps} Trotter steps, bond cap {})",
+        policy.bond_cap
+    );
+
     let total_started = Instant::now();
 
     let discovery_started = Instant::now();
@@ -1903,24 +1911,37 @@ fn run_trotter_query_qualification(
     let session_creation_seconds = session_started.elapsed().as_secs_f64();
     let fixture_started = Instant::now();
     let circuit = Circuit::trotter_domain_wall(width, steps, 0.3)
-        .unwrap_or_else(|error| panic!("{stage} Trotter fixture failed: {error}"));
-    let query =
-        AdjacentZQuery::new(width).unwrap_or_else(|error| panic!("{stage} Query failed: {error}"));
+        .unwrap_or_else(|error| panic!("{case}: Trotter fixture construction failed: {error}"));
+    let query = AdjacentZQuery::new(width)
+        .unwrap_or_else(|error| panic!("{case}: query construction failed: {error}"));
     let canonical_description = circuit.canonical_description();
     let fixture_construction_seconds = fixture_started.elapsed().as_secs_f64();
 
     let execution_started = Instant::now();
     let result = session
         .simulate_and_query(&circuit, &query)
-        .unwrap_or_else(|error| panic!("{stage} width {width} failed: {error}"));
+        .unwrap_or_else(|error| panic!("{case} failed: {error}"));
     let execution_seconds = execution_started.elapsed().as_secs_f64();
     let host_validation_started = Instant::now();
     let normalized = result.query.normalized_expectation;
     let relative_error = ((normalized.re - expected) / expected).abs();
-    assert!(normalized.im.abs() <= 1.0e-12);
+    assert!(
+        normalized.im.abs() <= IMAGINARY_PART_LIMIT,
+        "{case}: the query is a sum of Hermitian Pauli-Z terms, so its expectation must be real, \
+         but the normalized expectation {normalized:?} carries an imaginary part of magnitude \
+         {:.3e}, above the {IMAGINARY_PART_LIMIT:.3e} allowed for double-precision round-off. \
+         A non-zero imaginary part means the contracted state is no longer a valid wavefunction \
+         or the query operator was assembled incorrectly.",
+        normalized.im.abs()
+    );
     assert!(
         relative_error <= relative_error_limit,
-        "relative error was {relative_error}"
+        "{case}: the normalized expectation should reproduce the pinned reference value \
+         {expected:.15} to a relative error of at most {relative_error_limit:.3e}, but measured \
+         {:.15}, a relative error of {relative_error:.3e} ({:.1}x the limit). Either the \
+         truncation policy no longer converges to the reference, or the state evolution changed.",
+        normalized.re,
+        relative_error / relative_error_limit
     );
     let host_validation_seconds = host_validation_started.elapsed().as_secs_f64();
     let session_cleanup_started = Instant::now();
@@ -2043,6 +2064,9 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
     use branch::{BranchRequest, SelectedBranch};
     use qdk_simulators::SparseStateSim;
 
+    /// Three qubits held exactly: every quantity below is analytic up to double round-off.
+    const ORACLE_LIMIT: f64 = 1.0e-12;
+
     let theta = 0.7;
     let initial = circuit_with_gates(
         3,
@@ -2080,16 +2104,24 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
     let availability = crate::discover().expect("native libraries should be available");
     let policy = ExecutionPolicy::bell_regression();
 
-    let selected = match std::env::var("QDK_CUTENSORNET_B5_BRANCH").as_deref() {
-        Ok("zero") => SelectedBranch::Zero,
-        Ok("one") => SelectedBranch::One,
-        Ok(value) => panic!("unsupported QDK_CUTENSORNET_B5_BRANCH value: {value}"),
-        Err(error) => panic!("QDK_CUTENSORNET_B5_BRANCH must be set: {error}"),
-    };
-    {
+    // Both outcomes have to run: they take different native paths (different projected masses,
+    // a different projector, and a different renormalization), so passing on one says nothing
+    // about the other.
+    for selected in [SelectedBranch::Zero, SelectedBranch::One] {
+        let label = match selected {
+            SelectedBranch::Zero => "zero",
+            SelectedBranch::One => "one",
+        };
+        let case = format!("B5 qualification (forced branch {label})");
+
         let mut oracle = SparseStateSim::new(None);
         for expected in 0..3 {
-            assert_eq!(oracle.allocate(), expected);
+            let allocated = oracle.allocate();
+            assert_eq!(
+                allocated, expected,
+                "{case}: the oracle must hand out qubits 0, 1, 2 in order for its basis indices \
+                 to line up with the native chain, but allocation {expected} returned {allocated}"
+            );
         }
         apply_sparse_circuit(&mut oracle, &initial);
         let expected_initial = sparse_dense_state(&mut oracle, 3);
@@ -2106,19 +2138,41 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
         let expected_q0 = expected_norm - expected_q1;
         let expected_q0_analytic = (theta / 2.0_f64).cos().powi(2);
         let expected_q1_analytic = (theta / 2.0_f64).sin().powi(2);
-        assert!((expected_q0 - expected_q0_analytic).abs() <= 1.0e-12);
-        assert!((expected_q1 - expected_q1_analytic).abs() <= 1.0e-12);
-        assert!(expected_q0 > expected_q1 && expected_q1 > 0.0);
+        assert!(
+            (expected_q0 - expected_q0_analytic).abs() <= ORACLE_LIMIT,
+            "{case}: the oracle is the reference, so it must itself be right before anything is \
+             compared against it. After Rx({theta}) on qubit 0 the |0> mass is cos^2(theta/2) = \
+             {expected_q0_analytic:.17e}, but the sparse oracle reports {expected_q0:.17e}, off \
+             by {:.3e} (limit {ORACLE_LIMIT:.3e}).",
+            (expected_q0 - expected_q0_analytic).abs()
+        );
+        assert!(
+            (expected_q1 - expected_q1_analytic).abs() <= ORACLE_LIMIT,
+            "{case}: the oracle is the reference, so it must itself be right before anything is \
+             compared against it. After Rx({theta}) on qubit 0 the |1> mass is sin^2(theta/2) = \
+             {expected_q1_analytic:.17e}, but the sparse oracle reports {expected_q1:.17e}, off \
+             by {:.3e} (limit {ORACLE_LIMIT:.3e}).",
+            (expected_q1 - expected_q1_analytic).abs()
+        );
+        assert!(
+            expected_q0 > expected_q1 && expected_q1 > 0.0,
+            "{case}: the fixture only exercises branch selection if both outcomes are reachable \
+             and unequal, so that forcing one is a real choice. With theta = {theta} the masses \
+             should satisfy q0 > q1 > 0, but the oracle reports q0 = {expected_q0:.17e} and \
+             q1 = {expected_q1:.17e}."
+        );
         let forced_probability = oracle.force_collapse(selected == SelectedBranch::One, 0);
         let expected_post_projection = sparse_dense_state(&mut oracle, 3);
+        let post_projection_norm = expected_post_projection
+            .iter()
+            .map(Complex64::norm_sqr)
+            .sum::<f64>();
         assert!(
-            (expected_post_projection
-                .iter()
-                .map(Complex64::norm_sqr)
-                .sum::<f64>()
-                - 1.0)
-                .abs()
-                <= 1.0e-12
+            (post_projection_norm - 1.0).abs() <= ORACLE_LIMIT,
+            "{case}: projection must renormalize, so the oracle state after forcing the branch \
+             should have unit squared norm, but it has {post_projection_norm:.17e}, off by \
+             {:.3e} (limit {ORACLE_LIMIT:.3e}).",
+            (post_projection_norm - 1.0).abs()
         );
         apply_sparse_circuit(&mut oracle, &continuation);
         let expected_final = sparse_dense_state(&mut oracle, 3);
@@ -2127,7 +2181,7 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
             .sum::<f64>();
 
         let mut session = Session::new(Arc::clone(&availability.libraries), policy)
-            .expect("native session should be created");
+            .unwrap_or_else(|error| panic!("{case}: native session creation failed: {error}"));
         let result = session
             .simulate_with_branch(
                 &initial,
@@ -2135,53 +2189,60 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
                 &continuation,
                 &query,
             )
-            .expect("branch replay should succeed");
+            .unwrap_or_else(|error| panic!("{case}: branch replay failed: {error}"));
         session
             .close()
-            .expect("native session cleanup should succeed");
+            .unwrap_or_else(|error| panic!("{case}: native session cleanup failed: {error}"));
 
         let tolerance = 1.0e-12;
-        assert!((result.report.masses.norm - expected_norm).abs() <= tolerance);
-        assert!((result.report.masses.q0 - expected_q0).abs() <= tolerance);
-        assert!((result.report.masses.q1 - expected_q1).abs() <= tolerance);
-        assert!((result.report.masses.p0 + result.report.masses.p1 - 1.0).abs() <= tolerance);
-        assert!((result.report.probability - forced_probability).abs() <= tolerance);
-        assert!((result.report.log_probability - forced_probability.ln()).abs() <= tolerance);
-        assert!(
-            maximum_global_phase_error(
-                result
-                    .initial_state
-                    .amplitudes()
-                    .expect("initial amplitudes should be retained"),
-                &expected_initial,
-            ) <= tolerance
-        );
-        assert!(
-            maximum_global_phase_error(
-                result
-                    .post_projection_state
-                    .amplitudes()
-                    .expect("post-projection amplitudes should be retained"),
-                &expected_post_projection,
-            ) <= tolerance
-        );
-        assert!(
-            maximum_global_phase_error(
-                result
-                    .continuation_state
-                    .amplitudes()
-                    .expect("continuation amplitudes should be retained"),
-                &expected_final,
-            ) <= tolerance
-        );
-        assert!((result.query.squared_norm.re - 1.0).abs() <= tolerance);
-        assert!((result.query.raw_expectation.re - expected_query).abs() <= tolerance);
-        assert!((result.query.normalized_expectation.re - expected_query).abs() <= tolerance);
-
-        let label = match selected {
-            SelectedBranch::Zero => "zero",
-            SelectedBranch::One => "one",
+        let agrees = |quantity: &str, native: f64, oracle: f64, why: &str| {
+            assert!(
+                (native - oracle).abs() <= tolerance,
+                "{case}: {quantity} must match the sparse-state oracle because {why}. The native \
+                 run reports {native:.17e} against the oracle value {oracle:.17e}, a difference \
+                 of {:.3e} (limit {tolerance:.3e}).",
+                (native - oracle).abs()
+            );
         };
+
+        agrees(
+            "the total squared norm before projection",
+            result.report.masses.norm,
+            expected_norm,
+            "the initial circuit is unitary and the bond cap is wide enough to hold the state \
+             exactly",
+        );
+        agrees(
+            "the |0> mass on the measured qubit",
+            result.report.masses.q0,
+            expected_q0,
+            "the native reduced density is computed from the same state the oracle holds",
+        );
+        agrees(
+            "the |1> mass on the measured qubit",
+            result.report.masses.q1,
+            expected_q1,
+            "the native reduced density is computed from the same state the oracle holds",
+        );
+        agrees(
+            "the sum of the normalized branch probabilities",
+            result.report.masses.p0 + result.report.masses.p1,
+            1.0,
+            "the two outcomes are exhaustive and mutually exclusive",
+        );
+        agrees(
+            "the probability reported for the forced branch",
+            result.report.probability,
+            forced_probability,
+            "forcing an outcome must still report the probability that outcome actually had",
+        );
+        agrees(
+            "the log probability reported for the forced branch",
+            result.report.log_probability,
+            forced_probability.ln(),
+            "the log probability is the logarithm of the reported probability",
+        );
+
         let initial_error = maximum_global_phase_error(
             result
                 .initial_state
@@ -2203,6 +2264,39 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
                 .expect("continuation amplitudes should be retained"),
             &expected_final,
         );
+        let matches_state = |stage: &str, error: f64| {
+            assert!(
+                error <= tolerance,
+                "{case}: the captured {stage} state must equal the oracle state up to a global \
+                 phase, which is the only freedom a wavefunction has. The largest per-amplitude \
+                 deviation after removing that phase is {error:.3e}, above the {tolerance:.3e} \
+                 expected from double-precision round-off."
+            );
+        };
+
+        matches_state("initial", initial_error);
+        matches_state("post-projection", projection_error);
+        matches_state("continuation", continuation_error);
+
+        agrees(
+            "the squared norm of the continuation state",
+            result.query.squared_norm.re,
+            1.0,
+            "projection renormalizes and the continuation circuit is unitary",
+        );
+        agrees(
+            "the raw query expectation",
+            result.query.raw_expectation.re,
+            expected_query,
+            "the state is already normalized, so raw and normalized expectations coincide",
+        );
+        agrees(
+            "the normalized query expectation",
+            result.query.normalized_expectation.re,
+            expected_query,
+            "the adjacent-Z query is evaluated on the same continuation state the oracle holds",
+        );
+
         println!("b5_branch={label}");
         println!("b5_expected_norm={expected_norm:.17e}");
         println!("b5_native_norm={:.17e}", result.report.masses.norm);
