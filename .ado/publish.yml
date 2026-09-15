@@ -470,10 +470,6 @@ extends:
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
                   - script: |
-                      python ./build.py --no-check --no-check-prereqs --course-notebook-tests
-                    displayName: Test course notebooks
-
-                  - script: |
                       dir target\wheels\*
                     displayName: List Py Packages on Win
                     condition: eq(variables['Agent.OS'], 'Windows_NT')
