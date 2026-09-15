@@ -254,23 +254,6 @@ impl TwoQubitGateKind {
 }
 
 #[derive(Clone, Copy)]
-enum AllowedRecPosition {
-    First,
-    Second,
-    Either,
-}
-
-impl AllowedRecPosition {
-    fn allows_first(self) -> bool {
-        matches!(self, Self::First | Self::Either)
-    }
-
-    fn allows_second(self) -> bool {
-        matches!(self, Self::Second | Self::Either)
-    }
-}
-
-#[derive(Clone, Copy)]
 pub enum ThreeQubitGateKind {
     CCZ,
     CCX,
@@ -591,6 +574,24 @@ pub enum Error {
         span: Span,
     },
 }
+
+#[derive(Clone, Copy)]
+enum AllowedRecPosition {
+    First,
+    Second,
+    Either,
+}
+
+impl AllowedRecPosition {
+    fn allows_first(self) -> bool {
+        matches!(self, Self::First | Self::Either)
+    }
+
+    fn allows_second(self) -> bool {
+        matches!(self, Self::Second | Self::Either)
+    }
+}
+
 struct Lowerer {
     errors: Vec<Error>,
 }
@@ -734,8 +735,6 @@ impl Lowerer {
             }
 
             // Two Qubit Clifford Gates
-            // TODO: DEAL WITH CLASSICALLY CONTROLLED
-            // TODO: ARE WE DEALING WITH REPEATED QUBITS CORRECTLY?
             name @ ("CXSWAP" | "CZSWAP" | "SWAPCZ" | "II" | "ISWAP" | "ISWAP_DAG" | "SQRT_XX"
             | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG" | "SQRT_ZZ" | "SQRT_ZZ_DAG"
             | "SWAP" | "SWAPCX" | "XCX" | "XCY" | "YCX" | "YCY") => {
@@ -780,7 +779,7 @@ impl Lowerer {
             "ELSE_CORRELATED_ERROR" => self
                 .lower_correlated_error(instruction, CorrelatedErrorKind::Else)
                 .into_iter()
-                .collect(), // TODO: SHOULDN'T BE ABLE TO BE SPLIT THROUGH WITH SELECT BLOCK
+                .collect(),
             "DEPOLARIZE1" => {
                 self.broadcast_single_qubit_noise(instruction, SingleQubitNoiseKind::Depolarize)
             }
@@ -1655,6 +1654,54 @@ impl Lowerer {
         }
     }
 
+    // TODO: does this make sense?
+    fn validate_probability_list(
+        &mut self,
+        instruction: &parser::Instruction,
+    ) -> Option<Vec<Probability>> {
+        let mut probabilities = Vec::with_capacity(instruction.args.len());
+        let mut has_invalid_probability = false;
+        for arg in &instruction.args {
+            let value = match arg.value {
+                ArgValue::Default(value) => value,
+                ArgValue::Radians(value) => {
+                    self.push_error(Error::UnexpectedRadians {
+                        instruction: instruction.name.clone(),
+                        span: arg.span,
+                    });
+                    has_invalid_probability = true;
+                    value
+                }
+            };
+
+            if (0.0..=1.0).contains(&value) {
+                probabilities.push(value);
+            } else {
+                self.push_error(Error::InvalidProbability {
+                    instruction: instruction.name.clone(),
+                    probability: value,
+                    span: arg.span,
+                });
+                has_invalid_probability = true;
+            }
+        }
+        if has_invalid_probability {
+            return None;
+        }
+
+        let total: f64 = probabilities.iter().sum();
+        if total > 1.0 {
+            self.push_error(Error::InvalidProbabilitySum {
+                instruction: instruction.name.clone(),
+                total,
+                span: args_span(&instruction.args),
+            });
+            return None;
+        }
+
+        Some(probabilities)
+    }
+
     /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
     /// qubit index, with identity factors removed. Rejects anti-Hermitian products and
     /// represents an overall phase of -1 as a negation.
@@ -2027,54 +2074,6 @@ impl Lowerer {
         let mut result = [0.0; N];
         result.copy_from_slice(&probabilities);
         Some(result)
-    }
-
-    // TODO: does this make sense?
-    fn validate_probability_list(
-        &mut self,
-        instruction: &parser::Instruction,
-    ) -> Option<Vec<Probability>> {
-        let mut probabilities = Vec::with_capacity(instruction.args.len());
-        let mut has_invalid_probability = false;
-        for arg in &instruction.args {
-            let value = match arg.value {
-                ArgValue::Default(value) => value,
-                ArgValue::Radians(value) => {
-                    self.push_error(Error::UnexpectedRadians {
-                        instruction: instruction.name.clone(),
-                        span: arg.span,
-                    });
-                    has_invalid_probability = true;
-                    value
-                }
-            };
-
-            if (0.0..=1.0).contains(&value) {
-                probabilities.push(value);
-            } else {
-                self.push_error(Error::InvalidProbability {
-                    instruction: instruction.name.clone(),
-                    probability: value,
-                    span: arg.span,
-                });
-                has_invalid_probability = true;
-            }
-        }
-        if has_invalid_probability {
-            return None;
-        }
-
-        let total: f64 = probabilities.iter().sum();
-        if total > 1.0 {
-            self.push_error(Error::InvalidProbabilitySum {
-                instruction: instruction.name.clone(),
-                total,
-                span: args_span(&instruction.args),
-            });
-            return None;
-        }
-
-        Some(probabilities)
     }
 
     fn expect_arg_count<'a>(
