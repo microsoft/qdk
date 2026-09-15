@@ -49,7 +49,7 @@ impl Display for Item {
 
 pub struct Block {
     pub span: Span,
-    pub block_instruction: Instruction, // currently, only the "REPEAT" instruction is supported
+    pub block_instruction: Instruction,
     pub items: Vec<Item>,
 }
 
