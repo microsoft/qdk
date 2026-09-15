@@ -107,21 +107,17 @@ def test_highs_code_distance_matches_known_value(
 
 def test_distance_and_bounds_default_to_unit_cost_y_errors() -> None:
     code = CodeProfile(qc.Code("Y repetition", ["Y_0 Y_1"], ["Y_0"], ["X_0 X_1"]))
-    for distance, witness in (code.distance(), code_distance_of(code)):
+    for distance in (code.distance(), code.distance_bounds()):
         assert distance == 1
-        assert isinstance(witness, list) and len(witness) == 1
-        assert witness[0] in (Pauli("Y_0"), Pauli("Y_1"))
-        assert code.is_non_trivial_logical_error(product_of(witness))
-    for lower, upper, witness in (
-        code.distance_bounds(),
-        code_distance_bounds_of(code),
-    ):
-        assert lower == upper == 1
-        assert isinstance(witness, list) and len(witness) == 1
-        assert witness[0] in (Pauli("Y_0"), Pauli("Y_1"))
-        assert code.is_non_trivial_logical_error(product_of(witness))
-    assert code.distance(errors="XZ")[0] == 2
-    assert code.distance_bounds(errors="XZ")[:2] == (2, 2)
+        assert len(distance.witness.factors) == 1
+        assert distance.witness.product in (Pauli("Y_0"), Pauli("Y_1"))
+        assert code.is_non_trivial_logical_error(distance.witness.product)
+    distance, witness = code_distance_of(code)
+    assert distance == len(witness) == 1
+    lower, upper, witness = code_distance_bounds_of(code)
+    assert lower == upper == len(witness) == 1
+    assert code.distance(errors="XZ") == 2
+    assert code.distance_bounds(errors="XZ") == 2
     assert code_distance_of(code, errors="XZ")[0] == 2
     assert code_distance_bounds_of(code, errors="XZ")[:2] == (2, 2)
 
@@ -136,20 +132,15 @@ def test_correlated_errors_remain_single_witness_factors() -> None:
         )
     )
     errors = [Pauli("X_0 X_1")]
-    for distance, witness in (
+    for distance in (
         code.distance(errors=errors),
-        code_distance_of(code, errors=errors),
+        code.distance_bounds(errors=errors),
     ):
         assert distance == 1
-        assert witness == errors
-        assert product_of(witness).weight == 2
-    for lower, upper, witness in (
-        code.distance_bounds(errors=errors),
-        code_distance_bounds_of(code, errors=errors),
-    ):
-        assert lower == upper == 1
-        assert witness == errors
-        assert product_of(witness).weight == 2
+        assert distance.witness.factors == tuple(errors)
+        assert distance.witness.product.weight == 2
+    assert code_distance_of(code, errors=errors) == (1, errors)
+    assert code_distance_bounds_of(code, errors=errors) == (1, 1, errors)
 
 
 def product_of(paulis: Iterable[Pauli]) -> Pauli:

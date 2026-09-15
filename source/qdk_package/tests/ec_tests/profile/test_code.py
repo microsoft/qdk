@@ -140,23 +140,22 @@ def test_code_profile_equality_and_equivalence_are_distinct() -> None:
 def test_code_profile_distance_preserves_search_options() -> None:
     profile = ec.CodeProfile(repetition_code())
 
-    distance, witness = profile.distance(errors="X", solver="enumeration")
-    assert distance == len(witness) == 2
-    lower, upper, witness = profile.distance_bounds(errors="X", solver="enumeration")
-    assert lower == upper == len(witness) == 2
+    distance = profile.distance(errors="X", solver="enumeration")
+    assert distance == len(distance.witness.factors) == 2
+    bounds = profile.distance_bounds(errors="X", solver="enumeration")
+    assert bounds == len(bounds.witness.factors) == 2
     bounded_profile = ec.CodeProfile(
         as_qodec_code(make_five_qubit_code(), "five_qubit")
     )
     with pytest.raises(RuntimeError, match="exact distance"):
         bounded_profile.distance(upper_bound=2, solver="enumeration")
-    lower, upper, witness = bounded_profile.distance_bounds(
-        upper_bound=2, solver="enumeration"
-    )
-    assert lower == 3 and upper > lower and witness == []
+    bounds = bounded_profile.distance_bounds(upper_bound=2, solver="enumeration")
+    assert bounds.lower_bound == 3 and bounds.upper_bound is None
+    assert list(bounds.witnesses) == []
     assert (
         profile.distance(
             errors="X", coset_representative=SparsePauli("X"), solver="enumeration"
-        )[0]
+        )
         == 2
     )
 
@@ -165,3 +164,32 @@ def test_code_distance_of_accepts_qodec_code() -> None:
     distance, witness = code_distance_of(repetition_code(), errors="X")
     assert distance == 2
     assert len(witness) == 2
+
+
+def test_distance_exposes_a_product_and_alternative_witnesses() -> None:
+    profile = ec.CodeProfile(repetition_code())
+    distance = profile.distance()
+
+    assert isinstance(distance, ec.Distance)
+    assert distance == 1
+    assert distance.value == distance.lower_bound == distance.upper_bound == 1
+    assert profile.is_non_trivial_logical_error(distance.witness.product)
+    witnesses = list(distance.witnesses)
+    assert witnesses[0] == distance.witness
+    assert {witness.product for witness in witnesses} == {
+        SparsePauli("Z_0"),
+        SparsePauli("Z_1"),
+    }
+    assert list(distance.witnesses) == witnesses
+
+
+def test_distance_represents_impossible_failure_without_a_sentinel() -> None:
+    distance = ec.CodeProfile(repetition_code()).distance(errors=[])
+
+    assert distance.is_exact
+    assert distance.lower_bound is distance.upper_bound is distance.value is None
+    assert distance > 1000
+    assert str(distance) == "\u221e"
+    assert list(distance.witnesses) == []
+    with pytest.raises(LookupError):
+        _ = distance.witness

@@ -14,6 +14,7 @@ _SURFACE = {
     "ChannelAction",
     "CodeProfile",
     "Diagnostic",
+    "Distance",
     "FaultEffect",
     "FaultEvent",
     "GadgetProfile",
@@ -254,12 +255,12 @@ def test_profile_distance_signatures() -> None:
     assert str(inspect.signature(ec.GadgetProfile.distance)) == (
         "(self, *, faults: 'Sequence[FaultEvent] | None' = None, "
         "upper_bound: 'int | None' = None, solver: 'ExactSolver | None' = None) "
-        "-> 'tuple[int, list[FaultEvent]]'"
+        "-> 'Distance[FaultEvent]'"
     )
     assert str(inspect.signature(ec.GadgetProfile.distance_bounds)) == (
         "(self, *, faults: 'Sequence[FaultEvent] | None' = None, "
         "upper_bound: 'int | None' = None, solver: 'BoundsSolver | None' = None) "
-        "-> 'tuple[int, int, list[FaultEvent]]'"
+        "-> 'Distance[FaultEvent]'"
     )
 
 
