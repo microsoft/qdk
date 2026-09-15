@@ -8,7 +8,9 @@ use indoc::indoc;
 #[test]
 fn mpad_yields_unsupported_error() {
     let source = "MPAD 0 1";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.UnsupportedInstruction
 
           x unsupported instruction: MPAD
@@ -16,21 +18,25 @@ fn mpad_yields_unsupported_error() {
          1 | MPAD 0 1
            : ^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn other_annotations_are_ignored() {
-  let source = indoc! {"
+    let source = indoc! {"
     DETECTOR rec[-1]
     OBSERVABLE_INCLUDE(0) rec[-1]
     QUBIT_COORDS(0, 0) 0
     SHIFT_COORDS(1, 1)
     TICK
   "};
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         required_num_qubits: 0
-        required_num_results: 0"#]]);
+        required_num_results: 0"#]],
+    );
 }
 
 #[test]
