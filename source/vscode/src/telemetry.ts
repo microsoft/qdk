@@ -351,7 +351,7 @@ type EventTypes = {
         | "solution"
         | "reset"
         | "reset-unit";
-      activityType: "lesson" | "exercise" | "code-cell";
+      activityType: "lesson" | "exercise" | "code-cell" | "unit";
       source: "panel" | "chat" | "tree" | "notebook";
     };
     measurements: Empty;

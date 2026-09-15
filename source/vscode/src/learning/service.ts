@@ -955,10 +955,6 @@ export class LearningService {
     if (!uri) {
       throw new Error("Current activity has no associated code file.");
     }
-    // TODO: saveOpenDocument now reports whether the save landed. If it
-    // didn't, this reads stale code off disk and checks the wrong content.
-    // Read the open document's in-memory text directly rather than saving
-    // then re-reading.
     await this.saveOpenDocument(uri);
     const bytes = await vscode.workspace.fs.readFile(uri);
     return new TextDecoder().decode(bytes);
@@ -1121,7 +1117,9 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     if (source) {
-      this.sendActivityActionTelemetry("reset-unit", source);
+      // A unit reset spans every activity in the unit, so record it as a
+      // unit-level action rather than borrowing the current activity's type.
+      this.sendActivityActionTelemetry("reset-unit", source, "unit");
     }
     return { unitId: unit.id, unitTitle: unit.title };
   }
@@ -1281,8 +1279,8 @@ export class LearningService {
       | "reset"
       | "reset-unit",
     source: TelemetrySource,
-    activityType: CatalogActivity["type"] = this.findCurrentActivity().activity
-      .type,
+    activityType: CatalogActivity["type"] | "unit" = this.findCurrentActivity()
+      .activity.type,
   ): void {
     sendTelemetryEvent(
       EventType.LearningActivityAction,
