@@ -120,7 +120,7 @@ def test_missing_parser_does_not_claim_invalid_source(rep3_qodec: qc.Qodec) -> N
 def test_unequal_code_lists_round_trip_but_analysis_rejects(
     rep3_qodec: qc.Qodec,
 ) -> None:
-    from qdk.ec._analysis.code_algebra import SubsystemCode
+    from qdk.ec import CodeProfile
 
     code = rep3_qodec.codes["repetition3"]
     code.z = []
@@ -130,7 +130,7 @@ def test_unequal_code_lists_round_trip_but_analysis_rejects(
     report = audit(reloaded)
     assert any("counts disagree" in item.summary for item in report.errors)
     with pytest.raises(ValueError, match="counts disagree"):
-        SubsystemCode.of(code)
+        CodeProfile(code)
 
 
 @pytest.mark.parametrize(

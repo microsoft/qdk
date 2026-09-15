@@ -7,7 +7,7 @@ import json
 
 import qodec as qc
 
-from ..._analysis.code_algebra import SubsystemCode, sparse_paulis_as_bitmatrix
+from ..._analysis.code_algebra import subsystem_code_of, sparse_paulis_as_bitmatrix
 from ..._analysis.propagation.pauli import Pauli
 from .._dependencies import row_dependencies
 from .._diagnostic import Diagnostic, Phase, Severity
@@ -26,7 +26,7 @@ class CodeAlgebraRule:
         if not isinstance(target, qc.Code):
             raise TypeError(f"expected qodec.Code, got {type(target).__name__}")
         try:
-            SubsystemCode.of(target)
+            subsystem_code_of(target)
         except ValueError as error:
             failure = str(error)
         else:
@@ -79,7 +79,7 @@ class RedundantStabilizerRule:
         if not isinstance(target, qc.Code):
             raise TypeError(f"expected qodec.Code, got {type(target).__name__}")
         try:
-            SubsystemCode.of(target)
+            subsystem_code_of(target)
         except ValueError:
             return
         operators = [Pauli(text) for text in target.stabilizers]

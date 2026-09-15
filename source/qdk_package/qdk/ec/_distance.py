@@ -24,6 +24,7 @@ from ._analysis.distance_solvers import (
 )
 from ._analysis.odd_cycles import OddCycles, cycle_labels
 from ._analysis.propagation.pauli import Pauli
+from ._code_profile import CodeProfile
 from ._faults import FaultEffect, FaultEvent
 
 Errors = Union[str, Sequence[Pauli]]
@@ -53,9 +54,11 @@ class _FaultDistanceData:
         return cls(faults, OddCycles(constraints, indicators))
 
 
-def _code_view(code: qc.Code | SubsystemCode) -> SubsystemCode:
+def _code_view(code: qc.Code | CodeProfile | SubsystemCode) -> SubsystemCode:
     if isinstance(code, qc.Code):
         return subsystem_code_of(code)
+    if isinstance(code, CodeProfile):
+        return code._algebra
     if isinstance(code, SubsystemCode):
         return code
     raise TypeError(f"expected qodec.Code, got {type(code).__name__}")
@@ -76,7 +79,9 @@ class CodeDistanceData:
     odd_cycles: OddCycles
 
     @staticmethod
-    def of(code: qc.Code | SubsystemCode, errors: Errors = "XYZ") -> "CodeDistanceData":
+    def of(
+        code: qc.Code | CodeProfile | SubsystemCode, errors: Errors = "XYZ"
+    ) -> "CodeDistanceData":
         view = _code_view(code)
         error_paulis = _errors_of(view, errors)
         return CodeDistanceData(
@@ -99,7 +104,7 @@ class CodeDistanceData:
 
 
 def code_distance_of(
-    code: qc.Code | SubsystemCode,
+    code: qc.Code | CodeProfile | SubsystemCode,
     *,
     errors: Errors = "XYZ",
     distance_upper_bound: Optional[int] = None,
@@ -117,7 +122,7 @@ def code_distance_of(
 
 
 def code_distance_bounds_of(
-    code: qc.Code | SubsystemCode,
+    code: qc.Code | CodeProfile | SubsystemCode,
     *,
     errors: Errors = "XYZ",
     distance_upper_bound: Optional[int] = None,
@@ -143,7 +148,7 @@ __all__ = [
     "EnumerationSolverOptions",
     "MwpfSolverOptions",
     "OddCycles",
-    "SubsystemCode",
+    "CodeProfile",
     "code_distance_bounds_of",
     "code_distance_of",
 ]

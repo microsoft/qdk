@@ -5,7 +5,8 @@ import pytest
 from ec_tests.testing import code_catalog
 from ec_tests.testing.qodecs import c4
 from qdk.ec._analysis.propagation.pauli import Pauli
-from qdk.ec._analysis.code_algebra import SubsystemCode, subsystem_code_of
+from qdk.ec import CodeProfile
+from qdk.ec._analysis.code_algebra import SubsystemCode
 
 qc = pytest.importorskip("qodec")
 
@@ -22,7 +23,7 @@ def test_sparse_pauli_parses_single_qubit() -> None:
 
 def test_load_c4_matches_iceberg() -> None:
     bundle = c4()
-    loaded = subsystem_code_of(bundle.codes["C4"])
+    loaded = CodeProfile(bundle.codes["C4"])
     expected = code_catalog.make_422_code()
 
     assert loaded.logical_qubit_count == expected.logical_qubit_count
@@ -32,9 +33,7 @@ def test_load_c4_matches_iceberg() -> None:
     _assert_logicals_are_well_formed(loaded, expected)
 
 
-def _assert_same_stabilizer_group(
-    actual: SubsystemCode, expected: SubsystemCode
-) -> None:
+def _assert_same_stabilizer_group(actual: CodeProfile, expected: SubsystemCode) -> None:
     actual_group = actual.stabilizer
     expected_group = expected.stabilizer
     for generator in expected_group.generators:
@@ -48,7 +47,7 @@ def _assert_same_stabilizer_group(
 
 
 def _assert_logicals_are_well_formed(
-    actual: SubsystemCode, expected: SubsystemCode
+    actual: CodeProfile, expected: SubsystemCode
 ) -> None:
     """The loaded logical basis need not match the expected basis bit-for-bit
     (different valid bases describe the same code), but every loaded logical

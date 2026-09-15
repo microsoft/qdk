@@ -22,11 +22,11 @@ if TYPE_CHECKING:
     # below are resolved lazily, so `import qdk.ec` does not pull in paulimer,
     # mwpf and binar for a one-line call.
     from ._analysis.channel_action import ChannelAction
-    from ._analysis.code_algebra import SubsystemCode
     from ._analysis.propagation.pauli import Pauli
     from ._audit._auditor import audit
     from ._audit._diagnostic import Diagnostic
     from ._audit._report import Report
+    from ._code_profile import CodeProfile
     from ._completion import derive
     from ._faults import FaultEffect, FaultEvent
     from ._profile import GadgetProfile
@@ -34,13 +34,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ChannelAction",
+    "CodeProfile",
     "Diagnostic",
     "FaultEffect",
     "FaultEvent",
     "GadgetProfile",
     "Pauli",
     "Report",
-    "SubsystemCode",
     "audit",
     "build_qodec",
     "derive",
@@ -48,13 +48,13 @@ __all__ = [
 
 _EXPORTS = {
     "ChannelAction": ("._analysis.channel_action", "ChannelAction"),
+    "CodeProfile": ("._code_profile", "CodeProfile"),
     "Diagnostic": ("._audit._diagnostic", "Diagnostic"),
     "FaultEffect": ("._faults", "FaultEffect"),
     "FaultEvent": ("._faults", "FaultEvent"),
     "GadgetProfile": ("._profile", "GadgetProfile"),
     "Pauli": ("._analysis.propagation.pauli", "Pauli"),
     "Report": ("._audit._report", "Report"),
-    "SubsystemCode": ("._analysis.code_algebra", "SubsystemCode"),
     "audit": ("._audit._auditor", "audit"),
     "build_qodec": ("._build", "build_qodec"),
     "derive": ("._completion", "derive"),

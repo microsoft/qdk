@@ -1,0 +1,191 @@
+"""Snapshot-based algebraic analysis of qodec code definitions."""
+
+from __future__ import annotations
+
+from typing import Sequence, TYPE_CHECKING
+
+import qodec as qc
+from paulimer import CliffordUnitary, PauliGroup
+
+from ._analysis.code_algebra import subsystem_code_of
+from ._analysis.propagation.pauli import Pauli
+
+if TYPE_CHECKING:
+    from ._analysis.distance_solvers import BoundsSolver as _BoundsSolver
+    from ._analysis.distance_solvers import ExactSolver as _ExactSolver
+
+
+class CodeProfile:
+    """Algebraic analysis of a qodec code's operators.
+
+    The operators are snapshotted at construction. Later changes to the code
+    do not affect this profile. Derived groups are computed on first access
+    and cached; distance searches run when requested. The code's name,
+    description, and persistence remain with qodec.
+    """
+
+    def __init__(self, code: qc.Code) -> None:
+        self._algebra = subsystem_code_of(code)
+
+    @property
+    def stabilizer(self) -> PauliGroup:
+        return self._algebra.stabilizer
+
+    @property
+    def stabilizers(self) -> Sequence[Pauli]:
+        return self._algebra.stabilizers
+
+    @property
+    def anti_stabilizer(self) -> PauliGroup:
+        return self._algebra.anti_stabilizer
+
+    @property
+    def anti_stabilizers(self) -> Sequence[Pauli]:
+        return self._algebra.anti_stabilizers
+
+    @property
+    def gauge(self) -> PauliGroup:
+        """The gauge group as declared, or derived when none was declared."""
+        return self._algebra.gauge
+
+    @property
+    def gauge_basis(self) -> tuple[Pauli, ...]:
+        return self._algebra.gauge_basis
+
+    @property
+    def logical(self) -> PauliGroup:
+        return self._algebra.logical
+
+    @property
+    def logical_basis(self) -> Sequence[Pauli]:
+        return self._algebra.logical_basis
+
+    @property
+    def support(self) -> frozenset[int]:
+        return self._algebra.support
+
+    @property
+    def length(self) -> int:
+        return self._algebra.length
+
+    @property
+    def logical_qubit_count(self) -> int:
+        return self._algebra.logical_qubit_count
+
+    def syndrome_of(self, error: Pauli) -> frozenset[int]:
+        return self._algebra.syndrome_of(error)
+
+    def logical_effect_of(self, error: Pauli) -> Pauli:
+        """Return the logical Pauli induced by ``error``."""
+        return self._algebra.logical_effect_of(error)
+
+    def distance(
+        self,
+        *,
+        errors: "str | Sequence[Pauli]" = "XYZ",
+        coset_representative: Pauli | None = None,
+        upper_bound: int | None = None,
+        solver: "_ExactSolver | None" = None,
+    ) -> tuple[int, list[Pauli]]:
+        """Return the minimum number of allowed errors and their witness factors.
+
+        The default counts each single-qubit X, Y, or Z error once, giving
+        ordinary Pauli-weight distance. A string restricts the allowed
+        single-qubit errors; a sequence supplies explicit errors, including
+        correlated multi-qubit Paulis, each counted once. The witness remains
+        a list of selected factors, not their product. Select solver="enumeration"
+        (the default), "mwpf", or "highs". HiGHS requires qdk[ec,ec-highs].
+        A cutoff or an unresolved bound gap raises RuntimeError. An empty
+        witness with a numeric sentinel means no allowed logical error exists.
+        """
+        from ._distance import code_distance_of
+
+        return code_distance_of(
+            self._algebra,
+            errors=errors,
+            coset_representative=coset_representative,
+            distance_upper_bound=upper_bound,
+            solver=solver,
+        )
+
+    def distance_bounds(
+        self,
+        *,
+        errors: "str | Sequence[Pauli]" = "XYZ",
+        coset_representative: Pauli | None = None,
+        upper_bound: int | None = None,
+        solver: "_BoundsSolver | None" = None,
+    ) -> tuple[int, int, list[Pauli]]:
+        """Return lower and upper distance bounds and witness factors.
+
+        Uses the same error counting as :meth:`distance`: X, Y, and Z each
+        cost one by default; an explicit error sequence can include correlated
+        Paulis. A nonempty witness is the list of factors establishing the
+        upper bound. An empty list means no witness was found.
+        Select solver="mwpf" (the default), "enumeration", or "highs".
+        HiGHS requires qdk[ec,ec-highs]. With no witness, the upper value is
+        a sentinel, not a certified finite distance. Enumeration and HiGHS use
+        upper_bound as a search cutoff; MWPF ignores it. Backend failures,
+        invalid witnesses, or unavailable bound certificates
+        raise RuntimeError rather than returning a partial or uncertified bound.
+        """
+        from ._distance import code_distance_bounds_of
+
+        return code_distance_bounds_of(
+            self._algebra,
+            errors=errors,
+            coset_representative=coset_representative,
+            distance_upper_bound=upper_bound,
+            solver=solver,
+        )
+
+    def encoding_clifford(
+        self, *, supported_by: Sequence[int] | None = None
+    ) -> CliffordUnitary:
+        return self._algebra.encoding_clifford(supported_by=supported_by)
+
+    def is_trivial_error(self, error: Pauli) -> bool:
+        return self._algebra.is_trivial_error(error)
+
+    def is_trivial_logical_error(self, error: Pauli) -> bool:
+        return self._algebra.is_trivial_logical_error(error)
+
+    def is_logical_error(self, error: Pauli) -> bool:
+        return self._algebra.is_logical_error(error)
+
+    def is_non_trivial_logical_error(self, error: Pauli) -> bool:
+        return self._algebra.is_non_trivial_logical_error(error)
+
+    def logical_action_of(self, error: Pauli) -> Pauli:
+        return self._algebra.logical_action_of(error)
+
+    def representative_of(self, pauli: Pauli) -> Pauli:
+        return self._algebra.representative_of(pauli)
+
+    def unsigned_logical_action_of(self, error: Pauli) -> Pauli:
+        return self._algebra.unsigned_logical_action_of(error)
+
+    def is_equivalent_to(
+        self,
+        other: "CodeProfile",
+        *,
+        including_signs: bool = False,
+        strict_basis: bool = True,
+    ) -> bool:
+        return self._algebra.is_equivalent_to(
+            other._algebra,
+            including_signs=including_signs,
+            strict_basis=strict_basis,
+        )
+
+    def why_not_equivalent_to(self, other: "CodeProfile") -> str:
+        return self._algebra.why_not_equivalent_to(other._algebra)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, CodeProfile) and self._algebra == other._algebra
+
+    def __hash__(self) -> int:
+        return hash(self._algebra)
+
+
+__all__ = ["CodeProfile"]

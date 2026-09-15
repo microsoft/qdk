@@ -104,7 +104,7 @@ from ._readouts import as_readout
 from ._references import as_references
 
 if TYPE_CHECKING:
-    from ._analysis.code_algebra import SubsystemCode
+    from ._code_profile import CodeProfile
 
 #: Name given to the built physical instruction set.
 _PHYSICAL_ISA_NAME = "stim"
@@ -648,7 +648,7 @@ def _build(
 
 
 def build_qodec(
-    code: qc.Code | SubsystemCode,
+    code: qc.Code | CodeProfile,
     *,
     name: str | None = None,
     description: str | None = None,
@@ -666,12 +666,15 @@ def build_qodec(
     count. Both strategies attempt the same instructions and verify their
     logical actions. The strategy is named in the default qodec description.
     """
-    from ._analysis.code_algebra import SubsystemCode, as_qodec_code
+    from ._analysis.code_algebra import as_qodec_code
+    from ._code_profile import CodeProfile
 
     if strategy not in ("flagged-css/v1", "bare-css/v1"):
         raise ValueError(f"unknown qodec construction strategy {strategy!r}")
     materialized = (
-        as_qodec_code(code, name or "code") if isinstance(code, SubsystemCode) else code
+        as_qodec_code(code._algebra, name or "code")
+        if isinstance(code, CodeProfile)
+        else code
     )
     return _build(
         materialized,

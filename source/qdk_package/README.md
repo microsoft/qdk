@@ -137,10 +137,20 @@ home directory use `~/`; other paths remain absolute. The stored
 `SourceLocation.path` remains absolute in either case.
 Equation failures point to the equation; other findings fall back to the
 containing artifact. Source metadata does not affect diagnostic equality.
-Constructed or modified models may have no source locations. The 11 top-level
-`qdk.ec` exports are unchanged.
+Constructed or modified models may have no source locations. `qdk.ec` has
+11 top-level exports.
 
-`SubsystemCode.distance()` and `distance_bounds()` default to single-qubit
+Use `ec.CodeProfile(code)` to analyze a `qodec.Code`, just as
+`ec.GadgetProfile(gadget)` analyzes a gadget. Both profiles snapshot their input
+at construction; later edits to the original do not change the profile.
+Code names, descriptions, and persistence remain with qodec.
+
+`CodeProfile` exposes groups and bases, code dimensions, error queries,
+representatives, encoding Cliffords, distance, and equivalence. It does not
+construct or relocate codes; operator transformations remain internal to the
+analysis algorithms.
+
+`CodeProfile.distance()` and `distance_bounds()` default to single-qubit
 `"XYZ"` errors, each with unit cost. Supplying `errors` restricts those Pauli
 kinds or replaces them with an explicit sequence of allowed Pauli errors,
 including correlated errors. The witness remains a list of selected factors.
@@ -258,7 +268,7 @@ distance, witness = profile.distance(solver="highs")
 lower, upper, witness = profile.distance_bounds(solver="highs")
 ```
 
-The same selection works on `SubsystemCode`. No solver classes or interfaces
+The same selection works on `CodeProfile`. No solver classes or interfaces
 are exported. Enumeration search enumerates subsets; HiGHS minimizes fault count
 subject to the binary check and logical constraints. Enumeration and HiGHS use
 `upper_bound` as an inclusive search cutoff; MWPF ignores it. The proven
@@ -280,7 +290,7 @@ readout dependencies raise rather than silently omitting effects. Conditional or
 selected circuits and circuit instruction flags are not supported.
 
 These are two new methods on `GadgetProfile`, bringing it to 10 named members;
-there are no new top-level exports. Names follow `SubsystemCode.distance` and
+there are no new top-level exports. Names follow `CodeProfile.distance` and
 `distance_bounds`; separate `gadget_distance_*` free functions would duplicate
 the profile's ownership. `faults` follows `effects_of(faults)`, rather than `errors`,
 because the inputs include circuit locations. The existing `fault_effects` property

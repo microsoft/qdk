@@ -6,7 +6,7 @@ import operator
 from functools import reduce
 import pytest
 import qodec as qc
-from qdk.ec import SubsystemCode
+from qdk.ec import CodeProfile
 from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from ec_tests.testing import code_catalog as catalog
 from qdk.ec._analysis.propagation.pauli import Pauli
@@ -86,7 +86,9 @@ def test_distance_upper_bound_short_circuits_search() -> None:
     code = catalog.make_five_qubit_code()
     with pytest.raises(RuntimeError, match="exact distance"):
         code_distance_of(code, distance_upper_bound=2)
-    lower, upper, witness = code.distance_bounds(solver="enumeration", upper_bound=2)
+    lower, upper, witness = code_distance_bounds_of(
+        code, solver="enumeration", distance_upper_bound=2
+    )
     assert lower == 3 and upper > lower and witness == []
 
 
@@ -95,8 +97,8 @@ def test_distance_upper_bound_short_circuits_search() -> None:
 def test_highs_code_distance_matches_known_value(
     name: str, code: StabilizerCode, expected: int
 ) -> None:
-    distance, witness = code.distance(solver="highs")
-    lower, upper, bounded = code.distance_bounds(solver="highs")
+    distance, witness = code_distance_of(code, solver="highs")
+    lower, upper, bounded = code_distance_bounds_of(code, solver="highs")
     assert distance == lower == upper == expected, name
     assert len(witness) == len(bounded) == expected
     assert code.is_non_trivial_logical_error(product_of(witness))
@@ -104,7 +106,7 @@ def test_highs_code_distance_matches_known_value(
 
 
 def test_distance_and_bounds_default_to_unit_cost_y_errors() -> None:
-    code = SubsystemCode.of(qc.Code("Y repetition", ["Y_0 Y_1"], ["Y_0"], ["X_0 X_1"]))
+    code = CodeProfile(qc.Code("Y repetition", ["Y_0 Y_1"], ["Y_0"], ["X_0 X_1"]))
     for distance, witness in (code.distance(), code_distance_of(code)):
         assert distance == 1
         assert isinstance(witness, list) and len(witness) == 1
@@ -125,7 +127,7 @@ def test_distance_and_bounds_default_to_unit_cost_y_errors() -> None:
 
 
 def test_correlated_errors_remain_single_witness_factors() -> None:
-    code = SubsystemCode.of(
+    code = CodeProfile(
         qc.Code(
             "C4",
             ["X_0 X_1 X_2 X_3", "Z_0 Z_1 Z_2 Z_3"],
