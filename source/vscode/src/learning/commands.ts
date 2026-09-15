@@ -66,7 +66,7 @@ export function registerLearningCommands(
         }
 
         const confirmed = await vscode.window.showWarningMessage(
-          "Reset this unit to the original notebook? Your current work will be lost.",
+          "Reset this unit to its original state? Your current work in this unit will be lost.",
           { modal: true },
           "Reset",
         );
@@ -74,11 +74,33 @@ export function registerLearningCommands(
           return;
         }
 
-        await service.resetExercise();
-        // The whole unit was reset, so the learner's old position no longer
-        // means anything — start them at the top of the fresh notebook.
-        await openCourseNotebook(service, { reveal: "top" });
+        await service.resetUnit(
+          location ? { unitId: location.unitId } : undefined,
+          "tree",
+        );
+
+        // Notebook courses don't use the lesson panel, and the reset closed
+        // the workbook, so re-open the fresh copy instead.
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
+          await openCourseNotebook(service, { reveal: "top" });
+        } else {
+          await panelManager.show();
+        }
         vscode.window.showInformationMessage("Unit has been reset.");
+      },
+    ),
+
+    // Used by the chat tool to re-open a notebook it closed during a reset.
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningOpenNotebook",
+      async () => {
+        if (
+          !service.initialized ||
+          !isNotebookCourse(service.getActiveCourseInfo())
+        ) {
+          return;
+        }
+        await openCourseNotebook(service, { reveal: "top" });
       },
     ),
 
