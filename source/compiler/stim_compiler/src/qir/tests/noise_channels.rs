@@ -348,6 +348,104 @@ fn else_correlated_error_without_preceding_else_correlated_error_yields_error() 
 }
 
 #[test]
+fn correlated_error_chain_does_not_continue_into_select_block() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        SELECT {
+            ELSE_CORRELATED_ERROR(0.02) Y0
+        }
+    "};
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
+
+              x else_correlated_error must be preceded by a correlated_error or
+              | else_correlated_error instruction
+               ,-[3:5]
+             2 | SELECT {
+             3 |     ELSE_CORRELATED_ERROR(0.02) Y0
+               :     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             4 | }
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_does_not_continue_out_of_select_block() {
+    let source = indoc! {"
+        SELECT {
+            CORRELATED_ERROR(0.01) X0
+        }
+        ELSE_CORRELATED_ERROR(0.02) Y0
+    "};
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
+
+              x else_correlated_error must be preceded by a correlated_error or
+              | else_correlated_error instruction
+               ,-[4:1]
+             3 | }
+             4 | ELSE_CORRELATED_ERROR(0.02) Y0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_does_not_continue_into_repeat_block() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        REPEAT 2 {
+            ELSE_CORRELATED_ERROR(0.02) Y0
+        }
+    "};
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
+
+              x else_correlated_error must be preceded by a correlated_error or
+              | else_correlated_error instruction
+               ,-[3:5]
+             2 | REPEAT 2 {
+             3 |     ELSE_CORRELATED_ERROR(0.02) Y0
+               :     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             4 | }
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_does_not_continue_out_of_repeat_block() {
+    let source = indoc! {"
+        REPEAT 2 {
+            CORRELATED_ERROR(0.01) X0
+        }
+        ELSE_CORRELATED_ERROR(0.02) Y0
+    "};
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
+
+              x else_correlated_error must be preceded by a correlated_error or
+              | else_correlated_error instruction
+               ,-[4:1]
+             3 | }
+             4 | ELSE_CORRELATED_ERROR(0.02) Y0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
 fn depolarize1_yields_expected_qir() {
     let source = "DEPOLARIZE1(0.01) 0";
     check(
