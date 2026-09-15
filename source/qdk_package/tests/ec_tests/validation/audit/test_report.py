@@ -129,6 +129,20 @@ def test_report_formats_location_and_evidence_without_extra_advice() -> None:
     )
 
 
+def test_report_reuses_diagnostic_text_in_severity_order() -> None:
+    error = _make("test/error", Severity.ERROR)
+    warning = _make("test/warning", Severity.WARNING)
+    informational = _make("test/info", Severity.INFO)
+    report = Report((informational, warning, error))
+
+    assert str(report) == (
+        f"{error}\n\n{warning}\n\n" "audit: 1 error(s), 1 warning(s), 1 informational"
+    )
+    assert str(Report((informational,))) == (
+        "audit: 0 error(s), 0 warning(s), 1 informational"
+    )
+
+
 def test_diagnostic_phase_enum_values() -> None:
     """Phase enum is used by rules; sanity-check the three members exist."""
     members = {p.name for p in Phase}
@@ -166,6 +180,7 @@ def test_report_abbreviates_home_only_for_display(
         "qodec",
         "message",
     ]
+    assert str(diagnostic).splitlines() == str(Report((diagnostic,))).splitlines()[:4]
     assert diagnostic.source_location is location
     assert location.path == file and location.path.is_absolute()
 
