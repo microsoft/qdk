@@ -366,6 +366,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_call(
         &mut self,
+        call_expr: ExprId,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
         expr_type: &Ty,
@@ -392,13 +393,8 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
+            self.analyze_expr_call_with_static_callee(call_expr, callee_expr_id, args_expr_id)
         };
-
-        // Cache the `MustBeInlined` runtime feature flag if it was set on the compute kind of the call expression.
-        // This allows it to be added again later after aggregating the runtime features of the callee and arguments expressions,
-        // which may have cleared that flag.
-        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
         let application_instance = self.get_current_application_instance();
@@ -445,20 +441,13 @@ impl<'a> Analyzer<'a> {
         // Aggregate the runtime features of the callee and arguments expressions.
         compute_kind.aggregate_runtime_features(callee_expr_compute_kind, ValueKind::Constant);
         compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
-
-        if must_inline
-            && let ComputeKind::Dynamic {
-                runtime_features, ..
-            } = &mut compute_kind
-        {
-            *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
-        }
-
         compute_kind
     }
 
+    #[allow(clippy::too_many_lines)]
     fn analyze_expr_call_with_spec_callee(
         &mut self,
+        call_expr: ExprId,
         callee: &Callee,
         callable_decl: &'a CallableDecl,
         args_expr_id: ExprId,
@@ -519,6 +508,7 @@ impl<'a> Analyzer<'a> {
             .target_capabilities
             .contains(TargetCapabilityFlags::CallSupport)
             && self.check_must_inline(
+                callee_id,
                 callable_decl,
                 &arg_compute_kinds,
                 &mut compute_kind,
@@ -579,12 +569,26 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        if must_inline
-            && let ComputeKind::Dynamic {
-                runtime_features, ..
-            } = &mut compute_kind
+        if must_inline && !matches!(compute_kind, ComputeKind::Static) {
+            // This is a dynamic call expression that must be inlined, so track the call expr id
+            // in the map to ensure that partial eval will inline it.
+            self.package_store_compute_properties
+                .insert_must_inline_call_expr((self.get_current_package_id(), call_expr).into());
+        }
+
+        // If the callee must always be inlined, mark the current item as requiring inlining too.
+        // This ensures that whole call stack gets inlined into the entry point if a must-inline callable is invoked.
+        if self
+            .package_store_compute_properties
+            .is_must_inline_callable(callee_id)
+            && let AnalysisContext::Item(item_context) = self.get_current_context()
         {
-            *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
+            let functor = item_context
+                .current_spec_context
+                .as_ref()
+                .map_or(FunctorSetValue::Empty, |c| c.functor_set_value);
+            self.package_store_compute_properties
+                .insert_must_inline_callable((item_context.id, functor).into());
         }
 
         compute_kind
@@ -592,6 +596,7 @@ impl<'a> Analyzer<'a> {
 
     fn check_must_inline(
         &self,
+        callee_id: GlobalSpecId,
         callable_decl: &'a CallableDecl,
         arg_compute_kinds: &[ComputeKind],
         compute_kind: &mut ComputeKind,
@@ -610,8 +615,8 @@ impl<'a> Analyzer<'a> {
             && if let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &ir_function_compute_kind
-            // ...and the computed runtime features of the resulting IR function does not require qubit allocation when the target doesn't support it...
-            && (!runtime_features.contains(RuntimeFeatureFlags::QubitAllocation) || self.target_capabilities.contains(TargetCapabilityFlags::DynamicQubitAllocation))
+            // ...and the call is not one that we've marked as must-inline...
+            && !self.package_store_compute_properties.is_must_inline_callable(callee_id)
             // ...and the computed runtime features of the function do not involve call to unresolved callee...
             && !runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
             // ...and those computed runtime features are all supported by the target capabilities...
@@ -635,6 +640,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_call_with_static_callee(
         &mut self,
+        call_expr: ExprId,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
     ) -> ComputeKind {
@@ -690,6 +696,7 @@ impl<'a> Analyzer<'a> {
         };
         match global_callee {
             Global::Callable(callable_decl) => self.analyze_expr_call_with_spec_callee(
+                call_expr,
                 &callee,
                 callable_decl,
                 args_expr_id,
@@ -1395,6 +1402,19 @@ impl<'a> Analyzer<'a> {
                 derive_instrinsic_operation_application_generator_set(callable_context)
             }
         };
+
+        if matches!(callable_context.kind, CallableKind::Operation)
+            && is_qubit_allocation_output(&callable_context.output_type)
+            && !self
+                .target_capabilities
+                .contains(TargetCapabilityFlags::DynamicQubitAllocation)
+        {
+            // The only intrinsic operations whose output is a qubit (or an array of qubits) are the qubit
+            // allocate/borrow intrinsics. Tag the allocate leaf so that qubit allocation is always inlined
+            // and propagated bottom-up to every transitive caller.
+            self.package_store_compute_properties
+                .insert_must_inline_callable(body_specialization_id);
+        }
 
         // Insert the generator set in the entry corresponding to the body specialization of the callable.
         self.package_store_compute_properties.insert_spec(
@@ -2161,7 +2181,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             }
             ExprKind::Block(block_id) => self.analyze_expr_block(*block_id),
             ExprKind::Call(callee_expr_id, args_expr_id) => {
-                self.analyze_expr_call(*callee_expr_id, *args_expr_id, &expr.ty)
+                self.analyze_expr_call(expr_id, *callee_expr_id, *args_expr_id, &expr.ty)
             }
             ExprKind::Closure(..) => ComputeKind::Static,
             ExprKind::Fail(msg_expr_id) => self.analyze_expr_fail(*msg_expr_id),
@@ -2645,12 +2665,6 @@ fn derive_instrinsic_operation_application_generator_set(
     }
     if callable_context.attrs.contains(&Attr::Reset) {
         inherent_runtime_features |= RuntimeFeatureFlags::CallToCustomReset;
-    }
-    // The only intrinsic operations whose output is a qubit (or an array of qubits) are the qubit
-    // allocate/borrow intrinsics. Tag the allocate leaf so that qubit allocation is surfaced as an
-    // inherent runtime feature and propagated bottom-up to every transitive caller.
-    if is_qubit_allocation_output(&callable_context.output_type) {
-        inherent_runtime_features |= RuntimeFeatureFlags::QubitAllocation;
     }
 
     // The compute kind of intrinsic operations is always dynamic.

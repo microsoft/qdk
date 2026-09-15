@@ -77,7 +77,7 @@ impl From<(LocalItemId, FunctorSetValue)> for LocalSpecId {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct GlobalSpecId {
     pub callable: StoreItemId,
     pub functor_set_value: FunctorSetValue,
@@ -97,6 +97,15 @@ impl From<(StoreItemId, FunctorSetValue)> for GlobalSpecId {
         Self {
             callable: value.0,
             functor_set_value: value.1,
+        }
+    }
+}
+
+impl From<(StoreItemId, FunctorApp)> for GlobalSpecId {
+    fn from(value: (StoreItemId, FunctorApp)) -> Self {
+        Self {
+            callable: value.0,
+            functor_set_value: value.1.functor_set_value(),
         }
     }
 }

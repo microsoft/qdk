@@ -14,6 +14,7 @@ use qsc_fir::{
     },
     ty::FunctorSetValue,
 };
+use rustc_hash::FxHashSet;
 
 /// Scaffolding used to build the package store compute properties.
 #[derive(Debug)]
@@ -23,6 +24,12 @@ pub struct InternalPackageStoreComputeProperties {
     // The alternative compute properties for each package if the callables are invoked
     // from within a parallel expression, keyed by package ID.
     parallel_props: IndexMap<PackageId, InternalPackageComputeProperties>,
+    // The set of global callables that must be inlined (usually due to qubit allocation) and
+    // cause any caller to also require inlining.
+    must_inline_callables: FxHashSet<GlobalSpecId>,
+    // The set of call expressions that must be inlined either because of the callable being invoked,
+    // or because of the combination of callable and runtime features of the arguments to the call expr.
+    must_inline_call_exprs: FxHashSet<StoreExprId>,
 }
 
 impl From<PackageStoreComputeProperties> for InternalPackageStoreComputeProperties {
@@ -70,6 +77,8 @@ impl From<PackageStoreComputeProperties> for InternalPackageStoreComputeProperti
         Self {
             props: scaffolding,
             parallel_props: parallel_scaffolding,
+            must_inline_callables: value.must_inline_callables,
+            must_inline_call_exprs: value.must_inline_call_exprs,
         }
     }
 }
@@ -122,6 +131,8 @@ impl From<InternalPackageStoreComputeProperties> for PackageStoreComputeProperti
         Self {
             props: package_store_compute_properties,
             parallel_props: parallel_package_store_compute_properties,
+            must_inline_callables: value.must_inline_callables,
+            must_inline_call_exprs: value.must_inline_call_exprs,
         }
     }
 }
@@ -227,6 +238,8 @@ impl InternalPackageStoreComputeProperties {
         Self {
             props: packages,
             parallel_props: parallel_packages,
+            must_inline_callables: Default::default(),
+            must_inline_call_exprs: Default::default(),
         }
     }
 
@@ -277,6 +290,18 @@ impl InternalPackageStoreComputeProperties {
         self.get_mut(id.package, parallel)
             .stmts
             .insert(id.stmt, value);
+    }
+
+    pub(crate) fn insert_must_inline_callable(&mut self, id: GlobalSpecId) {
+        self.must_inline_callables.insert(id);
+    }
+
+    pub(crate) fn is_must_inline_callable(&self, id: GlobalSpecId) -> bool {
+        self.must_inline_callables.contains(&id)
+    }
+
+    pub(crate) fn insert_must_inline_call_expr(&mut self, id: StoreExprId) {
+        self.must_inline_call_exprs.insert(id);
     }
 }
 

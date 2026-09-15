@@ -283,7 +283,7 @@ impl From<(PackageId, BlockId)> for StoreBlockId {
 }
 
 /// A unique identifier for an expression within a package store.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash, Eq)]
 pub struct StoreExprId {
     /// The package ID.
     pub package: PackageId,

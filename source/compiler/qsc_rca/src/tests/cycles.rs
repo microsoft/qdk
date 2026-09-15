@@ -1189,7 +1189,7 @@ fn check_rca_for_call_to_preparepurestated_cyclic_library_operation() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(CallToUnresolvedCallee)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>

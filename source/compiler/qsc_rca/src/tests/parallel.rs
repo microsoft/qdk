@@ -69,7 +69,7 @@ fn check_rca_for_parallel_with_dynamic_operations_no_branching() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -102,7 +102,7 @@ fn check_rca_for_parallel_within_with_dynamic_operations_no_branching() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -134,7 +134,7 @@ fn check_rca_for_parallel_with_dynamic_if_in_body() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -166,7 +166,7 @@ fn check_rca_for_parallel_with_short_circuit_bool_in_body() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -198,7 +198,7 @@ fn check_rca_for_parallel_with_while_loop_with_dynamic_condition() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -232,7 +232,7 @@ fn check_rca_for_parallel_within_with_dynamic_limit() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -268,7 +268,7 @@ fn check_rca_for_nested_parallel_with_dynamic_if_in_inner_body() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -328,7 +328,7 @@ fn check_rca_for_parallel_calling_operation_that_branches_dynamically() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -386,7 +386,7 @@ fn check_rca_for_parallel_within_calling_operation_that_branches_dynamically() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBranchingInParallelExpr)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -422,7 +422,7 @@ fn check_rca_for_parallel_with_dynamic_arg_to_rotation_does_not_branch() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -452,18 +452,18 @@ fn check_rca_for_callable_with_parallel_loop_invoking_stdlib_callable_with_inner
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
                             constant_content: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                                 value_kind: Constant
                             static_size: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                                 value_kind: Constant
                             dynamic_size: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicPauli | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicPauli | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | UseOfDynamicBranchingInParallelExpr)
                                 value_kind: Constant
                 adj: <none>
                 ctl: <none>
@@ -489,15 +489,15 @@ fn check_rca_for_parallel_with_only_call_to_controlled_specialization() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] ElementParamApplication:
                             constant: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                                 value_kind: Constant
                             variable: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                                 value_kind: Constant
                 adj: <none>
                 ctl: <none>

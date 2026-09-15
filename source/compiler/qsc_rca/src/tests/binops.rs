@@ -32,7 +32,7 @@ fn check_rca_for_bin_op_with_dynamic_lhs_and_classical_rhs() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -52,7 +52,7 @@ fn check_rca_for_bin_op_with_classical_lhs_and_dynamic_rhs() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -73,7 +73,7 @@ fn check_rca_for_bin_op_with_dynamic_lhs_and_dynamic_rhs() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -112,7 +112,7 @@ fn check_rca_for_nested_bin_ops_with_a_dynamic_operand() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -148,7 +148,7 @@ fn check_rca_for_exp_op_with_dynamic_lhs_and_classical_rhs() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -170,7 +170,7 @@ fn check_rca_for_exp_op_with_classical_lhs_and_dynamic_rhs() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicExponent | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicExponent)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -194,7 +194,7 @@ fn check_rca_for_exp_op_with_dynamic_lhs_and_dynamic_rhs() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicExponent | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicExponent)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
