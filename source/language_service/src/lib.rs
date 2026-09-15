@@ -27,8 +27,8 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use log::{trace, warn};
 use protocol::{
-    CodeAction, CodeLens, CompletionList, DiagnosticUpdate, Hover, NotebookMetadata, SignatureHelp,
-    TestCallables, TextEdit, WorkspaceConfigurationUpdate,
+    CodeAction, CodeLens, CompletionList, DiagnosticUpdate, Hover, ModeResolved, NotebookMetadata,
+    OpenQasmMode, SignatureHelp, TestCallables, TextEdit, WorkspaceConfigurationUpdate,
 };
 use qsc::{
     line_column::{Encoding, Position, Range},
@@ -133,6 +133,7 @@ impl LanguageService {
         // Callback which receives detected test callables and does something with them
         // in the case of VS Code, updates the test explorer with them
         test_callable_receiver: impl Fn(TestCallables) + 'a,
+        mode_resolved_receiver: impl Fn(ModeResolved) + 'a,
         project_host: impl JSProjectHost + 'static,
     ) -> UpdateHandler<'a> {
         assert!(self.state_updater.is_none());
@@ -142,6 +143,7 @@ impl LanguageService {
                 self.state.clone(),
                 diagnostics_receiver,
                 test_callable_receiver,
+                mode_resolved_receiver,
                 project_host,
                 self.position_encoding,
             ),
@@ -287,6 +289,18 @@ impl LanguageService {
                 }
             }
         }
+    }
+
+    #[must_use]
+    pub fn get_openqasm_mode(&self, uri: &str) -> Option<protocol::EffectiveOpenQasmMode> {
+        self.state.borrow().get_openqasm_mode(uri)
+    }
+
+    pub fn set_openqasm_mode_override(&mut self, uri: &str, mode: Option<OpenQasmMode>) {
+        self.send_update(Update::OpenQasmModeOverride {
+            uri: uri.into(),
+            mode,
+        });
     }
 
     #[must_use]
@@ -578,7 +592,8 @@ fn push_update(pending_updates: &mut Vec<Update>, update: Update) {
         }
         Update::Configuration { .. }
         | Update::CloseDocument { .. }
-        | Update::CloseNotebookDocument { .. } => (), // These events aren't noisy enough to bother deduping.
+        | Update::CloseNotebookDocument { .. }
+        | Update::OpenQasmModeOverride { .. } => (), // These events aren't noisy enough to bother deduping.
     }
     pending_updates.push(update);
 }
@@ -619,6 +634,9 @@ async fn apply_update(updater: &mut CompilationStateUpdater<'_>, update: Update)
         Update::Configuration { changed } => {
             updater.update_configuration(changed);
         }
+        Update::OpenQasmModeOverride { uri, mode } => {
+            updater.set_openqasm_mode_override(&uri, mode);
+        }
     }
 }
 
@@ -644,6 +662,10 @@ enum Update {
     CloseNotebookDocument {
         notebook_uri: String,
     },
+    OpenQasmModeOverride {
+        uri: String,
+        mode: Option<OpenQasmMode>,
+    },
 }
 
 impl Update {
@@ -658,6 +680,9 @@ impl Update {
             }
             Update::CloseNotebookDocument { notebook_uri } => {
                 format!("CloseNotebookDocument({notebook_uri})")
+            }
+            Update::OpenQasmModeOverride { uri, mode } => {
+                format!("OpenQasmModeOverride({uri}, {mode:?})")
             }
         }
     }
