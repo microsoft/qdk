@@ -13,7 +13,7 @@ import qodec as qc
 
 from ec_tests.testing import code_catalog as catalog
 from ec_tests.testing.qodecs import c4
-from qdk.ec import SubsystemCode, _audit, build_qodec
+from qdk.ec import CodeProfile, _audit, build_qodec
 from qdk.ec import _distance as distance
 from qdk.ec._analysis import channel_action as action
 from qdk.ec._completion import complete_qodec
@@ -261,7 +261,7 @@ def test_bare_strategy_skips_distance_computation(
         raise AssertionError("bare construction must not compute code distance")
 
     code = _code("steane", catalog.make_steane_code)
-    argument = SubsystemCode.of(code) if use_analysis else code
+    argument = CodeProfile(code) if use_analysis else code
     monkeypatch.setattr(_build, "code_distance_of", fail_distance)
 
     built = build_qodec(
@@ -274,6 +274,17 @@ def test_bare_strategy_skips_distance_computation(
     assert built.name == "bare_steane"
     assert built.description == "No flag ancillas."
     assert build_notes(built)["flags_per_stabilizer"] == 0
+
+
+def test_build_from_profile_uses_its_operator_snapshot() -> None:
+    code = _code("steane", catalog.make_steane_code)
+    profile = CodeProfile(code)
+    expected = build_qodec(profile, strategy="bare-css/v1", name="steane")
+    code.stabilizers = []
+    code.x = []
+    code.z = []
+
+    assert build_qodec(profile, strategy="bare-css/v1", name="steane") == expected
 
 
 @pytest.mark.parametrize("strategy", ["bare-css/v2", "unknown"])

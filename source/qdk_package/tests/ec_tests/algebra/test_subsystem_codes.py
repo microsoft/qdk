@@ -36,6 +36,22 @@ def test_encoding_clifford_of(code: SubsystemCode) -> None:
     assert_encoding_clifford_of(code)
 
 
+def test_relocation_preserves_signed_operators_and_gauges() -> None:
+    code = SubsystemCode(
+        [identity(-1) * Pauli("Z_0")],
+        [Pauli("X_1"), Pauli("Z_1")],
+        gauge_basis=[Pauli("X_2"), Pauli("Z_2")],
+    )
+
+    relocated = code.relocated({0: 5, 1: 7, 2: 9})
+
+    assert relocated.stabilizers == [identity(-1) * Pauli("Z_5")]
+    assert relocated.logical_basis == [Pauli("X_7"), Pauli("Z_7")]
+    assert relocated.gauge_basis == (Pauli("X_9"), Pauli("Z_9"))
+    assert relocated.support == frozenset({5, 7, 9})
+    assert code.support == frozenset({0, 1, 2})
+
+
 def assert_consistency_of(code: SubsystemCode) -> None:
     assert_code_generators(code)
     assert_valid_logical_basis(code)

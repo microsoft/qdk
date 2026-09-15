@@ -3,7 +3,7 @@
 import pytest
 import qodec as qc
 
-from qdk.ec._analysis.code_algebra import SubsystemCode
+from qdk.ec import CodeProfile
 from qdk.ec._analysis.propagation.isa_actions import build_clifford_images
 from qdk.ec._audit.rules.code import CodeAlgebraRule
 from qdk.ec._audit.rules.instruction_set import CliffordAlgebraRule
@@ -42,7 +42,7 @@ def test_code_algebra_has_pair_evidence(
     assert all(item.rule == "code/invalid-algebra" for item in diagnostics)
     assert any(evidence in item.summary for item in diagnostics)
     with pytest.raises(ValueError):
-        SubsystemCode.of(code)
+        CodeProfile(code)
 
 
 def test_clifford_algebra_rule_checks_implicit_images() -> None:

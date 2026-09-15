@@ -11,7 +11,7 @@ from binar import BitMatrix
 import qodec as qc
 import pytest
 
-from qdk.ec import ChannelAction, FaultEvent, GadgetProfile, Pauli, SubsystemCode
+from qdk.ec import ChannelAction, FaultEvent, GadgetProfile, Pauli, CodeProfile
 from qdk.ec._analysis.distance_solvers import EnumerationSolverOptions
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.interpreter import propagate_faults
@@ -700,7 +700,7 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
         (Pauli({faults.index(fault): "X"}) for fault in witness),
         Pauli.identity(),
     )
-    assert SubsystemCode.of(code).is_non_trivial_logical_error(residual)
+    assert CodeProfile(code).is_non_trivial_logical_error(residual)
     logical_fault = FaultEvent.after(0, Pauli("X_0 X_1"))
     assert profile.distance(faults=[logical_fault]) == (1, [logical_fault])
     stabilizer_fault = FaultEvent.after(0, Pauli("X_0 X_1 X_2 X_3"))

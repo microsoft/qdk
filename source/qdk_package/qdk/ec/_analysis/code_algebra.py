@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from functools import cached_property
 from itertools import chain, product
-from typing import Callable, Iterable, Mapping, Optional, Sequence, TYPE_CHECKING
+from typing import Callable, Iterable, Mapping, Optional, Sequence
 
+import qodec as qc
 from binar import BitMatrix
 from more_itertools import chunked, interleave, take
 from paulimer import (
@@ -25,25 +26,15 @@ from .propagation.pauli import (
     relabel,
 )
 
-if TYPE_CHECKING:
-    import qodec as qc
-
-    from .distance_solvers import BoundsSolver as _BoundsSolver
-    from .distance_solvers import ExactSolver as _ExactSolver
-
 
 class SubsystemCode:  # pylint: disable=too-many-public-methods
-    """Internal algebraic interpretation of a qodec code.
-
-    A pure value: stabilizers, a logical basis, and an optional gauge basis.
-    Naming and qodec (de)serialization are deliberately *not* part of it — see
-    :func:`subsystem_code_of` and :func:`as_qodec_code`.
-    """
+    """Internal algebraic value with stabilizers, logicals, and optional gauges."""
 
     def __init__(
         self,
         stabilizers: Sequence[Pauli],
         logical_basis: Sequence[Pauli],
+        *,
         gauge_basis: Optional[Sequence[Pauli]] = None,
     ) -> None:
         _validate_stabilizers(stabilizers)
@@ -62,13 +53,6 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
             )
             self._support |= frozenset(PauliGroup(gauge_basis).support)
             self._declared_gauge = PauliGroup(gauge_basis)
-
-    @classmethod
-    def of(cls, code: "qc.Code | SubsystemCode") -> "SubsystemCode":
-        """View a qodec code as a subsystem code. This operation is idempotent."""
-        if isinstance(code, SubsystemCode):
-            return code
-        return subsystem_code_of(code)
 
     @property
     def stabilizer(self) -> PauliGroup:
@@ -142,66 +126,6 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def logical_effect_of(self, error: Pauli) -> Pauli:
         """Return the logical Pauli induced by ``error``."""
         return self.logical_action_of(error)
-
-    def distance(
-        self,
-        *,
-        errors: "str | Sequence[Pauli]" = "XYZ",
-        coset_representative: Pauli | None = None,
-        upper_bound: int | None = None,
-        solver: "_ExactSolver | None" = None,
-    ) -> tuple[int, list[Pauli]]:
-        """Return the minimum number of allowed errors and their witness factors.
-
-        The default counts each single-qubit X, Y, or Z error once, giving
-        ordinary Pauli-weight distance. A string restricts the allowed
-        single-qubit errors; a sequence supplies explicit errors, including
-        correlated multi-qubit Paulis, each counted once. The witness remains
-        a list of selected factors, not their product. Select solver="enumeration"
-        (the default), "mwpf", or "highs". HiGHS requires qdk[ec,ec-highs].
-        A cutoff or an unresolved bound gap raises RuntimeError. An empty
-        witness with a numeric sentinel means no allowed logical error exists.
-        """
-        from .._distance import code_distance_of
-
-        return code_distance_of(
-            self,
-            errors=errors,
-            coset_representative=coset_representative,
-            distance_upper_bound=upper_bound,
-            solver=solver,
-        )
-
-    def distance_bounds(
-        self,
-        *,
-        errors: "str | Sequence[Pauli]" = "XYZ",
-        coset_representative: Pauli | None = None,
-        upper_bound: int | None = None,
-        solver: "_BoundsSolver | None" = None,
-    ) -> tuple[int, int, list[Pauli]]:
-        """Return lower and upper distance bounds and witness factors.
-
-        Uses the same error counting as :meth:`distance`: X, Y, and Z each
-        cost one by default; an explicit error sequence can include correlated
-        Paulis. A nonempty witness is the list of factors establishing the
-        upper bound. An empty list means no witness was found.
-        Select solver="mwpf" (the default), "enumeration", or "highs".
-        HiGHS requires qdk[ec,ec-highs]. With no witness, the upper value is
-        a sentinel, not a certified finite distance. Enumeration and HiGHS use
-        upper_bound as a search cutoff; MWPF ignores it. Backend failures,
-        invalid witnesses, or unavailable bound certificates
-        raise RuntimeError rather than returning a partial or uncertified bound.
-        """
-        from .._distance import code_distance_bounds_of
-
-        return code_distance_bounds_of(
-            self,
-            errors=errors,
-            coset_representative=coset_representative,
-            distance_upper_bound=upper_bound,
-            solver=solver,
-        )
 
     def encoding_clifford(
         self, *, supported_by: Sequence[int] | None = None
@@ -306,12 +230,10 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         return hash((self.stabilizers, self.logical_basis))
 
 
-def subsystem_code_of(code: "qc.Code") -> SubsystemCode:
-    """The algebraic view of a qodec code.
-
-    Purely a function of the code's operators: the code's name and description
-    are presentation, and do not ride along inside the algebraic value.
-    """
+def subsystem_code_of(code: qc.Code) -> SubsystemCode:
+    """Snapshot a qodec code's operators as a validated algebraic value."""
+    if not isinstance(code, qc.Code):
+        raise TypeError(f"expected qodec.Code, got {type(code).__name__}")
     if len(code.x) != len(code.z):
         raise ValueError(
             f"Logical operator counts disagree: x has {len(code.x)}, z has {len(code.z)}."
@@ -323,9 +245,7 @@ def subsystem_code_of(code: "qc.Code") -> SubsystemCode:
         for text in (x_operator, z_operator)
     ]
     gauges = [Pauli(text) for text in getattr(code, "gauges", [])]
-    if gauges:
-        return SubsystemCode(stabilizers, logical_basis, gauge_basis=gauges)
-    return SubsystemCode(stabilizers, logical_basis)
+    return SubsystemCode(stabilizers, logical_basis, gauge_basis=gauges or None)
 
 
 def as_qodec_code(view: SubsystemCode, name: str, description: str = "") -> "qc.Code":

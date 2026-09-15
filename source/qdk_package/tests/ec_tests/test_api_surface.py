@@ -12,13 +12,13 @@ import qdk.ec as ec
 
 _SURFACE = {
     "ChannelAction",
+    "CodeProfile",
     "Diagnostic",
     "FaultEffect",
     "FaultEvent",
     "GadgetProfile",
     "Pauli",
     "Report",
-    "SubsystemCode",
     "audit",
     "build_qodec",
     "derive",
@@ -55,7 +55,10 @@ def test_old_names_are_not_exported() -> None:
         "complete_gadget",
         "complete_qodec",
         "qodec_from_code",
+        "SubsystemCode",
     } & set(ec.__all__)
+    with pytest.raises(AttributeError, match="SubsystemCode"):
+        getattr(ec, "SubsystemCode")
 
 
 @pytest.mark.parametrize("module_name", _RETIRED_MODULES)
@@ -78,7 +81,7 @@ def test_function_signatures() -> None:
         "promote_warnings: 'bool' = False) -> 'Report'"
     )
     assert str(inspect.signature(ec.build_qodec)) == (
-        "(code: 'qc.Code | SubsystemCode', *, name: 'str | None' = None, "
+        "(code: 'qc.Code | CodeProfile', *, name: 'str | None' = None, "
         "description: 'str | None' = None, strategy: 'str' = "
         "'flagged-css/v1', strict: 'bool' = True) -> 'qc.Qodec'"
     )
@@ -162,11 +165,40 @@ def test_fault_event_repr_is_replayable() -> None:
         )
 
 
-def test_subsystem_code_view_is_idempotent(bundle) -> None:
-    code = next(iter(bundle.codes.values()))
-    view = ec.SubsystemCode.of(code)
+def test_code_profile_contract() -> None:
+    import qodec as qc
 
-    assert ec.SubsystemCode.of(view) is view
+    code = qc.Code("repetition_2", ["Z_0 Z_1"], ["X_0 X_1"], ["Z_0"])
+    view = ec.CodeProfile(code)
+
+    assert str(inspect.signature(ec.CodeProfile)) == "(code: 'qc.Code') -> 'None'"
+    assert {name for name in dir(ec.CodeProfile) if not name.startswith("_")} == {
+        "stabilizer",
+        "stabilizers",
+        "anti_stabilizer",
+        "anti_stabilizers",
+        "gauge",
+        "gauge_basis",
+        "logical",
+        "logical_basis",
+        "support",
+        "length",
+        "logical_qubit_count",
+        "syndrome_of",
+        "logical_effect_of",
+        "distance",
+        "distance_bounds",
+        "encoding_clifford",
+        "is_trivial_error",
+        "is_trivial_logical_error",
+        "is_logical_error",
+        "is_non_trivial_logical_error",
+        "logical_action_of",
+        "representative_of",
+        "unsigned_logical_action_of",
+        "is_equivalent_to",
+        "why_not_equivalent_to",
+    }
     assert isinstance(view.syndrome_of(ec.Pauli.identity()), frozenset)
     assert view.logical_effect_of(ec.Pauli.identity()) == ec.Pauli.identity()
     assert view.why_not_equivalent_to(view) == ""
