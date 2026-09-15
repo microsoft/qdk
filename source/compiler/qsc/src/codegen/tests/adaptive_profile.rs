@@ -1738,9 +1738,9 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         declare ptr @__quantum__rt__qubit_allocate()
 
-        define internal void @X(ptr %var_3) {
+        define internal void @X(ptr %var_4) {
         block_2:
-          call void @__quantum__qis__x__body(ptr %var_3)
+          call void @__quantum__qis__x__body(ptr %var_4)
           ret void
         }
 

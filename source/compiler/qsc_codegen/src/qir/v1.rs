@@ -221,7 +221,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Srem(lhs, rhs, variable) => {
                 binop_to_qir("srem", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Store(_, _) | rir::Instruction::StoreArray(_, _) => {
+            rir::Instruction::Store(_, _)
+            | rir::Instruction::StoreArray(_, _)
+            | rir::Instruction::StoreIndex(_, _, _) => {
                 unimplemented!("store should be removed by pass")
             }
             rir::Instruction::Sub(lhs, rhs, variable) => {
@@ -229,7 +231,9 @@ impl ToQir<String> for rir::Instruction {
             }
             rir::Instruction::Alloca(..)
             | rir::Instruction::Load(..)
-            | rir::Instruction::Index(..) => {
+            | rir::Instruction::Index(..)
+            | rir::Instruction::CopyArray(..)
+            | rir::Instruction::SliceArray(..) => {
                 unimplemented!("advanced instructions are not supported in QIR v1 generation")
             }
         }

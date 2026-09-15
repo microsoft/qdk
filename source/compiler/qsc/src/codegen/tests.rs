@@ -5928,8 +5928,8 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
         block_0:
           %var_2 = alloca i64
           %var_5 = alloca i64
-          %var_8 = alloca i64
-          %var_9 = alloca [2 x i64]
+          %var_9 = alloca i64
+          %var_10 = alloca [2 x i64]
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -5952,27 +5952,27 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           br label %block_6
         block_6:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-          %var_6 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-          br i1 %var_6, label %block_7, label %block_8
+          %var_7 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+          br i1 %var_7, label %block_7, label %block_8
         block_7:
-          store i64 1, ptr %var_8
+          store i64 1, ptr %var_9
           br label %block_9
         block_8:
-          store i64 0, ptr %var_8
+          store i64 0, ptr %var_9
           br label %block_9
         block_9:
-          %var_14 = load i64, ptr %var_2
-          %var_15 = load i64, ptr %var_5
-          %var_9_0 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 0
-          store i64 %var_14, ptr %var_9_0
-          %var_9_1 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 1
-          store i64 %var_15, ptr %var_9_1
-          %var_17 = load i64, ptr %var_8
-          %var_10_offset_chk = icmp slt i64 %var_17, 0
-          %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
-          %var_10 = getelementptr [2 x i64], ptr %var_9, i64 %var_10_offset, i64 %var_17
-          %var_18 = load i64, ptr %var_10
-          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
+          %var_15 = load i64, ptr %var_2
+          %var_16 = load i64, ptr %var_5
+          %var_10_0 = getelementptr [2 x i64], ptr %var_10, i64 0, i64 0
+          store i64 %var_15, ptr %var_10_0
+          %var_10_1 = getelementptr [2 x i64], ptr %var_10, i64 0, i64 1
+          store i64 %var_16, ptr %var_10_1
+          %var_18 = load i64, ptr %var_9
+          %var_11_offset_chk = icmp slt i64 %var_18, 0
+          %var_11_offset = select i1 %var_11_offset_chk, i64 1, i64 0
+          %var_11 = getelementptr [2 x i64], ptr %var_10, i64 %var_11_offset, i64 %var_18
+          %var_19 = load i64, ptr %var_11
+          call void @__quantum__rt__int_record_output(i64 %var_19, ptr @0)
           ret i64 0
         }
 
@@ -6219,6 +6219,208 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="6" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn mutable_fixed_size_arrays_in_entry_point() {
+    let source = indoc::indoc! {r#"
+        operation Main() : Bool[] {
+            mutable results = [false, false];
+            use q = Qubit[2];
+            if M(q[0]) == One {
+                results[0] = true;
+            }
+            if M(q[1]) == One {
+                results[1] = true;
+            }
+            results
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0b\00"
+        @2 = internal constant [6 x i8] c"2_a1b\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_0 = alloca [2 x i1]
+          %var_8 = alloca [2 x i1]
+          call void @__quantum__rt__initialize(ptr null)
+          %var_0_0 = getelementptr [2 x i1], ptr %var_0, i64 0, i64 0
+          store i1 false, ptr %var_0_0
+          %var_0_1 = getelementptr [2 x i1], ptr %var_0, i64 0, i64 1
+          store i1 false, ptr %var_0_1
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_2, label %block_1, label %block_2
+        block_1:
+          %var_17_offset_chk = icmp slt i64 0, 0
+          %var_17_offset = select i1 %var_17_offset_chk, i64 1, i64 0
+          %var_17 = getelementptr [2 x i1], ptr %var_0, i64 %var_17_offset, i64 0
+          store i1 true, ptr %var_17
+          br label %block_2
+        block_2:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_5, label %block_3, label %block_4
+        block_3:
+          %var_16_offset_chk = icmp slt i64 1, 0
+          %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
+          %var_16 = getelementptr [2 x i1], ptr %var_0, i64 %var_16_offset, i64 1
+          store i1 true, ptr %var_16
+          br label %block_4
+        block_4:
+          %var_12 = load [2 x i1], ptr %var_0
+          store [2 x i1] %var_12, ptr %var_8
+          %var_9_offset_chk = icmp slt i64 0, 0
+          %var_9_offset = select i1 %var_9_offset_chk, i64 1, i64 0
+          %var_9 = getelementptr [2 x i1], ptr %var_8, i64 %var_9_offset, i64 0
+          %var_14 = load i1, ptr %var_9
+          %var_10_offset_chk = icmp slt i64 1, 0
+          %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
+          %var_10 = getelementptr [2 x i1], ptr %var_8, i64 %var_10_offset, i64 1
+          %var_15 = load i1, ptr %var_10
+          call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__bool_record_output(i1 %var_14, ptr @1)
+          call void @__quantum__rt__bool_record_output(i1 %var_15, ptr @2)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare i1 @__quantum__rt__read_result(ptr) #2
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+
+        declare void @__quantum__rt__bool_record_output(i1, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn mutable_fixed_size_arrays_in_callable_varying_by_input_params() {
+    let source = indoc::indoc! {r#"
+        operation Foo(r1 : Result, r2 : Result) : Bool[] {
+            mutable results = [false, false];
+            if r1 == One {
+                results[0] = true;
+            }
+            if r2 == One {
+                results[1] = true;
+            }
+            results
+        }
+        operation Main() : (Bool[], Bool[]) {
+            use q = Qubit[2];
+            (Foo(M(q[0]), M(q[1])), Foo(Zero, One))
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_t\00"
+        @1 = internal constant [6 x i8] c"1_t0a\00"
+        @2 = internal constant [8 x i8] c"2_t0a0b\00"
+        @3 = internal constant [8 x i8] c"3_t0a1b\00"
+        @4 = internal constant [6 x i8] c"4_t1a\00"
+        @5 = internal constant [8 x i8] c"5_t1a0b\00"
+        @6 = internal constant [8 x i8] c"6_t1a1b\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_1 = alloca [2 x i1]
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_1_0 = getelementptr [2 x i1], ptr %var_1, i64 0, i64 0
+          store i1 false, ptr %var_1_0
+          %var_1_1 = getelementptr [2 x i1], ptr %var_1, i64 0, i64 1
+          store i1 false, ptr %var_1_1
+          %var_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_2, label %block_1, label %block_2
+        block_1:
+          %var_12_offset_chk = icmp slt i64 0, 0
+          %var_12_offset = select i1 %var_12_offset_chk, i64 1, i64 0
+          %var_12 = getelementptr [2 x i1], ptr %var_1, i64 %var_12_offset, i64 0
+          store i1 true, ptr %var_12
+          br label %block_2
+        block_2:
+          %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_4, label %block_3, label %block_4
+        block_3:
+          %var_11_offset_chk = icmp slt i64 1, 0
+          %var_11_offset = select i1 %var_11_offset_chk, i64 1, i64 0
+          %var_11 = getelementptr [2 x i1], ptr %var_1, i64 %var_11_offset, i64 1
+          store i1 true, ptr %var_11
+          br label %block_4
+        block_4:
+          %var_6_offset_chk = icmp slt i64 0, 0
+          %var_6_offset = select i1 %var_6_offset_chk, i64 1, i64 0
+          %var_6 = getelementptr [2 x i1], ptr %var_1, i64 %var_6_offset, i64 0
+          %var_9 = load i1, ptr %var_6
+          %var_7_offset_chk = icmp slt i64 1, 0
+          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
+          %var_7 = getelementptr [2 x i1], ptr %var_1, i64 %var_7_offset, i64 1
+          %var_10 = load i1, ptr %var_7
+          call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__array_record_output(i64 2, ptr @1)
+          call void @__quantum__rt__bool_record_output(i1 %var_9, ptr @2)
+          call void @__quantum__rt__bool_record_output(i1 %var_10, ptr @3)
+          call void @__quantum__rt__array_record_output(i64 2, ptr @4)
+          call void @__quantum__rt__bool_record_output(i1 false, ptr @5)
+          call void @__quantum__rt__bool_record_output(i1 true, ptr @6)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare i1 @__quantum__rt__read_result(ptr) #2
+
+        declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+
+        declare void @__quantum__rt__bool_record_output(i1, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
         attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
