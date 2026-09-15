@@ -244,6 +244,27 @@ fn cx_with_rec_on_second_target_yields_error() {
 }
 
 #[test]
+fn cx_with_rec_control_and_invalid_target_labels_invalid_target() {
+    let source = indoc! {"
+        M 0
+        CX rec[-1] X1
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnsupportedTarget
+
+          x unsupported target in instruction: CX
+           ,-[2:12]
+         1 | M 0
+         2 | CX rec[-1] X1
+           :            ^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn cx_with_negated_rec_control_yields_error() {
     let source = indoc! {"
         M 0

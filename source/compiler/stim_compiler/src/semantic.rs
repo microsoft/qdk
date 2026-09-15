@@ -969,61 +969,16 @@ impl Lowerer {
 
         let mut instructions = Vec::with_capacity(target_pairs.len());
         for pair in target_pairs {
-            match (&pair[0].kind, &pair[1].kind) {
-                (parser::TargetKind::Qubit { .. }, parser::TargetKind::Qubit { .. }) => {
-                    let Some([(q0, _), (q1, _)]) = self.expect_qubit_pair(instruction, pair, false)
-                    else {
-                        continue;
-                    };
-                    instructions.push(Instruction {
-                        span: instruction.span,
-                        kind: InstructionKind::TwoQubitGate { gate, q0, q1 },
-                    });
-                }
-                (
-                    parser::TargetKind::MeasurementRecord { .. },
-                    parser::TargetKind::Qubit { .. },
-                ) if allowed_rec_position.allows_first() => {
-                    let Some(control) = self.expect_measurement_record(instruction, &pair[0])
-                    else {
-                        continue;
-                    };
-                    let Some((target, _)) = self.expect_qubit(instruction, &pair[1], false) else {
-                        continue;
-                    };
-                    instructions.push(Instruction {
-                        span: instruction.span,
-                        kind: InstructionKind::ClassicallyControlledPauli {
-                            control,
-                            target,
-                            pauli: classically_controlled_pauli,
-                        },
-                    });
-                }
-                (
-                    parser::TargetKind::Qubit { .. },
-                    parser::TargetKind::MeasurementRecord { .. },
-                ) if allowed_rec_position.allows_second() => {
-                    let Some(control) = self.expect_measurement_record(instruction, &pair[1])
-                    else {
-                        continue;
-                    };
-                    let Some((target, _)) = self.expect_qubit(instruction, &pair[0], false) else {
-                        continue;
-                    };
-                    instructions.push(Instruction {
-                        span: instruction.span,
-                        kind: InstructionKind::ClassicallyControlledPauli {
-                            control,
-                            target,
-                            pauli: classically_controlled_pauli,
-                        },
-                    });
-                }
-                (
-                    parser::TargetKind::MeasurementRecord { .. },
-                    parser::TargetKind::MeasurementRecord { .. },
-                ) => {
+            let first_is_record =
+                matches!(&pair[0].kind, parser::TargetKind::MeasurementRecord { .. });
+            let second_is_record =
+                matches!(&pair[1].kind, parser::TargetKind::MeasurementRecord { .. });
+
+            let kind = match (first_is_record, second_is_record) {
+                (false, false) => self
+                    .expect_qubit_pair(instruction, pair, false)
+                    .map(|[(q0, _), (q1, _)]| InstructionKind::TwoQubitGate { gate, q0, q1 }),
+                (true, true) => {
                     self.push_error(Error::BothTargetsAreMeasurementRecords {
                         instruction: instruction.name.clone(),
                         span: Span {
@@ -1031,27 +986,57 @@ impl Lowerer {
                             hi: pair[1].span.hi,
                         },
                     });
+                    None
                 }
-                // A `rec` that reached here sits on a side this gate doesn't allow
-                (parser::TargetKind::MeasurementRecord { .. }, _) => {
-                    self.push_error(Error::MisplacedMeasurementRecord {
-                        instruction: instruction.name.clone(),
-                        span: pair[0].span,
-                    });
-                }
-                (_, parser::TargetKind::MeasurementRecord { .. }) => {
-                    self.push_error(Error::MisplacedMeasurementRecord {
-                        instruction: instruction.name.clone(),
-                        span: pair[1].span,
-                    });
-                }
-                _ => self.push_error(Error::UnsupportedTarget {
-                    instruction: instruction.name.clone(),
-                    span: pair[0].span,
-                }),
+                (true, false) => self.lower_classically_controlled_pauli(
+                    instruction,
+                    &pair[0],
+                    &pair[1],
+                    allowed_rec_position.allows_first(),
+                    classically_controlled_pauli,
+                ),
+                (false, true) => self.lower_classically_controlled_pauli(
+                    instruction,
+                    &pair[1],
+                    &pair[0],
+                    allowed_rec_position.allows_second(),
+                    classically_controlled_pauli,
+                ),
+            };
+
+            if let Some(kind) = kind {
+                instructions.push(Instruction {
+                    span: instruction.span,
+                    kind,
+                });
             }
         }
         instructions
+    }
+
+    fn lower_classically_controlled_pauli(
+        &mut self,
+        instruction: &parser::Instruction,
+        record_target: &parser::Target,
+        qubit_target: &parser::Target,
+        record_position_is_allowed: bool,
+        pauli: Pauli,
+    ) -> Option<InstructionKind> {
+        if !record_position_is_allowed {
+            self.push_error(Error::MisplacedMeasurementRecord {
+                instruction: instruction.name.clone(),
+                span: record_target.span,
+            });
+            return None;
+        }
+
+        let control = self.expect_measurement_record(instruction, record_target)?;
+        let (target, _) = self.expect_qubit(instruction, qubit_target, false)?;
+        Some(InstructionKind::ClassicallyControlledPauli {
+            control,
+            target,
+            pauli,
+        })
     }
 
     fn broadcast_pauli_product_gate(
