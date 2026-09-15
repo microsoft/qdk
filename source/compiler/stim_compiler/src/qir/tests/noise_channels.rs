@@ -654,6 +654,38 @@ fn i_error_yields_expected_qir() {
 }
 
 #[test]
+fn i_error_with_invalid_probability_list_yields_error() {
+    check(
+        "I_ERROR(0.6, 0.6) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbabilitySum
+
+          x probabilities for I_ERROR must sum to at most 1.0, but they sum to 1.2
+           ,----
+         1 | I_ERROR(0.6, 0.6) 0
+           :         ^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn i_error_with_unsupported_target_yields_error() {
+    check(
+        "I_ERROR X0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnsupportedTarget
+
+          x unsupported target in instruction: I_ERROR
+           ,----
+         1 | I_ERROR X0
+           :         ^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn ii_error_yields_expected_qir() {
     let source = indoc! {"
         # does nothing
@@ -674,6 +706,51 @@ fn ii_error_yields_expected_qir() {
             [metadata]
               required_num_qubits = 0
               required_num_results = 0"#]],
+    );
+}
+
+#[test]
+fn ii_error_with_incomplete_trailing_pair_yields_error() {
+    check("II_ERROR 0 1 2", &expect![[r#"
+        Qdk.Stim.Compiler.OddTargetCount
+
+          x instruction II_ERROR requires an even number of targets
+           ,----
+         1 | II_ERROR 0 1 2
+           : ^^^^^^^^^^^^^^
+           `----
+    "#]]);
+}
+
+#[test]
+fn ii_error_with_invalid_probability_list_yields_error() {
+    check(
+        "II_ERROR(0.6, 0.6) 0 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbabilitySum
+
+          x probabilities for II_ERROR must sum to at most 1.0, but they sum to 1.2
+           ,----
+         1 | II_ERROR(0.6, 0.6) 0 1
+           :          ^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn ii_error_with_unsupported_target_yields_error() {
+    check(
+        "II_ERROR 0 X1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnsupportedTarget
+
+          x unsupported target in instruction: II_ERROR
+           ,----
+         1 | II_ERROR 0 X1
+           :            ^^
+           `----
+    "#]],
     );
 }
 
