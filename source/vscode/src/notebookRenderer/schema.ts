@@ -60,21 +60,27 @@ type RendererActionMessage = {
   rendererId: typeof RENDERER_ID;
   actionId: CopilotActionId;
   quizId?: string;
+  /** Ids of the options the learner had selected when they asked. */
+  optionIds?: string[];
 };
 
 export type RendererToExtensionMessage = RendererActionMessage;
 
 /**
- * A quiz id is the only thing a renderer may contribute to a chat prompt.
+ * Ids are the only thing a renderer may contribute to a chat prompt.
  *
  * Everything a notebook carries is untrusted: an output of this MIME type can
  * be hand-written, and a file at a workbook's path can be shipped by whatever
  * produced the workspace. Free prose from such a payload reaching a prompt is
  * an injection, and no amount of quote-stripping changes that, because the
- * payload is a sentence either way. Constraining the one value that does cross
- * to this shape leaves no room for an instruction.
+ * payload is a sentence either way. Constraining every value that crosses to
+ * this shape leaves no room for an instruction, while still naming the
+ * question and the answer precisely enough for an agent to look them up.
  */
-const QUIZ_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** Nothing sensible asks about more selections than a question has options. */
+const MAX_OPTION_IDS = 32;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return (
@@ -96,9 +102,18 @@ export function isRendererToExtensionMessage(
     return false;
   }
 
+  if (
+    x.quizId !== undefined &&
+    !(typeof x.quizId === "string" && ID_PATTERN.test(x.quizId))
+  ) {
+    return false;
+  }
+
   return (
-    x.quizId === undefined ||
-    (typeof x.quizId === "string" && QUIZ_ID_PATTERN.test(x.quizId))
+    x.optionIds === undefined ||
+    (Array.isArray(x.optionIds) &&
+      x.optionIds.length <= MAX_OPTION_IDS &&
+      x.optionIds.every((id) => typeof id === "string" && ID_PATTERN.test(id)))
   );
 }
 

@@ -27,12 +27,13 @@ from typing import Any, Iterable, Mapping, Sequence
 
 MIME_TYPE = "application/vnd.qdk.learning+json"
 
-#: A quiz id has to survive the trip to the extension host, which accepts only
-#: this shape from a notebook — nothing longer, and nothing that could read as
-#: prose. Enforcing it here means an author finds out when they run the cell,
-#: rather than a learner finding the "Why is that wrong?" button quietly doing
-#: less than it should. Keep in step with `QUIZ_ID_PATTERN` in `schema.ts`.
-_QUIZ_ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
+#: A quiz or option id has to survive the trip to the extension host, which
+#: accepts only this shape from a notebook — nothing longer, and nothing that
+#: could read as prose. Enforcing it here means an author finds out when they
+#: run the cell, rather than a learner finding the "Why is that wrong?" button
+#: quietly doing less than it should. Keep in step with `ID_PATTERN` in
+#: `schema.ts`.
+_ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
 _CARD_STYLE = (
     "font-family:var(--qdk-font-family, system-ui, sans-serif);"
@@ -176,7 +177,7 @@ def register_quiz(
     """
     if quiz_id in _quizzes:
         raise ValueError(f"a quiz is already registered as {quiz_id!r}")
-    if not _QUIZ_ID_RE.match(quiz_id):
+    if not _ID_RE.match(quiz_id):
         raise ValueError(
             f"quiz id {quiz_id!r} must be lowercase letters, digits and hyphens, "
             "start with a letter or digit, and be at most 64 characters; the "
@@ -276,6 +277,13 @@ def _normalize_options(
             raise ValueError("multiple_choice option 'correct' values must be bool")
         if not option_id:
             raise ValueError("multiple_choice option ids must not be empty")
+        if not _ID_RE.match(option_id):
+            raise ValueError(
+                f"multiple_choice option id {option_id!r} must be lowercase "
+                "letters, digits and hyphens, start with a letter or digit, and "
+                "be at most 64 characters; the renderer's Copilot action drops "
+                "anything else"
+            )
         if option_id in seen_ids:
             raise ValueError(f"duplicate multiple_choice option id: {option_id!r}")
         seen_ids.add(option_id)

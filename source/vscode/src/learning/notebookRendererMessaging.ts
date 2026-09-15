@@ -60,7 +60,9 @@ export function registerNotebookRendererMessaging(
           return;
         }
 
-        await openChat(buildQuery(message.actionId, message.quizId));
+        await openChat(
+          buildQuery(message.actionId, message.quizId, message.optionIds),
+        );
       } catch (e) {
         log.error(`Learning: renderer message "${message.type}" failed`, e);
       }
@@ -79,15 +81,31 @@ export function registerNotebookRendererMessaging(
  * Nothing the renderer wrote is quoted here. An earlier version spliced in the
  * question and the chosen option, which are notebook content and therefore
  * attacker-supplied prose in a file that only has to sit at a workbook's path.
- * The quiz id is enough for the agent to find the question in the open
- * notebook, and its shape leaves no room for an instruction.
+ * Ids name the same things precisely enough for the agent to find them in the
+ * open notebook, and their shape leaves no room for an instruction. Saying
+ * where to look is the point: no learning tool reads a quiz, because a quiz is
+ * deliberately not an activity.
  */
-function buildQuery(actionId: CopilotActionId, quizId?: string): string {
+function buildQuery(
+  actionId: CopilotActionId,
+  quizId?: string,
+  optionIds?: string[],
+): string {
   switch (actionId) {
-    case "why-wrong":
-      return quizId
-        ? `/qdk-learning I answered the quiz "${quizId}" in this notebook incorrectly. Why is my answer wrong?`
-        : `/qdk-learning I got this question wrong. Why?`;
+    case "why-wrong": {
+      if (!quizId) {
+        return `/qdk-learning I got this question wrong. Why?`;
+      }
+
+      const picked = optionIds?.length
+        ? ` I picked ${optionIds.map((id) => `"${id}"`).join(" and ")}.`
+        : "";
+      return (
+        `/qdk-learning I answered the quiz "${quizId}" in this notebook incorrectly.${picked}` +
+        ` Look up that quiz's question and options in the notebook's cell output,` +
+        ` then explain why my answer is wrong.`
+      );
+    }
   }
 }
 
