@@ -594,6 +594,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_block(&mut self, block: &semantic::Block) {
+        self.finish_correlated_noise();
         match block {
             semantic::Block::RepeatBlock { count, body } => {
                 let error_count_before_repeat = self.errors.len();
@@ -601,6 +602,7 @@ impl<'noise> Compiler<'noise> {
                     for item in body {
                         self.compile_item(item);
                     }
+                    self.finish_correlated_noise();
 
                     // Avoid repeating error reporting
                     if self.errors.len() > error_count_before_repeat {
@@ -620,6 +622,7 @@ impl<'noise> Compiler<'noise> {
                 for item in body {
                     self.compile_item(item);
                 }
+                self.finish_correlated_noise();
                 self.id_map.exit_select_scope();
             }
         }
