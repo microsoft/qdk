@@ -788,7 +788,6 @@ impl Lowerer {
                 self.broadcast_single_qubit_noise(instruction, SingleQubitNoiseKind::HeraldedErase)
             }
             "HERALDED_PAULI_CHANNEL_1" => self.broadcast_heralded_pauli_channel_1(instruction),
-            // TODO: Add tests for I_ERROR and II_ERROR probability and target validation.
             "II_ERROR" => {
                 let _ = self.validate_probability_list(instruction);
                 let _ = self.validate_qubit_pairs(instruction, false);
