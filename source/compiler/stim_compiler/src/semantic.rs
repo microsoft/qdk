@@ -790,12 +790,12 @@ impl Lowerer {
             "HERALDED_PAULI_CHANNEL_1" => self.broadcast_heralded_pauli_channel_1(instruction),
             "II_ERROR" => {
                 self.expect_probabilities(instruction);
-                self.validate_qubit_pairs(instruction, false);
+                self.expect_qubit_pairs(instruction, false);
                 Vec::new()
             }
             "I_ERROR" => {
                 self.expect_probabilities(instruction);
-                self.validate_qubit_targets(instruction, false);
+                self.expect_qubit_targets(instruction, false);
                 Vec::new()
             }
             "PAULI_CHANNEL_1" => self.broadcast_pauli_channel_1(instruction),
@@ -896,7 +896,7 @@ impl Lowerer {
         basis: Pauli,
     ) -> Vec<Instruction> {
         self.unsupported_args(instruction);
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -912,7 +912,7 @@ impl Lowerer {
         gate: SingleQubitGateKind,
     ) -> Vec<Instruction> {
         self.unsupported_args(instruction);
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -928,7 +928,7 @@ impl Lowerer {
         gate: TwoQubitGateKind,
     ) -> Vec<Instruction> {
         self.unsupported_args(instruction);
-        let qubit_target_pairs = self.validate_qubit_pairs(instruction, false);
+        let qubit_target_pairs = self.expect_qubit_pairs(instruction, false);
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
@@ -944,7 +944,7 @@ impl Lowerer {
         gate: ThreeQubitGateKind,
     ) -> Vec<Instruction> {
         self.unsupported_args(instruction);
-        let qubit_triples = self.validate_qubit_triples(instruction);
+        let qubit_triples = self.expect_qubit_triples(instruction);
         qubit_triples
             .into_iter()
             .map(|[q0, q1, q2]| Instruction {
@@ -1044,7 +1044,7 @@ impl Lowerer {
         gate: PauliProductGateKind,
     ) -> Vec<Instruction> {
         self.unsupported_args(instruction);
-        let pauli_products = self.validate_pauli_products(instruction);
+        let pauli_products = self.expect_pauli_products(instruction);
         pauli_products
             .into_iter()
             .map(|pauli_product| Instruction {
@@ -1066,7 +1066,7 @@ impl Lowerer {
         let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
-        let qubit_targets = self.validate_qubit_targets(instruction, true);
+        let qubit_targets = self.expect_qubit_targets(instruction, true);
         qubit_targets
             .into_iter()
             .map(|(qubit, negated)| Instruction {
@@ -1090,7 +1090,7 @@ impl Lowerer {
         let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
-        let qubit_target_pairs = self.validate_qubit_pairs(instruction, true);
+        let qubit_target_pairs = self.expect_qubit_pairs(instruction, true);
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, neg0), (q1, neg1)]| Instruction {
@@ -1113,7 +1113,7 @@ impl Lowerer {
         let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
-        let pauli_products = self.validate_pauli_products(instruction);
+        let pauli_products = self.expect_pauli_products(instruction);
         pauli_products
             .into_iter()
             .map(|pauli_product| Instruction {
@@ -1134,7 +1134,7 @@ impl Lowerer {
         let Some(probability) = self.expect_probability(instruction) else {
             return Vec::new();
         };
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1152,7 +1152,7 @@ impl Lowerer {
         let Some(probability) = self.expect_probability(instruction) else {
             return Vec::new();
         };
-        let qubit_pairs = self.validate_qubit_pairs(instruction, false);
+        let qubit_pairs = self.expect_qubit_pairs(instruction, false);
         qubit_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
@@ -1174,7 +1174,7 @@ impl Lowerer {
         else {
             return Vec::new();
         };
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1192,7 +1192,7 @@ impl Lowerer {
         else {
             return Vec::new();
         };
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1210,7 +1210,7 @@ impl Lowerer {
         else {
             return Vec::new();
         };
-        let qubit_target_pairs = self.validate_qubit_pairs(instruction, false);
+        let qubit_target_pairs = self.expect_qubit_pairs(instruction, false);
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
@@ -1228,7 +1228,7 @@ impl Lowerer {
         let Some(readout_noise) = self.expect_optional_readout_probability(instruction) else {
             return Vec::new();
         };
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1243,7 +1243,7 @@ impl Lowerer {
 
     fn lower_detector(&mut self, instruction: &parser::Instruction) -> Option<Instruction> {
         let coordinates = self.expect_coordinates(instruction)?;
-        let records = self.validate_records(instruction);
+        let records = self.expect_measurement_records(instruction);
 
         Some(Instruction {
             span: instruction.span,
@@ -1292,7 +1292,7 @@ impl Lowerer {
         instruction: &parser::Instruction,
     ) -> Option<Instruction> {
         let logical_observable = self.expect_logical_observable_index(instruction)?;
-        let targets = self.validate_observable_targets(instruction)?;
+        let targets = self.expect_observable_targets(instruction)?;
 
         Some(Instruction {
             span: instruction.span,
@@ -1308,7 +1308,7 @@ impl Lowerer {
             return Vec::new();
         };
 
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1359,7 +1359,7 @@ impl Lowerer {
             return Vec::new();
         };
 
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1378,7 +1378,7 @@ impl Lowerer {
             return Vec::new();
         };
 
-        let qubit_pairs = self.validate_qubit_pairs(instruction, false);
+        let qubit_pairs = self.expect_qubit_pairs(instruction, false);
         qubit_pairs
             .into_iter()
             .map(|[(q0, _), (q1, _)]| Instruction {
@@ -1399,7 +1399,7 @@ impl Lowerer {
             return Vec::new();
         };
 
-        let qubit_targets = self.validate_qubit_targets(instruction, false);
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1422,7 +1422,7 @@ impl Lowerer {
             return Vec::new();
         };
 
-        let pauli_products = self.validate_pauli_products(instruction);
+        let pauli_products = self.expect_pauli_products(instruction);
         pauli_products
             .into_iter()
             .map(|product| Instruction {
@@ -1467,7 +1467,7 @@ impl Lowerer {
             return None;
         }
 
-        let records = self.validate_negatable_records(instruction);
+        let records = self.expect_negatable_measurement_records(instruction);
         if records.is_empty() {
             return None;
         }
@@ -1488,7 +1488,7 @@ impl Lowerer {
             return None;
         }
 
-        let records = self.validate_records(instruction);
+        let records = self.expect_measurement_records(instruction);
         if records.is_empty() {
             return None;
         }
@@ -1499,7 +1499,7 @@ impl Lowerer {
         })
     }
 
-    fn validate_qubit_targets(
+    fn expect_qubit_targets(
         &mut self,
         instruction: &parser::Instruction,
         allow_negated: bool,
@@ -1514,7 +1514,7 @@ impl Lowerer {
         qubit_targets
     }
 
-    fn validate_qubit_pairs(
+    fn expect_qubit_pairs(
         &mut self,
         instruction: &parser::Instruction,
         allow_negated: bool,
@@ -1534,7 +1534,7 @@ impl Lowerer {
         qubit_target_pairs
     }
 
-    fn validate_qubit_triples(
+    fn expect_qubit_triples(
         &mut self,
         instruction: &parser::Instruction,
     ) -> Vec<[StimQubitId; 3]> {
@@ -1552,7 +1552,7 @@ impl Lowerer {
         qubit_triples
     }
 
-    fn validate_pauli_products(&mut self, instruction: &parser::Instruction) -> Vec<PauliProduct> {
+    fn expect_pauli_products(&mut self, instruction: &parser::Instruction) -> Vec<PauliProduct> {
         let mut pauli_products = Vec::new();
         for target in &instruction.targets {
             let factors = self.expect_pauli_product_factors(instruction, target);
@@ -1569,7 +1569,7 @@ impl Lowerer {
         pauli_products
     }
 
-    fn validate_records(&mut self, instruction: &parser::Instruction) -> Vec<MeasurementRecord> {
+    fn expect_measurement_records(&mut self, instruction: &parser::Instruction) -> Vec<MeasurementRecord> {
         let mut measurement_records = Vec::new();
         for target in &instruction.targets {
             let Some(measurement_record) = self.expect_measurement_record(instruction, target)
@@ -1581,7 +1581,7 @@ impl Lowerer {
         measurement_records
     }
 
-    fn validate_negatable_records(
+    fn expect_negatable_measurement_records(
         &mut self,
         instruction: &parser::Instruction,
     ) -> Vec<NegatableMeasurementRecord> {
@@ -1597,7 +1597,7 @@ impl Lowerer {
         measurement_records
     }
 
-    fn validate_observable_targets(
+    fn expect_observable_targets(
         &mut self,
         instruction: &parser::Instruction,
     ) -> Option<Vec<ObservableTarget>> {
