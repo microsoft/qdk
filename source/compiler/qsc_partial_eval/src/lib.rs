@@ -1320,6 +1320,22 @@ impl<'a> PartialEvaluator<'a> {
             None,
             ErrorBehavior::FailOnError,
         );
+
+        // Before we evaluate the expression, cache the references to any mutalbe fixed size arrays in the current scope.
+        let cached_mutable_fixed_size_arrays = scope
+            .mutable_fixed_size_arrays
+            .iter()
+            .filter_map(|local_id| {
+                scope.env.get(*local_id).and_then(|variable| {
+                    if let Value::Array(array) = &variable.value {
+                        Some((*local_id, Rc::clone(array)))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<FxHashMap<_, _>>();
+
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
@@ -1358,6 +1374,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.update_hybrid_bindings_from_classical_bindings(*lhs_expr_id)?;
             }
         }
+
+        self.emit_update_for_cached_arrays(&cached_mutable_fixed_size_arrays);
 
         eval_result
     }
@@ -2216,6 +2234,7 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
     ) -> Result<Value, Error> {
         self.eval_context.push_scope(call_scope);
+        self.populate_mutable_fixed_size_array_ids();
 
         // Some arguments may include arrays with dynamic content, which we want to allow later instructions to index into.
         // To support this, we treat these as locally constant arrays and emit an RIR instruction to store their contents into a new
@@ -2602,6 +2621,7 @@ impl<'a> PartialEvaluator<'a> {
             successor: None,
         });
         self.eval_context.push_scope(body_scope);
+        self.populate_mutable_fixed_size_array_ids();
         self.ir_function_emission_depth += 1;
         let eval_result = self.try_eval_block(spec_decl.block);
         self.ir_function_emission_depth -= 1;
@@ -3757,8 +3777,16 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn is_mutable_fixed_size_array(&self, id: LocalVarId) -> bool {
-        let current_scope = self.eval_context.get_current_scope();
+        self.eval_context
+            .get_current_scope()
+            .mutable_fixed_size_arrays
+            .contains(&id)
+    }
+
+    fn populate_mutable_fixed_size_array_ids(&mut self) {
         let current_package_id = self.get_current_package_id();
+        let in_parallel = self.in_parallel_scope();
+        let current_scope = self.eval_context.get_current_scope_mut();
         let key = match current_scope.callable {
             None => StoreItemSpecializationKey::TopLevel,
             Some((local_item_id, functor_app)) => (
@@ -3770,15 +3798,20 @@ impl<'a> PartialEvaluator<'a> {
         let Some(entry) = self.compute_properties.get_mutable_fixed_size_array_entry(
             key,
             current_package_id,
-            self.in_parallel_scope(),
+            in_parallel,
         ) else {
-            // There is no analysis entry for this context, so the array cannot be considered mutable fixed-size.
-            return false;
+            // There is no analysis entry for this context, so there are no mutable fixed size array ids to populate.
+            return;
         };
-        if entry.inherent.contains(&id) {
-            // The analysis determined that the array is inherently mutable fixed-size, so short cut and return true immediately.
-            return true;
-        }
+
+        // Populate the mutable fixed-size array ids for the current scope based on the analysis entry.
+        // First, any inherently mutable fixed-size arrays are added to the current scope.
+        current_scope
+            .mutable_fixed_size_arrays
+            .clone_from(&entry.inherent);
+
+        // Then, for each compute kind of the arguments to the current scope, check if the argument contributes any mutable fixed-size arrays
+        // and add them as well.
         for (idx, arg) in current_scope.args_compute_kind.iter().enumerate() {
             let ComputeKind::Dynamic {
                 runtime_features,
@@ -3798,20 +3831,14 @@ impl<'a> PartialEvaluator<'a> {
                     mutable_fixed_size_arrays_element_application,
                 ) => match value_kind {
                     ValueKind::Constant => {
-                        if mutable_fixed_size_arrays_element_application
-                            .constant
-                            .contains(&id)
-                        {
-                            return true;
-                        }
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_element_application.constant);
                     }
                     ValueKind::Variable => {
-                        if mutable_fixed_size_arrays_element_application
-                            .variable
-                            .contains(&id)
-                        {
-                            return true;
-                        }
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_element_application.variable);
                     }
                 },
                 MutableFixedSizeArraysParamApplication::Array(
@@ -3821,35 +3848,23 @@ impl<'a> PartialEvaluator<'a> {
                         if runtime_features
                             .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
                     {
-                        if mutable_fixed_size_arrays_array_application
-                            .dynamic_size
-                            .contains(&id)
-                        {
-                            return true;
-                        }
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_array_application.dynamic_size);
                     }
                     ValueKind::Variable => {
-                        if mutable_fixed_size_arrays_array_application
-                            .static_size
-                            .contains(&id)
-                        {
-                            return true;
-                        }
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_array_application.static_size);
                     }
                     ValueKind::Constant => {
-                        if mutable_fixed_size_arrays_array_application
-                            .constant_content
-                            .contains(&id)
-                        {
-                            return true;
-                        }
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_array_application.constant_content);
                     }
                 },
             }
         }
-
-        // If no other analysis determined this array is mutable fixed-size, return false.
-        false
     }
 
     fn get_call_compute_kind(&self, callable_scope: &Scope) -> ComputeKind {
@@ -5412,6 +5427,66 @@ impl<'a> PartialEvaluator<'a> {
             contents: elem_literals,
             ty: elem_rir_prim_ty,
         })
+    }
+
+    fn emit_update_for_cached_arrays(
+        &mut self,
+        cached_mutable_fixed_size_arrays: &FxHashMap<LocalVarId, Rc<Vec<Value>>>,
+    ) {
+        let scope = self.eval_context.get_current_scope();
+        let latest_mutable_fixed_size_arrays = scope
+            .mutable_fixed_size_arrays
+            .iter()
+            .filter_map(|local_id| {
+                scope.env.get(*local_id).and_then(|variable| {
+                    if let Value::Array(array) = &variable.value {
+                        Some((*local_id, Rc::clone(array)))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<FxHashMap<_, _>>();
+        for local_id in &scope.mutable_fixed_size_arrays.clone() {
+            let Some(latest_array) = latest_mutable_fixed_size_arrays.get(local_id) else {
+                continue;
+            };
+            let cached_array = cached_mutable_fixed_size_arrays
+                .get(local_id)
+                .expect("cached entries should contain entry for local id");
+            if !Rc::ptr_eq(latest_array, cached_array) {
+                // The array was updated between when it was cached and the current state.
+                // Emit a store array instruction with the updated contents to ensure that it has the right values.
+                let Value::Var(array_var) = self
+                    .eval_context
+                    .get_current_scope()
+                    .get_hybrid_local_value(*local_id)
+                else {
+                    panic!("mutable fixed size array should be backed by variable");
+                };
+                let array_var_id = array_var.id.into();
+                let operands = latest_array
+                    .iter()
+                    .map(|value| self.map_eval_value_to_rir_operand(value))
+                    .collect::<Vec<_>>();
+                let rir::Ty::Prim(elem_ty) = operands
+                    .first()
+                    .expect("array should have at least one element")
+                    .get_type()
+                else {
+                    panic!("array element type should be a primitive type");
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::StoreArray(
+                        operands,
+                        rir::Variable {
+                            variable_id: array_var_id,
+                            ty: rir::Ty::Array(latest_array.len(), elem_ty),
+                        },
+                    ));
+            }
+        }
     }
 }
 

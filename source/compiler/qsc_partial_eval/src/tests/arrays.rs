@@ -1541,3 +1541,46 @@ fn immutable_array_dynamic_content_generates_store_array() {
             Jump(1)"#]],
     );
 }
+
+#[test]
+fn mutable_array_updated_in_constant_expr_emitted_as_unconditional_update() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint(Adaptive)
+        operation Main() : Int {
+            mutable values = [0];
+
+            if 2 < 3 {
+                values[0] = 136;
+            }
+
+            use qubit = Qubit();
+            if MResetZ(qubit) == One {
+                values[0] += 1;
+            }
+
+            return values[0];
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Array(1, Integer)) = StoreArray [Integer(0)]
+                Variable(0, Array(1, Integer)) = StoreArray [Integer(136)]
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 1
+            Block 1:Block:
+                Variable(3, Integer) = Index Variable(0, Array(1, Integer)), Integer(0)
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Call id(4), args( Variable(4, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                StoreIndex Integer(137), Integer(0), Variable(0, Array(1, Integer))
+                Jump(1)"#]],
+    );
+}
