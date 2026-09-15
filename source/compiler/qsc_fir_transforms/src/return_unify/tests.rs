@@ -11,7 +11,8 @@ mod flag_lowering;
 mod general;
 mod idempotency;
 mod qubit_release;
-mod regressions;
+#[path = "tests/regressions.rs"]
+mod return_values_release_order_and_name_collisions;
 mod semantic;
 mod type_preservation;
 

@@ -16,6 +16,94 @@ fn check_render(source: &str, expect: &Expect) {
 }
 
 #[test]
+fn identifier_like_string_payloads_are_preserved() {
+    check_review_literal_payloads(&["run_id_123", "run_id_456"]);
+}
+
+#[test]
+fn unicode_string_payloads_are_preserved() {
+    check_review_literal_payloads(&["caf\u{e9}"]);
+}
+
+fn check_review_literal_payloads(payloads: &[&str]) {
+    let mut failures = Vec::new();
+    for payload in payloads {
+        for interpolated in [false, true] {
+            let literal = if interpolated {
+                format!("$\"{payload} {{value}}\"")
+            } else {
+                format!("\"{payload}\"")
+            };
+            let source = format!(
+                "namespace Test {{ @EntryPoint() operation Main() : Unit {{ let value = 7; Message({literal}); }} }}"
+            );
+            let (store, package_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+            let rendered = write_reachable_qsharp_parseable(&store, package_id);
+            let messages = rendered
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("Message("))
+                .collect::<Vec<_>>();
+            let expected = if interpolated {
+                format!("Message({literal});")
+            } else {
+                format!("Message(${literal});")
+            };
+            let passed = messages == [expected.as_str()];
+            if !passed {
+                failures.push((literal, messages.join("\n")));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "literal payloads changed: {failures:?}"
+    );
+}
+
+#[test]
+fn generated_interpolation_names_are_stable_across_allocator_changes() {
+    let source = indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Message($"sum {{
+                    mutable total = 0;
+                    for value in 0..2 { set total += value; }
+                    total
+                }}");
+            }
+        }
+    "#};
+    let render = |source: &str| {
+        let (store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
+        let raw = write_package_qsharp_parseable(&store, package_id);
+        let normalized = write_reachable_qsharp_parseable(&store, package_id);
+        (raw, normalized)
+    };
+    let (first_raw, first) = render(source);
+    let shifted_source = format!(
+        "namespace Padding {{ function Unused(value : Int) : Int {{ value + 1 }} }}\n{source}"
+    );
+    let (second_raw, second) = render(&shifted_source);
+    assert_ne!(
+        first_raw, second_raw,
+        "fixture must exercise allocator-ID drift"
+    );
+    assert_eq!(first, second, "generated identifiers must remain stable");
+    let expression = first
+        .split("Message($\"sum {")
+        .nth(1)
+        .expect("interpolation expression must remain reachable");
+    for name in ["_range_id_0", "_index_id_1", "_step_id_2", "_end_id_3"] {
+        assert!(
+            expression.matches(name).count() >= 2,
+            "generated declaration and reference must occur inside interpolation: {name}"
+        );
+    }
+}
+
+#[test]
 fn simple_function_renders() {
     check_render(
         indoc! {r#"
