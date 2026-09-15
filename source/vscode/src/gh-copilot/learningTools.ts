@@ -414,23 +414,20 @@ export class LearningTools {
   }): Promise<{ unitId: string; unitTitle: string } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
+      // Unit reset is notebook-only; the service rejects Q# courses.
       const { unitId, unitTitle } = await this.service.resetUnit(
         { unitId: input?.unitId },
         "chat",
       );
 
-      // Notebook courses close the workbook during a reset and don't use the
+      // The reset closed the workbook and notebook courses don't use the
       // lesson panel, so re-open the fresh copy. The open command resolves the
       // notebook from the current position, so move there first — the reset
       // unit isn't necessarily the one the learner was on.
-      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
-        await this.service.goTo({ unitId }, "chat");
-        await vscode.commands.executeCommand(
-          "qsharp-vscode.learningOpenNotebook",
-        );
-      } else {
-        await this.showActivity();
-      }
+      await this.service.goTo({ unitId }, "chat");
+      await vscode.commands.executeCommand(
+        "qsharp-vscode.learningOpenNotebook",
+      );
 
       return { unitId, unitTitle, state: this.serializeState(false) };
     });

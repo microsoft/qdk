@@ -955,6 +955,10 @@ export class LearningService {
     if (!uri) {
       throw new Error("Current activity has no associated code file.");
     }
+    // TODO: saveOpenDocument now reports whether the save landed. If it
+    // didn't, this reads stale code off disk and checks the wrong content.
+    // Read the open document's in-memory text directly rather than saving
+    // then re-reading.
     await this.saveOpenDocument(uri);
     const bytes = await vscode.workspace.fs.readFile(uri);
     return new TextDecoder().decode(bytes);
@@ -1076,62 +1080,38 @@ export class LearningService {
   }
 
   /**
-   * Reset an entire unit: restore every learner-editable file in it and clear
-   * completion for all of its activities. Defaults to the current unit, which
-   * must belong to the active course.
+   * Reset an entire unit: recopy its notebook from the course original and
+   * clear completion for all of its activities. Notebook courses only — a Q#
+   * unit is a folder of separate `.qs` files that are reset individually via
+   * {@link resetExercise}. Defaults to the current unit.
    */
   async resetUnit(
     input?: { unitId?: string },
     source?: TelemetrySource,
   ): Promise<{ unitId: string; unitTitle: string }> {
     const course = this.activeCourse;
-    const unitId = input?.unitId ?? this.position.unitId;
-
-    if (isNotebookCourse(course)) {
-      const unit = this.findCourseUnit(course, unitId);
-      // Close any open notebook tab first. If the learner cancels a
-      // save-on-close prompt, abort — otherwise the still-open editor could
-      // later save stale content back over the reset.
-      if (!(await this.closeNotebookTab(workbookUri(unit)))) {
-        throw new Error(
-          "Couldn't close the open notebook. Save or close it, then try again.",
-        );
-      }
-      if (!(await rematerializeUnitWorkbook(unit))) {
-        throw new Error("Couldn't restore the unit's notebook.");
-      }
-      return this.finishUnitReset(course.id, unit, source);
+    if (!isNotebookCourse(course)) {
+      throw new Error(
+        "Resetting a whole unit is only supported for notebook courses. Reset Q# exercises one at a time instead.",
+      );
     }
-
+    const unitId = input?.unitId ?? this.position.unitId;
     const unit = this.findCourseUnit(course, unitId);
-    // Paths use the catalog's own ids, never the caller's.
-    for (const activity of unit.activities) {
-      let uri: vscode.Uri;
-      let code: string;
-      if (activity.type === "exercise") {
-        uri = this.exerciseFileUri(unit.id, activity.id);
-        code = activity.placeholderCode;
-      } else if (activity.type === "lesson" && activity.example) {
-        uri = this.exampleFileUri(unit.id, activity.example.id);
-        code = activity.example.code;
-      } else {
-        continue;
-      }
-      // Save any unsaved edits first so the editor is clean, then overwrite
-      // the file on disk. Abort the whole unit reset if a save didn't take,
-      // rather than clearing progress on a file we couldn't actually reset.
-      if (!(await this.saveOpenDocument(uri))) {
-        throw new Error(
-          "Couldn't save an open file in this unit. Save or close it, then try again.",
-        );
-      }
-      await ensureParentDir(uri);
-      await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code));
+    // Close any open notebook tab first. If the learner cancels a
+    // save-on-close prompt, abort — otherwise the still-open editor could
+    // later save stale content back over the reset.
+    if (!(await this.closeNotebookTab(workbookUri(unit)))) {
+      throw new Error(
+        "Couldn't close the open notebook. Save or close it, then try again.",
+      );
+    }
+    if (!(await rematerializeUnitWorkbook(unit))) {
+      throw new Error("Couldn't restore the unit's notebook.");
     }
     return this.finishUnitReset(course.id, unit, source);
   }
 
-  /** Clear the unit's completions and persist, shared by both reset paths. */
+  /** Clear the unit's completions and persist after a unit reset. */
   private async finishUnitReset(
     courseId: string,
     unit: CatalogUnit,

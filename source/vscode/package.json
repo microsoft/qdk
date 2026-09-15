@@ -1677,7 +1677,7 @@
         ],
         "toolReferenceName": "qdkLearningReset",
         "displayName": "QDK Learning: Reset",
-        "modelDescription": "Reset only the current activity to its original starter code and clear its completion. For python-notebook courses this restores just the current cell (an exercise cell or a plain code cell), leaving the learner's other cells intact. For Q# courses this restores the current exercise's .qs file and is only valid on exercises. Destructive — requires confirmation. To reset an entire unit, use qdk-learning-reset-unit instead.",
+        "modelDescription": "Reset only the current activity to its original starter code and clear its completion. For python-notebook courses this restores just the current cell (an exercise cell or a plain code cell), leaving the learner's other cells intact; to reset the whole notebook use qdk-learning-reset-unit. For Q# courses this restores the current exercise's .qs file and is only valid on exercises. Destructive — requires confirmation.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1696,7 +1696,7 @@
         ],
         "toolReferenceName": "qdkLearningResetUnit",
         "displayName": "QDK Learning: Reset Unit",
-        "modelDescription": "Reset an entire unit: restore every exercise and code example in the unit to its original starter code and clear completion for all of its activities. For python-notebook courses the unit's notebook is re-copied from the original. Destructive — all of the user's work in the unit is lost — requires confirmation. Defaults to the current unit; pass unitId from list-units or get-state to reset a different unit in the active course. To reset only the current exercise, use qdk-learning-reset instead.",
+        "modelDescription": "Reset an entire unit's notebook: re-copy it from the course original, discarding all of the learner's edits across every cell and clearing completion for the unit. Python-notebook courses only — Q# courses have no unit reset, so reset their exercises one at a time with qdk-learning-reset. Destructive — all of the user's work in the unit is lost — requires confirmation. Defaults to the current unit; pass unitId from list-units or get-state to reset a different unit in the active course.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
