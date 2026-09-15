@@ -347,21 +347,22 @@ export class LearningTools {
   }
 
   /**
-   * True when the active editor is the current unit's workbook but the
-   * selected cell has no stable id. In that case {@link serializeState} would
-   * silently fall back to the stored position, which is unsafe for reset.
+   * True when the learner is on a course workbook but the selected cell has no
+   * stable id, so {@link serializeState} would fall back to the stored
+   * position — unsafe for reset. Judged from the active editor's URI so a
+   * different unit's workbook is still covered.
    */
   private notebookSelectionUnidentified(): boolean {
-    if (!isNotebookCourse(this.service.getActiveCourseInfo())) {
+    const editor = vscode.window.activeNotebookEditor;
+    if (!editor || !this.service.isCourseWorkbook(editor.notebook.uri)) {
       return false;
     }
-    const editor = vscode.window.activeNotebookEditor;
-    const workbook = this.service.getCurrentCodeFileUri();
-    const onWorkbook =
-      !!editor &&
-      !!workbook &&
-      editor.notebook.uri.toString() === workbook.toString();
-    return onWorkbook && this.selectedNotebookCellId() === undefined;
+    const selection = editor.selections[0];
+    if (!selection) {
+      return true;
+    }
+    const cellId = editor.notebook.cellAt(selection.start).metadata?.id;
+    return typeof cellId !== "string";
   }
 
   /**
