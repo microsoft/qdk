@@ -132,7 +132,7 @@ def test_recorded_frame_bit_fault_changes_logical_output() -> None:
     fault = ec.FaultEvent.after(4, readout_flips=0)
     (effect,) = profile.effects_of([fault])
     assert effect.output_error[0] == Pauli("X_0")
-    assert profile.distance(faults=[fault])[0] == 1
+    assert profile.distance(faults=[fault]).value == 1
 
 
 def test_constant_frame_flips_action_without_creating_faults() -> None:
@@ -223,7 +223,7 @@ def test_physical_and_recorded_frame_faults_can_cancel() -> None:
     fault = ec.FaultEvent.after(4, Pauli("X_0"), readout_flips=0)
     (effect,) = profile.effects_of([fault])
     assert not effect.output_error[0].weight
-    assert profile.distance(faults=[fault])[1] == []
+    assert profile.distance(faults=[fault]).lower_bound is None
 
 
 def test_completion_preserves_explicit_frames() -> None:

@@ -28,6 +28,7 @@ from ._readouts import observe_count_of
 from ._references import outcomes_of
 from ._checks import OutcomeCode, outcome_code_of
 from ._faults import FaultEffect, FaultEvent, _probe_flips, fault_effects_of
+from ._distance_result import Distance
 
 if TYPE_CHECKING:
     from ._analysis.distance_solvers import BoundsSolver, ExactSolver
@@ -148,7 +149,7 @@ class GadgetProfile:
         faults: Sequence[FaultEvent] | None = None,
         upper_bound: int | None = None,
         solver: ExactSolver | None = None,
-    ) -> tuple[int, list[FaultEvent]]:
+    ) -> Distance[FaultEvent]:
         """Return the smallest undetected fault count and its fault factors.
 
         By default, allow every combination of a post-call Pauli on a call's
@@ -180,11 +181,11 @@ class GadgetProfile:
         the action must be interpretable against the boundary codes, and
         declared but unbound logical readouts cannot silently be ignored.
 
-        The witness is a list of selected FaultEvents, not their product.
+        The result's witness contains the selected factors and their product.
+        Replay the combined fault with effects_of([result.witness.product]).
         Select solver="enumeration" (the default), "mwpf", or "highs".
         HiGHS requires the optional qdk[ec,ec-highs] installation.
-        Return an empty list and a sentinel greater than the number of distinct
-        constraint columns only when no logical failure is possible. A cutoff
+        Both bounds are None only when no logical failure is possible. A cutoff
         or an open bound gap raises RuntimeError rather than claiming exactness.
         FaultEvent.after selects a zero-based Circuit.calls index; its readout
         indexes are local to that call, excluding hidden reset outcomes.
@@ -193,13 +194,18 @@ class GadgetProfile:
         exponentially with call support; exact search is also combinatorial.
         """
         from ._analysis.distance_solvers import EnumerationSolverOptions
+        from ._distance import _copy_fault, _fault_product, distance_result_of
 
         data = self._distance_data(faults)
-        size, cycle = data.odd_cycles.shortest(
-            EnumerationSolverOptions() if solver is None else solver,
-            cycle_size_upper_bound=upper_bound,
+        return distance_result_of(
+            data.odd_cycles,
+            data.faults,
+            solver=EnumerationSolverOptions() if solver is None else solver,
+            upper_bound=upper_bound,
+            exact=True,
+            product=_fault_product,
+            copy=_copy_fault,
         )
-        return size, [data.faults[index] for index in cycle]
 
     def distance_bounds(
         self,
@@ -207,26 +213,30 @@ class GadgetProfile:
         faults: Sequence[FaultEvent] | None = None,
         upper_bound: int | None = None,
         solver: BoundsSolver | None = None,
-    ) -> tuple[int, int, list[FaultEvent]]:
+    ) -> Distance[FaultEvent]:
         """Bound the undetected fault count and return an upper-bound witness.
 
         Faults, detection, and failure have the same meaning as in distance.
         Select solver="mwpf" (the default), "enumeration", or "highs".
         HiGHS requires qdk[ec,ec-highs]. Enumeration and HiGHS searches use
-        upper_bound as a search cutoff; MWPF does not use it. An empty list
-        means no witness was found; the numeric upper value is then a sentinel,
-        not a certified finite distance. Limits may leave a gap between bounds.
+        upper_bound as a search cutoff; MWPF does not use it. An upper bound of
+        None means no finite bound is established; both bounds being None
+        proves no allowed failure exists. Limits may leave a gap between bounds.
         Backend failures, invalid witnesses, or unavailable bound certificates
         raise RuntimeError rather than returning a partial or uncertified bound.
         """
         from ._analysis.distance_solvers import MwpfSolverOptions
+        from ._distance import _copy_fault, _fault_product, distance_result_of
 
         data = self._distance_data(faults)
-        lower, upper, cycle = data.odd_cycles.bounds(
-            odd_cycle_length_upper_bound=upper_bound,
+        return distance_result_of(
+            data.odd_cycles,
+            data.faults,
             solver=MwpfSolverOptions() if solver is None else solver,
+            upper_bound=upper_bound,
+            product=_fault_product,
+            copy=_copy_fault,
         )
-        return lower, upper, [data.faults[index] for index in cycle]
 
     def _distance_data(self, faults: Sequence[FaultEvent] | None) -> _FaultDistanceData:
         from ._distance import _FaultDistanceData

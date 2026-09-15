@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Optional, Sequence, TypeVar
+from itertools import combinations
+from typing import Iterable, Iterator, Optional, Sequence, TypeVar
 
 from .distance_solvers import (
     MwpfSolverOptions,
@@ -81,6 +82,24 @@ class OddCycles:
                     self.short_odd_cycle = [group[0], other]
                     self.short_odd_cycle_lower_bound = 2
                     return
+
+    def witnesses(
+        self, size: int, coset_indicator: Optional[frozenset[int]] = None
+    ) -> Iterator[tuple[int, ...]]:
+        """Enumerate all selections at one cost in original factor coordinates."""
+        for positions in combinations(range(len(self._source_checks)), size):
+            checks: frozenset[int] = frozenset()
+            parities: frozenset[int] = frozenset()
+            for position in positions:
+                checks ^= self._source_checks[position]
+                parities ^= self._source_parities[position]
+            logical = (
+                bool(parities)
+                if coset_indicator is None
+                else bool(len(parities & coset_indicator) % 2)
+            )
+            if not checks and logical:
+                yield tuple(self._source_ids[position] for position in positions)
 
     def shortest(
         self,

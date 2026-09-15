@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ._audit._diagnostic import Diagnostic
     from ._audit._report import Report
     from ._code_profile import CodeProfile
+    from ._distance_result import Distance
     from ._completion import derive
     from ._faults import FaultEffect, FaultEvent
     from ._profile import GadgetProfile
@@ -36,6 +37,7 @@ __all__ = [
     "ChannelAction",
     "CodeProfile",
     "Diagnostic",
+    "Distance",
     "FaultEffect",
     "FaultEvent",
     "GadgetProfile",
@@ -50,6 +52,7 @@ _EXPORTS = {
     "ChannelAction": ("._analysis.channel_action", "ChannelAction"),
     "CodeProfile": ("._code_profile", "CodeProfile"),
     "Diagnostic": ("._audit._diagnostic", "Diagnostic"),
+    "Distance": ("._distance_result", "Distance"),
     "FaultEffect": ("._faults", "FaultEffect"),
     "FaultEvent": ("._faults", "FaultEvent"),
     "GadgetProfile": ("._profile", "GadgetProfile"),

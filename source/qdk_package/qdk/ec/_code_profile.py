@@ -9,6 +9,7 @@ from paulimer import CliffordUnitary, PauliGroup
 
 from ._analysis.code_algebra import subsystem_code_of
 from ._analysis.propagation.pauli import Pauli
+from ._distance_result import Distance
 
 if TYPE_CHECKING:
     from ._analysis.distance_solvers import BoundsSolver as _BoundsSolver
@@ -86,26 +87,32 @@ class CodeProfile:
         coset_representative: Pauli | None = None,
         upper_bound: int | None = None,
         solver: "_ExactSolver | None" = None,
-    ) -> tuple[int, list[Pauli]]:
+    ) -> Distance[Pauli]:
         """Return the minimum number of allowed errors and their witness factors.
 
         The default counts each single-qubit X, Y, or Z error once, giving
         ordinary Pauli-weight distance. A string restricts the allowed
         single-qubit errors; a sequence supplies explicit errors, including
         correlated multi-qubit Paulis, each counted once. The witness remains
-        a list of selected factors, not their product. Select solver="enumeration"
+        a selection of factors, accessible through result.witness.factors;
+        result.witness.product is their combined Pauli. Select solver="enumeration"
         (the default), "mwpf", or "highs". HiGHS requires qdk[ec,ec-highs].
-        A cutoff or an unresolved bound gap raises RuntimeError. An empty
-        witness with a numeric sentinel means no allowed logical error exists.
+        A cutoff or an unresolved bound gap raises RuntimeError. A
+        result with both bounds None means no allowed logical error exists.
         """
-        from ._distance import code_distance_of
+        from ._analysis.distance_solvers import EnumerationSolverOptions
+        from ._distance import CodeDistanceData, _pauli_product, distance_result_of
 
-        return code_distance_of(
-            self._algebra,
-            errors=errors,
-            coset_representative=coset_representative,
-            distance_upper_bound=upper_bound,
-            solver=solver,
+        data = CodeDistanceData.of(self._algebra, errors)
+        return distance_result_of(
+            data.odd_cycles,
+            data.errors,
+            solver=EnumerationSolverOptions() if solver is None else solver,
+            upper_bound=upper_bound,
+            coset_indicator=data.parity_indicator(coset_representative),
+            exact=True,
+            product=_pauli_product,
+            copy=Pauli.copy,
         )
 
     def distance_bounds(
@@ -115,28 +122,33 @@ class CodeProfile:
         coset_representative: Pauli | None = None,
         upper_bound: int | None = None,
         solver: "_BoundsSolver | None" = None,
-    ) -> tuple[int, int, list[Pauli]]:
+    ) -> Distance[Pauli]:
         """Return lower and upper distance bounds and witness factors.
 
         Uses the same error counting as :meth:`distance`: X, Y, and Z each
         cost one by default; an explicit error sequence can include correlated
-        Paulis. A nonempty witness is the list of factors establishing the
-        upper bound. An empty list means no witness was found.
+        Paulis. result.witness.factors retains the selection establishing the
+        upper bound; result.witness.product is its combined Pauli. With no
+        finite upper bound, result.witness raises LookupError.
         Select solver="mwpf" (the default), "enumeration", or "highs".
-        HiGHS requires qdk[ec,ec-highs]. With no witness, the upper value is
-        a sentinel, not a certified finite distance. Enumeration and HiGHS use
+        HiGHS requires qdk[ec,ec-highs]. None represents infinity in either
+        bound; both bounds None proves impossibility. Enumeration and HiGHS use
         upper_bound as a search cutoff; MWPF ignores it. Backend failures,
         invalid witnesses, or unavailable bound certificates
         raise RuntimeError rather than returning a partial or uncertified bound.
         """
-        from ._distance import code_distance_bounds_of
+        from ._analysis.distance_solvers import MwpfSolverOptions
+        from ._distance import CodeDistanceData, _pauli_product, distance_result_of
 
-        return code_distance_bounds_of(
-            self._algebra,
-            errors=errors,
-            coset_representative=coset_representative,
-            distance_upper_bound=upper_bound,
-            solver=solver,
+        data = CodeDistanceData.of(self._algebra, errors)
+        return distance_result_of(
+            data.odd_cycles,
+            data.errors,
+            solver=MwpfSolverOptions() if solver is None else solver,
+            upper_bound=upper_bound,
+            coset_indicator=data.parity_indicator(coset_representative),
+            product=_pauli_product,
+            copy=Pauli.copy,
         )
 
     def encoding_clifford(

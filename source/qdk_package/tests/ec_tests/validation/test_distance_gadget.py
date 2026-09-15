@@ -82,11 +82,14 @@ def test_measurement_only_distance_includes_readout_flips(rep3_qodec: qc.Qodec) 
     gadget.circuit = qc.gadgets.Circuit(physical, "M 0 1 2", format="stim")
     profile = GadgetProfile(gadget)
 
-    distance, witness = profile.distance()
+    distance = profile.distance()
+    witness = distance.witness.factors
     assert distance == len(witness) == 3
-    lower, upper, bounded = profile.distance_bounds(solver=EnumerationSolverOptions())
+    bounds = profile.distance_bounds(solver=EnumerationSolverOptions())
+    lower, upper = bounds.lower_bound, bounds.upper_bound
+    bounded = bounds.witness.factors
     assert lower == upper == len(bounded) == 3
-    (effect,) = profile.effects_of([reduce(mul, witness, FaultEvent({}))])
+    (effect,) = profile.effects_of([distance.witness.product])
     assert not effect.syndrome
     assert effect.readout_flips == {0}
 
@@ -143,7 +146,9 @@ def test_nondestructive_readout_flip_matches_pauli_sandwich(
     assert direct_effect == sandwich_effect
     assert direct_effect.readout_flips == {0}
     assert all(not pauli.weight for pauli in direct_effect.output_error.values())
-    assert profile.distance(faults=[readout_fault]) == (1, [readout_fault])
+    distance = profile.distance(faults=[readout_fault])
+    assert distance == 1
+    assert distance.witness.factors == (readout_fault,)
     post_fault = FaultEvent.after(1, Pauli(error))
     (post_effect,) = profile.effects_of([post_fault])
     assert not post_effect.readout_flips
@@ -233,9 +238,12 @@ def test_one_call_can_corrupt_several_readouts_as_one_fault(
     profile = GadgetProfile(gadget)
     fault = FaultEvent.after(0, readout_flips=[0, 1])
     assert fault in profile._circuit_faults()
-    distance, witness = profile.distance()
+    distance = profile.distance()
+    witness = distance.witness.factors
     assert distance == len(witness) == 1
-    assert profile.distance(faults=[fault]) == (1, [fault])
+    distance = profile.distance(faults=[fault])
+    assert distance == 1
+    assert distance.witness.factors == (fault,)
     (effect,) = profile.effects_of(witness)
     assert not effect.syndrome and effect.readout_flips == {0}
 
@@ -247,9 +255,10 @@ def test_c4_z_measurement_has_distance_two_with_readout_noise() -> None:
         for index, readout in enumerate(gadget.readouts)
     ]
     profile = GadgetProfile(gadget)
-    distance, witness = profile.distance()
+    distance = profile.distance()
+    witness = distance.witness.factors
     assert distance == len(witness) == 2
-    (effect,) = profile.effects_of([reduce(mul, witness, FaultEvent())])
+    (effect,) = profile.effects_of([distance.witness.product])
     assert not effect.syndrome and effect.readout_flips
 
 
@@ -257,8 +266,11 @@ def test_c4_z_measurement_has_distance_two_with_readout_noise() -> None:
 def test_highs_gadget_distance_returns_replayable_witness(rep3_qodec: qc.Qodec) -> None:
     gadget = _measurement_gadget(rep3_qodec.layers[1].instruction_set, 3)
     profile = GadgetProfile(gadget)
-    distance, witness = profile.distance(solver="highs")
-    lower, upper, bounded = profile.distance_bounds(solver="highs")
+    distance = profile.distance(solver="highs")
+    witness = distance.witness.factors
+    bounds = profile.distance_bounds(solver="highs")
+    lower, upper = bounds.lower_bound, bounds.upper_bound
+    bounded = bounds.witness.factors
     assert distance == lower == upper == 3
     for factors in (witness, bounded):
         assert len(factors) == 3
@@ -278,12 +290,19 @@ def test_preparation_distance_uses_the_prepared_logical_state(
     last = len(gadget.circuit.calls()) - 1
     harmless = FaultEvent.after(last, Pauli("Z_0"))
     harmful = FaultEvent.after(last, Pauli("X_0 X_1 X_2"))
-    assert profile.distance(faults=[harmless])[1] == []
-    assert profile.distance_bounds(faults=[harmless])[2] == []
-    assert profile.distance(faults=[harmful]) == (1, [harmful])
-    assert profile.distance_bounds(faults=[harmful]) == (1, 1, [harmful])
-    distance, witness = profile.distance()
-    lower, upper, bounded = profile.distance_bounds(solver=EnumerationSolverOptions())
+    assert profile.distance(faults=[harmless]).lower_bound is None
+    assert profile.distance_bounds(faults=[harmless]).lower_bound is None
+    distance = profile.distance(faults=[harmful])
+    assert distance == 1
+    assert distance.witness.factors == (harmful,)
+    distance = profile.distance_bounds(faults=[harmful])
+    assert distance == 1
+    assert distance.witness.factors == (harmful,)
+    distance = profile.distance()
+    witness = distance.witness.factors
+    bounds = profile.distance_bounds(solver=EnumerationSolverOptions())
+    lower, upper = bounds.lower_bound, bounds.upper_bound
+    bounded = bounds.witness.factors
     assert distance == lower == upper == 3
     assert len(witness) == len(bounded) == 3
 
@@ -335,7 +354,7 @@ def test_readout_dependencies_are_reduced_once_for_all_faults(
         effects = profile.effects_of(faults)
     readout_matrix.zeros.assert_called_once_with(2, 2 + len(faults))
     assert [effect.readout_flips for effect in effects] == [{0, 1}, {0, 1}, set()]
-    assert profile.distance(faults=faults)[0] == 1
+    assert profile.distance(faults=faults).value == 1
 
 
 @pytest.mark.parametrize("preserves_input", [False, True])
@@ -389,14 +408,18 @@ def test_action_signs_combine_measurement_and_output_faults(
     output_fault = FaultEvent.after(before_measurement, Pauli({output_qubit: "X"}))
     assert not gadget.readouts and not gadget.checks
     for fault in (record_fault, readout_fault, output_fault):
-        assert profile.distance(faults=[fault]) == (1, [fault])
-        assert profile.distance_bounds(faults=[fault]) == (1, 1, [fault])
+        distance = profile.distance(faults=[fault])
+        assert distance == 1
+        assert distance.witness.factors == (fault,)
+        distance = profile.distance_bounds(faults=[fault])
+        assert distance == 1
+        assert distance.witness.factors == (fault,)
     combined = record_fault * output_fault
-    assert profile.distance(faults=[combined])[1] == []
-    assert profile.distance_bounds(faults=[combined])[2] == []
+    assert profile.distance(faults=[combined]).lower_bound is None
+    assert profile.distance_bounds(faults=[combined]).lower_bound is None
     combined_readout = readout_fault * output_fault
-    assert profile.distance(faults=[combined_readout])[1] == []
-    assert profile.distance_bounds(faults=[combined_readout])[2] == []
+    assert profile.distance(faults=[combined_readout]).lower_bound is None
+    assert profile.distance_bounds(faults=[combined_readout]).lower_bound is None
 
 
 def test_action_probes_follow_output_encoding_order(rep3_qodec: qc.Qodec) -> None:
@@ -419,10 +442,14 @@ def test_action_probes_follow_output_encoding_order(rep3_qodec: qc.Qodec) -> Non
     profile = GadgetProfile(gadget)
     harmless = FaultEvent.after(1, Pauli("Z_5"))
     harmful = FaultEvent.after(1, Pauli("Z_2"))
-    assert profile.distance(faults=[harmless])[1] == []
-    assert profile.distance_bounds(faults=[harmless])[2] == []
-    assert profile.distance(faults=[harmful]) == (1, [harmful])
-    assert profile.distance_bounds(faults=[harmful]) == (1, 1, [harmful])
+    assert profile.distance(faults=[harmless]).lower_bound is None
+    assert profile.distance_bounds(faults=[harmless]).lower_bound is None
+    distance = profile.distance(faults=[harmful])
+    assert distance == 1
+    assert distance.witness.factors == (harmful,)
+    distance = profile.distance_bounds(faults=[harmful])
+    assert distance == 1
+    assert distance.witness.factors == (harmful,)
 
 
 def test_profile_keeps_readout_dependencies_in_snapshot(rep3_qodec: qc.Qodec) -> None:
@@ -532,16 +559,17 @@ def test_default_correlated_fault_is_cheaper_than_single_qubit_events(
         for qubit in (0, 1)
         for basis in ("X", "Y", "Z")
     ]
-    distance, witness = profile.distance()
+    distance = profile.distance()
+    witness = distance.witness.factors
     assert distance == 1 and len(witness) == 1
     assert witness[0].weight == 2
     assert witness[0] in {
         FaultEvent.after(0, Pauli({0: control, 1: target}))
         for control, target in product(("X", "Y"), repeat=2)
     }
-    assert profile.distance(faults=single_qubit)[0] == 2
-    assert profile.distance_bounds()[:2] == (1, 1)
-    assert profile.distance_bounds(faults=single_qubit)[:2] == (2, 2)
+    assert profile.distance(faults=single_qubit).value == 2
+    assert profile.distance_bounds() == 1
+    assert profile.distance_bounds(faults=single_qubit) == 2
     (effect,) = profile.effects_of(witness)
     assert not effect.syndrome and effect.readout_flips == {0}
 
@@ -565,11 +593,18 @@ def test_profile_distance_counts_correlated_gate_error_once(
     )
     profile = GadgetProfile(gadget)
     fault = FaultEvent.after(0, Pauli("X_0 X_1"))
-    assert profile.distance(faults=[fault]) == (1, [fault])
-    assert profile.distance_bounds(faults=[fault]) == (1, 1, [fault])
+    distance = profile.distance(faults=[fault])
+    assert distance == 1
+    assert distance.witness.factors == (fault,)
+    distance = profile.distance_bounds(faults=[fault])
+    assert distance == 1
+    assert distance.witness.factors == (fault,)
     assert fault.weight == 2
-    distance, witness = profile.distance()
-    lower, upper, bounded = profile.distance_bounds()
+    distance = profile.distance()
+    witness = distance.witness.factors
+    bounds = profile.distance_bounds()
+    lower, upper = bounds.lower_bound, bounds.upper_bound
+    bounded = bounds.witness.factors
     assert distance == lower == upper == 1
     assert len(witness) == len(bounded) == 1
 
@@ -580,24 +615,27 @@ def test_distance_finds_combinations_and_returns_replayable_faults(
     gadget = _measurement_gadget(rep3_qodec.layers[1].instruction_set, 2)
     faults = [FaultEvent.after(0, Pauli("X_0")), FaultEvent.after(1, Pauli("X_1"))]
     profile = GadgetProfile(gadget)
-    distance, witness = profile.distance(faults=faults)
-    assert distance == 2 and witness == faults
-    assert profile.distance_bounds(faults=faults) == (2, 2, faults)
-    assert profile.distance_bounds(
-        faults=faults, solver=EnumerationSolverOptions()
-    ) == (
-        2,
-        2,
-        faults,
-    )
+    distance = profile.distance(faults=faults)
+    witness = distance.witness.factors
+    assert distance == 2 and witness == tuple(faults)
+    distance = profile.distance_bounds(faults=faults)
+    assert distance == 2
+    assert distance.witness.factors == tuple(faults)
+    distance = profile.distance_bounds(faults=faults, solver=EnumerationSolverOptions())
+    assert distance == 2
+    assert distance.witness.factors == tuple(faults)
     (combined,) = profile.effects_of([witness[0] * witness[1]])
     assert not combined.syndrome and combined.readout_flips == {0}
     event = witness[0] * witness[1]
     assert event == FaultEvent({0: Pauli("X_0"), 1: Pauli("X_1")})
-    assert profile.distance(faults=[event]) == (1, [event])
-    assert profile.distance_bounds(faults=[event]) == (1, 1, [event])
-    assert profile.distance(faults=[])[1] == []
-    assert profile.distance_bounds(faults=[])[2] == []
+    distance = profile.distance(faults=[event])
+    assert distance == 1
+    assert distance.witness.factors == (event,)
+    distance = profile.distance_bounds(faults=[event])
+    assert distance == 1
+    assert distance.witness.factors == (event,)
+    assert profile.distance(faults=[]).lower_bound is None
+    assert profile.distance_bounds(faults=[]).lower_bound is None
 
 
 def test_flag_alone_is_not_a_logical_failure_or_a_detector(
@@ -611,8 +649,8 @@ def test_flag_alone_is_not_a_logical_failure_or_a_detector(
         circuit,
         readouts=[{"reject": ["circuit.readouts[0]"]}],
     )
-    assert GadgetProfile(flag_only).distance(faults=[fault])[1] == []
-    assert GadgetProfile(flag_only).distance_bounds(faults=[fault])[2] == []
+    assert GadgetProfile(flag_only).distance(faults=[fault]).lower_bound is None
+    assert GadgetProfile(flag_only).distance_bounds(faults=[fault]).lower_bound is None
     base = _measurement_gadget(physical, 1)
     measurement = qc.Gadget(
         qc.Instruction(
@@ -625,11 +663,13 @@ def test_flag_alone_is_not_a_logical_failure_or_a_detector(
         inputs=base.inputs,
         readouts=[["circuit.readouts[0]"], {"reject": ["circuit.readouts[0]"]}],
     )
-    assert GadgetProfile(measurement).distance(faults=[fault]) == (1, [fault])
+    distance = GadgetProfile(measurement).distance(faults=[fault])
+    assert distance == 1
+    assert distance.witness.factors == (fault,)
     measurement.checks = [["circuit.readouts[0]"]]
-    assert GadgetProfile(measurement).distance(faults=[fault])[1] == []
+    assert GadgetProfile(measurement).distance(faults=[fault]).lower_bound is None
     measurement.checks = [["readouts[1]"]]
-    assert GadgetProfile(measurement).distance(faults=[fault])[1] == []
+    assert GadgetProfile(measurement).distance(faults=[fault]).lower_bound is None
 
 
 def test_output_codespace_is_required_without_adding_declared_checks(
@@ -647,16 +687,16 @@ def test_output_codespace_is_required_without_adding_declared_checks(
     profile = GadgetProfile(gadget)
     (effect,) = profile.effects_of([fault])
     assert not effect.syndrome and effect.output_error[0].weight
-    assert profile.distance(faults=[fault])[1] == []
-    assert profile.distance_bounds(faults=[fault])[2] == []
+    assert profile.distance(faults=[fault]).lower_bound is None
+    assert profile.distance_bounds(faults=[fault]).lower_bound is None
     gadget.checks = [["out[0].stabilizers[0]"]]
     profile = GadgetProfile(gadget)
     (effect,) = profile.effects_of([fault])
     assert effect.syndrome == {0} and effect.output_error[0].weight
-    assert profile.distance(faults=[fault])[1] == []
-    assert profile.distance_bounds(faults=[fault])[2] == []
+    assert profile.distance(faults=[fault]).lower_bound is None
+    assert profile.distance_bounds(faults=[fault]).lower_bound is None
     gadget.checks = [["out[0].stabilizers[0:1]", "out[0].stabilizers[00]"]]
-    assert GadgetProfile(gadget).distance(faults=[fault])[1] == []
+    assert GadgetProfile(gadget).distance(faults=[fault]).lower_bound is None
 
 
 def test_readout_free_distance_requires_combined_logical_residual() -> None:
@@ -689,12 +729,15 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
     assert not gadget.readouts and not gadget.checks
     assert all(not effect.syndrome for effect in profile.effects_of(faults))
     for fault in faults:
-        assert profile.distance(faults=[fault])[1] == []
-        assert profile.distance_bounds(faults=[fault])[2] == []
-    distance, witness = profile.distance(faults=faults)
-    lower, upper, bounded = profile.distance_bounds(faults=faults)
+        assert profile.distance(faults=[fault]).lower_bound is None
+        assert profile.distance_bounds(faults=[fault]).lower_bound is None
+    distance = profile.distance(faults=faults)
+    witness = distance.witness.factors
+    bounds = profile.distance_bounds(faults=faults)
+    lower, upper = bounds.lower_bound, bounds.upper_bound
+    bounded = bounds.witness.factors
     assert distance == lower == upper == 2
-    assert witness == bounded == faults
+    assert witness == bounded == tuple(faults)
     residual = reduce(
         mul,
         (Pauli({faults.index(fault): "X"}) for fault in witness),
@@ -702,11 +745,13 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
     )
     assert CodeProfile(code).is_non_trivial_logical_error(residual)
     logical_fault = FaultEvent.after(0, Pauli("X_0 X_1"))
-    assert profile.distance(faults=[logical_fault]) == (1, [logical_fault])
+    distance = profile.distance(faults=[logical_fault])
+    assert distance == 1
+    assert distance.witness.factors == (logical_fault,)
     stabilizer_fault = FaultEvent.after(0, Pauli("X_0 X_1 X_2 X_3"))
-    assert profile.distance(faults=[stabilizer_fault])[1] == []
-    assert profile.distance_bounds(faults=[stabilizer_fault])[2] == []
-    assert profile.distance()[0] == 2
+    assert profile.distance(faults=[stabilizer_fault]).lower_bound is None
+    assert profile.distance_bounds(faults=[stabilizer_fault]).lower_bound is None
+    assert profile.distance().value == 2
 
 
 def test_output_syndromes_on_different_blocks_do_not_cancel() -> None:
@@ -718,8 +763,8 @@ def test_output_syndromes_on_different_blocks_do_not_cancel() -> None:
     effects = profile.effects_of(faults)
     assert all(not effect.syndrome for effect in effects)
     assert effects[0].output_error[0].weight and effects[1].output_error[1].weight
-    assert profile.distance(faults=faults)[1] == []
-    assert profile.distance_bounds(faults=faults)[2] == []
+    assert profile.distance(faults=faults).lower_bound is None
+    assert profile.distance_bounds(faults=faults).lower_bound is None
 
 
 def test_declared_checks_still_exclude_a_codespace_preserving_error() -> None:
@@ -727,13 +772,15 @@ def test_declared_checks_still_exclude_a_codespace_preserving_error() -> None:
     last = len(gadget.circuit.calls()) - 1
     fault = FaultEvent.after(last, Pauli("X_0 X_1"))
     profile = GadgetProfile(gadget)
-    assert profile.distance(faults=[fault]) == (1, [fault])
+    distance = profile.distance(faults=[fault])
+    assert distance == 1
+    assert distance.witness.factors == (fault,)
     gadget.checks = [*gadget.checks, ["out[0].z[0]", "in[0].z[0]"]]
     profile = GadgetProfile(gadget)
     (effect,) = profile.effects_of([fault])
     assert effect.syndrome == {len(gadget.checks) - 1}
-    assert profile.distance(faults=[fault])[1] == []
-    assert profile.distance_bounds(faults=[fault])[2] == []
+    assert profile.distance(faults=[fault]).lower_bound is None
+    assert profile.distance_bounds(faults=[fault]).lower_bound is None
 
 
 def test_readout_dependencies_are_solved_for_fault_effects(
@@ -754,7 +801,9 @@ def test_readout_dependencies_are_solved_for_fault_effects(
     fault = FaultEvent.after(0, Pauli("X_0"))
     (effect,) = GadgetProfile(gadget).effects_of([fault])
     assert effect.readout_flips == {0, 1}
-    assert GadgetProfile(gadget).distance(faults=[fault]) == (1, [fault])
+    distance = GadgetProfile(gadget).distance(faults=[fault])
+    assert distance == 1
+    assert distance.witness.factors == (fault,)
     gadget.readouts = [["readouts[0]"], []]
     for method in ("distance", "distance_bounds"):
         with pytest.raises(ValueError, match="uniquely determine"):
@@ -777,8 +826,8 @@ def test_identical_logical_effects_cancel_instead_of_forming_a_failure(
     )
     faults = [FaultEvent.after(0, Pauli("X_0")), FaultEvent.after(1, Pauli("X_1"))]
     profile = GadgetProfile(gadget)
-    assert profile.distance(faults=faults)[1] == []
-    assert profile.distance_bounds(faults=faults)[2] == []
+    assert profile.distance(faults=faults).lower_bound is None
+    assert profile.distance_bounds(faults=faults).lower_bound is None
     (effect,) = profile.effects_of([faults[0] * faults[1]])
     assert not effect.syndrome and not effect.readout_flips
 
@@ -811,8 +860,11 @@ def test_distance_three_matches_bounds_and_cutoff(rep3_qodec: qc.Qodec) -> None:
     faults = [FaultEvent.after(index, Pauli({index: "X"})) for index in range(3)]
     profile = GadgetProfile(gadget)
     for selected in (None, faults):
-        distance, witness = profile.distance(faults=selected)
-        lower, upper, bounded = profile.distance_bounds(faults=selected)
+        distance = profile.distance(faults=selected)
+        witness = distance.witness.factors
+        bounds = profile.distance_bounds(faults=selected)
+        lower, upper = bounds.lower_bound, bounds.upper_bound
+        bounded = bounds.witness.factors
         assert distance == upper == 3 and lower <= 3
         assert len(witness) == len(bounded) == 3
         for factors in (witness, bounded):
@@ -821,13 +873,9 @@ def test_distance_three_matches_bounds_and_cutoff(rep3_qodec: qc.Qodec) -> None:
             assert not effect.syndrome and effect.readout_flips == {0}
         with pytest.raises(RuntimeError, match="exact distance"):
             profile.distance(faults=selected, upper_bound=2)
-    assert profile.distance_bounds(
-        faults=faults, solver=EnumerationSolverOptions()
-    ) == (
-        3,
-        3,
-        faults,
-    )
+    distance = profile.distance_bounds(faults=faults, solver=EnumerationSolverOptions())
+    assert distance == 3
+    assert distance.witness.factors == tuple(faults)
 
 
 def test_bare_circuit_distance_uses_discovered_checks(rep3_qodec: qc.Qodec) -> None:
@@ -839,7 +887,8 @@ def test_bare_circuit_distance_uses_discovered_checks(rep3_qodec: qc.Qodec) -> N
     ]
     circuit = qc.gadgets.Circuit(physical, "- idle: [5]\n", format="yaml")
     profile = GadgetProfile(circuit)
-    distance, witness = profile.distance()
+    distance = profile.distance()
+    witness = distance.witness.factors
     assert distance == 1 and len(witness) == 1
     (effect,) = profile.effects_of(witness)
     assert not effect.syndrome and any(
@@ -847,8 +896,8 @@ def test_bare_circuit_distance_uses_discovered_checks(rep3_qodec: qc.Qodec) -> N
     )
     measured = GadgetProfile(qc.gadgets.Circuit(physical, "R 0\nM 0", format="stim"))
     assert measured.checks
-    assert measured.distance()[1] == []
-    assert measured.distance_bounds()[2] == []
+    assert measured.distance().lower_bound is None
+    assert measured.distance_bounds().lower_bound is None
 
 
 @pytest.mark.parametrize("location", [-1, 2])

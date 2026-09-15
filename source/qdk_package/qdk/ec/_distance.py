@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Optional, Sequence, Union
+from functools import reduce
+from operator import mul
+from typing import Optional, Sequence, TypeVar, Union
 
 import qodec as qc
 
@@ -25,9 +29,64 @@ from ._analysis.distance_solvers import (
 from ._analysis.odd_cycles import OddCycles, cycle_labels
 from ._analysis.propagation.pauli import Pauli
 from ._code_profile import CodeProfile
+from ._distance_result import Distance
 from ._faults import FaultEffect, FaultEvent
 
 Errors = Union[str, Sequence[Pauli]]
+Factor = TypeVar("Factor")
+
+
+def distance_result_of(
+    problem: OddCycles,
+    factors: Sequence[Factor],
+    *,
+    solver: ExactSolver,
+    upper_bound: int | None = None,
+    coset_indicator: frozenset[int] | None = None,
+    exact: bool = False,
+    product: Callable[[tuple[Factor, ...]], Factor],
+    copy: Callable[[Factor], Factor] = deepcopy,
+) -> Distance[Factor]:
+    snapshot = tuple(copy(factor) for factor in factors)
+    lower, upper, cycle = problem.bounds(upper_bound, coset_indicator, solver)
+    if exact and lower != upper:
+        raise RuntimeError(
+            f"solver did not prove exact distance: bounds are {lower} and {upper}"
+        )
+    if not cycle:
+        return Distance._create(None if lower == upper else lower, None)
+    selected = tuple(sorted(cycle))
+    witness = Distance.Witness._create(
+        tuple(snapshot[index] for index in selected), product=product, copy=copy
+    )
+
+    def alternatives() -> Iterator[Distance.Witness[Factor]]:
+        for selection in problem.witnesses(upper, coset_indicator):
+            if selection != selected:
+                yield Distance.Witness._create(
+                    tuple(snapshot[index] for index in selection),
+                    product=product,
+                    copy=copy,
+                )
+
+    return Distance._create(lower, upper, witness=witness, alternatives=alternatives)
+
+
+def _pauli_product(factors: tuple[Pauli, ...]) -> Pauli:
+    return reduce(mul, factors, Pauli.identity())
+
+
+def _fault_product(factors: tuple[FaultEvent, ...]) -> FaultEvent:
+    return reduce(mul, factors, FaultEvent())
+
+
+def _copy_fault(fault: FaultEvent) -> FaultEvent:
+    return FaultEvent._from_locations(
+        {
+            call: (error.copy(), flips)
+            for call, (error, flips) in fault._locations.items()
+        }
+    )
 
 
 @dataclass

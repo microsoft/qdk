@@ -138,7 +138,7 @@ home directory use `~/`; other paths remain absolute. The stored
 Equation failures point to the equation; other findings fall back to the
 containing artifact. Source metadata does not affect diagnostic equality.
 Constructed or modified models may have no source locations. `qdk.ec` has
-11 top-level exports.
+12 top-level exports.
 
 Use `ec.CodeProfile(code)` to analyze a `qodec.Code`, just as
 `ec.GadgetProfile(gadget)` analyzes a gadget. Both profiles snapshot their input
@@ -153,18 +153,59 @@ analysis algorithms.
 `CodeProfile.distance()` and `distance_bounds()` default to single-qubit
 `"XYZ"` errors, each with unit cost. Supplying `errors` restricts those Pauli
 kinds or replaces them with an explicit sequence of allowed Pauli errors,
-including correlated errors. The witness remains a list of selected factors.
+including correlated errors. Both methods return `Distance[Pauli]` rather than
+tuples. `result.witness.product` is the combined Pauli; `result.witness.factors`
+is the tuple of selected unit-cost errors.
+
+`Distance` has read-only `lower_bound`, `upper_bound`, `is_exact`, `value`,
+`witness`, and `witnesses` properties. `None` means positive infinity in both
+bounds. `(3, None)` means at least three with no finite upper bound established;
+`(None, None)` proves no allowed logical failure exists. `value` requires equal
+bounds and raises `ValueError` otherwise. `witness` returns the retained
+`Distance.Witness` without searching, or raises `LookupError` if none is available.
+
+```python
+distance = ec.CodeProfile(code).distance()
+print(distance)
+if distance.upper_bound is not None:
+    error = distance.witness.product
+    factors = distance.witness.factors
+```
+
+Strings contain only the value or interval: `2`, `[2, 4]`, `[3, ∞]`, or `∞`.
+Comparisons against integers and other distances use the certified bounds.
+For `[3, 5]`, `result > 2` is true and `result == 2` is false, but `result > 4`
+raises `ValueError` because it is unresolved. Comparisons never search.
+`bool(result)` raises `TypeError`; use an explicit comparison or `is_exact`.
+String formatting supports alignment, while numeric formatting uses `value`.
+Distance equality compares numerical values, not witness choices; results are
+unhashable. Witness equality and hashing use the ordered factors, not the product.
+
+Each access to `witnesses` returns a fresh lazy iterator. Its first item is the
+retained `witness`; further items enumerate distinct selections of original
+allowed-factor positions at the same finite upper-bound cost. Different selections
+may have the same product. Enumeration uses the snapshotted binary problem,
+does not rerun circuit simulation or alter the bounds, and may be combinatorially
+expensive. Exhaustion means all selections at that cost were enumerated;
+interruptions and errors propagate. No finite upper bound gives an empty iterator.
+
+Neither type has a public constructor or supports implicit iteration or tuple
+unpacking. Use `len(witness.factors)` for cost, never the product's Pauli or fault
+weight. `Distance` is generic without a restriction on factor types; the profiles
+produce Pauli and FaultEvent factors.
 
 `GadgetProfile.distance()` and `distance_bounds()` apply the same search to
 circuit faults:
 
 ```python
 profile = ec.GadgetProfile(gadget)
-distance, witness = profile.distance()
-lower, upper, bounded_witness = profile.distance_bounds()
+distance = profile.distance()
+bounds = profile.distance_bounds()
 
 faults = [ec.FaultEvent.after(0, ec.Pauli({0: "X", 1: "X"}))]
-distance, witness = profile.distance(faults=faults)
+distance = profile.distance(faults=faults)
+if distance.upper_bound is not None:
+    (combined_effect,) = profile.effects_of([distance.witness.product])
 
 measurement_call = next(
     index for index, call in enumerate(gadget.circuit.calls)
@@ -214,7 +255,7 @@ errors. `FaultEffect.readout_flips` still reports changes to gadget logical
 readouts (or the full record when profiling a bare circuit).
 
 `FaultEvent` has two named members, `after` and `weight`; there are no public
-`locations` or `readout_flips` fields. The 11 top-level exports are unchanged.
+`locations` or `readout_flips` fields.
 `after` keeps the existing call-location convention, and the `readout_flips`
 keyword follows the existing effect vocabulary. A separate `flip_readout`
 method would duplicate this constructor; a boolean shortcut would need an
@@ -264,8 +305,8 @@ pip install 'qdk[ec,ec-highs]'
 ```
 
 ```python
-distance, witness = profile.distance(solver="highs")
-lower, upper, witness = profile.distance_bounds(solver="highs")
+distance = profile.distance(solver="highs")
+bounds = profile.distance_bounds(solver="highs")
 ```
 
 The same selection works on `CodeProfile`. No solver classes or interfaces
@@ -276,9 +317,8 @@ distance-1/2 shortcuts can answer without invoking a backend.
 
 Internally all backends return bounds and a witness. `distance()` returns only
 when the optimum is proved; it raises `RuntimeError` if a cutoff or solver limit
-leaves a gap. `distance_bounds()` can return that gap. When the witness is empty,
-the numeric upper value is a sentinel, not a certified finite distance. Matching
-sentinel bounds with an empty witness mean no allowed logical failure exists.
+leaves a gap. `distance_bounds()` can return that gap. Public results translate
+internal sentinels into `None` bounds; no witness is fabricated for infinity.
 HiGHS limits with no feasible witness, backend failures, invalid witnesses, or
 missing bound certificates raise rather than claiming a result. Only logical
 searches proved impossible are skipped. This applies to both code and gadget
@@ -289,8 +329,8 @@ Invalid call indices or parity references, unbound logical readouts, and ambiguo
 readout dependencies raise rather than silently omitting effects. Conditional or
 selected circuits and circuit instruction flags are not supported.
 
-These are two new methods on `GadgetProfile`, bringing it to 10 named members;
-there are no new top-level exports. Names follow `CodeProfile.distance` and
+`GadgetProfile` has 10 named members. Both distance methods return
+`Distance[FaultEvent]`. Names follow `CodeProfile.distance` and
 `distance_bounds`; separate `gadget_distance_*` free functions would duplicate
 the profile's ownership. `faults` follows `effects_of(faults)`, rather than `errors`,
 because the inputs include circuit locations. The existing `fault_effects` property
