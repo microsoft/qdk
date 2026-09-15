@@ -478,6 +478,9 @@ class CircuitConfig:
         source_locations: bool = False,
         group_by_scope: bool = False,
         prune_classical_qubits: bool = False,
+        noise_config: Optional[NoiseConfig] = None,
+        gate_errors: Optional[Literal["loss", "all"]] = None,
+        qubit_errors: Optional[Literal["loss"]] = None,
     ) -> None: ...
 
     max_operations: Optional[int]

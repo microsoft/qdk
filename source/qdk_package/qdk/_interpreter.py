@@ -314,6 +314,7 @@ def circuit(
     source_locations: bool = False,
     group_by_scope: bool = True,
     prune_classical_qubits: bool = False,
+    noise: Optional[NoiseConfig] = None,
 ) -> Circuit:
     """
     Synthesizes a circuit for a Q# program. Either an entry
@@ -354,6 +355,10 @@ def circuit(
         gate (e.g. qubits only used as classical controls).
     :kwtype prune_classical_qubits: bool
 
+    :keyword noise: Per-gate noise configuration. This is supported only when
+        ``generation_method`` is :attr:`~qdk.qsharp.CircuitGenerationMethod.Static`.
+    :kwtype noise: :class:`~qdk.simulation.NoiseConfig`
+
     :return: The synthesized circuit.
     :rtype: Circuit
     :raises QSharpError: If there is an error synthesizing the circuit.
@@ -367,6 +372,7 @@ def circuit(
         source_locations=source_locations,
         group_by_scope=group_by_scope,
         prune_classical_qubits=prune_classical_qubits,
+        noise=noise,
     )
 
 

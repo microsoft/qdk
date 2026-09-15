@@ -192,6 +192,31 @@ export interface Unitary extends BaseOperation {
   controls?: ControlRegister[];
   /** Whether gate is an adjoint operation. */
   isAdjoint?: boolean;
+  /** Error information for the gate and its output registers. */
+  error?: GateErrorInfo;
+}
+
+export interface GateErrorInfo {
+  /** Total probability that the gate experiences a configured fault. */
+  gateError: number;
+  /** Error probabilities associated with registers after gate application. */
+  outputErrors: [Register, number][];
+}
+
+function isGateErrorInfo(obj: any): obj is GateErrorInfo {
+  return (
+    obj &&
+    typeof obj === "object" &&
+    typeof obj.gateError === "number" &&
+    Array.isArray(obj.outputErrors) &&
+    obj.outputErrors.every(
+      (entry: any) =>
+        Array.isArray(entry) &&
+        entry.length === 2 &&
+        isRegister(entry[0]) &&
+        typeof entry[1] === "number",
+    )
+  );
 }
 
 /**
@@ -227,7 +252,9 @@ export function isOperation(obj: any): obj is Operation {
           (Array.isArray(op.controls) &&
             op.controls.every(isControlRegister))) &&
         // isAdjoint is optional
-        (op.isAdjoint === undefined || typeof op.isAdjoint === "boolean")
+        (op.isAdjoint === undefined || typeof op.isAdjoint === "boolean") &&
+        // error is optional
+        (op.error === undefined || isGateErrorInfo(op.error))
       );
     case "measurement":
       return (
