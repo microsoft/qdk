@@ -115,6 +115,19 @@ canonical format's guarantees, and the visitor's context protocol.
 It requires Python 3.11 or newer and qodec 0.1.x. Install the local qodec Python
 bindings first while that version is unpublished, then install `qdk[ec]`.
 
+`ec.build_qodec(code)` returns a qodec that passes the default audit without
+diagnostics. Both `strategy="flagged-css/v1"` and `strategy="bare-css/v1"`
+include incoming-frame corrections in logical readouts and stabilizer transport
+relations for supported transversal gates. `strict=False` allows unsupported
+instructions to be omitted and recorded in the build metadata; it does not
+allow inconsistent retained gadgets. A failed final audit raises `ValueError`.
+
+Audit cleanliness establishes noiseless consistency, not fault tolerance.
+The bare strategy intentionally uses no flag qubits and can lose code distance.
+Evaluate gadget distance separately before choosing an implementation.
+Re-running `ec.derive` retains verified direct readout and check equations,
+including the builder's boundary-frame relations.
+
 Use `qodec.gadgets.Circuit(instruction_set, source, format=...)` for circuits.
 Parsed invocations are `circuit.calls`; each call has positional `operands`
 and named classical `arguments`. The instruction definitions are in

@@ -96,6 +96,7 @@ from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
 from ._analysis.channel_action import gadget_action_mismatch
+from ._analysis.check_discovery import _output_relations_of
 from ._distance import code_distance_of
 from ._analysis.propagation.pauli import Pauli, characters_of
 from ._analysis.propagation.pauli_remap import code_qubit_count
@@ -480,6 +481,20 @@ def _attempt_candidate(
     draft = _draft(candidate, instruction, code, physical, data_width)
     try:
         gadget = complete_gadget(draft)
+        if candidate.mnemonic in ("measure_x", "measure_z"):
+            basis = "x" if candidate.mnemonic == "measure_x" else "z"
+            gadget.readouts = [
+                [*readout.equation, f"in[0].{basis}[{index}]"]
+                for index, readout in enumerate(gadget.readouts)
+            ]
+        if candidate.mnemonic in ("transversal_h", "transversal_cx"):
+            gadget.checks = [
+                *gadget.checks,
+                *(
+                    [*as_references(equation), *([1] if offset else [])]
+                    for equation, offset in _output_relations_of(gadget)
+                ),
+            ]
     except (KeyError, ValueError, NotImplementedError) as error:
         return _BuildFailure(
             "completion",
@@ -644,6 +659,11 @@ def _build(
         metadata=metadata,
     )
 
+    from ._audit import audit
+
+    report = audit(built)
+    if report.diagnostics:
+        raise ValueError(f"built qodec {resolved_name!r} did not pass audit:\n{report}")
     return built
 
 
@@ -659,6 +679,10 @@ def build_qodec(
 
     ``strict`` defaults to ``True``: an instruction whose gadget does not
     complete and verify raises rather than being silently omitted.
+    Every returned qodec passes the default audit without diagnostics, including
+    with ``strict=False``. A failed final audit raises ValueError rather than
+    returning inconsistent declarations. Audit cleanliness does not establish
+    fault tolerance; evaluate circuit fault distance separately.
 
     ``strategy="flagged-css/v1"`` (the default) uses flag qubits during syndrome
     extraction. ``strategy="bare-css/v1"`` omits those flags and is not fault
