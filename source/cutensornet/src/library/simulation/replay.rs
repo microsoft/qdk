@@ -20,15 +20,23 @@ use qdk_simulators::QubitID;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use std::sync::Arc;
 use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, time::Instant};
+use tensornet::{Mps, MpsError};
 
 #[cfg(test)]
 #[path = "replay/tests.rs"]
 mod tests;
 
+/// The MPS shape a simulation asks the library to produce, and the FFI
+/// scaffolding that shape needs.
+///
+/// The shape itself is a [`Mps`]: extents only, since a target describes a
+/// capacity rather than a buffer and so has no layout. The `i64` copy and the
+/// pointers into it exist purely because the library takes extents as an array
+/// of pointers, and they must outlive the call that reads them.
 pub(crate) struct MpsTarget {
+    shape: Mps,
     extents: Vec<Box<[i64]>>,
     extent_pointers: Box<[*const i64]>,
-    output_elements: Vec<usize>,
 }
 
 impl MpsTarget {
@@ -36,6 +44,8 @@ impl MpsTarget {
         // cuTensorNet requires at least two sites for MPS finalization
         // (bindings/v2_13.rs:338). This crate implements only MPS and has one
         // unconditional finalize_mps call below, so it cannot represent one site.
+        // `Mps` itself accepts a lone site: the limit is this backend's, not the
+        // abstraction's.
         if qubit_count < 2 {
             return Err(SimulationError::InvalidCircuit {
                 reason: "MPS simulation requires at least two qubits; use type=\"cpu\" for single-qubit circuits".to_string(),
@@ -55,20 +65,34 @@ impl MpsTarget {
             };
             extents.push(shape.into_boxed_slice());
         }
-        let output_elements = extents
-            .iter()
-            .map(|shape| checked_element_count(shape, "MPS output"))
-            .collect::<Result<Vec<_>, _>>()?;
+        let shape = Mps::new(convert_layout("target extent", &extents)?).map_err(|error| {
+            match error {
+                // Preserves the variant this path raised before the chain was
+                // a type: a bond cap large enough to overflow is a resource
+                // limit, not a malformed request.
+                MpsError::ElementCountOverflow { .. } => SimulationError::ResourceSizeOverflow {
+                    resource: "MPS output",
+                },
+                other => SimulationError::InvalidCircuit {
+                    reason: format!("target MPS is not a valid chain: {other}"),
+                },
+            }
+        })?;
         let extent_pointers = extents
             .iter()
             .map(|shape| shape.as_ptr())
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Ok(Self {
+            shape,
             extents,
             extent_pointers,
-            output_elements,
         })
+    }
+
+    /// The chain this target asks for.
+    pub(crate) fn shape(&self) -> &Mps {
+        &self.shape
     }
 
     pub(crate) fn extent_pointers(&self) -> &[*const i64] {
@@ -679,10 +703,10 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
     ) -> Result<SimulationResult, SimulationError> {
         let state = self.state();
         let phase_started = Instant::now();
-        let output_elements = self.target.output_elements.clone();
+        let output_elements = self.target.shape().element_counts();
         let mut outputs = Vec::with_capacity(output_elements.len());
-        for elements in output_elements {
-            outputs.push(self.allocate_complex(elements, "MPS output")?);
+        for elements in &output_elements {
+            outputs.push(self.allocate_complex(*elements, "MPS output")?);
         }
         timings.workspace_allocation_attachment_seconds += phase_started.elapsed().as_secs_f64();
         let phase_started = Instant::now();
@@ -739,11 +763,18 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
         timings.synchronization_seconds = phase_started.elapsed().as_secs_f64();
 
         let phase_started = Instant::now();
-        let extents = convert_layout("extent", &metadata.extents)?;
-        let target_extents = convert_layout("target extent", &self.target.extents)?;
+        // The library reports the shape it produced and, separately, the
+        // strides it used to write it. Only the shape is part of the state;
+        // the strides describe this one readout's buffers, so they stay beside
+        // the buffers below rather than travelling in the `Mps`.
+        let realized = Mps::new(convert_layout("extent", &metadata.extents)?).map_err(|error| {
+            SimulationError::InvalidNativeResult {
+                reason: format!("realized MPS is not a valid chain: {error}"),
+            }
+        })?;
         let transferred = if readout == StateReadout::FullAmplitudes {
             let mut host_outputs = Vec::with_capacity(outputs.len());
-            for (output, elements) in outputs.iter().zip(&self.target.output_elements) {
+            for (output, elements) in outputs.iter().zip(&output_elements) {
                 let mut host = vec![Complex64Abi::default(); *elements];
                 self.api.copy_from_device(*output, &mut host)?;
                 host_outputs.push(host.into_iter().map(Complex64::from).collect::<Vec<_>>());
@@ -755,18 +786,18 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
         };
         timings.output_metadata_transfer_seconds = phase_started.elapsed().as_secs_f64();
         let phase_started = Instant::now();
-        validate_realized_extents(&extents, &self.target.extents)?;
-        let maximum_bond = maximum_bond(&extents)?;
+        validate_realized_chain(&realized, self.target.shape())?;
+        let maximum_bond = realized.max_bond();
         let amplitudes = transferred
-            .map(|(host_outputs, strides)| contract_open_mps(&host_outputs, &extents, &strides))
+            .map(|(host_outputs, strides)| contract_open_mps(&realized, &host_outputs, &strides))
             .transpose()?;
         timings.host_validation_seconds = phase_started.elapsed().as_secs_f64();
         Ok(SimulationResult::new(
             amplitudes,
             ExecutionReport {
                 policy: self.policy,
-                target_extents,
-                realized_extents: extents,
+                target_extents: self.target.shape().sites().to_vec(),
+                realized_extents: realized.sites().to_vec(),
                 maximum_bond,
                 workspace: WorkspaceReport {
                     total_bytes,
@@ -1323,56 +1354,25 @@ fn convert_layout(label: &str, values: &[Box<[i64]>]) -> Result<Vec<Vec<usize>>,
     Ok(converted)
 }
 
-fn validate_realized_extents(
-    realized: &[Vec<usize>],
-    target: &[Box<[i64]>],
-) -> Result<(), SimulationError> {
-    if realized.len() != target.len() {
+/// Checks a realized chain against the shape this backend asked for.
+///
+/// `Mps` has already established that the chain is well formed, so what is
+/// left are two demands this backend makes on its own behalf. The library must
+/// not have exceeded the capacity it was given, and every site must be a
+/// qubit, because the dense readout indexes the computational basis in bits.
+/// Neither belongs to matrix product states in general.
+fn validate_realized_chain(realized: &Mps, target: &Mps) -> Result<(), SimulationError> {
+    if !realized.fits_within(target) {
         return Err(invalid_native_extents(
-            "realized site count differs from target",
+            "realized extent exceeds target capacity",
         ));
     }
-    for (site, (realized_shape, target_shape)) in realized.iter().zip(target).enumerate() {
-        if realized_shape.len() != target_shape.len() {
-            return Err(invalid_native_extents(
-                "realized tensor rank differs from target",
-            ));
-        }
-        for (realized_extent, target_extent) in realized_shape.iter().zip(target_shape.iter()) {
-            let target_extent = usize::try_from(*target_extent)
-                .map_err(|_| invalid_native_extents("target extent does not fit usize"))?;
-            if *realized_extent > target_extent {
-                return Err(invalid_native_extents(
-                    "realized extent exceeds target capacity",
-                ));
-            }
-        }
-        let physical_mode = usize::from(site != 0);
-        if realized_shape[physical_mode] != 2 {
-            return Err(invalid_native_extents(
-                "realized physical extent is not two",
-            ));
-        }
-        if site > 0 && realized[site - 1][realized[site - 1].len() - 1] != realized_shape[0] {
-            return Err(invalid_native_extents(
-                "adjacent realized bond extents differ",
-            ));
-        }
+    if (0..realized.site_count()).any(|site| realized.physical_dim(site) != Some(2)) {
+        return Err(invalid_native_extents(
+            "realized physical extent is not two",
+        ));
     }
     Ok(())
-}
-
-fn maximum_bond(realized: &[Vec<usize>]) -> Result<usize, SimulationError> {
-    if matches!(realized, [shape] if shape.as_slice() == [2]) {
-        return Ok(1);
-    }
-    realized
-        .iter()
-        .take(realized.len().saturating_sub(1))
-        .map(|shape| shape.last().copied())
-        .collect::<Option<Vec<_>>>()
-        .and_then(|bonds| bonds.into_iter().max())
-        .ok_or_else(|| invalid_native_extents("realized MPS contains no bond"))
 }
 
 fn invalid_native_extents(reason: &'static str) -> SimulationError {
@@ -1437,21 +1437,6 @@ fn validate_workspace_size(
         });
     }
     Ok(())
-}
-
-fn checked_element_count(shape: &[i64], resource: &'static str) -> Result<usize, SimulationError> {
-    shape.iter().try_fold(1_usize, |elements, extent| {
-        if *extent <= 0 {
-            return Err(SimulationError::InvalidNativeResult {
-                reason: format!("{resource} extent must be positive: {shape:?}"),
-            });
-        }
-        let extent = usize::try_from(*extent)
-            .map_err(|_| SimulationError::ResourceSizeOverflow { resource })?;
-        elements
-            .checked_mul(extent)
-            .ok_or(SimulationError::ResourceSizeOverflow { resource })
-    })
 }
 
 fn mode_id(qubit: u32) -> Result<i32, SimulationError> {

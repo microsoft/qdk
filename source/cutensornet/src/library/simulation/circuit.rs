@@ -2,6 +2,7 @@ use super::SimulationError;
 use super::policy::ExecutionPolicy;
 use num_complex::Complex64;
 use qdk_simulators::execution::UnitaryOperation;
+use tensornet::Mps;
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -302,33 +303,35 @@ impl SimulationResult {
     }
 }
 
+/// Contracts an open-boundary MPS into a dense state vector.
+///
+/// The chain's shape arrives as an [`Mps`], which has already established that
+/// the sites form a line with agreeing bonds. The strides arrive separately
+/// and alongside `tensors`, because they describe how these particular buffers
+/// are laid out rather than anything about the state: a backend that truncates
+/// writes a smaller tensor into the allocation it was given, and the strides
+/// are how it says where.
 pub(super) fn contract_open_mps(
+    mps: &Mps,
     tensors: &[Vec<Complex64>],
-    extents: &[Vec<usize>],
     strides: &[Vec<usize>],
 ) -> Result<Vec<Complex64>, SimulationError> {
-    if tensors.len() < 2 || tensors.len() != extents.len() || tensors.len() != strides.len() {
+    let extents = mps.sites();
+    if extents.len() < 2 || tensors.len() != extents.len() || strides.len() != extents.len() {
         return Err(SimulationError::InvalidNativeResult {
             reason: "MPS tensor, extent, and stride counts do not match".to_string(),
         });
     }
     let last = tensors.len() - 1;
     for site in 0..tensors.len() {
-        let expected_rank = if site == 0 || site == last { 2 } else { 3 };
-        if extents[site].len() != expected_rank || strides[site].len() != expected_rank {
+        if strides[site].len() != extents[site].len() {
             return Err(SimulationError::InvalidNativeResult {
                 reason: format!("MPS site {site} has an invalid rank"),
             });
         }
-        let physical_mode = usize::from(site != 0);
-        if extents[site][physical_mode] != 2 {
+        if mps.physical_dim(site) != Some(2) {
             return Err(SimulationError::InvalidNativeResult {
                 reason: format!("MPS site {site} has a non-qubit physical extent"),
-            });
-        }
-        if site > 0 && extents[site - 1][extents[site - 1].len() - 1] != extents[site][0] {
-            return Err(SimulationError::InvalidNativeResult {
-                reason: format!("MPS bond before site {site} is inconsistent"),
             });
         }
         validate_storage(
@@ -417,6 +420,7 @@ mod tests {
     use num_complex::Complex64;
     use qdk_simulators::{SparseStateSim, execution::UnitaryOperation};
     use std::f64::consts::FRAC_1_SQRT_2;
+    use tensornet::{Mps, MpsError};
 
     #[test]
     fn supported_unitary_operations_map_to_gates() {
@@ -765,6 +769,10 @@ mod tests {
         );
     }
 
+    fn mps(sites: Vec<Vec<usize>>) -> Mps {
+        Mps::new(sites).expect("test chain should be valid")
+    }
+
     #[test]
     fn contracts_bell_mps_in_little_endian_order() {
         let zero = Complex64::new(0.0, 0.0);
@@ -774,8 +782,8 @@ mod tests {
         let right = [one, zero, zero, one];
 
         let result = contract_open_mps(
+            &mps(vec![vec![2, 2], vec![2, 2]]),
             &[left.to_vec(), right.to_vec()],
-            &[vec![2, 2], vec![2, 2]],
             &[vec![2, 1], vec![2, 1]],
         )
         .expect("valid Bell MPS should contract");
@@ -791,8 +799,8 @@ mod tests {
         let right = [one, zero];
 
         let result = contract_open_mps(
+            &mps(vec![vec![2, 1], vec![1, 2]]),
             &[left.to_vec(), right.to_vec()],
-            &[vec![2, 1], vec![1, 2]],
             &[vec![1, 2], vec![2, 1]],
         )
         .expect("valid product-state MPS should contract");
@@ -805,8 +813,8 @@ mod tests {
         let zero = Complex64::new(0.0, 0.0);
         let one = Complex64::new(1.0, 0.0);
         let result = contract_open_mps(
+            &mps(vec![vec![2, 1], vec![1, 2, 1], vec![1, 2]]),
             &[vec![zero, one], vec![one, zero], vec![zero, one]],
-            &[vec![2, 1], vec![1, 2, 1], vec![1, 2]],
             &[vec![1, 2], vec![4, 1, 2], vec![2, 1]],
         )
         .expect("valid three-site product MPS should contract");
@@ -819,25 +827,28 @@ mod tests {
         let zero = Complex64::new(0.0, 0.0);
         let tensors = [vec![zero; 4], vec![zero; 4]];
         let invalid = [
-            contract_open_mps(&tensors, &[vec![2, 2]], &[vec![2, 1], vec![2, 1]]),
+            // A chain shorter than the buffers handed alongside it.
+            contract_open_mps(&mps(vec![vec![2]]), &tensors, &[vec![2, 1], vec![2, 1]]),
+            // A physical extent this crate cannot read as a qubit.
             contract_open_mps(
+                &mps(vec![vec![3, 2], vec![2, 2]]),
                 &tensors,
-                &[vec![3, 2], vec![2, 2]],
                 &[vec![2, 1], vec![2, 1]],
             ),
+            // Strides that do not describe the ranks of the chain's sites.
             contract_open_mps(
+                &mps(vec![vec![2, 2], vec![2, 2]]),
                 &tensors,
-                &[vec![2, 2], vec![1, 2]],
-                &[vec![2, 1], vec![2, 1]],
+                &[vec![2], vec![2, 1]],
             ),
             contract_open_mps(
+                &mps(vec![vec![2, 2], vec![2, 2]]),
                 &tensors,
-                &[vec![2, 2], vec![2, 2]],
                 &[vec![0, 1], vec![2, 1]],
             ),
             contract_open_mps(
+                &mps(vec![vec![2, 2], vec![2, 2]]),
                 &tensors,
-                &[vec![2, 2], vec![2, 2]],
                 &[vec![usize::MAX, 1], vec![2, 1]],
             ),
         ];
@@ -848,6 +859,20 @@ mod tests {
                 Err(SimulationError::InvalidNativeResult { .. })
             ));
         }
+    }
+
+    #[test]
+    fn a_chain_whose_neighbours_disagree_is_rejected_before_contraction() {
+        // Chain structure is `Mps`'s invariant now, so a broken bond can no
+        // longer reach `contract_open_mps` at all.
+        assert_eq!(
+            Mps::new(vec![vec![2, 2], vec![1, 2]]),
+            Err(MpsError::BondMismatch {
+                cut: 0,
+                left: 2,
+                right: 1
+            })
+        );
     }
 
     fn basis_state(width: usize, index: usize) -> Vec<Complex64> {

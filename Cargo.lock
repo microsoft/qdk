@@ -1860,6 +1860,7 @@ dependencies = [
  "num-complex",
  "qdk_simulators",
  "rand 0.10.2",
+ "tensornet",
  "thiserror",
 ]
 

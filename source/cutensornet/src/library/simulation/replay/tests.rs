@@ -1,7 +1,7 @@
 use super::{
-    MpsTarget, OutputMetadata, OwnedOperator, Replay, ReplayApi, checked_element_count,
-    combine_execution_and_cleanup, convert_layout, fixture_operator, maximum_bond,
-    saturating_power_of_two, target_bond_extent, validate_realized_extents,
+    MpsTarget, OutputMetadata, OwnedOperator, Replay, ReplayApi, combine_execution_and_cleanup,
+    convert_layout, fixture_operator, saturating_power_of_two, target_bond_extent,
+    validate_realized_chain,
 };
 use crate::simulation::{
     Circuit, Gate, OpaqueHandle, SimulationError, Stream,
@@ -15,6 +15,7 @@ use crate::simulation::{
 use std::{cell::RefCell, collections::VecDeque, ffi::c_void, ptr::NonNull};
 
 use num_complex::Complex64;
+use tensornet::Mps;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Event {
@@ -826,8 +827,14 @@ fn target_bonds_are_checked_without_exponential_allocation() {
         let target = MpsTarget::new(width, 2).expect("cap-2 target should be valid");
         assert_eq!(target.extents.len(), width);
         assert_eq!(target.extent_pointers.len(), width);
-        assert_eq!(target.output_elements.len(), width);
-        assert!(target.output_elements.iter().all(|elements| *elements <= 8));
+        assert_eq!(target.shape().site_count(), width);
+        assert!(
+            target
+                .shape()
+                .element_counts()
+                .iter()
+                .all(|elements| *elements <= 8)
+        );
     }
 }
 
@@ -881,41 +888,43 @@ fn native_layout_conversion_rejects_nonpositive_and_overflowing_extents() {
             Err(SimulationError::InvalidNativeResult { .. })
         ));
     }
-    assert!(matches!(
-        checked_element_count(&[2, 0], "test tensor"),
-        Err(SimulationError::InvalidNativeResult { .. })
-    ));
-    assert!(matches!(
-        checked_element_count(&[i64::MAX, 3], "test tensor"),
-        Err(SimulationError::ResourceSizeOverflow {
-            resource: "test tensor"
-        })
-    ));
 }
 
 #[test]
 fn realized_extents_are_bounded_and_report_maximum_bond() {
     let target = MpsTarget::new(4, 8).expect("target should be valid");
-    let realized = vec![vec![2, 2], vec![2, 2, 4], vec![4, 2, 2], vec![2, 2]];
+    let realized = chain(vec![vec![2, 2], vec![2, 2, 4], vec![4, 2, 2], vec![2, 2]]);
 
-    validate_realized_extents(&realized, &target.extents)
+    validate_realized_chain(&realized, target.shape())
         .expect("realized extents should fit target capacities");
-    assert_eq!(maximum_bond(&realized).expect("bond should be present"), 4);
+    assert_eq!(realized.max_bond(), 4);
 }
 
 #[test]
-fn rejects_invalid_realized_extents() {
+fn rejects_realized_chains_this_backend_cannot_accept() {
     let target = MpsTarget::new(3, 2).expect("target should be valid");
     let invalid = [
-        vec![vec![2, 3], vec![3, 2, 2], vec![2, 2]],
-        vec![vec![2, 2], vec![1, 2, 2], vec![2, 2]],
-        vec![vec![3, 2], vec![2, 2, 2], vec![2, 2]],
-        vec![vec![2, 2], vec![2, 2], vec![2, 2]],
+        // A bond grown past the capacity the library was given.
+        chain(vec![vec![2, 3], vec![3, 2, 2], vec![2, 2]]),
+        // A site that is not a qubit, which the dense readout cannot index.
+        chain(vec![vec![3, 2], vec![2, 2, 2], vec![2, 2]]),
     ];
 
     for realized in invalid {
-        assert!(validate_realized_extents(&realized, &target.extents).is_err());
+        assert!(validate_realized_chain(&realized, target.shape()).is_err());
     }
+}
+
+#[test]
+fn malformed_realized_chains_never_reach_this_backend() {
+    // Chain structure is `Mps`'s invariant, so neither of these can be built
+    // in the first place and this backend has no check of its own for them.
+    assert!(Mps::new(vec![vec![2, 2], vec![1, 2, 2], vec![2, 2]]).is_err());
+    assert!(Mps::new(vec![vec![2, 2], vec![2, 2], vec![2, 2]]).is_err());
+}
+
+fn chain(sites: Vec<Vec<usize>>) -> Mps {
+    Mps::new(sites).expect("test chain should be valid")
 }
 
 #[test]

@@ -19,7 +19,8 @@ last one is the point: correctness work no longer needs a GPU.
 
 ## The model
 
-Four concepts, and no more.
+Two families of description. A general network is built from four concepts;
+alongside them, and not beneath them, `Mps` describes a chain.
 
 | concept            | shape                     | role                                                  |
 | ------------------ | ------------------------- | ----------------------------------------------------- |
@@ -27,9 +28,11 @@ Four concepts, and no more.
 | `Indices`          | `List<Index>`             | an ordered axis list — a node's axes, or the result's |
 | `TensorNetwork`    | `List<Indices>`           | the network: nodes joined by index identity           |
 | `ContractionQuery` | `&TensorNetwork` + `keep` | what to compute from it                               |
+| `Mps`              | `List<List<usize>>`       | a chain of site tensors, described by extents alone   |
 
 The first three are the left side of einsum's notation; the query adds the
-right side:
+right side. `Mps` is a separate description, covered under "Chains are a second
+description" below:
 
 ```text
   ( i j k ,  j l ,  i m )    ->    ( k l )
@@ -113,6 +116,33 @@ is well defined, and by the rule this crate follows throughout — reject what i
 ambiguous, allow what is determined — there is nothing to reject. It is
 unlikely to be what a caller meant, and a backend that cannot contract it is
 the right place to say so.
+
+`Mps` is described separately, and shares nothing with the above but the crate
+it lives in:
+
+```rust
+pub struct Mps { /* sites: List<List<usize>> */ }
+
+impl Mps {
+    fn new(sites: List<List<usize>>) -> Result<Mps, MpsError>;
+
+    fn sites(&self) -> &[List<usize>];
+    fn site_count(&self) -> usize;
+    fn site(&self, site: usize) -> Option<&[usize]>;
+    fn physical_dim(&self, site: usize) -> Option<usize>;
+    fn bond_dim(&self, cut: usize) -> Option<usize>;
+    fn max_bond(&self) -> usize;
+    fn element_counts(&self) -> List<usize>;
+    fn fits_within(&self, capacity: &Mps) -> bool;
+}
+```
+
+A site's extents read `[bond_left, physical, bond_right]`, with the absent bond
+omitted at each end: rank 2 at the ends, rank 3 inside, and rank 1 for a chain
+of one site. `new` rejects anything that is not a chain — a wrong rank for a
+position, a zero extent, neighbours that disagree about their bond, or a site
+too large to count. Nothing here is specific to qubits; a physical extent is
+just a number, and a caller that needs two-level sites checks for that itself.
 
 The dependency runs one way. `TensorNetwork` never mentions
 `ContractionQuery`, and the errors split along the same seam, so the compiler
@@ -303,6 +333,50 @@ exactly the layout of the result buffer a caller must allocate — and a `None`
 from it is the first sign that the result will not fit in memory at all. One
 type serves both a node's axes and the result's.
 
+## Chains are a second description
+
+`Mps` sits beside `TensorNetwork`, not beneath it. A network can express a
+chain's topology — a line of nodes sharing one index each — but not the
+invariants that make it a matrix product state: that the sites form a line at
+all, that neighbours agree on the bond between them, that the two ends carry no
+outer bond. A network has nowhere to put those. In the other direction a chain
+cannot express an arbitrary topology, so neither type contains the other, and
+subtyping would cost one of them its invariants.
+
+An earlier revision of this file excluded MPS vocabulary on the grounds that "a
+matrix product state is one contraction strategy for a network, not a property
+of the network". That conflates the object with the algorithm. The _sweep_ that
+builds a chain is a strategy and stays with whoever performs it; the _chain_ is
+a shape, and it is the shape callers reason about — how large the bonds grew,
+whether the result fits the capacity that was asked for. Waiting for a second
+backend was also already satisfied: the shape here was read off both
+cuTensorNet's MPS path and tensor4all's CPU prototype.
+
+The evidence that the type was missing rather than speculative is that it
+already existed, spelled out five times in the cuTensorNet backend — as a
+requested shape, as the metadata the library writes back, as a loose triple
+passed into the dense contraction, and twice more on the public report. Every
+one of them re-derived the same invariants.
+
+### Extents, but never strides
+
+A site is a list of extents, and deliberately nothing else. Strides — the
+offsets used to walk a tensor laid out in a flat buffer — are a property of a
+buffer, not of a state. `Mps` carries no elements, so it has no buffer, and a
+layout with nothing to lay out is meaningless.
+
+This matters in practice. A backend that truncates writes a tensor smaller than
+the allocation it was handed, and reports the strides it actually used; those
+strides belong to that one readout, on the one code path that fetched it. The
+shape belongs to the state. Keeping them apart is what lets the same `Mps`
+describe both a capacity a caller requests and a shape a backend produced —
+different values of one type, related by `fits_within`, rather than two types
+that happen to hold the same numbers.
+
+Note the asymmetry with `Indices`, which _derives_ column-major strides for a
+caller that wants them. That is a default offered to whoever binds data, not a
+claim about a buffer that already exists.
+
 ## Vocabulary
 
 The field has four names for each of two ideas. This crate picks one of each
@@ -346,12 +420,11 @@ does not apply. That is the same choice numpy offers through its sublist form,
 
 ## What is deliberately not here
 
-- **MPS vocabulary.** No sites, bonds, adjacency, or bond dimensions. Two of
-  the three implementations above are MPS-shaped, which makes it tempting to
-  promote their vocabulary into the shared layer. A matrix product state is one
-  _contraction strategy_ for a network, not a property of the network, and a
-  general 2D circuit has no site ordering to speak of. The MPS trait family
-  stays out until there is a second MPS backend to generalize from.
+- **An MPS trait family.** `Mps` is a struct and nothing more. Backends differ
+  too widely in how they build and truncate a chain for a shared trait to be
+  discovered rather than invented, and the original condition on that — a
+  second implementation to generalize from — is about the _algorithm_, not the
+  shape. See "Chains are a second description" for what did come in, and why.
 
 - **Truncation.** The three implementations express approximation in three
   incompatible ways (maximum bond dimension and discarded weight; SVD algorithm
