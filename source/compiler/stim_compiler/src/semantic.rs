@@ -607,7 +607,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_items(&mut self, items: &Vec<parser::Item>) -> Vec<Item> {
+    fn lower_items(&mut self, items: &[parser::Item]) -> Vec<Item> {
         let mut lowered_items = Vec::new();
 
         for item in items {
@@ -2077,11 +2077,11 @@ impl Lowerer {
         Some(probabilities)
     }
 
-    fn expect_arg_count(
+    fn expect_arg_count<'a>(
         &mut self,
-        instruction: &parser::Instruction,
+        instruction: &'a parser::Instruction,
         expected: usize,
-    ) -> Option<Vec<parser::Arg>> {
+    ) -> Option<&'a [parser::Arg]> {
         let args = &instruction.args;
         if args.is_empty() {
             self.push_error(Error::MissingArg {
@@ -2108,7 +2108,7 @@ impl Lowerer {
             });
             return None;
         }
-        Some(args.clone())
+        Some(args)
     }
 
     fn unsupported_args(&mut self, instruction: &parser::Instruction) {
