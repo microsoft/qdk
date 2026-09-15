@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import qodec as qc
 
+from ._audit._parity import ParityAnalysis, terms_of
 from ._readouts import as_readout, set_gadget_readouts
 from ._references import as_references
 from ._checks import profile_of
@@ -15,6 +16,8 @@ def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
     Pauli-bearing instruction outputs are derived by exact simulation. Flag
     bindings cannot be inferred and are preserved from the draft. The input
     gadget and all objects it references are left unchanged.
+    Verified authored equations without readout aliases are retained, including
+    incoming-frame corrections and input-to-output stabilizer relations.
     """
     discovered = profile_of(gadget)
     completed = qc.Gadget(
@@ -29,7 +32,41 @@ def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
         metadata=dict(gadget.metadata),
     )
     set_gadget_readouts(completed, discovered.readouts)
+    _preserve_verified_equations(gadget, completed)
     return completed
+
+
+def _preserve_verified_equations(gadget: qc.Gadget, completed: qc.Gadget) -> None:
+    analysis = ParityAnalysis(completed)
+    checks = list(completed.checks)
+    seen = {frozenset(terms_of(check)) for check in checks}
+    for check in gadget.checks:
+        terms = terms_of(check)
+        if any(term.startswith("readouts[") for term in terms):
+            continue
+        try:
+            verified = analysis.value(terms).is_zero
+        except (ValueError, NotImplementedError):
+            continue
+        if verified and frozenset(terms) not in seen:
+            checks.append(check)
+            seen.add(frozenset(terms))
+    completed.checks = checks
+    readouts = [as_readout(readout) for readout in completed.readouts]
+    for index, readout in enumerate(gadget.readouts):
+        if readout.is_flag or index >= len(readouts):
+            continue
+        terms = terms_of(readout.equation)
+        if any(term.startswith("readouts[") for term in terms):
+            continue
+        try:
+            expected = analysis.expected.get(index)
+            verified = expected is not None and analysis.value(terms) == expected
+        except (ValueError, NotImplementedError):
+            continue
+        if verified:
+            readouts[index] = as_readout(readout)
+    completed.readouts = readouts
 
 
 def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:

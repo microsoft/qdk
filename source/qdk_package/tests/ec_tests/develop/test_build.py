@@ -402,26 +402,60 @@ def test_built_code_keeps_its_distance() -> None:
 
 
 @pytest.mark.parametrize(
-    ("label", "factory"),
-    [(case[0], case[1]) for case in CSS_CODES],
-    ids=[case[0] for case in CSS_CODES],
+    "code",
+    [_code(case[0], case[1]) for case in CSS_CODES]
+    + [
+        qc.Code(
+            "C4",
+            ["X_0 X_1 X_2 X_3", "Z_0 Z_1 Z_2 Z_3"],
+            ["X_0 X_1", "X_0 X_2"],
+            ["Z_0 Z_2", "Z_0 Z_1"],
+        )
+    ],
+    ids=[case[0] for case in CSS_CODES] + ["C4"],
 )
-def test_audit_reports_missing_measurement_frame_corrections(
-    label: str, factory
+@pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
+def test_build_strategies_return_audit_clean_qodecs(
+    code: qc.Code, strategy: str
 ) -> None:
-    built = qodec_from_code(_code(label, factory))
+    built = build_qodec(code, strategy=strategy, strict=False)
 
     report = _audit.audit(built)
-    assert len(report.errors) == 2 * len(built.codes[label].x)
-    assert {item.rule for item in report.errors} == {"gadget/readout-mismatch"}
-    for basis in ("x", "z"):
-        gadget = built.layers[0].gadgets[f"measure_{basis}"]
-        gadget.readouts = [
-            (*readout.equation, f"in[0].{basis}[{index}]")
-            for index, readout in enumerate(gadget.readouts)
-        ]
-    corrected = _audit.audit(built)
-    assert corrected.ok, str(corrected)
+    assert not report.diagnostics, str(report)
+    expected = {
+        "prepare_z",
+        "prepare_x",
+        "idle",
+        "measure_z",
+        "measure_x",
+        "transversal_cx",
+    }
+    if code.name == "steane":
+        expected.add("transversal_h")
+    assert set(built.layers[0].gadgets) == expected
+    assert set(built.layers[0].instruction_set.instructions) == expected
+
+
+@pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
+@pytest.mark.parametrize("strict", [False, True])
+def test_build_rejects_invalid_final_declarations(
+    monkeypatch, strategy, strict
+) -> None:
+    from qdk.ec import _build
+
+    original = _build._rebound
+
+    def rebound_without_readouts(gadget, instruction):
+        rebound = original(gadget, instruction)
+        if instruction.mnemonic == "measure_z":
+            rebound.readouts = []
+        return rebound
+
+    monkeypatch.setattr(_build, "_rebound", rebound_without_readouts)
+    with pytest.raises(ValueError, match="did not pass audit"):
+        build_qodec(
+            _code("steane", catalog.make_steane_code), strategy=strategy, strict=strict
+        )
 
 
 def test_hand_authored_readouts_need_incoming_frame_corrections() -> None:
@@ -468,6 +502,7 @@ def test_completion_is_idempotent_on_a_built_qodec(
 ) -> None:
     recompleted = complete_qodec(steane)
 
+    assert not _audit.audit(recompleted).diagnostics
     for mnemonic, gadget in steane.layers[0].gadgets.items():
         before = {frozenset(str(a) for a in c) for c in gadget.checks}
         after = {
@@ -475,6 +510,7 @@ def test_completion_is_idempotent_on_a_built_qodec(
             for c in recompleted.layers[0].gadgets[mnemonic].checks
         }
         assert before == after, mnemonic
+        assert gadget.readouts == recompleted.layers[0].gadgets[mnemonic].readouts
 
 
 # ── Partial build ───────────────────────────────────────────────────────
