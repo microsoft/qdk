@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 from qodec import SourceLocation
 
@@ -28,6 +29,21 @@ class Diagnostic:
         default=None, kw_only=True, compare=False
     )
     _path: str = field(default="", kw_only=True, repr=False, compare=False)
+
+    def __str__(self) -> str:
+        lines = [f"[{self.severity.name}] {self.rule}"]
+        location = self.source_location
+        if location is not None:
+            display_path = str(location.path)
+            try:
+                relative = location.path.relative_to(Path.home())
+                display_path = f"~/{relative.as_posix()}"
+            except (ValueError, RuntimeError):
+                pass
+            lines.append(f"{display_path}:{location.line}")
+        lines.extend((self.where, self.summary))
+        lines.extend(f"    {line}" for line in self.detail.splitlines())
+        return "\n".join(lines)
 
 
 Severity = Diagnostic.Severity

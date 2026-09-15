@@ -44,3 +44,17 @@ def test_diagnostic_dataclass_replace_preserves_other_fields() -> None:
 
 def test_phase_enum_values() -> None:
     assert {p.value for p in Phase} == {"structural", "semantic", "informational"}
+
+
+@pytest.mark.parametrize("severity", list(Severity))
+@pytest.mark.parametrize("detail", ["", "line one\nline two"])
+def test_diagnostic_str_formats_severity_location_and_detail(
+    severity: Severity, detail: str
+) -> None:
+    diagnostic = Diagnostic("test/rule", severity, "message", "location", detail)
+    expected = f"[{severity.name}] test/rule\nlocation\nmessage"
+    if detail:
+        expected += "\n    line one\n    line two"
+
+    assert str(diagnostic) == expected
+    assert repr(diagnostic).startswith("Diagnostic(rule=")
