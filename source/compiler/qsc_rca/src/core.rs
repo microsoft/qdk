@@ -209,9 +209,21 @@ impl<'a> Analyzer<'a> {
                 None
             }
         } else {
+            // This is a dynamic scope, so the array itself must be treated as dynamic.
+            // The runtime features depend on the type of the replacement value: if the replacement value
+            // is itself an array, additional runtime features may be required.
+            let runtime_features =
+                if matches!(self.get_expr(replacement_value_expr_id).ty, Ty::Array(_)) {
+                    // We are storing an array into an array in a dynamic context, which would require
+                    // the use of dynamically sized arrays in QIR.
+                    RuntimeFeatureFlags::UseOfDynamicallySizedArray
+                } else {
+                    RuntimeFeatureFlags::UseOfDynamicArray
+                };
+
             default_value_kind = ValueKind::Variable;
             replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
+                runtime_features,
                 value_kind: ValueKind::Constant,
             });
             // This update requires a dynamic array, so generate a key to store this as a mutable dynamic array.
