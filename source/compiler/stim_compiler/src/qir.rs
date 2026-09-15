@@ -695,8 +695,8 @@ impl<'noise> Compiler<'noise> {
                 readout_noise,
                 qubit,
             } => {
-                let result_id = self.op_peek_loss(*qubit);
-                self.op_optional_readout_noise(*readout_noise, result_id);
+                let result_id = self.emit_peek_loss(*qubit);
+                self.emit_optional_readout_noise(*readout_noise, result_id);
             }
             semantic::InstructionKind::Require { records } => {
                 self.compile_require(instruction.span, records);
@@ -714,7 +714,7 @@ impl<'noise> Compiler<'noise> {
                     Y => "ry",
                     Z => "rz",
                 };
-                self.op_rotation(intrinsic, *angle, *qubit);
+                self.emit_rotation(intrinsic, *angle, *qubit);
             }
             semantic::InstructionKind::TwoQubitRotation {
                 axis,
@@ -727,7 +727,7 @@ impl<'noise> Compiler<'noise> {
                     semantic::PauliPair::YY => "ryy",
                     semantic::PauliPair::ZZ => "rzz",
                 };
-                self.op_rotation_2(intrinsic, *angle, *q0, *q1);
+                self.emit_two_qubit_rotation(intrinsic, *angle, *q0, *q1);
             }
             semantic::InstructionKind::U3 {
                 theta,
@@ -735,9 +735,9 @@ impl<'noise> Compiler<'noise> {
                 lambda,
                 qubit,
             } => {
-                self.op_rotation("rz", *lambda, *qubit);
-                self.op_rotation("ry", *theta, *qubit);
-                self.op_rotation("rz", *phi, *qubit);
+                self.emit_rotation("rz", *lambda, *qubit);
+                self.emit_rotation("ry", *theta, *qubit);
+                self.emit_rotation("rz", *phi, *qubit);
             }
             semantic::InstructionKind::PauliProductRotation { angle, product } => {
                 self.compile_pauli_product_rotation(*angle, product);
@@ -746,16 +746,16 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_reset(&mut self, qubit: StimQubitId, basis: Pauli) {
-        self.op("reset", qubit);
+        self.emit_gate("reset", qubit);
         match basis {
             X => {
                 // Stim decomposition (into H, S, CX, M, R): R 0; H 0
-                self.op("h", qubit); // Z -> X
+                self.emit_gate("h", qubit); // Z -> X
             }
             Y => {
                 // Stim decomposition (into H, S, CX, M, R): R 0; H 0; S 0
-                self.op("h", qubit); // Z -> X
-                self.op("s", qubit); // X -> Y
+                self.emit_gate("h", qubit); // Z -> X
+                self.emit_gate("s", qubit); // X -> Y
             }
             Z => {}
         }
@@ -768,101 +768,101 @@ impl<'noise> Compiler<'noise> {
     ) {
         match gate {
             semantic::SingleQubitGateKind::I => {}
-            semantic::SingleQubitGateKind::X => self.op("x", qubit),
-            semantic::SingleQubitGateKind::Y => self.op("y", qubit),
-            semantic::SingleQubitGateKind::Z => self.op("z", qubit),
+            semantic::SingleQubitGateKind::X => self.emit_gate("x", qubit),
+            semantic::SingleQubitGateKind::Y => self.emit_gate("y", qubit),
+            semantic::SingleQubitGateKind::Z => self.emit_gate("z", qubit),
             semantic::SingleQubitGateKind::C_NXYZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; S 0; S 0
-                self.op_adj("s", qubit);
-                self.op("h", qubit);
-                self.op("z", qubit);
+                self.emit_adjoint_gate("s", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("z", qubit);
             }
             semantic::SingleQubitGateKind::C_NZYX => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0; S 0
-                self.op("z", qubit);
-                self.op("h", qubit);
-                self.op_adj("s", qubit);
+                self.emit_gate("z", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_adjoint_gate("s", qubit);
             }
             semantic::SingleQubitGateKind::C_XNYZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0
-                self.op("s", qubit);
-                self.op("h", qubit);
+                self.emit_gate("s", qubit);
+                self.emit_gate("h", qubit);
             }
             semantic::SingleQubitGateKind::C_XYNZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0
-                self.op("s", qubit);
-                self.op("h", qubit);
-                self.op("z", qubit);
+                self.emit_gate("s", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("z", qubit);
             }
             semantic::SingleQubitGateKind::C_XYZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0
-                self.op_adj("s", qubit);
-                self.op("h", qubit);
+                self.emit_adjoint_gate("s", qubit);
+                self.emit_gate("h", qubit);
             }
             semantic::SingleQubitGateKind::C_ZNYX => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; S 0
-                self.op("h", qubit);
-                self.op_adj("s", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_adjoint_gate("s", qubit);
             }
             semantic::SingleQubitGateKind::C_ZYNX => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0
-                self.op("z", qubit);
-                self.op("h", qubit);
-                self.op("s", qubit);
+                self.emit_gate("z", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("s", qubit);
             }
             semantic::SingleQubitGateKind::C_ZYX => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0
-                self.op("h", qubit);
-                self.op("s", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("s", qubit);
             }
-            semantic::SingleQubitGateKind::H => self.op("h", qubit),
+            semantic::SingleQubitGateKind::H => self.emit_gate("h", qubit),
             semantic::SingleQubitGateKind::H_NXY => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0; H 0
-                self.op("s", qubit);
-                self.op("x", qubit);
+                self.emit_gate("s", qubit);
+                self.emit_gate("x", qubit);
             }
             semantic::SingleQubitGateKind::H_NXZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0
-                self.op("z", qubit);
-                self.op("h", qubit);
-                self.op("z", qubit);
+                self.emit_gate("z", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("z", qubit);
             }
             semantic::SingleQubitGateKind::H_NYZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; H 0
-                self.op("z", qubit);
-                self.op("sx", qubit);
+                self.emit_gate("z", qubit);
+                self.emit_gate("sx", qubit);
             }
             semantic::SingleQubitGateKind::H_XY => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; H 0; S 0
-                self.op("x", qubit);
-                self.op("s", qubit);
+                self.emit_gate("x", qubit);
+                self.emit_gate("s", qubit);
             }
             semantic::SingleQubitGateKind::H_YZ => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; H 0; S 0; S 0
-                self.op("sx", qubit);
-                self.op("z", qubit);
+                self.emit_gate("sx", qubit);
+                self.emit_gate("z", qubit);
             }
-            semantic::SingleQubitGateKind::S => self.op("s", qubit),
-            semantic::SingleQubitGateKind::SQRT_X => self.op("sx", qubit),
+            semantic::SingleQubitGateKind::S => self.emit_gate("s", qubit),
+            semantic::SingleQubitGateKind::SQRT_X => self.emit_gate("sx", qubit),
             semantic::SingleQubitGateKind::SQRT_X_DAG => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0
-                self.op("s", qubit);
-                self.op("h", qubit);
-                self.op("s", qubit);
+                self.emit_gate("s", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("s", qubit);
             }
             semantic::SingleQubitGateKind::SQRT_Y => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0
-                self.op("z", qubit);
-                self.op("h", qubit);
+                self.emit_gate("z", qubit);
+                self.emit_gate("h", qubit);
             }
             semantic::SingleQubitGateKind::SQRT_Y_DAG => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0
-                self.op("h", qubit);
-                self.op("z", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("z", qubit);
             }
-            semantic::SingleQubitGateKind::S_DAG => self.op_adj("s", qubit),
-            semantic::SingleQubitGateKind::T => self.op("t", qubit),
-            semantic::SingleQubitGateKind::T_DAG => self.op_adj("t", qubit),
+            semantic::SingleQubitGateKind::S_DAG => self.emit_adjoint_gate("s", qubit),
+            semantic::SingleQubitGateKind::T => self.emit_gate("t", qubit),
+            semantic::SingleQubitGateKind::T_DAG => self.emit_adjoint_gate("t", qubit),
         }
     }
 
@@ -873,157 +873,157 @@ impl<'noise> Compiler<'noise> {
         gate: semantic::TwoQubitGateKind,
     ) {
         match gate {
-            semantic::TwoQubitGateKind::CX => self.op_2("cx", q0, q1),
+            semantic::TwoQubitGateKind::CX => self.emit_two_qubit_gate("cx", q0, q1),
             semantic::TwoQubitGateKind::CXSWAP => {
                 // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
-                self.op_2("cx", q1, q0);
-                self.op_2("cx", q0, q1);
+                self.emit_two_qubit_gate("cx", q1, q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
             }
-            semantic::TwoQubitGateKind::CY => self.op_2("cy", q0, q1),
-            semantic::TwoQubitGateKind::CZ => self.op_2("cz", q0, q1),
+            semantic::TwoQubitGateKind::CY => self.emit_two_qubit_gate("cy", q0, q1),
+            semantic::TwoQubitGateKind::CZ => self.emit_two_qubit_gate("cz", q0, q1),
             semantic::TwoQubitGateKind::CZSWAP => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op_2("cx", q1, q0);
-                self.op("h", q1);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_two_qubit_gate("cx", q1, q0);
+                self.emit_gate("h", q1);
             }
             semantic::TwoQubitGateKind::II => {}
             semantic::TwoQubitGateKind::ISWAP => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op_2("cx", q1, q0);
-                self.op("h", q1);
-                self.op("s", q1);
-                self.op("s", q0);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_two_qubit_gate("cx", q1, q0);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q1);
+                self.emit_gate("s", q0);
             }
             semantic::TwoQubitGateKind::ISWAP_DAG => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 1; CX 1 0; CX 0 1; H 0
-                self.op_adj("s", q0);
-                self.op_adj("s", q1);
-                self.op("h", q1);
-                self.op_2("cx", q1, q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q0);
+                self.emit_adjoint_gate("s", q0);
+                self.emit_adjoint_gate("s", q1);
+                self.emit_gate("h", q1);
+                self.emit_two_qubit_gate("cx", q1, q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q0);
             }
             semantic::TwoQubitGateKind::SQRT_XX => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q1);
-                self.op("s", q0);
-                self.op("s", q1);
-                self.op("h", q0);
-                self.op("h", q1);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
+                self.emit_gate("h", q0);
+                self.emit_gate("h", q1);
             }
             semantic::TwoQubitGateKind::SQRT_XX_DAG => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1; H 0; H 1
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q1);
-                self.op_adj("s", q0);
-                self.op_adj("s", q1);
-                self.op("h", q0);
-                self.op("h", q1);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q1);
+                self.emit_adjoint_gate("s", q0);
+                self.emit_adjoint_gate("s", q1);
+                self.emit_gate("h", q0);
+                self.emit_gate("h", q1);
             }
             semantic::TwoQubitGateKind::SQRT_YY => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1
-                self.op_adj("s", q0); // S 0; S 0; S 0
-                self.op_adj("s", q1); // S 1; S 1; S 1
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q1);
-                self.op("s", q0);
-                self.op("s", q1);
-                self.op("h", q0);
-                self.op("h", q1);
-                self.op("s", q0);
-                self.op("s", q1);
+                self.emit_adjoint_gate("s", q0); // S 0; S 0; S 0
+                self.emit_adjoint_gate("s", q1); // S 1; S 1; S 1
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
+                self.emit_gate("h", q0);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
             }
             semantic::TwoQubitGateKind::SQRT_YY_DAG => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1; S 1; S 1
-                self.op_adj("s", q0); // S 0; S 0; S 0
-                self.op("s", q1); // S 1
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q1);
-                self.op("s", q0);
-                self.op("s", q1);
-                self.op("h", q0);
-                self.op("h", q1);
-                self.op("s", q0);
-                self.op_adj("s", q1); // S 1; S 1; S 1
+                self.emit_adjoint_gate("s", q0); // S 0; S 0; S 0
+                self.emit_gate("s", q1); // S 1
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
+                self.emit_gate("h", q0);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q0);
+                self.emit_adjoint_gate("s", q1); // S 1; S 1; S 1
             }
             semantic::TwoQubitGateKind::SQRT_ZZ => {
                 // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 1
-                self.op("h", q1);
-                self.op_2("cx", q0, q1);
-                self.op("h", q1);
-                self.op("s", q0);
-                self.op("s", q1);
+                self.emit_gate("h", q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
             }
             semantic::TwoQubitGateKind::SQRT_ZZ_DAG => {
                 // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1
-                self.op("h", q1);
-                self.op_2("cx", q0, q1);
-                self.op("h", q1);
-                self.op_adj("s", q0);
-                self.op_adj("s", q1);
+                self.emit_gate("h", q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q1);
+                self.emit_adjoint_gate("s", q0);
+                self.emit_adjoint_gate("s", q1);
             }
-            semantic::TwoQubitGateKind::SWAP => self.op_2("swap", q0, q1),
+            semantic::TwoQubitGateKind::SWAP => self.emit_two_qubit_gate("swap", q0, q1),
             semantic::TwoQubitGateKind::SWAPCX => {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; CX 1 0
-                self.op_2("cx", q0, q1);
-                self.op_2("cx", q1, q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_two_qubit_gate("cx", q1, q0);
             }
             semantic::TwoQubitGateKind::XCX => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 0
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q0);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q0);
             }
             semantic::TwoQubitGateKind::XCY => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 1; S 1; S 1; CX 0 1; H 0; S 1
-                self.op("h", q0);
-                self.op_adj("s", q1);
-                self.op_2("cx", q0, q1);
-                self.op("h", q0);
-                self.op("s", q1);
+                self.emit_gate("h", q0);
+                self.emit_adjoint_gate("s", q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q0);
+                self.emit_gate("s", q1);
             }
             semantic::TwoQubitGateKind::XCZ => {
                 // Stim decomposition (into H, S, CX, M, R): CX 1 0
-                self.op_2("cx", q1, q0);
+                self.emit_two_qubit_gate("cx", q1, q0);
             }
             semantic::TwoQubitGateKind::YCX => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
-                self.op_adj("s", q0);
-                self.op("h", q1);
-                self.op_2("cx", q1, q0);
-                self.op("s", q0);
-                self.op("h", q1);
+                self.emit_adjoint_gate("s", q0);
+                self.emit_gate("h", q1);
+                self.emit_two_qubit_gate("cx", q1, q0);
+                self.emit_gate("s", q0);
+                self.emit_gate("h", q1);
             }
             semantic::TwoQubitGateKind::YCY => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 0; S 0; S 1
-                self.op_adj("s", q0);
-                self.op_adj("s", q1);
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("h", q0);
-                self.op("s", q0);
-                self.op("s", q1);
+                self.emit_adjoint_gate("s", q0);
+                self.emit_adjoint_gate("s", q1);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q0);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
             }
             semantic::TwoQubitGateKind::YCZ => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
-                self.op_adj("s", q0);
-                self.op_2("cx", q1, q0);
-                self.op("s", q0);
+                self.emit_adjoint_gate("s", q0);
+                self.emit_two_qubit_gate("cx", q1, q0);
+                self.emit_gate("s", q0);
             }
             semantic::TwoQubitGateKind::CH => {
                 // Clifft decomposition: R_Y(0.25 pi) 1; CX 0 1; R_Y(-0.25 pi) 1
-                self.op_rotation("ry", 0.25 * PI, q1);
-                self.op_2("cx", q0, q1);
-                self.op_rotation("ry", -0.25 * PI, q1);
+                self.emit_rotation("ry", 0.25 * PI, q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_rotation("ry", -0.25 * PI, q1);
             }
         }
     }
@@ -1038,11 +1038,11 @@ impl<'noise> Compiler<'noise> {
         match gate {
             semantic::ThreeQubitGateKind::CCZ => {
                 // Clifft decomposition: H 2; CCX 0 1 2; H 2
-                self.op("h", q2);
-                self.op_3("ccx", q0, q1, q2);
-                self.op("h", q2);
+                self.emit_gate("h", q2);
+                self.emit_three_qubit_gate("ccx", q0, q1, q2);
+                self.emit_gate("h", q2);
             }
-            semantic::ThreeQubitGateKind::CCX => self.op_3("ccx", q0, q1, q2),
+            semantic::ThreeQubitGateKind::CCX => self.emit_three_qubit_gate("ccx", q0, q1, q2),
         }
     }
 
@@ -1062,9 +1062,9 @@ impl<'noise> Compiler<'noise> {
         };
         self.decompose_pauli_product_operation(product, |compiler, qubit, negated| {
             if adjoint ^ negated {
-                compiler.op_adj(intrinsic, qubit);
+                compiler.emit_adjoint_gate(intrinsic, qubit);
             } else {
-                compiler.op(intrinsic, qubit);
+                compiler.emit_gate(intrinsic, qubit);
             }
         });
     }
@@ -1074,7 +1074,7 @@ impl<'noise> Compiler<'noise> {
             return;
         }
         self.decompose_pauli_product_operation(product, |compiler, qubit, negated| {
-            compiler.op_rotation("rz", if negated { -angle } else { angle }, qubit);
+            compiler.emit_rotation("rz", if negated { -angle } else { angle }, qubit);
         });
     }
 
@@ -1121,7 +1121,7 @@ impl<'noise> Compiler<'noise> {
                     .to_vec(),
                     vec![*probability / 15.0; 15],
                 );
-                self.op_noise(table, &[*q0, *q1]);
+                self.emit_noise(table, &[*q0, *q1]);
             }
             semantic::Noise::HeraldedPauliChannel1 { .. } => {
                 self.unsupported("HERALDED_PAULI_CHANNEL_1", instruction_span);
@@ -1135,7 +1135,7 @@ impl<'noise> Compiler<'noise> {
                     ["X", "Y", "Z"].map(encode_pauli).to_vec(),
                     probabilities.to_vec(),
                 );
-                self.op_noise(table, &[*qubit]);
+                self.emit_noise(table, &[*qubit]);
             }
             semantic::Noise::PauliChannel2 {
                 probabilities,
@@ -1152,7 +1152,7 @@ impl<'noise> Compiler<'noise> {
                     .to_vec(),
                     probabilities.to_vec(),
                 );
-                self.op_noise(table, &[*q0, *q1]);
+                self.emit_noise(table, &[*q0, *q1]);
             }
             semantic::Noise::SingleQubitNoise {
                 kind,
@@ -1165,7 +1165,7 @@ impl<'noise> Compiler<'noise> {
                         ["X", "Y", "Z"].map(encode_pauli).to_vec(),
                         vec![*probability / 3.0; 3],
                     );
-                    self.op_noise(table, &[*qubit]);
+                    self.emit_noise(table, &[*qubit]);
                 }
                 semantic::SingleQubitNoiseKind::HeraldedErase => {
                     self.unsupported("HERALDED_ERASE", instruction_span);
@@ -1176,7 +1176,7 @@ impl<'noise> Compiler<'noise> {
                         vec![encode_pauli(kind.as_str())],
                         vec![*probability],
                     );
-                    self.op_noise(table, &[*qubit]);
+                    self.emit_noise(table, &[*qubit]);
                 }
             },
         }
@@ -1191,42 +1191,42 @@ impl<'noise> Compiler<'noise> {
         qubit: StimQubitId,
     ) {
         let result_id = match (observable, reset) {
-            (Z, false) => self.op_measure("m", qubit, negated),
-            (Z, true) => self.op_measure_reset("mresetz", qubit, negated),
+            (Z, false) => self.emit_measurement("m", qubit, negated),
+            (Z, true) => self.emit_measurement_and_reset("mresetz", qubit, negated),
             (X, false) => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
-                self.op("h", qubit); // X -> Z
-                let result_id = self.op_measure("m", qubit, negated); // MZ
-                self.op("h", qubit); // Z -> X
+                self.emit_gate("h", qubit); // X -> Z
+                let result_id = self.emit_measurement("m", qubit, negated); // MZ
+                self.emit_gate("h", qubit); // Z -> X
                 result_id
             }
             (X, true) => {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
-                self.op("h", qubit); // X -> Z
-                let result_id = self.op_measure_reset("mresetz", qubit, negated); // MRZ
-                self.op("h", qubit); // Z -> X
+                self.emit_gate("h", qubit); // X -> Z
+                let result_id = self.emit_measurement_and_reset("mresetz", qubit, negated); // MRZ
+                self.emit_gate("h", qubit); // Z -> X
                 result_id
             }
             (Y, false) => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
-                self.op_adj("s", qubit); // Y -> X
-                self.op("h", qubit); // X -> Z
-                let result_id = self.op_measure("m", qubit, negated); // MZ
-                self.op("h", qubit); // Z -> X
-                self.op("s", qubit); // X -> Y
+                self.emit_adjoint_gate("s", qubit); // Y -> X
+                self.emit_gate("h", qubit); // X -> Z
+                let result_id = self.emit_measurement("m", qubit, negated); // MZ
+                self.emit_gate("h", qubit); // Z -> X
+                self.emit_gate("s", qubit); // X -> Y
                 result_id
             }
             (Y, true) => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
-                self.op_adj("s", qubit); // Y -> X
-                self.op("h", qubit); // X -> Z
-                let result_id = self.op_measure_reset("mresetz", qubit, negated); // MRZ
-                self.op("h", qubit); // Z -> X
-                self.op("s", qubit); // X -> Y
+                self.emit_adjoint_gate("s", qubit); // Y -> X
+                self.emit_gate("h", qubit); // X -> Z
+                let result_id = self.emit_measurement_and_reset("mresetz", qubit, negated); // MRZ
+                self.emit_gate("h", qubit); // Z -> X
+                self.emit_gate("s", qubit); // X -> Y
                 result_id
             }
         };
-        self.op_optional_readout_noise(readout_noise, result_id);
+        self.emit_optional_readout_noise(readout_noise, result_id);
     }
 
     fn compile_two_qubit_measurement(
@@ -1240,36 +1240,36 @@ impl<'noise> Compiler<'noise> {
         let result_id = match observable {
             semantic::PauliPair::XX => {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
-                self.op_2("cx", q0, q1);
-                self.op("h", q0);
-                let result_id = self.op_measure("m", q0, negated);
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q0);
+                let result_id = self.emit_measurement("m", q0, negated);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
                 result_id
             }
             semantic::PauliPair::YY => {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
-                self.op("s", q0);
-                self.op("s", q1);
-                self.op_2("cx", q0, q1);
-                self.op("h", q0);
-                let result_id = self.op_measure("m", q0, negated);
-                self.op("z", q1);
-                self.op("h", q0);
-                self.op_2("cx", q0, q1);
-                self.op("s", q0);
-                self.op("s", q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("h", q0);
+                let result_id = self.emit_measurement("m", q0, negated);
+                self.emit_gate("z", q1);
+                self.emit_gate("h", q0);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                self.emit_gate("s", q0);
+                self.emit_gate("s", q1);
                 result_id
             }
             semantic::PauliPair::ZZ => {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
-                self.op_2("cx", q0, q1);
-                let result_id = self.op_measure("m", q1, negated);
-                self.op_2("cx", q0, q1);
+                self.emit_two_qubit_gate("cx", q0, q1);
+                let result_id = self.emit_measurement("m", q1, negated);
+                self.emit_two_qubit_gate("cx", q0, q1);
                 result_id
             }
         };
-        self.op_optional_readout_noise(readout_noise, result_id);
+        self.emit_optional_readout_noise(readout_noise, result_id);
     }
 
     fn compile_pauli_product_measurement(
@@ -1281,8 +1281,8 @@ impl<'noise> Compiler<'noise> {
             return;
         }
         self.decompose_pauli_product_operation(product, |compiler, qubit, negated| {
-            let result_id = compiler.op_measure("m", qubit, negated);
-            compiler.op_optional_readout_noise(readout_noise, result_id);
+            let result_id = compiler.emit_measurement("m", qubit, negated);
+            compiler.emit_optional_readout_noise(readout_noise, result_id);
         });
     }
 
@@ -1396,7 +1396,7 @@ impl<'noise> Compiler<'noise> {
             return;
         }
         let (noise_table, qubits) = self.noise_accumulator.flush_correlated_group();
-        self.op_noise(noise_table, &qubits);
+        self.emit_noise(noise_table, &qubits);
     }
 
     /// Runs an operation on a Pauli product by reducing it to one qubit. Each factor is
@@ -1412,11 +1412,11 @@ impl<'noise> Compiler<'noise> {
             self.rotate_to_z_basis(factor.pauli, factor.qubit);
         }
         for factor in product.factors.iter().skip(1) {
-            self.op_2("cx", factor.qubit, focus_qubit);
+            self.emit_two_qubit_gate("cx", factor.qubit, focus_qubit);
         }
         operation(self, focus_qubit, product.negated);
         for factor in product.factors.iter().skip(1).rev() {
-            self.op_2("cx", factor.qubit, focus_qubit);
+            self.emit_two_qubit_gate("cx", factor.qubit, focus_qubit);
         }
         for factor in product.factors.iter().rev() {
             self.rotate_from_z_basis(factor.pauli, factor.qubit);
@@ -1484,10 +1484,10 @@ impl<'noise> Compiler<'noise> {
 
     fn rotate_to_z_basis(&mut self, pauli: Pauli, qubit: u32) {
         match pauli {
-            X => self.op("h", qubit),
+            X => self.emit_gate("h", qubit),
             Y => {
-                self.op_adj("s", qubit);
-                self.op("h", qubit);
+                self.emit_adjoint_gate("s", qubit);
+                self.emit_gate("h", qubit);
             }
             Z => (),
         }
@@ -1495,50 +1495,50 @@ impl<'noise> Compiler<'noise> {
 
     fn rotate_from_z_basis(&mut self, pauli: Pauli, qubit: u32) {
         match pauli {
-            X => self.op("h", qubit),
+            X => self.emit_gate("h", qubit),
             Y => {
-                self.op("h", qubit);
-                self.op("s", qubit);
+                self.emit_gate("h", qubit);
+                self.emit_gate("s", qubit);
             }
             Z => (),
         }
     }
 
-    fn op(&mut self, intrinsic: &str, qubit: StimQubitId) {
+    fn emit_gate(&mut self, intrinsic: &str, qubit: StimQubitId) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_call(intrinsic, &[q]);
     }
 
-    fn op_2(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
+    fn emit_two_qubit_gate(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
-    fn op_3(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId, q2: StimQubitId) {
+    fn emit_three_qubit_gate(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId, q2: StimQubitId) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         let q2 = self.id_map.allocate_qubit(q2);
         self.writer.write_qis_call(intrinsic, &[q0, q1, q2]);
     }
 
-    fn op_rotation(&mut self, intrinsic: &str, angle: Radians, qubit: StimQubitId) {
+    fn emit_rotation(&mut self, intrinsic: &str, angle: Radians, qubit: StimQubitId) {
         let qubit = self.id_map.allocate_qubit(qubit);
         self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
     }
 
-    fn op_rotation_2(&mut self, intrinsic: &str, angle: Radians, q0: StimQubitId, q1: StimQubitId) {
+    fn emit_two_qubit_rotation(&mut self, intrinsic: &str, angle: Radians, q0: StimQubitId, q1: StimQubitId) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         self.writer.write_rotation_call(intrinsic, angle, &[q0, q1]);
     }
 
-    fn op_adj(&mut self, intrinsic: &str, qubit: StimQubitId) {
+    fn emit_adjoint_gate(&mut self, intrinsic: &str, qubit: StimQubitId) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_adj_call(intrinsic, &[q]);
     }
 
-    fn op_measure(&mut self, intrinsic: &str, qubit: StimQubitId, negated: bool) -> ResultId {
+    fn emit_measurement(&mut self, intrinsic: &str, qubit: StimQubitId, negated: bool) -> ResultId {
         let q = self.id_map.allocate_qubit(qubit);
         if negated {
             self.writer.write_qis_call("x", &[q]);
@@ -1551,7 +1551,7 @@ impl<'noise> Compiler<'noise> {
         r
     }
 
-    fn op_measure_reset(&mut self, intrinsic: &str, qubit: StimQubitId, negated: bool) -> ResultId {
+    fn emit_measurement_and_reset(&mut self, intrinsic: &str, qubit: StimQubitId, negated: bool) -> ResultId {
         let q = self.id_map.allocate_qubit(qubit);
         if negated {
             self.writer.write_qis_call("x", &[q]);
@@ -1561,7 +1561,7 @@ impl<'noise> Compiler<'noise> {
         r
     }
 
-    fn op_peek_loss(&mut self, qubit: StimQubitId) -> ResultId {
+    fn emit_peek_loss(&mut self, qubit: StimQubitId) -> ResultId {
         let q = self.id_map.allocate_qubit(qubit);
         let r = self.id_map.allocate_record();
         self.id_map.peek_loss_record_ids.insert(r);
@@ -1569,7 +1569,7 @@ impl<'noise> Compiler<'noise> {
         r
     }
 
-    fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[StimQubitId]) {
+    fn emit_noise(&mut self, table: NoiseTable<f64>, qubits: &[StimQubitId]) {
         let ids: Vec<QubitId> = qubits
             .iter()
             .map(|&qubit| self.id_map.allocate_qubit(qubit))
@@ -1578,7 +1578,7 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_noise_call(&name, &ids);
     }
 
-    fn op_optional_readout_noise(&mut self, probability: f64, result_id: ResultId) {
+    fn emit_optional_readout_noise(&mut self, probability: f64, result_id: ResultId) {
         if probability > 0.0 {
             self.writer.write_readout_noise_call(probability, result_id);
         }
