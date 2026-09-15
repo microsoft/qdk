@@ -1,34 +1,35 @@
-- @billti @idavis @amcasey @swernli
+* @billti @idavis @swernli
 
 /.github/ISSUE_TEMPLATE/fuzz_bug_report.md @billti @idavis @swernli
 /.github/workflows/fuzz.yml @billti @idavis @swernli
-/source/compiler @idavis @amcasey @swernli
+/source/compiler @idavis @swernli
 /source/compiler/qsc_codegen @idavis @swernli
-/source/compiler/qsc_doc_gen @billti @ScottCarda-MS
-/source/compiler/qsc_formatter @billti @amcasey @ScottCarda-MS
-/source/compiler/qsc_project @idavis @amcasey @swernli
+/source/compiler/qsc_doc_gen @billti @amcasey
+/source/compiler/qsc_formatter @billti @amcasey
+/source/compiler/qsc_project @idavis @swernli
 /source/compiler/qsc_partial_eval @idavis @swernli
 /source/compiler/qsc_rca @idavis @swernli
 /source/compiler/qsc_rir @idavis @swernli
 /source/compiler/stim_compiler @billti @joao-boechat @orpuente-MS
 /source/fuzz @billti @idavis @swernli
 /katas @billti @swernli
-/source/jupyterlab @billti @idavis @amcasey
-/source/language_service @billti @idavis @amcasey @ScottCarda-MS
+/source/jupyterlab @billti @idavis
+/source/language_service @billti @idavis @amcasey
 /source/simulators @billti @idavis @orpuente-MS
 /source/noisy_simulator @swernli @orpuente-MS
 /library @swernli @orpuente-MS
-/source/npm @billti @amcasey @ScottCarda-MS
-/source/qdk_package @billti @idavis @amcasey
+/source/npm @billti @amcasey
+/source/qdk_package @billti @idavis
 /source/qdk_package/qdk/qre @msoeken @brad-lackey @jwhogabo
 /source/playground @billti @amcasey
 /source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @swernli
-/samples @amcasey @swernli
+/samples @swernli @fedimser
 /source/vscode @billti @idavis @amcasey
+/source/vscode/resources/qdk-learning @billti @HABER7789 @amcasey
 /source/wasm @billti @idavis @swernli
 
-/Cargo.lock @idavis @amcasey @swernli
-/Cargo.toml @idavis @amcasey @swernli
+/Cargo.lock @idavis @swernli
+/Cargo.toml @idavis @swernli
 /package-lock.json @billti @amcasey
 /package.json @billti @amcasey

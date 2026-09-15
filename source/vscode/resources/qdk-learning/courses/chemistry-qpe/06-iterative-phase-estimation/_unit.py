@@ -253,7 +253,7 @@ register_quiz(
             "iteration; after six iterations the feedback calculation combines "
             "the bits into one fraction.",
             True,
-            "The script writes that fraction as a conventional six-bit string, "
+            "The workflow writes that fraction as a conventional six-bit string, "
             "with the most significant bit first.",
         ),
         (
@@ -363,7 +363,7 @@ register_quiz(
 
 register_quiz(
     "iqpe-observed-result",
-    "What bitstring distribution did the script produce?",
+    "What bitstring distribution did the workflow produce?",
     [
         (
             "19-1",

@@ -5,12 +5,29 @@ required packages are importable. Renders results as styled HTML in the
 notebook output.
 """
 
+import importlib.metadata
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
 from IPython.display import HTML, display
+
+QDK_CHEMISTRY_MIN_VERSION = (2, 2, 0)
+
+
+def _stable_release(version: str) -> tuple[int, int, int] | None:
+    """Parse a stable major.minor.patch release, ignoring post/local metadata."""
+    public_version = version.partition("+")[0]
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:\.post\d+)?", public_version)
+    return (int(match[1]), int(match[2]), int(match[3])) if match else None
+
+
+def _is_supported_qdk_chemistry(version: str) -> bool:
+    """Return whether a stable QDK/Chemistry release meets the course minimum."""
+    release = _stable_release(version)
+    return release is not None and release >= QDK_CHEMISTRY_MIN_VERSION
 
 
 def check() -> None:
@@ -54,6 +71,26 @@ def check() -> None:
         )
     elif import_checks:
         results.append(("Packages", ", ".join(import_checks), True))
+
+    if _can_import("qdk_chemistry"):
+        installed_version = importlib.metadata.version("qdk-chemistry")
+        version_ok = _is_supported_qdk_chemistry(installed_version)
+        results.append(
+            (
+                "QDK/Chemistry version",
+                installed_version,
+                version_ok,
+            )
+        )
+        if not version_ok:
+            minimum_version = ".".join(map(str, QDK_CHEMISTRY_MIN_VERSION))
+            errors.append(
+                "This course requires "
+                f"<code>qdk-chemistry&gt;={minimum_version}</code>, but "
+                f"version <code>{installed_version}</code> is installed. "
+                "Install the course requirements and re-run this cell:"
+                f"<pre>  %pip install -r ../requirements.txt</pre>"
+            )
 
     # --- Render ---
     _render(results, errors)

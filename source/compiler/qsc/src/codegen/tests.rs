@@ -5968,7 +5968,9 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           %var_9_1 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 1
           store i64 %var_15, ptr %var_9_1
           %var_17 = load i64, ptr %var_8
-          %var_10 = getelementptr i64, ptr %var_9, i64 %var_17
+          %var_10_offset_chk = icmp slt i64 %var_17, 0
+          %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
+          %var_10 = getelementptr [2 x i64], ptr %var_9, i64 %var_10_offset, i64 %var_17
           %var_18 = load i64, ptr %var_10
           call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
           ret i64 0
@@ -5978,12 +5980,13 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -6056,12 +6059,13 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -6190,9 +6194,13 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           %var_19_2 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 2
           store i64 %var_33, ptr %var_19_2
           %var_35 = load i64, ptr %var_17
-          %var_20 = getelementptr i64, ptr %var_18, i64 %var_35
+          %var_20_offset_chk = icmp slt i64 %var_35, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [2 x i64], ptr %var_18, i64 %var_20_offset, i64 %var_35
           %var_36 = load i64, ptr %var_20
-          %var_21 = getelementptr i64, ptr %var_19, i64 %var_35
+          %var_21_offset_chk = icmp slt i64 %var_35, 0
+          %var_21_offset = select i1 %var_21_offset_chk, i64 1, i64 0
+          %var_21 = getelementptr [3 x i64], ptr %var_19, i64 %var_21_offset, i64 %var_35
           %var_37 = load i64, ptr %var_21
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
           call void @__quantum__rt__int_record_output(i64 %var_36, ptr @1)
@@ -6204,7 +6212,7 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__array_record_output(i64, ptr)
 
@@ -6212,6 +6220,7 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="6" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
