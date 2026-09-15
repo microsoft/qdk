@@ -594,6 +594,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_block(&mut self, block: &semantic::Block) {
+        // Block boundaries interrupt E/ELSE_CORRELATED_ERROR chains.
         self.finish_correlated_noise();
         match block {
             semantic::Block::RepeatBlock { count, body } => {
@@ -1509,13 +1510,24 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q]);
     }
 
+    fn emit_adjoint_gate(&mut self, intrinsic: &str, qubit: StimQubitId) {
+        let q = self.id_map.allocate_qubit(qubit);
+        self.writer.write_qis_adj_call(intrinsic, &[q]);
+    }
+
     fn emit_two_qubit_gate(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
-    fn emit_three_qubit_gate(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId, q2: StimQubitId) {
+    fn emit_three_qubit_gate(
+        &mut self,
+        intrinsic: &str,
+        q0: StimQubitId,
+        q1: StimQubitId,
+        q2: StimQubitId,
+    ) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         let q2 = self.id_map.allocate_qubit(q2);
@@ -1527,15 +1539,16 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
     }
 
-    fn emit_two_qubit_rotation(&mut self, intrinsic: &str, angle: Radians, q0: StimQubitId, q1: StimQubitId) {
+    fn emit_two_qubit_rotation(
+        &mut self,
+        intrinsic: &str,
+        angle: Radians,
+        q0: StimQubitId,
+        q1: StimQubitId,
+    ) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         self.writer.write_rotation_call(intrinsic, angle, &[q0, q1]);
-    }
-
-    fn emit_adjoint_gate(&mut self, intrinsic: &str, qubit: StimQubitId) {
-        let q = self.id_map.allocate_qubit(qubit);
-        self.writer.write_qis_adj_call(intrinsic, &[q]);
     }
 
     fn emit_measurement(&mut self, intrinsic: &str, qubit: StimQubitId, negated: bool) -> ResultId {
@@ -1551,7 +1564,12 @@ impl<'noise> Compiler<'noise> {
         r
     }
 
-    fn emit_measurement_and_reset(&mut self, intrinsic: &str, qubit: StimQubitId, negated: bool) -> ResultId {
+    fn emit_measurement_and_reset(
+        &mut self,
+        intrinsic: &str,
+        qubit: StimQubitId,
+        negated: bool,
+    ) -> ResultId {
         let q = self.id_map.allocate_qubit(qubit);
         if negated {
             self.writer.write_qis_call("x", &[q]);
