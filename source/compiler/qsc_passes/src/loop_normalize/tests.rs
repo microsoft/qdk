@@ -1767,7 +1767,13 @@ fn hoist_break_in_tuple_with_qubit_operand_array_backed() {
                     } else {
                         [(1, q)]
                     };
-                    Foo(_operand_tmp_39[0]::Item < 0 >, _operand_tmp_39[0]::Item < 1 >);
+                    Foo({
+                        let (_field_42, _) = _operand_tmp_39[0];
+                        _field_42
+                    }, {
+                        let (_, _field_46) = _operand_tmp_39[0];
+                        _field_46
+                    });
                 }
             }
         "#]],
@@ -1795,7 +1801,13 @@ fn hoist_break_in_controlled_call_preserves_control_tuple() {
                 while cond {
                     let _operand_tmp_25 = Controlled Foo;
                     let _operand_tmp_29 = break;
-                    _operand_tmp_25(_operand_tmp_29[0]::Item < 0 >, _operand_tmp_29[0]::Item < 1 >);
+                    _operand_tmp_25({
+                        let (_field_32, _) = _operand_tmp_29[0];
+                        _field_32
+                    }, {
+                        let (_, _field_36) = _operand_tmp_29[0];
+                        _field_36
+                    });
                 }
             }
         "#]],

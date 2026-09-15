@@ -122,20 +122,22 @@ fn while_condition_return_shape_snapshot() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                while ((not __has_returned)) and if true {
-                    if true {
+                while ((not __has_returned)) and (if true {
+                    mutable __while_condition : Bool = false;
+                    __while_condition = if true {
+                        mutable __while_condition_1 : Bool = false;
                         {
                             __ret_val = 31;
                             __has_returned = true;
                         };
+                        __while_condition_1
                     } else {
                         false
-                    }
-
+                    };
+                    __while_condition
                 } else {
                     false
-                }
-                {
+                } and ((not __has_returned))) {
                     let _ : Int = 0;
                 }
 

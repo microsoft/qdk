@@ -14,7 +14,8 @@ mod fixpoint;
 mod flag_strategy;
 mod hoist_expression;
 mod nested_constructs;
-mod regression_and_depth;
+#[path = "tests/regression_and_depth.rs"]
+mod predicate_boundaries_and_nested_continuations;
 mod three_level;
 mod three_level_mixed;
 
