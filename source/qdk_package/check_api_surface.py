@@ -13,8 +13,8 @@ ABC, protocol) is an implementation detail that users never need to
 reference directly, so it does not constitute actionable leakage.
 
 Types that are defined in a private module but re-exported through a
-public module's ``__all__`` are **not** flagged — they are considered
-public.
+public module's ``__all__`` or public attributes of an exported class
+are **not** flagged — they are considered public.
 
 Exit code 0  - no violations found.
 Exit code 1  - one or more violations found (details printed to stderr).
@@ -155,12 +155,14 @@ def _build_public_types(
     Returns:
         A tuple of (public_type_ids, public_type_names) where:
         - public_type_ids is a set of ``id()`` values for type objects
-          found in any public module's ``__all__``.
+          reachable through a public module's ``__all__`` or public
+          attributes of its exported classes.
         - public_type_names is a set of unqualified names (e.g. "Config")
           for resolving forward-reference strings.
     """
     public_type_ids: set[int] = set()
     public_type_names: set[str] = set()
+    pending_types: list[tuple[str, type]] = []
 
     for mod_name, mod in modules:
         all_symbols = getattr(mod, "__all__", None)
@@ -171,8 +173,23 @@ def _build_public_types(
             if obj is None:
                 continue
             if isinstance(obj, type):
-                public_type_ids.add(id(obj))
-                public_type_names.add(sym_name)
+                pending_types.append((sym_name, obj))
+
+    while pending_types:
+        type_name, public_type = pending_types.pop()
+        public_type_names.add(type_name)
+        if id(public_type) in public_type_ids:
+            continue
+        public_type_ids.add(id(public_type))
+        for attr_name in dir(public_type):
+            if attr_name.startswith("_"):
+                continue
+            try:
+                attr = getattr(public_type, attr_name)
+            except Exception:
+                continue
+            if isinstance(attr, type):
+                pending_types.append((attr_name, attr))
 
     return public_type_ids, public_type_names
 

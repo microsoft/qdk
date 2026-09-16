@@ -7,7 +7,7 @@
 # changes shape, refresh this copy.
 ---
 qodec.yaml:
-  schema_version: 7
+  schema_version: 1
   name: repetition3
   description: Z-basis bit-flip repetition code (distance 3) — the simplest non-trivial QEC example in qodec.
   layers:
