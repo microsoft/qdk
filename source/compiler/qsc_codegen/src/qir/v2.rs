@@ -323,10 +323,9 @@ fn convert_to_qir(
 }
 
 fn store_to_qir(operand: rir::Operand, variable: rir::Variable, program: &rir::Program) -> String {
-    let op_ty = get_value_ty(&operand);
     format!(
-        "  store {op_ty} {}, ptr {}",
-        get_value_as_str(&operand, program),
+        "  store {}, ptr {}",
+        ToQir::<String>::to_qir(&operand, program),
         ToQir::<String>::to_qir(&variable.variable_id, program)
     )
 }
