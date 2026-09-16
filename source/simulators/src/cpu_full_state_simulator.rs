@@ -816,6 +816,10 @@ impl Simulator for FullStateSimulator {
         self.state.state().expect("state should be valid")
     }
 
+    fn lose(&mut self, target: QubitID) {
+        self.loss_impl(target);
+    }
+
     fn peek_loss(&mut self, target: QubitID, result_id: ResultID) {
         let is_lost = self.loss[target];
         self.measurements[result_id] = if is_lost {

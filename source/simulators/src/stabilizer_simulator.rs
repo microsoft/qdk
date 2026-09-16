@@ -774,6 +774,10 @@ impl Simulator for StabilizerSimulator {
         &self.state
     }
 
+    fn lose(&mut self, target: QubitID) {
+        self.loss_impl(target);
+    }
+
     fn peek_loss(&mut self, qubit: QubitID, result_id: ResultID) {
         let is_lost = self.loss[qubit];
         self.measurements[result_id] = if is_lost {
