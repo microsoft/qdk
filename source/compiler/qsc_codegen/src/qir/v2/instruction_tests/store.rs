@@ -49,3 +49,23 @@ fn store_pointer_literal_to_pointer() {
     );
     expect!["  store ptr null, ptr %var_0"].assert_eq(&inst.to_qir(&rir::Program::default()));
 }
+
+#[test]
+fn store_qubit_literal_to_pointer() {
+    let inst = rir::Instruction::Store(
+        rir::Operand::Literal(rir::Literal::Qubit(2)),
+        rir::Variable::new_ptr(rir::VariableId(0)),
+    );
+    expect!["  store ptr inttoptr (i64 2 to ptr), ptr %var_0"]
+        .assert_eq(&inst.to_qir(&rir::Program::default()));
+}
+
+#[test]
+fn store_result_literal_to_pointer() {
+    let inst = rir::Instruction::Store(
+        rir::Operand::Literal(rir::Literal::Result(2)),
+        rir::Variable::new_ptr(rir::VariableId(0)),
+    );
+    expect!["  store ptr inttoptr (i64 2 to ptr), ptr %var_0"]
+        .assert_eq(&inst.to_qir(&rir::Program::default()));
+}
