@@ -184,7 +184,13 @@ const toolDefinitions: {
   {
     name: "qdk-learning-reset",
     tool: async () => await learningTools!.resetExercise(),
-    confirm: () => learningTools!.confirmReset(),
+    confirm: (): vscode.PreparedToolInvocation => ({
+      confirmationMessages: {
+        title: "Reset Activity",
+        message:
+          "Reset the current activity to its starter code? Your code will be lost.",
+      },
+    }),
   },
   {
     name: "qdk-learning-reset-unit",

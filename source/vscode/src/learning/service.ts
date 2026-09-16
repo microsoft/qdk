@@ -673,11 +673,6 @@ export class LearningService {
     };
   }
 
-  /** The type of the activity at the current position. */
-  getCurrentActivityType(): CatalogActivity["type"] {
-    return this.findCurrentActivity().activity.type;
-  }
-
   /**
    * The notebook cell ID backing the current activity — the inverse of
    * {@link goToActivityByCellId}. `undefined` when the course isn't a

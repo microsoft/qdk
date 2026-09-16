@@ -63,6 +63,20 @@ export function registerLearningCommands(
             await service.switchCourse(location.courseId, "tree");
           }
           await service.goTo(location, "tree");
+        } else {
+          // Invoked from the notebook toolbar: point the stored position at the
+          // notebook the learner is actually looking at before we reset by
+          // position, so a not-yet-synced editor switch can't reset a different
+          // unit than the visible one. If we can't confirm which workbook is
+          // active, don't guess at a destructive reset — abort.
+          const activeNotebook =
+            vscode.window.activeNotebookEditor?.notebook.uri;
+          if (
+            !activeNotebook ||
+            !(await service.syncToWorkbook(activeNotebook))
+          ) {
+            return;
+          }
         }
 
         const confirmed = await vscode.window.showWarningMessage(
@@ -76,16 +90,12 @@ export function registerLearningCommands(
 
         await service.resetUnit(
           location ? { unitId: location.unitId } : undefined,
-          "tree",
+          location ? "tree" : "notebook",
         );
 
-        // Notebook courses don't use the lesson panel, and the reset closed
-        // the workbook, so re-open the fresh copy instead.
-        if (isNotebookCourse(service.getActiveCourseInfo())) {
-          await openCourseNotebook(service, { reveal: "top" });
-        } else {
-          await panelManager.show();
-        }
+        // Unit reset is notebook-only and closes the workbook, so re-open the
+        // fresh copy at the top.
+        await openCourseNotebook(service, { reveal: "top" });
         vscode.window.showInformationMessage("Unit has been reset.");
       },
     ),
