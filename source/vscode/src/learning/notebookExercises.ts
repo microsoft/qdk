@@ -55,6 +55,10 @@ interface RawCell {
 /** The subset of an nbformat notebook this module reads. */
 interface RawNotebook {
   cells?: unknown;
+  metadata?: {
+    language_info?: { name?: unknown };
+    kernelspec?: { language?: unknown };
+  };
 }
 
 /** A {@link RawNotebook} whose `cells` array has been validated to exist. */
@@ -215,28 +219,66 @@ export function stripAuthoringCells(
 }
 
 /**
- * Read a single cell's source text out of a notebook's JSON, matched by its
- * stable nbformat cell ID.
+ * The authored form of a single cell: its source, cell kind, and the
+ * notebook's kernel language. Reset restores all three, so a learner who
+ * converted the exercise cell to Markdown gets a runnable code cell back
+ * rather than the starter text stranded in the wrong cell type.
  */
-export function findCellSource(
-  text: string,
-  cellId: string,
-  unitLabel: string,
-): string | undefined {
-  const cells = readCells(text, unitLabel);
-  const cell = cells?.find((c) => cellIdOf(c) === cellId);
-  return cell ? cellSource(cell) : undefined;
+export interface AuthoredCell {
+  source: string;
+  kind: "code" | "markdown" | "other";
+  language: string | undefined;
 }
 
 /**
- * Return the notebook JSON with one cell's source replaced, matched by its
- * stable nbformat cell ID. The replaced cell's outputs are cleared, since
- * restored code has not been run.
+ * Read a single cell's authored source and kind out of a notebook's JSON,
+ * matched by its stable nbformat cell ID, along with the notebook's kernel
+ * language.
+ */
+export function findAuthoredCell(
+  text: string,
+  cellId: string,
+  unitLabel: string,
+): AuthoredCell | undefined {
+  const notebook = parseNotebook(text, unitLabel);
+  if (!notebook) {
+    return undefined;
+  }
+  const cell = notebook.cells.find((c) => cellIdOf(c) === cellId);
+  if (!cell) {
+    return undefined;
+  }
+  return {
+    source: cellSource(cell),
+    kind: cellKind(cell),
+    language: notebookLanguage(notebook),
+  };
+}
+
+/**
+ * The notebook's kernel language (e.g. `"python"`), read from its nbformat
+ * metadata. Used to rebuild a code cell; `undefined` when unspecified.
+ */
+function notebookLanguage(notebook: ParsedNotebook): string | undefined {
+  const name = notebook.metadata?.language_info?.name;
+  if (typeof name === "string") {
+    return name;
+  }
+  const language = notebook.metadata?.kernelspec?.language;
+  return typeof language === "string" ? language : undefined;
+}
+
+/**
+ * Return the notebook JSON with one cell restored to its authored source and
+ * kind, matched by its stable nbformat cell ID. Restoring the kind brings a
+ * cell the learner converted to Markdown back to a runnable code cell. A
+ * restored code cell is given empty run state, since it has not been run.
  */
 export function replaceCellSource(
   text: string,
   cellId: string,
   newSource: string,
+  newKind: "code" | "markdown" | "other",
   unitLabel: string,
 ): string | undefined {
   const notebook = parseNotebook(text, unitLabel);
@@ -249,11 +291,17 @@ export function replaceCellSource(
     return undefined;
   }
 
+  const isCode = newKind === "code";
+  cell.cell_type = isCode ? "code" : "markdown";
   cell.source = newSource;
-  // A restored cell has never been run, so drop any stale execution state.
-  if (cellKind(cell) === "code") {
+  if (isCode) {
+    // A restored code cell has never been run, so give it empty run state.
     (cell as { outputs?: unknown }).outputs = [];
     (cell as { execution_count?: unknown }).execution_count = null;
+  } else {
+    // Markdown cells carry no run state.
+    delete (cell as { outputs?: unknown }).outputs;
+    delete (cell as { execution_count?: unknown }).execution_count;
   }
 
   // Match the ipynb serializer's formatting so the file stays diff-stable

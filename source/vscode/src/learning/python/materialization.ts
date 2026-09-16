@@ -6,9 +6,10 @@ import * as vscode from "vscode";
 import { sourceNotebookUri, workbookUri } from "../courseLayout.js";
 import { ensureParentDir, uriExists } from "../fsUtils.js";
 import {
-  findCellSource,
+  findAuthoredCell,
   replaceCellSource,
   stripAuthoringCells,
+  type AuthoredCell,
 } from "../notebookExercises.js";
 import type { NotebookCatalogCourse, NotebookCatalogUnit } from "../types.js";
 
@@ -59,8 +60,8 @@ export async function restoreUnitWorkbookCell(
     const srcText = new TextDecoder().decode(
       await vscode.workspace.fs.readFile(sourceNotebookUri(unit)),
     );
-    const authoredSource = findCellSource(srcText, cellId, unit.id);
-    if (authoredSource === undefined) {
+    const authored = findAuthoredCell(srcText, cellId, unit.id);
+    if (authored === undefined) {
       log.warn(
         `Cell ${cellId} not found in the authored notebook for unit "${unit.id}".`,
       );
@@ -72,7 +73,7 @@ export async function restoreUnitWorkbookCell(
       (n) => n.uri.toString() === dest.toString(),
     );
     if (open) {
-      return replaceOpenCell(open, cellId, authoredSource);
+      return replaceOpenCell(open, cellId, authored);
     }
 
     const destText = new TextDecoder().decode(
@@ -81,7 +82,8 @@ export async function restoreUnitWorkbookCell(
     const updated = replaceCellSource(
       destText,
       cellId,
-      authoredSource,
+      authored.source,
+      authored.kind,
       unit.id,
     );
     if (updated === undefined) {
@@ -104,19 +106,19 @@ export async function restoreUnitWorkbookCell(
 }
 
 /**
- * Replace one cell of an open notebook with its authored source, preserving
- * the cell id and tags while dropping outputs and execution state. The
- * in-editor edit is the reset: it takes effect the moment the cell shows the
- * authored source, and the notebook is then saved to disk best-effort. Returns
- * `false` only when the cell is missing or the edit is rejected. A save that
- * can't complete leaves the reset cell unsaved in the editor — like any other
- * pending edit — instead of undoing the reset, so we never leave the cell
+ * Replace one cell of an open notebook with its authored source and kind,
+ * preserving the cell id and tags while dropping outputs and execution state.
+ * The in-editor edit is the reset: it takes effect the moment the cell shows
+ * the authored source, and the notebook is then saved to disk best-effort.
+ * Returns `false` only when the cell is missing or the edit is rejected. A save
+ * that can't complete leaves the reset cell unsaved in the editor — like any
+ * other pending edit — instead of undoing the reset, so we never leave the cell
  * showing placeholder code and then report the reset as a failure.
  */
 async function replaceOpenCell(
   notebook: vscode.NotebookDocument,
   cellId: string,
-  source: string,
+  authored: AuthoredCell,
 ): Promise<boolean> {
   const index = notebook.getCells().findIndex((c) => c.metadata?.id === cellId);
   if (index < 0) {
@@ -124,10 +126,15 @@ async function replaceOpenCell(
   }
 
   const existing = notebook.cellAt(index);
+  // Restore the authored kind and language, not the learner's current ones: if
+  // they converted the exercise cell to Markdown, reset must bring back a
+  // runnable code cell. Fall back to Python — these are Python-notebook
+  // courses — when the notebook declares no kernel language.
+  const isCode = authored.kind === "code";
   const data = new vscode.NotebookCellData(
-    existing.kind,
-    source,
-    existing.document.languageId,
+    isCode ? vscode.NotebookCellKind.Code : vscode.NotebookCellKind.Markup,
+    authored.source,
+    isCode ? (authored.language ?? "python") : "markdown",
   );
   // Keep the metadata so the stable cell id and its tags survive the replace.
   data.metadata = existing.metadata;
