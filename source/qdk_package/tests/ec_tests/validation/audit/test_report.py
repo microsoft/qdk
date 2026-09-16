@@ -185,18 +185,24 @@ def test_report_abbreviates_home_only_for_display(
     assert location.path == file and location.path.is_absolute()
 
 
-def test_report_points_to_loaded_check_equation(tmp_path: Path) -> None:
+def test_report_points_to_loaded_check_equation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     protocol = qc.Qodec.load(Path(__file__).parents[2] / "testing/qodecs/c4.qodec.yaml")
     gadget = protocol.layers[0].gadgets["measure_zz"]
     gadget.checks = [["circuit.readouts[0]"]]
     file = tmp_path / "protocol.bundle"
-    file.write_text(protocol.dumps())
+    file.write_text(protocol.dumps(), encoding="utf-8")
     loaded = qc.Qodec.load(file)
     report = Auditor(rules=[CheckMismatchRule()]).audit(loaded)
     diagnostic = report.errors[0]
     location = diagnostic.source_location
     assert location is not None and location.path == file
-    assert "circuit.readouts[0]" in file.read_text().splitlines()[location.line - 1]
+    assert (
+        "circuit.readouts[0]"
+        in file.read_text(encoding="utf-8").splitlines()[location.line - 1]
+    )
     assert str(report).splitlines()[:4] == [
         "[ERROR] gadget/check-mismatch",
         f"{file}:{location.line}",

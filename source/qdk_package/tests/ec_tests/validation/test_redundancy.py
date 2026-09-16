@@ -180,7 +180,7 @@ def test_new_rule_filtering_and_loaded_source_locations(
     code = gadget.inputs[0].code
     code.stabilizers = [*code.stabilizers, code.stabilizers[0]]
     file = tmp_path / "protocol.bundle"
-    file.write_text(rep3_qodec.dumps())
+    file.write_text(rep3_qodec.dumps(), encoding="utf-8")
     protocol = qc.Qodec.load(file)
     names = {
         "gadget/vacuous-check",

@@ -1,6 +1,6 @@
 ---
 qodec.yaml:
-  schema_version: 7
+  schema_version: 1
   name: c4
   layers:
   - instruction_set: C4.isa.yaml
