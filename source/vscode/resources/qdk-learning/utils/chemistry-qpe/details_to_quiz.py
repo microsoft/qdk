@@ -71,6 +71,12 @@ def _cell_id(body: str) -> str:
 QUIZ_CALL = re.compile(r"^quiz\(([^)]*)\)", re.M)
 QUIZ_ID = re.compile(r'"([^"]+)"')
 
+#: Deliberately looser than `QUIZ_CALL`, and matched anywhere in a line rather
+#: than at its start: it answers "is there a question here at all", so a call
+#: this tool cannot read — `quiz('a')`, `_unit.quiz("a")`, `x = quiz("a")` — is
+#: reported rather than mistaken for a cell whose question was deleted.
+QUIZ_MENTION = re.compile(r"\bquiz\s*\(")
+
 
 def _load_unit_module(unit_dir: Path) -> tuple[Any, Any]:
     """Import a unit's ``_unit.py`` so its ``register_quiz`` calls run.
@@ -187,13 +193,32 @@ def _ensure_quiz_import(cell: dict[str, Any]) -> bool:
 
 
 def _cell_quiz_ids(cell: dict[str, Any]) -> list[str]:
-    """The quiz ids a single cell shows, in order."""
+    """The quiz ids a single cell shows, in order.
+
+    Code cells only. A ``quiz("id")`` inside fenced prose is an example, and a
+    markdown cell has no outputs to bake into in any case.
+    """
+    if cell.get("cell_type") != "code":
+        return []
     source = "".join(cell["source"])
     return [
         quiz_id
         for call in QUIZ_CALL.findall(source)
         for quiz_id in QUIZ_ID.findall(call)
     ]
+
+
+def _calls_quiz(cell: dict[str, Any]) -> bool:
+    """Whether a code cell calls ``quiz()`` in any form, readable or not.
+
+    ``_cell_quiz_ids`` reads one spelling: the one this tool writes. Telling
+    "no question here" apart from "a question written differently" is what
+    stops a cell that says ``quiz('id')`` being mistaken for a removed
+    question and having its baked output deleted.
+    """
+    if cell.get("cell_type") != "code":
+        return False
+    return QUIZ_MENTION.search("".join(cell["source"])) is not None
 
 
 def _notebook_quiz_ids(notebook: dict[str, Any]) -> list[str]:
@@ -248,6 +273,17 @@ def convert(notebook_path: Path, unit_dir: Path, quiz_ids: list[str]) -> dict[st
                 fragment["source"] = body.splitlines(keepends=True)
                 converted.append(fragment)
             else:
+                # Mirrors the surplus-id check below. Without this the list
+                # comprehension pops an empty list and the author gets an
+                # IndexError traceback instead of being told what to fix.
+                if len(remaining) < len(texts):
+                    raise SystemExit(
+                        f"not enough quiz ids: {len(quiz_ids)} given, but the "
+                        "notebook asks more questions than that. Ids must be "
+                        "given in document order, one per question; a single "
+                        "quiz() call can name several, so count questions "
+                        "rather than cells."
+                    )
                 ids = [remaining.pop(0) for _ in texts]
                 call = "quiz({})\n".format(", ".join(f'"{i}"' for i in ids))
                 # Tagged so the progress tree looks past this cell for the
@@ -285,17 +321,27 @@ def convert(notebook_path: Path, unit_dir: Path, quiz_ids: list[str]) -> dict[st
     return notebook
 
 
-def _rebake(notebook: dict[str, Any], emitter: Any, stale: set[str]) -> None:
-    """Re-render the outputs of the cells holding a stale quiz.
+def _rebake(notebook: dict[str, Any], emitter: Any, stale: dict[int, list[str]]) -> None:
+    """Re-render the outputs of the cells ``_stale_baked_outputs`` named.
 
     Rebaking is per cell because a cell can hold several quizzes, so one stale
     question re-renders its neighbours too. That is why only the cells that
     need it are touched: it keeps the write to what the report named.
     """
-    for cell in notebook["cells"]:
+    for index in stale:
+        cell = notebook["cells"][index]
         ids = _cell_quiz_ids(cell)
-        if ids and not stale.isdisjoint(ids):
+        if ids:
             cell["outputs"] = _baked_outputs(emitter, ids)
+            continue
+        # The cell no longer calls quiz(), so there is nothing to re-render:
+        # drop the orphaned questions and leave whatever else the cell
+        # produced, which may be the output of code that replaced them.
+        cell["outputs"] = [
+            output
+            for output in cell.get("outputs", [])
+            if not _is_learning_output(output, emitter.MIME_TYPE)
+        ]
 
 
 def _normalize_bundle(data: Any) -> Any:
@@ -313,21 +359,56 @@ def _normalize_bundle(data: Any) -> Any:
     return data
 
 
-def _stale_baked_outputs(notebook: dict[str, Any], emitter: Any) -> list[str]:
-    """Report quizzes whose baked output no longer matches ``_unit.py``.
+def _is_learning_output(output: dict[str, Any], mime_type: str) -> bool:
+    """Whether this output is a baked learning payload rather than the cell's own.
+
+    Takes the MIME type from the emitter instead of naming it again: the
+    string already lives in `_learning_output.py`, `schema.ts` and
+    `package.json`, and a fourth copy here is a fourth thing to drift.
+    """
+    return mime_type in (output.get("data") or {})
+
+
+def _stale_baked_outputs(
+    notebook: dict[str, Any], emitter: Any
+) -> dict[int, list[str]]:
+    """Report the cells whose baked output no longer matches ``_unit.py``.
 
     This is the drift that matters once a notebook is converted: the questions
     a learner sees are the outputs stored in the file, so editing a quiz's
     wording or its options without re-running this tool would leave the old
     version on screen.
+
+    Keyed by cell index, and not by quiz id, because a cell can lose its last
+    ``quiz()`` call. Its baked questions are then orphaned with no surviving id
+    to name them, so anything keyed on ids alone could neither report them nor
+    clear them. The value is what to name in the report: the stale ids, or an
+    empty list for a cell that should no longer show a question at all.
     """
-    stale: list[str] = []
-    for cell in notebook["cells"]:
+    stale: dict[int, list[str]] = {}
+    for index, cell in enumerate(notebook["cells"]):
         ids = _cell_quiz_ids(cell)
+        outputs = cell.get("outputs", [])
+
         if not ids:
+            # A cell whose quiz() calls were all removed keeps rendering the
+            # questions until its outputs are cleared. Only learning outputs
+            # count, so an ordinary code cell's own outputs never look stale.
+            if any(_is_learning_output(output, emitter.MIME_TYPE) for output in outputs):
+                if _calls_quiz(cell):
+                    # The cell still asks a question, in a spelling this tool
+                    # does not read. Clearing its output would delete a live
+                    # question, so say so instead.
+                    raise SystemExit(
+                        f"cell {cell.get('id', '?')} calls quiz() in a form "
+                        'this tool cannot read. Write it as quiz("id"), with '
+                        "double quotes at the start of a line, so a removed "
+                        "question can be told apart from one written "
+                        "differently."
+                    )
+                stale[index] = []
             continue
 
-        outputs = cell.get("outputs", [])
         for position, quiz_id in enumerate(ids):
             expected = _normalize_bundle(
                 emitter._lookup_quiz(quiz_id)._repr_mimebundle_()
@@ -338,16 +419,23 @@ def _stale_baked_outputs(notebook: dict[str, Any], emitter: Any) -> list[str]:
                 else None
             )
             if actual != expected:
-                stale.append(quiz_id)
+                stale.setdefault(index, []).append(quiz_id)
 
         # An output past the last quiz the cell still calls is left over from a
         # question that was removed. Nothing above compares it, so without this
         # the notebook keeps showing a deleted question while --check reports
         # the file as up to date. Naming the cell's remaining quizzes is what
         # makes `_rebake` re-render it, which drops the extra output.
-        if len(outputs) > len(ids) and not any(i in stale for i in ids):
-            stale.extend(ids)
+        if len(outputs) > len(ids) and index not in stale:
+            stale[index] = list(ids)
     return stale
+
+
+def _describe_stale(cell: dict[str, Any], names: list[str]) -> str:
+    """Name a stale cell for the report."""
+    if names:
+        return ", ".join(names)
+    return f"a removed question in cell {cell.get('id', '?')}"
 
 
 def main() -> int:
@@ -379,31 +467,45 @@ def main() -> int:
     # converter or checking for drift does not mean repeating the list every
     # time. A first conversion has none to read and still has to be told.
     quiz_ids = list(args.ids) if args.ids else _notebook_quiz_ids(json.loads(original))
-    if not quiz_ids:
-        raise SystemExit(
-            f"{notebook_path.name} has no quiz() calls yet, so --ids is required "
-            "to say which questions to substitute, in document order"
-        )
 
     # Re-runnable on purpose. The conversion is a step after
     # `rst_to_notebook.py`, so a pipeline should be able to run it without
     # first checking whether the notebook was regenerated.
     if _already_converted(json.loads(original), quiz_ids):
         _unit_module, emitter = _load_unit_module(unit_dir)
-        stale = _stale_baked_outputs(json.loads(original), emitter)
+        notebook = json.loads(original)
+        stale = _stale_baked_outputs(notebook, emitter)
+
+        # No quiz() calls and nothing baked to clear means the chapter was
+        # never converted, and it has to be told the ids. Deciding that from
+        # the baked outputs rather than from a `<details>` search is deliberate:
+        # `QUIZ_BLOCK` scrapes a wrapper `rst_to_notebook.py` writes, and "that
+        # pattern found nothing" must never be read as "nothing to do" — that
+        # would report an unconverted chapter as up to date the day the wrapper
+        # changes.
+        if not quiz_ids and not stale:
+            raise SystemExit(
+                f"{notebook_path.name} has no quiz() calls yet, so --ids is "
+                "required to say which questions to substitute, in document order"
+            )
+
         if not stale:
             print(f"{notebook_path.name}: already converted and up to date")
             return 0
 
-        listed = ", ".join(sorted(set(stale)))
+        listed = ", ".join(
+            sorted(
+                _describe_stale(notebook["cells"][index], names)
+                for index, names in stale.items()
+            )
+        )
         if args.check:
             print(f"{notebook_path.name}: baked output is stale for {listed}")
             return 1
 
         # Rebake in place rather than refusing: the questions live in
         # _unit.py, and the notebook is only a rendering of them.
-        notebook = json.loads(original)
-        _rebake(notebook, emitter, set(stale))
+        _rebake(notebook, emitter, stale)
         notebook_path.write_text(
             json.dumps(notebook, indent=1, ensure_ascii=False) + "\n",
             encoding="utf-8",

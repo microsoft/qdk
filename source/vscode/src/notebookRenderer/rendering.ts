@@ -107,8 +107,8 @@ const SPARKLE_PATH =
 /**
  * Announce a change to assistive technology.
  *
- * Answering a question or switching orbitals updates the view in place, which
- * a screen reader would otherwise miss.
+ * Grading a question updates the view in place, which a screen reader would
+ * otherwise miss.
  */
 export function setLiveRegion(element: HTMLElement) {
   element.setAttribute("role", "status");

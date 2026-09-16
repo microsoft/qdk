@@ -35,6 +35,13 @@ MIME_TYPE = "application/vnd.qdk.learning+json"
 #: `schema.ts`.
 _ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
+#: The host drops an action naming more options than this, so a longer question
+#: would render fine and then leave "Why is that wrong?" quietly doing less than
+#: it should for every learner who selected them all. Refusing here makes that
+#: an authoring error instead. Keep in step with `MAX_OPTION_IDS` in
+#: `schema.ts`.
+_MAX_OPTIONS = 8
+
 _CARD_STYLE = (
     "font-family:var(--qdk-font-family, system-ui, sans-serif);"
     "color:var(--qdk-host-foreground, #222);"
@@ -106,7 +113,7 @@ def multiple_choice(
     options: Sequence[Sequence[Any]],
     *,
     multi_select: bool = False,
-    cell_id: str | None = None,
+    payload_id: str | None = None,
 ) -> LearningOutput:
     """Create a multiple-choice learning output.
 
@@ -119,19 +126,36 @@ def multiple_choice(
     then has to find all of them, and is told so.
     """
     normalized = _normalize_options(options, multi_select=multi_select)
+    prompt = str(prompt)
+    # The renderer refuses a payload with no question text, so an empty prompt
+    # would bake cleanly and then fail for the learner. Catch it here, where
+    # the author is the one running the cell.
+    if not prompt.strip():
+        raise ValueError("multiple_choice requires question text")
     payload: dict[str, Any] = {
         "schemaVersion": 1,
         "kind": "multiple-choice",
-        "prompt": str(prompt),
+        "prompt": prompt,
         "options": normalized,
     }
     if multi_select:
         payload["multiSelect"] = True
-    if cell_id is not None:
-        payload["cellId"] = str(cell_id)
+    if payload_id is not None:
+        payload_id = str(payload_id)
+        # This is what the renderer sends as the quiz id when a learner asks
+        # why an answer was wrong, and the extension drops a message whose id
+        # is not this shape. An id that fails here would leave the button
+        # doing nothing at all, with nothing said to anyone.
+        if not _ID_RE.match(payload_id):
+            raise ValueError(
+                f"payload_id {payload_id!r} must be lowercase letters, digits and "
+                "hyphens, start with a letter or digit, and be at most 64 "
+                "characters; the renderer's Copilot action drops anything else"
+            )
+        payload["payloadId"] = payload_id
 
-    html = _mcq_html(str(prompt), normalized, multi_select=multi_select)
-    text = _mcq_text(str(prompt), normalized, multi_select=multi_select)
+    html = _mcq_html(prompt, normalized, multi_select=multi_select)
+    text = _mcq_text(prompt, normalized, multi_select=multi_select)
     return LearningOutput(payload, html, text)
 
 
@@ -185,7 +209,7 @@ def register_quiz(
         )
     ordered = _shuffled(quiz_id, options) if shuffle else options
     _quizzes[quiz_id] = multiple_choice(
-        prompt, ordered, multi_select=multi_select, cell_id=quiz_id
+        prompt, ordered, multi_select=multi_select, payload_id=quiz_id
     )
     return quiz_id
 
@@ -257,6 +281,11 @@ def _normalize_options(
     """
     if len(options) < 2:
         raise ValueError("multiple_choice requires at least two options")
+    if len(options) > _MAX_OPTIONS:
+        raise ValueError(
+            f"multiple_choice takes at most {_MAX_OPTIONS} options; "
+            f"got {len(options)}"
+        )
 
     normalized: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
@@ -287,6 +316,13 @@ def _normalize_options(
         if option_id in seen_ids:
             raise ValueError(f"duplicate multiple_choice option id: {option_id!r}")
         seen_ids.add(option_id)
+        # An option the renderer would refuse to draw, for the same reason as
+        # the prompt: it validates the text is there before rendering, so an
+        # empty one fails for the learner rather than the author.
+        if not text.strip():
+            raise ValueError(
+                f"multiple_choice option {option_id!r} needs text to show"
+            )
 
         item: dict[str, Any] = {"id": option_id, "text": text, "correct": correct}
         if explanation is not None:

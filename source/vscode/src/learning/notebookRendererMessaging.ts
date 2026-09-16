@@ -47,15 +47,17 @@ export function registerNotebookRendererMessaging(
         }
 
         // Any notebook can carry an output of this MIME type, so a message is
-        // only as trustworthy as the file it came from. This is the whole
-        // authorization: a workbook this workspace materialized is a course
-        // file whichever course the learner last navigated to.
+        // only as trustworthy as the file it came from. This proves the file
+        // sits where a loaded course says its workbook lives — not that this
+        // extension wrote it, since a workspace that already contained a
+        // `qdk-learning` folder is loaded as a course. Treat what follows as
+        // untrusted either way.
         if (
           !service.initialized ||
-          !service.isCourseWorkbookUri(event.editor.notebook.uri)
+          !service.isCourseWorkbook(event.editor.notebook.uri)
         ) {
           log.warn(
-            "Learning: ignoring a renderer message from a notebook this workspace did not create.",
+            "Learning: ignoring a renderer message from a notebook outside the loaded course.",
           );
           return;
         }
@@ -73,18 +75,16 @@ export function registerNotebookRendererMessaging(
 /**
  * Prompt templates, owned by the extension.
  *
- * These stay as short as the queries the cell status bar sends
- * ("/qdk-learning Give me a hint"). The `qdk-learning-*` language model tools
- * already report the learner's position, progress and code on every
- * invocation, so a long prompt would be restating what the agent can look up.
+ * Short on purpose, like the queries the cell status bar sends: the
+ * `qdk-learning-*` tools already report the learner's position, progress and
+ * code, so a longer prompt would restate what the agent can look up.
  *
- * Nothing the renderer wrote is quoted here. An earlier version spliced in the
- * question and the chosen option, which are notebook content and therefore
- * attacker-supplied prose in a file that only has to sit at a workbook's path.
- * Ids name the same things precisely enough for the agent to find them in the
- * open notebook, and their shape leaves no room for an instruction. Saying
- * where to look is the point: no learning tool reads a quiz, because a quiz is
- * deliberately not an activity.
+ * Only ids are interpolated, and only in the shape `ID_PATTERN` allows. That
+ * stops a notebook scripting the chat panel; it does not stop the agent
+ * reading a notebook the learner already has open, which is what the last
+ * sentence asks for. Saying where to look is necessary because no learning
+ * tool reads a quiz — a quiz is deliberately not an activity. Keep any new
+ * template this narrow.
  */
 function buildQuery(
   actionId: CopilotActionId,

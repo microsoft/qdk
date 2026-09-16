@@ -15,11 +15,12 @@ type LearningPayloadBase = {
   schemaVersion: 1;
   kind: string;
   /**
-   * Identifies the payload, not the notebook cell holding it: for a quiz this
-   * is its registered id, which keeps radio groups unique. Deliberately not an
-   * ipynb cell id, so don't pass it to anything that resolves activities.
+   * Identifies the payload. For a quiz this is its registered id, which keeps
+   * radio groups unique and names the question when the learner asks about it.
+   * Deliberately not an ipynb cell id: a quiz cell is not an activity, so this
+   * must never reach anything that resolves one.
    */
-  cellId?: string;
+  payloadId?: string;
 };
 
 export type MultipleChoicePayload = LearningPayloadBase & {
@@ -67,20 +68,22 @@ type RendererActionMessage = {
 export type RendererToExtensionMessage = RendererActionMessage;
 
 /**
- * Ids are the only thing a renderer may contribute to a chat prompt.
+ * The shape every id crossing the bridge must have.
  *
- * Everything a notebook carries is untrusted: an output of this MIME type can
- * be hand-written, and a file at a workbook's path can be shipped by whatever
- * produced the workspace. Free prose from such a payload reaching a prompt is
- * an injection, and no amount of quote-stripping changes that, because the
- * payload is a sentence either way. Constraining every value that crosses to
- * this shape leaves no room for an instruction, while still naming the
- * question and the answer precisely enough for an agent to look them up.
+ * A budget, not a guarantee. Hyphens are word separators, so a 64-character id
+ * can still read as a short sentence — the pattern removes punctuation,
+ * newlines and length, not meaning. What actually limits an attacker is that
+ * the extension owns every word around these ids; see `buildQuery` in
+ * `notebookRendererMessaging.ts`, and keep any new template as narrow.
  */
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-/** Nothing sensible asks about more selections than a question has options. */
-const MAX_OPTION_IDS = 32;
+/**
+ * Caps how much attacker-controlled text one action can carry, and so how many
+ * options a question may have — the emitter refuses more, so the limit lands on
+ * the author. Keep in step with `_MAX_OPTIONS` in `_learning_output.py`.
+ */
+const MAX_OPTION_IDS = 8;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return (

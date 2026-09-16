@@ -40,9 +40,7 @@ type Cleanup = () => void;
 const cleanupByOutputId = new Map<string, Cleanup>();
 const cleanupByElement = new WeakMap<HTMLElement, Cleanup>();
 
-export const activate: ActivationFunction<void> = (
-  context: RendererContext<void>,
-) => {
+export const activate: ActivationFunction = (context: RendererContext) => {
   const postAction = (message: RendererToExtensionMessage) => {
     if (context.postMessage === undefined) {
       // No extension host — an exported HTML page, say.
@@ -126,14 +124,20 @@ function readPayload(outputItem: OutputItem): LearningPayload {
 
   const payload = value;
 
-  // Say which side is ahead. A notebook can outlive the extension that wrote
-  // it, and "update the QDK extension" is a far more useful thing to read in a
-  // cell than a generic parse failure.
+  // Which side is behind decides the advice. A payload newer than this
+  // renderer means the extension is old. An older one is a workbook the
+  // learner already has on disk, and updating again would not change it —
+  // "Reset Unit" is what replaces it with a current copy.
   if (payload.schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+    const ahead =
+      typeof payload.schemaVersion === "number" &&
+      payload.schemaVersion > SUPPORTED_SCHEMA_VERSION;
     throw new Error(
       `This output uses QDK learning payload version ${String(payload.schemaVersion)}, ` +
         `but this renderer supports version ${SUPPORTED_SCHEMA_VERSION}. ` +
-        "Update the QDK extension to view it.",
+        (ahead
+          ? "Update the QDK extension to view it."
+          : "Use Reset Unit on this notebook's toolbar to get an up-to-date copy."),
     );
   }
 
@@ -144,8 +148,11 @@ function readPayload(outputItem: OutputItem): LearningPayload {
     );
   }
 
-  if (payload.cellId !== undefined && typeof payload.cellId !== "string") {
-    throw new Error("QDK learning payload has a non-string cellId.");
+  if (
+    payload.payloadId !== undefined &&
+    typeof payload.payloadId !== "string"
+  ) {
+    throw new Error("QDK learning payload has a non-string payloadId.");
   }
 
   // Per-kind checks stay behind the kind test: a second payload kind must not

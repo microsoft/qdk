@@ -73,9 +73,9 @@ export function renderMultipleChoice(
   actionList.className = "qdk-learning-action-list";
   actionList.hidden = true;
 
-  // Include the cell id when available, plus a counter to avoid cross-output
-  // radio grouping even if a notebook renders duplicate cell ids.
-  const groupName = `qdk-learning-${payload.cellId ?? "output"}-${groupId++}`;
+  // Include the payload id when available, plus a counter so two outputs never
+  // share a radio group even if a notebook repeats an id.
+  const groupName = `qdk-learning-${payload.payloadId ?? "output"}-${groupId++}`;
   const optionViews: OptionView[] = [];
   for (const [index, option] of payload.options.entries()) {
     const letter = optionLetter(index);
@@ -155,7 +155,7 @@ export function renderMultipleChoice(
       type: "qdk-learning/action",
       rendererId: RENDERER_ID,
       actionId: "why-wrong",
-      quizId: payload.cellId,
+      quizId: payload.payloadId,
       optionIds: gradedSelection,
     });
 

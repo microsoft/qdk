@@ -177,6 +177,9 @@ One call can name several quizzes (`quiz("a", "b")`) when a section asks two que
 Quiz ids and option ids are lowercase letters, digits and hyphens, up to 64 characters.
 Registering one that isn't fails when you run the cell: those ids are the only thing the renderer's Copilot action sends to the extension, so a shape it can't accept would leave that button doing less than it should.
 
+A question needs text, and so does every option.
+The renderer refuses to draw a payload missing either, so registering one fails when you run the cell rather than baking cleanly and showing a learner an error.
+
 Run the cell once and save, so the question ships with the notebook and a learner sees it on opening rather than after running.
 
 For the chemistry course, `utils/chemistry-qpe/details_to_quiz.py` does that baking for a whole chapter, and re-bakes it when a question's wording or options change:
