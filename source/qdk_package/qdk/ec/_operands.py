@@ -8,8 +8,8 @@ symbolic label such as the namespaced ``"alice.0"`` that lowering emits). A
 label's identity does not depend on the wire form it arrived in: the operand
 ``3`` and the operand ``"3"`` both name qubit ``3``.
 
-Consumers match on the label type — ``isinstance(label, int)`` — rather than
-re-parsing text.
+Consumers match on the label type using ``isinstance(label, int)`` rather
+than re-parsing text.
 """
 
 from __future__ import annotations

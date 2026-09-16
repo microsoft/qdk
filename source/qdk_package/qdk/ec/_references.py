@@ -126,7 +126,7 @@ def parse_equation(references: Iterable[ReferenceLike | Literal[0, 1]]) -> Equat
 def parse_equations(
     equations: Iterable[Iterable[ReferenceLike | Literal[0, 1]]],
 ) -> tuple[Equation, ...]:
-    """A list of parity equations — a gadget's ``checks``, say — parsed."""
+    """Parse parity equations, such as a gadget's ``checks``."""
     return tuple(parse_equation(equation) for equation in equations)
 
 
