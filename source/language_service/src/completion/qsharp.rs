@@ -44,6 +44,13 @@ pub(super) fn completions(
                     CompletionItem::new("Unrestricted".to_string(), CompletionItemKind::Keyword),
                 ],
             };
+        } else if name.as_ref() == "CircuitRenderingOptions" {
+            return CompletionList {
+                items: vec![
+                    CompletionItem::new("hideBox".to_string(), CompletionItemKind::Keyword),
+                    CompletionItem::new("inputSizes".to_string(), CompletionItemKind::Keyword),
+                ],
+            };
         }
         // No completions in attribute expressions, they're misleading.
         return CompletionList::default();

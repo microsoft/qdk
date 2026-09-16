@@ -958,7 +958,7 @@ fn check_identity_closure(
             vec![(
                 closure_expr_id,
                 ExprKind::Var(Res::Local(captures[capture_idx]), Vec::new()),
-                Some(inner_span),
+                Some(inner_span.span),
             )]
         }
         // Callee is a global item — replace with the global reference.
@@ -966,7 +966,7 @@ fn check_identity_closure(
             vec![(
                 closure_expr_id,
                 ExprKind::Var(Res::Item(*item_id), generic_args.clone()),
-                Some(inner_span),
+                Some(inner_span.span),
             )]
         }
         // Callee is a functor-wrapped expression — replace closure with the functor
@@ -988,7 +988,7 @@ fn check_identity_closure(
                         (
                             closure_expr_id,
                             ExprKind::UnOp(UnOp::Functor(*functor), *inner_id),
-                            Some(inner_span),
+                            Some(inner_span.span),
                         ),
                     ]
                 }
@@ -998,7 +998,7 @@ fn check_identity_closure(
                     vec![(
                         closure_expr_id,
                         ExprKind::UnOp(UnOp::Functor(*functor), *inner_id),
-                        Some(inner_span),
+                        Some(inner_span.span),
                     )]
                 }
                 _ => Vec::new(),

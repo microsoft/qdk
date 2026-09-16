@@ -62,7 +62,6 @@
 //! through its captures. The walker treats closures as opaque leaves via
 //! [`super::push_children`].
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{BlockId, ExprId, ExprKind, LocalVarId, Package, PackageLookup, Res, StmtId, StmtKind},
@@ -154,7 +153,7 @@ fn try_apply_once(
         return false;
     }
 
-    let new_stmt = alloc_expr_stmt(package, assigner, v_id, Span::default());
+    let new_stmt = alloc_expr_stmt(package, assigner, v_id, package.synthetic_span());
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts.truncate(terminal_start_idx);
     block.stmts.push(new_stmt);

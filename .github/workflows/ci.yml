@@ -220,6 +220,54 @@ jobs:
           # which requires a display to run
         run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --widgets --qdk --integration-tests
 
+  course-notebook-changes:
+    name: Detect course notebook changes
+    runs-on: ubuntu-latest
+    outputs:
+      run-tests: ${{ steps.changes.outputs.run-tests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name != 'workflow_dispatch'
+        with:
+          fetch-depth: 0
+      - name: Determine whether to run course notebook tests
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            run_tests=true
+          elif git diff --quiet "$BASE_SHA...$HEAD_SHA" -- \
+            source/vscode/resources/qdk-learning/courses/ \
+            source/vscode/test/course-notebooks/; then
+            run_tests=false
+          else
+            run_tests=true
+          fi
+          echo "run-tests=$run_tests" >> "$GITHUB_OUTPUT"
+
+  course-notebook-tests:
+    name: Course notebooks
+    needs: course-notebook-changes
+    if: needs.course-notebook-changes.outputs.run-tests == 'true'
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            source/vscode/test/course-notebooks/test_requirements.txt
+            source/vscode/resources/qdk-learning/courses/*/requirements.txt
+      - name: Test course notebooks
+        run: python ./build.py --no-check --no-check-prereqs --course-notebook-tests
+
   status-check:
     name: Status Check
     needs:
@@ -233,6 +281,8 @@ jobs:
         unit-tests,
         format-qsc,
         integration-tests,
+        course-notebook-changes,
+        course-notebook-tests,
       ]
     runs-on: ubuntu-latest
     if: failure()

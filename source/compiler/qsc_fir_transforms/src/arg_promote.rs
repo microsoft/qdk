@@ -60,7 +60,6 @@ use crate::walk_utils::{
     ParamUse, classify_uses_in_block, collect_expr_ids_in_entry_and_local_callables,
     collect_expr_ids_in_local_callables, for_each_expr, for_each_expr_in_callable_impl,
 };
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, Functor, ItemKind, LocalItemId,
@@ -1150,7 +1149,7 @@ fn build_leaf_tuple(
             assigner,
             *leaf_local,
             leaf_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
     }
 
@@ -1160,7 +1159,13 @@ fn build_leaf_tuple(
         // (handled by the early return above), so this fallback is unreachable for
         // well-formed flattened inputs. Fall back to a unit tuple to keep the
         // rewrite total.
-        return alloc_tuple_expr(package, assigner, vec![], sub_ty.clone(), Span::default());
+        return alloc_tuple_expr(
+            package,
+            assigner,
+            vec![],
+            sub_ty.clone(),
+            package.synthetic_span(),
+        );
     };
 
     let mut child_ids = Vec::with_capacity(elems.len());
@@ -1182,7 +1187,7 @@ fn build_leaf_tuple(
         assigner,
         child_ids,
         sub_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -1444,7 +1449,7 @@ fn project_leaf_through_tuple_literal(
         current,
         rest.to_vec(),
         leaf_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -1504,7 +1509,13 @@ fn try_inline_tuple_literal_projection(
             .map(|(_, leaf_ty)| leaf_ty.clone())
             .collect(),
     );
-    let new_arg_id = alloc_tuple_expr(package, assigner, field_expr_ids, tuple_ty, Span::default());
+    let new_arg_id = alloc_tuple_expr(
+        package,
+        assigner,
+        field_expr_ids,
+        tuple_ty,
+        package.synthetic_span(),
+    );
     Some(new_arg_id)
 }
 
@@ -1543,7 +1554,7 @@ fn create_projected_tuple_arg(
                 assigner,
                 temp_local,
                 arg_ty.clone(),
-                Span::default(),
+                package.synthetic_span(),
             )
         } else {
             arg_id
@@ -1554,7 +1565,7 @@ fn create_projected_tuple_arg(
             field_base_id,
             path.clone(),
             leaf_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
         field_expr_ids.push(field_expr_id);
     }
@@ -1566,7 +1577,13 @@ fn create_projected_tuple_arg(
             .map(|(_, leaf_ty)| leaf_ty.clone())
             .collect(),
     );
-    alloc_tuple_expr(package, assigner, field_expr_ids, tuple_ty, Span::default())
+    alloc_tuple_expr(
+        package,
+        assigner,
+        field_expr_ids,
+        tuple_ty,
+        package.synthetic_span(),
+    )
 }
 
 /// Wraps a single promoted payload expression in a one-element tuple argument.
@@ -1581,7 +1598,7 @@ fn create_single_tuple_arg(
         assigner,
         vec![arg_id],
         Ty::Tuple(elem_types.to_vec()),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -1595,17 +1612,24 @@ fn create_payload_block(
 ) -> ExprId {
     let result_ty = package.get_expr(result_expr_id).ty.clone();
 
-    let result_stmt_id = alloc_expr_stmt(package, assigner, result_expr_id, Span::default());
+    let result_stmt_id =
+        alloc_expr_stmt(package, assigner, result_expr_id, package.synthetic_span());
 
     let block_id = alloc_block(
         package,
         assigner,
         vec![leading_stmt_id, result_stmt_id],
         result_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
 
-    alloc_block_expr(package, assigner, block_id, result_ty, Span::default())
+    alloc_block_expr(
+        package,
+        assigner,
+        block_id,
+        result_ty,
+        package.synthetic_span(),
+    )
 }
 
 /// Returns `true` when `elems` is already the fully-flattened argument list:
@@ -1728,17 +1752,17 @@ fn wrap_call_in_block(
         callee_id,
         new_arg_id,
         call_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
 
-    let call_stmt_id = alloc_expr_stmt(package, assigner, inner_call_id, Span::default());
+    let call_stmt_id = alloc_expr_stmt(package, assigner, inner_call_id, package.synthetic_span());
 
     let block_id = alloc_block(
         package,
         assigner,
         vec![leading_stmt_id, call_stmt_id],
         call_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
 
     let call_mut = package
@@ -1936,7 +1960,7 @@ fn rebuild_controlled_arg_layers(
             assigner,
             vec![controls, current],
             tuple_ty,
-            Span::default(),
+            package.synthetic_span(),
         );
         current = tuple_id;
     }

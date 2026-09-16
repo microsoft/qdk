@@ -57,7 +57,6 @@
 //!    of captures, leaving setters live whenever the user happened to
 //!    bind a closure later in the block.
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{BlockId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageLookup, Res, StmtKind},
@@ -70,6 +69,7 @@ use crate::fir_builder::{
 };
 use crate::return_unify::simplify::dead_flag;
 use crate::return_unify::symbols;
+use qsc_fir::fir::PackageSpan;
 
 /// Allocate a `mutable __has_returned : Bool = false;` binding and
 /// return the local id plus its declaration statement.
@@ -77,7 +77,7 @@ fn alloc_has_returned_binding(
     package: &mut Package,
     assigner: &mut Assigner,
 ) -> (LocalVarId, qsc_fir::fir::StmtId) {
-    let init = alloc_bool_lit(package, assigner, false, Span::default());
+    let init = alloc_bool_lit(package, assigner, false, PackageSpan::default());
     alloc_local_var(
         package,
         assigner,
@@ -99,11 +99,11 @@ fn build_flag_set_stmt(
         assigner,
         flag_id,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let rhs = alloc_bool_lit(package, assigner, true, Span::default());
-    let assign = alloc_assign_expr(package, assigner, lhs, rhs, Span::default());
-    alloc_semi_stmt(package, assigner, assign, Span::default())
+    let rhs = alloc_bool_lit(package, assigner, true, PackageSpan::default());
+    let assign = alloc_assign_expr(package, assigner, lhs, rhs, PackageSpan::default());
+    alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
 }
 
 /// Build a trailing `Expr(Int)` literal statement of the given value.
@@ -117,9 +117,9 @@ fn build_trailing_int(
         assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Lit(Lit::Int(value)),
-        Span::default(),
+        PackageSpan::default(),
     );
-    alloc_expr_stmt(package, assigner, lit, Span::default())
+    alloc_expr_stmt(package, assigner, lit, PackageSpan::default())
 }
 
 /// Count the number of flag-set statements (`Semi(Assign(Var(flag), _))`)
@@ -164,7 +164,7 @@ fn single_dead_setter_is_dropped() {
         &mut assigner,
         vec![decl_stmt, set_stmt, tail_stmt],
         Ty::Prim(Prim::Int),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
@@ -218,7 +218,7 @@ fn multiple_dead_setters_are_all_dropped() {
         &mut assigner,
         vec![decl_stmt, set_a, set_b, set_c, tail_stmt],
         Ty::Prim(Prim::Int),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
@@ -267,7 +267,7 @@ fn dead_setter_with_nested_block_downstream_is_dropped() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(1)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let (_unrelated_local, unrelated_decl) = alloc_local_var(
         &mut package,
@@ -282,33 +282,33 @@ fn dead_setter_with_nested_block_downstream_is_dropped() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(2)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_tail_stmt = alloc_expr_stmt(
         &mut package,
         &mut assigner,
         inner_tail_value,
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![unrelated_decl, inner_tail_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_block_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         inner_bid,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_block_stmt = alloc_semi_stmt(
         &mut package,
         &mut assigner,
         inner_block_expr,
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let tail_stmt = build_trailing_int(&mut package, &mut assigner, 3);
@@ -317,7 +317,7 @@ fn dead_setter_with_nested_block_downstream_is_dropped() {
         &mut assigner,
         vec![decl_stmt, set_stmt, inner_block_stmt, tail_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
@@ -364,7 +364,7 @@ fn surviving_trailing_merge_blocks_the_drop() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let (ret_local, ret_decl) = alloc_local_var(
         &mut package,
@@ -383,36 +383,41 @@ fn surviving_trailing_merge_blocks_the_drop() {
         &mut assigner,
         flag_id,
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_var = alloc_local_var_expr(
         &mut package,
         &mut assigner,
         ret_local,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let then_stmt = alloc_expr_stmt(&mut package, &mut assigner, then_var, Span::default());
+    let then_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        then_var,
+        PackageSpan::default(),
+    );
     let then_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![then_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         then_bid,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_arm = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge = alloc_if_expr(
         &mut package,
@@ -421,16 +426,16 @@ fn surviving_trailing_merge_blocks_the_drop() {
         then_expr,
         Some(else_arm),
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let merge_stmt = alloc_expr_stmt(&mut package, &mut assigner, merge, Span::default());
+    let merge_stmt = alloc_expr_stmt(&mut package, &mut assigner, merge, PackageSpan::default());
 
     let block_id = alloc_block(
         &mut package,
         &mut assigner,
         vec![decl_stmt, ret_decl, set_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();
@@ -474,7 +479,7 @@ fn downstream_closure_does_not_block_drop() {
         &mut assigner,
         Ty::Err,
         ExprKind::Closure(Vec::new(), item_id),
-        Span::default(),
+        PackageSpan::default(),
     );
     let (_f_local, f_decl) = alloc_local_var(
         &mut package,
@@ -489,28 +494,33 @@ fn downstream_closure_does_not_block_drop() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(5)),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let inner_tail_stmt = alloc_expr_stmt(&mut package, &mut assigner, inner_tail, Span::default());
+    let inner_tail_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        inner_tail,
+        PackageSpan::default(),
+    );
     let inner_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![f_decl, inner_tail_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_block_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         inner_bid,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_block_stmt = alloc_semi_stmt(
         &mut package,
         &mut assigner,
         inner_block_expr,
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let tail_stmt = build_trailing_int(&mut package, &mut assigner, 7);
@@ -519,7 +529,7 @@ fn downstream_closure_does_not_block_drop() {
         &mut assigner,
         vec![decl_stmt, set_stmt, inner_block_stmt, tail_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);

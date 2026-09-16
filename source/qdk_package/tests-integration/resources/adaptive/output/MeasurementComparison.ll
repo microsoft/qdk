@@ -70,7 +70,7 @@ block_6:
 
 declare void @__quantum__qis__reset__body(ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare i1 @__quantum__rt__read_result(ptr) #2
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
@@ -78,6 +78,7 @@ declare void @__quantum__rt__bool_record_output(i1, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
 attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 

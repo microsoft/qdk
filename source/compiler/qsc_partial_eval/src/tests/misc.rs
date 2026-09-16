@@ -4,13 +4,17 @@
 #![allow(clippy::needless_raw_string_hashes, clippy::similar_names)]
 
 use crate::tests::get_rir_program_with_adaptive_profile;
+use crate::{Error, PartialEvalConfig, partially_evaluate};
 
 use super::{
-    assert_block_instructions, assert_blocks, assert_callable, assert_error,
+    CompilationContext, assert_block_instructions, assert_blocks, assert_callable, assert_error,
     get_partial_evaluation_error, get_rir_program,
 };
 use expect_test::expect;
 use indoc::indoc;
+use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
+use qsc_fir::fir::{ExprKind, PackageId};
+use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
@@ -626,6 +630,72 @@ fn evaluation_error_within_stdlib_yield_correct_package_span() {
             "UnexpectedDynamicValue(PackageSpan { package: PackageId(1), span: Span { lo: 13910, hi: 13925 } })"
         ],
     );
+}
+
+#[test]
+fn partial_evaluation_error_uses_expr_source_package_after_relocation() {
+    let source = indoc! {
+        r#"
+        namespace Test {
+            import Std.Arrays.*;
+            @EntryPoint()
+            operation Main() : Int[] {
+                use q = Qubit();
+                let a = if MResetZ(q) == One {
+                    1
+                } else {
+                    0
+                };
+                let b = [(a, a)];
+                ForEach(t => Fst(t), b)
+            }
+        }
+        "#,
+    };
+    let capabilities: TargetCapabilityFlags = Profile::AdaptiveRIF.into();
+    let mut context = CompilationContext::new(source, capabilities);
+    let Err(original_error) = partially_evaluate(
+        &context.fir_store,
+        &context.compute_properties,
+        &context.entry,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    ) else {
+        panic!("partial evaluation should fail");
+    };
+    let original_span = original_error.span();
+    let storage_package = map_hir_package_to_fir(original_span.package);
+    let source_package = PackageId::CORE;
+    assert_ne!(storage_package, source_package);
+
+    let relocated_expr = context
+        .fir_store
+        .get_mut(storage_package)
+        .exprs
+        .values_mut()
+        .find(|expr| {
+            matches!(&expr.kind, ExprKind::Call(..)) && expr.span.span == original_span.span
+        })
+        .expect("failing call expression should exist");
+    relocated_expr.span.package = source_package;
+
+    let Err(error) = partially_evaluate(
+        &context.fir_store,
+        &context.compute_properties,
+        &context.entry,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    ) else {
+        panic!("partial evaluation should still fail after relocation");
+    };
+    let span = error.span();
+    assert!(matches!(error, Error::UnexpectedDynamicValue(_)));
+    assert_eq!(span.package, map_fir_package_to_hir(source_package));
+    assert_eq!(span.span, original_span.span);
 }
 
 #[test]

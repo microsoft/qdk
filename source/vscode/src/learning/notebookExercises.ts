@@ -42,6 +42,9 @@ const EXERCISE_TAG = "exercise";
 /** Tags marking author-only cells, removed from the learner's working copy. */
 const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
 
+/** Test-only tag removed from cells in the learner's working copy. */
+const SKIP_TEST_TAG = "skip-test";
+
 type AuthoringTag = (typeof AUTHORING_TAGS)[number];
 
 /** The subset of an nbformat cell this module reads. */
@@ -190,10 +193,10 @@ export function parseNotebookActivities(
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.
  *
- * Everything else — including cell ids and the `exercise` tag — is preserved
- * verbatim, so metadata parsed from the authored notebook still resolves
- * against the working copy. Returns `undefined` if the text isn't a notebook,
- * leaving the caller to decide on a fallback.
+ * Retained cells preserve their content, ids, and other tags, including the
+ * `exercise` tag. The test-only `skip-test` tag is removed so it doesn't leak
+ * into the learner's working copy. Returns `undefined` if the text isn't a
+ * notebook, leaving the caller to decide on a fallback.
  */
 export function stripAuthoringCells(
   text: string,
@@ -208,6 +211,13 @@ export function stripAuthoringCells(
     const tags = cellTags(cell);
     return !AUTHORING_TAGS.some((t) => tags.includes(t));
   });
+
+  for (const cell of notebook.cells) {
+    const metadata = cell.metadata;
+    if (metadata && Array.isArray(metadata.tags)) {
+      metadata.tags = metadata.tags.filter((tag) => tag !== SKIP_TEST_TAG);
+    }
+  }
 
   // Match the ipynb serializer's formatting so the file stays diff-stable
   // once VS Code starts saving it: one space of indent, trailing newline.

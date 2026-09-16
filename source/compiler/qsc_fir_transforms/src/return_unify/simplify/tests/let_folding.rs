@@ -39,7 +39,6 @@
 //!    `__has_returned`). Folding would let the merge read the slot
 //!    before the init's writes commit.
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
@@ -55,6 +54,7 @@ use crate::fir_builder::{
 };
 use crate::return_unify::simplify::let_folding;
 use crate::return_unify::symbols;
+use qsc_fir::fir::PackageSpan;
 
 /// Slot identities shared by every test fixture.
 struct Slots {
@@ -86,21 +86,21 @@ fn build_merge(
         assigner,
         slots.has_returned,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_arm = alloc_local_var_expr(
         package,
         assigner,
         slots.ret_val,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_arm = alloc_local_var_expr(
         package,
         assigner,
         else_local,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     alloc_if_expr(
         package,
@@ -109,7 +109,7 @@ fn build_merge(
         then_arm,
         Some(else_arm),
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     )
 }
 
@@ -133,13 +133,13 @@ fn build_let_merge_pattern(
         Mutability::Immutable,
     );
     let merge_expr_id = build_merge(package, assigner, slots, trailing_local, return_ty);
-    let merge_stmt = alloc_expr_stmt(package, assigner, merge_expr_id, Span::default());
+    let merge_stmt = alloc_expr_stmt(package, assigner, merge_expr_id, PackageSpan::default());
     let block_id = alloc_block(
         package,
         assigner,
         vec![let_stmt, merge_stmt],
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     (block_id, trailing_local, merge_expr_id)
 }
@@ -156,7 +156,7 @@ fn canonical_literal_init_folds_into_merge_else() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(42)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let (block_id, _, merge_expr_id) = build_let_merge_pattern(
         &mut package,
@@ -210,47 +210,56 @@ fn block_init_with_side_effect_folds() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Var(Res::Local(sink_local), Vec::new()),
-        Span::default(),
+        PackageSpan::default(),
     );
     let sink_rhs = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(1)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let side_effect = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::UNIT,
         ExprKind::Assign(sink_lhs, sink_rhs),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let side_effect_stmt =
-        alloc_semi_stmt(&mut package, &mut assigner, side_effect, Span::default());
+    let side_effect_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        side_effect,
+        PackageSpan::default(),
+    );
 
     let tail_value = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(7)),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let tail_stmt = alloc_expr_stmt(&mut package, &mut assigner, tail_value, Span::default());
+    let tail_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        tail_value,
+        PackageSpan::default(),
+    );
 
     let inner_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![side_effect_stmt, tail_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let init = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Block(inner_bid),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let (block_id, _, merge_expr_id) = build_let_merge_pattern(
@@ -297,21 +306,21 @@ fn call_init_folds() {
         &mut assigner,
         Ty::Err,
         ExprKind::Var(Res::Local(callable_local), Vec::new()),
-        Span::default(),
+        PackageSpan::default(),
     );
     let arg_expr = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::UNIT,
         ExprKind::Tuple(Vec::new()),
-        Span::default(),
+        PackageSpan::default(),
     );
     let init = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Call(callable_expr, arg_expr),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let (block_id, _, merge_expr_id) = build_let_merge_pattern(
@@ -354,7 +363,7 @@ fn wrong_name_refuses_to_fold() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(42)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let (block_id, _, _) = build_let_merge_pattern(
         &mut package,
@@ -397,7 +406,7 @@ fn multiple_uses_in_merge_refuse_to_fold() {
         &mut assigner,
         bool_ty.clone(),
         ExprKind::Lit(Lit::Bool(false)),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     // Build the let first so we know `trailing_local`.
@@ -416,21 +425,21 @@ fn multiple_uses_in_merge_refuse_to_fold() {
         &mut assigner,
         trailing_local,
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_arm = alloc_local_var_expr(
         &mut package,
         &mut assigner,
         slots.ret_val,
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_arm = alloc_local_var_expr(
         &mut package,
         &mut assigner,
         trailing_local,
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge_expr_id = alloc_if_expr(
         &mut package,
@@ -439,15 +448,20 @@ fn multiple_uses_in_merge_refuse_to_fold() {
         then_arm,
         Some(else_arm),
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let merge_stmt = alloc_expr_stmt(&mut package, &mut assigner, merge_expr_id, Span::default());
+    let merge_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        merge_expr_id,
+        PackageSpan::default(),
+    );
     let block_id = alloc_block(
         &mut package,
         &mut assigner,
         vec![let_stmt, merge_stmt],
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();
@@ -485,47 +499,56 @@ fn init_that_writes_merge_slot_refuses_to_fold() {
         &mut assigner,
         bool_ty.clone(),
         ExprKind::Var(Res::Local(slots.has_returned), Vec::new()),
-        Span::default(),
+        PackageSpan::default(),
     );
     let flag_rhs = alloc_expr(
         &mut package,
         &mut assigner,
         bool_ty.clone(),
         ExprKind::Lit(Lit::Bool(true)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let flag_assign = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::UNIT,
         ExprKind::Assign(flag_lhs, flag_rhs),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let flag_assign_stmt =
-        alloc_semi_stmt(&mut package, &mut assigner, flag_assign, Span::default());
+    let flag_assign_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        flag_assign,
+        PackageSpan::default(),
+    );
 
     let tail_value = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(7)),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let tail_stmt = alloc_expr_stmt(&mut package, &mut assigner, tail_value, Span::default());
+    let tail_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        tail_value,
+        PackageSpan::default(),
+    );
 
     let inner_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![flag_assign_stmt, tail_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let init = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Block(inner_bid),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let (block_id, _, _) = build_let_merge_pattern(

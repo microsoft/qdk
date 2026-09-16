@@ -131,6 +131,12 @@
     fill: var(--main-color);
   }
 
+  .anti-control-dot {
+    fill: var(--main-background);
+    stroke: var(--main-color);
+    stroke-width: 2;
+  }
+
   /* X gate */
   .oplus > line,
   .oplus > circle {

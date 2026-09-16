@@ -8,6 +8,7 @@ import ast
 import base64
 import json
 import re
+import runpy
 import sys
 from collections import Counter
 from pathlib import Path
@@ -63,6 +64,17 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 # Byte 25 of a PNG is the IHDR colour type; 4 and 6 carry an alpha channel.
 PNG_COLOUR_TYPE = 25
 PNG_ALPHA_COLOUR_TYPES = (4, 6)
+VERSION_CASES = {
+    "2.1.9": False,
+    "2.2.0": True,
+    "2.2.0+local": True,
+    "2.2.0.post1": True,
+    "2.3.0": True,
+    "3.0.0": True,
+    "2.2.0rc1": False,
+    "2.2.0.dev1": False,
+    "not-a-version": False,
+}
 
 
 def exercise_names(source: str) -> list[str]:
@@ -99,6 +111,18 @@ def registered_names(path: Path) -> set[str]:
     return names
 
 
+def version_check_problems(path: Path) -> list[str]:
+    """Check the dependency-free QDK/Chemistry version policy."""
+    namespace = runpy.run_path(str(path))
+    is_supported = namespace["_is_supported_qdk_chemistry"]
+    problems = []
+    for version, expected in VERSION_CASES.items():
+        actual = is_supported(version)
+        if actual != expected:
+            problems.append(f"{version}: expected supported={expected}, found {actual}")
+    return problems
+
+
 manifest_path = COURSE / "course.json"
 if not manifest_path.is_file():
     sys.exit(f"no course.json under {COURSE}")
@@ -110,6 +134,9 @@ failed = False
 totals = Counter(units=len(manifest["units"]))
 seen_attachments: set[str] = set()
 seen_inline_svgs: set[str] = set()
+for problem in version_check_problems(COURSE / "_check_env.py"):
+    print(f"  [FAIL] QDK/Chemistry version check: {problem}")
+    failed = True
 if "id" in manifest:
     print("  [FAIL] course.json must derive its ID from the directory name")
     failed = True

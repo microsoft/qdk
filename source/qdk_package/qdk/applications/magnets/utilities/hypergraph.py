@@ -27,6 +27,7 @@ class Hyperedge:
 
     Attributes:
         vertices: Sorted tuple of vertex indices connected by this hyperedge.
+        mark: Optional marker or label for the hyperedge, can be used for coloring or other annotations.
 
     Example:
 
@@ -43,6 +44,7 @@ class Hyperedge:
             vertices: List of vertex indices. Will be sorted internally.
         """
         self.vertices: tuple[int, ...] = tuple(sorted(set(vertices)))
+        self.mark: Optional[int] = None
 
     def __str__(self) -> str:
         return str(self.vertices)
