@@ -373,6 +373,18 @@ export class LearningTools {
   }): Promise<{ unitId: string; unitTitle: string } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
+      // With no explicit unit, resolve the target from the notebook the
+      // learner is viewing rather than the stored position: sync the position
+      // to the active workbook first, matching how the other tools resolve
+      // from the editor. Best-effort — with no workbook focused we fall back
+      // to the stored current unit.
+      if (!input?.unitId) {
+        const activeNotebook = vscode.window.activeNotebookEditor?.notebook.uri;
+        if (activeNotebook) {
+          await this.service.syncToWorkbook(activeNotebook);
+        }
+      }
+
       // Unit reset is notebook-only; the service rejects Q# courses.
       const { unitId, unitTitle } = await this.service.resetUnit(
         { unitId: input?.unitId },
