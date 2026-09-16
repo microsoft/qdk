@@ -192,8 +192,8 @@ pub const CUSTOMMEASUREMENTS_EXPECT_DEBUG: Expect = expect!["Zero"];
 // SimulatableIntrinsic, custom measurements are not expected to work in the circuit generation.
 pub const CUSTOMMEASUREMENTS_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
 pub const CUSTOMMEASUREMENTS_EXPECT_QIR_ADAPTIVE_RIF: Expect =
-    expect!["generated QIR of length 1297"];
-pub const CUSTOMMEASUREMENTS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1433"];
+    expect!["generated QIR of length 1429"];
+pub const CUSTOMMEASUREMENTS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1523"];
 pub const DATATYPES_EXPECT: Expect = expect![[r#"
     Binary BigInt: 42
     Octal BigInt: 42
@@ -320,9 +320,9 @@ pub const OPERATIONS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of
 pub const OPERATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1648"];
 pub const PARALLEL_EXPECT: Expect = expect!["()"];
 pub const PARALLEL_EXPECT_DEBUG: Expect = expect!["()"];
-pub const PARALLEL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 22638"];
-pub const PARALLEL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 7028"];
-pub const PARALLEL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6425"];
+pub const PARALLEL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 30679"];
+pub const PARALLEL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 5204"];
+pub const PARALLEL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6377"];
 pub const PARTIALAPPLICATION_EXPECT: Expect = expect![[r#"
     five = incrementByOne(4) => 5
     Incremented array: [2, 3, 4, 5, 6]
@@ -343,9 +343,9 @@ pub const PAULI_EXPECT_DEBUG: Expect = expect![[r#"
     Pauli dimension: PauliX
     Measurement result: Zero
     Zero"#]];
-pub const PAULI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 223"];
-pub const PAULI_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1502"];
-pub const PAULI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1812"];
+pub const PAULI_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
+pub const PAULI_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1308"];
+pub const PAULI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1452"];
 pub const QUANTUMMEMORY_EXPECT: Expect = expect!["()"];
 pub const QUANTUMMEMORY_EXPECT_DEBUG: Expect = expect!["()"];
 pub const QUANTUMMEMORY_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 40"];

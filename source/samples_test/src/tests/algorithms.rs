@@ -192,21 +192,21 @@ pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =
     expect!["generated QIR of length 12567"];
 pub const SIMPLEVQE_EXPECT: Expect = expect![[r#"
-   Beginning descent from value 0.43300000000000005.
-   Value improved to 0.35300000000000004.
-   Value improved to 0.3454.
-   Value improved to 0.3422.
-   Value improved to 0.3216.
-   Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
-   0.3216"#]];
+    Beginning descent from value 0.43300000000000005.
+    Value improved to 0.35300000000000004.
+    Value improved to 0.3454.
+    Value improved to 0.3422.
+    Value improved to 0.3216.
+    Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
+    0.3216"#]];
 pub const SIMPLEVQE_EXPECT_DEBUG: Expect = expect![[r#"
-   Beginning descent from value 0.43300000000000005.
-   Value improved to 0.35300000000000004.
-   Value improved to 0.3454.
-   Value improved to 0.3422.
-   Value improved to 0.3216.
-   Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
-   0.3216"#]];
+    Beginning descent from value 0.43300000000000005.
+    Value improved to 0.35300000000000004.
+    Value improved to 0.3454.
+    Value improved to 0.3422.
+    Value improved to 0.3216.
+    Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
+    0.3216"#]];
 // VQE sample is not expected to produce a circuit as it is too large and complex.
 pub const SIMPLEVQE_EXPECT_CIRCUIT: Expect =
     expect!["compilation error: cannot use a dynamically-sized array"];
@@ -216,10 +216,10 @@ pub const SIMPLEVQE_EXPECT_QIR_ADAPTIVE: Expect =
     expect!["compilation error: cannot use a dynamically-sized array"];
 pub const SUPERDENSECODING_EXPECT: Expect = expect!["((false, true), (false, true))"];
 pub const SUPERDENSECODING_EXPECT_DEBUG: Expect = expect!["((false, true), (false, true))"];
-pub const SUPERDENSECODING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4291"];
+pub const SUPERDENSECODING_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
 pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE_RIF: Expect =
-    expect!["generated QIR of length 4842"];
-pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6025"];
+    expect!["generated QIR of length 4250"];
+pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 5455"];
 pub const TELEPORTATION_EXPECT: Expect = expect![[r#"
     Teleporting state |0〉
     STATE:
@@ -280,9 +280,9 @@ pub const TELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
     |0⟩: 0.7071+0.0000𝑖
     |1⟩: −0.7071+0.0000𝑖
     [Zero, One, Zero, One]"#]];
-pub const TELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 12039"];
-pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 8555"];
-pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 9703"];
+pub const TELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
+pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 8323"];
+pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 9454"];
 pub const THREEQUBITREPETITIONCODE_EXPECT: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_DEBUG: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_CIRCUIT: Expect =

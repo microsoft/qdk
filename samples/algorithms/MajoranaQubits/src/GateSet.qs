@@ -14,7 +14,7 @@ operation CNOT(control : Qubit, target : Qubit) : Unit {
 
     let a = Mzz(control, ancilla);
     let b = Mxx(ancilla, target);
-    let c = Mz(ancilla);
+    let c = M(ancilla);
     Reset(ancilla);
 
     if b == One {
@@ -36,7 +36,7 @@ operation PrepareX(q : Qubit) : Unit {
 
 /// Prepare a qubit in the |0⟩ state.
 operation PrepareZ(q : Qubit) : Unit {
-    if Mz(q) == One {
+    if M(q) == One {
         X(q);
     }
 }
@@ -45,8 +45,8 @@ operation PrepareZ(q : Qubit) : Unit {
 /// Source: [1] Figure 18a.
 operation BellPair(q1 : Qubit, q2 : Qubit) : Unit {
     // Collapse the qubits onto the Pauli-Z basis.
-    Mz(q1);
-    Mz(q2);
+    M(q1);
+    M(q2);
 
     // If they are not aligned in the Pauli-X basis, phase flip one of them.
     if Mxx(q1, q2) == One {
@@ -65,24 +65,4 @@ operation BellMeasurement(q1 : Qubit, q2 : Qubit) : (Result, Result) {
     let z = Mzz(q1, q2);
     let x = Mxx(q1, q2);
     (x, z)
-}
-
-/// User friendly wrapper around the Mx hardware gate.
-operation Mx(q : Qubit) : Result {
-    HardwareIntrinsics.__quantum__qis__mx__body(q)
-}
-
-/// User friendly wrapper around the Mz hardware gate.
-operation Mz(q : Qubit) : Result {
-    HardwareIntrinsics.__quantum__qis__mz__body(q)
-}
-
-/// User friendly wrapper around the Mxx hardware gate.
-operation Mxx(q1 : Qubit, q2 : Qubit) : Result {
-    HardwareIntrinsics.__quantum__qis__mxx__body(q1, q2)
-}
-
-/// User friendly wrapper around the Mzz hardware gate.
-operation Mzz(q1 : Qubit, q2 : Qubit) : Result {
-    HardwareIntrinsics.__quantum__qis__mzz__body(q1, q2)
 }

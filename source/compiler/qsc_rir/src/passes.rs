@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 mod build_dominator_graph;
+mod decompose_joint_measurements;
 mod defer_meas;
 mod insert_alloca_load;
 mod prune_unneeded_stores;
@@ -14,6 +15,7 @@ mod ssa_transform;
 mod test_utils;
 mod type_check;
 mod unreachable_code_check;
+mod utils;
 
 use build_dominator_graph::build_dominator_graph;
 use defer_meas::defer_measurements;
@@ -28,7 +30,9 @@ pub use unreachable_code_check::check_unreachable_code;
 
 use crate::{
     passes::{
-        insert_alloca_load::insert_alloca_load_instrs, prune_unneeded_stores::prune_unneeded_stores,
+        decompose_joint_measurements::decompose_joint_measurements,
+        insert_alloca_load::insert_alloca_load_instrs,
+        prune_unneeded_stores::prune_unneeded_stores,
     },
     rir::Program,
     utils::build_predecessors_map,
@@ -63,6 +67,7 @@ pub fn check_and_transform(program: &mut Program) {
         check_types(program);
 
         if program.config.capabilities == TargetCapabilityFlags::empty() {
+            decompose_joint_measurements(program);
             reindex_qubits(program);
             defer_measurements(program);
         }

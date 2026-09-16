@@ -137,6 +137,92 @@ operation MResetZ(target : Qubit) : Result {
 }
 
 /// # Summary
+/// Performs a single-qubit measurement in the Pauli X basis.
+///
+/// # Input
+/// ## target
+/// A single qubit to be measured.
+///
+/// # Output
+/// The result of measuring `target` in the Pauli X basis.
+operation Mx(target : Qubit) : Result {
+    __quantum__qis__mx__body(target)
+}
+
+/// # Summary
+/// Performs a single-qubit measurement in the Pauli Y basis.
+///
+/// # Input
+/// ## target
+/// A single qubit to be measured.
+///
+/// # Output
+/// The result of measuring `target` in the Pauli Y basis.
+operation My(target : Qubit) : Result {
+    __quantum__qis__my__body(target)
+}
+
+/// # Summary
+/// Performs a joint measurement of two qubits in the Pauli X basis.
+///
+/// # Input
+/// ## target1
+/// The first qubit to be measured.
+/// ## target2
+/// The second qubit to be measured.
+///
+/// # Output
+/// The result of jointly measuring `target1` and `target2` in the Pauli X basis.
+operation Mxx(target1 : Qubit, target2 : Qubit) : Result {
+    __quantum__qis__mxx__body(target1, target2)
+}
+
+/// # Summary
+/// Performs a joint measurement of two qubits in the Pauli Y basis.
+///
+/// # Input
+/// ## target1
+/// The first qubit to be measured.
+/// ## target2
+/// The second qubit to be measured.
+///
+/// # Output
+/// The result of jointly measuring `target1` and `target2` in the Pauli Y basis.
+operation Myy(target1 : Qubit, target2 : Qubit) : Result {
+    __quantum__qis__myy__body(target1, target2)
+}
+
+/// # Summary
+/// Performs a joint measurement of two qubits in the Pauli Z basis.
+///
+/// # Input
+/// ## target1
+/// The first qubit to be measured.
+/// ## target2
+/// The second qubit to be measured.
+///
+/// # Output
+/// The result of jointly measuring `target1` and `target2` in the Pauli Z basis.
+operation Mzz(target1 : Qubit, target2 : Qubit) : Result {
+    __quantum__qis__mzz__body(target1, target2)
+}
+
+/// # Summary
+/// Performs a joint measurement of two qubits in the Pauli YZ basis.
+///
+/// # Input
+/// ## target1
+/// The first qubit to be measured.
+/// ## target2
+/// The second qubit to be measured.
+///
+/// # Output
+/// The result of jointly measuring `target1` and `target2` in the Pauli YZ basis.
+operation Myz(target1 : Qubit, target2 : Qubit) : Result {
+    __quantum__qis__myz__body(target1, target2)
+}
+
+/// # Summary
 /// Measures the content of a quantum register and converts it to an integer.
 /// The measurement is performed with respect to the standard computational basis,
 /// i.e., the eigenbasis of `PauliZ`. Input register is reset to the |00...0⟩ state,
@@ -229,4 +315,4 @@ operation IsLossResult(res : Result) : Bool {
     __quantum__rt__read_loss(res)
 }
 
-export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult;
+export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult, Mx, My, Mxx, Mzz, Myy, Myz;

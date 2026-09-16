@@ -111,10 +111,10 @@ pub const JOINTMEASUREMENT_EXPECT: Expect = expect![[r#"
     |00⟩: 0.7071+0.0000𝑖
     |11⟩: 0.7071+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
+    |00⟩: 1.0000+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
-    (Zero, [One, One])"#]];
+    |00⟩: 1.0000+0.0000𝑖
+    (Zero, [Zero, Zero])"#]];
 pub const JOINTMEASUREMENT_EXPECT_DEBUG: Expect = expect![[r#"
     STATE:
     |00⟩: 0.7071+0.0000𝑖
@@ -123,14 +123,14 @@ pub const JOINTMEASUREMENT_EXPECT_DEBUG: Expect = expect![[r#"
     |00⟩: 0.7071+0.0000𝑖
     |11⟩: 0.7071+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
+    |00⟩: 1.0000+0.0000𝑖
     STATE:
-    |11⟩: 1.0000+0.0000𝑖
-    (Zero, [One, One])"#]];
-pub const JOINTMEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 959"];
+    |00⟩: 1.0000+0.0000𝑖
+    (Zero, [Zero, Zero])"#]];
+pub const JOINTMEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
 pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE_RIF: Expect =
-    expect!["generated QIR of length 3259"];
-pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3842"];
+    expect!["generated QIR of length 2867"];
+pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3416"];
 pub const MEASUREMENT_EXPECT: Expect = expect!["(One, [Zero, Zero])"];
 pub const MEASUREMENT_EXPECT_DEBUG: Expect = expect!["(One, [Zero, Zero])"];
 pub const MEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 613"];

@@ -1952,6 +1952,12 @@ impl<'a> PartialEvaluator<'a> {
                 Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }
             "IsResourceEstimating" => Ok(Value::Bool(false)),
+            "__quantum__qis__mx__body" => Ok(self.measure_qubit(builder::mx_decl(), &args_value)),
+            "__quantum__qis__my__body" => Ok(self.measure_qubit(builder::my_decl(), &args_value)),
+            "__quantum__qis__mzz__body"
+            | "__quantum__qis__mxx__body"
+            | "__quantum__qis__myy__body"
+            | "__quantum__qis__myz__body" => Ok(self.measure_qubits(callable_decl, args_value)),
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
             name if is_codegen_noop_intrinsic(name) => Ok(Value::unit()),

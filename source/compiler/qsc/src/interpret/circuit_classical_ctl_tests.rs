@@ -341,7 +341,7 @@ fn variable_double_in_unitary_arg() {
         [2] using: c_0:
             q_0    ───────────────────────────────────────────────────────────
 
-            q_1    ─ Rx(f(c_0))@qsharp-library-source:Std/Intrinsic.qs:510:8 ─
+            q_1    ─ Rx(f(c_0))@qsharp-library-source:Std/Intrinsic.qs:532:8 ─
 
     "#]]
     .assert_eq(&circ);
@@ -419,7 +419,7 @@ fn branch_on_dynamic_double() {
         [2] using: c_0:
             q_0    ───────────────────────────────────────────────────────────
 
-            q_1    ─ Rx(f(c_0))@qsharp-library-source:Std/Intrinsic.qs:510:8 ─
+            q_1    ─ Rx(f(c_0))@qsharp-library-source:Std/Intrinsic.qs:532:8 ─
 
     "#]]
     .assert_eq(&circ);

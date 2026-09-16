@@ -42,23 +42,31 @@ operation Main() : Unit {
 
 operation JointMeasure(qs : Qubit[]) : Unit {
     // Jointly measures each pair of qubits in the given array.
-    // Because `MeasureAllZ` uses allocates and releases an ancilla qubit,
+    // Because `MeasureZWithAncilla` uses allocates and releases an ancilla qubit,
     // each iteration of the loop will allocate the same ancilla, forcing
     // the execution of the loop to be sequential.
     for i in 0..2..Length(qs)-1 {
-        let _ = MeasureAllZ(qs[i..i + 1]);
+        let _ = MeasureZWithAncilla(qs[i..i + 1]);
     }
 }
 
 operation ParallelJointMeasure(qs : Qubit[]) : Unit {
     // Jointly measures each pair of qubits in the given array.
     // Because this loop is part of a `parallel` expression,
-    // released qubits will not be reused and each call to `MeasureAllZ`
+    // released qubits will not be reused and each call to `MeasureZWithAncilla`
     // will get a distinct qubit, allowing the resulting unrolled loop
     // to execute in parallel.
     // Once the `parallel` expression ends, all released qubits from that
     // scope will be available for reuse by later allocations.
     parallel for i in 0..2..Length(qs)-1 {
-        let _ = MeasureAllZ(qs[i..i + 1]);
+        let _ = MeasureZWithAncilla(qs[i..i + 1]);
     }
+}
+
+operation MeasureZWithAncilla(qs : Qubit[]) : Result {
+    use ancilla = Qubit();
+    for q in qs {
+        CNOT(q, ancilla);
+    }
+    MResetZ(ancilla)
 }

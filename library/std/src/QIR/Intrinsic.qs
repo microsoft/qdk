@@ -105,6 +105,30 @@ operation __quantum__qis__mresetz__body(target : Qubit) : Result {
     body intrinsic;
 }
 
+operation __quantum__qis__mx__body(target : Qubit) : Result {
+    body intrinsic;
+}
+
+operation __quantum__qis__my__body(target : Qubit) : Result {
+    body intrinsic;
+}
+
+operation __quantum__qis__mzz__body(target1 : Qubit, target2 : Qubit) : Result {
+    body intrinsic;
+}
+
+operation __quantum__qis__mxx__body(target1 : Qubit, target2 : Qubit) : Result {
+    body intrinsic;
+}
+
+operation __quantum__qis__myy__body(target1 : Qubit, target2 : Qubit) : Result {
+    body intrinsic;
+}
+
+operation __quantum__qis__myz__body(target1 : Qubit, target2 : Qubit) : Result {
+    body intrinsic;
+}
+
 export
     __quantum__qis__ccx__body,
     __quantum__qis__cx__body,
@@ -128,4 +152,10 @@ export
     __quantum__qis__swap__body,
     __quantum__qis__m__body,
     __quantum__qis__reset__body,
-    __quantum__qis__mresetz__body;
+    __quantum__qis__mresetz__body,
+    __quantum__qis__mx__body,
+    __quantum__qis__my__body,
+    __quantum__qis__mzz__body,
+    __quantum__qis__mxx__body,
+    __quantum__qis__myy__body,
+    __quantum__qis__myz__body;

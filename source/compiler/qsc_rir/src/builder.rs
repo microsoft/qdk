@@ -45,6 +45,30 @@ pub fn h_decl() -> Callable {
 }
 
 #[must_use]
+pub fn s_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__s__body".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
+    }
+}
+
+#[must_use]
+pub fn s_adj_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__s__adj".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
+    }
+}
+
+#[must_use]
 pub fn cx_decl() -> Callable {
     Callable {
         name: "__quantum__qis__cx__body".to_string(),
@@ -84,6 +108,30 @@ pub fn m_decl() -> Callable {
 pub fn mresetz_decl() -> Callable {
     Callable {
         name: "__quantum__qis__mresetz__body".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Measurement,
+    }
+}
+
+#[must_use]
+pub fn mx_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__mx__body".to_string(),
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Measurement,
+    }
+}
+
+#[must_use]
+pub fn my_decl() -> Callable {
+    Callable {
+        name: "__quantum__qis__my__body".to_string(),
         input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
         input_vars: Vec::new(),
         output_type: None,

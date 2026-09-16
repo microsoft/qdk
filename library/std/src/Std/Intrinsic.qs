@@ -298,11 +298,33 @@ operation Measure(bases : Pauli[], qubits : Qubit[]) : Result {
     if Length(bases) != Length(qubits) {
         fail "Arrays 'bases' and 'qubits' must be of the same length.";
     }
-    if Length(bases) == 1 {
-        within {
-            MapPauliAxis(PauliZ, bases[0], qubits[0]);
-        } apply {
-            __quantum__qis__m__body(qubits[0])
+    if Length(bases) == 1 or (Length(bases) == 2 and (bases[0] == PauliI or bases[1] == PauliI)) {
+        let idx = if Length(bases) == 2 { if bases[0] == PauliI { 0 } else { 1 } } else { 0 };
+        if bases[idx] == PauliZ {
+            __quantum__qis__m__body(qubits[idx])
+        } elif bases[idx] == PauliX {
+            __quantum__qis__mx__body(qubits[idx])
+        } elif bases[idx] == PauliY {
+            __quantum__qis__my__body(qubits[idx])
+        } else {
+            fail "unsupported single qubit measurement basis";
+        }
+    } elif Length(bases) == 2 {
+        if bases[0] == PauliX and bases[1] == PauliX {
+            __quantum__qis__mxx__body(qubits[0], qubits[1])
+        } elif bases[0] == PauliY and bases[1] == PauliZ {
+            __quantum__qis__myz__body(qubits[0], qubits[1])
+        } elif bases[0] == PauliY and bases[1] == PauliY {
+            __quantum__qis__myy__body(qubits[0], qubits[1])
+        } elif bases[0] == PauliZ and bases[1] == PauliY {
+            __quantum__qis__myz__body(qubits[1], qubits[0])
+        } else {
+            within {
+                MapPauliAxis(PauliZ, bases[0], qubits[0]);
+                MapPauliAxis(PauliZ, bases[1], qubits[1]);
+            } apply {
+                __quantum__qis__mzz__body(qubits[0], qubits[1])
+            }
         }
     } else {
         use aux = Qubit();

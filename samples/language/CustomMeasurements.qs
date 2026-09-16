@@ -14,14 +14,16 @@
 // Try running the command `Q#: Get QIR for the current Q# program`
 // in VS-Code's Command Palette.
 operation Main() : Result {
-    use q = Qubit();
-    H(q);
-    __quantum__qis__mx__body(q)
+    use (q0, q1) = (Qubit(), Qubit());
+    H(q0);
+    H(q1);
+    __quantum__qis__mresetxx__body(q0, q1)
 }
 
 @Measurement()
 @SimulatableIntrinsic()
-operation __quantum__qis__mx__body(q : Qubit) : Result {
-    H(q);
-    M(q)
+operation __quantum__qis__mresetxx__body(q0 : Qubit, q1 : Qubit) : Result {
+    let r = Measure([PauliZ, PauliX], [q0, q1]);
+    ResetAll([q0, q1]);
+    r
 }
