@@ -27,6 +27,7 @@ import { getRandomGuid } from "./utils";
 import { getPauliNoiseModel, getQubitLossSetting } from "./config";
 import { loadCompilerWorker, qsharpExtensionId } from "./common";
 import { resourceEstimateCommand } from "./estimate";
+import { handleCircuitSvgSaveMessage } from "./circuitSvgSave.js";
 
 const QSharpWebViewType = "qsharp-webview";
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
@@ -372,7 +373,10 @@ export class QSharpWebViewPanel {
 
   private _setWebviewMessageListener(webview: Webview) {
     console.log("Setting up webview message listener");
-    webview.onDidReceiveMessage((message: any) => {
+    webview.onDidReceiveMessage(async (message: any) => {
+      if (await handleCircuitSvgSaveMessage(message)) {
+        return;
+      }
       if (message.command === "ready") {
         this._ready = true;
         this._queuedMessages.forEach((message) =>
@@ -381,7 +385,6 @@ export class QSharpWebViewPanel {
         this._queuedMessages = [];
       }
 
-      // No messages are currently sent from the webview
       console.log("Message for webview received", message);
     });
   }
