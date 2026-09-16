@@ -213,7 +213,7 @@ part actually requires, because the three requirements are independent:
 | `generate-loader` and its tests                       | **no** | no             | no      |
 | `library::tests::*` (resolver tests, `FakeResolver`)  | yes    | no             | **no**  |
 | `tests/availability.rs`                               | yes    | yes            | **no**  |
-| `src/library/simulation/replay.rs` (7 `#[ignore]`d)   | yes    | yes            | **yes** |
+| `replay/qualification.rs` (7 `#[ignore]`d)            | yes    | yes            | **yes** |
 
 So only the last row needs hardware. Everything else needs an x86-64 host with
 the libraries present, and the loader work needs neither &mdash; it runs on any
@@ -224,10 +224,11 @@ one: `generate-bindings.sh` passes no `--target` triple to clang, so bindgen
 inherits the host ABI. Combined with the pinned clang build, that makes the
 environment "Ubuntu 22.04 x86-64", which is what the GPU host happens to be.
 
-The seven `#[ignore]`d A100 tests in `replay.rs` are **not** run by default. They
-are numerical qualification runs — expensive, requiring a real GPU, and some are
-steered by `QDK_CUTENSORNET_*` environment variables — so they answer "does the
-simulation still produce the right numbers", not "is the FFI surface intact".
+The seven `#[ignore]`d A100 tests in `replay/qualification.rs` are **not** run by
+default. They are numerical qualification runs — expensive and requiring a real
+GPU — so they answer "does the simulation still produce the right numbers", not
+"is the FFI surface intact". Each one sweeps its parameters from a table pinned
+in the test body, so running them takes no configuration.
 A manifest or loader change cannot plausibly pass step 5 and fail them for a
 reason worth blocking on, and folding them in would turn a two-minute check into
 a long one. Pass `--qualification` when you do want them.

@@ -187,11 +187,11 @@ step "7. hardware tests"
 #   tests/availability.rs  - resolves every required symbol against the real
 #                            library and reads the version triple. Cheap,
 #                            deterministic, no GPU work. This is the FFI guard.
-#   replay.rs (7 tests)    - A100 numerical qualification runs. Expensive and
-#                            need a real GPU. Each one sweeps its own parameters
-#                            from a pinned table, so no configuration is needed.
-#                            They validate simulation behaviour, not the symbol
-#                            surface.
+#   replay/qualification.rs - A100 numerical qualification runs (7 tests).
+#                            Expensive and need a real GPU. Each one sweeps its
+#                            own parameters from a pinned table, so no
+#                            configuration is needed. They validate simulation
+#                            behaviour, not the symbol surface.
 #
 # Default to the first, since that is what a manifest or loader change can
 # break. The second is opt-in via --qualification.
@@ -209,7 +209,10 @@ else
 
     if [[ "$qualification" -eq 1 ]]; then
         printf -- '-- A100 numerical qualification (slow) --\n'
-        if cargo test -p "$PACKAGE" --lib -- --ignored --nocapture; then
+        # Select by module path rather than by `--ignored` alone: the latter
+        # sweeps up every ignored test in the lib target, so the first
+        # unrelated `#[ignore]` added anywhere would silently join this suite.
+        if cargo test -p "$PACKAGE" --lib qualification:: -- --ignored --nocapture; then
             printf 'OK: qualification suite passed\n'
         else
             fail "A100 qualification suite failed"
