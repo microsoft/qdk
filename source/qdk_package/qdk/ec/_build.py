@@ -7,9 +7,8 @@ nothing about how to prepare, preserve, or read out an encoded state. A
 gadgets lower each logical instruction into a concrete circuit.
 
 :func:`build_qodec` bridges the two. Given a code, it emits a two-layer
-qodec — a logical ISA over the code's ``k`` logical qubits,
-lowering to a physical stim ISA — with a textbook circuit for each logical
-instruction:
+qodec that lowers a logical ISA over the code's ``k`` logical qubits to a
+physical stim ISA, with a textbook circuit for each logical instruction:
 
 ==================  ===========================================================
 instruction         built circuit
@@ -60,7 +59,7 @@ mathematical: ``prepare_z`` prepares :math:`|0\\rangle^{\\otimes n}` and project
 into the codespace, which pins the logical state only when the code's logical Z
 operators are Z-type. The five-qubit code, as conventionally written, declares a
 logical Z with X components, so no ``prepare_z`` (nor transversal ``measure_z``)
-exists for that basis — even though an equivalent all-Z representative lives in
+exists for that basis, even though an equivalent all-Z representative lives in
 the same coset.
 
 Others are limitations of the surrounding tooling rather than of the code. The
@@ -214,8 +213,8 @@ def _syndrome_round(
 
     Each stabilizer gets a syndrome ancilla prepared in :math:`|+\\rangle`,
     coupled by a controlled Pauli to every qubit of its support, then rotated
-    back and measured — so its outcome is the stabilizer's eigenvalue and no
-    data qubit is disturbed.
+    back and measured. Its outcome is the stabilizer's eigenvalue, and no data
+    qubit is disturbed.
 
     On its own that circuit is *not* fault tolerant. An X fault on the syndrome
     ancilla after the ``i``-th coupling propagates through the remaining
@@ -231,8 +230,8 @@ def _syndrome_round(
     ancilla undisturbed; but an X fault on the ancilla *between* the two
     brackets propagates through only the closing ``CX``, flipping the flag. So
     every fault that would produce a hook error of weight ≥ 2 also raises a
-    flag, and the flag outcome is a deterministic bit — a check the decoder can
-    condition on. This is the ``t``-flag construction of Chamberland &
+    flag, and the flag outcome is a deterministic bit that the decoder can
+    condition on as a check. This is the ``t``-flag construction of Chamberland &
     Beverland (arXiv:1708.02246, §3.3), of which Chao & Reichardt's
     two-extra-qubit ``d = 3`` circuit is the ``t = 1`` case.
 
@@ -557,8 +556,8 @@ def _build(
     NotImplementedError
         If any stabilizer or logical operator has a Y component.
     ValueError
-        If the code declares no logical qubits, or — with ``strict=True`` — if
-        any instruction could not be built.
+        If the code declares no logical qubits, or if any instruction could not
+        be built when ``strict=True``.
     """
     _reject_y_components(code)
 

@@ -40,8 +40,8 @@ class ChannelSimulation:
 class Profile:
     checks: list[Equation]
 
-    #: Every readout the instruction declares — flags as well as observe
-    #: outcomes — keyed by name. Not just the observables.
+    #: Every declared readout, keyed by name, including both flags and observe
+    #: outcomes.
     readouts: dict[str, list[int]]
 
 

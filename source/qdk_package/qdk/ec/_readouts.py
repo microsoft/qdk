@@ -3,7 +3,7 @@
 ``Gadget.readouts`` is one positional list holding two kinds of thing: the
 implemented instruction's ``observe`` outcomes first, then its ``flags:`` flags.
 The boundary between them is fixed by the *instruction*, not by the gadget, so
-finding it means reading ``gadget.implements`` — and every consumer that wants
+finding it means reading ``gadget.implements``. Every consumer that wants
 one kind has to re-derive the split to get it.
 
 :func:`readout_slots` derives it once. Each :class:`ReadoutSlot` says which kind
@@ -117,12 +117,12 @@ def readout_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
 
 
 def observable_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
-    """The gadget's bound observables — its Pauli-bearing readouts."""
+    """The gadget's bound Pauli-bearing readouts."""
     return readouts_of(gadget).observables
 
 
 def flag_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
-    """The gadget's bound flags — decoder-blind side-channel bits."""
+    """The gadget's bound flags (decoder-blind side-channel bits)."""
     return readouts_of(gadget).flags
 
 
