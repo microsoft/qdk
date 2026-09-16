@@ -36,6 +36,134 @@ The bytecode is a control-plan representation. A target adapter does not
 interpret bytecode or select branches. It receives only reached regions and
 host-visible requests.
 
+## Where the Code Lives
+
+The tensor-network work spans four crates and two sample directories, and the
+split between them is deliberate: each directory below states what it is _for_,
+so that a file sitting in the wrong one is visible without reading it. The rule
+this encodes is that a directory should predict a file's dependencies. Anything
+in `tensornet/` that named a vendor, or anything in `cutensornet/` that was pure
+math with no FFI, would be misfiled by that test.
+
+Ownership tags: **MODEL** backend-agnostic description · **NVIDIA** vendor-specific
+· **GEN** generated, never hand-edited · **SHARED** engine-neutral execution ·
+**PRODUCT** QDK public surface · **DEMO** validation material.
+
+```text
+source/
+│
+├── tensornet/ ................................................ [MODEL]
+│     What a tensor network *is*. No execution, no device, no vendor, and no
+│     tensor elements — shapes only, so feasibility can be asked without
+│     allocating. A dependency on a GPU library here would be a defect.
+│   ├── src/lib.rs .................. 38    Four concepts; Mps as peer, not case
+│   ├── src/index.rs ............... 254    Axis identity and incidence    11 tests
+│   ├── src/network.rs ............. 167    Nodes joined by index identity  6 tests
+│   ├── src/contraction.rs ......... 309    ContractionQuery: einsum `keep` 14 tests
+│   ├── src/mps.rs ................. 299    Chain of site tensors          11 tests
+│   ├── src/error.rs ................ 88    Three error families
+│   └── README.md .................. 445    Design record and vocabulary
+│
+├── cutensornet/ .............................................. [NVIDIA]
+│     One vendor library, reached by dynamic loading. Everything here is
+│     allowed to know about CUDA, handles, workspaces and ABI. It is the only
+│     crate permitted to.
+│   ├── src/lib.rs ................. 412    discover(); the entire public API   9 tests
+│   ├── src/error.rs ............... 145    AvailabilityError                   2 tests
+│   ├── src/version.rs .............. 69    Audited version triple              2 tests
+│   ├── src/execution.rs ........... 383    run_mps_shots — THE production entry 3 tests
+│   ├── src/generator.rs ........... 921    Loader generator (build tool)      20 tests
+│   ├── src/bin/generate-loader.rs . 125    Generator CLI
+│   ├── src/simulation.rs ........... 55    Declares the 10 modules below via #[path];
+│   │                                       carries a blanket #![allow(dead_code)]
+│   ├── src/library.rs ............. 522    Dynamic loader, FakeResolver        6 tests
+│   │
+│   ├── src/bindings/ ......................................... [GEN]
+│   │     bindgen output from cutensornet.h. Regenerate on a CUDA host; never
+│   │     edit. A hand-edit here is caught by a byte-exact test.
+│   │   ├── mod.rs .................. 78
+│   │   ├── v2_13.rs ............... 828    cuTensorNet 2.13 declarations
+│   │   └── cudart_12.rs ............ 24    CUDA runtime declarations
+│   │
+│   ├── src/library/symbols*.rs ............................... [GEN]
+│   │     Symbol resolution, generated from cutensornet-symbols.txt. Nine files,
+│   │     ~876 lines, grouped by API area (state, workspace, sampler, ...).
+│   │
+│   ├── src/library/simulation.rs .. 1051    NativeApi: every FFI call site      2 tests
+│   │
+│   ├── src/library/simulation/ ...............................  MIXED — see below
+│   │     Ten files here are `crate::simulation::*`; one is
+│   │     `crate::library::simulation::session`. The directory name predicts
+│   │     neither.
+│   │   ├── circuit.rs ............. 883    Gate, StateReadout, contract_open_mps 16 tests
+│   │   ├── replay.rs .............. 1462    State-evolution driver
+│   │   ├── replay/tests.rs ........ 1714    Host fakes, no GPU needed          40 tests
+│   │   ├── replay/qualification.rs  1002    A100 runs, cfg(test+linux+x86_64)   7 tests
+│   │   ├── sampler.rs ............. 536    Batch sampling                       4 tests
+│   │   ├── consumer.rs ............ 548    Bridge to the shared execution layer 6 tests
+│   │   ├── contraction.rs ......... 428    ContractionResources (unused)        7 tests
+│   │   ├── session.rs ............. 276    Session/SessionApi — NOT crate::simulation  4 tests
+│   │   ├── branch.rs .............. 246    Mid-circuit branch capture           9 tests
+│   │   ├── policy.rs .............. 221    ExecutionPolicy + validate()         5 tests
+│   │   ├── query.rs ............... 168    AdjacentZQuery                       3 tests
+│   │   ├── error.rs ................ 48    SimulationError
+│   │   └── ffi.rs ................... 26    Complex64Abi
+│   │
+│   ├── tests/availability.rs ....... 13    Symbol resolution, real .so, no GPU  1 test
+│   ├── scripts/ ...............................................  tooling
+│   │     Binding and loader generation, plus the GPU-host validation entry
+│   │     point. The manifest is the single source for both.
+│   │   ├── cutensornet-symbols.txt . 82    THE manifest — edit this, regenerate
+│   │   ├── generate-bindings.sh ... 208    Needs x86-64 + the cuQuantum archive
+│   │   ├── validate-on-cuda-host.sh 251    8-step VM check; --qualification opt-in
+│   │   └── README.md .............. 271    What each guard catches
+│   └── README.md .................. 568    Crate design record
+│
+├── simulators/src/execution/ ................................. [SHARED]
+│     Engine-neutral. Separates Adaptive control from state evolution, and must
+│     stay free of any specific engine. cuTensorNet appears in the README as a
+│     consumer, never in the code as a dependency.
+│   ├── adaptive.rs ................ 668    Bytecode → regions and commands
+│   ├── protocol.rs ................. 55    Commands and responses
+│   ├── region.rs ................... 66    Consumer lifecycle
+│   ├── unitary.rs ................. 182    UnitaryOperation (21 variants)
+│   ├── immediate.rs ............... 248    Synchronous shot driver
+│   ├── tests.rs ................... 903                                      20 tests
+│   └── README.md ................. 1013    This file: block plan and defects
+│
+└── qdk_package/ .............................................. [PRODUCT]
+      The QDK surface. Four touchpoints only; the tensor-network work is
+      otherwise invisible here.
+    ├── qdk/simulation/_simulation.py       _run_qir_mps (:720)
+    ├── qdk/_native.pyi                     Type stub
+    ├── src/interpreter.rs                  PyO3 registration (:148)
+    └── src/qir_simulation/cpu_simulators.rs  run_mps_full_state_placeholder (:357)
+
+samples/python_interop/ ....................................... [DEMO]
+├── mps_trotter_quench_demo/                Working 1D demo: run.py, DEMO.md,
+│                                           figures/ with committed CSV + SVG
+└── ising2d_tensor_network_demo/            Scoping only — no runnable sample yet
+```
+
+### What this map makes visible
+
+Three placement facts worth knowing before moving anything:
+
+- **`src/library/simulation/` is not one module.** `src/simulation.rs` pulls ten
+  of its files in via `#[path]`, so they compile as `crate::simulation::*` on
+  every platform. `session.rs` is pulled in by `src/library/simulation.rs`
+  instead, so it is `crate::library::simulation::session` and exists only on
+  linux/x86-64. Inside those ten files `super` means `crate::simulation`, which
+  is why they say `use crate::simulation::…` rather than a path through
+  `library`. The directory is a location, not an owner.
+- **`contraction.rs` names two unrelated things.** In `tensornet/` it is
+  `ContractionQuery` — what to compute. In `cutensornet/` it is
+  `ContractionResources` — a vendor optimizer handle. Neither is wrong; the
+  collision is worth knowing when grepping.
+- **`replay/tests.rs` is larger than the file it tests.** 1714 lines of host
+  fakes against a 1462-line driver. That is the FFI boundary being pinned
+  without hardware, and it is why most changes can be validated on a laptop.
+
 ## Glossary
 
 - **Engine**: the computational method that evolves quantum state, such as
