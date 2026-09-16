@@ -176,18 +176,22 @@ test("rebaseViewState: handles nested ops — identity preserved at depth 2", ()
 
 // ---------------------------------------------------------------------------
 // updateCircuit: the escape hatch for external circuit updates. Swaps `circuit` + `circuitGroup`,
-// preserves `viewState`, and nulls `lastLocationMap` so the next rebase treats it as a first
-// render.
+// semantically rebases `viewState`, and nulls `lastLocationMap` so the next identity rebase treats
+// it as a first render.
 // ---------------------------------------------------------------------------
 
-test("updateCircuit: swaps circuit + circuitGroup while preserving viewState", () => {
-  // Pre-seed viewState; the central guarantee is that these entries survive the swap unchanged.
-  sqore = makeSqore([[gate("H", 0)]]);
+test("updateCircuit: swaps circuit + circuitGroup while rebasing matching viewState", () => {
+  sqore = makeSqore([[group("Foo", [[gate("H", 0)]])], [gate("X", 1)]]);
   sqore.viewState.setExpanded("0,0", true);
-  sqore.viewState.setExpanded("1,2-0,0", false);
 
   /** @type {any} */
-  const newGroup = circuitGroup(circuit(3, [[gate("X", 0), gate("Y", 1)]]));
+  const newGroup = circuitGroup(
+    circuit(3, [
+      [gate("Z", 2)],
+      [group("Foo", [[gate("H", 0)]])],
+      [gate("X", 1)],
+    ]),
+  );
 
   sqore.updateCircuit(newGroup);
 
@@ -197,15 +201,12 @@ test("updateCircuit: swaps circuit + circuitGroup while preserving viewState", (
   assert.equal(sqore.circuit, newGroup.circuits[0]);
   assert.equal(sqore.circuit.qubits.length, 3);
 
-  // viewState entries survived intact — same keys, same values.
-  assert.equal(sqore.viewState.expanded.size, 2);
-  assert.equal(sqore.viewState.expanded.get("0,0"), true);
-  assert.equal(sqore.viewState.expanded.get("1,2-0,0"), false);
+  assert.equal(sqore.viewState.expanded.size, 1);
+  assert.equal(sqore.viewState.expanded.get("1,0"), true);
+  assert.equal(sqore.viewState.expanded.has("0,0"), false);
 });
 
-test("updateCircuit: nullifies lastLocationMap so the next rebase short-circuits as first-render", () => {
-  // The new circuit's op identities have no relation to the prior snapshot. Nulling the map is the
-  // explicit signal to treat the next render as a fresh first render.
+test("updateCircuit: drops viewState for removed operations and resets lastLocationMap", () => {
   const opA = gate("H", 0);
   sqore = makeSqore([[opA]]);
   // Simulate a prior render having populated the location map.
@@ -218,11 +219,28 @@ test("updateCircuit: nullifies lastLocationMap so the next rebase short-circuits
   sqore.updateCircuit(newGroup);
 
   assert.equal(sqore.lastLocationMap, null);
+  assert.equal(sqore.viewState.expanded.size, 0);
+});
 
-  // With the snapshot null, rebase must short-circuit and leave viewState untouched.
-  sqore.rebaseViewState();
+test("updateCircuit: follows reordered duplicate groups by their descendants", () => {
+  sqore = makeSqore([
+    [group("Foo", [[gate("H", 0)]])],
+    [group("Foo", [[gate("X", 0)]])],
+  ]);
+  sqore.viewState.setExpanded("1,0", true);
+
+  const newGroup = circuitGroup(
+    circuit(2, [
+      [group("Foo", [[gate("X", 0)]])],
+      [group("Foo", [[gate("H", 0)]])],
+    ]),
+  );
+
+  sqore.updateCircuit(newGroup);
+
   assert.equal(sqore.viewState.expanded.size, 1);
   assert.equal(sqore.viewState.expanded.get("0,0"), true);
+  assert.equal(sqore.viewState.expanded.has("1,0"), false);
 });
 
 test("updateCircuit: throws on null circuitGroup", () => {

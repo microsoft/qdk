@@ -1,10 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { formatInputs } from "./renderer/formatters/inputFormatter.js";
-import { formatGates } from "./renderer/formatters/gateFormatter.js";
-import { formatRegisters } from "./renderer/formatters/registerFormatter.js";
-import { processOperations } from "./renderer/process.js";
 import {
   Circuit,
   CircuitGroup,
@@ -12,47 +8,51 @@ import {
   CURRENT_VERSION,
   Operation,
   SourceLocation,
-  Qubit,
 } from "./data/circuit.js";
-import { GateRenderData } from "./renderer/gateRenderData.js";
-import { LayoutMap, emptyLayoutMap } from "./renderer/layoutMap.js";
 import { Location } from "./data/location.js";
 import { ViewState } from "./data/viewState.js";
 import {
   gateHeight,
   minGateWidth,
   minToolboxHeight,
-  svgNS,
 } from "./renderer/constants.js";
+import { toDomSvgElement } from "./renderer/svg.js";
 import { installEditor } from "./editor/installEditor.js";
-import { getOperationRegisters } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
+import { createStandaloneCircuitSvg } from "./renderer/circuitSvgDocument.js";
+import { renderCircuit as renderCircuitSvgTree } from "./renderer/circuitRenderer.js";
+import {
+  type CircuitRendererSvgOptions,
+  validateCircuitRendererSvgOptions,
+} from "./renderer/circuitSvgOptions.js";
 
-/**
- * Contains render data for visualization.
- */
-interface ComposedSqore {
-  /** Width of visualization. */
-  width: number;
-  /** Height of visualization. */
-  height: number;
-  /** SVG elements the make up the visualization. */
-  elements: SVGElement[];
-  /**
-   * Geometry from the layout pass. Captured here so the editor can position dropzones from the same
-   * numbers `processOperations` already computed, instead of reverse-engineering them from rendered
-   * SVG attributes. See [`layoutMap.ts`](renderer/layoutMap.ts).
-   */
-  layoutMap: LayoutMap;
+function registerSemanticKey(register: {
+  qubit: number;
+  result?: number;
+}): [number, number | null] {
+  return [register.qubit, register.result ?? null];
 }
 
-/**
- * Defines the mapping of unique location to each operation. Used for enabling interactivity.
- */
-type GateRegistry = {
-  [location: string]: Operation;
+type LocatedOperation = {
+  operation: Operation;
+  location: string;
+  semanticKey: string;
+  subtreeKey: number;
 };
+
+type LocatedOperationQueue = {
+  operations: LocatedOperation[];
+  index: number;
+};
+
+type ReplacementCandidates = {
+  fallback: LocatedOperationQueue;
+  bySubtreeKey: Map<number, LocatedOperationQueue>;
+  used: Set<LocatedOperation>;
+};
+
+type OperationSubtreeKey = (operation: Operation) => number;
 
 export type EditorHandlers = {
   editCallback: (circuitGroup: CircuitGroup) => void;
@@ -86,7 +86,6 @@ export type DrawOptions = {
  */
 export class Sqore {
   circuit: Circuit;
-  gateRegistry: GateRegistry = {};
   renderDepth: number;
   container: HTMLElement | null = null;
   zoomOnResize: boolean = true;
@@ -102,8 +101,8 @@ export class Sqore {
    * to migrate `viewState` keys forward when ops shift position. See `rebaseViewState`.
    *
    * `null` means "no prior render yet" (first draw) or "the prior snapshot is no longer valid"
-   * (after `updateCircuit` replaces the underlying tree). In both cases the next render skips the
-   * rebase and just refreshes the snapshot.
+   * (after `updateCircuit` replaces the underlying tree and separately rebases the view state).
+   * In both cases the next render skips the identity-based rebase and just refreshes the snapshot.
    */
   private lastLocationMap: Map<Operation, string> | null = null;
   /**
@@ -149,6 +148,18 @@ export class Sqore {
     }
   }
 
+  /** Render the current circuit model as a standalone SVG document. */
+  exportSvg(options: CircuitRendererSvgOptions = {}): string {
+    const renderDepth = options.renderDepth ?? this.renderDepth;
+    validateCircuitRendererSvgOptions({ ...options, renderDepth });
+    const rendered = renderCircuitSvgTree(this.circuit, {
+      renderDepth,
+      expansion: options.expansion ?? "current",
+      applyCurrentExpansion: (grid) => this.viewState.applyTo(grid),
+    });
+    return createStandaloneCircuitSvg(rendered.svg, options);
+  }
+
   /**
    * Replace the underlying circuit and re-render in place, preserving everything that lives on
    * `this` (most importantly `viewState`, but also the cached container, zoom level, and the
@@ -171,12 +182,17 @@ export class Sqore {
     ) {
       throw new Error(`No circuit found. Please provide a valid circuit.`);
     }
+    const nextCircuit = circuitGroup.circuits[0];
+    this.rebaseViewState();
+    this.rebaseViewStateForReplacement(
+      this.circuit.componentGrid,
+      nextCircuit.componentGrid,
+    );
     this.circuitGroup = circuitGroup;
     // We only render the first circuit in the group today; matches the constructor's behavior.
-    this.circuit = circuitGroup.circuits[0];
-    // External replacement: the new circuit's op object identities have no relation to the prior
-    // tree. Drop the rebase snapshot so the next render doesn't try to migrate viewState against
-    // stale identities (which would silently drop every entry).
+    this.circuit = nextCircuit;
+    // The semantic replacement rebase above has already migrated viewState. Reset the
+    // identity-based snapshot because the new tree contains fresh operation objects.
     this.lastLocationMap = null;
     if (this.container != null) {
       this.renderCircuit(this.container);
@@ -264,29 +280,15 @@ export class Sqore {
     // `this.circuit.componentGrid` — the JSON copy would break that identity link.
     this.rebaseViewState();
 
-    // Create copy of circuit to prevent mutation
-    const _circuit: Circuit = JSON.parse(JSON.stringify(this.circuit));
-
-    // Assign unique locations to each operation
-    _circuit.componentGrid.forEach((col, colIndex) =>
-      col.components.forEach((op, i) =>
-        this.fillGateRegistry(op, Location.root().child(colIndex, i)),
-      ),
-    );
-
-    // Apply default-expansion passes first — these match the original behavior for any op without
-    // an explicit user choice.
-    this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
-    this.expandIfSingleOperation(_circuit.componentGrid);
-
-    // Apply user view-state overrides on top. Anything the user has explicitly expanded or
-    // collapsed wins over the defaults.
-    this.viewState.applyTo(_circuit.componentGrid);
-
-    // Create visualization components
-    const composedSqore: ComposedSqore = this.compose(_circuit);
-    const svg: SVGElement = this.generateSvg(composedSqore);
-    this.setViewBox(svg);
+    const rendered = renderCircuitSvgTree(this.circuit, {
+      renderDepth: this.renderDepth,
+      expansion: "current",
+      applyCurrentExpansion: (grid) => this.viewState.applyTo(grid),
+      renderLocations:
+        this.options.editor == null ? this.options.renderLocations : undefined,
+    });
+    const svg = toDomSvgElement(rendered.svg, container.ownerDocument);
+    this.setRendererCssVariables(container.ownerDocument);
     if (this.options.onZoomChange != null) {
       this.updateSvgWidth(svg, this.zoomLevel);
     }
@@ -306,7 +308,7 @@ export class Sqore {
     const editor = this.options.editor;
     const isEditable = editor != null;
     if (isEditable) {
-      installEditor(container, this, composedSqore.layoutMap, editor, () =>
+      installEditor(container, this, rendered.layoutMap, editor, () =>
         this.renderCircuit(container),
       );
     }
@@ -320,8 +322,8 @@ export class Sqore {
   }
 
   /**
-   * Walk `grid` in render order (the same `Location.root().child(...)` scheme `fillGateRegistry`
-   * uses) and build a map from each op object reference to its current location string.
+   * Walk `grid` in render order (the same `Location.root().child(...)` scheme the renderer uses)
+   * and build a map from each op object reference to its current location string.
    *
    * Walks the live model — callers must NOT pass a deep copy, since identity-based lookups are the
    * point.
@@ -344,14 +346,210 @@ export class Sqore {
   }
 
   /**
+   * Rebase view preferences when an external text edit replaces every operation object.
+   *
+   * Editable hosts keep one Sqore for a document, so equivalent operations are paired by their
+   * semantic shape and occurrence within each grid. This preserves expansion choices when an edit
+   * inserts or removes neighboring operations while avoiding position-based state leaking onto a
+   * different gate. Non-editable hosts use a fresh Sqore for unrelated circuits.
+   */
+  private rebaseViewStateForReplacement(
+    previous: ComponentGrid,
+    next: ComponentGrid,
+  ): void {
+    const remap = new Map<string, string | null>();
+    const subtreeKey = this.createOperationSubtreeKey();
+    for (const location of this.buildLiveLocationMap(previous).values()) {
+      remap.set(location, null);
+    }
+    this.matchReplacementGrid(
+      previous,
+      next,
+      Location.root(),
+      Location.root(),
+      remap,
+      subtreeKey,
+    );
+    this.viewState.rebase(remap);
+  }
+
+  private matchReplacementGrid(
+    previous: ComponentGrid,
+    next: ComponentGrid,
+    previousParent: Location,
+    nextParent: Location,
+    remap: Map<string, string | null>,
+    subtreeKey: OperationSubtreeKey,
+  ): void {
+    const previousOperations = this.locatedOperations(
+      previous,
+      previousParent,
+      subtreeKey,
+    );
+    const nextBySemanticKey = new Map<string, ReplacementCandidates>();
+    for (const operation of this.locatedOperations(
+      next,
+      nextParent,
+      subtreeKey,
+    )) {
+      let candidates = nextBySemanticKey.get(operation.semanticKey);
+      if (candidates == null) {
+        candidates = {
+          fallback: { operations: [], index: 0 },
+          bySubtreeKey: new Map(),
+          used: new Set(),
+        };
+        nextBySemanticKey.set(operation.semanticKey, candidates);
+      }
+      candidates.fallback.operations.push(operation);
+      let subtreeQueue = candidates.bySubtreeKey.get(operation.subtreeKey);
+      if (subtreeQueue == null) {
+        subtreeQueue = { operations: [], index: 0 };
+        candidates.bySubtreeKey.set(operation.subtreeKey, subtreeQueue);
+      }
+      subtreeQueue.operations.push(operation);
+    }
+
+    for (const previousOperation of previousOperations) {
+      const candidates = nextBySemanticKey.get(previousOperation.semanticKey);
+      if (candidates == null) {
+        continue;
+      }
+      const exactQueue = candidates.bySubtreeKey.get(
+        previousOperation.subtreeKey,
+      );
+      const nextOperation =
+        this.takeReplacementCandidate(exactQueue, candidates.used) ??
+        this.takeReplacementCandidate(candidates.fallback, candidates.used);
+      if (nextOperation == null) {
+        continue;
+      }
+      candidates.used.add(nextOperation);
+
+      remap.set(previousOperation.location, nextOperation.location);
+      if (
+        previousOperation.operation.children != null &&
+        nextOperation.operation.children != null
+      ) {
+        this.matchReplacementGrid(
+          previousOperation.operation.children,
+          nextOperation.operation.children,
+          Location.parse(previousOperation.location),
+          Location.parse(nextOperation.location),
+          remap,
+          subtreeKey,
+        );
+      }
+    }
+  }
+
+  private takeReplacementCandidate(
+    queue: LocatedOperationQueue | undefined,
+    used: ReadonlySet<LocatedOperation>,
+  ): LocatedOperation | undefined {
+    if (queue == null) {
+      return undefined;
+    }
+    while (
+      queue.index < queue.operations.length &&
+      used.has(queue.operations[queue.index])
+    ) {
+      queue.index += 1;
+    }
+    const operation = queue.operations[queue.index];
+    queue.index += 1;
+    return operation;
+  }
+
+  private locatedOperations(
+    grid: ComponentGrid,
+    parent: Location,
+    subtreeKey: OperationSubtreeKey,
+  ): LocatedOperation[] {
+    const operations: LocatedOperation[] = [];
+    grid.forEach((column, columnIndex) =>
+      column.components.forEach((operation, operationIndex) => {
+        operations.push({
+          operation,
+          location: parent.child(columnIndex, operationIndex).toString(),
+          semanticKey: this.operationSemanticKey(operation),
+          subtreeKey: subtreeKey(operation),
+        });
+      }),
+    );
+    return operations;
+  }
+
+  private createOperationSubtreeKey(): OperationSubtreeKey {
+    const cache = new WeakMap<Operation, number>();
+    const canonicalIds = new Map<string, number>();
+
+    const getKey = (operation: Operation): number => {
+      const cached = cache.get(operation);
+      if (cached !== undefined) {
+        return cached;
+      }
+
+      const signature = JSON.stringify([
+        this.operationSemanticKey(operation),
+        operation.children?.map((column) => column.components.map(getKey)) ??
+          null,
+      ]);
+      let key = canonicalIds.get(signature);
+      if (key === undefined) {
+        key = canonicalIds.size;
+        canonicalIds.set(signature, key);
+      }
+      cache.set(operation, key);
+      return key;
+    };
+
+    return getKey;
+  }
+
+  private operationSemanticKey(operation: Operation): string {
+    const common = [
+      operation.kind,
+      operation.gate,
+      operation.args ?? null,
+      operation.params?.map(({ name, type }) => [name, type]) ?? null,
+      operation.isConditional ?? false,
+    ];
+    switch (operation.kind) {
+      case "unitary":
+        return JSON.stringify([
+          ...common,
+          operation.isAdjoint ?? false,
+          operation.targets.map(registerSemanticKey),
+          operation.controls?.map((register) => [
+            ...registerSemanticKey(register),
+            register.inverted ?? false,
+          ]) ?? null,
+        ]);
+      case "measurement":
+        return JSON.stringify([
+          ...common,
+          operation.qubits.map(registerSemanticKey),
+          operation.results.map(registerSemanticKey),
+        ]);
+      case "ket":
+        return JSON.stringify([
+          ...common,
+          operation.targets.map(registerSemanticKey),
+        ]);
+    }
+  }
+
+  /**
    * Migrate `viewState` keys forward across mutations that may have shifted ops to new locations.
    *
    * Uses object identity against `this.lastLocationMap` (captured at the end of the previous
    * render) so user expand/collapse choices follow their op when its string location changes — e.g.
    * dragging a gate into column 0 shifts every other op's column index by 1.
    *
-   * No-op on the first render (no prior snapshot) and after `updateCircuit` invalidates the
-   * snapshot. The rebase logic itself lives in [`ViewState.rebase`](data/viewState.ts).
+   * No-op on the first render and immediately after `updateCircuit`, which performs a separate
+   * semantic rebase before replacing the operation objects. The key rewrite itself lives in
+   * [`ViewState.rebase`](data/viewState.ts).
    */
   private rebaseViewState(): void {
     const prev = this.lastLocationMap;
@@ -383,216 +581,18 @@ export class Sqore {
     this.viewState.rebase(remap);
   }
 
-  private expandOperationsToDepth(
-    componentGrid: ComponentGrid,
-    targetDepth: number,
-    currentDepth: number = 0,
-  ) {
-    for (const col of componentGrid) {
-      for (const op of col.components) {
-        if (currentDepth < targetDepth && op.children != null) {
-          op.dataAttributes = op.dataAttributes || {};
-          op.dataAttributes["expanded"] = "true";
-          this.expandOperationsToDepth(
-            op.children,
-            targetDepth,
-            currentDepth + 1,
-          );
-        }
-      }
-    }
-  }
-
-  private expandIfSingleOperation(grid: ComponentGrid) {
-    if (grid.length == 1 && grid[0].components.length == 1) {
-      const onlyComponent = grid[0].components[0];
-      if (
-        onlyComponent.dataAttributes != null &&
-        Object.prototype.hasOwnProperty.call(
-          onlyComponent.dataAttributes,
-          "location",
-        ) &&
-        onlyComponent.dataAttributes["expanded"] !== "false" &&
-        onlyComponent.children != null
-      ) {
-        // We already have the only-component in hand, so set the attr directly rather than walking
-        // the grid for it.
-        onlyComponent.dataAttributes["expanded"] = "true";
-      }
-    }
-    // Recursively expand if the only child is also a single operation
-    for (const col of grid) {
-      for (const op of col.components) {
-        this.expandIfSingleOperation(op.children || []);
-      }
-    }
-  }
-
-  /**
-   * Sets the viewBox attribute of the SVG element to enable zooming and panning.
-   *
-   * @param svg The SVG element to set the viewBox for.
-   */
-  private setViewBox(svg: SVGElement) {
-    // width and height are the true dimensions generated by qviz
-    const width = parseInt(svg.getAttribute("width")!);
-    const height = parseInt(svg.getAttribute("height")!);
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  }
-
-  /**
-   * Generates the components required for visualization.
-   *
-   * @param circuit Circuit to be visualized.
-   *
-   * @returns `ComposedSqore` object containing render data for visualization.
-   */
-  private compose(circuit: Circuit): ComposedSqore {
-    const add = (
-      acc: GateRenderData[],
-      gate: GateRenderData | GateRenderData[],
-    ): void => {
-      if (Array.isArray(gate)) {
-        gate.forEach((g) => add(acc, g));
-      } else {
-        acc.push(gate);
-        gate.children?.forEach((col) => col.forEach((g) => add(acc, g)));
-      }
-    };
-
-    const flatten = (renderData: GateRenderData[][]): GateRenderData[] => {
-      const result: GateRenderData[] = [];
-      renderData.forEach((col) => col.forEach((g) => add(result, g)));
-      return result;
-    };
-
-    const { qubits, componentGrid } = circuit;
-
-    // Calculate the row heights, which may vary depending on how many expanded group borders need
-    // to fit between qubit wires.
-    const rowHeights = getRowHeights(qubits, componentGrid);
-
-    const isEditable = this.options.editor != null;
-
-    // Draw the qubit labels. Also calculate other register render data to be used later in the
-    // rendering.
-    const { qubitLabels, registers, svgHeight } = formatInputs(
-      qubits,
-      rowHeights,
-      isEditable ? undefined : this.options.renderLocations,
-    );
-
-    // Calculate the render data for the operations.
-    const topY = qubits[0] ? registers[qubits[0].id].y : -1;
-    const bottomY = qubits[qubits.length - 1]
-      ? registers[qubits[qubits.length - 1].id].y
-      : -1;
-    const { renderDataArray, svgWidth, localScope, childScopes } =
-      processOperations(
-        componentGrid,
-        topY,
-        bottomY,
-        registers,
-        isEditable ? undefined : this.options.renderLocations,
-      );
-
-    // Assemble the LayoutMap from the layout pass.
-    //
-    // - The top-level scope is keyed by `""` (matches the existing `LayoutMap` convention; see
-    //   [`layoutMap.ts`](renderer/layoutMap.ts)).
-    // - `childScopes` is already keyed by each parent op's location string, with absolute coords.
-    // - `wireYs` mirrors the y-coords of the real qubit wires before any editor chrome (e.g. the
-    //   ghost qubit wire) is added.
-    const layoutMap: LayoutMap = emptyLayoutMap();
-    layoutMap.scopes.set("", localScope);
-    for (const [key, scope] of childScopes) {
-      layoutMap.scopes.set(key, scope);
-    }
-    layoutMap.wireYs = qubits.map((q) => registers[q.id].y);
-
-    // Draw the operations.
-    const formattedGates: SVGElement = formatGates(renderDataArray);
-
-    // Draw the lines that represent qubit and classical wires.
-    const formattedRegs: SVGElement = formatRegisters(
-      registers,
-      flatten(renderDataArray),
-      svgWidth,
-    );
-
-    const composedSqore: ComposedSqore = {
-      width: svgWidth,
-      height: svgHeight,
-      elements: [qubitLabels, formattedRegs, formattedGates],
-      layoutMap,
-    };
-    return composedSqore;
-  }
-
-  /**
-   * Generates visualization of `composedSqore` as an SVG.
-   *
-   * @param composedSqore ComposedSqore to be visualized.
-   *
-   * @returns SVG representation of circuit visualization.
-   */
-  private generateSvg(composedSqore: ComposedSqore): SVGElement {
-    const { width, height, elements } = composedSqore;
-
-    const svg: SVGElement = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("class", "qviz");
-    svg.setAttribute("width", width.toString());
-    svg.setAttribute("height", height.toString());
-
-    // Add styles
-    document.documentElement.style.setProperty(
+  private setRendererCssVariables(ownerDocument: Document): void {
+    ownerDocument.documentElement.style.setProperty(
       "--minToolboxHeight",
       `${minToolboxHeight}px`,
     );
-    document.documentElement.style.setProperty(
+    ownerDocument.documentElement.style.setProperty(
       "--minGateWidth",
       `${minGateWidth}px`,
     );
-    document.documentElement.style.setProperty(
+    ownerDocument.documentElement.style.setProperty(
       "--gateHeight",
       `${gateHeight}px`,
-    );
-
-    // Add body elements
-    elements.forEach((element: SVGElement) => svg.appendChild(element));
-
-    return svg;
-  }
-
-  /**
-   * Depth-first traversal to assign a unique location string to `operation`. The operation is
-   * assigned `location.toString()` and its `i`th child in its `colIndex` column is recursively
-   * given `location.child(colIndex, i)`.
-   *
-   * Takes a [`Location`](data/location.ts) value rather than a raw string, so the addressing format
-   * is owned by exactly one module. The string form is still what gets stored in
-   * `dataAttributes["location"]` / used as `gateRegistry` keys, since the rest of the codebase
-   * reads those as strings.
-   *
-   * @param operation Operation to be assigned.
-   * @param location  Hierarchical location to assign to `operation`.
-   */
-  private fillGateRegistry(operation: Operation, location: Location): void {
-    if (operation.dataAttributes == null) operation.dataAttributes = {};
-    const locationStr = location.toString();
-    operation.dataAttributes["location"] = locationStr;
-
-    // Note: `dataAttributes["expanded"]` is intentionally not defaulted here. Expansion is
-    // controlled by:
-    // - `renderDepth` (see `expandOperationsToDepth`),
-    // - user interaction (expand/collapse), and
-    // - `expandIfSingleOperation`, which auto-expands a single top-level op unless it has been
-    //   explicitly collapsed.
-    this.gateRegistry[locationStr] = operation;
-    operation.children?.forEach((col, colIndex) =>
-      col.components.forEach((childOp, i) => {
-        this.fillGateRegistry(childOp, location.child(colIndex, i));
-      }),
     );
   }
 
@@ -660,209 +660,4 @@ export class Sqore {
     }
     operation.dataAttributes = undefined;
   };
-}
-
-/**
- * Recursively computes vertical space required to render group borders.
- *
- * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are later used by
- * `formatInputs` to leave sufficient space between qubit wires. `heightAboveFirstClassical` is
- * similar but applies to the gap between a qubit's wire and its first classical sub-wire — used to
- * reserve room for the label of any classically-controlled group whose box top sits in that gap
- * (the producing measurement's classical sub-wire is the group's `controlY`, and the label lives
- * just above it).
- *
- * @param qubits Array of qubits in the circuit.
- * @param componentGrid Grid of circuit components to traverse.
- *
- * @returns Mapping from qubit index to required heights above and below their wires.
- */
-function getRowHeights(
-  qubits: Qubit[],
-  componentGrid: ComponentGrid,
-): {
-  [qubitIndex: number]: {
-    heightAboveWire: number;
-    heightBelowWire: number;
-    heightAboveFirstClassical: number;
-    bottomBordersAboveFirstClassical: number;
-  };
-} {
-  const rowHeights: {
-    [qubitIndex: number]: {
-      currentGroupBordersAboveWire: number;
-      currentGroupBordersBelowWire: number;
-      currentClassicalGroupsAboveFirstClassical: number;
-      currentBottomBordersAboveFirstClassical: number;
-      heightAboveWire: number;
-      heightBelowWire: number;
-      heightAboveFirstClassical: number;
-      bottomBordersAboveFirstClassical: number;
-    };
-  } = {};
-
-  const numResultsByQubit: { [qubitIndex: number]: number } = {};
-  for (const q of qubits) {
-    const { id } = q;
-    rowHeights[id] = {
-      currentGroupBordersBelowWire: 0,
-      currentGroupBordersAboveWire: 0,
-      currentClassicalGroupsAboveFirstClassical: 0,
-      currentBottomBordersAboveFirstClassical: 0,
-      heightBelowWire: 0,
-      heightAboveWire: 0,
-      heightAboveFirstClassical: 0,
-      bottomBordersAboveFirstClassical: 0,
-    };
-    numResultsByQubit[id] = q.numResults ?? 0;
-  }
-
-  updateRowHeights(componentGrid, rowHeights, numResultsByQubit);
-  return rowHeights;
-}
-
-function updateRowHeights(
-  componentGrid: ComponentGrid,
-  rowHeights: {
-    [qubitIndex: number]: {
-      currentGroupBordersAboveWire: number;
-      currentGroupBordersBelowWire: number;
-      currentClassicalGroupsAboveFirstClassical: number;
-      currentBottomBordersAboveFirstClassical: number;
-      heightAboveWire: number;
-      heightBelowWire: number;
-      heightAboveFirstClassical: number;
-      bottomBordersAboveFirstClassical: number;
-    };
-  },
-  numResultsByQubit: { [qubitIndex: number]: number },
-) {
-  for (const col of componentGrid) {
-    for (const component of col.components) {
-      if (isExpandedGroup(component)) {
-        // The group's dashed box top is anchored at the topmost reg's y and the bottom at the
-        // bottommost reg's y. Each border bumps a row-height counter chosen by which layout row its
-        // y lands in:
-        //
-        //   - Pure qubit ref `{q}`, q has no classical sub-wires → gap above/below q's wire
-        //     (`heightAboveWire` / `heightBelowWire`).
-        //   - Pure qubit ref `{q}`, q has classical sub-wires → top goes to `heightAboveWire`;
-        //     bottom lands in the gap before q's first classical sub-wire
-        //     (`bottomBordersAboveFirstClassical`).
-        //   - Classical sub-wire ref `{q, r}` → top lands in that gap
-        //     (`heightAboveFirstClassical`); bottom goes to `heightBelowWire`.
-        //
-        // The two "above first classical" counters differ because top borders carry labels (stack
-        // at `groupTopPadding`) while bottom borders don't (stack at `groupBottomPadding`).
-        const regs = getOperationRegisters(component);
-        if (regs.length === 0) continue;
-
-        const qubits = regs.map((r) => r.qubit);
-        const minQubit = Math.min(...qubits);
-        const maxQubit = Math.max(...qubits);
-
-        // For minQubit: the *topmost* anchor ref is a pure qubit ref if one exists on minQubit
-        // (pure refs sit above any classical sub-wires); otherwise it's a classical ref.
-        const minQubitHasPureRef = regs.some(
-          (r) => r.qubit === minQubit && r.result == null,
-        );
-
-        // For maxQubit: the *bottommost* anchor ref is a classical ref if any exist on maxQubit
-        // (classical sub-wires sit below the qubit wire); otherwise it's the pure qubit ref.
-        const maxQubitHasClassicalRef = regs.some(
-          (r) => r.qubit === maxQubit && r.result != null,
-        );
-
-        // Track which counters we bumped so we can decrement after recursion.
-        let bumpedAboveWireQ: number | null = null;
-        let bumpedTopFirstClassicalQ: number | null = null;
-        let bumpedBottomFirstClassicalQ: number | null = null;
-        let bumpedBelowWireQ: number | null = null;
-
-        // Top border placement
-        if (minQubitHasPureRef) {
-          rowHeights[minQubit].currentGroupBordersAboveWire++;
-          rowHeights[minQubit].heightAboveWire = Math.max(
-            rowHeights[minQubit].heightAboveWire,
-            rowHeights[minQubit].currentGroupBordersAboveWire,
-          );
-          bumpedAboveWireQ = minQubit;
-        } else {
-          rowHeights[minQubit].currentClassicalGroupsAboveFirstClassical++;
-          rowHeights[minQubit].heightAboveFirstClassical = Math.max(
-            rowHeights[minQubit].heightAboveFirstClassical,
-            rowHeights[minQubit].currentClassicalGroupsAboveFirstClassical,
-          );
-          bumpedTopFirstClassicalQ = minQubit;
-        }
-
-        // Bottom border placement
-        if (
-          !maxQubitHasClassicalRef &&
-          (numResultsByQubit[maxQubit] ?? 0) > 0
-        ) {
-          // Bottom anchor is a pure qubit ref on a qubit that has classical sub-wires below it. The
-          // border y sits in the gap between maxQubit's wire and its first classical sub-wire, but
-          // unlike top borders has no label, so it uses the smaller bottom-border counter.
-          rowHeights[maxQubit].currentBottomBordersAboveFirstClassical++;
-          rowHeights[maxQubit].bottomBordersAboveFirstClassical = Math.max(
-            rowHeights[maxQubit].bottomBordersAboveFirstClassical,
-            rowHeights[maxQubit].currentBottomBordersAboveFirstClassical,
-          );
-          bumpedBottomFirstClassicalQ = maxQubit;
-        } else {
-          rowHeights[maxQubit].currentGroupBordersBelowWire++;
-          rowHeights[maxQubit].heightBelowWire = Math.max(
-            rowHeights[maxQubit].heightBelowWire,
-            rowHeights[maxQubit].currentGroupBordersBelowWire,
-          );
-          bumpedBelowWireQ = maxQubit;
-        }
-
-        // recurse
-        updateRowHeights(
-          component.children || [],
-          rowHeights,
-          numResultsByQubit,
-        );
-
-        // decrement (mirror the bumps above)
-        if (bumpedAboveWireQ != null) {
-          rowHeights[bumpedAboveWireQ].currentGroupBordersAboveWire--;
-        }
-        if (bumpedTopFirstClassicalQ != null) {
-          rowHeights[bumpedTopFirstClassicalQ]
-            .currentClassicalGroupsAboveFirstClassical--;
-        }
-        if (bumpedBottomFirstClassicalQ != null) {
-          rowHeights[bumpedBottomFirstClassicalQ]
-            .currentBottomBordersAboveFirstClassical--;
-        }
-        if (bumpedBelowWireQ != null) {
-          rowHeights[bumpedBelowWireQ].currentGroupBordersBelowWire--;
-        }
-      }
-    }
-  }
-}
-
-/**
- * An "expanded group" here is any operation that is to be rendered showing its children, with a
- * dashed box around the children.
- */
-export function isExpandedGroup(component: Operation) {
-  const expandedAttr = component.dataAttributes?.["expanded"];
-  if (expandedAttr != null) {
-    return expandedAttr === "true";
-  }
-
-  const hasChildren =
-    component.children != null && component.children.length > 0;
-  const hasClassicalControls =
-    component.kind === "unitary" &&
-    (((component.controls ?? []).some((reg) => reg.result != null) ?? false) ||
-      (component.metadata?.controlResultIds?.length ?? 0) > 0);
-
-  // Classically controlled groups default to expanded when not explicitly set.
-  return hasChildren && hasClassicalControls;
 }
