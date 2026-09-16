@@ -2026,13 +2026,12 @@ impl Lowerer {
                 has_invalid_probability = true;
                 continue;
             };
-            let Some(probability) = self.expect_probability_in_range(instruction, arg.span, value)
-            else {
+            if self.validate_probability(instruction, arg.span, value).is_none() {
                 has_invalid_probability = true;
                 continue;
-            };
+            }
 
-            probabilities.push(probability);
+            probabilities.push(value);
         }
 
         if has_invalid_probability {
@@ -2043,14 +2042,14 @@ impl Lowerer {
         Some(probabilities)
     }
 
-    fn expect_probability_in_range(
+    fn validate_probability(
         &mut self,
         instruction: &parser::Instruction,
         arg_span: Span,
         probability: f64,
-    ) -> Option<Probability> {
+    ) -> Option<()> {
         if (0.0..=1.0).contains(&probability) {
-            Some(probability)
+            Some(())
         } else {
             self.push_error(Error::InvalidProbability {
                 instruction: instruction.name.clone(),
