@@ -25,8 +25,8 @@ fn mpad_yields_unsupported_error() {
 #[test]
 fn other_annotations_are_ignored() {
     let source = indoc! {"
-    DETECTOR rec[-1]
-    OBSERVABLE_INCLUDE(0) rec[-1]
+    DETECTOR
+    OBSERVABLE_INCLUDE(0)
     QUBIT_COORDS(0, 0) 0
     SHIFT_COORDS(1, 1)
     TICK

@@ -318,6 +318,10 @@ pub enum Noise {
         q0: StimQubitId,
         q1: StimQubitId,
     },
+    HeraldedErase {
+        probability: Probability,
+        qubit: StimQubitId,
+    },
     HeraldedPauliChannel1 {
         probabilities: [Probability; 4],
         qubit: StimQubitId,
@@ -380,7 +384,6 @@ pub struct Fault {
 #[derive(Clone, Copy)]
 pub enum SingleQubitNoiseKind {
     Depolarize,
-    HeraldedErase,
     Fault(FaultKind),
 }
 pub enum Annotation {
@@ -561,6 +564,12 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record is out of bounds")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfBounds"))]
+    MeasurementRecordOutOfBounds {
+        #[label]
+        span: Span,
+    },
     #[error("a REPEAT count of zero is not supported")]
     #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
     ZeroRepeatCount {
@@ -594,11 +603,32 @@ impl AllowedRecPosition {
 
 struct Lowerer {
     errors: Vec<Error>,
+    record_count: u32,
 }
 
 impl Lowerer {
     fn new() -> Self {
-        Self { errors: Vec::new() }
+        Self {
+            errors: Vec::new(),
+            record_count: 0,
+        }
+    }
+
+    fn increase_record_count(&mut self, count: usize) {
+        // Record offsets are u32, so once this count reaches u32::MAX, every
+        // representable offset is in bounds. Saturation preserves that without overflow.
+        let count = u32::try_from(count).unwrap_or(u32::MAX);
+        self.record_count = self.record_count.saturating_add(count);
+    }
+
+    fn update_record_count_after_repeat(
+        &mut self,
+        record_count_before_repeat: u32,
+        repeat_count: u32,
+    ) {
+        let records_per_iteration = self.record_count.saturating_sub(record_count_before_repeat);
+        self.record_count = record_count_before_repeat
+            .saturating_add(records_per_iteration.saturating_mul(repeat_count));
     }
 
     fn lower_circuit(&mut self, circuit: &parser::Circuit) -> Circuit {
@@ -618,9 +648,9 @@ impl Lowerer {
                         lowered_items.push(Item::Block(block));
                     }
                 }
-                parser::Item::Instruction(instruction) => {
+                parser::Item::Instruction(parser_instruction) => {
                     lowered_items.extend(
-                        self.lower_instruction(instruction)
+                        self.lower_instruction(parser_instruction)
                             .into_iter()
                             .map(Item::Instruction),
                     );
@@ -694,9 +724,15 @@ impl Lowerer {
             return None;
         }
 
+        let record_count_before_repeat = self.record_count;
+        let body = self.lower_items(items);
+        // The body is lowered once but executes num_repeats times, so later record
+        // references must account for the records produced by every iteration.
+        self.update_record_count_after_repeat(record_count_before_repeat, num_repeats);
+
         Some(Block::RepeatBlock {
             count: num_repeats,
-            body: self.lower_items(items),
+            body,
         })
     }
 
@@ -784,9 +820,7 @@ impl Lowerer {
                 self.broadcast_single_qubit_noise(instruction, SingleQubitNoiseKind::Depolarize)
             }
             "DEPOLARIZE2" => self.broadcast_depolarize2(instruction),
-            "HERALDED_ERASE" => {
-                self.broadcast_single_qubit_noise(instruction, SingleQubitNoiseKind::HeraldedErase)
-            }
+            "HERALDED_ERASE" => self.broadcast_heralded_erase(instruction),
             "HERALDED_PAULI_CHANNEL_1" => self.broadcast_heralded_pauli_channel_1(instruction),
             "II_ERROR" => {
                 self.expect_probabilities(instruction);
@@ -1067,6 +1101,7 @@ impl Lowerer {
             return Vec::new();
         };
         let qubit_targets = self.expect_qubit_targets(instruction, true);
+        self.increase_record_count(qubit_targets.len());
         qubit_targets
             .into_iter()
             .map(|(qubit, negated)| Instruction {
@@ -1091,6 +1126,7 @@ impl Lowerer {
             return Vec::new();
         };
         let qubit_target_pairs = self.expect_qubit_pairs(instruction, true);
+        self.increase_record_count(qubit_target_pairs.len());
         qubit_target_pairs
             .into_iter()
             .map(|[(q0, neg0), (q1, neg1)]| Instruction {
@@ -1114,6 +1150,7 @@ impl Lowerer {
             return Vec::new();
         };
         let pauli_products = self.expect_pauli_products(instruction);
+        self.increase_record_count(pauli_products.len());
         pauli_products
             .into_iter()
             .map(|pauli_product| Instruction {
@@ -1148,6 +1185,21 @@ impl Lowerer {
             .collect()
     }
 
+    fn broadcast_heralded_erase(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
+        let Some(probability) = self.expect_probability(instruction) else {
+            return Vec::new();
+        };
+        let qubit_targets = self.expect_qubit_targets(instruction, false);
+        self.increase_record_count(qubit_targets.len());
+        qubit_targets
+            .into_iter()
+            .map(|(qubit, _)| Instruction {
+                span: instruction.span,
+                kind: InstructionKind::Noise(Noise::HeraldedErase { probability, qubit }),
+            })
+            .collect()
+    }
+
     fn broadcast_depolarize2(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
         let Some(probability) = self.expect_probability(instruction) else {
             return Vec::new();
@@ -1170,11 +1222,13 @@ impl Lowerer {
         &mut self,
         instruction: &parser::Instruction,
     ) -> Vec<Instruction> {
-        let Some(probabilities): Option<[Probability; 4]> = self.expect_n_probabilities(instruction)
+        let Some(probabilities): Option<[Probability; 4]> =
+            self.expect_n_probabilities(instruction)
         else {
             return Vec::new();
         };
         let qubit_targets = self.expect_qubit_targets(instruction, false);
+        self.increase_record_count(qubit_targets.len());
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1188,7 +1242,8 @@ impl Lowerer {
     }
 
     fn broadcast_pauli_channel_1(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(probabilities): Option<[Probability; 3]> = self.expect_n_probabilities(instruction)
+        let Some(probabilities): Option<[Probability; 3]> =
+            self.expect_n_probabilities(instruction)
         else {
             return Vec::new();
         };
@@ -1206,7 +1261,8 @@ impl Lowerer {
     }
 
     fn broadcast_pauli_channel_2(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
-        let Some(probabilities): Option<[Probability; 15]> = self.expect_n_probabilities(instruction)
+        let Some(probabilities): Option<[Probability; 15]> =
+            self.expect_n_probabilities(instruction)
         else {
             return Vec::new();
         };
@@ -1229,6 +1285,7 @@ impl Lowerer {
             return Vec::new();
         };
         let qubit_targets = self.expect_qubit_targets(instruction, false);
+        self.increase_record_count(qubit_targets.len());
         qubit_targets
             .into_iter()
             .map(|(qubit, _)| Instruction {
@@ -1284,6 +1341,7 @@ impl Lowerer {
                 }),
             });
         }
+        self.increase_record_count(instructions.len());
         instructions
     }
 
@@ -1534,10 +1592,7 @@ impl Lowerer {
         qubit_target_pairs
     }
 
-    fn expect_qubit_triples(
-        &mut self,
-        instruction: &parser::Instruction,
-    ) -> Vec<[StimQubitId; 3]> {
+    fn expect_qubit_triples(&mut self, instruction: &parser::Instruction) -> Vec<[StimQubitId; 3]> {
         let Some(triples) = self.expect_target_triples(instruction) else {
             return Vec::new();
         };
@@ -1569,7 +1624,10 @@ impl Lowerer {
         pauli_products
     }
 
-    fn expect_measurement_records(&mut self, instruction: &parser::Instruction) -> Vec<MeasurementRecord> {
+    fn expect_measurement_records(
+        &mut self,
+        instruction: &parser::Instruction,
+    ) -> Vec<MeasurementRecord> {
         let mut measurement_records = Vec::new();
         for target in &instruction.targets {
             let Some(measurement_record) = self.expect_measurement_record(instruction, target)
@@ -1865,6 +1923,12 @@ impl Lowerer {
             });
             return None;
         };
+
+        if self.record_count.checked_sub(value).is_none() {
+            self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
+            return None;
+        };
+
         Some(NegatableMeasurementRecord {
             record: MeasurementRecord {
                 offset: value,
@@ -2026,7 +2090,10 @@ impl Lowerer {
                 has_invalid_probability = true;
                 continue;
             };
-            if self.validate_probability(instruction, arg.span, value).is_none() {
+            if self
+                .validate_probability(instruction, arg.span, value)
+                .is_none()
+            {
                 has_invalid_probability = true;
                 continue;
             }

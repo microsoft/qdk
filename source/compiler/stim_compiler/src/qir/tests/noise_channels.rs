@@ -711,7 +711,9 @@ fn ii_error_yields_expected_qir() {
 
 #[test]
 fn ii_error_with_incomplete_trailing_pair_yields_error() {
-    check("II_ERROR 0 1 2", &expect![[r#"
+    check(
+        "II_ERROR 0 1 2",
+        &expect![[r#"
         Qdk.Stim.Compiler.OddTargetCount
 
           x instruction II_ERROR requires an even number of targets
@@ -719,7 +721,8 @@ fn ii_error_with_incomplete_trailing_pair_yields_error() {
          1 | II_ERROR 0 1 2
            : ^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
