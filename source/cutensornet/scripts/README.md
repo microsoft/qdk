@@ -1,19 +1,46 @@
 # cuTensorNet FFI generation
 
-Everything under `src/bindings/` and `src/library/symbols{,/*}.rs` is generated.
-Never hand-edit those files: `generate-loader --check` and the `cargo test`
-cross-checks exist specifically to reject that, and a hand-edit is silently lost
-the next time anyone regenerates.
+There are two maintainer-run generators: one translates selected NVIDIA C API
+declarations into Rust, and the other generates typed dynamic-loading code from
+those declarations. Neither generator loads NVIDIA libraries or performs GPU
+work. Ordinary Cargo builds consume the checked-in output; they do not regenerate
+it.
+
+```text
+NVIDIA SDK headers + CUDA headers + function/type selection
+                            |
+               scripts/generate-bindings.sh
+               (pinned Linux x86-64 host; CPU work)
+                            |
+                 src/bindings/v2_13.rs
+                            |
+                 + function manifest
+                            |
+       cargo run -p qdk_cutensornet --bin generate-loader
+       (any supported Rust development host; CPU work)
+                            |
+         src/library/symbols.rs and symbols/*.rs
+```
+
+Only `src/bindings/v2_13.rs` and `src/library/symbols{,/*}.rs` are generated
+by this workflow. Never hand-edit them: regeneration replaces manual changes,
+and the loader's `--check` mode and test cross-checks detect stale output.
+`src/bindings/cudart_12.rs` is hand-audited, and the ABI assertions in
+`src/bindings/mod.rs` are handwritten. Safe wrappers and numerical execution
+logic are not generated.
+
+Unless stated otherwise, paths and shell commands below are relative to
+`source/cutensornet/`.
 
 ## What lives here
 
-| File / target              | Role                                                                                 |
-| -------------------------- | ------------------------------------------------------------------------------------ |
-| `cutensornet-symbols.txt`  | The symbol manifest. Single source of truth for **which functions** the crate binds. |
-| `generate-bindings.sh`     | Header &rarr; `src/bindings/v2_13.rs`. Requires a CUDA host.                         |
-| `src/generator.rs`         | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.   |
-| `--bin generate-loader`    | The I/O wrapper around `src/generator.rs`. Runs anywhere.                            |
-| `validate-on-cuda-host.sh` | Runs the checks that only a CUDA x86_64 host can run. Copy to the GPU host and run.  |
+| File / target              | Role                                                                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `cutensornet-symbols.txt`  | The symbol manifest. Single source of truth for **which functions** the crate binds.                                         |
+| `generate-bindings.sh`     | Headers and function/type selection &rarr; `src/bindings/v2_13.rs`. Requires the pinned x86-64 tools and headers, not a GPU. |
+| `src/generator.rs`         | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.                                           |
+| `--bin generate-loader`    | Reads the manifest and Rust bindings; writes/formats the loader files. Runs on any supported Rust development host.          |
+| `validate-on-cuda-host.sh` | Checks the FFI surface on Linux x86-64, with native-library and optional GPU qualification steps.                            |
 
 Both generators consume the same manifest, so the bindgen allowlist and the
 dynamic loader cannot disagree about which symbols exist.
@@ -52,11 +79,15 @@ cutensornetGetLastError          get_last_error          context      optional
 ## Adding a function
 
 1. Add a manifest row, in its family's block so the generated diff stays local.
-2. Regenerate the bindings **on a CUDA host** (see below). This is required even
-   though the header is unchanged: the new symbol has no declaration until the
+2. Regenerate the bindings **in the pinned Linux x86-64 environment** (see below).
+   No GPU is needed. Regeneration is required even though the header is unchanged:
+   the new symbol has no declaration until the
    allowlist widens, and `cargo test` fails until it does.
-3. Run `cargo run -p qdk_cutensornet --bin generate-loader` and commit the result.
-4. Write the safe wrapper by hand — the generator stops at the raw pointer.
+3. Run `cargo run -p qdk_cutensornet --bin generate-loader`.
+4. Review and validate the result, then commit the manifest and both generated
+   outputs together. A manifest-only change leaves the generation checks failing.
+
+Write any safe wrapper by hand — the generator stops at the raw pointer.
 
 That row is the only place the symbol is named. The function-pointer alias, the
 `CuTensorNetFunctions` field, the `resolve_*` call, the bindgen allowlist and the
@@ -76,6 +107,8 @@ type only needs listing when nothing in the surface references it. A type
 reached only through a `void *` attribute buffer — `cutensornetComputeType_t`,
 for instance — is _not_ pulled in transitively and must be named explicitly.
 Adding to these lists requires regenerating the bindings.
+Add or update the handwritten size/alignment/offset assertions in
+`src/bindings/mod.rs` when introducing a new ABI payload.
 
 The optimizer metadata payloads follow the same rule:
 
@@ -148,12 +181,24 @@ take:
 
 Only step 4 touches the generator; the rest is bindings work.
 
-## Regenerating the bindings (CUDA host only)
+## Regenerating the bindings (pinned x86-64 host)
+
+The input archive is NVIDIA's compressed cuQuantum SDK distribution for
+Linux x86-64/CUDA 12. Its C headers describe the API; native library binaries
+contain NVIDIA's implementation. Generation uses only the headers, not those
+binaries: the script extracts `*/include/cutensornet.h` and its companion
+`*/include/cutensornet/*` files into a temporary directory. It reads dependent
+CUDA headers from the separately installed CUDA include directory.
 
 ```sh
-./scripts/generate-bindings.sh <path>/cuquantum-linux-x86_64-26.06.0.17_cuda12-archive.tar.xz \
+./scripts/generate-bindings.sh /path/to/cuquantum-linux-x86_64-26.06.0.17_cuda12-archive.tar.xz \
     src/bindings/v2_13.rs
 ```
+
+The script invokes bindgen, which uses Clang to parse C declarations and produce
+the selected Rust types, constants and `extern "C"` function declarations.
+It does not translate NVIDIA's implementation into Rust, compile cuTensorNet,
+resolve symbols from a `.so`, or run a contraction.
 
 The script refuses to run unless the environment matches what the checked-in
 output was produced with: `bindgen 0.72.1`, `Ubuntu clang version
@@ -163,6 +208,11 @@ output was produced with: `bindgen 0.72.1`, `Ubuntu clang version
 surface, pins its hash, generates the reduced surface twice to prove
 determinism, normalises formatting to Rust edition 2024, and verifies the
 selected function set against the manifest before replacing the output.
+
+The host matters because the script passes no `--target` triple to Clang:
+bindgen inherits its host ABI. Use the pinned Linux x86-64 environment, which may
+be a build machine or VM without a GPU. A machine merely capable of running
+NVIDIA software does not necessarily have the matching generation prerequisites.
 
 **Byte-for-byte reproducibility remains required.** Once generated output is
 committed, regenerating with the same manifest, type allowlist and pinned
@@ -178,20 +228,33 @@ cargo run -p qdk_cutensornet --bin generate-loader             # rewrite the gen
 cargo run -p qdk_cutensornet --bin generate-loader -- --check  # fail if stale or edited
 ```
 
-No CUDA, bindgen or archive needed — signatures are read from the checked-in
-`src/bindings/v2_13.rs`, so the function-pointer types are transcribed from the
-same header the declarations came from rather than by hand.
+Cargo builds and runs the `generate-loader` executable in the `qdk_cutensornet`
+workspace package. This is an explicit code-generation command, not a build
+hook or a request to run the simulator.
+
+The executable reads `scripts/cutensornet-symbols.txt` and
+`src/bindings/v2_13.rs`. It derives function-pointer types from those Rust
+signatures, then generates the function-table fields and required/optional
+symbol-resolution code. No CUDA, bindgen, SDK archive, native NVIDIA library or
+GPU is needed. This step can run on a different host from header generation
+once the matching manifest and bindings are available there.
+
+Generating lookup code does not perform the lookups. Later, when QDK explicitly
+loads the native library, that generated code resolves function addresses and
+reports missing required symbols. Runtime library loading and numerical GPU
+execution are separate from both generation steps.
 
 The generator emits unformatted source and pipes it through `rustfmt`; it never
 tries to predict how rustfmt will lay the file out. `checked_in_loader_matches_freshly_generated_output`
 formats freshly rendered text the same way and compares it byte for byte, so
 drift is caught without emulating the formatter.
 
-## Validating on the GPU host
+## Validating the FFI surface and GPU behavior
 
 `mod library` is gated to linux/x86_64, so on any other machine its tests do not
-fail — they silently do not exist. A green `cargo test` on a dev box therefore
-says nothing about the loader. `validate-on-cuda-host.sh` closes that gap:
+fail — they silently do not exist. Cross-platform generator tests still run,
+but passing them does not establish that the native resolver tests ran.
+`validate-on-cuda-host.sh` closes that gap:
 
 ```sh
 scripts/validate-on-cuda-host.sh                      # the FFI surface, fast
@@ -200,9 +263,9 @@ scripts/validate-on-cuda-host.sh --qualification      # also run the slow A100 s
 scripts/validate-on-cuda-host.sh --skip-hardware      # CUDA host without a usable library
 ```
 
-Copy the checkout (or just this crate) to the GPU host and run it from anywhere;
-it validates the tree it lives in and writes nothing outside it. It refuses to
-run on a non-x86_64 host rather than reporting a misleading pass, then checks:
+Run it from any directory on the supported host; it locates the crate relative
+to the script. It refuses to run on a non-x86_64 host rather than reporting a
+misleading pass, then checks:
 
 1. The generated loader is current and unedited.
 2. `cargo fmt --check` and `cargo clippy --all-targets -D warnings`.
@@ -220,8 +283,7 @@ run on a non-x86_64 host rather than reporting a misleading pass, then checks:
 6. With `--archive`, that `generate-bindings.sh` reproduces `src/bindings/v2_13.rs`
    byte for byte. Self-validating, so it needs no hash pinned in this script.
 
-The heading is a slight misnomer, and it is worth being precise about what each
-part actually requires, because the three requirements are independent:
+The host ABI, native libraries and GPU requirements are independent:
 
 | Step                                                  | x86-64 | The real `.so` | A GPU   |
 | ----------------------------------------------------- | ------ | -------------- | ------- |
@@ -231,26 +293,27 @@ part actually requires, because the three requirements are independent:
 | `tests/availability.rs`                               | yes    | yes            | **no**  |
 | `replay/qualification.rs` (7 `#[ignore]`d)            | yes    | yes            | **yes** |
 
-So only the last row needs hardware. Everything else needs an x86-64 host with
-the libraries present, and the loader work needs neither &mdash; it runs on any
-dev box, which is why its tests are worth having in Rust.
-
-The x86-64 requirement for the bindings is an ABI requirement, not a hardware
-one: `generate-bindings.sh` passes no `--target` triple to clang, so bindgen
-inherits the host ABI. Combined with the pinned clang build, that makes the
-environment "Ubuntu 22.04 x86-64", which is what the GPU host happens to be.
+Only the last row needs a GPU. Native-library availability checks need the
+installed `.so` files; header generation and fake-resolver tests do not.
+Loader generation and its tests need neither NVIDIA libraries nor an x86-64
+host.
 
 The seven `#[ignore]`d A100 tests in `replay/qualification.rs` are **not** run by
 default. They are numerical qualification runs — expensive and requiring a real
 GPU — so they answer "does the simulation still produce the right numbers", not
 "is the FFI surface intact". Each one sweeps its parameters from a table pinned
 in the test body, so running them takes no configuration.
-A manifest or loader change cannot plausibly pass step 5 and fail them for a
-reason worth blocking on, and folding them in would turn a two-minute check into
-a long one. Pass `--qualification` when you do want them.
+Passing symbol resolution does not establish numerical correctness. These runs
+remain a separate, opt-in gate: pass `--qualification` when validating simulation
+behavior.
 
 Nothing about a particular transfer workflow — bundle hashes, clone URLs, commit
 ranges — belongs in this script; that would go stale on the next commit.
+If a workflow uses a temporary delivery wrapper, it should call the existing
+generators and validator rather than introduce another symbol inventory or
+generation implementation. Moving inputs between hosts and collecting evidence
+are surrounding workflow steps, not part of translating headers or generating
+the loader.
 
 ## What the guards catch
 

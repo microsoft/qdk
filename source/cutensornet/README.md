@@ -438,8 +438,9 @@ evidence. The B2 expectation test has separate retained A100 evidence at widths
 
 ### Deterministic binding validation
 
-Binding regeneration is maintainer-only and never runs under Cargo. The script
-checks the archive, header, bindgen, clang, and full-reference hashes; runs the
+Header regeneration is maintainer-only and never runs during ordinary Cargo
+builds. The script checks the archive, header, bindgen, clang, and full-reference
+hashes; runs the
 reduced generation twice; compares both outputs byte-for-byte; validates the
 selected declaration set; and reports the resulting hash and line count.
 
@@ -461,9 +462,10 @@ The checked-in cuTensorNet declarations are generated from NVIDIA cuQuantum
 - reduced output SHA-256: `434f2415577a82a4a054d3e10eb137e456f413a75fe7d3158085402980dd4a2c`
 - reduced output line count: 828
 
-Only the reduced output moves when the manifest changes. The artifact, header,
-and full reference hashes are properties of the upstream SDK, so they stay
-fixed until the pinned cuQuantum version is bumped.
+Changing the selected functions or types changes the reduced output without
+changing the SDK inputs. The full-reference hash depends on the headers and
+pinned generation tools/options, not the reduced selection; its check remains
+unchanged when only that selection changes.
 
 The source artifact is identified by NVIDIA's `redistrib_26.06.0.json`.
 NVIDIA headers, archives, and binaries are not stored in this repository. See
@@ -472,13 +474,28 @@ material's terms.
 
 ## Regeneration
 
-Regeneration is a maintainer operation and is never invoked by Cargo. In the
-pinned Phase 2 environment, run:
+Generation is an explicit maintainer operation, not an ordinary Cargo build
+step. There are two generators:
+
+```text
+SDK headers + function/type selection
+  -> generate-bindings.sh -> src/bindings/v2_13.rs
+Rust declarations + function manifest
+  -> generate-loader -> src/library/symbols.rs and symbols/*.rs
+```
+
+Header generation requires the pinned Linux x86-64 tools and CUDA headers, but
+no NVIDIA GPU, driver or native library loading. Loader generation needs only
+the Rust development environment and the manifest/generated declarations, so it
+can also run on another development host. Neither step runs the simulator.
+
+After updating the selection inputs, run from the repository root:
 
 ```bash
 source/cutensornet/scripts/generate-bindings.sh \
   /path/to/cuquantum-linux-x86_64-26.06.0.17_cuda12-archive.tar.xz \
-  source/cutensornet/src/bindings/v2_13.rs
+  source/cutensornet/src/bindings/v2_13.rs &&
+cargo run -p qdk_cutensornet --bin generate-loader
 ```
 
 The script validates every pinned input, verifies the known full bindgen
@@ -486,6 +503,16 @@ output, generates the approved reduced declarations twice, requires the two
 outputs to be byte-identical, and reports the final SHA-256. The full reference
 hash verifies the complete input closure; the reduced output hash identifies
 the exact declarations checked into `src/bindings/v2_13.rs`.
+
+The explicit `cargo run` command builds and runs our loader generator; it does
+not make code generation part of ordinary builds. It writes typed function
+pointers, function-table fields and symbol-resolution code. Actual lookups in
+`libcutensornet.so` occur later, during runtime discovery.
+
+See [cuTensorNet FFI generation](scripts/README.md) for the SDK/header inputs,
+selection rules, generated versus handwritten files, host requirements, and
+validation commands. Transfer-specific paths and evidence do not belong to the
+generation mechanism.
 
 ## TODO: a guided environment tool
 
