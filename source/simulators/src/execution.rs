@@ -7,6 +7,7 @@ mod adaptive;
 mod immediate;
 mod protocol;
 mod region;
+mod tensor_network;
 mod unitary;
 
 pub use adaptive::{
@@ -22,6 +23,7 @@ pub use protocol::{
     AdaptiveCommand, AdaptiveResponse, MeasurementKind, MeasurementRequest, RegionId,
 };
 pub use region::{QuantumEvolutionRegion, RegionConsumer};
+pub use tensor_network::{CircuitTensorNetwork, TensorNetworkBuildError};
 pub use unitary::UnitaryOperation;
 pub(crate) use unitary::{
     OPID_MRESETZ, OPID_MZ, apply_unitary_immediately, resolve_unitary_operation,

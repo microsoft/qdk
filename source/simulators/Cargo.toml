@@ -30,6 +30,7 @@ paulimer = { workspace = true }
 pauliverse = { workspace = true }
 index_map = { path = "../index_map" }
 noisy_simulator = { path = "../noisy_simulator" }
+tensornet = { path = "../tensornet" }
 
 [dev-dependencies]
 expect-test = { workspace = true }

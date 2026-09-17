@@ -1191,6 +1191,26 @@ def run_mps_full_state_placeholder(
     """
     ...
 
+class _TensorNetworkBuildReport(TypedDict):
+    operation_count: int
+    nodes: List[List[Tuple[int, int]]]
+    buffers: List[List[complex]]
+    node_buffer_ids: List[int]
+    output_axes: List[Tuple[int, int]]
+    hyperedges: List[int]
+    marginalized: List[int]
+    measurement_qubits: List[int]
+    measurement_result_ids: List[int]
+
+def _tensor_network_build_probe(input: dict) -> _TensorNetworkBuildReport:
+    """Describe one leading unitary region using the neutral Rust builder.
+
+    Input is existing AdaptiveProfilePass 64-bit bytecode, not a gate manifest.
+    Values are copied from the immutable coefficient bank for qualification.
+    This does not contract tensors, sample, or execute the terminal suffix.
+    """
+    ...
+
 def run_clifford_adaptive(
     input: dict,
     shots: int,

@@ -2,6 +2,7 @@
 
 This document records the general-contraction objective and its independently reviewed
 iterations. **I1 has a retained 4x4 input and independent CPU state reference;
+I2 builds and qualifies its neutral tensor network and coefficient bindings;
 general TN contraction and the public A100 milestone are not implemented.**
 It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
 sits next to the one it builds on, and it follows the same iteration discipline as
@@ -14,7 +15,7 @@ sits next to the one it builds on, and it follows the same iteration discipline 
 | What that notebook does today | Fault-tolerant **resource estimation** of a Trotterized 2D Ising quench. It builds the circuit, it never simulates it.                                                                |
 | What this document scopes     | Actually **classically simulating** that circuit (or a size-reduced version of it), to validate correctness and to explore how hard it can be made.                                   |
 | Prior art this builds on      | [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) — 1D MPS execution, same execution layer, same public API shape                                                                       |
-| Status                        | I1 input/reference delivered below. I2-I4 remain separate implementation/review units.                                                                                                |
+| Status                        | I1 input/reference and I2 builder qualification delivered below. I3a/I3b and I4 remain separate implementation/review units.                                                                                                |
 
 ## I1 retained input and CPU reference
 
@@ -136,6 +137,102 @@ shape are self-describing and checked by `verify`. The retained QIR is also admi
 that check establishes input/output shape only, not the amplitude oracle.
 
 ---
+
+## I2 neutral network and shared coefficient buffers
+
+I2 delivers `qdk_simulators::execution::CircuitTensorNetwork`, not a numerical
+backend or new `run_qir` selector. The builder receives a resolved
+`QuantumEvolutionRegion` plus its qubit count; it knows nothing about Ising
+parameters or chemistry. `qdk_simulators` now depends on the unchanged,
+shapes-only `tensornet` crate. MPS and vendor code are unchanged.
+
+```text
+1. Frozen measured.ll -> existing AdaptiveProfilePass
+2. Existing native conversion -> PreparedAdaptiveProgram
+3. AdaptiveExecution::ExecuteRegion -> neutral builder
+4. TensorNetwork + immutable buffer bank + node-to-buffer bindings
+5. ContractionQuery keeps every final qubit axis
+   STOP: no contraction, measurements or samples
+```
+
+Initial zero states share `[1,0]`. Rx is a dense factor with axes
+`[output,input]`; it creates a fresh wire index. Rzz is a diagonal factor with
+axes `[current(q1),current(q2)]`, sharing those indices across the gate:
+
+$$
+R_x(\theta)=
+\begin{pmatrix}
+\cos(\theta/2)&-i\sin(\theta/2)\\
+-i\sin(\theta/2)&\cos(\theta/2)
+\end{pmatrix},
+\qquad
+D_{ZZ}(\theta)[a,b]=e^{-i\theta(-1)^{a+b}/2}.
+$$
+
+The owner exposes `network()`, `buffers()`, `node_buffer_ids()` and
+`output_axes()`. Tensor node `v` uses
+`buffers()[node_buffer_ids()[v]]`; the buffer length equals the node's
+`Indices::element_count()`. All values follow `Indices::offset_of` and
+`strides()`: column-major, first axis fastest. Final axes are ordered
+`q0` through `q15`, with `k = sum(b[q] * 2^q)`, matching I1.
+`query()` borrows the network; the owner contains no self-reference.
+
+Repeated gates of the same kind and **exact f64 angle bits** share immutable
+coefficient storage even when their wire identities differ. Different gate
+kinds never alias merely because they have the same buffer length. There is
+no approximate matching, mutable scratch-buffer reuse, gate fusion or
+device-buffer allocation. The supported gates are I, Rx and Rzz; I is a
+validated no-op. Invalid operands, repeated Rzz operands, nonfinite angles and
+wire-count overflow return explicit errors. An empty region retains its
+zero-state boundaries; zero qubits and no gates describe the scalar one.
+Building a network does not allocate its dense amplitude output.
+
+For the unchanged frozen input, qualification establishes:
+
+| Surface | Result |
+| --- | --- |
+| Gate accounting | Every one of 192 Rx and 240 Rzz gates checked against the existing QDK QIR collector, including coefficients, operand order and wire versions |
+| Network | 448 nodes: 16 initial boundaries and 432 gate factors; 208 distinct dimension-two indices |
+| Buffer bank | 6 immutable buffers containing 22 complex-f64 values, **352 coefficient bytes**; excludes graph/binding storage and future device/workspace allocations |
+| Query | 16 ordered final axes; 65,536 output elements; 160 legal hyperedges; no marginalized wires |
+| Numerical qualification | Tiny built networks contracted by NumPy `einsum`, compared against signed/phase-sensitive analytic values with absolute error `1e-12`, no global-phase alignment |
+| Coverage | 12 public Rust API tests and 20 Python qualification cases; buffer size, values, sharing, ownership, invalid inputs, nonadjacent/asymmetric cases and frozen-QIR construction |
+
+The private `_tensor_network_build_probe` exports copies of actual builder
+data for those tests. It uses the existing preparation/command APIs, admits
+one leading region in one block, and stops before measurement without
+fabricating outcomes. It is not a full-program validator; I1 separately
+qualifies the frozen terminal suffix. Tiny numerical evaluation is bounded
+to 12 distinct binary indices and uses NumPy, not a new CPU contractor.
+The **full 4x4 network has not been contracted or compared numerically with
+the CPU reference**. Those are I3b acceptance gates.
+
+### I2 reproduction
+
+From the repository root, using the existing development environment with
+Maturin, PyQIR, NumPy and pytest (and `patchelf` for Linux wheel RPATH setup):
+
+```bash
+cargo fmt -p qdk_simulators -p qdk -- --check
+cargo test -p qdk_simulators --no-default-features --test tensor_network
+cargo test -p qdk_simulators --no-default-features --lib execution
+cargo clippy -p qdk_simulators -p qdk --all-targets -- -D warnings
+
+PATH="$PWD/source/qdk_package/.venv/bin:$PATH" \
+VIRTUAL_ENV="$PWD/source/qdk_package/.venv" \
+source/qdk_package/.venv/bin/python -m maturin develop --release \
+  --manifest-path source/qdk_package/Cargo.toml
+source/qdk_package/.venv/bin/python -m pytest -q \
+  samples/python_interop/ising2d_tensor_network_demo/test_tensor_network.py
+
+# Keep I1's pinned reference environment separate from the development build.
+.venv-ising-i1/bin/python -m pytest -q \
+  samples/python_interop/ising2d_tensor_network_demo/test_reference.py
+```
+
+No fixtures are regenerated or modified by I2. Host qualification needs no
+GPU and does not establish an optimizer path, treewidth, contraction cost,
+GPU buffer lifecycle, full-size numerical agreement or terminal-shot behavior.
 
 ## 1. The physical problem
 
@@ -303,7 +400,7 @@ Each iteration is independently evidenced before the next begins, following the 
 ```mermaid
 flowchart TB
     Input["I1: frozen 4x4 Case A<br/>independent CPU amplitudes/probabilities<br/>DELIVERED"] --> Graph
-    Graph["I2: neutral circuit-to-network builder<br/>tensornet shapes + separate numerical data"] --> Tiny
+    Graph["I2: neutral circuit-to-network builder<br/>shared coefficient bank + qualification DELIVERED"] --> Tiny
     Tiny["I3a: tiny real A100 optimize/contract<br/>qualify layout and native lifecycle"] --> Full
     Full["I3b: assembled 4x4 numerical execution<br/>compare against I1"] --> Wire
     Wire["I4: public run_qir and terminal shots<br/>A100 evidence + MPS regression"] --> Later
@@ -313,11 +410,12 @@ flowchart TB
 1. **I1: input and reference.** Delivered above. Keep the original generator,
    measured Base-QIR input, same-circuit pre-measurement CPU state and bit-order
    contract. This is not an A100 result.
-2. **I2: neutral network/data builder.** Reuse `QuantumEvolutionRegion`,
-   `UnitaryOperation`, `Index`, `Indices`, `TensorNetwork` and `ContractionQuery`.
-   Keep coefficients outside the shapes-only crate. Validate boundaries, axis order,
-   connectivity and small analytic contractions. A graph heuristic is not a guarantee
-   of contraction cost.
+2. **I2: neutral network/data builder.** Delivered above using
+   `QuantumEvolutionRegion`, `UnitaryOperation`, `Index`, `Indices`,
+   `TensorNetwork` and `ContractionQuery`. Coefficients remain in an immutable
+   shared bank outside the shapes-only crate. Boundaries, bindings, axis order,
+   connectivity and small analytic contractions are qualified. No optimizer
+   or cost estimate is included.
 3. **I3a then I3b: native contraction.** First qualify a tiny non-symmetric real
    A100 optimize/contract example; then execute the assembled 4x4 network and compare
    amplitudes/probabilities with I1 under explicit numerical tolerances. Reuse the
@@ -334,16 +432,16 @@ flowchart TB
 - **Grouping is recorded, not assumed.** The frozen lattice's edge coloring and
   the actual Suzuki gate schedule are retained. Historical 10x10 group-count
   observations do not define the gate count or cost of this 4x4 input.
-- **Treewidth is an estimate, not a guarantee.** A shallow circuit is favorable but not sufficient;
-  iteration 2's treewidth measurement is the first real evidence either way, before any contraction
-  code is written.
+- **Topology is not cost evidence.** I2 qualifies the concrete circuit graph,
+  not treewidth or a contraction path. Optimizer/path and workspace evidence
+  belong to I3; shallow depth alone does not establish feasibility.
 - **Feedforward is out of scope, and that's fine here.** The existing MPS consumer rejects
   mid-circuit measurement with feedforward ([`execution.rs`](../../../source/cutensornet/src/execution.rs), tested explicitly).
   The Trotter quench circuit has none — measurement happens once, at the end — so this limitation
   does not apply to this case and does not need to be solved as a prerequisite.
 - **Gate coverage is already present for MPS.** `Rzz` was added in `791a64b5b`;
   it is not an I1 prerequisite to reimplement. The fixed input uses only `Rx`/`Rzz`.
-  General TN gate tensors still belong to I2.
+  I2 now supplies separate general-TN Rx/Rzz factors; it does not reuse State API buffers.
 - **No profile relaxation is needed.** The original chemistry QIR has no
   measurements and is tagged Adaptive, but the existing generator recompiles
   the measured Q# under `TargetProfile.Base`. I1 verifies that tag. Genuine

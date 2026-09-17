@@ -6,13 +6,14 @@ evolution. The public API remains available through `qdk_simulators::execution`;
 
 ## Module Responsibilities
 
-| File           | Responsibility                                                                                               |
-| -------------- | ------------------------------------------------------------------------------------------------------------ |
-| `adaptive.rs`  | Prepares Adaptive bytecode, identifies unitary regions, interprets classical control, and produces commands. |
-| `protocol.rs`  | Defines the commands and responses exchanged between Adaptive control and an execution target.               |
-| `region.rs`    | Defines target-neutral quantum evolution regions and the consumer lifecycle.                                 |
-| `unitary.rs`   | Defines resolved unitary operations and the legacy `Simulator` application bridge.                           |
-| `immediate.rs` | Provides the generic synchronous shot driver and adapts the legacy `Simulator` trait.                        |
+| File                | Responsibility                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `adaptive.rs`       | Prepares Adaptive bytecode, identifies unitary regions, interprets classical control, and produces commands. |
+| `protocol.rs`       | Defines the commands and responses exchanged between Adaptive control and an execution target.               |
+| `region.rs`         | Defines target-neutral quantum evolution regions and the consumer lifecycle.                                 |
+| `unitary.rs`        | Defines resolved unitary operations and the legacy `Simulator` application bridge.                           |
+| `immediate.rs`      | Provides the generic synchronous shot driver and adapts the legacy `Simulator` trait.                        |
+| `tensor_network.rs` | Builds a zero-state ket network and immutable shared coefficient bank from a resolved region; no execution.  |
 
 The source-level dependency direction is:
 
@@ -128,23 +129,26 @@ source/
 │   ├── region.rs ................... 66    Consumer lifecycle
 │   ├── unitary.rs ................. 182    UnitaryOperation (21 variants)
 │   ├── immediate.rs ............... 248    Synchronous shot driver
+│   ├── tensor_network.rs ................. CircuitTensorNetwork: shapes + shared coefficients
 │   ├── tests.rs ................... 903                                      20 tests
 │   └── README.md ................. 1013    This file: block plan and defects
 │
 └── qdk_package/ .............................................. [PRODUCT]
-      The QDK surface. Four touchpoints only; the tensor-network work is
-      otherwise invisible here.
+      The QDK surface and private host-qualification bridge. The I2 probe is
+      not a public simulator selector.
     ├── qdk/simulation/_simulation.py       _run_qir_mps (:720)
     ├── qdk/_native.pyi                     Type stub
     ├── src/interpreter.rs                  PyO3 registration (:148)
-    └── src/qir_simulation/cpu_simulators.rs  run_mps_full_state_placeholder (:357)
+    ├── src/qir_simulation/cpu_simulators.rs  run_mps_full_state_placeholder (:357)
+    └── src/qir_simulation/tensor_network.rs  _tensor_network_build_probe (I2 only)
 
 samples/python_interop/ ....................................... [DEMO]
 ├── mps_trotter_quench_demo/                Working 1D demo: run.py, DEMO.md,
 │                                           figures/ with committed CSV + SVG
-└── ising2d_tensor_network_demo/            I1 input/reference, not a TN executor:
+└── ising2d_tensor_network_demo/            I1 reference + I2 builder qualification:
       build_measured_circuit.py             Chemistry -> measured Base QIR
       reference.py, test_reference.py       Pre-measurement sparse CPU oracle/checks
+      test_tensor_network.py               Built-buffer analytic and frozen-QIR checks
       fixtures/case_a_4x4/                  Frozen Q#, QIR, amplitudes/probabilities
 ```
 
@@ -154,6 +158,68 @@ measurement. The same gate body is compiled to the retained Base QIR, with
 gate-for-gate conversion checks. No shared-control, native-interface or MPS
 changes are needed for this reference; it is independent of the future TN
 builder. I1 does not establish general contraction or A100 execution.
+
+### Circuit-to-network builder (I2)
+
+`CircuitTensorNetwork::from_zero_state(qubit_count, &region)` consumes the
+existing `QuantumEvolutionRegion`/`UnitaryOperation` API. The dependency is
+`qdk_simulators -> tensornet`: circuit knowledge and numerical buffers remain
+in shared simulator code, while `tensornet` remains shapes-only. Neither the
+builder nor the existing shared control depends on NVIDIA.
+
+```text
+QuantumEvolutionRegion + qubit_count
+                 |
+       CircuitTensorNetwork
+         |       |        |
+    network   buffer    output_axes
+     nodes     bank     [q0, q1, ...]
+         |       ^
+         +-------+
+       node_buffer_ids
+                 |
+      query() borrows network
+      I3: optimize/contract (not implemented here)
+```
+
+The owning result exposes read-only `network()`, `buffers()`,
+`node_buffer_ids()` and `output_axes()` accessors. For node `v`, its data is
+`buffers()[node_buffer_ids()[v]]`, with length equal to
+`network().nodes()[v].element_count()`. The bank owns every buffer for the
+result's lifetime. Repeated gates of the same kind and exact f64 angle bits
+share one buffer, independent of wire identities; all initial zero states
+share `[1,0]`. This is immutable sharing, not overwriting a scratch buffer.
+There is no approximate angle matching, gate fusion, or device-memory policy.
+
+| Operation          | Node axes and coefficients                                | Wire behavior                                     |
+| ------------------ | --------------------------------------------------------- | ------------------------------------------------- |
+| Initial zero state | `[wire(q)]`, values `[1,0]`                               | One boundary per qubit, ordered by qubit ID       |
+| `I`                | No node, operand still validated                          | Unchanged                                         |
+| `Rx(theta)`        | `[output,input]`, `U[out,in]`                             | Fresh output index                                |
+| `Rzz(theta)`       | `[current(q1),current(q2)]`, `exp(-i*theta/2*(-1)^(a+b))` | Both indices unchanged; diagonal hyperedge factor |
+
+Rx and Rzz each use four complex-f64 values, but their tables are not
+interchangeable. Buffer construction uses `Indices::offset_of` and its
+column-major, first-axis-fastest convention. Wire identities represent
+circuit connectivity, not physical-site numbers. Nodes are the initial
+boundaries followed by nonidentity gates in operation order. Every final
+axis survives in `q0, q1, ...` order, so `k = sum(b[q] * 2^q)`.
+
+`query()` constructs a borrowing `ContractionQuery` rather than storing a
+self-reference. Construction rejects unsupported gates, nonfinite angles,
+invalid/repeated operands, wire-count overflow and accidental marginalized
+wires. An empty region retains its initial boundaries; zero qubits with no
+operations describe the scalar one. A large output can have
+`element_count() == None`: building its description does not allocate it.
+
+The private native probe reuses `adaptive_program_from_pydict`,
+`PreparedAdaptiveProgram` and `AdaptiveExecution::next_command` to reach a
+single leading region. It stops before measurement without inventing a
+measurement outcome, and copies the actual builder data into a diagnostic
+report. It is not a full-program validator or a `run_qir` dispatch path.
+Public Rust API tests cover the owner and binding contracts; the sample's
+Python tests lower actual QIR and use NumPy `einsum` only for tiny analytic
+checks. See [I2 reproduction and evidence](../../../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i2-neutral-network-and-shared-coefficient-buffers).
 
 ### What this map makes visible
 
