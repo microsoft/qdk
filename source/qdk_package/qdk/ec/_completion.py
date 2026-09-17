@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import overload
+
 import qodec as qc
 
 from ._audit._parity import ParityAnalysis, terms_of
@@ -13,9 +15,10 @@ from ._checks import profile_of
 def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
     """Return a copy of ``gadget`` with discovered checks and readouts.
 
-    Pauli-bearing instruction outputs are derived by exact simulation. Flag
-    bindings cannot be inferred and are preserved from the draft. The input
-    gadget and all objects it references are left unchanged.
+    Pauli-bearing instruction outputs and output stabilizer relations are
+    derived with arbitrary incoming Pauli frames. Flag bindings cannot be
+    inferred and are preserved from the draft. The input gadget and all objects
+    it references are left unchanged.
     Verified authored equations without readout aliases are retained, including
     incoming-frame corrections and input-to-output stabilizer relations.
     """
@@ -33,7 +36,37 @@ def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
     )
     set_gadget_readouts(completed, discovered.readouts)
     _preserve_verified_equations(gadget, completed)
+    _complete_frame_equations(completed)
     return completed
+
+
+def _complete_frame_equations(gadget: qc.Gadget) -> None:
+    analysis = ParityAnalysis(gadget)
+    readouts = [as_readout(readout) for readout in gadget.readouts]
+    for position, expected in analysis.expected.items():
+        if analysis.value(analysis.readouts[position]) == expected:
+            continue
+        equation = analysis.candidate(expected)
+        if equation is None:
+            raise ValueError(f"readouts[{position}] has no frame-aware equation")
+        readouts[position] = [
+            1 if term == "1" else qc.gadgets.Reference(term) for term in equation
+        ]
+    gadget.readouts = readouts
+
+    analysis = ParityAnalysis(gadget)
+    checks = list(gadget.checks)
+    for path in analysis.unresolved_outputs():
+        equation = analysis.candidate(analysis.external(path))
+        if equation is None:
+            raise ValueError(f"{path} has no frame-aware equation")
+        checks.append(
+            tuple(
+                1 if term == "1" else qc.gadgets.Reference(term)
+                for term in (path, *equation)
+            )
+        )
+    gadget.checks = checks
 
 
 def _preserve_verified_equations(gadget: qc.Gadget, completed: qc.Gadget) -> None:
@@ -93,6 +126,14 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
         schema_version=qodec.schema_version,
         metadata=dict(qodec.metadata),
     )
+
+
+@overload
+def derive(target: qc.Gadget) -> qc.Gadget: ...
+
+
+@overload
+def derive(target: qc.Qodec) -> qc.Qodec: ...
 
 
 def derive(target: qc.Gadget | qc.Qodec) -> qc.Gadget | qc.Qodec:
