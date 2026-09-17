@@ -221,6 +221,35 @@ Public Rust API tests cover the owner and binding contracts; the sample's
 Python tests lower actual QIR and use NumPy `einsum` only for tiny analytic
 checks. See [I2 reproduction and evidence](../../../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i2-neutral-network-and-shared-coefficient-buffers).
 
+#### Required I4 consumer guard
+
+**Acceptance requirement, not implemented runtime behavior:** before public
+integration, the concrete tensor-network consumer must enforce that
+`from_zero_state` is used only for the initial evolution of a fresh execution.
+The builder itself is stateless and cannot infer execution history from a
+region's operations and qubit count.
+
+```text
+Fresh execution + initial region       -> initialize from zero
+Already evolved + another region       -> explicit continuation error
+After measurement + quantum evolution  -> explicit continuation error
+```
+
+The guard belongs at the context-aware execution boundary, before a second
+zero-state initialization or numerical execution. It must use per-execution
+state, not merely a region ID: revisiting the same region must not bypass it.
+Normal terminal readout remains allowed. A fresh independent execution must
+still be able to initialize; a process-global or permanently consumed guard
+would be incorrect.
+
+I4 is not complete until behavioral tests establish all three transitions
+above, including a repeated region ID, and successful independent fresh
+executions. These checks must exercise the actual consumer/execution route,
+not only a standalone guard helper. I2's private probe already rejects multiple
+static regions and nonleading regions, but that structural admission check is
+not the production lifecycle guard or a full-program validator. No unused
+guard abstraction or partial `RegionConsumer` is introduced in I2.
+
 ### What this map makes visible
 
 Three placement facts worth knowing before moving anything:

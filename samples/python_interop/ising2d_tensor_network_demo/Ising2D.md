@@ -423,6 +423,12 @@ flowchart TB
 4. **I4: public integration.** Add only the needed shared batch/sampling and public
    wiring. Evidence must include the real A100 `run_qir` route, ordered terminal
    results, seeded repeatability, distributional correctness and MPS regression.
+   Before public wiring, implement the [per-execution consumer guard](../../../source/simulators/src/execution/README.md#required-i4-consumer-guard):
+   reject a second evolution region, including the same region ID revisited,
+   and quantum evolution after measurement, before reinitializing from zero.
+   Behavioral checks must cover these failures and successful fresh independent
+   executions through the actual consumer/execution route. This guard is an
+   explicit acceptance requirement, not functionality delivered by I2.
 5. **Later comparisons/scaling.** Case B, scalable readout and larger campaigns
    follow the reviewed milestone. At fixed topology, changing `h` changes tensor
    values, not the graph of a shapes-only path optimizer.
