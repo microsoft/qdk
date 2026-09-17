@@ -799,6 +799,8 @@ def run_qir(
     type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
     *,
     qodec: Optional["Qodec"] = None,
+    on_shot_failure: Literal["raise", "discard", "retry"] = "raise",
+    max_retries: int = 3,
 ) -> List:
     """
     Simulate the given QIR source.
@@ -816,13 +818,30 @@ def run_qir(
     :param qodec: The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
         With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
         ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
+    :param on_shot_failure: Qodec shot policy: ``"raise"`` stops on the first failure,
+        ``"discard"`` returns only successes, and ``"retry"`` restarts failed shots.
+        Discard and retry select accepted shots and can change the result distribution.
+    :param max_retries: Additional attempts per Qodec shot under ``"retry"`` (default 3).
+        Exhaustion re-raises the last failure without returning partial results.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
     """
     if qodec is not None:
         from ._qodec._run import run_qir_with_qodec
 
-        return run_qir_with_qodec(input, qodec, noise, shots, seed, type=type)
+        return run_qir_with_qodec(
+            input,
+            qodec,
+            noise,
+            shots,
+            seed,
+            type=type,
+            on_shot_failure=on_shot_failure,
+            max_retries=max_retries,
+        )
+
+    if on_shot_failure != "raise" or max_retries != 3:
+        raise ValueError("Shot failure options require a Qodec")
 
     if type is None:
         try:

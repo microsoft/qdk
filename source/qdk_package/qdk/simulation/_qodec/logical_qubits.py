@@ -1,4 +1,4 @@
-from .protocols import Readouts, Request, Requests, Resources
+from .protocols import ExecutionUnresolved, Readouts, Request, Requests, Resources
 from .quantum_operations import LogicalSlot, Operation, RestoreMeasured
 
 
@@ -25,7 +25,7 @@ class LogicalQubits:
         if isinstance(request, Operation) and request.name == "measure":
             (value,) = readouts
             if value is None:
-                raise ValueError("Logical measurement could not be decoded")
+                raise ExecutionUnresolved("Logical measurement could not be decoded")
             self.measured[request.targets[0]] = value
         return readouts
 
