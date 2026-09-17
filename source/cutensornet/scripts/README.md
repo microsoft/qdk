@@ -77,6 +77,18 @@ reached only through a `void *` attribute buffer — `cutensornetComputeType_t`,
 for instance — is _not_ pulled in transitively and must be named explicitly.
 Adding to these lists requires regenerating the bindings.
 
+The optimizer metadata payloads follow the same rule:
+
+| Attribute                                               | Allowlisted payload            | Transitively included element type |
+| ------------------------------------------------------- | ------------------------------ | ---------------------------------- |
+| `CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_PATH`           | `cutensornetContractionPath_t` | `cutensornetNodePair_t`            |
+| `CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICING_CONFIG` | `cutensornetSlicingConfig_t`   | `cutensornetSliceInfoPair_t`       |
+
+Both payloads are passed through `cutensornetContractionOptimizerInfoGetAttribute`'s
+`void *` parameter. Allowlist the payload types and assert all four names in
+`REQUIRED_DECLARATIONS`; bindgen includes the element types transitively.
+These payload types do not require additional function-manifest entries.
+
 **There is no constant allowlist, and adding one would not help.** Every
 constant this crate uses is an enumerator, and bindgen emits enumerators as
 `<type>_<VARIANT>` once the enclosing _type_ is reachable — including
@@ -152,8 +164,12 @@ surface, pins its hash, generates the reduced surface twice to prove
 determinism, normalises formatting to Rust edition 2024, and verifies the
 selected function set against the manifest before replacing the output.
 
-Because the reduced surface is derived from the manifest, regenerating without a
-manifest change must reproduce the committed file byte for byte.
+**Byte-for-byte reproducibility remains required.** Once generated output is
+committed, regenerating with the same manifest, type allowlist and pinned
+generation inputs must reproduce that file byte for byte. An intentional
+type-allowlist change produces a new output to review and commit, even when the
+function manifest is unchanged. The two-generation byte comparison and the
+pinned full-reference hash check remain mandatory.
 
 ## Regenerating the loader (any host)
 
