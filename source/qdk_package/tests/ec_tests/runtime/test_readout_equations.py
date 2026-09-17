@@ -220,6 +220,20 @@ def test_explicit_output_frame_emits_the_corresponding_logical_correction(bit):
         session.close()
 
 
+def test_unavailable_frame_bit_is_an_unresolved_shot_failure():
+    from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
+    from .test_execution_pipeline import decode_gadget
+
+    layer, gadget = framed_gadget({"out[0].z[0]": ["circuit.readouts[0]"]})
+    session = prepare_syndrome_decoder(layer)(7)
+    try:
+        with pytest.raises(ExecutionUnresolved, match="unavailable circuit readouts"):
+            decode_gadget(session, gadget, (None,))
+    finally:
+        session.close()
+
+
 def test_frame_aliases_can_resolve_forward_to_record_only_equations():
     from qdk.simulation._qodec.readout_equations import (
         BinarySystem,

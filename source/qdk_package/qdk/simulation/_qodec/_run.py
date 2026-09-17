@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal, TypeVar
+import sys
+from typing import Literal, TypeAlias, TypeVar
 
 from pyqir import Module
 from qodec import Qodec
@@ -13,10 +14,17 @@ from .adaptive_runtime import AdaptiveRuntime, OutputRecordValue
 from .bytecode import compile
 from .decoding import prepare_syndrome_decoder
 from .execution_pipeline import Executor
-from .protocols import PrepareDecoder, QuantumBackendFactory
+from .protocols import (
+    ExecutionRejected,
+    ExecutionUnresolved,
+    PrepareDecoder,
+    QuantumBackendFactory,
+)
 from .quantum_backend import full_state_backend, stabilizer_backend
+from .readout_equations import InconsistentParity
 
 ResultT = TypeVar("ResultT")
+ShotFailurePolicy: TypeAlias = Literal["raise", "discard", "retry"]
 
 
 def run_qir_with_qodec(
@@ -29,6 +37,8 @@ def run_qir_with_qodec(
     decoder: PrepareDecoder = prepare_syndrome_decoder,
     quantum_backend_factory: QuantumBackendFactory = stabilizer_backend,
     type: Literal["clifford", "cpu", "gpu"] | None = None,
+    on_shot_failure: ShotFailurePolicy = "raise",
+    max_retries: int = 3,
 ) -> list[object]:
     if type == "gpu":
         raise NotImplementedError("Qodec execution does not support the GPU simulator")
@@ -44,7 +54,14 @@ def run_qir_with_qodec(
     recorder.run(module)
     return [
         recorder.process_output(list(records))
-        for records in run_qir_raw_records(module, executor, shots, seed)
+        for records in run_qir_raw_records(
+            module,
+            executor,
+            shots,
+            seed,
+            on_shot_failure=on_shot_failure,
+            max_retries=max_retries,
+        )
     ]
 
 
@@ -53,8 +70,40 @@ def run_qir_raw_records(
     executor: Executor[AdaptiveProgram, ResultT],
     shots: int,
     seed: int | None,
+    *,
+    on_shot_failure: ShotFailurePolicy = "raise",
+    max_retries: int = 3,
 ) -> list[ResultT]:
+    if on_shot_failure not in ("raise", "discard", "retry"):
+        raise ValueError("on_shot_failure must be 'raise', 'discard', or 'retry'")
+    if type(max_retries) is not int or max_retries < 0:
+        raise ValueError("max_retries must be a non-negative integer")
     bytecode = compile(module)
     if seed is not None:
         executor.set_seed(seed)
-    return [executor.run(bytecode) for _ in range(shots)]
+    records: list[ResultT] = []
+    for shot_index in range(shots):
+        for attempt in range(max_retries + 1):
+            try:
+                records.append(executor.run(bytecode))
+                break
+            except (
+                ExecutionRejected,
+                ExecutionUnresolved,
+                InconsistentParity,
+            ) as error:
+                if on_shot_failure == "raise":
+                    raise
+                if on_shot_failure == "discard":
+                    break
+                if attempt == max_retries:
+                    note = (
+                        f"Shot {shot_index + 1} failed after {attempt + 1} attempts "
+                        f"(max_retries={max_retries})."
+                    )
+                    if sys.version_info >= (3, 11):
+                        error.add_note(note)
+                    else:
+                        error.args = (*error.args, note)
+                    raise
+    return records

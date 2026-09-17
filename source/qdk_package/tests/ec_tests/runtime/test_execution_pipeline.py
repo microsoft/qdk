@@ -20,6 +20,242 @@ from qdk.simulation._qodec.quantum_backend import (
 )
 
 
+@pytest.mark.parametrize(
+    "error_name", ["ExecutionRejected", "ExecutionUnresolved", "InconsistentParity"]
+)
+def test_raw_shot_failure_policy_raises_by_default(monkeypatch, error_name):
+    from qdk.simulation._qodec import _run
+
+    monkeypatch.setattr(_run, "compile", Mock())
+    failure = getattr(_run, error_name)("failed shot")
+    executor = Mock()
+    executor.run.side_effect = failure
+    with pytest.raises(type(failure)) as raised:
+        _run.run_qir_raw_records(Mock(), executor, 2, None)
+    assert raised.value is failure
+    assert executor.run.call_count == 1
+    executor.set_seed.assert_not_called()
+
+
+@pytest.mark.parametrize("max_retries", [0, 2])
+@pytest.mark.parametrize("python_version", [(3, 10), (3, 11)])
+def test_raw_shot_failure_policy_limits_retries(
+    monkeypatch, max_retries, python_version
+):
+    from types import SimpleNamespace
+    from qdk.simulation._qodec import _run
+    from qdk.simulation._qodec.readout_equations import InconsistentParity
+
+    monkeypatch.setattr(_run, "compile", Mock())
+    monkeypatch.setattr(_run, "sys", SimpleNamespace(version_info=python_version))
+    failure = InconsistentParity("unrecoverable check")
+    executor = Mock()
+    executor.run.side_effect = failure
+    with pytest.raises(InconsistentParity) as raised:
+        _run.run_qir_raw_records(
+            Mock(),
+            executor,
+            2,
+            7,
+            on_shot_failure="retry",
+            max_retries=max_retries,
+        )
+    assert raised.value is failure
+    assert executor.run.call_count == max_retries + 1
+    assert any(
+        f"Shot 1 failed after {max_retries + 1} attempts" in str(note)
+        for note in getattr(raised.value, "__notes__", raised.value.args)
+    )
+    executor.set_seed.assert_called_once_with(7)
+
+
+def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
+    from qdk.simulation._qodec import _run
+    from qdk.simulation._qodec.protocols import ExecutionRejected
+
+    program = object()
+    compile_program = Mock(return_value=program)
+    monkeypatch.setattr(_run, "compile", compile_program)
+    executor = Mock()
+    executor.run.side_effect = [
+        ExecutionRejected(),
+        "first",
+        ExecutionRejected(),
+        "second",
+    ]
+    module = Mock()
+    assert _run.run_qir_raw_records(
+        module,
+        executor,
+        2,
+        7,
+        on_shot_failure="retry",
+        max_retries=1,
+    ) == ["first", "second"]
+    assert executor.run.call_count == 4
+    assert all(call.args == (program,) for call in executor.run.call_args_list)
+    compile_program.assert_called_once_with(module)
+    executor.set_seed.assert_called_once_with(7)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"on_shot_failure": "ignore"},
+        {"max_retries": -1},
+        {"max_retries": 0.5},
+        {"max_retries": True},
+    ],
+)
+def test_raw_shot_policy_rejects_invalid_configuration_before_execution(
+    monkeypatch, options
+):
+    from qdk.simulation._qodec import _run
+
+    compile_program = Mock()
+    monkeypatch.setattr(_run, "compile", compile_program)
+    executor = Mock()
+    with pytest.raises(ValueError):
+        _run.run_qir_raw_records(Mock(), executor, 1, 7, **options)
+    compile_program.assert_not_called()
+    executor.run.assert_not_called()
+    executor.set_seed.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "policy, accepted, attempts",
+    [
+        ("raise", 0, 1),
+        ("discard", 1, 2),
+        ("retry", 2, 3),
+    ],
+)
+def test_qir_shot_failure_policy_restarts_and_closes_lost_shots(
+    policy, accepted, attempts
+):
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
+
+    instances = []
+
+    class Backend:
+        def __init__(self, seed, lost):
+            self.seed = seed
+            self.lost = lost
+            self.operations = []
+            self.closed = False
+
+        def execute(self, operation):
+            self.operations.append(operation.name)
+            return (None if self.lost else True,) if operation.name == "measure" else ()
+
+        def close(self):
+            self.closed = True
+
+    def create_backend(noise, seed):
+        assert all(instance.closed for instance in instances)
+        backend = Backend(seed, not instances)
+        instances.append(backend)
+        return backend
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).slice(1, 2)
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit target; x target; bit result = measure target;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+
+    def run():
+        return run_qir_with_qodec(
+            qir,
+            codec,
+            None,
+            shots=2,
+            seed=7,
+            quantum_backend_factory=create_backend,
+            on_shot_failure=policy,
+            max_retries=1,
+        )
+
+    seeds = []
+    for _ in range(2):
+        if policy == "raise":
+            with pytest.raises(ExecutionUnresolved, match="could not be decoded"):
+                run()
+        else:
+            assert run() == [qdk.Result.One] * accepted
+        assert len(instances) == attempts
+        assert len({instance.seed for instance in instances}) == attempts
+        assert all(instance.closed for instance in instances)
+        assert all(
+            instance.operations == ["prepare", "x", "measure"] for instance in instances
+        )
+        seeds.append([instance.seed for instance in instances])
+        instances.clear()
+    assert seeds[0] == seeds[1]
+
+
+@pytest.mark.parametrize("policy", ["raise", "discard", "retry"])
+@pytest.mark.parametrize("failure_kind", ["loss", "parity"])
+@pytest.mark.parametrize("simulator_type", ["cpu", "clifford"])
+def test_qir_shot_failure_policy_handles_encoded_decoding_failures(
+    policy, failure_kind, simulator_type
+):
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
+    from qdk.simulation._qodec.readout_equations import InconsistentParity
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    noise = simulation.NoiseConfig()
+    if failure_kind == "loss":
+        noise.x.loss = 1
+        error_type = ExecutionUnresolved
+    else:
+        gadget = codec.layers[0].gadgets["measure_z"]
+        gadget.checks = [*gadget.checks, ["circuit.readouts[0]"]]
+        error_type = InconsistentParity
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit target; x target; bit result = measure target;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+
+    def run():
+        return simulation.run_qir(
+            qir,
+            qodec=codec,
+            noise=noise,
+            shots=2,
+            seed=7,
+            type=simulator_type,
+            on_shot_failure=policy,
+            max_retries=1,
+        )
+
+    if policy == "discard":
+        assert run() == []
+    else:
+        with pytest.raises(error_type) as raised:
+            run()
+        if policy == "retry":
+            assert any(
+                "2 attempts" in str(note)
+                for note in getattr(raised.value, "__notes__", raised.value.args)
+            )
+
+
+@pytest.mark.parametrize("policy", ["discard", "retry"])
+def test_shot_policy_does_not_retry_preparation_failures(monkeypatch, policy):
+    from qdk.simulation._qodec import _run
+    from qdk.simulation._qodec.readout_equations import InconsistentParity
+
+    failure = InconsistentParity("invalid prepared equations")
+    compile_program = Mock(side_effect=failure)
+    monkeypatch.setattr(_run, "compile", compile_program)
+    executor = Mock()
+    with pytest.raises(InconsistentParity) as raised:
+        _run.run_qir_raw_records(Mock(), executor, 2, 7, on_shot_failure=policy)
+    assert raised.value is failure
+    assert compile_program.call_count == 1
+    executor.run.assert_not_called()
+
+
 def test_resources_distinguish_bare_qubits_and_typed_blocks():
     from collections.abc import MutableMapping
     from typing import cast
@@ -2334,9 +2570,10 @@ def test_layer_rejects_a_missing_instruction_reply():
 @pytest.mark.parametrize("readout", [False, True, None])
 def test_call_list_requires_resolved_readout_arguments(readout):
     from qdk.simulation._qodec.circuit_runtime import _argument
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
 
     if readout is None:
-        with pytest.raises(TypeError, match="unresolved readout"):
+        with pytest.raises(ExecutionUnresolved, match="unresolved readout"):
             _argument("circuit.readouts[0]", {}, (readout,))
     else:
         assert _argument("circuit.readouts[0]", {}, (readout,)) is readout

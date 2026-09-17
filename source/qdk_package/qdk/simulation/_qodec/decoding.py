@@ -14,6 +14,7 @@ from .protocols import (
     Corrections,
     Decoded,
     DecoderFactory,
+    ExecutionUnresolved,
     Invocation,
     Readouts,
 )
@@ -221,7 +222,7 @@ class SyndromeSession:
         for frame in self.model.frames[gadget.implements.mnemonic]:
             value = system.value(frame.parity)
             if value is None:
-                raise ValueError(
+                raise ExecutionUnresolved(
                     "Frame correction requires unavailable circuit readouts"
                 )
             if value:

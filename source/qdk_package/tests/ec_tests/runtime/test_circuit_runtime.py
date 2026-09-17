@@ -121,6 +121,22 @@ def test_record_arguments_require_earlier_records_and_bit_parameters(source):
         prepare_call_list(circuit)
 
 
+def test_unresolved_record_argument_is_an_unresolved_shot_failure():
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
+
+    circuit = Circuit(
+        isa(),
+        '- read: [0]\n- conditional: [0, bit: "circuit.readouts[0]"]',
+        format="yaml",
+    )
+    with closing(
+        prepare_call_list(circuit).create_runtime().run(invocation(circuit))
+    ) as requests:
+        assert instruction_call(next(requests)).mnemonic == "read"
+        with pytest.raises(ExecutionUnresolved, match="unresolved readout"):
+            requests.send((None, False))
+
+
 @pytest.mark.parametrize(
     "patterns, flags, expected",
     [

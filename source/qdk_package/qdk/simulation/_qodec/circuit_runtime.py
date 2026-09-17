@@ -9,7 +9,14 @@ from qodec.gadgets import Circuit, Reference
 from qodec.instructions import InstructionCall, Parameter
 
 from .call_binding import bind_operands, validate_arguments
-from .protocols import Invocation, PreparedCircuit, Readouts, Requests, Resources
+from .protocols import (
+    ExecutionUnresolved,
+    Invocation,
+    PreparedCircuit,
+    Readouts,
+    Requests,
+    Resources,
+)
 from .selection import Selection, prepare_selection
 
 
@@ -137,6 +144,8 @@ def _argument(
     if value.startswith("circuit.readouts["):
         readout = readouts[Reference(value).index]
         if readout is None:
-            raise TypeError("An unresolved readout cannot be an instruction argument")
+            raise ExecutionUnresolved(
+                "An unresolved readout cannot be an instruction argument"
+            )
         return readout
     return value
