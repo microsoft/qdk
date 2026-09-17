@@ -774,10 +774,6 @@ impl Simulator for StabilizerSimulator {
         &self.state
     }
 
-    fn lose(&mut self, target: QubitID) {
-        self.loss_impl(target);
-    }
-
     fn peek_loss(&mut self, qubit: QubitID, result_id: ResultID) {
         let is_lost = self.loss[qubit];
         self.measurements[result_id] = if is_lost {
@@ -785,6 +781,12 @@ impl Simulator for StabilizerSimulator {
         } else {
             MeasurementResult::Zero
         };
+    }
+
+    fn apply_loss_noise(&mut self, p_loss: f64, target: QubitID) {
+        if self.rng.random_bool(p_loss) {
+            self.loss_impl(target);
+        }
     }
 
     fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: ResultID) {

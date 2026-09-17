@@ -131,11 +131,11 @@ pub trait Simulator {
     /// for `PartialEq` up to a global phase. This is meant to be used for testing.
     fn state_dump(&self) -> &Self::StateDumpData;
 
-    /// Forces loss of `target`.
-    fn lose(&mut self, target: QubitID);
-
     /// Measures loss but does not collapse the state. The result is stored in `result_id`.
     fn peek_loss(&mut self, target: QubitID, result_id: ResultID);
+
+    /// Applies loss to `target` with probability `p_loss`.
+    fn apply_loss_noise(&mut self, p_loss: f64, target: QubitID);
 
     /// Applies readout noise to the measurement result with the given `result_id`.
     /// The probabilities of flipping a 0 to a 1 and a 1 to a 0 are given by `p_zero_as_one` and `p_one_as_zero`, respectively.

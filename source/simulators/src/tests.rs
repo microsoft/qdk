@@ -11,8 +11,8 @@ fn check_forced_loss<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>() {
     let mut simulator = S::new(2, 4, 0, Arc::new(CumulativeNoiseConfig::default()));
     simulator.x(0);
     simulator.x(1);
-    simulator.lose(1);
-    simulator.lose(1);
+    simulator.apply_loss_noise(1.0, 1);
+    simulator.apply_loss_noise(1.0, 1);
     simulator.x(1);
     simulator.peek_loss(1, 0);
     simulator.mz(1, 1);
