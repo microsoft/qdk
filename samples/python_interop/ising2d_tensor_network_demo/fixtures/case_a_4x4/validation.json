@@ -1,0 +1,86 @@
+{
+  "amplitude_count": 65536,
+  "amplitude_payload_bytes": 1048576,
+  "conversion": {
+    "gate_counts": {
+      "rx": 192,
+      "rzz": 240
+    },
+    "gate_sequence_preserved": true,
+    "measurement_operations": [
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M",
+      "QirInstructionId.M"
+    ],
+    "measurement_qubits": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "output_result_ids": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "qubits": 16,
+    "results": 16,
+    "unitary_gate_count": 432
+  },
+  "generation_and_reference_seconds": 3.4174925389961572,
+  "passed": true,
+  "probability_payload_bytes": 524288,
+  "probability_sum": 0.9999999999999997,
+  "reference_seeds": [
+    42,
+    17
+  ],
+  "repeat_reference": {
+    "global_phase_aligned": false,
+    "limit": 1e-12,
+    "maximum_amplitude_error": 0.0,
+    "probability_total_variation": 0.0,
+    "squared_norm": 0.9999999999999933,
+    "squared_norm_error": 6.661338147750939e-15
+  },
+  "scope": "I1 CPU reference only; no TN or A100 execution",
+  "squared_norm": 0.9999999999999933
+}

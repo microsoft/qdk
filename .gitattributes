@@ -1,2 +1,3 @@
 * text eol=lf
 *.png binary
+/samples/python_interop/ising2d_tensor_network_demo/fixtures/**/*.npy binary

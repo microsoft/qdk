@@ -1,19 +1,139 @@
 # Simulating the qdk-chemistry 2D Ising demo
 
-This is a planning document, not a validated result. It records the objective, why the
-existing execution layer cannot reach it yet, and the iteration plan to build the piece that
-can. It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
+This document records the general-contraction objective and its independently reviewed
+iterations. **I1 has a retained 4x4 input and independent CPU state reference;
+general TN contraction and the public A100 milestone are not implemented.**
+It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
 sits next to the one it builds on, and it follows the same iteration discipline as
 [`README.md`'s "Next Integration Iteration"](../../../source/simulators/src/execution/README.md#next-integration-iteration)
-— this is the *next* iteration after that one.
+— this is the _next_ iteration after that one.
 
-| | |
-| --- | --- |
-| Reference case | [`estimation_ising_2d.ipynb`](https://github.com/microsoft/qdk-chemistry/blob/ec194789d7021cb53f1b2a62f00d8632c4ce13f7/examples/estimation_ising_2d.ipynb), `microsoft/qdk-chemistry` |
-| What that notebook does today | Fault-tolerant **resource estimation** of a Trotterized 2D Ising quench. It builds the circuit, it never simulates it. |
-| What this document scopes | Actually **classically simulating** that circuit (or a size-reduced version of it), to validate correctness and to explore how hard it can be made. |
-| Prior art this builds on | [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) — 1D MPS execution, same execution layer, same public API shape |
-| Status | Scoping only. No code in this repository implements any of the below yet. |
+|                               |                                                                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reference case                | [`estimation_ising_2d.ipynb`](https://github.com/microsoft/qdk-chemistry/blob/ec194789d7021cb53f1b2a62f00d8632c4ce13f7/examples/estimation_ising_2d.ipynb), `microsoft/qdk-chemistry` |
+| What that notebook does today | Fault-tolerant **resource estimation** of a Trotterized 2D Ising quench. It builds the circuit, it never simulates it.                                                                |
+| What this document scopes     | Actually **classically simulating** that circuit (or a size-reduced version of it), to validate correctness and to explore how hard it can be made.                                   |
+| Prior art this builds on      | [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) — 1D MPS execution, same execution layer, same public API shape                                                                       |
+| Status                        | I1 input/reference delivered below. I2-I4 remain separate implementation/review units.                                                                                                |
+
+## I1 retained input and CPU reference
+
+The fixed case is **4x4, J=1, h=0.5, time=1, Trotter order 4, two subdivisions,
+identity preparation**. The existing generator is the chemistry decoupling boundary;
+neither the reference replay nor the future TN runtime needs chemistry once the input
+is frozen. The oracle uses the released `qdk==1.32.3` CPU sparse engine, not a native
+extension built from this worktree.
+
+```text
+1. Existing chemistry recipe -> one ordered Case A gate body
+                                      |
+2.                                    +-> measured Q# -> Base QIR
+                                      |                   |
+                                      |             future TN input
+3.                                    +-> same Q# with pre-measurement DumpMachine
+                                                          |
+4.                                                 SparseStateSim
+                                                          |
+5.                                            bit conversion -> amplitudes/probabilities
+```
+
+`qsharp_source` emits both forms from the same gates; the diagnostic is inserted
+at construction, immediately before `MResetEachZ`. There is no second circuit
+implementation, QIR state-observation API, TN builder, or NVIDIA dependency.
+The existing QDK `AggregateGatesPass` independently checks **every gate, angle,
+operand and sequence position** in both the original chemistry QIR and measured
+QIR against that body. A separate structural check admits only a single straight-line
+entry block, initialization, the expected gates, and the terminal output sequence.
+
+The pinned generator produces **192 Rx + 240 Rzz = 432 gates**. Its actual lattice
+is **open in both directions, row-major `q = y*nx + x`, with 24 undirected bonds
+of weight 1 and no DFS reordering**. The full adjacency and coloring are retained,
+not inferred from a drawing. The measured Base compiler emits 16 `m__body` calls
+(terminal resets are eliminated) and one result array ordered `q0` through `q15`.
+
+The coefficient check uses the hand-derived fourth-order Suzuki composition:
+
+$$
+p = \frac{1}{4-4^{1/3}},\quad
+S_4(\Delta) = S_2(p\Delta)^2 S_2((1-4p)\Delta) S_2(p\Delta)^2,\quad
+\Delta = \tfrac12.
+$$
+
+Each symmetric `S2(s)` has half-field `Rx(h*s)` layers around the commuting
+bond layer `Rzz(2*J*s)`. Adjacent field layers within a subdivision combine.
+Tests check this layer order, all sites/bonds and positive/negative coefficients
+at 2x2 and 4x4, rather than merely summing angles.
+
+### Artifacts and numerical contract
+
+All retained files are under [`fixtures/case_a_4x4/`](fixtures/case_a_4x4/):
+
+| File                         | Meaning                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `unmeasured.ll`              | Original chemistry QIR; generation provenance, not the runtime input                                                      |
+| `measured.qs`, `measured.ll` | Frozen measured Q# and verified Base-QIR execution input                                                                  |
+| `reference.qs`               | Same gate body, with exactly one dump before terminal measurement                                                         |
+| `amplitudes.npy`             | NumPy array of 65,536 little-endian complex-f64 amplitudes (`<c16`), 1 MiB payload plus header                            |
+| `probabilities.npy`          | NumPy array of 65,536 little-endian f64 probabilities (`<f8`), 512 KiB payload plus header                                |
+| `provenance.json`            | Parameters, actual lattice, package/native-binary and script hashes, source base commit, formats and artifact hashes      |
+| `validation.json`            | Conversion accounting, norm, two-seed state repeatability, measured generation/reference time, and explicit I1-only scope |
+
+The source base commit plus script hashes identify the source used during generation;
+they do not claim the scripts were unchanged from that commit. Regeneration records a
+new time/provenance report and refuses to overwrite an existing artifact directory.
+NumPy's `.npy` headers embed shape, dtype and byte order without changing the
+floating-point values. The repository's scoped binary Git attributes prevent
+line-ending normalization from changing these files; their staged bytes are
+hash-checked too.
+
+Q# state dumps put `q0` at the most significant bit. The adapter reverses basis bits
+to agree with the planned first-axis-fastest TN output:
+
+$$
+k = \sum_{q=0}^{15} b_q 2^q,\qquad
+Z = \sum_k |\psi_k|^2,\qquad
+p_k = |\psi_k|^2/Z.
+$$
+
+All values must be finite and `abs(Z-1) <= 1e-8` **before** normalization.
+Analytic signed-Rx, Rzz phase, nonadjacent interference and asymmetric-qubit checks
+use absolute error `1e-12`. Repeated reference executions and frozen-state replay
+must agree to maximum complex-amplitude error and probability total-variation
+distance `<= 1e-12`, without global-phase alignment. The recorded candidate limits
+for later TN comparison are `1e-8` for both metrics; no TN comparison has run yet.
+
+The retained squared-norm error is **6.66e-15**; the two pre-measurement states
+(seeds 42 and 17) agree exactly on the recorded host. These seeds exercise reference
+repeatability, not the later public-shot sampling contract. Sparse simulation has
+its existing floating-point/pruning policy; this is not an exact-arithmetic oracle.
+No post-reset state or shot histogram is substituted for the numerical reference.
+
+### Reproduction
+
+From the repository root, using Python 3.11 on the qualified aarch64 host:
+
+```bash
+python3.11 -m venv .venv-ising-i1
+.venv-ising-i1/bin/python -m pip install -r samples/python_interop/ising2d_tensor_network_demo/requirements-reference.txt
+.venv-ising-i1/bin/python samples/python_interop/ising2d_tensor_network_demo/reference.py verify \
+  --input samples/python_interop/ising2d_tensor_network_demo/fixtures/case_a_4x4
+.venv-ising-i1/bin/python -m pytest -q samples/python_interop/ising2d_tensor_network_demo/test_reference.py
+
+# Optional regeneration into a NEW directory; never overwrite the frozen input.
+.venv-ising-i1/bin/python samples/python_interop/ising2d_tensor_network_demo/reference.py generate \
+  --output .venv-ising-i1/regenerated-case-a
+```
+
+To replay without chemistry, install only `qdk==1.32.3`, `pyqir==0.12.5` and
+`numpy==2.3.5` in a separate environment, then run the same `verify` command.
+This path rechecks hashes and conversion, recompiles the retained Q#, and recomputes
+the state on CPU; it never imports chemistry. It is exercised in a chemistry-free
+environment as part of I1. The full test suite additionally needs `pytest` and
+chemistry for the two generator tests.
+
+Read either array with `numpy.load(path, allow_pickle=False)`; its dtype and
+shape are self-describing and checked by `verify`. The retained QIR is also admitted by the public CPU `run_qir` route;
+that check establishes input/output shape only, not the amplitude oracle.
 
 ---
 
@@ -47,14 +167,14 @@ time grows with it. That is the "critical fan" referred to in the objective belo
 
 ## 2. Why no existing QDK simulator reaches it
 
-| Simulator | Outcome | Reason |
-| --- | --- | --- |
-| Dense CPU/GPU statevector | ✗ | Caps at ~25 qubits (measured, [`DEMO.md` §2.2](../mps_trotter_quench_demo/DEMO.md#22-the-dense-wall-measured)). 100 qubits is `2^100` amplitudes regardless of `h`. |
-| Sparse simulator | ✗ | The transverse field is a generic non-Clifford rotation; the state densifies almost immediately. |
-| Clifford simulator | ✗ | `Rx(hΔt)`/`Rz(JΔt)` at generic angles are not Clifford gates, at any `h`. |
-| cuTensorNet **MPS** (this repo's current backend, [`execution.rs`](../../../source/cutensornet/src/execution.rs)) | ⚠ possible but structurally disadvantaged | It is a 1D ansatz. A 2D lattice must be linearized (snake ordering) before it fits, which turns every "vertical" bond into a long-range MPS gate — see §3. |
+| Simulator                                                                                                         | Outcome                                   | Reason                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dense CPU/GPU statevector                                                                                         | ✗                                         | Caps at ~25 qubits (measured, [`DEMO.md` §2.2](../mps_trotter_quench_demo/DEMO.md#22-the-dense-wall-measured)). 100 qubits is `2^100` amplitudes regardless of `h`. |
+| Sparse simulator                                                                                                  | ✗                                         | The transverse field is a generic non-Clifford rotation; the state densifies almost immediately.                                                                    |
+| Clifford simulator                                                                                                | ✗                                         | `Rx(hΔt)`/`Rz(JΔt)` at generic angles are not Clifford gates, at any `h`.                                                                                           |
+| cuTensorNet **MPS** (this repo's current backend, [`execution.rs`](../../../source/cutensornet/src/execution.rs)) | ⚠ possible but structurally disadvantaged | It is a 1D ansatz. A 2D lattice must be linearized (snake ordering) before it fits, which turns every "vertical" bond into a long-range MPS gate — see §3.          |
 
-None of the shipped backends are disqualified *by criticality specifically* — dense/sparse/Clifford
+None of the shipped backends are disqualified _by criticality specifically_ — dense/sparse/Clifford
 fail from qubit count and gate type alone, before `h` even matters. MPS is the only one where `h`
 changes the answer, and only as a second-order effect on top of a first-order problem.
 
@@ -70,17 +190,17 @@ pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buff
 That is a compile-time ceiling of **27 qubits at single precision** (`complex32`), set by a buffer
 binding limit rather than by device memory — so an A100 with 80 GB gets exactly the same 27 as any
 laptop iGPU. The CPU statevector has no equivalent constant (it is RAM-bound, at double precision),
-which makes wgpu strictly *narrower* than CPU here, corroborating
+which makes wgpu strictly _narrower_ than CPU here, corroborating
 [`DEMO.md` §"Terminology hazard"](../mps_trotter_quench_demo/DEMO.md). Against the target sizes:
 
-| Lattice | Qubits | wgpu `type="gpu"` (cap 27) | MPS / exact TN |
-| --- | --- | --- | --- |
-| 4×4 | 16 | ✓ | ✓ |
-| 5×5 | 25 | ✓ | ✓ |
-| 6×6 | 36 | ✗ | ✓ |
-| 10×10 (notebook scale) | 100 | ✗ | target |
+| Lattice                | Qubits | wgpu `type="gpu"` (cap 27) | MPS / exact TN                      |
+| ---------------------- | ------ | -------------------------- | ----------------------------------- |
+| 4×4                    | 16     | Within width limit         | First TN qualification target       |
+| 5×5                    | 25     | Within width limit         | Not qualified                       |
+| 6×6                    | 36     | Beyond width limit         | Not qualified; full output is 1 TiB |
+| 10×10 (notebook scale) | 100    | Beyond width limit         | Later, unqualified                  |
 
-This is a *structural* limit, not a resource one, so it is demonstrable by source citation on any
+This is a _structural_ limit, not a resource one, so it is demonstrable by source citation on any
 host — no GPU, and no Vulkan/ICD install, is needed to establish it. (Recorded because the
 development host used for this work runs a headless NVIDIA driver with no Vulkan ICD, so
 `type="gpu"` cannot be exercised there at all; installing the graphics userspace would only
@@ -123,17 +243,16 @@ flowchart LR
     class a1,a2,a3,b1,b2,b3,c1,c2,c3,s1,s2,s3,s4,s5,s6,s7,s8,s9 siteNode;
 ```
 
-Every dashed edge above is a "vertical" lattice bond that became a long-range gate once the 2D grid
-was flattened to fit the MPS chain. Each one forces bond-dimension growth across every MPS cut it
-crosses — **this happens for a single shallow layer, independent of `h`**. Tuning toward $h_c$
-compounds it (near-critical dynamics generates entanglement faster per gate), but the linearization
-penalty is there even at `h=0.5`.
+Every dashed edge above is a lattice bond that becomes long-range after
+linearization. Such gates can increase bond dimensions across chain cuts,
+depending on the evolving state. This structural disadvantage is not itself
+an entanglement lower bound or a runtime measurement.
 
-The circuit is also shallower than "one Euler step" suggests, but not *that* shallow: the notebook's
-`order=4, num_divisions=2` Trotter builder ([`trotter.py`](https://github.com/microsoft/qdk-chemistry/blob/90c84152a829c4c29c21a49546968b2a7b7345c0/python/src/qdk_chemistry/algorithms/hamiltonian_unitary_builder/time_evolution/trotter.py))
-recursively nests 5 copies of a 2nd-order schedule to build 4th order, then repeats that twice —
-roughly **~80 sequential grouped-exponential blocks**, deeper than the 1D demo's `depth=8`. It is
-shallow *for a 2D circuit at 100 qubits*, not shallow in an absolute sense.
+The frozen Case A recursively composes five second-order steps per subdivision,
+then repeats twice. The actual retained input has **12 field layers and 10
+commuting-bond layers, totaling 432 gates**. The earlier estimate of roughly
+80 grouped blocks was not a measurement of this frozen circuit and is superseded
+by its explicit schedule.
 
 **What actually fits:** a **general/exact tensor-network contraction** of the true 2D circuit
 graph — no forced linearization, no MPS bond-dimension truncation. For a circuit this shallow, cost
@@ -146,32 +265,35 @@ MPS-specific `cutensornetStateFinalizeMPS` path today ([`library.rs`](../../../s
 [`execution.rs`](../../../source/cutensornet/src/execution.rs)) — there is no PEPS-shaped ansatz to reach for either way; cuTensorNet
 does not ship one.
 
-## 4. Two circuit shapes, one target — a built-in correctness check
+## 4. Two circuit shapes, one target — convergence evidence
 
 Independent of the contraction backend, the notebook's own Trotter builder gives us two circuits
 that should agree, to within stated Trotter error, on the same physics:
 
-| | Construction | Shape |
-| --- | --- | --- |
-| Case A (as in the notebook) | `order=4, num_divisions=2` | Few, deep, recursively-composed layers (~80 blocks) |
-| Case B ("standard") | `order=1, num_divisions=N` (from `target_accuracy`) | Many simple repeated layers, structurally like the 1D demo |
+|                             | Construction                                        | Shape                                                             |
+| --------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| Case A (as in the notebook) | `order=4, num_divisions=2`                          | Frozen 4x4: 12 field layers + 10 commuting-bond layers, 432 gates |
+| Case B ("standard")         | `order=1, num_divisions=N` (from `target_accuracy`) | Many simple repeated layers, structurally like the 1D demo        |
 
-Both approximate the same $e^{-iHt}$ at $t=1$. Running both through the new backend and comparing
-observables is a correctness oracle that needs no GPU-vs-CPU comparison and no external reference
-simulator — internal agreement between A and B, tightening as `num_divisions` grows, is itself
-the evidence.
+Both approximate the same $e^{-iHt}$ at $t=1$, but they are different finite
+circuits. Their agreement as subdivision counts increase is convergence evidence,
+not an independent backend oracle: shared implementation errors can affect both.
+The first backend check compares Case A's identical circuit against the independent
+CPU state above. Case B is a later comparison, not an I1 prerequisite.
 
 ## 5. Objective
 
-Build a `RegionConsumer` that classically simulates the qdk-chemistry 2D Ising Trotter circuit (or a
-reduced-size version of it, e.g. 4×4/6×6 first) by exact tensor-network contraction of its true
-circuit graph, through the same public `run_qir` surface the MPS backend uses today, and use it to:
+Run **4x4 Case A through the real `run_qir` entry point on A100**, using generic
+cuTensorNet path optimization and contraction, returning ordered terminal shots
+and agreeing with the independent CPU numerical reference for the same circuit.
+The bounded first readout is all 65,536 complex-f64 amplitudes, then probabilities
+and samples. The 1 MiB output does not include contraction workspace.
 
-1. Confirm Case A and Case B (§4) agree, establishing correctness independent of hardware.
-2. Measure how contraction cost scales with lattice size and with `h` swept toward $h_c/J \approx 3.044$,
-   to characterize where this technique's wall actually is.
-3. Leave the MPS backend and its snake-ordering limitation untouched — this is a new consumer, not
-   a replacement.
+Exact contraction means no MPS truncation of the finite Trotter circuit, not exact
+Hamiltonian evolution or zero floating-point error. A 6x6 full amplitude output
+alone needs 1 TiB; scalable readout is a separate decision. This adds a new consumer
+and must preserve existing MPS behavior. A/B convergence and larger scaling/field
+campaigns follow the first milestone.
 
 ## 6. Iteration plan
 
@@ -180,63 +302,38 @@ Each iteration is independently evidenced before the next begins, following the 
 
 ```mermaid
 flowchart TB
-    Notebook["qdk-chemistry Trotter circuit<br/>order-4 and order-1<br/>variants"] --> Reduce
-    Reduce["Iter 1: reduce to 4x4 / 6x6<br/>reproduce locally<br/>no GPU yet"] --> Graph
-    Graph["Iter 2: circuit-to-network graph<br/>true 2D adjacency<br/>no snake ordering"] --> Contract
-    Contract["Iter 3: ExactContractionConsumer<br/>RegionConsumer impl<br/>path optimize, slice, execute"] --> Wire
-    Wire["Iter 4: wire into run_qir<br/>new type, sibling<br/>to type mps"] --> Sweep
-    Sweep["Iter 5: scaling + criticality sweep<br/>lattice size and h<br/>toward h_c"]
+    Input["I1: frozen 4x4 Case A<br/>independent CPU amplitudes/probabilities<br/>DELIVERED"] --> Graph
+    Graph["I2: neutral circuit-to-network builder<br/>tensornet shapes + separate numerical data"] --> Tiny
+    Tiny["I3a: tiny real A100 optimize/contract<br/>qualify layout and native lifecycle"] --> Full
+    Full["I3b: assembled 4x4 numerical execution<br/>compare against I1"] --> Wire
+    Wire["I4: public run_qir and terminal shots<br/>A100 evidence + MPS regression"] --> Later
+    Later["Later: Case B convergence<br/>scalable readout and scaling campaigns"]
 ```
 
-1. **Reduce and reproduce the target circuit locally.** Build both Case A and Case B (§4) at a
-   tractable size (4×4 or 6×6, not 10×10) using `qdk_chemistry`'s own builders, outside any new
-   simulator code. Evidence bar: both circuits' generator/coefficient structure is dumped and
-   diffed against hand-derived expectations for a small enough case to check by hand (e.g. 2×2).
-
-   `qdk_chemistry` does not require a separate integration path: it depends on the same `qdk`
-   package our harness already uses (`qdk[jupyter]` in its `pyproject.toml`), and its
-   `Circuit.get_qir()` calls the identical `qsharp.compile(...)` our
-   [`run.py`](../mps_trotter_quench_demo/run.py) calls directly. So the boundary is unchanged —
-   `qdk_chemistry`'s builders replace only the hand-written Q# source in `run.py`; the resulting
-   QIR string still goes straight into `qdk.simulation.run_qir(...)` with no new plumbing.
-
-   Confirmed by building the real 2×2 reduction locally (`qdk-chemistry`/`qdk`, installed from
-   PyPI, no external access needed): the generated QIR uses exactly two intrinsics, `rx` and
-   `rzz` — no `h`/`x`/`cnot` at all — and has **zero measurements**
-   (`required_num_results="0"`, `qir_profiles="adaptive_profile"`). The circuit exists only to be
-   gate-counted for resource estimation, not run. Two concrete, scoped follow-ups fall out of
-   this, both still within iteration 1: append one terminal measurement per qubit (as
-   [`run.py`](../mps_trotter_quench_demo/run.py) already does for its own QIR), and accept the
-   resulting `adaptive_profile` tag at the MPS entry point rather than rejecting it outright (see
-   below and §7).
-2. **Express the circuit as a real tensor-network graph.** No snake ordering: qubits keep their
-   2D adjacency, gates become tensors with the connectivity the lattice actually has. Evidence
-   bar: the graph's edge count and treewidth (via a standard tree-decomposition heuristic) are
-   reported for each reduced size, so contraction cost is known before any GPU call.
-3. **Implement `ExactContractionConsumer: RegionConsumer`.** Wraps cuTensorNet's generic
-   contraction path optimizer + slicer + executor behind the same trait
-   [`CuTensorNetMpsConsumer`](../../../source/cutensornet/src/library/simulation/consumer.rs) implements — `prepare_region`/`execute_region` build
-   the network instead of finalizing an MPS; no truncation, no approximation. Evidence bar:
-   validated against a CPU dense-statevector oracle at sizes small enough for that oracle to run
-   (≤~24 qubits), exact agreement, no tolerance.
-4. **Wire into `run_qir` as a sibling to `type="mps"`.** Same public shape as
-   `MpsOptions(device="nvidia")` established a path for
-   ([`README.md` §"Next Integration Iteration"](../../../source/simulators/src/execution/README.md#next-integration-iteration)); this adds
-   a new `type=` value rather than modifying the MPS path. Evidence bar: Case A and Case B (§4)
-   agree at a reduced lattice size, end to end through the real public entry point.
-5. **Scaling and criticality sweep.** Only after 1–4 are evidenced: measure wall time and
-   contraction memory as lattice size grows (4×4 → 6×6 → 8×8 → ...) and as `h` sweeps toward
-   $h_c/J \approx 3.044$ at fixed size, to find where treewidth growth makes contraction impractical.
-   This is the step that finally answers "how hard can we make it," and it is deliberately last —
-   answering it earlier would be measuring an unvalidated backend.
+1. **I1: input and reference.** Delivered above. Keep the original generator,
+   measured Base-QIR input, same-circuit pre-measurement CPU state and bit-order
+   contract. This is not an A100 result.
+2. **I2: neutral network/data builder.** Reuse `QuantumEvolutionRegion`,
+   `UnitaryOperation`, `Index`, `Indices`, `TensorNetwork` and `ContractionQuery`.
+   Keep coefficients outside the shapes-only crate. Validate boundaries, axis order,
+   connectivity and small analytic contractions. A graph heuristic is not a guarantee
+   of contraction cost.
+3. **I3a then I3b: native contraction.** First qualify a tiny non-symmetric real
+   A100 optimize/contract example; then execute the assembled 4x4 network and compare
+   amplitudes/probabilities with I1 under explicit numerical tolerances. Reuse the
+   existing bindings/resource owners; do not substitute the MPS State API.
+4. **I4: public integration.** Add only the needed shared batch/sampling and public
+   wiring. Evidence must include the real A100 `run_qir` route, ordered terminal
+   results, seeded repeatability, distributional correctness and MPS regression.
+5. **Later comparisons/scaling.** Case B, scalable readout and larger campaigns
+   follow the reviewed milestone. At fixed topology, changing `h` changes tensor
+   values, not the graph of a shapes-only path optimizer.
 
 ## 7. Open questions / risks
 
-- **Group count assumption — confirmed.** Built the real `10×10` Hamiltonian
-  (`create_ising_hamiltonian(lattice, j=1.0, h=0.0)`) and inspected its `term_partition` directly:
-  `strategy="geometry_coloring"`, `num_layers(0) == 4` for the ZZ Hamiltonian (the 4 edge
-  colors), plus the separate single-layer X-field Hamiltonian — 5 groups total, matching §3's
-  assumption exactly, not just by construction but by inspection.
+- **Grouping is recorded, not assumed.** The frozen lattice's edge coloring and
+  the actual Suzuki gate schedule are retained. Historical 10x10 group-count
+  observations do not define the gate count or cost of this 4x4 input.
 - **Treewidth is an estimate, not a guarantee.** A shallow circuit is favorable but not sufficient;
   iteration 2's treewidth measurement is the first real evidence either way, before any contraction
   code is written.
@@ -244,34 +341,13 @@ flowchart TB
   mid-circuit measurement with feedforward ([`execution.rs`](../../../source/cutensornet/src/execution.rs), tested explicitly).
   The Trotter quench circuit has none — measurement happens once, at the end — so this limitation
   does not apply to this case and does not need to be solved as a prerequisite.
-- **Gate coverage: confirmed, and small.** Today's cuTensorNet gate mapping
-  ([`circuit.rs`](../../../source/cutensornet/src/library/simulation/circuit.rs)) recognizes
-  `X`, `H`, `Rx`, `Rz`, `Cnot`. A real 2×2 build of the notebook's circuit (§6, item 1) shows the
-  `pauli_sequence` circuit mapper emits only `rx` and a native `rzz` — not the `Cnot·Rz·Cnot`
-  sandwich this document originally assumed. The one gap is `Rzz`: one match arm plus its
-  cuTensorNet matrix, no `H`/`Cnot`/`X` needed at all for this circuit. Also rebuilt the full
-  notebook-scale `10×10` circuit (100 qubits, 1,201 `rx` + 1,801 `rzz` instructions) to check for
-  scale-dependent gate choices — same two intrinsics, same `adaptive_profile`/zero-measurement
-  shape, nothing new appears as the lattice grows.
-- **Adaptive-profile tag: real capability growth, narrowly scoped — not full `DEMO.md` §T3.1.**
-  The generated QIR is tagged `adaptive_profile` (because it has no measurements at all, not
-  because it branches), and today `_run_qir_mps`'s `_validate_base_profile`
-  ([`_simulation.py:741`](../../../source/qdk_package/qdk/simulation/_simulation.py#L741)) rejects
-  any non-`"base_profile"` tag outright, regardless of structure. Per `DEMO.md`'s [§"Tier 3 —
-  capability expansion"](../mps_trotter_quench_demo/DEMO.md#tier-3--capability-expansion-provisional),
-  `RegionConsumer` was designed for adaptive execution from the start — no trait/protocol change
-  needed — but full T3.1 (46 missing classical opcodes, `OP_RESET`, live per-shot sessions,
-  collapse/renormalization) is sized medium-to-large because it targets *genuine* feedforward.
-  Our circuit, once given a terminal measurement, stays single-region: the two Rust-side
-  feedforward guards ([`execution.rs:118`](../../../source/cutensornet/src/execution.rs#L118),
-  [`consumer.rs:266`](../../../source/cutensornet/src/library/simulation/consumer.rs#L266)) only
-  fire when a region executes *after* a measurement, and `CuTensorNetMpsConsumer::new` already
-  separately enforces exactly-one-region. So the actual iteration-1 task is narrow: loosen
-  `_run_qir_mps`'s profile gate to accept `adaptive_profile`-tagged QIR structurally (single
-  region, no feedforward) instead of rejecting on the string alone, and let the existing
-  structural guards keep rejecting genuine multi-region feedforward exactly as today. The
-  remainder of §T3.1 (classical opcodes, `OP_RESET`, live sessions) stays deferred until a case
-  genuinely needs mid-circuit branching.
+- **Gate coverage is already present for MPS.** `Rzz` was added in `791a64b5b`;
+  it is not an I1 prerequisite to reimplement. The fixed input uses only `Rx`/`Rzz`.
+  General TN gate tensors still belong to I2.
+- **No profile relaxation is needed.** The original chemistry QIR has no
+  measurements and is tagged Adaptive, but the existing generator recompiles
+  the measured Q# under `TargetProfile.Base`. I1 verifies that tag. Genuine
+  feedforward, noise and broad MPS refactoring remain outside this milestone.
 
 ## 8. External validation
 
@@ -294,12 +370,16 @@ relies on, and offers a path that changes iteration 1's plan of record:
   mean the fastest path to an unblocked iteration 1 is likely a walkthrough with that team, rather
   than reverse-engineering the builder settings from the notebook alone.
 
-## 9. cuTensorNet API onboarding needed for §6 item 3
+## 9. cuTensorNet API reference for §6 item 3
 
-`ExactContractionConsumer` (§6, item 3) needs cuTensorNet's generic contraction path — path
-optimization, slicing, execution over arbitrary topology — not the MPS-specific `State` API the
-crate onboards today. This section records exactly what is and isn't onboarded, checked directly
-against the crate's frozen symbol surface and against NVIDIA's version-pinned docs (not the
+**Historical onboarding notes below are not new work instructions.** The generic
+Network/contraction bindings, loader symbols and lifecycle owners already exist.
+What remains is topology/data binding, actual optimization/contraction and native
+qualification, not re-porting these declarations. I1 does not change this surface.
+
+The general-contraction consumer needs cuTensorNet's path optimization, slicing
+and arbitrary-topology execution, not the MPS-specific `State` API. The reference
+below was checked against NVIDIA's version-pinned docs (not the
 "latest" docs, which as of this writing resolve to a much newer, unrelated cuQuantum release —
 see the version-pinning note below).
 
@@ -309,21 +389,17 @@ this crate to cuTensorNet **2.13.0** (`cutensornet_runtime: 21_300`) and CUDA ru
 that the Rust bindings were generated from the `cuquantum-linux-x86_64-26.06.0.17_cuda12-archive`
 archive, i.e. cuQuantum SDK release **26.06.0** is the one that bundles cuTensorNet 2.13.0. NVIDIA's
 docs are versioned by the SDK release, not the individual library version, so the correct reference
-is `docs.nvidia.com/cuda/cuquantum/26.06.0/cutensornet/...` — *not*
+is `docs.nvidia.com/cuda/cuquantum/26.06.0/cutensornet/...` — _not_
 `docs.nvidia.com/cuda/cuquantum/latest/...`, whose version-switcher metadata resolves to `26.06.0`
 plus several releases (this changes over time; check `nv-versions.json` if revisiting this later).
 
-**What's onboarded today.** [`lib.rs`](../../../source/cutensornet/src/lib.rs)'s
-`CUTENSORNET_REQUIRED_SYMBOLS` (exactly 30 entries, enforced by
-`symbol_inventories_match_the_frozen_surface`) and [`bindings/v2_13.rs`](../../../source/cutensornet/src/bindings/v2_13.rs)
-cover only: handle lifecycle (`Create`/`Destroy`/`GetVersion`/`GetCudartVersion`/`GetErrorString`),
-the `State` API (`CreateState`/`DestroyState`/`StateApplyTensorOperator`/`StateFinalizeMPS`/
-`StateCaptureMPS`/`StateConfigure`/`StatePrepare`/`StateCompute`), `WorkspaceDescriptor`
-(`Create`/`Destroy`/`GetMemorySize`/`SetMemory`), `NetworkOperator` (for expectation-value
-observables, not contraction), `Expectation`, and `Sampler`. None of the general contraction/path
-family exists in the bindings file, not even as an unused declaration.
+**Current source of truth.** See the
+[`cutensornet-symbols.txt` manifest](../../../source/cutensornet/scripts/cutensornet-symbols.txt),
+[`bindings/v2_13.rs`](../../../source/cutensornet/src/bindings/v2_13.rs) and
+[`ContractionResources`](../../../source/cutensornet/src/library/simulation/contraction.rs).
+Declarations and lifecycle tests alone do not establish numerical execution.
 
-**What's missing — minimal set for a first working (non-autotuned) general contraction.**
+**Reference call set for a first working (non-autotuned) general contraction.**
 Confirmed against NVIDIA's reference example for this exact version
 ([`tensornet_example.cu`](https://github.com/NVIDIA/cuQuantum/blob/v26.06.0/samples/cutensornet/tensornet_example.cu),
 linked from the [26.06.0 contraction-serial doc](https://docs.nvidia.com/cuda/cuquantum/26.06.0/cutensornet/examples/contraction-serial.html)).
@@ -332,30 +408,30 @@ Note this version uses a simplified **"Network"**-centric naming (`cutensornetCr
 older, more verbose `NetworkDescriptor`-style naming from earlier SDK releases; that older naming
 does not apply to our pinned 2.13.0/26.06.0 combination and should not be used as a reference here.
 
-| # | Symbol | Purpose |
-| --- | --- | --- |
-| 1 | `cutensornetCreateNetwork` / `cutensornetDestroyNetwork` | Create/destroy the network topology descriptor |
-| 2 | `cutensornetNetworkAppendTensor` | Register each input tensor's modes/extents |
-| 3 | `cutensornetNetworkSetOutputTensor` | Declare the output tensor's modes |
-| 4 | `cutensornetNetworkSetAttribute` | Set compute type (`CUTENSORNET_NETWORK_COMPUTE_TYPE`) |
-| 5 | `cutensornetCreateContractionOptimizerConfig` / `Destroy...` | Optimizer config object |
-| 6 | `cutensornetContractionOptimizerConfigSetAttribute` | e.g. hyper-sample count |
-| 7 | `cutensornetCreateContractionOptimizerInfo` / `Destroy...` | Holds the resulting path |
-| 8 | `cutensornetContractionOptimize` | The actual path-finder call |
-| 9 | `cutensornetContractionOptimizerInfoGetAttribute` | Query num slices, FLOP count, etc. |
-| 10 | `cutensornetWorkspaceComputeContractionSizes` | Size the workspace (reuses our existing `WorkspaceDescriptor` type) |
-| 11 | `cutensornetNetworkPrepareContraction` | Prepare for execution |
-| 12 | `cutensornetNetworkSetInputTensorMemory` / `SetOutputTensorMemory` | Bind device buffers |
-| 13 | `cutensornetNetworkContract` | Execute the contraction |
-| 14 | `cutensornetCreateSliceGroupFromIDRange` / `DestroySliceGroup` | Needed even for "contract everything" in one call (or pass `NULL`) |
+| #   | Symbol                                                             | Purpose                                                             |
+| --- | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| 1   | `cutensornetCreateNetwork` / `cutensornetDestroyNetwork`           | Create/destroy the network topology descriptor                      |
+| 2   | `cutensornetNetworkAppendTensor`                                   | Register each input tensor's modes/extents                          |
+| 3   | `cutensornetNetworkSetOutputTensor`                                | Declare the output tensor's modes                                   |
+| 4   | `cutensornetNetworkSetAttribute`                                   | Set compute type (`CUTENSORNET_NETWORK_COMPUTE_TYPE`)               |
+| 5   | `cutensornetCreateContractionOptimizerConfig` / `Destroy...`       | Optimizer config object                                             |
+| 6   | `cutensornetContractionOptimizerConfigSetAttribute`                | e.g. hyper-sample count                                             |
+| 7   | `cutensornetCreateContractionOptimizerInfo` / `Destroy...`         | Holds the resulting path                                            |
+| 8   | `cutensornetContractionOptimize`                                   | The actual path-finder call                                         |
+| 9   | `cutensornetContractionOptimizerInfoGetAttribute`                  | Query num slices, FLOP count, etc.                                  |
+| 10  | `cutensornetWorkspaceComputeContractionSizes`                      | Size the workspace (reuses our existing `WorkspaceDescriptor` type) |
+| 11  | `cutensornetNetworkPrepareContraction`                             | Prepare for execution                                               |
+| 12  | `cutensornetNetworkSetInputTensorMemory` / `SetOutputTensorMemory` | Bind device buffers                                                 |
+| 13  | `cutensornetNetworkContract`                                       | Execute the contraction                                             |
+| 14  | `cutensornetCreateSliceGroupFromIDRange` / `DestroySliceGroup`     | Needed even for "contract everything" in one call (or pass `NULL`)  |
 
-That's ~19 new symbols total — comparable in scope to the 30 already onboarded for the State/MPS
-path.
+These symbols are already declared/loaded; the list describes the native execution
+work still to qualify, not a new-symbol count or an effort estimate.
 
 **Exact signatures**, extracted directly from the version-pinned
 [26.06.0 function reference](https://docs.nvidia.com/cuda/cuquantum/26.06.0/cutensornet/api/functions.html)
 (each confirmed by exact mangled-name-length match, not substring search — the naming has several
-near-collisions in this API, e.g. `cutensornetCreateNetwork` vs. the *different, older*
+near-collisions in this API, e.g. `cutensornetCreateNetwork` vs. the _different, older_
 `cutensornetCreateNetworkDescriptor`, and `cutensornetContractionOptimize` vs.
 `cutensornetContractionOptimizerConfigGetAttribute`; a plain substring search would silently pick
 the wrong one for either pair):
@@ -471,9 +547,9 @@ cutensornetStatus_t cutensornetDestroySliceGroup(
     cutensornetSliceGroup_t sliceGroup);
 ```
 
-Three new opaque handle types are needed (all `typedef void *`, same ABI shape as the
-already-onboarded `cutensornetHandle_t`/`cutensornetWorkspaceDescriptor_t`, so the existing
-opaque-pointer wrapper pattern applies unchanged): `cutensornetNetworkDescriptor_t`,
+The originally required opaque handle types (already declared) follow the same
+opaque-pointer ownership pattern as `cutensornetHandle_t` and
+`cutensornetWorkspaceDescriptor_t`: `cutensornetNetworkDescriptor_t`,
 `cutensornetContractionOptimizerConfig_t`, `cutensornetContractionOptimizerInfo_t`, plus
 `cutensornetSliceGroup_t`. The three `*Attributes_t` enums (`cutensornetNetworkAttributes_t`,
 `cutensornetContractionOptimizerConfigAttributes_t`, `cutensornetContractionOptimizerInfoAttributes_t`)
@@ -482,7 +558,7 @@ are plain C enums (`int`-sized), set/read via the generic `SetAttribute`/`GetAtt
 idiom needed. `cutensornetWorkspaceComputeContractionSizes` and `cutensornetNetworkPrepareContraction`
 both reuse `cutensornetWorkspaceDescriptor_t`, already onboarded.
 
-**Worth adding alongside it**, same effort category, real practical value for this use case:
+**Historical optional follow-ons, not I1 work or priced estimates:**
 `cutensornetCreateNetworkAutotunePreference` / `NetworkAutotunePreferenceSetAttribute` /
 `NetworkAutotuneContraction` / `DestroyNetworkAutotunePreference` (lets cuTENSOR pick the best
 kernel per pairwise contraction — a real perf win once we're running the same topology repeatedly,
@@ -492,6 +568,7 @@ call — useful once path caching matters).
 
 **Explicitly out of scope for this effort**, recorded here only so it isn't rediscovered from
 scratch later:
+
 - **Gradient computation**: `cutensornetNetworkSetGradientTensorMemory` / `SetAdjointTensorMemory`,
   `cutensornetComputeGradientsBackward` (experimental), and
   `cutensornetExpectationComputeWithGradientsBackward` (a gradient-aware extension of the
@@ -510,7 +587,7 @@ scratch later:
 - **Distributed/multi-GPU (MPI) execution** — relevant only once a single A100 is the bottleneck;
   no evidence yet (§6, item 5 hasn't run) that it is.
 
-**Approach: build directly in this worktree, not via a separate exploratory worker.** The general
+**Historical onboarding approach (delivered, retained for context):** The general
 State/MPS bindings were originally onboarded through a separate, heavier exploratory worktree
 (`cutensornet-rust-ffi`) whose job was to remove architectural uncertainty — dynamic loading, ABI
 versioning, opaque-handle ownership/`Drop` safety — before the "execution" side (this worktree)
@@ -526,6 +603,7 @@ without adding safety.
 
 **Discipline to follow**, matched to what every prior addition to this crate
 (`f1257acf1`..`791a64b5b`) actually did, not assumed:
+
 - **Narrow, single-purpose commits** — bindings added in a separate commit from the Rust logic
   that consumes them (e.g. `991904397` "Add cuTensorNet sampler bindings" was bindings-only;
   `7a539a55c` "Port cuTensorNet sampler execution" was the logic, as its own commit).
@@ -545,7 +623,7 @@ without adding safety.
   asserts the discovered runtime reports cuTensorNet `21_300` and CUDA `12_090`. It is skipped by
   default (`cargo test -p qdk_cutensornet` reports `1 ignored`) and only runs when explicitly
   requested via `--ignored` on a host with the audited libraries. Above that,
-  `qdk_package/tests/test_cpu_simulator.py:160-161` gates real NVIDIA *execution* behind the
+  `qdk_package/tests/test_cpu_simulator.py:160-161` gates real NVIDIA _execution_ behind the
   Python-level `QDK_NVIDIA_TESTS` environment variable, against the public `run_qir` entry point.
   So the crate's convention is: symbol resolution/version checks as an `#[ignore]`d Rust test,
   end-to-end GPU execution as a `QDK_NVIDIA_TESTS`-gated Python test. The new contraction-path
@@ -555,14 +633,7 @@ without adding safety.
   ("Port ... from eed6e1bbe"). Confirmed that worktree has no Network/contraction work at all (§9
   above), so these bindings are written fresh from the NVIDIA reference signatures, not ported.
 
-So: bindings for the 19 symbols above are added directly to `source/cutensornet/`, in small
-reviewable commits (mirroring `Rzz`'s), each validated by `cargo test -p qdk_cutensornet --lib`
-plus workspace `clippy`/`rustfmt`, with the frozen-surface count and explicit non-goals recorded in
-each commit message. Once the bindings are in and reviewed, a small hardware check exercising the
-NVIDIA reference recipe end to end — create network, append 4 tensors, set output tensor, optimize
-contraction path, prepare, set memory, contract, verify output norm/FLOP count matches the
-reference, destroy everything — gets run on the A100 following the crate's two-level convention
-(an `#[ignore]`d Rust test for symbol resolution, `QDK_NVIDIA_TESTS` for end-to-end execution),
-confirming the symbols resolve, link, and execute correctly, independent of any `RegionConsumer`
-logic. Only once that passes does `ExactContractionConsumer` (§6, item 3) get built on top,
-consuming the now-validated bindings.
+The remaining I3a gate is a small, layout-discriminating A100 execution through
+these existing bindings, with workspace/lifetime/slice/cleanup evidence. I3b then
+compares the assembled 4x4 network with I1. Neither symbol resolution nor a host
+fake replaces those numerical checks.

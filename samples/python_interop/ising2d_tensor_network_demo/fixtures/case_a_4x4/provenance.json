@@ -1,0 +1,576 @@
+{
+  "amplitude_format": "NumPy .npy, shape=(65536,), dtype='<c16' (little-endian complex-f64)",
+  "basis": "k = sum(b[q] * 2**q), q=0..15; q0 is least significant",
+  "case": {
+    "J": 1.0,
+    "h": 0.5,
+    "num_divisions": 2,
+    "nx": 4,
+    "ny": 4,
+    "order": 4,
+    "preparation": "identity / |0>^16",
+    "total_time": 1.0
+  },
+  "engine": "qdk.qsharp.run(type='sparse'); SparseStateSim, no TN construction",
+  "generated_at_utc": "2026-09-17T01:45:21.254291+00:00",
+  "lattice": {
+    "chemistry_graph": {
+      "adjacency_sparse": [
+        [
+          1,
+          0,
+          1.0
+        ],
+        [
+          4,
+          0,
+          1.0
+        ],
+        [
+          0,
+          1,
+          1.0
+        ],
+        [
+          2,
+          1,
+          1.0
+        ],
+        [
+          5,
+          1,
+          1.0
+        ],
+        [
+          1,
+          2,
+          1.0
+        ],
+        [
+          3,
+          2,
+          1.0
+        ],
+        [
+          6,
+          2,
+          1.0
+        ],
+        [
+          2,
+          3,
+          1.0
+        ],
+        [
+          7,
+          3,
+          1.0
+        ],
+        [
+          0,
+          4,
+          1.0
+        ],
+        [
+          5,
+          4,
+          1.0
+        ],
+        [
+          8,
+          4,
+          1.0
+        ],
+        [
+          1,
+          5,
+          1.0
+        ],
+        [
+          4,
+          5,
+          1.0
+        ],
+        [
+          6,
+          5,
+          1.0
+        ],
+        [
+          9,
+          5,
+          1.0
+        ],
+        [
+          2,
+          6,
+          1.0
+        ],
+        [
+          5,
+          6,
+          1.0
+        ],
+        [
+          7,
+          6,
+          1.0
+        ],
+        [
+          10,
+          6,
+          1.0
+        ],
+        [
+          3,
+          7,
+          1.0
+        ],
+        [
+          6,
+          7,
+          1.0
+        ],
+        [
+          11,
+          7,
+          1.0
+        ],
+        [
+          4,
+          8,
+          1.0
+        ],
+        [
+          9,
+          8,
+          1.0
+        ],
+        [
+          12,
+          8,
+          1.0
+        ],
+        [
+          5,
+          9,
+          1.0
+        ],
+        [
+          8,
+          9,
+          1.0
+        ],
+        [
+          10,
+          9,
+          1.0
+        ],
+        [
+          13,
+          9,
+          1.0
+        ],
+        [
+          6,
+          10,
+          1.0
+        ],
+        [
+          9,
+          10,
+          1.0
+        ],
+        [
+          11,
+          10,
+          1.0
+        ],
+        [
+          14,
+          10,
+          1.0
+        ],
+        [
+          7,
+          11,
+          1.0
+        ],
+        [
+          10,
+          11,
+          1.0
+        ],
+        [
+          15,
+          11,
+          1.0
+        ],
+        [
+          8,
+          12,
+          1.0
+        ],
+        [
+          13,
+          12,
+          1.0
+        ],
+        [
+          9,
+          13,
+          1.0
+        ],
+        [
+          12,
+          13,
+          1.0
+        ],
+        [
+          14,
+          13,
+          1.0
+        ],
+        [
+          10,
+          14,
+          1.0
+        ],
+        [
+          13,
+          14,
+          1.0
+        ],
+        [
+          15,
+          14,
+          1.0
+        ],
+        [
+          11,
+          15,
+          1.0
+        ],
+        [
+          14,
+          15,
+          1.0
+        ]
+      ],
+      "edge_coloring": [
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          4,
+          1
+        ],
+        [
+          1,
+          2,
+          2
+        ],
+        [
+          1,
+          5,
+          1
+        ],
+        [
+          2,
+          3,
+          0
+        ],
+        [
+          2,
+          6,
+          1
+        ],
+        [
+          3,
+          7,
+          1
+        ],
+        [
+          4,
+          5,
+          0
+        ],
+        [
+          4,
+          8,
+          3
+        ],
+        [
+          5,
+          6,
+          2
+        ],
+        [
+          5,
+          9,
+          3
+        ],
+        [
+          6,
+          7,
+          0
+        ],
+        [
+          6,
+          10,
+          3
+        ],
+        [
+          7,
+          11,
+          3
+        ],
+        [
+          8,
+          9,
+          0
+        ],
+        [
+          8,
+          12,
+          1
+        ],
+        [
+          9,
+          10,
+          2
+        ],
+        [
+          9,
+          13,
+          1
+        ],
+        [
+          10,
+          11,
+          0
+        ],
+        [
+          10,
+          14,
+          1
+        ],
+        [
+          11,
+          15,
+          1
+        ],
+        [
+          12,
+          13,
+          0
+        ],
+        [
+          13,
+          14,
+          2
+        ],
+        [
+          14,
+          15,
+          0
+        ]
+      ],
+      "is_symmetric": true,
+      "num_sites": 16
+    },
+    "dfs_ordering": false,
+    "edge_count": 24,
+    "edges": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        4
+      ],
+      [
+        1,
+        2
+      ],
+      [
+        1,
+        5
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        2,
+        6
+      ],
+      [
+        3,
+        7
+      ],
+      [
+        4,
+        5
+      ],
+      [
+        4,
+        8
+      ],
+      [
+        5,
+        6
+      ],
+      [
+        5,
+        9
+      ],
+      [
+        6,
+        7
+      ],
+      [
+        6,
+        10
+      ],
+      [
+        7,
+        11
+      ],
+      [
+        8,
+        9
+      ],
+      [
+        8,
+        12
+      ],
+      [
+        9,
+        10
+      ],
+      [
+        9,
+        13
+      ],
+      [
+        10,
+        11
+      ],
+      [
+        10,
+        14
+      ],
+      [
+        11,
+        15
+      ],
+      [
+        12,
+        13
+      ],
+      [
+        13,
+        14
+      ],
+      [
+        14,
+        15
+      ]
+    ],
+    "maximum_coefficient_error": 0.0,
+    "periodic_x": false,
+    "periodic_y": false,
+    "site_index": "q = y * nx + x",
+    "suzuki_p": 0.4144907717943757
+  },
+  "native_binary_sha256": {
+    "qdk-chemistry/qdk_chemistry/_core.cpython-311-aarch64-linux-gnu.so": "01ff06e3c72f4942f8a1aa47d7d86102290b83f3214f1e01a1d85594b518d8e6",
+    "qdk/qdk/_native.abi3.so": "9dfd78d65dd2650797fda71192bd2b4a4d6491b5c23b244485262710de8d0979"
+  },
+  "numerical_contract": {
+    "global_phase_alignment": false,
+    "later_tn_amplitude_and_probability_tv_limit": 1e-08,
+    "meaning": "finite Trotter circuit, not exact Hamiltonian evolution",
+    "repeat_reference_error_limit": 1e-12,
+    "sparse_policy": "existing engine round-off/pruning, not an exact-arithmetic oracle",
+    "squared_norm_error_limit": 1e-08
+  },
+  "packages": {
+    "Pygments": "2.21.0",
+    "anywidget": "0.11.0",
+    "argcomplete": "3.7.2",
+    "asttokens": "3.0.2",
+    "comm": "0.2.3",
+    "contourpy": "1.3.3",
+    "cycler": "0.12.1",
+    "executing": "2.2.1",
+    "fonttools": "4.65.0",
+    "h5py": "3.16.0",
+    "iniconfig": "2.3.0",
+    "ipython": "9.17.1",
+    "ipython_pygments_lexers": "1.1.1",
+    "ipywidgets": "8.1.9",
+    "jedi": "0.20.0",
+    "jupyterlab_widgets": "3.0.17",
+    "kiwisolver": "1.5.1",
+    "matplotlib": "3.11.2",
+    "matplotlib-inline": "0.2.2",
+    "numpy": "2.3.5",
+    "packaging": "26.3",
+    "parso": "0.8.7",
+    "pexpect": "4.9.0",
+    "pillow": "12.3.0",
+    "pluggy": "1.6.0",
+    "prompt_toolkit": "3.0.53",
+    "psutil": "7.2.2",
+    "psygnal": "0.16.1",
+    "ptyprocess": "0.7.0",
+    "pure_eval": "0.2.4",
+    "pybind11-stubgen": "2.5.5",
+    "pyparsing": "3.3.2",
+    "pyqir": "0.12.5",
+    "pytest": "9.1.1",
+    "python-dateutil": "2.9.0.post0",
+    "qdk": "1.32.3",
+    "qdk-chemistry": "2.2.1",
+    "qsharp-jupyterlab": "1.32.3",
+    "qsharp-widgets": "1.32.3",
+    "ruamel.yaml": "0.19.1",
+    "scipy": "1.17.1",
+    "six": "1.17.0",
+    "stack-data": "0.6.3",
+    "traitlets": "5.16.1",
+    "typing_extensions": "4.16.0",
+    "wcwidth": "0.8.3",
+    "widgetsnbextension": "4.0.16"
+  },
+  "platform": {
+    "machine": "aarch64",
+    "python": "3.11.15",
+    "system": "Linux"
+  },
+  "probability_format": "NumPy .npy, shape=(65536,), dtype='<f8'; abs(amplitude)^2 / squared_norm",
+  "reproduce": "python reference.py generate --output <new-directory>",
+  "script_sha256": {
+    "build_measured_circuit.py": "2fbf9c7add541dfc82b152c15e31fe2bd21ab393a4a452117b506af138b2ca87",
+    "reference.py": "c279aaf318fa2650be5fa4fd0b81618193786a823b8072dd0e38e792c6e82a52",
+    "requirements-reference.txt": "4db27d0c4d242d02946d18f55d1b61c3d12c84ab556a842dab8f50d4ac85c41a"
+  },
+  "sha256": {
+    "amplitudes.npy": "ba40210fd0bc63fe2f39b8719aba7922b73d5f2b87c84ca6fe260206ae1f7a44",
+    "measured.ll": "a8b0777689545be0c408981340339d53de19f8db5830a23c36fff8ecf9312291",
+    "measured.qs": "9e6a1f5e1ffa8b2dc65db13a3ca85619c3233ffc547ec20a7779d1c6a7c21c55",
+    "probabilities.npy": "17b56b9337344df771d72e316cc2cb136d19a37a5dc67c7e73c534bcd08265ca",
+    "reference.qs": "ec710d053f2b1a888da9639e2867cebb01023fce989e695ece77c9640230aaea",
+    "unmeasured.ll": "d0dc325e4e27cf568ea4ddff1430a0de76c6ac14da67114e840990c3a5f0c5e6",
+    "validation.json": "fcf4e3e69212ae3fffdb3d0a4d0fc1992885273c7c715f21408d11efeca3dee2"
+  },
+  "snapshot": "Std.Diagnostics.DumpMachine immediately before MResetEachZ",
+  "source_base_commit": "1ac22bcad5ffeeda79256e337452682dd019f963",
+  "verify_without_chemistry": "python reference.py verify --input fixtures/case_a_4x4"
+}

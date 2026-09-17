@@ -1,0 +1,5 @@
+qdk==1.32.3
+qdk-chemistry==2.2.1
+pyqir==0.12.5
+numpy==2.3.5
+pytest==9.1.1

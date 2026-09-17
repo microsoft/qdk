@@ -142,8 +142,18 @@ source/
 samples/python_interop/ ....................................... [DEMO]
 ├── mps_trotter_quench_demo/                Working 1D demo: run.py, DEMO.md,
 │                                           figures/ with committed CSV + SVG
-└── ising2d_tensor_network_demo/            Scoping only — no runnable sample yet
+└── ising2d_tensor_network_demo/            I1 input/reference, not a TN executor:
+      build_measured_circuit.py             Chemistry -> measured Base QIR
+      reference.py, test_reference.py       Pre-measurement sparse CPU oracle/checks
+      fixtures/case_a_4x4/                  Frozen Q#, QIR, amplitudes/probabilities
 ```
+
+The Ising [I1 reproduction commands](../../../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i1-retained-input-and-cpu-reference)
+use the existing Q# sparse simulator to capture the state before terminal
+measurement. The same gate body is compiled to the retained Base QIR, with
+gate-for-gate conversion checks. No shared-control, native-interface or MPS
+changes are needed for this reference; it is independent of the future TN
+builder. I1 does not establish general contraction or A100 execution.
 
 ### What this map makes visible
 
