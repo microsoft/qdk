@@ -361,50 +361,6 @@ fn repeat_with_classically_controlled_gate() {
 }
 
 #[test]
-fn repeat_with_classically_controlled_gate_after_loop() {
-    // this shouldn't yield an error because each measurement iteration is recorded as a separate result,
-    // so rec[-2] is valid after the loop
-    let source = indoc! {"
-        REPEAT 2 {
-          H 0
-          M 0
-        }
-        CX rec[-2] 0
-    "};
-    check(
-        source,
-        &expect![[r#"
-            body:
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            definitions:
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            declarations:
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            required_num_qubits: 1
-            required_num_results: 2"#]],
-    );
-}
-
-#[test]
 fn nested_repeat() {
     let source = indoc! {"
         REPEAT 2 {

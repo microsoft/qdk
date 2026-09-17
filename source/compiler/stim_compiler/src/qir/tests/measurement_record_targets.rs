@@ -286,23 +286,6 @@ fn cx_with_negated_rec_control_yields_error() {
 }
 
 #[test]
-fn cx_with_rec_control_out_of_bounds_yields_error() {
-    let source = "CX rec[-1] 1";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,----
-             1 | CX rec[-1] 1
-               :    ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn cx_with_two_rec_targets_yields_error() {
     let source = indoc! {"
         M 0

@@ -409,18 +409,22 @@ fn require_with_no_targets_yields_error() {
 
 #[test]
 fn require_no_select_block_yields_error() {
-    let source = "REQUIRE rec[-1]";
+    let source = indoc! {"
+    M 0
+    REQUIRE rec[-1]
+  "};
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.InstructionOutsideSelectBlock
+        Qdk.Stim.Compiler.InstructionOutsideSelectBlock
 
-              x REQUIRE must appear inside a SELECT block
-               ,----
-             1 | REQUIRE rec[-1]
-               : ^^^^^^^^^^^^^^^
-               `----
-        "#]],
+          x REQUIRE must appear inside a SELECT block
+           ,-[2:1]
+         1 | M 0
+         2 | REQUIRE rec[-1]
+           : ^^^^^^^^^^^^^^^
+           `----
+    "#]],
     );
 }
 
@@ -444,30 +448,6 @@ fn require_before_measurement_yields_error() {
              3 |   REQUIRE rec[-1]
                :   ^^^^^^^^^^^^^^^
              4 |   M 1
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn rec_index_out_of_bounds() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE rec[-2]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[3:11]
-             2 |   M 0
-             3 |   REQUIRE rec[-2]
-               :           ^^^^^^^
-             4 | }
                `----
         "#]],
     );
@@ -536,31 +516,6 @@ fn require_with_at_least_one_record_in_scope() {
 }
 
 #[test]
-fn reset_does_not_count_as_measurement() {
-    // R does not produce a measurement record, so rec[-1] should be out of bounds.
-    let source = indoc! {"
-        SELECT {
-          R 0
-          REQUIRE rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[3:11]
-             2 |   R 0
-             3 |   REQUIRE rec[-1]
-               :           ^^^^^^^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn measure_reset_counts_as_measurement() {
     // MR produces a measurement record.
     let source = indoc! {"
@@ -623,32 +578,6 @@ fn pair_measurement_record_in_select() {
 
             required_num_qubits: 2
             required_num_results: 1"#]],
-    );
-}
-
-#[test]
-fn pair_measurement_record_in_select_out_of_bounds() {
-    // A two-qubit measurement produces a single measurement record.
-    // So this should not be valid
-    let source = indoc! {"
-        SELECT {
-          MZZ 0 1
-          REQUIRE rec[-1] rec[-2]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[3:19]
-             2 |   MZZ 0 1
-             3 |   REQUIRE rec[-1] rec[-2]
-               :                   ^^^^^^^
-             4 | }
-               `----
-        "#]],
     );
 }
 
@@ -1229,40 +1158,20 @@ fn notleaked_with_no_targets_yields_error() {
 
 #[test]
 fn notleaked_no_select_block_yields_error() {
-    let source = "NOTLEAKED rec[-1]";
+    let source = indoc! {"
+    M 0
+    NOTLEAKED rec[-1]
+  "};
     check(
         source,
         &expect![[r#"
         Qdk.Stim.Compiler.InstructionOutsideSelectBlock
 
           x NOTLEAKED must appear inside a SELECT block
-           ,----
-         1 | NOTLEAKED rec[-1]
+           ,-[2:1]
+         1 | M 0
+         2 | NOTLEAKED rec[-1]
            : ^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
-    );
-}
-
-#[test]
-fn notleaked_rec_index_out_of_bounds() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED rec[-2]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-          x measurement record is out of bounds
-           ,-[3:13]
-         2 |   M 0
-         3 |   NOTLEAKED rec[-2]
-           :             ^^^^^^^
-         4 | }
            `----
     "#]],
     );

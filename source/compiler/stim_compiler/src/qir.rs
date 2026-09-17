@@ -331,12 +331,6 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("measurement record is out of bounds")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfBounds"))]
-    MeasurementRecordOutOfBounds {
-        #[label]
-        span: Span,
-    },
     #[error("all measurement records referenced by {instruction} are out of scope")]
     #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
     AllMeasurementRecordsOutOfScope {
@@ -1085,9 +1079,7 @@ impl<'noise> Compiler<'noise> {
         target: StimQubitId,
         pauli: Pauli,
     ) {
-        let Some(result_id) = self.resolve_record(control) else {
-            return;
-        };
+        let result_id = self.resolve_record(control);
         let qubit = self.id_map.allocate_qubit(target);
         self.writer
             .write_classical_control(&pauli.as_str().to_ascii_lowercase(), result_id, qubit);
@@ -1123,6 +1115,9 @@ impl<'noise> Compiler<'noise> {
                     vec![*probability / 15.0; 15],
                 );
                 self.emit_noise(table, &[*q0, *q1]);
+            }
+            semantic::Noise::HeraldedErase { .. } => {
+                self.unsupported("HERALDED_ERASE", instruction_span);
             }
             semantic::Noise::HeraldedPauliChannel1 { .. } => {
                 self.unsupported("HERALDED_PAULI_CHANNEL_1", instruction_span);
@@ -1167,9 +1162,6 @@ impl<'noise> Compiler<'noise> {
                         vec![*probability / 3.0; 3],
                     );
                     self.emit_noise(table, &[*qubit]);
-                }
-                semantic::SingleQubitNoiseKind::HeraldedErase => {
-                    self.unsupported("HERALDED_ERASE", instruction_span);
                 }
                 semantic::SingleQubitNoiseKind::Fault(kind) => {
                     let table = self.noise_accumulator.build_noise_table(
@@ -1295,13 +1287,10 @@ impl<'noise> Compiler<'noise> {
         let Some(scope_id) = self.expect_select_scope_id("REQUIRE", instruction_span) else {
             return;
         };
-        let Some(result_ids) = records
+        let result_ids = records
             .iter()
             .map(|negatable_record| self.resolve_record(negatable_record.record))
-            .collect::<Option<Vec<_>>>()
-        else {
-            return;
-        };
+            .collect::<Vec<_>>();
 
         if !self.validate_record_scoping("REQUIRE", instruction_span, &result_ids) {
             return;
@@ -1335,13 +1324,10 @@ impl<'noise> Compiler<'noise> {
         let Some(scope_id) = self.expect_select_scope_id("NOTLEAKED", instruction_span) else {
             return;
         };
-        let Some(result_ids) = records
+        let result_ids = records
             .iter()
             .map(|record| self.resolve_record(*record))
-            .collect::<Option<Vec<_>>>()
-        else {
-            return;
-        };
+            .collect::<Vec<_>>();
         if !self.validate_record_scoping("NOTLEAKED", instruction_span, &result_ids) {
             return;
         }
@@ -1424,13 +1410,8 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn resolve_record(&mut self, record: semantic::MeasurementRecord) -> Option<ResultId> {
-        let record_count = self.id_map.record_count;
-        let Some(result_id) = record_count.checked_sub(record.offset) else {
-            self.push_error(Error::MeasurementRecordOutOfBounds { span: record.span });
-            return None;
-        };
-        Some(result_id)
+    fn resolve_record(&self, record: semantic::MeasurementRecord) -> ResultId {
+        self.id_map.record_count - record.offset
     }
 
     fn expect_select_scope_id(&mut self, instruction: &str, instruction_span: Span) -> Option<u32> {
