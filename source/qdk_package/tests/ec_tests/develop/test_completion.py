@@ -6,7 +6,7 @@ import qodec as qc
 import pytest
 
 from ec_tests.testing.code_catalog import make_steane_code
-from qdk.ec import audit, build_qodec
+from qdk.ec import audit, build_qodec, derive
 from qdk.ec._analysis.code_algebra import as_qodec_code
 from qdk.ec._completion import complete_gadget
 from qdk.ec._readouts import as_readout
@@ -75,3 +75,26 @@ def test_completion_does_not_preserve_an_invalid_authored_check() -> None:
 
     assert completed.checks == expected
     assert gadget.checks[-1] == (1,)
+
+
+def test_derive_restores_missing_readouts_and_output_frame_relations() -> None:
+    code = qc.Code(
+        "C4",
+        stabilizers=["X_0 X_1 X_2 X_3", "Z_0 Z_1 Z_2 Z_3"],
+        x=["X_0 X_1", "X_0 X_2"],
+        z=["Z_0 Z_2", "Z_0 Z_1"],
+    )
+    protocol = build_qodec(code, strategy="bare-css/v1", strict=False)
+    layer = protocol.layers[0]
+    layer.gadgets["measure_x"].readouts = []
+    layer.gadgets["measure_z"].readouts = []
+    layer.gadgets["transversal_cx"].checks = []
+    before = protocol.dumps()
+
+    completed = derive(protocol)
+
+    assert isinstance(completed, qc.Qodec)
+    report = audit(completed)
+    assert not report.diagnostics, str(report)
+    assert protocol.dumps() == before
+    assert derive(completed) == completed

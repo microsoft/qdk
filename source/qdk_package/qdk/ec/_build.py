@@ -95,7 +95,6 @@ from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
 from ._analysis.channel_action import gadget_action_mismatch
-from ._analysis.check_discovery import _output_relations_of
 from ._distance import code_distance_of
 from ._analysis.propagation.pauli import Pauli, characters_of
 from ._analysis.propagation.pauli_remap import code_qubit_count
@@ -479,29 +478,7 @@ def _attempt_candidate(
 ) -> qc.Gadget | _BuildFailure:
     draft = _draft(candidate, instruction, code, physical, data_width)
     try:
-        gadget = complete_gadget(draft)
-        if candidate.mnemonic in ("measure_x", "measure_z"):
-            basis = "x" if candidate.mnemonic == "measure_x" else "z"
-            gadget.readouts = [
-                [*readout.equation, f"in[0].{basis}[{index}]"]
-                for index, readout in enumerate(gadget.readouts)
-            ]
-        if candidate.mnemonic in ("transversal_h", "transversal_cx"):
-            gadget.checks = [
-                *gadget.checks,
-                *(
-                    [*as_references(equation), *([1] if offset else [])]
-                    for equation, offset in _output_relations_of(gadget)
-                ),
-            ]
-    except (KeyError, ValueError, NotImplementedError) as error:
-        return _BuildFailure(
-            "completion",
-            type(error).__name__,
-            str(error),
-        )
-    try:
-        mismatch = gadget_action_mismatch(gadget)
+        mismatch = gadget_action_mismatch(draft)
     except (KeyError, ValueError, NotImplementedError) as error:
         return _BuildFailure(
             "verification",
@@ -510,7 +487,14 @@ def _attempt_candidate(
         )
     if mismatch is not None:
         return _BuildFailure("verification", "ActionMismatch", mismatch)
-    return gadget
+    try:
+        return complete_gadget(draft)
+    except (KeyError, ValueError, NotImplementedError) as error:
+        return _BuildFailure(
+            "completion",
+            type(error).__name__,
+            str(error),
+        )
 
 
 def _build(
