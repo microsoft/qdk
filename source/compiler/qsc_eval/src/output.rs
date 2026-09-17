@@ -25,6 +25,8 @@ pub trait Receiver {
     /// # Errors
     /// This will return an error if handling the output fails.
     fn message(&mut self, msg: &str) -> Result<(), Error>;
+
+    fn trace(&mut self, trace: Vec<String>);
 }
 
 pub struct GenericReceiver<'a> {
@@ -68,6 +70,8 @@ impl Receiver for GenericReceiver<'_> {
     fn message(&mut self, msg: &str) -> Result<(), Error> {
         writeln!(self.writer, "{msg}").map_err(|_| Error)
     }
+
+    fn trace(&mut self, _trace: Vec<String>) {}
 }
 
 pub struct CursorReceiver<'a> {
@@ -120,4 +124,6 @@ impl Receiver for CursorReceiver<'_> {
     fn message(&mut self, msg: &str) -> Result<(), Error> {
         writeln!(self.cursor, "{msg}").map_err(|_| Error)
     }
+
+    fn trace(&mut self, _trace: Vec<String>) {}
 }

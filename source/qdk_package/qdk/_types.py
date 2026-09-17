@@ -226,6 +226,7 @@ class ShotResult(TypedDict):
     messages: List[str]
     matrices: List[Output]
     dumps: List[StateDump]
+    trace: Optional[str]
 
 
 # ---------------------------------------------------------------------------

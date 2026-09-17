@@ -1302,6 +1302,7 @@ impl Output {
             DisplayableOutput::State(state) => state.to_plain(),
             DisplayableOutput::Matrix(matrix) => matrix.to_plain(),
             DisplayableOutput::Message(msg) => msg.clone(),
+            DisplayableOutput::Trace(trace) => trace.clone(),
         }
     }
 
@@ -1319,7 +1320,7 @@ impl Output {
                 };
                 Some(format!("{}{latex}", state.to_html()))
             }
-            DisplayableOutput::Message(_) => None,
+            DisplayableOutput::Message(_) | DisplayableOutput::Trace(_) => None,
             DisplayableOutput::Matrix(matrix) => Some(matrix.to_latex()),
         }
     }
@@ -1327,7 +1328,9 @@ impl Output {
     fn state_dump(&self) -> Option<StateDumpData> {
         match &self.0 {
             DisplayableOutput::State(state) => Some(StateDumpData(state.clone())),
-            DisplayableOutput::Matrix(_) | DisplayableOutput::Message(_) => None,
+            DisplayableOutput::Matrix(_)
+            | DisplayableOutput::Message(_)
+            | DisplayableOutput::Trace(_) => None,
         }
     }
 
@@ -1341,6 +1344,10 @@ impl Output {
 
     fn is_message(&self) -> bool {
         matches!(&self.0, DisplayableOutput::Message(_))
+    }
+
+    fn is_trace(&self) -> bool {
+        matches!(&self.0, DisplayableOutput::Trace(_))
     }
 }
 
@@ -1510,6 +1517,24 @@ impl Receiver for OptionalCallbackReceiver<'_> {
                 .map_err(|_| Error)?;
         }
         Ok(())
+    }
+
+    fn trace(&mut self, trace: Vec<String>) {
+        if let Some(callback) = &self.callback {
+            let out = DisplayableOutput::Trace(format!("[{}]", trace.join(", ")));
+            callback
+                .call1(
+                    self.py,
+                    PyTuple::new(
+                        self.py,
+                        &[Py::new(self.py, Output(out)).expect("should be able to create output")],
+                    )
+                    .map_err(|_| Error)
+                    .expect("constructing trace output should succeed"),
+                )
+                .map_err(|_| Error)
+                .expect("callback for trace should succeed");
+        }
     }
 }
 

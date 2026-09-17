@@ -112,6 +112,9 @@ def run(
 
     def on_save_events(output: Output) -> None:
         # Append the output to the last shot's output list
+        if output.is_trace():
+            results[-1]["trace"] = str(output)
+            return
         results[-1]["events"].append(output)
         if output.is_matrix():
             results[-1]["matrices"].append(output)
@@ -149,6 +152,7 @@ def run(
                     "matrices": [],
                     "dumps": [],
                     "messages": [],
+                    "trace": None,
                 }
             )
             run_results = get_interpreter().run(

@@ -210,7 +210,7 @@ class Context:
             to use the ``set`` keyword for mutable variable assignments.
 
         :keyword qdk_config: configuration parameters that will be accessible in Q#
-            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of 
+            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of
             type `int`, `float`, `str`, or `bool`.
         """
         self._disposed = False
@@ -404,6 +404,8 @@ class Context:
 
     def _display(self, output: Output) -> None:
         """Displays output in Jupyter (if available), otherwise prints."""
+        if output.is_trace():
+            return
         if _jupyter_display is not None:
             try:
                 _jupyter_display(output)
@@ -589,6 +591,7 @@ class Context:
             "messages": [],
             "matrices": [],
             "dumps": [],
+            "trace": None,
         }
 
         def on_save_events(output: Output) -> None:
@@ -684,6 +687,9 @@ class Context:
 
         def on_save_events(output: Output) -> None:
             # Append the output to the last shot's output list
+            if output.is_trace():
+                results[-1]["trace"] = str(output)
+                return
             results[-1]["events"].append(output)
             if output.is_matrix():
                 results[-1]["matrices"].append(output)
@@ -734,6 +740,7 @@ class Context:
                     "messages": [],
                     "matrices": [],
                     "dumps": [],
+                    "trace": None,
                 }
             )
             run_results = self._interpreter.run(

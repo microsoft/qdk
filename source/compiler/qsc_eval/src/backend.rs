@@ -1712,3 +1712,64 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
         matrix[i][j]
     })
 }
+
+#[derive(Default)]
+pub struct SimpleTracer {
+    pub trace: Vec<String>,
+}
+
+impl Tracer for SimpleTracer {
+    fn qubit_allocate(&mut self, _stack: &[Frame], _q: usize) {
+        // Noop
+    }
+
+    fn qubit_release(&mut self, _stack: &[Frame], _q: usize) {
+        // Noop
+    }
+
+    fn qubit_swap_id(&mut self, _stack: &[Frame], _q0: usize, _q1: usize) {
+        // Noop
+    }
+
+    fn gate(
+        &mut self,
+        _stack: &[Frame],
+        name: &str,
+        is_adjoint: bool,
+        targets: &[usize],
+        controls: &[usize],
+        theta: Option<f64>,
+    ) {
+        let adj = if is_adjoint { "adj" } else { "" };
+        let ctrls_and_targets = controls.iter().chain(targets.iter()).collect::<Vec<_>>();
+        let angle = if let Some(theta) = theta {
+            format!("({theta})")
+        } else {
+            String::new()
+        };
+        self.trace.push(format!(
+            "('{name}{adj}{angle}', [{}])",
+            ctrls_and_targets
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        ));
+    }
+
+    fn measure(&mut self, _stack: &[Frame], name: &str, q: usize, _r: &val::Result) {
+        self.trace.push(format!("('{name}', [{q}])"));
+    }
+
+    fn reset(&mut self, _stack: &[Frame], q: usize) {
+        self.trace.push(format!("('Reset', [{q}])"));
+    }
+
+    fn custom_intrinsic(&mut self, _stack: &[Frame], _name: &str, _arg: Value) {
+        todo!("custom_intrinsic not implemented for SimpleTracer")
+    }
+
+    fn is_stack_tracing_enabled(&self) -> bool {
+        false
+    }
+}

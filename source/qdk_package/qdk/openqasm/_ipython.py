@@ -14,6 +14,8 @@ except:
 
 
 def display_or_print(output: Output) -> None:
+    if output.is_trace():
+        return
     if _jupyter_display is not None:
         try:
             _jupyter_display(output)

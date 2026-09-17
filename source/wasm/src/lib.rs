@@ -483,6 +483,8 @@ where
         (self.event_cb)(&msg_json.to_string());
         Ok(())
     }
+
+    fn trace(&mut self, _trace: Vec<String>) {}
 }
 
 fn run_interpreter<F>(

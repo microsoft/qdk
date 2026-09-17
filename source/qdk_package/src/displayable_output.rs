@@ -99,4 +99,5 @@ pub enum DisplayableOutput {
     State(DisplayableState),
     Message(String),
     Matrix(DisplayableMatrix),
+    Trace(String),
 }

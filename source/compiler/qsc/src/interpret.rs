@@ -48,7 +48,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, CliffordSim, SparseSim, TracingBackend},
+    backend::{Backend, CliffordSim, SimpleTracer, SparseSim, TracingBackend},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -1627,14 +1627,17 @@ impl Interpreter {
         args: Value,
         seed: Option<u64>,
     ) -> InterpretResult {
-        self.invoke_with_tracing_backend(
-            &mut TracingBackend::no_tracer(sim),
+        let mut simple_tracer = SimpleTracer::default();
+        let res = self.invoke_with_tracing_backend(
+            &mut TracingBackend::new(sim, Some(&mut simple_tracer)),
             receiver,
             callable,
             args,
             self.eval_config,
             seed,
-        )
+        );
+        receiver.trace(simple_tracer.trace);
+        res
     }
 
     fn invoke_with_tracing_backend<B: Backend>(
