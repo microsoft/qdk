@@ -1,0 +1,881 @@
+---
+qodec.yaml:
+  name: c4c6
+  description: |
+    Knill C4/C6 concatenated qodec. Three layers:
+      top    - operations on Knill C6-encoded blocks
+      middle - operations on Knill C4-encoded blocks
+      bottom - physical Stim circuits
+
+    The top and middle layers share the same instruction set, c4c6.isa.yaml. What
+    changes between them is the encoding of each block's qubits. At the middle
+    layer a block is a C4 [[4,2,2]] codeword of 4 physical qubits; at the top layer
+    a block is a C6 [[6,2,2]] codeword built from three C4 blocks, 12 physical
+    qubits in total. Encoded operations at the top layer are realized as small
+    programs in the middle layer, following Knill's error-correcting teleportation
+    protocol.
+
+    Each block carries two logical qubits, addressed positionally as index 0 (L)
+    and index 1 (S). Operands are positional too: `controlled_x_all` declares
+    `in: [c4c6_block, c4c6_block]`, control first. The instruction set declares
+    nine instructions: prepare_z_all, prepare_x_all, controlled_x_all,
+    hadamard_all, measure_z_all, measure_x_all, mul_u, mul_u_sq, and idle. Every
+    one is realized at both the top and middle layers; the codes and circuits
+    change, not the instructions' meanings.
+
+    mul_u is Knill's `*u`, a 3-cycle on {X_L, X_S, X_L X_S} with the reverse cycle
+    on the Z side, used to rotate the cat-state intermediate into C6 codespace
+    during preparation. mul_u_sq is its inverse.
+
+    The C6 conventions chosen here make the recursive C6-from-C4 construction
+    clean: the 6 qubits of a C6 codeword pair up as 3 C4 blocks, and Knill's
+    logicals only ever touch one or two qubits per pair.
+
+    Notable realizations:
+
+    - C4 hadamard_all applies transversal H then SWAP, undoing the L/S swap that
+      transversal H induces in Knill's [[4,2,2]] convention, so the net logical
+      action is H_L tensor H_S. C6 hadamard_all applies transversal hadamard_all
+      to each subblock, which gives a twisted Clifford rather than H_L tensor H_S,
+      then transversal mul_u_sq to rotate it back.
+    - The C4 preparations are Knill's Fig 8 networks over 8 physical qubits: four
+      codeword survivors and four measured ancillas. Their frames maps record the
+      measurement-dependent logical corrections; no physical correction gates are
+      applied. The reject flag reports the parity of the four ancilla measurements
+      and does not replace the frame.
+    - C6 idle is Knill's Fig 7 error-correcting teleportation. It ends in Bell
+      measurements and declares all four logical-sign corrections in frames, which
+      a consumer must carry forward. The C4 layer is the leaf of the hierarchy with
+      no further encoding to build error correction against, so its idle hands the
+      input straight through.
+
+    Why the encoded layers use inline YAML rather than Stim: each C6 realization is
+    a program in this same instruction set, calling block-typed instructions. Stim's
+    syntax is positional and assumes physical-qubit operands, with no vocabulary for
+    block-typed operands. Physical realizations suit Stim or OpenQASM; encoded
+    realizations suit inline YAML.
+
+    Known gaps, surfaced rather than papered over:
+
+    - The C6 preparations XOR every error-detection signal into one reject bit,
+      because the instruction declares only one flag. A finer decomposition would
+      expose more error information and needs instruction-set changes.
+    - Knill's Fig 11 subblock teleportation is omitted from the Fig 9 preparation
+      networks. The result is logically equivalent, just less fault tolerant.
+    - Single-qubit S and any non-Clifford gate need magic-state distillation in
+      Knill's scheme and are absent here.
+
+    Conditional instructions declare a bit parameter and guard their action with
+    `if: [correction]`; an inline YAML call supplies the bit as an argument such as
+    `correction: "circuit.readouts[0]"`. This example uses frames instead. qodec's
+    Stim parser rejects measurement-controlled targets such as `CX rec[-1] 0` rather
+    than dropping them, which is a parser limit, not a model one.
+
+    Reference: E. Knill, "Quantum computing with realistically noisy
+    devices," Nature 434, 39-44 (2005), arXiv:quant-ph/0410199.
+  layers:
+  - instruction_set: c4c6.isa.yaml
+    codes:
+      c4c6_block: c6.code.yaml
+    gadgets:
+      controlled_x_all: c6\controlled_x_all.gadget.yaml
+      hadamard_all: c6\hadamard_all.gadget.yaml
+      idle: c6\idle.gadget.yaml
+      measure_x_all: c6\measure_x_all.gadget.yaml
+      measure_z_all: c6\measure_z_all.gadget.yaml
+      mul_u: c6\mul_u.gadget.yaml
+      mul_u_sq: c6\mul_u_sq.gadget.yaml
+      prepare_x_all: c6\prepare_x_all.gadget.yaml
+      prepare_z_all: c6\prepare_z_all.gadget.yaml
+  - instruction_set: c4c6.isa.yaml
+    codes:
+      c4c6_block: c4.code.yaml
+    gadgets:
+      controlled_x_all: c4\controlled_x_all.gadget.yaml
+      hadamard_all: c4\hadamard_all.gadget.yaml
+      idle: c4\idle.gadget.yaml
+      measure_x_all: c4\measure_x_all.gadget.yaml
+      measure_z_all: c4\measure_z_all.gadget.yaml
+      mul_u: c4\mul_u.gadget.yaml
+      mul_u_sq: c4\mul_u_sq.gadget.yaml
+      prepare_x_all: c4\prepare_x_all.gadget.yaml
+      prepare_z_all: c4\prepare_z_all.gadget.yaml
+  - instruction_set: stim.isa.yaml
+---
+c4c6.isa.yaml:
+  name: C4C6
+  description: |
+    ISA used by both the C4 and C6 layers of the Knill C4/C6 multi-level
+    qodec example.
+
+    Used at *both* the top and middle layers of the qodec. Each block carries
+    2 logical qubits called L (logical 0) and S (logical 1), following Knill's
+    notation in his Nature 434, 2005 paper.
+
+    This is a deliberately small, faithful subset of Knill's scheme: state
+    preparation, transversal CNOT, transversal Hadamard, and destructive Z
+    and X measurements. Measurement-dependent output corrections are declared
+    in each gadget's frames map rather than as separate logical instructions.
+
+    Deferred / not yet included (all of these are in Knill's full scheme but
+    require careful paper-reading to write correctly):
+      - Single-qubit S (phase) gate; non-Clifford gates.
+      - Variadic / multi-block joint Pauli measurement primitives.
+
+    At the bottom layer each block is realized as a C4 [[4,2,2]] codeword.
+    At the top layer each block is realized as a C6 [[6,2,2]] codeword,
+    itself encoded across three blocks at the layer below.
+  blocks:
+    c4c6_block: 2
+  instructions:
+  - mnemonic: prepare_z_all
+    description: Prepare a block in |00⟩ (Z_L = +1 and Z_S = +1).
+    out: [c4c6_block]
+    action:
+    - stabilize: [Z_0, Z_1]
+    flags: [reject]
+  - mnemonic: prepare_x_all
+    description: Prepare a block in |++⟩ (X_L = +1 and X_S = +1).
+    out: [c4c6_block]
+    action:
+    - stabilize: [X_0, X_1]
+    flags: [reject]
+  - mnemonic: controlled_x_all
+    description: |
+      Block CNOT acting on both logical pairs in parallel. Equivalent to
+      CX_LL ⊗ CX_SS, where CX_xy is the encoded CNOT from logical qubit x
+      of `control` to logical qubit y of `target`. This *is* a standard
+      transversal operation on C4: physical CNOTs between corresponding
+      qubits of the two blocks realize it directly.
+    in: [c4c6_block, c4c6_block]
+    out: [c4c6_block, c4c6_block]
+    action:
+    - clifford:
+        X_0: X_0 X_2
+        X_1: X_1 X_3
+        Z_2: Z_0 Z_2
+        Z_3: Z_1 Z_3
+  - mnemonic: measure_z_all
+    description: Destructive Z_L and Z_S measurement; produces 2 outcome bits.
+    in: [c4c6_block]
+    action:
+    - observe: [Z_0, Z_1]
+  - mnemonic: measure_x_all
+    description: Destructive X_L and X_S measurement; produces 2 outcome bits.
+    in: [c4c6_block]
+    action:
+    - observe: [X_0, X_1]
+  - mnemonic: mul_u
+    description: |
+      Multiply the GF(4) labels of the block's logical Paulis by u (Knill).
+      A 3-cycle on {X_L, X_S, X_L X_S} (and reverse 3-cycle on Z side).
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action:
+    - clifford:
+        X_0: X_1
+        X_1: X_0 X_1
+        Z_0: Z_0 Z_1
+        Z_1: Z_0
+  - mnemonic: mul_u_sq
+    description: |
+      Multiply the GF(4) labels of the block's logical Paulis by u² (Knill).
+      Inverse of mul_u.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action:
+    - clifford:
+        X_0: X_0 X_1
+        X_1: X_0
+        Z_0: Z_1
+        Z_1: Z_0 Z_1
+  - mnemonic: hadamard_all
+    description: |
+      Hadamard on both logical qubits of the block: H_L ⊗ H_S.
+      At the C4 level this is realized as transversal physical H on all
+      four qubits, followed by SWAP(1,2) to undo the logical L↔S swap that
+      transversal H induces with Knill's [[4,2,2]] convention (Fig 12 top
+      of quant-ph/0410199). At the C6 level transversal H per C4 sub-block
+      produces a twisted Clifford; an extra round of mul_u_sq per sub-block
+      rotates that Clifford back to H_L ⊗ H_S on the C6 logicals.
+    in: [c4c6_block]
+    out: [c4c6_block]
+    action:
+    - clifford:
+        X_0: Z_0
+        X_1: Z_1
+        Z_0: X_0
+        Z_1: X_1
+  - mnemonic: idle
+    description: |
+      Error-correcting teleportation (Knill's Fig 7 / teleec_a of
+      arXiv:quant-ph/0410199). The block is teleported through a freshly
+      prepared encoded Bell pair: prepare ancilla A as `|++⟩` and ancilla
+      B as `|00⟩`, entangle them with a transversal CNOT to form the
+      encoded Bell pair, then Bell-measure the input against A (transversal
+      CNOT from input to A, X-measure the input, Z-measure A). The output
+      is B, holding the input's logical state up to a Pauli frame update
+      determined by the Bell-measurement outcomes.
+
+      In this qodec the EC network lives at the C6 layer
+      (`c6/idle.gadget.yaml`), where C4-encoded sub-blocks are
+      available as building blocks for the encoded Bell pair. The C4
+      layer — being the leaf of the encoded hierarchy here — has nothing
+      further to encode against, so its `idle` gadget is a trivial
+      pass-through.
+
+      Logically this is the identity on the encoded qubit pair; the
+      Pauli-frame updates that absorb the random Bell-measurement
+      outcomes are declared in the gadget's frames map and must be
+      carried forward by the consumer.
+      EC also acts as a fault-tolerant refresh — the output lives on
+      freshly prepared qubits.
+
+      Internally the C6 realization invokes flagged ancilla preparations,
+      but those flags are handled via `select: [{reject: 0}]` in each call object and
+      are not surfaced as gadget-level flags. Post-selection on
+      error-detection signals is the decoder's job (it reads the gadget's
+      checks and outcomes), not the qodec's.
+    in: [c4c6_block]
+    out: [c4c6_block]
+---
+stim.isa.yaml:
+  name: stim
+  description: 'Canonical Stim-compatible physical ISA: resets, single-qubit Cliffords and Paulis, CX/CZ, destructive plus two-body Pauli measurements, and constant measurement-record padding. Shared by every catalog example as its bottom (physical) layer.'
+  blocks:
+    qubit: 1
+  instructions:
+  - mnemonic: I
+    description: Identity.
+    in: [qubit]
+    out: [qubit]
+  - mnemonic: R
+    description: Reset to |0>.
+    out: [qubit]
+    action:
+    - stabilize: [Z_0]
+  - mnemonic: H
+    description: Hadamard.
+    in: [qubit]
+    out: [qubit]
+    action:
+    - clifford:
+        X_0: Z_0
+        Z_0: X_0
+  - mnemonic: S
+    description: Phase gate.
+    in: [qubit]
+    out: [qubit]
+    action:
+    - clifford:
+        X_0: Y_0
+        Z_0: Z_0
+  - mnemonic: X
+    description: Pauli X.
+    in: [qubit]
+    out: [qubit]
+    action:
+    - pauli: X_0
+  - mnemonic: Y
+    description: Pauli Y.
+    in: [qubit]
+    out: [qubit]
+    action:
+    - pauli: Y_0
+  - mnemonic: Z
+    description: Pauli Z.
+    in: [qubit]
+    out: [qubit]
+    action:
+    - pauli: Z_0
+  - mnemonic: Z_if
+    description: Pauli Z applied only when the supplied classical bit is set — Stim's `CZ rec[-k] q`. A measurement-based preparation uses this to feed its outcome forward, so that the state it produces is definite rather than one of several branches.
+    in: [qubit]
+    out: [qubit]
+    parameters:
+      correction: bit
+    action:
+    - pauli: Z_0
+      if: [correction]
+  - mnemonic: X_if
+    description: Pauli X applied only when the supplied classical bit is set — Stim's `CX rec[-k] q`, and the dual of `Z_if`.
+    in: [qubit]
+    out: [qubit]
+    parameters:
+      correction: bit
+    action:
+    - pauli: X_0
+      if: [correction]
+  - mnemonic: CX
+    description: Controlled-X (CNOT).
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - clifford:
+        X_0: X_0 X_1
+        Z_1: Z_0 Z_1
+  - mnemonic: CZ
+    description: Controlled-Z.
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - clifford:
+        X_0: X_0 Z_1
+        X_1: Z_0 X_1
+        Z_0: Z_0
+        Z_1: Z_1
+  - mnemonic: SWAP
+    description: Swap two qubits.
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - clifford:
+        X_0: X_1
+        X_1: X_0
+        Z_0: Z_1
+        Z_1: Z_0
+  - mnemonic: M
+    description: Destructive Z-basis measurement.
+    in: [qubit]
+    action:
+    - observe: Z_0
+  - mnemonic: MPAD0
+    description: Append a constant zero to the measurement record without using qubits.
+    action:
+    - observe: I
+  - mnemonic: MPAD1
+    description: Append a constant one to the measurement record without using qubits.
+    action:
+    - observe: -I
+  - mnemonic: MX
+    description: Destructive X-basis measurement.
+    in: [qubit]
+    action:
+    - observe: X_0
+  - mnemonic: MXX
+    description: Two-body XX-parity measurement (non-destructive).
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - observe: X_0 X_1
+  - mnemonic: MYY
+    description: Two-body YY-parity measurement (non-destructive).
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - observe: Y_0 Y_1
+  - mnemonic: MYY_NEG
+    description: Two-body YY measurement with its reported bit inverted; use inline YAML calls.
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - observe: -Y_0 Y_1
+  - mnemonic: MZZ
+    description: Two-body ZZ-parity measurement (non-destructive).
+    in: [qubit, qubit]
+    out: [qubit, qubit]
+    action:
+    - observe: Z_0 Z_1
+---
+c4.code.yaml:
+  name: C4
+  description: '[[4,2,2]] error-detecting code (Knill''s C4 with his logical convention)'
+  stabilizers: [X_0 X_1 X_2 X_3, Z_0 Z_1 Z_2 Z_3]
+  x: [X_0 X_1, X_1 X_3]
+  z: [Z_0 Z_2, Z_2 Z_3]
+---
+c6.code.yaml:
+  name: C6
+  description: |
+    Knill's C6 [[6,2,2]] error-detecting code (Nature 434, 2005).
+    Six physical qubits arranged as three "qubit pairs":
+      pair 0 = qubits 0,1
+      pair 1 = qubits 2,3
+      pair 2 = qubits 4,5
+    Encodes one qubit pair (= 2 logical qubits, called L and S in Knill).
+  stabilizers: [X_0 X_3 X_4 X_5, X_0 X_1 X_2 X_5, Z_0 Z_3 Z_4 Z_5, Z_0 Z_1 Z_2 Z_5]
+  x: [X_1 X_2, X_0 X_2 X_3]
+  z: [Z_2 Z_3 Z_5, Z_3 Z_4]
+---
+c4\controlled_x_all.gadget.yaml:
+  circuit:
+    source: |
+      # Transversal block CNOT: physical CX between corresponding qubits.
+      # Implements CX_LL ⊗ CX_SS on the two logical pairs simultaneously.
+
+      CX 0 4 1 5 2 6 3 7
+    format: stim
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]', 'in[1].stabilizers[0]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
+  - ['out[1].stabilizers[0]', 'in[1].stabilizers[0]']
+  - ['out[1].stabilizers[1]', 'in[0].stabilizers[1]', 'in[1].stabilizers[1]']
+---
+c4\hadamard_all.gadget.yaml:
+  circuit:
+    source: |
+      # Encoded H_L ⊗ H_S on a Knill C4 [[4,2,2]] block (Fig 12 top of
+      # quant-ph/0410199). Transversal physical H on all 4 qubits, then SWAP of
+      # the middle two qubits to undo the L↔S swap that transversal H induces
+      # with Knill's convention.
+      #
+      # Action on Knill C4 logicals (X_L = X_0 X_1, X_S = X_1 X_3,
+      # Z_L = Z_0 Z_2, Z_S = Z_2 Z_3):
+      #   X_L → Z_L   (X_0 X_1 →(H) Z_0 Z_1 →(SWAP 1 2) Z_0 Z_2 = Z_L)
+      #   X_S → Z_S   (X_1 X_3 →(H) Z_1 Z_3 →(SWAP 1 2) Z_2 Z_3 = Z_S)
+      #   Z_L → X_L   (Z_0 Z_2 →(H) X_0 X_2 →(SWAP 1 2) X_0 X_1 = X_L)
+      #   Z_S → X_S   (Z_2 Z_3 →(H) X_2 X_3 →(SWAP 1 2) X_1 X_3 = X_S)
+
+      H 0 1 2 3
+      SWAP 1 2
+    format: stim
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[1]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[0]']
+---
+c4\idle.gadget.yaml:
+  circuit:
+    source: |
+      # C4-level idle: trivial pass-through.
+      #
+      # In the c4c6 qodec, error correction is performed at the C6 layer (see
+      # c6/idle.gadget.yaml), where Knill's teleportation EC network is
+      # realized from middle-layer (C4-encoded) primitives. The C4 layer —
+      # being the leaf of the encoded hierarchy in this qodec — has no
+      # further encoding to build EC against, so `idle` just hands its input
+      # through unchanged.
+
+      I 0 1 2 3
+    format: stim
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
+---
+c4\measure_x_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#measure_x_all
+  circuit:
+    source: |
+      # Destructive X-basis measurement: rotate then measure in Z.
+      # - Parity of all 4 outcomes recovers the X_0 X_1 X_2 X_3 stabilizer (check).
+      # - X_L = X_0 X_1 is the parity of outcomes 0 and 1 (Knill convention).
+      # - X_S = X_1 X_3 is the parity of outcomes 1 and 3 (Knill convention).
+
+      H 0 1 2 3
+      M 0 1 2 3
+    format: stim
+  checks:
+  - ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]', 'circuit.readouts[3]', 'in[0].stabilizers[0]']
+  readouts:
+  - ['circuit.readouts[0]', 'circuit.readouts[1]', 'in[0].x[0]']
+  - ['circuit.readouts[1]', 'circuit.readouts[3]', 'in[0].x[1]']
+---
+c4\measure_z_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#measure_z_all
+  circuit:
+    source: |
+      # Destructive Z-basis measurement of all four physical qubits.
+      # - Parity of all 4 outcomes recovers the Z_0 Z_1 Z_2 Z_3 stabilizer (check).
+      # - Z_L = Z_0 Z_2 is the parity of outcomes 0 and 2 (Knill convention).
+      # - Z_S = Z_2 Z_3 is the parity of outcomes 2 and 3 (Knill convention).
+
+      M 0 1 2 3
+    format: stim
+  checks:
+  - ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]', 'circuit.readouts[3]', 'in[0].stabilizers[1]']
+  readouts:
+  - ['circuit.readouts[0]', 'circuit.readouts[2]', 'in[0].z[0]']
+  - ['circuit.readouts[2]', 'circuit.readouts[3]', 'in[0].z[1]']
+---
+c4\mul_u.gadget.yaml:
+  circuit:
+    source: |
+      # *u on a Knill C4 block = cyclic permutation of physical qubits 1 → 2 → 3 → 1
+      # (per Fig 10 top-row equivalence: "implementable as a relabeling, no actual
+      # entangling gates needed at the C4 level"). Realized with two SWAPs.
+      #
+      # Action on Knill C4 logicals (X_L = X_0 X_1, X_S = X_1 X_3,
+      # Z_L = Z_0 Z_2, Z_S = Z_2 Z_3):
+      #   X_L → X_S         (X_0 X_1 → X_0 X_2 ≡ X_S mod stabilizer)
+      #   X_S → X_L X_S   (X_1 X_3 → X_2 X_1 ≡ X_L X_S)
+      #   Z_L → Z_L Z_S   (Z_0 Z_2 → Z_0 Z_3 ≡ Z_L Z_S)
+      #   Z_S → Z_L         (Z_2 Z_3 → Z_3 Z_1 ≡ Z_L)
+      # matching multiplication by u in GF(4): X(g) → X(u·g), Z(g) → Z(u·g).
+
+      SWAP 2 3
+      SWAP 1 2
+    format: stim
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
+---
+c4\mul_u_sq.gadget.yaml:
+  circuit:
+    source: |
+      # *u² on a Knill C4 block = inverse cyclic permutation 1 → 3 → 2 → 1.
+      # Realized with two SWAPs in the opposite order from mul_u.
+      #
+      # Action on Knill C4 logicals (multiplication by u²):
+      #   X_L → X_L X_S
+      #   X_S → X_L
+      #   Z_L → Z_S
+      #   Z_S → Z_L Z_S
+
+      SWAP 1 2
+      SWAP 2 3
+    format: stim
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
+---
+c4\prepare_x_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#prepare_x_all
+  circuit:
+  - R: [0]
+  - R: [1]
+  - R: [2]
+  - R: [3]
+  - R: [4]
+  - R: [5]
+  - R: [6]
+  - R: [7]
+  - H: [0]
+  - H: [1]
+  - H: [2]
+  - H: [3]
+  - CX: [0, 4]
+  - CX: [1, 5]
+  - CX: [2, 6]
+  - CX: [3, 7]
+  - CX: [4, 1]
+  - CX: [5, 2]
+  - CX: [6, 3]
+  - CX: [7, 0]
+  - H: [4]
+  - H: [5]
+  - H: [6]
+  - H: [7]
+  - M: [4]
+  - M: [5]
+  - M: [6]
+  - M: [7]
+  checks:
+  - ['circuit.readouts[0]', 'circuit.readouts[2]', 'out[0].stabilizers[0]']
+  - ['out[0].stabilizers[1]']
+  readouts:
+  - reject: ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]', 'circuit.readouts[3]']
+  frames:
+    out[0].x[0]: ['circuit.readouts[0]']
+    out[0].x[1]: ['circuit.readouts[1]', 'circuit.readouts[2]']
+---
+c4\prepare_z_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#prepare_z_all
+  circuit:
+  - R: [0]
+  - R: [1]
+  - R: [2]
+  - R: [3]
+  - R: [4]
+  - R: [5]
+  - R: [6]
+  - R: [7]
+  - H: [4]
+  - H: [5]
+  - H: [6]
+  - H: [7]
+  - CX: [4, 0]
+  - CX: [5, 1]
+  - CX: [6, 2]
+  - CX: [7, 3]
+  - CX: [0, 5]
+  - CX: [1, 6]
+  - CX: [2, 7]
+  - CX: [3, 4]
+  - M: [4]
+  - M: [5]
+  - M: [6]
+  - M: [7]
+  checks:
+  - ['out[0].stabilizers[0]']
+  - ['circuit.readouts[0]', 'circuit.readouts[2]', 'out[0].stabilizers[1]']
+  readouts:
+  - reject: ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]', 'circuit.readouts[3]']
+  frames:
+    out[0].z[0]: ['circuit.readouts[1]', 'circuit.readouts[2]']
+    out[0].z[1]: ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]']
+---
+c6\controlled_x_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#controlled_x_all
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - controlled_x_all: [0, 3]
+    - controlled_x_all: [1, 4]
+    - controlled_x_all: [2, 5]
+  in:
+  - c4c6_block: [0, 1, 2]
+  - c4c6_block: [3, 4, 5]
+  out:
+  - c4c6_block: [0, 1, 2]
+  - c4c6_block: [3, 4, 5]
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]', 'in[1].stabilizers[0]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]', 'in[1].stabilizers[1]']
+  - ['out[0].stabilizers[2]', 'in[0].stabilizers[2]']
+  - ['out[0].stabilizers[3]', 'in[0].stabilizers[3]']
+  - ['out[1].stabilizers[0]', 'in[1].stabilizers[0]']
+  - ['out[1].stabilizers[1]', 'in[1].stabilizers[1]']
+  - ['out[1].stabilizers[2]', 'in[0].stabilizers[2]', 'in[1].stabilizers[2]']
+  - ['out[1].stabilizers[3]', 'in[0].stabilizers[3]', 'in[1].stabilizers[3]']
+---
+c6\hadamard_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#hadamard_all
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - hadamard_all: [0]
+    - hadamard_all: [1]
+    - hadamard_all: [2]
+    - mul_u_sq: [0]
+    - mul_u_sq: [1]
+    - mul_u_sq: [2]
+  in:
+  - c4c6_block: [0, 1, 2]
+  out:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[2]', 'in[0].stabilizers[3]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[2]']
+  - ['out[0].stabilizers[2]', 'in[0].stabilizers[1]']
+  - ['out[0].stabilizers[3]', 'in[0].stabilizers[0]', 'in[0].stabilizers[1]']
+---
+c6\idle.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#idle
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - prepare_x_all:
+        operands: [3]
+        select:
+        - reject: 0
+    - prepare_x_all:
+        operands: [4]
+        select:
+        - reject: 0
+    - prepare_x_all:
+        operands: [5]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [6]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [7]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [8]
+        select:
+        - reject: 0
+    - controlled_x_all: [3, 6]
+    - controlled_x_all: [4, 7]
+    - controlled_x_all: [5, 8]
+    - controlled_x_all: [0, 3]
+    - controlled_x_all: [1, 4]
+    - controlled_x_all: [2, 5]
+    - measure_x_all: [0]
+    - measure_x_all: [1]
+    - measure_x_all: [2]
+    - measure_z_all: [3]
+    - measure_z_all: [4]
+    - measure_z_all: [5]
+  in:
+  - c4c6_block: [0, 1, 2]
+  out:
+  - c4c6_block: [6, 7, 8]
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]', 'circuit.readouts[6]', 'circuit.readouts[9]', 'circuit.readouts[10]', 'circuit.readouts[11]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]', 'circuit.readouts[6]', 'circuit.readouts[7]', 'circuit.readouts[8]', 'circuit.readouts[11]']
+  - ['out[0].stabilizers[2]', 'in[0].stabilizers[2]', 'circuit.readouts[12]', 'circuit.readouts[15]', 'circuit.readouts[16]', 'circuit.readouts[17]']
+  - ['out[0].stabilizers[3]', 'in[0].stabilizers[3]', 'circuit.readouts[12]', 'circuit.readouts[13]', 'circuit.readouts[14]', 'circuit.readouts[17]']
+  frames:
+    out[0].x[0]: ['circuit.readouts[7]', 'circuit.readouts[8]']
+    out[0].x[1]: ['circuit.readouts[6]', 'circuit.readouts[8]', 'circuit.readouts[9]']
+    out[0].z[0]: ['circuit.readouts[14]', 'circuit.readouts[15]', 'circuit.readouts[17]']
+    out[0].z[1]: ['circuit.readouts[15]', 'circuit.readouts[16]']
+---
+c6\measure_x_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#measure_x_all
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - measure_x_all: [0]
+    - measure_x_all: [1]
+    - measure_x_all: [2]
+  in:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['circuit.readouts[0]', 'circuit.readouts[3]', 'circuit.readouts[4]', 'circuit.readouts[5]', 'in[0].stabilizers[0]']
+  - ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]', 'circuit.readouts[5]', 'in[0].stabilizers[1]']
+  readouts:
+  - ['circuit.readouts[1]', 'circuit.readouts[2]', 'in[0].x[0]']
+  - ['circuit.readouts[0]', 'circuit.readouts[2]', 'circuit.readouts[3]', 'in[0].x[1]']
+---
+c6\measure_z_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#measure_z_all
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - measure_z_all: [0]
+    - measure_z_all: [1]
+    - measure_z_all: [2]
+  in:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['circuit.readouts[0]', 'circuit.readouts[3]', 'circuit.readouts[4]', 'circuit.readouts[5]', 'in[0].stabilizers[2]']
+  - ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]', 'circuit.readouts[5]', 'in[0].stabilizers[3]']
+  readouts:
+  - ['circuit.readouts[2]', 'circuit.readouts[3]', 'circuit.readouts[5]', 'in[0].z[0]']
+  - ['circuit.readouts[3]', 'circuit.readouts[4]', 'in[0].z[1]']
+---
+c6\mul_u.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#mul_u
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - mul_u_sq: [0]
+    - mul_u_sq: [1]
+    - mul_u_sq: [2]
+  in:
+  - c4c6_block: [0, 1, 2]
+  out:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]', 'in[0].stabilizers[1]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[0]']
+  - ['out[0].stabilizers[2]', 'in[0].stabilizers[3]']
+  - ['out[0].stabilizers[3]', 'in[0].stabilizers[2]', 'in[0].stabilizers[3]']
+---
+c6\mul_u_sq.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#mul_u_sq
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - mul_u: [0]
+    - mul_u: [1]
+    - mul_u: [2]
+  in:
+  - c4c6_block: [0, 1, 2]
+  out:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['out[0].stabilizers[0]', 'in[0].stabilizers[1]']
+  - ['out[0].stabilizers[1]', 'in[0].stabilizers[0]', 'in[0].stabilizers[1]']
+  - ['out[0].stabilizers[2]', 'in[0].stabilizers[2]', 'in[0].stabilizers[3]']
+  - ['out[0].stabilizers[3]', 'in[0].stabilizers[2]']
+---
+c6\prepare_x_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#prepare_x_all
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - prepare_x_all:
+        operands: [0]
+        select:
+        - reject: 0
+    - prepare_x_all:
+        operands: [1]
+        select:
+        - reject: 0
+    - prepare_x_all:
+        operands: [2]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [3]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [4]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [5]
+        select:
+        - reject: 0
+    - controlled_x_all: [0, 3]
+    - controlled_x_all: [1, 4]
+    - controlled_x_all: [2, 5]
+    - controlled_x_all: [3, 1]
+    - controlled_x_all: [4, 2]
+    - controlled_x_all: [5, 0]
+    - mul_u_sq: [1]
+    - mul_u: [2]
+    - measure_x_all: [3]
+    - measure_x_all: [4]
+    - measure_x_all: [5]
+  out:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['circuit.readouts[6]', 'circuit.readouts[9]', 'out[0].stabilizers[0]']
+  - ['circuit.readouts[6]', 'circuit.readouts[7]', 'circuit.readouts[8]', 'out[0].stabilizers[1]']
+  - ['out[0].stabilizers[2]']
+  - ['out[0].stabilizers[3]']
+  readouts:
+  - reject: ['circuit.readouts[6]', 'circuit.readouts[8]', 'circuit.readouts[10]']
+  frames:
+    out[0].x[0]: ['circuit.readouts[7]']
+    out[0].x[1]: ['circuit.readouts[6]']
+---
+c6\prepare_z_all.gadget.yaml:
+  implements: ..\c4c6.isa.yaml#prepare_z_all
+  circuit:
+    instruction_set: ..\c4c6.isa.yaml
+    source:
+    - prepare_x_all:
+        operands: [3]
+        select:
+        - reject: 0
+    - prepare_x_all:
+        operands: [4]
+        select:
+        - reject: 0
+    - prepare_x_all:
+        operands: [5]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [0]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [1]
+        select:
+        - reject: 0
+    - prepare_z_all:
+        operands: [2]
+        select:
+        - reject: 0
+    - controlled_x_all: [3, 0]
+    - controlled_x_all: [4, 1]
+    - controlled_x_all: [5, 2]
+    - controlled_x_all: [0, 4]
+    - controlled_x_all: [1, 5]
+    - controlled_x_all: [2, 3]
+    - mul_u: [1]
+    - mul_u_sq: [2]
+    - measure_z_all: [3]
+    - measure_z_all: [4]
+    - measure_z_all: [5]
+  out:
+  - c4c6_block: [0, 1, 2]
+  checks:
+  - ['out[0].stabilizers[0]']
+  - ['out[0].stabilizers[1]']
+  - ['circuit.readouts[7]', 'circuit.readouts[8]', 'circuit.readouts[9]', 'out[0].stabilizers[2]']
+  - ['circuit.readouts[6]', 'circuit.readouts[9]', 'out[0].stabilizers[3]']
+  readouts:
+  - reject: ['circuit.readouts[6]', 'circuit.readouts[8]', 'circuit.readouts[10]']
+  frames:
+    out[0].z[0]: ['circuit.readouts[6]', 'circuit.readouts[8]']
+    out[0].z[1]: ['circuit.readouts[6]', 'circuit.readouts[7]', 'circuit.readouts[8]', 'circuit.readouts[9]']

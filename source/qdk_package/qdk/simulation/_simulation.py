@@ -45,6 +45,8 @@ from .._adaptive_pass import (
 )
 
 if TYPE_CHECKING:
+    from qodec import Qodec
+
     from .._native import GpuShotResults  # This is in the pyi file only
 
 
@@ -795,6 +797,8 @@ def run_qir(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
     type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    *,
+    qodec: Optional["Qodec"] = None,
 ) -> List:
     """
     Simulate the given QIR source.
@@ -809,9 +813,17 @@ def run_qir(
     :param shots: The number of shots to run.
     :param noise: A noise model to use in the simulation.
     :param seed: A seed for reproducibility.
+    :param qodec: The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
+        With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
+        ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
     """
+    if qodec is not None:
+        from ._qodec._run import run_qir_with_qodec
+
+        return run_qir_with_qodec(input, qodec, noise, shots, seed, type=type)
+
     if type is None:
         try:
             try_create_gpu_adapter()

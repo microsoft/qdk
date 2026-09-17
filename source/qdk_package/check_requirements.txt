@@ -6,6 +6,7 @@ highspy>=1.11,<2
 matplotlib
 more-itertools>=10.0
 mwpf>=0.2.2
+numpy>=1.24
 pandas>=2.1
 pandas-stubs
 paulimer>=0.2.2
@@ -13,3 +14,4 @@ pyqir>=0.12.5,<0.13
 pyright==1.1.411
 qiskit>=1.2.2,<3.0.0
 qodec[parsers]>=0.1,<0.2
+scipy>=1.9
