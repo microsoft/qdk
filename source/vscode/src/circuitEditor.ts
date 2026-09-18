@@ -3,6 +3,7 @@
 
 import * as vscode from "vscode";
 import { runProgramInTerminal } from "./run";
+import { handleCircuitSvgSaveMessage } from "./circuitSvgSave.js";
 
 export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "qsharp-webview.circuit";
@@ -31,6 +32,9 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
     webviewPanel.webview.onDidReceiveMessage(async (e) => {
+      if (await handleCircuitSvgSaveMessage(e)) {
+        return;
+      }
       switch (e.command) {
         case "update":
           this.updateTextDocument(document, e.text);

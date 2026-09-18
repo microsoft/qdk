@@ -16,13 +16,29 @@ const MAX_QUBITS = 1000;
 
 // For now we only support one circuit at a time.
 const MAX_CIRCUITS = 1;
+const DEFAULT_EXPORT_TITLE = "Quantum circuit";
+const MAX_EXPORT_BASE_NAME_LENGTH = 124;
 
-// This component is shared by the Python widget and the VS Code panel
-export function Circuit(props: {
+export type CircuitExportHandler = (
+  contents: string,
+  suggestedName: string,
+) => void | Promise<void>;
+
+export type CircuitViewProps = {
   circuit?: qviz.CircuitGroup | qviz.Circuit;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
-}) {
+  /** Title used for the exported SVG's accessible name and suggested file. */
+  title?: string;
+  /**
+   * Host-owned save behavior. Browser hosts use a download when this callback
+   * is omitted; VS Code hosts provide a native save dialog.
+   */
+  onExportSvg?: CircuitExportHandler;
+};
+
+// This component is shared by the Python widget and the VS Code panel
+export function Circuit(props: CircuitViewProps) {
   const isEditable = props.editor != null;
   let unrenderable = false;
   let qubits = 0;
@@ -62,15 +78,17 @@ export function Circuit(props: {
   );
 }
 
-function ZoomableCircuit(props: {
-  circuitGroup: qviz.CircuitGroup;
-  renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
-  editor?: qviz.EditorHandlers;
-}) {
+function ZoomableCircuit(
+  props: CircuitViewProps & {
+    circuitGroup: qviz.CircuitGroup;
+  },
+) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const qvizObj = useRef<ReturnType<typeof qviz.draw> | null>(null);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [rendering, setRendering] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   const isEditable = props.editor != null;
 
@@ -111,11 +129,25 @@ function ZoomableCircuit(props: {
 
   return (
     <div>
-      <div>
+      <div class="qs-circuit-controls">
         {isEditable || rendering ? null : (
           <ZoomControl zoom={zoomLevel} onInput={userSetZoomLevel} />
         )}
+        <button
+          class="qs-circuit-export-button"
+          type="button"
+          disabled={rendering || exporting}
+          title="Export a publication-ready vector image"
+          onClick={() => void exportSvg()}
+        >
+          {exporting ? "Exporting..." : "Export as SVG"}
+        </button>
       </div>
+      {exportError ? (
+        <p class="qs-circuit-export-error" role="alert">
+          {exportError}
+        </p>
+      ) : null}
       <div>
         {rendering
           ? `Rendering diagram with ${props.circuitGroup.circuits[0].componentGrid.length} gates...`
@@ -128,6 +160,41 @@ function ZoomableCircuit(props: {
   function userSetZoomLevel(zoomLevel: number) {
     if (qvizObj.current && circuitDiv.current) {
       qvizObj.current.userSetZoomLevel(zoomLevel);
+    }
+  }
+
+  async function exportSvg() {
+    const renderer = qvizObj.current;
+    if (renderer === null) {
+      setExportError("The circuit is not ready to export.");
+      return;
+    }
+
+    const title = props.title?.trim() || DEFAULT_EXPORT_TITLE;
+    const suggestedName = `${slugFromTitle(title)}.svg`;
+    setExportError("");
+    setExporting(true);
+    try {
+      const contents = await renderer.exportSvg({
+        title,
+        background: "transparent",
+        fontMode: "embed",
+      });
+      if (props.onExportSvg !== undefined) {
+        await props.onExportSvg(contents, suggestedName);
+      } else {
+        downloadInBrowser(
+          circuitDiv.current?.ownerDocument ?? document,
+          suggestedName,
+          contents,
+        );
+      }
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "The SVG export failed.",
+      );
+    } finally {
+      setExporting(false);
     }
   }
 }
@@ -199,8 +266,45 @@ function ZoomControl(props: { zoom: number; onInput: (zoom: number) => void }) {
   );
 }
 
+function slugFromTitle(title: string): string {
+  const slug = title
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase()
+    .slice(0, MAX_EXPORT_BASE_NAME_LENGTH);
+  return slug || "quantum-circuit";
+}
+
+function downloadInBrowser(
+  ownerDocument: Document,
+  suggestedName: string,
+  contents: string,
+): void {
+  const ownerWindow = ownerDocument.defaultView;
+  if (ownerWindow === null) {
+    throw new Error("Cannot export the circuit without a browser window.");
+  }
+
+  const blob = new ownerWindow.Blob([contents], {
+    type: "image/svg+xml;charset=utf-8",
+  });
+  const url = ownerWindow.URL.createObjectURL(blob);
+  const link = ownerDocument.createElement("a");
+  link.href = url;
+  link.download = suggestedName;
+  try {
+    ownerDocument.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    ownerWindow.setTimeout(() => ownerWindow.URL.revokeObjectURL(url), 0);
+  }
+}
+
 // This component is exclusive to the VS Code panel
-export function CircuitPanel(props: CircuitProps) {
+export function CircuitPanel(
+  props: CircuitProps & { onExportSvg?: CircuitExportHandler },
+) {
   const isEditable = props.editor != null;
   const error = props.errorHtml ? (
     <div>
@@ -249,6 +353,8 @@ export function CircuitPanel(props: CircuitProps) {
           circuit={props.circuit}
           renderLocations={renderLocations}
           editor={props.editor}
+          title={props.title}
+          onExportSvg={props.onExportSvg}
         ></Circuit>
       ) : null}
     </div>
