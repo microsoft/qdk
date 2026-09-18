@@ -169,7 +169,7 @@ impl Display for TargetKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Pauli {
     X,
     Y,
