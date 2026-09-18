@@ -79,11 +79,11 @@ export function registerNotebookRendererMessaging(
  * `qdk-learning-*` tools already report the learner's position, progress and
  * code, so a longer prompt would restate what the agent can look up.
  *
- * Only ids are interpolated, and only in the shape `ID_PATTERN` allows. That
- * stops a notebook scripting the chat panel; it does not stop the agent
- * reading a notebook the learner already has open, which is what the last
- * sentence asks for. Saying where to look is necessary because no learning
- * tool reads a quiz — a quiz is deliberately not an activity. Keep any new
+ * The learner reads this in the chat box, so it is worded as a question they
+ * might have asked rather than as instructions to a tool. Only ids are
+ * interpolated, and only in the shape `ID_PATTERN` allows, which is what stops
+ * a notebook scripting the chat panel. Asking the agent to find the question
+ * is necessary because no learning tool returns quiz content. Keep any new
  * template this narrow.
  */
 function buildQuery(
@@ -101,9 +101,8 @@ function buildQuery(
         ? ` I picked ${optionIds.map((id) => `"${id}"`).join(" and ")}.`
         : "";
       return (
-        `/qdk-learning I answered the quiz "${quizId}" in this notebook incorrectly.${picked}` +
-        ` Look up that quiz's question and options in the notebook's cell output,` +
-        ` then explain why my answer is wrong.`
+        `/qdk-learning I got the quiz "${quizId}" in this notebook wrong.${picked}` +
+        ` Can you find that question and explain why?`
       );
     }
   }
