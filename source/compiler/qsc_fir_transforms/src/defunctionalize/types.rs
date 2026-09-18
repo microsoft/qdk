@@ -117,6 +117,12 @@ pub struct DirectCallSite {
     pub call_pkg_id: PackageId,
     /// Resolved concrete callee.
     pub callable: ConcreteCallable,
+    /// Materialized operands captured by a same-package lifted lambda.
+    ///
+    /// These values belong to this call occurrence rather than the global
+    /// callable target: separate factory invocations share the lifted item but
+    /// can retain different partial-application operands.
+    pub captures: Vec<CapturedVar>,
     /// Branch-split guard list: a left-associated conjunction stored
     /// outermost-first. Selected when every guard is true; an empty list is the
     /// default (else) branch.
@@ -148,10 +154,32 @@ pub enum ConcreteCallable {
 }
 
 /// A variable captured by a closure.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum CaptureScope {
+    Callable(LocalItemId),
+    #[default]
+    Entry,
+    CloneScope(LocalItemId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedLocal {
+    pub var: LocalVarId,
+    pub scope: CaptureScope,
+}
+
+impl ScopedLocal {
+    #[must_use]
+    pub fn new(var: LocalVarId, scope: CaptureScope) -> Self {
+        Self { var, scope }
+    }
+}
+
+/// A variable captured by a closure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapturedVar {
-    /// The captured local variable.
-    pub var: LocalVarId,
+    /// The captured local variable and the allocator domain that owns it.
+    pub local: ScopedLocal,
     /// The type of the captured variable.
     pub ty: Ty,
     /// An optional initializer expression to reuse when the original local is
@@ -429,8 +457,9 @@ pub struct AnalysisResult {
 ///
 /// # Severity
 ///
-/// All variants are fatal to the FIR transform pipeline except
-/// [`Error::ExcessiveSpecializations`], which is emitted as a warning.
+/// [`Error::DynamicCallable`] and [`Error::FixpointNotReached`] are deferred
+/// to downstream analysis. [`Error::ExcessiveSpecializations`] is a warning;
+/// the remaining variants are fatal to the FIR transform pipeline.
 /// [`Error::RecursiveSpecialization`] is the fatal counterpart of that warning:
 /// it fires when a single HOF's cumulative specialization count across all
 /// fixpoint iterations exceeds a hard cap, backstopping any runaway-growth
@@ -558,6 +587,26 @@ impl Error {
     #[must_use]
     pub fn is_warning(&self) -> bool {
         matches!(self, Self::ExcessiveSpecializations(..))
+    }
+
+    /// Returns `true` when the diagnostic reports a defunctionalization
+    /// convergence failure that may be safely deferred to downstream analysis.
+    ///
+    /// `FixpointNotReached` and `DynamicCallable` report dispatch that this
+    /// pass cannot resolve. The pipeline retains its structural checks for the
+    /// residual FIR; resource counting and partial evaluation then resolve or
+    /// reject its callable behavior. These diagnostics are suppressed rather
+    /// than surfaced on the warning channel.
+    ///
+    /// The remaining resource and unsupported-shape backstops are not
+    /// deferrable: they signal a shape the transform cannot lower and must stay
+    /// on their existing fatal or warning paths.
+    #[must_use]
+    pub fn is_deferrable(&self) -> bool {
+        matches!(
+            self,
+            Self::FixpointNotReached(..) | Self::DynamicCallable(..)
+        )
     }
 }
 
