@@ -112,8 +112,9 @@ canonical format's guarantees, and the visitor's context protocol.
 ### Error Correction Preview
 
 `qdk.ec` analyzes codes and gadgets and can derive checks and readout equations.
-It requires Python 3.11 or newer and qodec 0.1.x. Install the local qodec Python
-bindings first while that version is unpublished, then install `qdk[ec]`.
+It requires Python 3.11 or newer and `qodec>=0.1.1.dev0,<0.2`. Install the local
+qodec Python bindings first while that version is unpublished, then install
+`qdk[ec]`.
 
 `ec.build_qodec(code)` returns a qodec that passes the default audit without
 diagnostics. Both `strategy="flagged-css/v1"` and `strategy="bare-css/v1"`
