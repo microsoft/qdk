@@ -141,7 +141,7 @@ def test_generic_witness_equality_hash_and_snapshot() -> None:
     assert witness == same and hash(witness) == hash(same)
     assert witness != combined
     assert witness != object()
-    assert str(witness) == "2 factors: a * b = ab"
+    assert str(witness) == "a; b"
     assert repr(witness) == "Distance.Witness(factors=('a', 'b'))"
     factors = ([1], [2])
     mutable = Distance.Witness._create(factors, product=lambda items: sum(items, []))
@@ -150,6 +150,32 @@ def test_generic_witness_equality_hash_and_snapshot() -> None:
     mutable.product.append(5)
     assert mutable.factors == ([1], [2])
     assert mutable.product == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "factors, expected", [((), "1"), (("a",), "a"), (("a", "b"), "a; b")]
+)
+def test_witness_text_lists_only_factors(
+    factors: tuple[str, ...], expected: str
+) -> None:
+    witness = Distance.Witness._create(factors, product="".join)
+    assert str(witness) == expected
+    assert f"{witness}" == expected
+
+
+def test_fault_witness_text_preserves_factor_grouping() -> None:
+    quantum = FaultEvent.after(2, Pauli("X_0"))
+    readout = FaultEvent.after(7, readout_flips=0)
+    separate = Distance.Witness._create(
+        (quantum, readout), product=_fault_product, copy=_copy_fault
+    )
+    combined = Distance.Witness._create(
+        (quantum * readout,), product=_fault_product, copy=_copy_fault
+    )
+
+    assert separate.product == combined.product
+    assert str(separate) == "X_0 after call 2; flip call 7 readout 0"
+    assert str(combined) == "(X_0 after call 2; flip call 7 readout 0)"
 
 
 def test_lazy_fresh_iterators_do_not_search_during_protocols() -> None:
@@ -165,6 +191,7 @@ def test_lazy_fresh_iterators_do_not_search_during_protocols() -> None:
     iterator = distance.witnesses
     assert distance == 1
     assert str(distance) == "1"
+    assert f"{distance.witness}" == "a"
     assert "Distance.Witness" in repr(distance)
     assert distance.witness is first
     assert calls == []

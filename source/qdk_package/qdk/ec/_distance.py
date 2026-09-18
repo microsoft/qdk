@@ -101,13 +101,21 @@ class _FaultDistanceData:
         effects: Sequence[FaultEffect],
         output_syndromes: Sequence[frozenset[int]],
         indicators: Sequence[frozenset[int]],
+        *,
+        flag_positions: frozenset[int] = frozenset(),
     ) -> _FaultDistanceData:
         output_offset = 1 + max(
             (index for effect in effects for index in effect.syndrome), default=-1
         )
+        flag_offset = output_offset + 1 + max(
+            (index for syndrome in output_syndromes for index in syndrome), default=-1
+        )
         constraints = [
             effect.syndrome
             | frozenset(output_offset + index for index in output_syndrome)
+            | frozenset(
+                flag_offset + index for index in effect.readout_flips & flag_positions
+            )
             for effect, output_syndrome in zip(effects, output_syndromes, strict=True)
         ]
         return cls(faults, OddCycles(constraints, indicators))
