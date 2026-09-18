@@ -117,10 +117,18 @@ The optimizer metadata payloads follow the same rule:
 | `CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_PATH`           | `cutensornetContractionPath_t` | `cutensornetNodePair_t`            |
 | `CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICING_CONFIG` | `cutensornetSlicingConfig_t`   | `cutensornetSliceInfoPair_t`       |
 
-Both payloads are passed through `cutensornetContractionOptimizerInfoGetAttribute`'s
-`void *` parameter. Allowlist the payload types and assert all four names in
-`REQUIRED_DECLARATIONS`; bindgen includes the element types transitively.
+Both payloads are passed through the `void *` attribute buffers of
+`cutensornetContractionOptimizerInfoGetAttribute` and
+`cutensornetContractionOptimizerInfoSetAttribute`. Allowlist the payload types
+and assert all four names in `REQUIRED_DECLARATIONS`; bindgen includes the
+element types transitively.
 These payload types do not require additional function-manifest entries.
+
+The manifest also selects `cutensornetContractionOptimizerInfoSetAttribute`
+and `cutensornetNetworkSetOptimizerInfo` for importing path/slicing metadata
+and attaching it to a network. These declarations and their loader entries
+provide the native ABI surface; they do not implement safe plan import or
+numerical execution.
 
 **There is no constant allowlist, and adding one would not help.** Every
 constant this crate uses is an enumerator, and bindgen emits enumerators as

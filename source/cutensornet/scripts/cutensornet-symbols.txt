@@ -71,10 +71,12 @@ cutensornetNetworkContract                         network_contract             
 cutensornetNetworkPrepareContraction               network_prepare_contraction          contraction  required
 cutensornetNetworkSetAttribute                     network_set_attribute                contraction  required
 cutensornetNetworkSetInputTensorMemory             network_set_input_tensor_memory      contraction  required
+cutensornetNetworkSetOptimizerInfo                 network_set_optimizer_info           contraction  required
 cutensornetNetworkSetOutputTensor                  network_set_output_tensor            contraction  required
 cutensornetNetworkSetOutputTensorMemory            network_set_output_tensor_memory     contraction  required
 cutensornetContractionOptimizerConfigSetAttribute  optimizer_config_set_attribute       contraction  required
 cutensornetContractionOptimizerInfoGetAttribute    optimizer_info_get_attribute         contraction  required
+cutensornetContractionOptimizerInfoSetAttribute    optimizer_info_set_attribute         contraction  required
 
 # logging
 cutensornetLoggerSetLevel                          logger_set_level                     logging      required

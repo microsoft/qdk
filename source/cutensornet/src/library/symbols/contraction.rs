@@ -106,6 +106,13 @@ pub(crate) type NetworkSetInputTensorMemoryFn = unsafe extern "C" fn(
     *const i64,
 ) -> v2_13::cutensornetStatus_t;
 
+/// Function pointer for `cutensornetNetworkSetOptimizerInfo`.
+pub(crate) type NetworkSetOptimizerInfoFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetNetworkDescriptor_t,
+    v2_13::cutensornetContractionOptimizerInfo_t,
+) -> v2_13::cutensornetStatus_t;
+
 /// Function pointer for `cutensornetNetworkSetOutputTensor`.
 pub(crate) type NetworkSetOutputTensorFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
@@ -139,5 +146,14 @@ pub(crate) type OptimizerInfoGetAttributeFn = unsafe extern "C" fn(
     v2_13::cutensornetContractionOptimizerInfo_t,
     v2_13::cutensornetContractionOptimizerInfoAttributes_t,
     *mut ::std::os::raw::c_void,
+    usize,
+) -> v2_13::cutensornetStatus_t;
+
+/// Function pointer for `cutensornetContractionOptimizerInfoSetAttribute`.
+pub(crate) type OptimizerInfoSetAttributeFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetContractionOptimizerInfo_t,
+    v2_13::cutensornetContractionOptimizerInfoAttributes_t,
+    *const ::std::os::raw::c_void,
     usize,
 ) -> v2_13::cutensornetStatus_t;

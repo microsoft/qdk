@@ -84,7 +84,7 @@ The discovery transaction is:
 3. Open the CUDA Runtime with `RTLD_NOW | RTLD_LOCAL`.
 4. Resolve its complete 12-function table.
 5. Open cuTensorNet with `RTLD_NOW | RTLD_LOCAL`.
-6. Resolve all 24 required cuTensorNet functions and the optional
+6. Resolve all 54 required cuTensorNet functions and the optional
    `cutensornetGetLastError` diagnostic.
 7. Probe the loaded CUDA Runtime, CUDA driver API, cuTensorNet runtime, and the
    CUDA Runtime ABI used to build cuTensorNet.
@@ -172,9 +172,10 @@ private and narrower than the complete NVIDIA APIs.
 ### Scoped declarations
 
 - `src/bindings/v2_13.rs` is generated from the checksum-identified official
-  cuTensorNet 2.13 header. It contains 25 selected functions: 24 required by
-  discovery, state replay, and product-term expectations, plus the optional
-  `cutensornetGetLastError` diagnostic and their required type/constant closure.
+  cuTensorNet 2.13 header. It contains 55 selected functions: 54 required for
+  discovery, state replay, expectations, sampling, general contraction and
+  logging, plus the optional `cutensornetGetLastError` diagnostic and their
+  required type/constant closure.
 - `src/bindings/cudart_12.rs` contains hand-audited declarations for the 12
   CUDA Runtime functions needed by discovery and the planned resource layer.
 - Function pointers use exact private `unsafe extern "C"` types. Unsafe loading,
@@ -204,6 +205,16 @@ if the selected ABI facts drift. It checks:
   `CUDA_C_64F` buffers; and
 - selected constants including `CUDA_C_64F` and host-to-device and
   device-to-host copy directions.
+
+Path and slicing attribute payloads also have size, alignment and field-offset
+assertions. Their Linux x86-64 layouts, in bytes, are:
+
+| Type                           | Size | Alignment | Field offsets                      |
+| ------------------------------ | ---- | --------- | ---------------------------------- |
+| `cutensornetNodePair_t`        | 8    | 4         | `first`: 0, `second`: 4            |
+| `cutensornetContractionPath_t` | 16   | 8         | `numContractions`: 0, `data`: 8    |
+| `cutensornetSliceInfoPair_t`   | 16   | 8         | `slicedMode`: 0, `slicedExtent`: 8 |
+| `cutensornetSlicingConfig_t`   | 16   | 8         | `numSlicedModes`: 0, `data`: 8     |
 
 The selected cuTensorNet calls pass complex tensor storage through device
 `void *` buffers rather than passing a complex struct by value. The future safe
@@ -413,8 +424,9 @@ The focused tests verify:
 - CUDA version-probe failures preserve both status and copied native text;
 - only the audited runtime values are accepted;
 - known and unknown native status values remain distinguishable; and
-- the required-symbol inventories remain frozen at 24 cuTensorNet and 12 CUDA
-  Runtime functions.
+- the cuTensorNet bindings and loader cover the manifest's required symbols,
+  with only `cutensornetGetLastError` optional, and the CUDA Runtime inventory
+  remains fixed at 12 functions.
 
 Compile-time assertions separately verify the selected opaque pointer sizes,
 represented enum sizes/alignments, complex element layout, and constants used
@@ -459,8 +471,8 @@ The checked-in cuTensorNet declarations are generated from NVIDIA cuQuantum
 - bindgen CLI: 0.72.1
 - clang: Ubuntu 14.0.0-1ubuntu1.1
 - full reference output SHA-256: `8921d1acf0ff6d384a793893e92e10cadc850dfb29a0312726c31c4d692c3d7a`
-- reduced output SHA-256: `434f2415577a82a4a054d3e10eb137e456f413a75fe7d3158085402980dd4a2c`
-- reduced output line count: 828
+- reduced output SHA-256: `2252b5ea29af1bf8ed5eb2d8268530ed289647791b9fa04bdc53c8599ee956da`
+- reduced output line count: 882
 
 Changing the selected functions or types changes the reduced output without
 changing the SDK inputs. The full-reference hash depends on the headers and

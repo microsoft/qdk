@@ -246,6 +246,42 @@ pub const cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH: cutensornetW
 pub const cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_CACHE: cutensornetWorkspaceKind_t = 1;
 #[doc = " \\brief Type enumeration for workspace allocation."]
 pub type cutensornetWorkspaceKind_t = ::std::os::raw::c_uint;
+#[doc = " \\brief A pair of int32_t values (typically referring to tensor IDs inside of the network)."]
+#[repr(C, packed(4))]
+#[derive(Debug, Copy, Clone)]
+pub struct cutensornetNodePair_t {
+    #[doc = "< the first tensor"]
+    pub first: i32,
+    #[doc = "< the second tensor"]
+    pub second: i32,
+}
+#[doc = " \\brief Holds information about the contraction path.\n\n The provided path is interchangeable with the path returned by <a href=\"https://numpy.org/doc/stable/reference/generated/numpy.einsum_path.html\">numpy.einsum_path</a>."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cutensornetContractionPath_t {
+    #[doc = "< total number of tensor contractions."]
+    pub numContractions: i32,
+    #[doc = "< array of size \\p numContractions. The tensors corresponding to `data[i].first` and `data[i].second` will be contracted."]
+    pub data: *mut cutensornetNodePair_t,
+}
+#[doc = " \\brief A pair of int32_t and int64_t values holding the sliced Mode and intended extent size of mode."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cutensornetSliceInfoPair_t {
+    #[doc = "< Mode"]
+    pub slicedMode: i32,
+    #[doc = "< Extent of Mode"]
+    pub slicedExtent: i64,
+}
+#[doc = " \\brief Holds information about slicing."]
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cutensornetSlicingConfig_t {
+    #[doc = "< total number of sliced modes."]
+    pub numSlicedModes: u32,
+    #[doc = "< array of size \\p numSlicedModes."]
+    pub data: *mut cutensornetSliceInfoPair_t,
+}
 #[doc = " \\brief Opaque structure holding cuTensorNet's pathfinder config."]
 pub type cutensornetContractionOptimizerConfig_t = *mut ::std::os::raw::c_void;
 #[doc = " \\brief Opaque structure holding information about the optimized path and the slices (see ::cutensornetContractionOptimizerInfoAttributes_t)."]
@@ -533,12 +569,30 @@ unsafe extern "C" {
     ) -> cutensornetStatus_t;
 }
 unsafe extern "C" {
+    #[doc = " \\brief Provides an optimized contraction path as well as slicing info to the tensor network.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] networkDesc Describes the topology of the tensor network (i.e., all tensors, their connectivity, and modes).\n \\param[in] optimizerInfo Pointer to ::cutensornetContractionOptimizerInfo_t holding path and slicing configs.\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetNetworkSetOptimizerInfo(
+        handle: cutensornetHandle_t,
+        networkDesc: cutensornetNetworkDescriptor_t,
+        optimizerInfo: cutensornetContractionOptimizerInfo_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
     #[doc = " \\brief Gets attributes of \\p optimizerInfo.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in] optimizerInfo Opaque structure that is accessed.\n \\param[in] attr Specifies the attribute that is requested.\n \\param[out] buffer On return, this buffer (of size \\p sizeInBytes) holds the value that corresponds to \\p attr within \\p optimizerInfo.\n \\param[in] sizeInBytes Size of \\p buffer (in bytes).\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
     pub fn cutensornetContractionOptimizerInfoGetAttribute(
         handle: cutensornetHandle_t,
         optimizerInfo: cutensornetContractionOptimizerInfo_t,
         attr: cutensornetContractionOptimizerInfoAttributes_t,
         buffer: *mut ::std::os::raw::c_void,
+        sizeInBytes: usize,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Sets attributes of optimizerInfo.\n\n \\param[in] handle Opaque handle holding cuTensorNet's library context.\n \\param[in,out] optimizerInfo Opaque structure that is accessed.\n \\param[in] attr Specifies the attribute that is requested.\n \\param[in] buffer This buffer (of size \\p sizeInBytes) determines the value to which \\p attr will be set.\n \\param[in] sizeInBytes Size of \\p buffer (in bytes).\n\n \\note Requires a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetContractionOptimizerInfoSetAttribute(
+        handle: cutensornetHandle_t,
+        optimizerInfo: cutensornetContractionOptimizerInfo_t,
+        attr: cutensornetContractionOptimizerInfoAttributes_t,
+        buffer: *const ::std::os::raw::c_void,
         sizeInBytes: usize,
     ) -> cutensornetStatus_t;
 }

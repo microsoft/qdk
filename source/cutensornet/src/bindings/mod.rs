@@ -32,6 +32,23 @@ mod abi {
     const _: () = assert!(offset_of!(v2_13::cuDoubleComplex, x) == 0);
     const _: () = assert!(offset_of!(v2_13::cuDoubleComplex, y) == 8);
 
+    const _: () = assert!(size_of::<v2_13::cutensornetNodePair_t>() == 8);
+    const _: () = assert!(align_of::<v2_13::cutensornetNodePair_t>() == 4);
+    const _: () = assert!(offset_of!(v2_13::cutensornetNodePair_t, first) == 0);
+    const _: () = assert!(offset_of!(v2_13::cutensornetNodePair_t, second) == 4);
+    const _: () = assert!(size_of::<v2_13::cutensornetContractionPath_t>() == 16);
+    const _: () = assert!(align_of::<v2_13::cutensornetContractionPath_t>() == 8);
+    const _: () = assert!(offset_of!(v2_13::cutensornetContractionPath_t, numContractions) == 0);
+    const _: () = assert!(offset_of!(v2_13::cutensornetContractionPath_t, data) == 8);
+    const _: () = assert!(size_of::<v2_13::cutensornetSliceInfoPair_t>() == 16);
+    const _: () = assert!(align_of::<v2_13::cutensornetSliceInfoPair_t>() == 8);
+    const _: () = assert!(offset_of!(v2_13::cutensornetSliceInfoPair_t, slicedMode) == 0);
+    const _: () = assert!(offset_of!(v2_13::cutensornetSliceInfoPair_t, slicedExtent) == 8);
+    const _: () = assert!(size_of::<v2_13::cutensornetSlicingConfig_t>() == 16);
+    const _: () = assert!(align_of::<v2_13::cutensornetSlicingConfig_t>() == 8);
+    const _: () = assert!(offset_of!(v2_13::cutensornetSlicingConfig_t, numSlicedModes) == 0);
+    const _: () = assert!(offset_of!(v2_13::cutensornetSlicingConfig_t, data) == 8);
+
     const _: () = assert!(size_of::<v2_13::cutensornetStatus_t>() == 4);
     const _: () = assert!(align_of::<v2_13::cutensornetStatus_t>() == 4);
     const _: () = assert!(size_of::<v2_13::cutensornetStatePurity_t>() == 4);
