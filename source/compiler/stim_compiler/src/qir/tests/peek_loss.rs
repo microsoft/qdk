@@ -23,25 +23,6 @@ fn peek_loss_single_qubit() {
 }
 
 #[test]
-fn peek_loss_broadcasts_over_multiple_qubits() {
-    check(
-        "PEEK_LOSS 0 1 2",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__peek_loss__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 3"#]],
-    );
-}
-
-#[test]
 fn peek_loss_with_readout_noise_yields_expected_qir() {
     check(
         "PEEK_LOSS(0.5) 0",

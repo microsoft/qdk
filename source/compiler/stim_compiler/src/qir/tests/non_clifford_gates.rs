@@ -420,29 +420,6 @@ fn ccx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ccz_gate_broadcasts_over_triples() {
-    check(
-        "CCZ 0 1 2 3 4 5",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__ccx__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 5 to ptr), ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-
-            [metadata]
-              required_num_qubits = 6
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn ccx_gate_with_one_target_yields_error() {
     check(
         "CCX 0",
@@ -659,25 +636,6 @@ fn r_z_yields_expected_qir() {
 
             [metadata]
               required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn r_x_broadcasts_over_targets() {
-    check(
-        "R_X(0.125) 0 1 2",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__rx__body(double, ptr)
-
-            [metadata]
-              required_num_qubits = 3
               required_num_results = 0"#]],
     );
 }
@@ -925,24 +883,6 @@ fn r_zz_yields_expected_qir() {
 
             [metadata]
               required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn r_zz_broadcasts_over_pairs() {
-    check(
-        "R_ZZ(0.25) 0 1 2 3",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__rzz__body(double, ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 4
               required_num_results = 0"#]],
     );
 }

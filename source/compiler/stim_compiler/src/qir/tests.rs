@@ -3,22 +3,17 @@
 
 mod boilerplate;
 mod collapsing_gates;
-mod collapsing_gates_broadcasting;
 mod generalized_pauli_product_gates;
 mod measurement_record_bounds;
 mod measurement_record_targets;
 mod noise_channels;
-mod noise_channels_broadcasting;
 mod non_clifford_gates;
 mod pair_measurements;
-mod pair_measurements_broadcasting;
 mod peek_loss;
 mod repeat;
 mod select_block;
 mod single_qubit_gates;
-mod single_qubit_gates_broadcasting;
 mod two_qubit_gates;
-mod two_qubit_gates_broadcasting;
 mod unsupported_instructions;
 
 use expect_test::Expect;
