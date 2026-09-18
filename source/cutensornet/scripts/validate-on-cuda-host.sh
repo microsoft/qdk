@@ -20,6 +20,9 @@
 #     --qualification    also run the slow A100 numerical qualification suite
 #                        (off by default: it validates simulation behaviour, not
 #                        the FFI surface, and needs a real GPU)
+#     --metadata-qualification
+#                        also run native path-metadata conformance (no numerical
+#                        contraction and no MPS qualification)
 #     --skip-hardware    skip everything that needs the native libraries
 #
 # Run it from anywhere; it validates the checkout it lives in and touches no
@@ -44,6 +47,7 @@ readonly CUDART_SO="/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.1
 archive=""
 skip_hardware=0
 qualification=0
+metadata_qualification=0
 failed=0
 
 usage() {
@@ -77,6 +81,10 @@ while [[ $# -gt 0 ]]; do
             qualification=1
             shift
             ;;
+        --metadata-qualification)
+            metadata_qualification=1
+            shift
+            ;;
         -h | --help)
             usage
             exit 0
@@ -88,6 +96,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ "$skip_hardware" -eq 1 && ( "$qualification" -eq 1 || "$metadata_qualification" -eq 1 ) ]]; then
+    printf 'qualification cannot be combined with --skip-hardware\n' >&2
+    exit 2
+fi
 
 cd -- "$CRATE_ROOT" || exit 1
 test_log="$(mktemp)"
@@ -113,7 +126,7 @@ for tool in cargo rustc rustfmt python3; do
 done
 
 step "2. generated loader is current and unedited"
-if cargo run -q -p "$PACKAGE" --bin generate-loader -- --check; then
+if cargo run --locked -q -p "$PACKAGE" --bin generate-loader -- --check; then
     printf 'OK: src/library/symbols{,/*}.rs match the manifest\n'
 else
     fail "generated loader is stale or hand-edited (run: cargo run -p $PACKAGE --bin generate-loader)"
@@ -127,14 +140,14 @@ else
 fi
 
 step "4. cargo clippy (native x86_64, all targets)"
-if cargo clippy -p "$PACKAGE" --all-targets -- -D warnings; then
+if cargo clippy --locked -p "$PACKAGE" --all-targets -- -D warnings; then
     printf 'OK: clippy clean\n'
 else
     fail "clippy reported problems"
 fi
 
 step "5. cargo test"
-cargo test -p "$PACKAGE" 2>&1 | tee "$test_log" | grep -E 'Running|Doc-tests|test result|^test .* FAILED'
+cargo test --locked -p "$PACKAGE" 2>&1 | tee "$test_log" | grep -E 'Running|Doc-tests|test result|^test .* FAILED'
 if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
     fail "cargo test failed"
 fi
@@ -187,7 +200,7 @@ step "7. hardware tests"
 #   tests/availability.rs  - resolves every required symbol against the real
 #                            library and reads the version triple. Cheap,
 #                            deterministic, no GPU work. This is the FFI guard.
-#   replay/qualification.rs - A100 numerical qualification runs (7 tests).
+#   mps_execution/qualification.rs - A100 numerical qualification runs (7 tests).
 #                            Expensive and need a real GPU. Each one sweeps its
 #                            own parameters from a pinned table, so no
 #                            configuration is needed. They validate simulation
@@ -201,7 +214,7 @@ elif [[ "$have_cutensornet" -eq 0 ]]; then
     fail "cuTensorNet not found; re-run with --skip-hardware to accept that gap knowingly"
 else
     printf -- '-- symbol resolution against the installed library --\n'
-    if cargo test -p "$PACKAGE" --test availability -- --ignored --nocapture; then
+    if cargo test --locked -p "$PACKAGE" --test availability -- --ignored --nocapture; then
         printf 'OK: every required symbol resolved\n'
     else
         fail "symbol resolution against the real library failed"
@@ -212,13 +225,28 @@ else
         # Select by module path rather than by `--ignored` alone: the latter
         # sweeps up every ignored test in the lib target, so the first
         # unrelated `#[ignore]` added anywhere would silently join this suite.
-        if cargo test -p "$PACKAGE" --lib qualification:: -- --ignored --nocapture; then
+        if cargo test --locked -p "$PACKAGE" --lib simulation::mps_execution::qualification:: -- --ignored --nocapture; then
             printf 'OK: qualification suite passed\n'
         else
             fail "A100 qualification suite failed"
         fi
     else
         printf -- '-- A100 numerical qualification: SKIPPED (pass --qualification) --\n'
+    fi
+
+    if [[ "$metadata_qualification" -eq 1 ]]; then
+        printf -- '-- native path-metadata conformance (no numerical contraction) --\n'
+        cargo test --locked -p "$PACKAGE" --lib simulation::contraction::qualification:: \
+            -- --ignored --nocapture --test-threads=1 2>&1 | tee "$test_log"
+        if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+            fail "native path-metadata conformance failed; retain structural acceptance gaps"
+        elif ! grep -qE '^test simulation::contraction::qualification::' "$test_log"; then
+            fail "no native path-metadata cases ran"
+        else
+            printf 'OK: native path-metadata conformance passed\n'
+        fi
+    else
+        printf -- '-- native path-metadata conformance: SKIPPED (pass --metadata-qualification) --\n'
     fi
 fi
 

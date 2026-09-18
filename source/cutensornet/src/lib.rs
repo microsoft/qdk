@@ -73,7 +73,7 @@ pub struct AvailabilityReport {
 pub struct Availability {
     report: AvailabilityReport,
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    libraries: std::sync::Arc<library::NativeApi>,
+    libraries: std::sync::Arc<library::CuTensorNetApi>,
 }
 
 impl Availability {

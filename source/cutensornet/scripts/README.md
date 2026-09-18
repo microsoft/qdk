@@ -268,6 +268,7 @@ but passing them does not establish that the native resolver tests ran.
 scripts/validate-on-cuda-host.sh                      # the FFI surface, fast
 scripts/validate-on-cuda-host.sh --archive <archive>  # also regenerate and diff the bindings
 scripts/validate-on-cuda-host.sh --qualification      # also run the slow A100 suite
+scripts/validate-on-cuda-host.sh --metadata-qualification # native path metadata only; no contraction
 scripts/validate-on-cuda-host.sh --skip-hardware      # CUDA host without a usable library
 ```
 
@@ -299,14 +300,15 @@ The host ABI, native libraries and GPU requirements are independent:
 | `generate-loader` and its tests                       | **no** | no             | no      |
 | `library::tests::*` (resolver tests, `FakeResolver`)  | yes    | no             | **no**  |
 | `tests/availability.rs`                               | yes    | yes            | **no**  |
-| `replay/qualification.rs` (7 `#[ignore]`d)            | yes    | yes            | **yes** |
+| `mps_execution/qualification.rs` (7 `#[ignore]`d)     | yes    | yes            | **yes** |
+| `contraction/qualification.rs` (4 `#[ignore]`d)       | yes    | yes            | **yes** |
 
-Only the last row needs a GPU. Native-library availability checks need the
+The qualification rows need a GPU. Native-library availability checks need the
 installed `.so` files; header generation and fake-resolver tests do not.
 Loader generation and its tests need neither NVIDIA libraries nor an x86-64
 host.
 
-The seven `#[ignore]`d A100 tests in `replay/qualification.rs` are **not** run by
+The seven `#[ignore]`d A100 tests in `mps_execution/qualification.rs` are **not** run by
 default. They are numerical qualification runs — expensive and requiring a real
 GPU — so they answer "does the simulation still produce the right numbers", not
 "is the FFI surface intact". Each one sweeps its parameters from a table pinned
@@ -314,6 +316,22 @@ in the test body, so running them takes no configuration.
 Passing symbol resolution does not establish numerical correctness. These runs
 remain a separate, opt-in gate: pass `--qualification` when validating simulation
 behavior.
+
+`--metadata-qualification` independently selects
+`simulation::contraction::qualification::`, while `--qualification` selects
+only `simulation::mps_execution::qualification::`. The flags can be combined; neither
+can be combined with `--skip-hardware`. Metadata qualification does not upload
+tensor coefficients, allocate contraction workspace or run a numerical
+contractor. It covers two supplied positional paths on the same asymmetric
+four-matrix chain, optimize/export/close/fresh-import, owned metadata and
+explicit internal unit-extent slicing.
+
+The tests log native intermediate modes, copied path/slicing data, labelled
+estimates and explicit cleanup results. Missing structural information after
+manual import is a failing acceptance gap, not a successful path-echo test or
+permission to invoke another optimizer. Their bounded settings and distinction
+between documented expectations and observations are described in the
+[crate metadata contract](../README.md#private-general-network-metadata).
 
 Nothing about a particular transfer workflow — bundle hashes, clone URLs, commit
 ranges — belongs in this script; that would go stale on the next commit.

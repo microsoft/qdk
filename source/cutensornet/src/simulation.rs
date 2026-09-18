@@ -10,17 +10,19 @@ mod circuit;
 #[path = "library/simulation/consumer.rs"]
 mod consumer;
 #[path = "library/simulation/contraction.rs"]
-mod contraction;
+pub(crate) mod contraction;
 #[path = "library/simulation/error.rs"]
 mod error;
 #[path = "library/simulation/ffi.rs"]
 mod ffi;
+#[path = "library/simulation/mps_execution.rs"]
+mod mps_execution;
 #[path = "library/simulation/policy.rs"]
 mod policy;
 #[path = "library/simulation/query.rs"]
 mod query;
-#[path = "library/simulation/replay.rs"]
-mod replay;
+#[path = "library/simulation/resources.rs"]
+pub(crate) mod resources;
 #[path = "library/simulation/sampler.rs"]
 mod sampler;
 
@@ -42,11 +44,11 @@ pub(super) use error::SimulationError;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) use ffi::Complex64Abi;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(super) use policy::ExecutionPolicy;
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(super) use replay::{
-    MpsTarget, OutputMetadata, ReplayApi, StateF64Attribute, StateU32Configuration,
+pub(super) use mps_execution::{
+    MpsExecutionApi, MpsTarget, OutputMetadata, StateF64Attribute, StateU32Configuration,
 };
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(super) use policy::ExecutionPolicy;
 pub(super) use sampler::SamplingRequest;
 
 use std::{ffi::c_void, ptr::NonNull};

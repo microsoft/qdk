@@ -1,3 +1,9 @@
+//! cuTensorNet State/MPS execution of resolved circuit operations.
+//!
+//! Owns state, workspaces and retained device buffers beneath an MPS session.
+//! Program control and shot/output orchestration belong to the shared execution
+//! framework; arbitrary-network path optimization belongs to `contraction`.
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use super::query::BaseQueryResult;
 use super::{
@@ -5,6 +11,7 @@ use super::{
     circuit::{
         ExecutionReport, StatePhaseTimings, StateReadout, WorkspaceReport, contract_open_mps,
     },
+    error::combine_execution_and_cleanup,
     ffi::Complex64Abi,
     policy::ExecutionPolicy,
     query::{
@@ -14,18 +21,18 @@ use super::{
     sampler::{FullBitstringSamples, PreparedSampler, SamplerApi, SamplerContext, SamplingRequest},
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-use crate::library::Session;
+use crate::library::MpsSession;
 use num_complex::Complex64;
 use qdk_simulators::QubitID;
 use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, time::Instant};
 use tensornet::{Mps, MpsError};
 
 #[cfg(test)]
-#[path = "replay/tests.rs"]
+#[path = "mps_execution/tests.rs"]
 mod tests;
 
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
-#[path = "replay/qualification.rs"]
+#[path = "mps_execution/qualification.rs"]
 mod qualification;
 
 /// The MPS shape a simulation asks the library to produce, and the FFI
@@ -135,7 +142,12 @@ pub(crate) enum StateU32Configuration {
     MpsGaugeSimple,
 }
 
-pub(crate) trait ReplayApi {
+/// Injected cuTensorNet State/MPS operations, not a backend-neutral execution API.
+///
+/// Callers keep the context, stream and child handles live and device-compatible.
+/// Registered tensor buffers must outlive the native objects retaining them;
+/// asynchronous results require stream synchronization before host access.
+pub(crate) trait MpsExecutionApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError>;
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, SimulationError>;
     fn free(&self, allocation: OpaqueHandle) -> Result<(), SimulationError>;
@@ -261,22 +273,22 @@ pub(crate) trait ReplayApi {
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-impl Session {
+impl MpsSession {
     pub(crate) fn sample(
         &mut self,
         circuit: &Circuit,
         sampled_qubits: &[QubitID],
         request: SamplingRequest,
     ) -> Result<Box<[i64]>, SimulationError> {
-        let mut replay = Replay::new(
+        let mut mps_execution = MpsExecution::new(
             self.api(),
             self.handle(),
             self.stream(),
             circuit,
             self.policy(),
         )?;
-        let execution = replay.sample_qubits(circuit, sampled_qubits, request);
-        let cleanup = replay.close();
+        let execution = mps_execution.sample_qubits(circuit, sampled_qubits, request);
+        let cleanup = mps_execution.close();
         combine_execution_and_cleanup(execution, cleanup)
     }
 
@@ -289,17 +301,21 @@ impl Session {
         query: &AdjacentZQuery,
     ) -> Result<branch::BranchSimulationResult, SimulationError> {
         let overall_started = Instant::now();
-        let mut replay = Replay::new(
+        let mut mps_execution = MpsExecution::new(
             self.api(),
             self.handle(),
             self.stream(),
             initial_circuit,
             self.policy(),
         )?;
-        let execution =
-            replay.execute_branch(initial_circuit, branch_request, continuation_circuit, query);
+        let execution = mps_execution.execute_branch(
+            initial_circuit,
+            branch_request,
+            continuation_circuit,
+            query,
+        );
         let cleanup_started = Instant::now();
-        let cleanup = replay.close();
+        let cleanup = mps_execution.close();
         let cleanup_seconds = cleanup_started.elapsed().as_secs_f64();
         let mut result = combine_execution_and_cleanup(execution, cleanup)?;
         let (free_after_cleanup_bytes, _) = self.api().memory_info()?;
@@ -329,17 +345,17 @@ impl Session {
         circuit: &Circuit,
         readout: StateReadout,
     ) -> Result<SimulationResult, SimulationError> {
-        let mut replay = Replay::new(
+        let mut mps_execution = MpsExecution::new(
             self.api(),
             self.handle(),
             self.stream(),
             circuit,
             self.policy(),
         )?;
-        let execution = replay.execute(circuit, readout);
-        let cleanup = replay.close();
+        let execution = mps_execution.execute(circuit, readout);
+        let cleanup = mps_execution.close();
         let mut result = combine_execution_and_cleanup(execution, cleanup)?;
-        let (free_after_cleanup_bytes, _) = replay.api.memory_info()?;
+        let (free_after_cleanup_bytes, _) = mps_execution.api.memory_info()?;
         result.report.workspace.free_after_cleanup_bytes = free_after_cleanup_bytes;
         Ok(result)
     }
@@ -350,7 +366,7 @@ impl Session {
         query: &AdjacentZQuery,
     ) -> Result<BaseQueryResult, SimulationError> {
         let through_query_started = Instant::now();
-        let mut replay = Replay::new(
+        let mut mps_execution = MpsExecution::new(
             self.api(),
             self.handle(),
             self.stream(),
@@ -358,16 +374,16 @@ impl Session {
             self.policy(),
         )?;
         let execution = (|| {
-            let state = replay.execute(circuit, StateReadout::MetadataOnly)?;
-            let query = replay.execute_query(query)?;
+            let state = mps_execution.execute(circuit, StateReadout::MetadataOnly)?;
+            let query = mps_execution.execute_query(query)?;
             Ok((state, query))
         })();
         let through_query_completion_seconds = through_query_started.elapsed().as_secs_f64();
         let cleanup_started = Instant::now();
-        let cleanup = replay.close();
+        let cleanup = mps_execution.close();
         let replay_cleanup_seconds = cleanup_started.elapsed().as_secs_f64();
         let (mut state, mut query) = combine_execution_and_cleanup(execution, cleanup)?;
-        let (free_after_cleanup_bytes, _) = replay.api.memory_info()?;
+        let (free_after_cleanup_bytes, _) = mps_execution.api.memory_info()?;
         state.report.workspace.free_after_cleanup_bytes = free_after_cleanup_bytes;
         query.workspace.free_after_cleanup_bytes = free_after_cleanup_bytes;
         Ok(BaseQueryResult {
@@ -379,7 +395,14 @@ impl Session {
     }
 }
 
-struct Replay<'api, Api: ReplayApi + ?Sized> {
+/// One GPU-resident MPS state and the resources for its evolution and readout.
+///
+/// Borrows the API; the caller must keep the parent context and stream alive
+/// until close. Owns child descriptors and all retained device allocations.
+/// Explicit close attempts synchronization before releasing children and buffers
+/// and reports failures; Drop is the non-panicking fallback. This is not a QIR
+/// interpreter.
+struct MpsExecution<'api, Api: MpsExecutionApi + ?Sized> {
     api: &'api Api,
     handle: OpaqueHandle,
     stream: Stream,
@@ -432,7 +455,7 @@ fn invalid_operator(reason: &'static str) -> SimulationError {
     }
 }
 
-impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
+impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
     fn new(
         api: &'api Api,
         handle: OpaqueHandle,
@@ -449,7 +472,7 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
         let target = MpsTarget::new(qubit_count, policy.bond_cap)?;
         let state_extents = vec![2; qubit_count].into_boxed_slice();
         let state = api.create_state(handle, state_extents.as_ref())?;
-        let mut replay = Self {
+        let mut mps_execution = Self {
             api,
             handle,
             stream,
@@ -466,12 +489,12 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
             closed: false,
         };
         match api.create_workspace(handle) {
-            Ok(workspace) => replay.workspace = Some(workspace),
+            Ok(workspace) => mps_execution.workspace = Some(workspace),
             Err(error) => {
-                return combine_execution_and_cleanup(Err(error), replay.close());
+                return combine_execution_and_cleanup(Err(error), mps_execution.close());
             }
         }
-        Ok(replay)
+        Ok(mps_execution)
     }
 
     #[allow(
@@ -845,7 +868,7 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
             || self.query_workspace.is_some()
         {
             return Err(SimulationError::InvalidCircuit {
-                reason: "this replay already owns a Query lifecycle".to_string(),
+                reason: "this MPS execution already owns a Query lifecycle".to_string(),
             });
         }
 
@@ -965,7 +988,7 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
             || self.query_workspace.is_some()
         {
             return Err(SimulationError::InvalidCircuit {
-                reason: "this replay already owns a Query lifecycle".to_string(),
+                reason: "this MPS execution already owns a Query lifecycle".to_string(),
             });
         }
         let execution = (|| {
@@ -1120,14 +1143,17 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
     }
 
     fn state(&self) -> OpaqueHandle {
-        self.state.expect("a live replay always owns its state")
+        self.state
+            .expect("a live MPS execution always owns its state")
     }
 
     fn workspace(&self) -> OpaqueHandle {
         self.workspace
-            .expect("a live replay always owns its workspace descriptor")
+            .expect("a live MPS execution always owns its workspace descriptor")
     }
 
+    /// Attempts all releases and returns the first failure; subsequent closes
+    /// are no-ops, including after a native destruction failure.
     fn close(&mut self) -> Result<(), SimulationError> {
         if self.closed {
             return Ok(());
@@ -1184,19 +1210,21 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
     }
 }
 
-fn compute_branch_masses<Api: ReplayApi + ?Sized>(
-    replay: &mut Replay<'_, Api>,
+fn compute_branch_masses<Api: MpsExecutionApi + ?Sized>(
+    mps_execution: &mut MpsExecution<'_, Api>,
     mode: u32,
 ) -> Result<(branch::BranchMasses, f64), SimulationError> {
     let mode_id = mode_id(mode)?;
-    let (raw_p0, norm_p0, sync_p0) = replay.execute_projector_expectation(mode_id, [1.0, 0.0])?;
-    let (raw_p1, norm_p1, sync_p1) = replay.execute_projector_expectation(mode_id, [0.0, 1.0])?;
+    let (raw_p0, norm_p0, sync_p0) =
+        mps_execution.execute_projector_expectation(mode_id, [1.0, 0.0])?;
+    let (raw_p1, norm_p1, sync_p1) =
+        mps_execution.execute_projector_expectation(mode_id, [0.0, 1.0])?;
     let masses = branch::BranchMasses::from_expectations(raw_p0, norm_p0, raw_p1, norm_p1)?;
     Ok((masses, sync_p0 + sync_p1))
 }
 
-fn apply_projection<Api: ReplayApi + ?Sized>(
-    replay: &mut Replay<'_, Api>,
+fn apply_projection<Api: MpsExecutionApi + ?Sized>(
+    mps_execution: &mut MpsExecution<'_, Api>,
     mode: u32,
     selected: branch::SelectedBranch,
     selected_mass: f64,
@@ -1222,11 +1250,15 @@ fn apply_projection<Api: ReplayApi + ?Sized>(
             Complex64Abi::new(scale, 0.0),
         ],
     };
-    let tensor = replay.allocate_complex(projector.len(), "projection operator")?;
-    replay.api.copy_to_device(tensor, &projector)?;
-    replay
-        .api
-        .apply_tensor_operator(replay.handle, replay.state(), &[mode_id], tensor, false)
+    let tensor = mps_execution.allocate_complex(projector.len(), "projection operator")?;
+    mps_execution.api.copy_to_device(tensor, &projector)?;
+    mps_execution.api.apply_tensor_operator(
+        mps_execution.handle,
+        mps_execution.state(),
+        &[mode_id],
+        tensor,
+        false,
+    )
 }
 
 fn preparation_compute_seconds(timings: &StatePhaseTimings) -> f64 {
@@ -1329,7 +1361,7 @@ fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
     OwnedOperator::new(modes, matrix)
 }
 
-impl<Api: ReplayApi + ?Sized> Drop for Replay<'_, Api> {
+impl<Api: MpsExecutionApi + ?Sized> Drop for MpsExecution<'_, Api> {
     fn drop(&mut self) {
         let _ = self.close();
     }
@@ -1445,18 +1477,4 @@ fn mode_id(qubit: u32) -> Result<i32, SimulationError> {
     i32::try_from(qubit).map_err(|_| SimulationError::InvalidCircuit {
         reason: format!("qubit {qubit} does not fit the native mode identifier"),
     })
-}
-
-fn combine_execution_and_cleanup<T>(
-    execution: Result<T, SimulationError>,
-    cleanup: Result<(), SimulationError>,
-) -> Result<T, SimulationError> {
-    match (execution, cleanup) {
-        (Ok(value), Ok(())) => Ok(value),
-        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
-        (Err(execution), Err(cleanup)) => Err(SimulationError::ExecutionAndCleanupFailed {
-            execution: Box::new(execution),
-            cleanup: Box::new(cleanup),
-        }),
-    }
 }

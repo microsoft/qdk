@@ -7,7 +7,7 @@ use crate::{
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use crate::{
-    library::Session,
+    library::MpsSession,
     simulation::{ExecutionPolicy, collect_sampled_shots},
 };
 use qdk_simulators::{
@@ -212,7 +212,7 @@ fn execute_mps_run(
     prepared_run: &PreparedMpsRun,
 ) -> Result<Vec<Vec<OutputRecord>>, MpsExecutionError> {
     let availability = discover().map_err(MpsExecutionError::environment)?;
-    let mut session = Session::new(
+    let mut session = MpsSession::new(
         availability.libraries,
         ExecutionPolicy::base_qualification(),
     )

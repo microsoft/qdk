@@ -815,7 +815,7 @@ samples it terminally. Adaptive execution instead needs:
   including `OP_RESET`, which the shared engine does not implement.
 
 Some of the hard algorithmic machinery already exists privately —
-[`simulation/replay.rs`](../../../source/cutensornet/src/library/simulation/replay.rs) and
+[`simulation/mps_execution.rs`](../../../source/cutensornet/src/library/simulation/mps_execution.rs) and
 [`simulation/branch.rs`](../../../source/cutensornet/src/library/simulation/branch.rs) implement
 replay, branch mass, projection, and state capture. But it is **not connected to the public path**:
 `consumer.rs` contains zero references to that machinery. It lowers the algorithmic risk; it does not
@@ -1282,7 +1282,7 @@ The first native-library touch is `discover()` at **[`execution.rs:214`](../../.
 | 15 | `dlopen` cuTensorNet | [`library.rs:300`](../../../source/cutensornet/src/library.rs#L300) |
 | 16 | Resolve 30 cuTensorNet symbols | [`library.rs:301`](../../../source/cutensornet/src/library.rs#L301) |
 | 17 | Probe four versions and validate all three against `POLICY` | [`library.rs:303-327`](../../../source/cutensornet/src/library.rs#L303-L327) |
-| 18 | Return `Availability { report, libraries: Arc<NativeApi> }` | [`library.rs:329-345`](../../../source/cutensornet/src/library.rs#L329-L345) |
+| 18 | Return `Availability { report, libraries: Arc<CuTensorNetApi> }` | [`library.rs:329-345`](../../../source/cutensornet/src/library.rs#L329-L345) |
 
 Points that matter for review:
 
@@ -1313,9 +1313,9 @@ All seven failure modes are `AvailabilityError` ([`error.rs:5-50`](../../../sour
 
 | # | Stage | Location |
 | --- | --- | --- |
-| 19 | `Session::new(availability.libraries, ExecutionPolicy::base_qualification())` | [`execution.rs:215-218`](../../../source/cutensornet/src/execution.rs#L215-L218) |
+| 19 | `MpsSession::new(availability.libraries, ExecutionPolicy::base_qualification())` | [`execution.rs:215-218`](../../../source/cutensornet/src/execution.rs#L215-L218) |
 | 20 | Apply the prepared `Gate`s as cuTensorNet tensor operations — distinct from the host-side `Gate::from_unitary_operation` at step 9 | [`library/simulation/circuit.rs`](../../../source/cutensornet/src/library/simulation/circuit.rs) |
-| 21 | State creation, gate application, MPS finalization, batch sampling | [`library/simulation/session.rs`](../../../source/cutensornet/src/library/simulation/session.rs) |
+| 21 | State creation, gate application, MPS finalization, batch sampling | [`library/simulation/mps_execution.rs`](../../../source/cutensornet/src/library/simulation/mps_execution.rs) |
 
 `session.sample` ([`execution.rs:220-224`](../../../source/cutensornet/src/execution.rs#L220-L224)) takes the circuit, the sampled-qubit map, and the sampling
 request together — **one call produces all shots**, which is why the 2-shot/1-shot ratio is ~1.00
@@ -1717,7 +1717,7 @@ no GPU.**
 | GPU-requiring tests | 1, correctly `#[ignore]`d with a stated reason |
 
 This is achieved by the same technique applied per module: every external dependency sits behind a
-trait with a test double — `SamplerApi`, `SessionApi`, `ReplayApi` for the cuTensorNet calls, and
+trait with a test double — `SamplerApi`, `SessionApi`, `MpsExecutionApi` for the cuTensorNet calls, and
 `FakeResolver` for library discovery. The 94 tests exercise ordering, cleanup, and error propagation
 against fakes; the GPU is needed only for numerics.
 

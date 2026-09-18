@@ -1,4 +1,4 @@
-//! Numerical qualification runs for the MPS driver, against a real A100.
+//! Native numerical qualification of MPS execution against a real A100.
 //!
 //! These are integration tests in everything but location. They need an
 //! x86-64 Linux host, the real cuTensorNet and CUDA runtime libraries, and a
@@ -9,7 +9,7 @@
 //! --qualification` is what runs them.
 //!
 //! They live inside the crate rather than under `tests/` because they drive
-//! `Session`, `Circuit`, `ExecutionPolicy` and friends directly, and every one
+//! `MpsSession`, `Circuit`, `ExecutionPolicy` and friends directly, and every one
 //! of those is crate-private. Moving the file to `tests/` would mean promoting
 //! the whole simulation core to the crate's public contract to buy nothing but
 //! a different directory.
@@ -18,7 +18,7 @@
 //! running them takes no configuration.
 
 use super::{MpsTarget, convert_layout};
-use crate::library::Session;
+use crate::library::MpsSession;
 use crate::simulation::{
     Circuit, Gate, SimulationResult, branch, circuit::StateReadout, policy::ExecutionPolicy,
     query::AdjacentZQuery,
@@ -208,7 +208,7 @@ fn base_profile_a100_qualification() {
     let policy = ExecutionPolicy::bell_regression()
         .validate()
         .expect("Bell policy should be valid");
-    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
+    let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
     let mut circuit = Circuit::new(2).expect("two-qubit fixture should be valid");
     circuit
@@ -286,7 +286,7 @@ fn b0_a100_ordering_and_gate_qualification() {
     let policy = ExecutionPolicy::bell_regression()
         .validate()
         .expect("B0 policy should be valid");
-    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
+    let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
     for (label, circuit, expected) in b0_qualification_cases() {
         let started = Instant::now();
@@ -325,7 +325,7 @@ fn b0_a100_ordering_and_gate_qualification() {
 fn b1_a100_width_qualification() {
     let availability = crate::discover().expect("native libraries should be available");
     let policy = ExecutionPolicy::base_qualification();
-    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
+    let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
 
     for width in [2_u32, 3, 63, 64, 128] {
@@ -473,7 +473,7 @@ fn run_trotter_query_qualification(
     let availability = crate::discover().expect("native libraries should be available");
     let discovery_seconds = discovery_started.elapsed().as_secs_f64();
     let session_started = Instant::now();
-    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
+    let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
     let session_creation_seconds = session_started.elapsed().as_secs_f64();
     let fixture_started = Instant::now();
@@ -747,7 +747,7 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
             .map(|left| 1.0 - 2.0 * oracle.joint_probability(&[left, left + 1]))
             .sum::<f64>();
 
-        let mut session = Session::new(Arc::clone(&availability.libraries), policy)
+        let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
             .unwrap_or_else(|error| panic!("{case}: native session creation failed: {error}"));
         let result = session
             .simulate_with_branch(

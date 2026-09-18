@@ -416,8 +416,13 @@ flowchart TB
    shared bank outside the shapes-only crate. Boundaries, bindings, axis order,
    connectivity and small analytic contractions are qualified. No optimizer
    or cost estimate is included.
-3. **I3a then I3b: native contraction.** First qualify a tiny non-symmetric real
-   A100 optimize/contract example; then execute the assembled 4x4 network and compare
+3. **I3a then I3b: native contraction.** First qualify native path metadata
+   on tiny asymmetric networks through the reusable
+   [native topology/metadata owner](../../../source/cutensornet/README.md#private-general-network-metadata).
+   This precedes the portable plan/interfaces and numerical contractor; binding
+   generation, symbol resolution and host test doubles do not establish native
+   positional-path semantics. Then qualify a tiny non-symmetric real A100
+   optimize/contract example, and execute the assembled 4x4 network and compare
    amplitudes/probabilities with I1 under explicit numerical tolerances. Reuse the
    existing bindings/resource owners; do not substitute the MPS State API.
 4. **I4: public integration.** Add only the needed shared batch/sampling and public

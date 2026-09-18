@@ -1,7 +1,9 @@
+//! Host coverage of MPS state ownership and failure propagation.
+
 use super::{
-    MpsTarget, OutputMetadata, OwnedOperator, Replay, ReplayApi, combine_execution_and_cleanup,
-    convert_layout, fixture_operator, saturating_power_of_two, target_bond_extent,
-    validate_realized_chain,
+    MpsExecution, MpsExecutionApi, MpsTarget, OutputMetadata, OwnedOperator,
+    combine_execution_and_cleanup, convert_layout, fixture_operator, saturating_power_of_two,
+    target_bond_extent, validate_realized_chain,
 };
 use crate::simulation::{
     Circuit, Gate, OpaqueHandle, SimulationError, Stream,
@@ -132,7 +134,7 @@ struct FakeState {
     set_workspace_count: usize,
 }
 
-struct FakeReplayApi {
+struct TestDoubleMpsExecutionApi {
     state: RefCell<FakeState>,
     failures: Vec<Event>,
     memory_info: (usize, usize),
@@ -140,7 +142,7 @@ struct FakeReplayApi {
     expectation_outputs: RefCell<VecDeque<(Complex64, Complex64)>>,
 }
 
-impl FakeReplayApi {
+impl TestDoubleMpsExecutionApi {
     fn new(failures: impl IntoIterator<Item = Event>) -> Self {
         Self {
             state: RefCell::new(FakeState {
@@ -194,7 +196,7 @@ impl FakeReplayApi {
         self.state.borrow_mut().events.push(event);
         if self.failures.contains(&event) {
             Err(SimulationError::NativeCallFailed {
-                component: "fake replay API",
+                component: "MPS execution test double",
                 operation: event.operation(),
                 status: 17,
                 message: "injected failure".to_string(),
@@ -285,7 +287,7 @@ impl FakeReplayApi {
     }
 }
 
-impl ReplayApi for FakeReplayApi {
+impl MpsExecutionApi for TestDoubleMpsExecutionApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError> {
         let event = {
             let mut state = self.state.borrow_mut();
@@ -606,7 +608,7 @@ impl ReplayApi for FakeReplayApi {
     }
 }
 
-impl SamplerApi for FakeReplayApi {
+impl SamplerApi for TestDoubleMpsExecutionApi {
     fn create_sampler(
         &self,
         _handle: OpaqueHandle,
@@ -698,23 +700,23 @@ fn circuit() -> Circuit {
     circuit
 }
 
-fn run(api: &FakeReplayApi) -> Result<(), SimulationError> {
+fn run(api: &TestDoubleMpsExecutionApi) -> Result<(), SimulationError> {
     let circuit = circuit();
-    let mut replay = new_replay(api, &circuit)?;
-    let execution = replay
+    let mut mps_execution = new_mps_execution(api, &circuit)?;
+    let execution = mps_execution
         .execute(&circuit, StateReadout::FullAmplitudes)
         .map(|_| ());
-    let cleanup = replay.close();
+    let cleanup = mps_execution.close();
     combine_execution_and_cleanup(execution, cleanup)
 }
 
-fn new_replay<'api>(
-    api: &'api FakeReplayApi,
+fn new_mps_execution<'api>(
+    api: &'api TestDoubleMpsExecutionApi,
     circuit: &Circuit,
-) -> Result<Replay<'api, FakeReplayApi>, SimulationError> {
+) -> Result<MpsExecution<'api, TestDoubleMpsExecutionApi>, SimulationError> {
     let handle = NonNull::new(0x1000_usize as *mut c_void).expect("handle is non-null");
     let stream = NonNull::dangling();
-    Replay::new(
+    MpsExecution::new(
         api,
         handle,
         stream,
@@ -737,8 +739,12 @@ fn continuation_circuit() -> Circuit {
     continuation
 }
 
-fn branch_api(failures: impl IntoIterator<Item = Event>, q0: f64, q1: f64) -> FakeReplayApi {
-    FakeReplayApi::new(failures).with_expectations([
+fn branch_api(
+    failures: impl IntoIterator<Item = Event>,
+    q0: f64,
+    q1: f64,
+) -> TestDoubleMpsExecutionApi {
+    TestDoubleMpsExecutionApi::new(failures).with_expectations([
         (Complex64::new(q0, 0.0), Complex64::new(1.0, 0.0)),
         (Complex64::new(q1, 0.0), Complex64::new(1.0, 0.0)),
         (Complex64::new(0.25, 0.0), Complex64::new(1.0, 0.0)),
@@ -746,20 +752,20 @@ fn branch_api(failures: impl IntoIterator<Item = Event>, q0: f64, q1: f64) -> Fa
 }
 
 fn run_branch(
-    api: &FakeReplayApi,
+    api: &TestDoubleMpsExecutionApi,
     selected: SelectedBranch,
 ) -> Result<BranchSimulationResult, SimulationError> {
     let initial = circuit();
     let continuation = continuation_circuit();
     let query = AdjacentZQuery::new(2).expect("Query should be valid");
-    let mut replay = new_replay(api, &initial)?;
-    let execution = replay.execute_branch(
+    let mut mps_execution = new_mps_execution(api, &initial)?;
+    let execution = mps_execution.execute_branch(
         &initial,
         BranchRequest { mode: 0, selected },
         &continuation,
         &query,
     );
-    let cleanup = replay.close();
+    let cleanup = mps_execution.close();
     combine_execution_and_cleanup(execution, cleanup)
 }
 
@@ -1003,9 +1009,9 @@ fn owned_operator_rejects_invalid_arity_modes_and_matrix_shape() {
 }
 
 #[test]
-fn successful_replay_cleans_up_in_dependency_order() {
-    let api = FakeReplayApi::new([]);
-    run(&api).expect("fake replay should succeed");
+fn successful_mps_execution_cleans_up_in_dependency_order() {
+    let api = TestDoubleMpsExecutionApi::new([]);
+    run(&api).expect("fake MPS execution should succeed");
 
     assert_eq!(
         api.events(),
@@ -1051,17 +1057,20 @@ fn successful_replay_cleans_up_in_dependency_order() {
 
 #[test]
 fn sampler_materializes_mps_before_creation_and_retains_it_through_cleanup() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
     let request =
         SamplingRequest::new(3, 8, Some(11), 29).expect("sampling request should be valid");
 
-    let samples = replay
+    let samples = mps_execution
         .sample_full_bitstrings(&circuit, request)
         .expect("sampling should succeed");
     assert_eq!(samples.shot(1), Some([1, 1].as_slice()));
-    replay.close().expect("replay cleanup should succeed");
+    mps_execution
+        .close()
+        .expect("MPS execution cleanup should succeed");
 
     let events = api.events();
     let finalized = positions(&events, Event::FinalizeMps)[0];
@@ -1084,37 +1093,39 @@ fn sampler_materializes_mps_before_creation_and_retains_it_through_cleanup() {
 
 #[test]
 fn close_is_idempotent() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    replay.close().expect("first close should succeed");
+    mps_execution.close().expect("first close should succeed");
     let events_after_first_close = api.events();
-    replay.close().expect("second close should succeed");
+    mps_execution.close().expect("second close should succeed");
 
     assert_eq!(api.events(), events_after_first_close);
 }
 
 #[test]
 fn drop_after_close_performs_no_more_cleanup() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    replay.close().expect("close should succeed");
+    mps_execution.close().expect("close should succeed");
     let events_after_close = api.events();
-    drop(replay);
+    drop(mps_execution);
 
     assert_eq!(api.events(), events_after_close);
 }
 
 #[test]
 fn drop_without_close_performs_dependency_ordered_cleanup() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mps_execution = new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    drop(replay);
+    drop(mps_execution);
 
     assert_eq!(
         api.events(),
@@ -1129,11 +1140,11 @@ fn drop_without_close_performs_dependency_ordered_cleanup() {
 }
 
 #[test]
-fn repeated_replay_balances_every_device_allocation() {
-    let api = FakeReplayApi::new([]);
+fn repeated_mps_execution_balances_every_device_allocation() {
+    let api = TestDoubleMpsExecutionApi::new([]);
 
-    run(&api).expect("first replay should succeed");
-    run(&api).expect("second replay should succeed without stale state");
+    run(&api).expect("first MPS execution should succeed");
+    run(&api).expect("second MPS execution should succeed without stale state");
 
     let mut expected_freed_handles = api.allocation_handles();
     expected_freed_handles[..5].reverse();
@@ -1145,14 +1156,15 @@ fn repeated_replay_balances_every_device_allocation() {
 
 #[test]
 fn metadata_only_execution_skips_output_transfer_and_reports_resources() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    let result = replay
+    let result = mps_execution
         .execute(&circuit, StateReadout::MetadataOnly)
         .expect("metadata-only execution should succeed");
-    replay.close().expect("cleanup should succeed");
+    mps_execution.close().expect("cleanup should succeed");
 
     assert_eq!(result.amplitudes(), None);
     assert_eq!(result.report.target_extents, [vec![2, 2], vec![2, 2]]);
@@ -1182,14 +1194,15 @@ fn metadata_only_execution_skips_output_transfer_and_reports_resources() {
 
 #[test]
 fn full_readout_returns_every_amplitude_in_little_endian_order() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    let result = replay
+    let result = mps_execution
         .execute(&circuit, StateReadout::FullAmplitudes)
         .expect("full readout should succeed");
-    replay.close().expect("cleanup should succeed");
+    mps_execution.close().expect("cleanup should succeed");
 
     let zero = Complex64::new(0.0, 0.0);
     let scale = Complex64::new(std::f64::consts::FRAC_1_SQRT_2, 0.0);
@@ -1205,16 +1218,19 @@ fn full_readout_returns_every_amplitude_in_little_endian_order() {
 
 #[test]
 fn query_uses_ordered_product_terms_and_separate_synchronized_lifecycle() {
-    let api = FakeReplayApi::new([]);
+    let api = TestDoubleMpsExecutionApi::new([]);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
-    replay
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
+    mps_execution
         .execute(&circuit, StateReadout::MetadataOnly)
         .expect("state execution should succeed");
 
     let query = AdjacentZQuery::new(2).expect("Query should be valid");
-    let result = replay.execute_query(&query).expect("Query should succeed");
-    replay.close().expect("cleanup should succeed");
+    let result = mps_execution
+        .execute_query(&query)
+        .expect("Query should succeed");
+    mps_execution.close().expect("cleanup should succeed");
 
     assert_eq!(result.raw_expectation, Complex64::new(6.0, 0.0));
     assert_eq!(result.squared_norm, Complex64::new(2.0, 0.0));
@@ -1257,7 +1273,8 @@ fn query_uses_ordered_product_terms_and_separate_synchronized_lifecycle() {
 #[test]
 fn branch_materializes_and_captures_each_live_state_before_dependent_work() {
     let api = branch_api([], 0.8, 0.2);
-    let result = run_branch(&api, SelectedBranch::Zero).expect("branch replay should succeed");
+    let result =
+        run_branch(&api, SelectedBranch::Zero).expect("branch MPS execution should succeed");
 
     assert!((result.report.masses.q0 - 0.8).abs() <= f64::EPSILON);
     assert!((result.report.masses.q1 - 0.2).abs() <= f64::EPSILON);
@@ -1361,7 +1378,8 @@ fn zero_selected_mass_fails_before_projection_allocation_or_mutation() {
 #[test]
 fn one_branch_projection_is_normalized_on_the_selected_diagonal() {
     let api = branch_api([], 0.8, 0.2);
-    let result = run_branch(&api, SelectedBranch::One).expect("one-branch replay should succeed");
+    let result =
+        run_branch(&api, SelectedBranch::One).expect("one-branch MPS execution should succeed");
 
     assert!((result.report.probability - 0.2).abs() <= f64::EPSILON);
     assert_eq!(
@@ -1388,7 +1406,7 @@ fn branch_barrier_failures_stop_the_next_semantic_stage() {
     for (failure, forbidden) in cases {
         let api = branch_api([failure], 0.8, 0.2);
         let error = run_branch(&api, SelectedBranch::Zero)
-            .expect_err("injected barrier failure should stop branch replay");
+            .expect_err("injected barrier failure should stop branch MPS execution");
         assert_native_operation(&error, "synchronize_stream");
         let events = api.events();
         let failure_position = positions(&events, failure)[0];
@@ -1404,7 +1422,7 @@ fn capture_failures_surface_before_properties_or_continuation() {
     ] {
         let api = branch_api([failure], 0.8, 0.2);
         let error = run_branch(&api, SelectedBranch::Zero)
-            .expect_err("injected capture failure should stop branch replay");
+            .expect_err("injected capture failure should stop branch MPS execution");
         assert_native_operation(&error, "capture_mps");
         let events = api.events();
         let failure_position = positions(&events, failure)[0];
@@ -1456,13 +1474,13 @@ fn property_transaction_preserves_execution_and_first_cleanup_error() {
     assert!(events.contains(&Event::DestroyState));
 }
 
-fn run_query(api: &FakeReplayApi) -> Result<(), SimulationError> {
+fn run_query(api: &TestDoubleMpsExecutionApi) -> Result<(), SimulationError> {
     let circuit = circuit();
-    let mut replay = new_replay(api, &circuit)?;
-    replay.execute(&circuit, StateReadout::MetadataOnly)?;
+    let mut mps_execution = new_mps_execution(api, &circuit)?;
+    mps_execution.execute(&circuit, StateReadout::MetadataOnly)?;
     let query = AdjacentZQuery::new(2).expect("Query should be valid");
-    let execution = replay.execute_query(&query).map(|_| ());
-    let cleanup = replay.close();
+    let execution = mps_execution.execute_query(&query).map(|_| ());
+    let cleanup = mps_execution.close();
     combine_execution_and_cleanup(execution, cleanup)
 }
 
@@ -1486,7 +1504,7 @@ fn every_query_call_is_fallible_and_cleans_up_owned_resources() {
     ];
 
     for failure in failure_points {
-        let api = FakeReplayApi::new([failure]);
+        let api = TestDoubleMpsExecutionApi::new([failure]);
         let error = run_query(&api).expect_err("the selected Query stage should fail");
         assert_native_operation(&error, failure.operation());
         let events = api.events();
@@ -1514,7 +1532,8 @@ fn every_query_call_is_fallible_and_cleans_up_owned_resources() {
 
 #[test]
 fn simultaneous_query_execution_and_cleanup_failures_are_both_retained() {
-    let api = FakeReplayApi::new([Event::ComputeExpectation, Event::DestroyExpectation]);
+    let api =
+        TestDoubleMpsExecutionApi::new([Event::ComputeExpectation, Event::DestroyExpectation]);
     let error = run_query(&api).expect_err("Query execution and cleanup should both fail");
 
     let SimulationError::ExecutionAndCleanupFailed { execution, cleanup } = error else {
@@ -1530,7 +1549,7 @@ fn simultaneous_query_execution_and_cleanup_failures_are_both_retained() {
 #[test]
 fn deferred_compute_or_sync_failure_prevents_output_transfer() {
     for failure in [Event::ComputeState, Event::Synchronize(0)] {
-        let api = FakeReplayApi::new([failure]);
+        let api = TestDoubleMpsExecutionApi::new([failure]);
         let error = run(&api).expect_err("execution should fail before output transfer");
 
         assert_native_operation(&error, failure.operation());
@@ -1547,14 +1566,15 @@ fn workspace_recommendation_above_policy_fails_before_scratch_allocation() {
     let policy = ExecutionPolicy::bell_regression();
     let workspace_size = i64::try_from(policy.maximum_workspace_bytes + 1)
         .expect("approved workspace ceiling should fit i64");
-    let api = FakeReplayApi::new([]).with_workspace(usize::MAX, workspace_size);
+    let api = TestDoubleMpsExecutionApi::new([]).with_workspace(usize::MAX, workspace_size);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    let error = replay
+    let error = mps_execution
         .execute(&circuit, StateReadout::MetadataOnly)
         .expect_err("workspace recommendation should exceed policy");
-    replay.close().expect("cleanup should succeed");
+    mps_execution.close().expect("cleanup should succeed");
 
     assert!(matches!(
         error,
@@ -1570,14 +1590,15 @@ fn workspace_recommendation_above_policy_fails_before_scratch_allocation() {
 
 #[test]
 fn workspace_recommendation_above_free_memory_fails_before_scratch_allocation() {
-    let api = FakeReplayApi::new([]).with_workspace(255, 256);
+    let api = TestDoubleMpsExecutionApi::new([]).with_workspace(255, 256);
     let circuit = circuit();
-    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-    let error = replay
+    let error = mps_execution
         .execute(&circuit, StateReadout::MetadataOnly)
         .expect_err("workspace recommendation should exceed free memory");
-    replay.close().expect("cleanup should succeed");
+    mps_execution.close().expect("cleanup should succeed");
 
     assert!(matches!(
         error,
@@ -1593,14 +1614,15 @@ fn workspace_recommendation_above_free_memory_fails_before_scratch_allocation() 
 #[test]
 fn nonpositive_workspace_recommendation_fails_before_scratch_allocation() {
     for workspace_size in [0, -1] {
-        let api = FakeReplayApi::new([]).with_workspace(usize::MAX, workspace_size);
+        let api = TestDoubleMpsExecutionApi::new([]).with_workspace(usize::MAX, workspace_size);
         let circuit = circuit();
-        let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+        let mut mps_execution =
+            new_mps_execution(&api, &circuit).expect("MPS execution should be created");
 
-        let error = replay
+        let error = mps_execution
             .execute(&circuit, StateReadout::MetadataOnly)
             .expect_err("nonpositive workspace recommendation should fail");
-        replay.close().expect("cleanup should succeed");
+        mps_execution.close().expect("cleanup should succeed");
 
         assert!(matches!(error, SimulationError::InvalidNativeResult { .. }));
         assert!(!api.events().contains(&Event::Allocate(4)));
@@ -1638,8 +1660,8 @@ fn every_construction_and_execution_call_is_fallible_and_cleans_up() {
     ];
 
     for failure in failure_points {
-        let api = FakeReplayApi::new([failure]);
-        let error = run(&api).expect_err("the selected replay call should fail");
+        let api = TestDoubleMpsExecutionApi::new([failure]);
+        let error = run(&api).expect_err("the selected MPS execution call should fail");
         assert_native_operation(&error, failure.operation());
         let events = api.events();
         assert!(events.contains(&failure));
@@ -1666,7 +1688,7 @@ fn every_cleanup_call_is_attempted_after_a_failure() {
     ];
 
     for failure in failure_points {
-        let api = FakeReplayApi::new([failure]);
+        let api = TestDoubleMpsExecutionApi::new([failure]);
         let error = run(&api).expect_err("the selected cleanup call should fail");
         assert_native_operation(&error, failure.operation());
         let events = api.events();
@@ -1678,7 +1700,7 @@ fn every_cleanup_call_is_attempted_after_a_failure() {
 
 #[test]
 fn simultaneous_execution_and_cleanup_failures_are_both_retained() {
-    let api = FakeReplayApi::new([Event::ComputeState, Event::Synchronize(0)]);
+    let api = TestDoubleMpsExecutionApi::new([Event::ComputeState, Event::Synchronize(0)]);
     let error = run(&api).expect_err("execution and cleanup should both fail");
 
     let SimulationError::ExecutionAndCleanupFailed { execution, cleanup } = error else {
@@ -1694,7 +1716,7 @@ fn simultaneous_execution_and_cleanup_failures_are_both_retained() {
 
 #[test]
 fn simultaneous_construction_and_cleanup_failures_are_both_retained() {
-    let api = FakeReplayApi::new([Event::CreateWorkspace, Event::Synchronize(0)]);
+    let api = TestDoubleMpsExecutionApi::new([Event::CreateWorkspace, Event::Synchronize(0)]);
     let error = run(&api).expect_err("construction and cleanup should both fail");
 
     let SimulationError::ExecutionAndCleanupFailed { execution, cleanup } = error else {

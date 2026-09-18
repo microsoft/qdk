@@ -46,3 +46,17 @@ pub enum SimulationError {
         cleanup: Box<Self>,
     },
 }
+
+pub(super) fn combine_execution_and_cleanup<T>(
+    execution: Result<T, SimulationError>,
+    cleanup: Result<(), SimulationError>,
+) -> Result<T, SimulationError> {
+    match (execution, cleanup) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(execution), Err(cleanup)) => Err(SimulationError::ExecutionAndCleanupFailed {
+            execution: Box::new(execution),
+            cleanup: Box::new(cleanup),
+        }),
+    }
+}

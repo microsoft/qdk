@@ -12,7 +12,7 @@ use std::{
 mod simulation;
 mod symbols;
 
-pub(crate) use simulation::Session;
+pub(crate) use simulation::MpsSession;
 use symbols::{CuTensorNetFunctions, resolve_cutensornet_functions};
 
 const CUTENSORNET_NAME: &str = "cuTensorNet";
@@ -53,8 +53,13 @@ struct LoadedLibrary {
 // `LoadedLibrary` values are RAII guards: every early return during resolution
 // or version probing unloads already-opened libraries before the error escapes.
 
+/// Loaded cuTensorNet and CUDA Runtime libraries with their immutable call tables.
+///
+/// Library guards outlive all resolved function pointers. Sharing this owner
+/// does not share a device context, stream or quantum state; those belong to
+/// thread-confined session/child owners.
 #[allow(dead_code)]
-pub(crate) struct NativeApi {
+pub(crate) struct CuTensorNetApi {
     cudart: LoadedLibrary,
     cutensornet: LoadedLibrary,
     cuda_functions: CudaFunctions,
@@ -137,7 +142,7 @@ pub(crate) fn discover(
     };
     Ok(Availability {
         report,
-        libraries: Arc::new(NativeApi {
+        libraries: Arc::new(CuTensorNetApi {
             cudart,
             cutensornet,
             cuda_functions,
@@ -219,7 +224,7 @@ fn resolve_required<R: SymbolResolver, T: Copy>(
     symbol: &'static [u8],
 ) -> Result<T, AvailabilityError> {
     // SAFETY: each call site supplies the exact audited signature associated
-    // with `name`; the resolver owner is retained by `NativeApi`.
+    // with `name`; the resolver owner is retained by `CuTensorNetApi`.
     unsafe { resolver.resolve(symbol) }.map_err(|_| AvailabilityError::MissingRequiredSymbol {
         library,
         path: path.to_path_buf(),

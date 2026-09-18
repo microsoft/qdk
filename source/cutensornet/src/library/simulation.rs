@@ -1,27 +1,36 @@
+//! NVIDIA FFI implementations of the private resource and execution traits.
+//!
+//! Uses the audited cuTensorNet/CUDA ABI; runtime compatibility is checked by
+//! discovery. Owners establish handle lifetimes, device affinity and buffer
+//! sizes. Each unsafe call documents the remaining foreign-API obligations.
+
 #![allow(
     dead_code,
     reason = "the private native adapter becomes live in the consumer integration iteration"
 )]
 
-#[path = "simulation/session.rs"]
-mod session;
+#[path = "simulation/mps_session.rs"]
+mod mps_session;
 
-pub(crate) use session::Session;
+pub(crate) use mps_session::MpsSession;
 
-use super::NativeApi;
+use super::CuTensorNetApi;
 use crate::bindings::{cudart_12, v2_13};
-use crate::simulation::{
-    Complex64Abi, ContractionApi, MpsTarget, OpaqueHandle, OutputMetadata, ReplayApi, SamplerApi,
-    SimulationError, StateF64Attribute, StateU32Configuration, Stream,
+use crate::simulation::contraction::{
+    NativeTensor, OptimizerEstimate, OptimizerSetting, SlicedMode,
 };
-use session::SessionApi;
+use crate::simulation::resources::SessionApi;
+use crate::simulation::{
+    Complex64Abi, ContractionApi, MpsExecutionApi, MpsTarget, OpaqueHandle, OutputMetadata,
+    SamplerApi, SimulationError, StateF64Attribute, StateU32Configuration, Stream,
+};
 use std::{
     ffi::{CStr, c_void},
     mem::size_of,
     ptr::NonNull,
 };
 
-impl NativeApi {
+impl CuTensorNetApi {
     fn cuda_message(&self, status: cudart_12::CudaError) -> String {
         // SAFETY: the pointer was resolved with the audited CUDA signature and
         // the returned library-owned string is copied before this call returns.
@@ -101,7 +110,7 @@ impl NativeApi {
     }
 }
 
-impl SamplerApi for NativeApi {
+impl SamplerApi for CuTensorNetApi {
     fn create_sampler(
         &self,
         handle: OpaqueHandle,
@@ -252,7 +261,361 @@ where
     }
 }
 
-impl ContractionApi for NativeApi {
+impl ContractionApi for CuTensorNetApi {
+    fn append_tensor(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        tensor: &NativeTensor,
+    ) -> Result<i64, SimulationError> {
+        let rank = contraction_count(tensor.modes.len())?;
+        if tensor.extents.len() != tensor.modes.len() {
+            return Err(SimulationError::InvalidContractionConfiguration {
+                reason: "tensor modes and extents have different lengths",
+            });
+        }
+        let mut id = 0;
+        // SAFETY: topology conversion checked rank and extents; both arrays
+        // contain rank entries. NULL qualifiers select the SDK defaults.
+        let status = unsafe {
+            (self.cutensornet_functions.network_append_tensor)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                rank,
+                tensor.extents.as_ptr(),
+                tensor.modes.as_ptr(),
+                std::ptr::null(),
+                v2_13::cudaDataType_t_CUDA_C_64F,
+                &raw mut id,
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkAppendTensor", status)?;
+        Ok(id)
+    }
+
+    fn set_output(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        modes: &[i32],
+    ) -> Result<(), SimulationError> {
+        let rank = contraction_count(modes.len())?;
+        // SAFETY: modes contains rank initialized labels; the query validated
+        // their membership and order. No output coefficient memory is needed.
+        let status = unsafe {
+            (self.cutensornet_functions.network_set_output_tensor)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                rank,
+                modes.as_ptr(),
+                v2_13::cudaDataType_t_CUDA_C_64F,
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetOutputTensor", status)
+    }
+
+    fn set_compute_f64(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        let compute = v2_13::cutensornetComputeType_t_CUTENSORNET_COMPUTE_64F;
+        // SAFETY: this attribute takes exactly a cutensornetComputeType_t.
+        let status = unsafe {
+            (self.cutensornet_functions.network_set_attribute)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                v2_13::cutensornetNetworkAttributes_t_CUTENSORNET_NETWORK_COMPUTE_TYPE,
+                (&raw const compute).cast(),
+                size_of::<v2_13::cutensornetComputeType_t>(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetAttribute(COMPUTE_TYPE)", status)
+    }
+
+    fn configure_optimizer(
+        &self,
+        handle: OpaqueHandle,
+        config: OpaqueHandle,
+        setting: OptimizerSetting,
+        value: i32,
+    ) -> Result<(), SimulationError> {
+        let attribute = match setting {
+            OptimizerSetting::HyperSamples => v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_HYPER_NUM_SAMPLES,
+            OptimizerSetting::Threads => v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_HYPER_NUM_THREADS,
+            OptimizerSetting::Seed => v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SEED,
+            OptimizerSetting::ReconfigurationIterations => v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_RECONFIG_NUM_ITERATIONS,
+            OptimizerSetting::DisableRankSimplification => v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SIMPLIFICATION_DISABLE_DR,
+            OptimizerSetting::DisableSlicing => v2_13::cutensornetContractionOptimizerConfigAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_CONFIG_SLICER_DISABLE_SLICING,
+        };
+        // SAFETY: all six selected attributes have int32_t payloads.
+        let status = unsafe {
+            (self.cutensornet_functions.optimizer_config_set_attribute)(
+                handle.as_ptr(),
+                config.as_ptr(),
+                attribute,
+                (&raw const value).cast(),
+                size_of::<i32>(),
+            )
+        };
+        self.check_cutensornet("cutensornetContractionOptimizerConfigSetAttribute", status)
+    }
+
+    fn optimize(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        config: OpaqueHandle,
+        workspace_constraint: u64,
+        info: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the owner established topology before info creation and keeps
+        // all objects live. The constraint is a byte budget, not an allocation.
+        let status = unsafe {
+            (self.cutensornet_functions.contraction_optimize)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                config.as_ptr(),
+                workspace_constraint,
+                info.as_ptr(),
+            )
+        };
+        self.check_cutensornet("cutensornetContractionOptimize", status)
+    }
+
+    fn set_path(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        path: &[[i32; 2]],
+    ) -> Result<(), SimulationError> {
+        let mut pairs: Vec<_> = path
+            .iter()
+            .map(|&[first, second]| v2_13::cutensornetNodePair_t { first, second })
+            .collect();
+        let payload = v2_13::cutensornetContractionPath_t {
+            numContractions: contraction_count(pairs.len())?,
+            data: pairs.as_mut_ptr(),
+        };
+        // SAFETY: PATH takes this payload and copies the live pair array.
+        unsafe {
+            self.set_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_PATH,
+            &payload,
+        )
+        }
+    }
+
+    fn set_slicing(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        slicing: &[SlicedMode],
+    ) -> Result<(), SimulationError> {
+        let mut pairs: Vec<_> = slicing
+            .iter()
+            .map(|slice| v2_13::cutensornetSliceInfoPair_t {
+                slicedMode: slice.mode,
+                slicedExtent: slice.extent,
+            })
+            .collect();
+        let payload = v2_13::cutensornetSlicingConfig_t {
+            numSlicedModes: u32::try_from(pairs.len()).map_err(|_| {
+                SimulationError::ResourceSizeOverflow {
+                    resource: "sliced mode count",
+                }
+            })?,
+            data: pairs.as_mut_ptr(),
+        };
+        // SAFETY: SLICING_CONFIG takes this payload and copies its live array.
+        unsafe {
+            self.set_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICING_CONFIG,
+            &payload,
+        )
+        }
+    }
+
+    fn attach_optimizer_info(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        info: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the matching network and populated info remain live together.
+        let status = unsafe {
+            (self.cutensornet_functions.network_set_optimizer_info)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                info.as_ptr(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetOptimizerInfo", status)
+    }
+
+    fn read_path(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        path: &mut [[i32; 2]],
+    ) -> Result<i32, SimulationError> {
+        let mut pairs = vec![
+            v2_13::cutensornetNodePair_t {
+                first: -1,
+                second: -1
+            };
+            path.len()
+        ];
+        let mut payload = [v2_13::cutensornetContractionPath_t {
+            numContractions: contraction_count(path.len())?,
+            data: pairs.as_mut_ptr(),
+        }];
+        // SAFETY: PATH writes into caller storage for numInputs - 1 pairs,
+        // as in the pinned SDK's OptimizerInfoInterface.path getter.
+        unsafe {
+            self.get_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_PATH,
+            &mut payload,
+        )?;
+        }
+        if payload[0].data != pairs.as_mut_ptr() {
+            return Err(invalid_metadata(
+                "native path getter changed the caller's data pointer",
+            ));
+        }
+        for (target, pair) in path.iter_mut().zip(pairs) {
+            *target = [pair.first, pair.second];
+        }
+        Ok(payload[0].numContractions)
+    }
+
+    fn num_sliced_modes(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+    ) -> Result<i32, SimulationError> {
+        let mut value = [-1_i32];
+        // SAFETY: NUM_SLICED_MODES is one int32_t.
+        unsafe {
+            self.get_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_SLICED_MODES,
+            &mut value,
+        )?;
+        }
+        Ok(value[0])
+    }
+
+    fn read_slicing(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        slicing: &mut [SlicedMode],
+    ) -> Result<u32, SimulationError> {
+        let mut pairs = vec![
+            v2_13::cutensornetSliceInfoPair_t {
+                slicedMode: -1,
+                slicedExtent: 0,
+            };
+            slicing.len()
+        ];
+        let mut payload = [v2_13::cutensornetSlicingConfig_t {
+            numSlicedModes: u32::try_from(slicing.len()).map_err(|_| {
+                SimulationError::ResourceSizeOverflow {
+                    resource: "sliced mode count",
+                }
+            })?,
+            data: pairs.as_mut_ptr(),
+        }];
+        // SAFETY: the preceding count getter sized the owned array; this
+        // payload is the audited SLICING_CONFIG ABI.
+        unsafe {
+            self.get_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_SLICING_CONFIG,
+            &mut payload,
+        )?;
+        }
+        if payload[0].data != pairs.as_mut_ptr() {
+            return Err(invalid_metadata(
+                "native slicing getter changed the caller's data pointer",
+            ));
+        }
+        for (target, pair) in slicing.iter_mut().zip(pairs) {
+            *target = SlicedMode {
+                mode: pair.slicedMode,
+                extent: pair.slicedExtent,
+            };
+        }
+        Ok(payload[0].numSlicedModes)
+    }
+
+    fn num_slices(&self, handle: OpaqueHandle, info: OpaqueHandle) -> Result<i64, SimulationError> {
+        let mut value = [-1_i64];
+        // SAFETY: NUM_SLICES is one int64_t.
+        unsafe {
+            self.get_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_SLICES,
+            &mut value,
+        )?;
+        }
+        Ok(value[0])
+    }
+
+    fn intermediate_mode_counts(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        counts: &mut [i32],
+    ) -> Result<(), SimulationError> {
+        // SAFETY: NUM_INTERMEDIATE_MODES writes numInputs - 1 int32_t ranks.
+        unsafe {
+            self.get_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_NUM_INTERMEDIATE_MODES,
+            counts,
+        )
+        }
+    }
+
+    fn intermediate_modes(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        modes: &mut [i32],
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the owner sized this int32_t array from validated native ranks.
+        unsafe {
+            self.get_optimizer_info(
+            handle, info,
+            v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_INTERMEDIATE_MODES,
+            modes,
+        )
+        }
+    }
+
+    fn estimate(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        estimate: OptimizerEstimate,
+    ) -> Result<f64, SimulationError> {
+        let attribute = match estimate {
+            OptimizerEstimate::FlopCount => v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_FLOP_COUNT,
+            OptimizerEstimate::LargestTensor => v2_13::cutensornetContractionOptimizerInfoAttributes_t_CUTENSORNET_CONTRACTION_OPTIMIZER_INFO_LARGEST_TENSOR,
+        };
+        let mut value = [f64::NAN];
+        // SAFETY: both selected estimates have one double payload.
+        unsafe {
+            self.get_optimizer_info(handle, info, attribute, &mut value)?;
+        }
+        Ok(value[0])
+    }
+
     fn create_network(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
         let mut network = std::ptr::null_mut();
         // SAFETY: `handle` is a live cuTensorNet context and `network` is a
@@ -362,7 +725,75 @@ impl ContractionApi for NativeApi {
     }
 }
 
-impl SessionApi for NativeApi {
+fn contraction_count(count: usize) -> Result<i32, SimulationError> {
+    i32::try_from(count).map_err(|_| SimulationError::ResourceSizeOverflow {
+        resource: "contraction metadata count",
+    })
+}
+
+fn invalid_metadata(reason: &'static str) -> SimulationError {
+    SimulationError::InvalidNativeResult {
+        reason: reason.to_string(),
+    }
+}
+
+impl CuTensorNetApi {
+    /// Reads one optimizer-info attribute into caller-owned storage.
+    ///
+    /// # Safety
+    /// The context and info must be live and associated. `T`, its alignment and
+    /// the slice length must match the attribute's ABI. Nested output buffers
+    /// must be writable, non-aliasing and large enough for the native counts;
+    /// all buffers must remain live throughout the call.
+    unsafe fn get_optimizer_info<T>(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        attribute: v2_13::cutensornetContractionOptimizerInfoAttributes_t,
+        values: &mut [T],
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the caller guarantees the payload and nested-buffer contract.
+        let status = unsafe {
+            (self.cutensornet_functions.optimizer_info_get_attribute)(
+                handle.as_ptr(),
+                info.as_ptr(),
+                attribute,
+                values.as_mut_ptr().cast(),
+                std::mem::size_of_val(values),
+            )
+        };
+        self.check_cutensornet("cutensornetContractionOptimizerInfoGetAttribute", status)
+    }
+
+    /// Copies one attribute payload into the native optimizer-info object.
+    ///
+    /// # Safety
+    /// The context and info must be live and associated. `T` must match the
+    /// attribute's ABI. Nested pointers must address initialized input arrays
+    /// of the declared lengths, retained for the call. Only attributes that
+    /// copy their input, rather than retaining its pointers, may use this helper.
+    unsafe fn set_optimizer_info<T>(
+        &self,
+        handle: OpaqueHandle,
+        info: OpaqueHandle,
+        attribute: v2_13::cutensornetContractionOptimizerInfoAttributes_t,
+        value: &T,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the caller guarantees the payload and nested-buffer contract.
+        let status = unsafe {
+            (self.cutensornet_functions.optimizer_info_set_attribute)(
+                handle.as_ptr(),
+                info.as_ptr(),
+                attribute,
+                std::ptr::from_ref(value).cast(),
+                size_of::<T>(),
+            )
+        };
+        self.check_cutensornet("cutensornetContractionOptimizerInfoSetAttribute", status)
+    }
+}
+
+impl SessionApi for CuTensorNetApi {
     fn device_count(&self) -> Result<i32, SimulationError> {
         let mut count = 0;
         // SAFETY: `count` is a valid writable CUDA `int` out-parameter.
@@ -424,7 +855,7 @@ impl SessionApi for NativeApi {
     }
 }
 
-impl ReplayApi for NativeApi {
+impl MpsExecutionApi for CuTensorNetApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError> {
         let mut free = 0;
         let mut total = 0;

@@ -1,10 +1,17 @@
-use crate::{
-    library::NativeApi,
-    simulation::{ExecutionPolicy, OpaqueHandle, SimulationError, Stream},
-};
+//! Native device/stream/context ownership, independent of MPS execution policy.
+//!
+//! Child objects must close before their parent handle. Explicit close reports
+//! cleanup errors; Drop provides a non-panicking fallback, not error reporting.
+
+use super::{OpaqueHandle, SimulationError, Stream, error::combine_execution_and_cleanup};
 use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
-pub(super) trait SessionApi: Send + Sync {
+/// Injected CUDA Runtime/cuTensorNet context operations.
+///
+/// The immutable API may be shared; the streams and handles it creates may not.
+/// Callers select the intended device before creation and device-dependent work,
+/// keep parents alive through child cleanup and release each acquired object once.
+pub(crate) trait SessionApi: Send + Sync {
     fn device_count(&self) -> Result<i32, SimulationError>;
     fn set_device(&self, ordinal: i32) -> Result<(), SimulationError>;
     fn create_stream(&self) -> Result<Stream, SimulationError>;
@@ -14,64 +21,52 @@ pub(super) trait SessionApi: Send + Sync {
     fn destroy_handle(&self, handle: OpaqueHandle) -> Result<(), SimulationError>;
 }
 
-struct SessionResources<Api: SessionApi> {
+/// Owns a CUDA stream and cuTensorNet handle on one worker thread.
+///
+/// Retains the API/library owner and records the selected device; it does not
+/// own the GPU, a quantum state or numerical buffers. The `Rc` marker forbids
+/// Send/Sync even if the raw-handle representation changes. Child borrows prevent
+/// consuming this owner while they are live.
+pub(crate) struct SessionResources<Api: SessionApi> {
     api: Arc<Api>,
     device_ordinal: i32,
     stream: Option<Stream>,
     handle: Option<OpaqueHandle>,
-}
-
-pub struct Session {
-    resources: SessionResources<NativeApi>,
-    policy: ExecutionPolicy,
     _thread_marker: PhantomData<Rc<()>>,
 }
 
-impl Session {
-    pub(crate) fn new(
-        api: Arc<NativeApi>,
-        policy: ExecutionPolicy,
-    ) -> Result<Self, SimulationError> {
-        let policy = policy.validate()?;
-        Ok(Self {
-            resources: SessionResources::new(api, policy.device_ordinal)?,
-            policy,
-            _thread_marker: PhantomData,
-        })
+impl<Api: SessionApi> SessionResources<Api> {
+    pub(crate) fn device_ordinal(&self) -> i32 {
+        self.device_ordinal
     }
 
-    #[must_use]
-    pub fn device_ordinal(&self) -> i32 {
-        self.resources.device_ordinal
-    }
-
+    /// Rebinds the device, synchronizes, then releases the handle and stream.
+    ///
+    /// Attempts every release and returns the first failure. Taking the handles
+    /// prevents a second release in Drop, including after a native failure.
     pub(crate) fn close(mut self) -> Result<(), SimulationError> {
-        self.resources.close()
+        self.release()
     }
 
-    pub(crate) fn api(&self) -> &NativeApi {
-        self.resources.api.as_ref()
+    pub(crate) fn api(&self) -> &Api {
+        self.api.as_ref()
+    }
+
+    pub(crate) fn bind_device(&self) -> Result<(), SimulationError> {
+        self.api.set_device(self.device_ordinal)
     }
 
     pub(crate) fn stream(&self) -> Stream {
-        self.resources
-            .stream
+        self.stream
             .expect("a live session always owns its CUDA stream")
     }
 
     pub(crate) fn handle(&self) -> OpaqueHandle {
-        self.resources
-            .handle
+        self.handle
             .expect("a live session always owns its cuTensorNet handle")
     }
 
-    pub(crate) fn policy(&self) -> ExecutionPolicy {
-        self.policy
-    }
-}
-
-impl<Api: SessionApi> SessionResources<Api> {
-    fn new(api: Arc<Api>, device_ordinal: i32) -> Result<Self, SimulationError> {
+    pub(crate) fn new(api: Arc<Api>, device_ordinal: i32) -> Result<Self, SimulationError> {
         let device_count = api.device_count()?;
         if device_count <= 0 {
             return Err(SimulationError::NoDevice);
@@ -88,17 +83,26 @@ impl<Api: SessionApi> SessionResources<Api> {
             device_ordinal,
             stream: Some(stream),
             handle: None,
+            _thread_marker: PhantomData,
         };
-        resources.handle = Some(resources.api.create_handle()?);
+        match resources.api.create_handle() {
+            Ok(handle) => resources.handle = Some(handle),
+            Err(error) => {
+                return combine_execution_and_cleanup(Err(error), resources.release());
+            }
+        }
         Ok(resources)
     }
 
-    fn close(&mut self) -> Result<(), SimulationError> {
-        let mut first_error = None;
+    fn release(&mut self) -> Result<(), SimulationError> {
+        if self.stream.is_none() && self.handle.is_none() {
+            return Ok(());
+        }
+        let mut first_error = self.bind_device().err();
         if let Some(stream) = self.stream
             && let Err(error) = self.api.synchronize_stream(stream)
         {
-            first_error = Some(error);
+            first_error.get_or_insert(error);
         }
         if let Some(handle) = self.handle.take()
             && let Err(error) = self.api.destroy_handle(handle)
@@ -118,7 +122,7 @@ impl<Api: SessionApi> SessionResources<Api> {
 
 impl<Api: SessionApi> Drop for SessionResources<Api> {
     fn drop(&mut self) {
-        let _ = self.close();
+        let _ = self.release();
     }
 }
 
@@ -219,6 +223,7 @@ mod tests {
                 "set_device",
                 "create_stream",
                 "create_handle",
+                "set_device",
                 "synchronize_stream",
                 "destroy_handle",
                 "destroy_stream",
@@ -247,6 +252,7 @@ mod tests {
                 "set_device",
                 "create_stream",
                 "create_handle",
+                "set_device",
                 "synchronize_stream",
                 "destroy_stream",
             ]
