@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod aliases;
 mod broadcasting;
 
 use expect_test::Expect;

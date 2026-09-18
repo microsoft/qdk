@@ -689,25 +689,6 @@ fn u3_yields_expected_qir() {
 }
 
 #[test]
-fn u_alias_yields_expected_qir() {
-    check(
-        "U(0.1, 0.2, 0.3) 0",
-        &expect![[r#"
-            body:
-                call void @__quantum__qis__rz__body(double 0.9424777960769379, ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__rz__body(double 0.6283185307179586, ptr inttoptr (i64 0 to ptr))
-
-            declarations:
-              declare void @__quantum__qis__ry__body(double, ptr)
-              declare void @__quantum__qis__rz__body(double, ptr)
-
-            required_num_qubits: 1
-            required_num_results: 0"#]],
-    );
-}
-
-#[test]
 fn u3_with_mixed_angle_units_yields_expected_qir() {
     check(
         "U3(0.1, -0.2rad, 3e-1rad) 0",

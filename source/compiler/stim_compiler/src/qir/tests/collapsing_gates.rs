@@ -265,23 +265,6 @@ fn mry_gate_with_readout_noise_yields_expected_qir() {
 }
 
 #[test]
-fn mrz_gate_yields_expected_qir() {
-    let source = "MRZ 0";
-    check(
-        source,
-        &expect![[r#"
-            body:
-                call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            declarations:
-              declare void @__quantum__qis__mresetz__body(ptr, ptr)
-
-            required_num_qubits: 1
-            required_num_results: 1"#]],
-    );
-}
-
-#[test]
 fn mx_gate_yields_expected_qir() {
     let source = "MX 0";
     check(
@@ -370,23 +353,6 @@ fn my_gate_with_readout_noise_yields_expected_qir() {
             required_num_qubits: 1
             required_num_results: 1
             uses_noise: true"#]],
-    );
-}
-
-#[test]
-fn mz_gate_yields_expected_qir() {
-    let source = "MZ 0";
-    check(
-        source,
-        &expect![[r#"
-            body:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            declarations:
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            required_num_qubits: 1
-            required_num_results: 1"#]],
     );
 }
 
@@ -606,22 +572,5 @@ fn mry_gate_with_negated_target_yields_expected_qir() {
 
             required_num_qubits: 1
             required_num_results: 1"#]],
-    );
-}
-
-#[test]
-fn rz_gate_yields_expected_qir() {
-    let source = "RZ 0";
-    check(
-        source,
-        &expect![[r#"
-            body:
-                call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-
-            declarations:
-              declare void @__quantum__qis__reset__body(ptr)
-
-            required_num_qubits: 1
-            required_num_results: 0"#]],
     );
 }
