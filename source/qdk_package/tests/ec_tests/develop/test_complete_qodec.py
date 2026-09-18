@@ -6,8 +6,8 @@ import qodec as qc
 import pytest
 
 from ec_tests.testing.qodecs import c4
-from qdk.ec import _completion
-from qdk.ec._completion import complete_qodec
+from qdk.ec import _fill
+from qdk.ec._fill import complete_qodec
 from qdk.ec._readouts import as_readout
 
 
@@ -98,11 +98,11 @@ def test_completion_error_identifies_gadget_and_preserves_cause(
     def fail(_gadget: qc.Gadget) -> qc.Gadget:
         raise cause
 
-    monkeypatch.setattr(_completion, "complete_gadget", fail)
+    monkeypatch.setattr(_fill, "complete_gadget", fail)
 
     with pytest.raises(
-        RuntimeError, match="failed to derive layer 2 gadget 'broken'"
+        RuntimeError, match="failed to fill layer 2 gadget 'broken'"
     ) as caught:
-        _completion._try_complete_gadget(object(), 2, "broken")  # type: ignore[arg-type]
+        _fill._try_complete_gadget(object(), 2, "broken")  # type: ignore[arg-type]
 
     assert caught.value.__cause__ is cause

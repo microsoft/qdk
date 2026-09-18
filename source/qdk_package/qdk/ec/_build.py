@@ -44,7 +44,7 @@ fault-tolerant answer for ``strategy="flagged-css/v1"``. The alternative
 circuit without flag qubits or the distance computation.
 
 Checks and readouts are *not* hand-derived: each built gadget is a draft
-that :func:`~qdk.ec._completion.complete_gadget` finishes by exact
+that :func:`~qdk.ec._fill.complete_gadget` finishes by exact
 simulation. Every finished gadget is then verified with
 the internal gadget-action comparison, so an instruction
 survives only if its circuit provably realizes the action it declares. See
@@ -98,7 +98,7 @@ from ._analysis.channel_action import gadget_action_mismatch
 from ._distance import code_distance_of
 from ._analysis.propagation.pauli import Pauli, characters_of
 from ._analysis.propagation.pauli_remap import code_qubit_count
-from ._completion import complete_gadget
+from ._fill import complete_gadget
 from ._readouts import as_readout
 from ._references import as_references
 

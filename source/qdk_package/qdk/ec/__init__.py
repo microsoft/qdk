@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from ._audit._report import Report
     from ._code_profile import CodeProfile
     from ._distance_result import Distance
-    from ._completion import derive
+    from ._fill import filled
     from ._faults import FaultEffect, FaultEvent
     from ._profile import GadgetProfile
     from ._build import build_qodec
@@ -45,7 +45,7 @@ __all__ = [
     "Report",
     "audit",
     "build_qodec",
-    "derive",
+    "filled",
 ]
 
 _EXPORTS = {
@@ -60,7 +60,7 @@ _EXPORTS = {
     "Report": ("._audit._report", "Report"),
     "audit": ("._audit._auditor", "audit"),
     "build_qodec": ("._build", "build_qodec"),
-    "derive": ("._completion", "derive"),
+    "filled": ("._fill", "filled"),
 }
 
 
