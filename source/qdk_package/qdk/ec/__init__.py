@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     # Imported eagerly only for type checkers and editors; at runtime the names
     # below are resolved lazily, so `import qdk.ec` does not pull in paulimer,
-    # mwpf and binar for a one-line call.
+    # highspy and binar for a one-line call.
     from ._analysis.channel_action import ChannelAction
     from ._analysis.propagation.pauli import Pauli
     from ._audit._auditor import audit
@@ -74,7 +74,7 @@ def __getattr__(name: str) -> Any:
     try:
         value = getattr(import_module(module_name, __name__), attribute)
     except ModuleNotFoundError as error:
-        if error.name in {"binar", "more_itertools", "mwpf", "paulimer", "qodec"}:
+        if error.name in {"binar", "highspy", "more_itertools", "paulimer", "qodec"}:
             raise ModuleNotFoundError(
                 f"qdk.ec requires optional dependencies; install them with "
                 f"'pip install \"qdk[ec]\"' (missing {error.name!r})"

@@ -186,8 +186,8 @@ class GadgetProfile:
 
         The result's witness contains the selected factors and their product.
         Replay the combined fault with effects_of([result.witness.product]).
-        Select solver="enumeration" (the default), "mwpf", or "highs".
-        HiGHS requires the optional qdk[ec,ec-highs] installation.
+        Select solver="highs" (the default), "enumeration", or "mwpf".
+        HiGHS is included in qdk[ec]; MWPF requires a separate pip install mwpf.
         Both bounds are None only when no logical failure is possible. A cutoff
         or an open bound gap raises RuntimeError rather than claiming exactness.
         FaultEvent.after selects a zero-based Circuit.calls index; its readout
@@ -196,14 +196,14 @@ class GadgetProfile:
         restrictions are the same as for effects_of. The fault set grows
         exponentially with call support; exact search is also combinatorial.
         """
-        from ._analysis.distance_solvers import EnumerationSolverOptions
+        from ._analysis.distance_solvers import HighsSolverOptions
         from ._distance import _copy_fault, _fault_product, distance_result_of
 
         data = self._distance_data(faults)
         return distance_result_of(
             data.odd_cycles,
             data.faults,
-            solver=EnumerationSolverOptions() if solver is None else solver,
+            solver=HighsSolverOptions() if solver is None else solver,
             upper_bound=upper_bound,
             exact=True,
             product=_fault_product,
@@ -221,22 +221,23 @@ class GadgetProfile:
 
         Faults and failure have the same meaning as in distance, with all checks
         and flags zero for the combined fault.
-        Select solver="mwpf" (the default), "enumeration", or "highs".
-        HiGHS requires qdk[ec,ec-highs]. Enumeration and HiGHS searches use
+        Select solver="highs" (the default), "enumeration", or "mwpf".
+        HiGHS is included in qdk[ec]; MWPF requires a separate pip install mwpf.
+        Enumeration and HiGHS searches use
         upper_bound as a search cutoff; MWPF does not use it. An upper bound of
         None means no finite bound is established; both bounds being None
         proves no allowed failure exists. Limits may leave a gap between bounds.
         Backend failures, invalid witnesses, or unavailable bound certificates
         raise RuntimeError rather than returning a partial or uncertified bound.
         """
-        from ._analysis.distance_solvers import MwpfSolverOptions
+        from ._analysis.distance_solvers import HighsSolverOptions
         from ._distance import _copy_fault, _fault_product, distance_result_of
 
         data = self._distance_data(faults)
         return distance_result_of(
             data.odd_cycles,
             data.faults,
-            solver=MwpfSolverOptions() if solver is None else solver,
+            solver=HighsSolverOptions() if solver is None else solver,
             upper_bound=upper_bound,
             product=_fault_product,
             copy=_copy_fault,

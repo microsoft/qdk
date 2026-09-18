@@ -5,7 +5,6 @@ cirq-core>=1.6.1,<1.7
 highspy>=1.11,<2
 matplotlib
 more-itertools>=10.0
-mwpf>=0.2.2
 pandas>=2.1
 pandas-stubs
 paulimer>=0.2.2

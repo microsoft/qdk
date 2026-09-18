@@ -6,7 +6,7 @@ from itertools import combinations
 from typing import Iterable, Iterator, Optional, Sequence, TypeVar
 
 from .distance_solvers import (
-    MwpfSolverOptions,
+    HighsSolverOptions,
     Solver,
     solver_options,
     solve_bounds,
@@ -122,7 +122,7 @@ class OddCycles:
         coset_indicator: Optional[frozenset[int]] = None,
         solver: Optional[Solver] = None,
     ) -> tuple[int, int, list[int]]:
-        solver = solver_options(MwpfSolverOptions() if solver is None else solver)
+        solver = solver_options(HighsSolverOptions() if solver is None else solver)
         if (
             odd_cycle_length_upper_bound is not None
             and odd_cycle_length_upper_bound < 0

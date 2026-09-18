@@ -231,6 +231,21 @@ def test_enumeration_cutoff_returns_bounds_not_false_exactness() -> None:
 
 
 @requires_highs
+def test_default_bounds_uses_highs() -> None:
+    data = OddCycles(
+        [frozenset({0, 1}), frozenset({1, 2}), frozenset({0, 2})],
+        [frozenset({0}), frozenset(), frozenset()],
+    )
+    with patch(
+        "qdk.ec._analysis.distance_solvers.import_module", wraps=import_module
+    ) as backend:
+        lower, upper, witness = data.bounds()
+    assert lower == upper == 3
+    assert set(witness) == {0, 1, 2}
+    backend.assert_called_once_with("highspy")
+
+
+@requires_highs
 def test_highs_matches_enumeration_and_handles_cutoff() -> None:
     data = OddCycles(
         [frozenset({0, 1}), frozenset({1, 2}), frozenset({2, 3}), frozenset({3, 0})],
@@ -262,7 +277,7 @@ def test_highs_missing_package_has_install_hint() -> None:
         side_effect=ModuleNotFoundError(name="highspy"),
     ):
         assert data.shortest("enumeration")[0] == 3
-        with pytest.raises(ImportError, match="qdk\\[ec,ec-highs\\]"):
+        with pytest.raises(ImportError, match="qdk\\[ec\\]"):
             data.shortest("highs")
 
 

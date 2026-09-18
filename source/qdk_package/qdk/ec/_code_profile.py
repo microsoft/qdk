@@ -95,19 +95,20 @@ class CodeProfile:
         single-qubit errors; a sequence supplies explicit errors, including
         correlated multi-qubit Paulis, each counted once. The witness remains
         a selection of factors, accessible through result.witness.factors;
-        result.witness.product is their combined Pauli. Select solver="enumeration"
-        (the default), "mwpf", or "highs". HiGHS requires qdk[ec,ec-highs].
+        result.witness.product is their combined Pauli. Select solver="highs"
+        (the default), "enumeration", or "mwpf". HiGHS is included in qdk[ec];
+        MWPF requires a separate pip install mwpf.
         A cutoff or an unresolved bound gap raises RuntimeError. A
         result with both bounds None means no allowed logical error exists.
         """
-        from ._analysis.distance_solvers import EnumerationSolverOptions
+        from ._analysis.distance_solvers import HighsSolverOptions
         from ._distance import CodeDistanceData, _pauli_product, distance_result_of
 
         data = CodeDistanceData.of(self._algebra, errors)
         return distance_result_of(
             data.odd_cycles,
             data.errors,
-            solver=EnumerationSolverOptions() if solver is None else solver,
+            solver=HighsSolverOptions() if solver is None else solver,
             upper_bound=upper_bound,
             coset_indicator=data.parity_indicator(coset_representative),
             exact=True,
@@ -130,21 +131,22 @@ class CodeProfile:
         Paulis. result.witness.factors retains the selection establishing the
         upper bound; result.witness.product is its combined Pauli. With no
         finite upper bound, result.witness raises LookupError.
-        Select solver="mwpf" (the default), "enumeration", or "highs".
-        HiGHS requires qdk[ec,ec-highs]. None represents infinity in either
+        Select solver="highs" (the default), "enumeration", or "mwpf".
+        HiGHS is included in qdk[ec]; MWPF requires a separate pip install mwpf.
+        None represents infinity in either
         bound; both bounds None proves impossibility. Enumeration and HiGHS use
         upper_bound as a search cutoff; MWPF ignores it. Backend failures,
         invalid witnesses, or unavailable bound certificates
         raise RuntimeError rather than returning a partial or uncertified bound.
         """
-        from ._analysis.distance_solvers import MwpfSolverOptions
+        from ._analysis.distance_solvers import HighsSolverOptions
         from ._distance import CodeDistanceData, _pauli_product, distance_result_of
 
         data = CodeDistanceData.of(self._algebra, errors)
         return distance_result_of(
             data.odd_cycles,
             data.errors,
-            solver=MwpfSolverOptions() if solver is None else solver,
+            solver=HighsSolverOptions() if solver is None else solver,
             upper_bound=upper_bound,
             coset_indicator=data.parity_indicator(coset_representative),
             product=_pauli_product,
