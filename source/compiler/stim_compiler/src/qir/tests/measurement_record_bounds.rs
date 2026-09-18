@@ -10,7 +10,7 @@ fn classical_control_without_prior_record_is_out_of_bounds() {
     check(
         "CX rec[-1] 1",
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                ,----
@@ -30,7 +30,7 @@ fn classical_control_just_beyond_available_records_is_out_of_bounds() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                ,-[2:4]
@@ -53,26 +53,26 @@ fn require_reports_each_out_of_bounds_record() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[3:19]
-         2 |   M 0
-         3 |   REQUIRE rec[-1] rec[-2] rec[-3]
-           :                   ^^^^^^^
-         4 | }
-           `----
+              x measurement record is out of bounds
+               ,-[3:19]
+             2 |   M 0
+             3 |   REQUIRE rec[-1] rec[-2] rec[-3]
+               :                   ^^^^^^^
+             4 | }
+               `----
 
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[3:27]
-         2 |   M 0
-         3 |   REQUIRE rec[-1] rec[-2] rec[-3]
-           :                           ^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[3:27]
+             2 |   M 0
+             3 |   REQUIRE rec[-1] rec[-2] rec[-3]
+               :                           ^^^^^^^
+             4 | }
+               `----
+        "#]],
     );
 }
 
@@ -87,7 +87,7 @@ fn notleaked_just_beyond_available_records_is_out_of_bounds() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                ,-[3:13]
@@ -109,24 +109,24 @@ fn annotation_records_are_out_of_bounds() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[1:10]
-         1 | DETECTOR rec[-1]
-           :          ^^^^^^^
-         2 | OBSERVABLE_INCLUDE(0) rec[-1]
-           `----
+              x measurement record is out of bounds
+               ,-[1:10]
+             1 | DETECTOR rec[-1]
+               :          ^^^^^^^
+             2 | OBSERVABLE_INCLUDE(0) rec[-1]
+               `----
 
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[2:23]
-         1 | DETECTOR rec[-1]
-         2 | OBSERVABLE_INCLUDE(0) rec[-1]
-           :                       ^^^^^^^
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[2:23]
+             1 | DETECTOR rec[-1]
+             2 | OBSERVABLE_INCLUDE(0) rec[-1]
+               :                       ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -140,15 +140,15 @@ fn reset_and_non_heralded_noise_do_not_append_records() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[3:4]
-         2 | X_ERROR(0.1) 1
-         3 | CX rec[-1] 2
-           :    ^^^^^^^
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[3:4]
+             2 | X_ERROR(0.1) 1
+             3 | CX rec[-1] 2
+               :    ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -166,7 +166,7 @@ fn measurement_instructions_append_expected_records() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                ,-[6:4]
@@ -191,7 +191,7 @@ fn heralded_and_mpad_append_expected_records() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                ,-[5:10]
@@ -214,7 +214,7 @@ fn record_reference_before_first_repeat_producer_is_out_of_bounds() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                ,-[2:6]
@@ -246,7 +246,7 @@ fn repeats_append_expected_records() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
                 ,-[11:4]
@@ -278,10 +278,10 @@ fn record_count_overflow_yields_error() {
     check(
         nested_repeats,
         &expect![[r#"
-        Qdk.Stim.Compiler.MeasurementRecordCounterOverflow
+            Qdk.Stim.Semantic.MeasurementRecordCounterOverflow
 
-          x the circuit exceeds the limit of 18,446,744,073,709,551,615 measurement
-          | records
-    "#]],
+              x the circuit exceeds the limit of 18,446,744,073,709,551,615 measurement
+              | records
+        "#]],
     );
 }

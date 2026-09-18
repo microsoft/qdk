@@ -42,7 +42,7 @@ fn t_gate_with_argument_yields_error() {
     check(
         "T(0.5) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: T
                ,----
@@ -58,7 +58,7 @@ fn t_gate_with_negated_target_yields_error() {
     check(
         "T !0",
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: T
                ,----
@@ -78,7 +78,7 @@ fn t_gate_with_measurement_record_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: T
                ,-[2:3]
@@ -95,7 +95,7 @@ fn t_gate_with_pauli_target_yields_error() {
     check(
         "T X0",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: T
                ,----
@@ -307,7 +307,7 @@ fn tpp_anti_hermitian_product_yields_error() {
     check(
         "TPP X0*Y0",
         &expect![[r#"
-            Qdk.Stim.Compiler.AntiHermitianPauliProduct
+            Qdk.Stim.Semantic.AntiHermitianPauliProduct
 
               x Pauli product must be Hermitian
                ,----
@@ -323,7 +323,7 @@ fn tpp_with_argument_yields_error() {
     check(
         "TPP(0.5) Z0",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: TPP
                ,----
@@ -339,7 +339,7 @@ fn tpp_with_qubit_target_yields_error() {
     check(
         "TPP 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: TPP
                ,----
@@ -431,7 +431,7 @@ fn ccx_gate_with_one_target_yields_error() {
     check(
         "CCX 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TargetCountNotMultipleOfThree
+            Qdk.Stim.Semantic.TargetCountNotMultipleOfThree
 
               x instruction CCX requires a multiple of three targets
                ,----
@@ -447,7 +447,7 @@ fn ccx_gate_with_two_targets_yields_error() {
     check(
         "CCX 0 1",
         &expect![[r#"
-            Qdk.Stim.Compiler.TargetCountNotMultipleOfThree
+            Qdk.Stim.Semantic.TargetCountNotMultipleOfThree
 
               x instruction CCX requires a multiple of three targets
                ,----
@@ -463,7 +463,7 @@ fn ccx_gate_with_four_targets_yields_error() {
     check(
         "CCX 0 1 2 3",
         &expect![[r#"
-            Qdk.Stim.Compiler.TargetCountNotMultipleOfThree
+            Qdk.Stim.Semantic.TargetCountNotMultipleOfThree
 
               x instruction CCX requires a multiple of three targets
                ,----
@@ -479,7 +479,7 @@ fn ccx_gate_with_argument_yields_error() {
     check(
         "CCX(0.5) 0 1 2",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: CCX
                ,----
@@ -495,7 +495,7 @@ fn ccx_gate_with_negated_target_yields_error() {
     check(
         "CCX 0 1 !2",
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: CCX
                ,----
@@ -511,50 +511,50 @@ fn ccx_gate_with_repeated_qubit_yields_error() {
     check(
         "CCX 0 0 1",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 0 is repeated in instruction: CCX
-           ,----
-         1 | CCX 0 0 1
-           :       ^
-           `----
-    "#]],
+              x qubit 0 is repeated in instruction: CCX
+               ,----
+             1 | CCX 0 0 1
+               :       ^
+               `----
+        "#]],
     );
     check(
         "CCX 0 1 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 0 is repeated in instruction: CCX
-           ,----
-         1 | CCX 0 1 0
-           :         ^
-           `----
-    "#]],
+              x qubit 0 is repeated in instruction: CCX
+               ,----
+             1 | CCX 0 1 0
+               :         ^
+               `----
+        "#]],
     );
     check(
         "CCX 0 1 1",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 1 is repeated in instruction: CCX
-           ,----
-         1 | CCX 0 1 1
-           :         ^
-           `----
-    "#]],
+              x qubit 1 is repeated in instruction: CCX
+               ,----
+             1 | CCX 0 1 1
+               :         ^
+               `----
+        "#]],
     );
     check(
         "CCX 0 0 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 0 is repeated in instruction: CCX
-           ,----
-         1 | CCX 0 0 0
-           :       ^
-           `----
-    "#]],
+              x qubit 0 is repeated in instruction: CCX
+               ,----
+             1 | CCX 0 0 0
+               :       ^
+               `----
+        "#]],
     );
 }
 
@@ -567,7 +567,7 @@ fn ccz_gate_with_measurement_record_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: CCZ
                ,-[2:5]
@@ -666,7 +666,7 @@ fn r_x_without_argument_yields_error() {
     check(
         "R_X 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingArg
+            Qdk.Stim.Semantic.MissingArg
 
               x missing argument in instruction: R_X
                ,----
@@ -682,7 +682,7 @@ fn r_x_with_two_arguments_yields_error() {
     check(
         "R_X(0.25, 0.5) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooManyArgs
+            Qdk.Stim.Semantic.TooManyArgs
 
               x too many arguments for instruction R_X; expected 1, found 2
                ,----
@@ -698,7 +698,7 @@ fn r_x_with_negated_target_yields_error() {
     check(
         "R_X(0.25) !0",
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: R_X
                ,----
@@ -771,7 +771,7 @@ fn u3_without_arguments_yields_error() {
     check(
         "U3 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingArg
+            Qdk.Stim.Semantic.MissingArg
 
               x missing argument in instruction: U3
                ,----
@@ -787,7 +787,7 @@ fn u3_with_one_argument_yields_error() {
     check(
         "U3(0.1) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooFewArgs
+            Qdk.Stim.Semantic.TooFewArgs
 
               x too few arguments for instruction U3; expected 3, found 1
                ,----
@@ -803,7 +803,7 @@ fn u3_with_two_arguments_yields_error() {
     check(
         "U3(0.1, 0.2) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooFewArgs
+            Qdk.Stim.Semantic.TooFewArgs
 
               x too few arguments for instruction U3; expected 3, found 2
                ,----
@@ -819,7 +819,7 @@ fn u3_with_four_arguments_yields_error() {
     check(
         "U3(0.1, 0.2, 0.3, 0.4) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooManyArgs
+            Qdk.Stim.Semantic.TooManyArgs
 
               x too many arguments for instruction U3; expected 3, found 4
                ,----
@@ -835,7 +835,7 @@ fn u3_with_multiple_angles_that_overflow_radians_yields_errors() {
     check(
         "U3(1e308, 0.25, -1e308) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidAngle
+            Qdk.Stim.Semantic.InvalidAngle
 
               x angle for U3 must be finite and representable in radians
                ,----
@@ -843,7 +843,7 @@ fn u3_with_multiple_angles_that_overflow_radians_yields_errors() {
                :    ^^^^^
                `----
 
-            Qdk.Stim.Compiler.InvalidAngle
+            Qdk.Stim.Semantic.InvalidAngle
 
               x angle for U3 must be finite and representable in radians
                ,----
@@ -924,7 +924,7 @@ fn r_xx_with_odd_target_count_yields_error() {
     check(
         "R_XX(0.25) 0 1 2",
         &expect![[r#"
-            Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
               x instruction R_XX requires an even number of targets
                ,----
@@ -940,7 +940,7 @@ fn r_xx_without_argument_yields_error() {
     check(
         "R_XX 0 1",
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingArg
+            Qdk.Stim.Semantic.MissingArg
 
               x missing argument in instruction: R_XX
                ,----
@@ -956,7 +956,7 @@ fn r_xx_with_two_arguments_yields_error() {
     check(
         "R_XX(0.25, 0.5) 0 1",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooManyArgs
+            Qdk.Stim.Semantic.TooManyArgs
 
               x too many arguments for instruction R_XX; expected 1, found 2
                ,----
@@ -1077,14 +1077,14 @@ fn r_pauli_without_argument_yields_error() {
     check(
         "R_PAULI X0",
         &expect![[r#"
-        Qdk.Stim.Compiler.MissingArg
+            Qdk.Stim.Semantic.MissingArg
 
-          x missing argument in instruction: R_PAULI
-           ,----
-         1 | R_PAULI X0
-           : ^^^^^^^^^^
-           `----
-    "#]],
+              x missing argument in instruction: R_PAULI
+               ,----
+             1 | R_PAULI X0
+               : ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -1093,7 +1093,7 @@ fn r_pauli_with_two_arguments_yields_error() {
     check(
         "R_PAULI(0.25, 0.5) X0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooManyArgs
+            Qdk.Stim.Semantic.TooManyArgs
 
               x too many arguments for instruction R_PAULI; expected 1, found 2
                ,----

@@ -301,7 +301,7 @@ fn mzz_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
               x instruction MZZ requires an even number of targets
                ,----

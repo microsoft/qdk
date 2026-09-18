@@ -231,7 +231,7 @@ fn cx_with_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MisplacedMeasurementRecord
+            Qdk.Stim.Semantic.MisplacedMeasurementRecord
 
               x measurement record target in an unsupported position in instruction: CX
                ,-[2:6]
@@ -252,15 +252,15 @@ fn cx_with_rec_control_and_invalid_target_labels_invalid_target() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: CX
-           ,-[2:12]
-         1 | M 0
-         2 | CX rec[-1] X1
-           :            ^^
-           `----
-    "#]],
+              x unsupported target in instruction: CX
+               ,-[2:12]
+             1 | M 0
+             2 | CX rec[-1] X1
+               :            ^^
+               `----
+        "#]],
     );
 }
 
@@ -273,7 +273,7 @@ fn cx_with_negated_rec_control_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: CX
                ,-[2:4]
@@ -295,7 +295,7 @@ fn cx_with_two_rec_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.BothTargetsAreMeasurementRecords
+            Qdk.Stim.Semantic.BothTargetsAreMeasurementRecords
 
               x controlled instruction CX requires a qubit target, but both targets are
               | measurement records
@@ -317,7 +317,7 @@ fn cx_with_odd_targets_including_rec_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
               x instruction CX requires an even number of targets
                ,-[2:1]
@@ -408,7 +408,7 @@ fn cy_with_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MisplacedMeasurementRecord
+            Qdk.Stim.Semantic.MisplacedMeasurementRecord
 
               x measurement record target in an unsupported position in instruction: CY
                ,-[2:6]
@@ -429,7 +429,7 @@ fn cy_with_negated_rec_control_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: CY
                ,-[2:4]
@@ -591,7 +591,7 @@ fn cz_with_two_rec_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.BothTargetsAreMeasurementRecords
+            Qdk.Stim.Semantic.BothTargetsAreMeasurementRecords
 
               x controlled instruction CZ requires a qubit target, but both targets are
               | measurement records
@@ -613,7 +613,7 @@ fn cz_with_negated_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: CZ
                ,-[2:4]
@@ -634,7 +634,7 @@ fn cz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: CZ
                ,-[2:6]
@@ -690,7 +690,7 @@ fn xcz_with_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MisplacedMeasurementRecord
+            Qdk.Stim.Semantic.MisplacedMeasurementRecord
 
               x measurement record target in an unsupported position in instruction: XCZ
                ,-[2:5]
@@ -711,7 +711,7 @@ fn xcz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: XCZ
                ,-[2:7]
@@ -767,7 +767,7 @@ fn ycz_with_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MisplacedMeasurementRecord
+            Qdk.Stim.Semantic.MisplacedMeasurementRecord
 
               x measurement record target in an unsupported position in instruction: YCZ
                ,-[2:5]
@@ -788,7 +788,7 @@ fn ycz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: YCZ
                ,-[2:7]
