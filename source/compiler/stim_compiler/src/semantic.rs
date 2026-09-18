@@ -1,13 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use crate::parser;
 use crate::parser::{ArgValue, PauliTarget, args_span};
 use miette::Diagnostic;
 use parser::Pauli;
-use qsc_data_structures::span::Span;
-use std::f64::consts::PI;
-use std::slice::Chunks;
+use qsc_data_structures::{
+    display::{write_list_field, writeln_field, writeln_header, writeln_header_with_span},
+    span::Span,
+};
+use std::{
+    f64::consts::PI,
+    fmt::{self, Display, Formatter},
+    slice::Chunks,
+};
 use thiserror::Error;
 
 pub type StimQubitId = u32;
@@ -16,37 +25,43 @@ pub type Probability = f64;
 
 const MAX_COORDINATES: usize = 16;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct MeasurementRecord {
     pub offset: u32,
     pub span: Span,
 }
 
+#[derive(Debug)]
 pub struct NegatableMeasurementRecord {
     pub record: MeasurementRecord,
     pub negated: bool,
 }
 
+#[derive(Debug)]
 pub struct Circuit {
     pub span: Span,
     pub items: Vec<Item>,
 }
 
+#[derive(Debug)]
 pub enum Item {
     Block(Block),
     Instruction(Instruction),
 }
 
+#[derive(Debug)]
 pub enum Block {
     RepeatBlock { count: u32, body: Vec<Item> },
     SelectBlock { body: Vec<Item> },
 }
 
+#[derive(Debug)]
 pub struct Instruction {
     pub span: Span,
     pub kind: InstructionKind,
 }
 
+#[derive(Debug)]
 pub enum InstructionKind {
     Reset {
         qubit: StimQubitId,
@@ -129,7 +144,45 @@ pub enum InstructionKind {
     },
 }
 
-#[derive(Clone, Copy)]
+impl Display for Circuit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln_header_with_span(f, "Circuit", self.span)?;
+        write_list_field(f, "items", &self.items)
+    }
+}
+
+impl Display for Item {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Block(block) => write!(f, "{block}"),
+            Self::Instruction(instruction) => write!(f, "{instruction}"),
+        }
+    }
+}
+
+impl Display for Block {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RepeatBlock { count, body } => {
+                writeln_header(f, "RepeatBlock")?;
+                writeln_field(f, "count", count)?;
+                write_list_field(f, "body", body)
+            }
+            Self::SelectBlock { body } => {
+                writeln_header(f, "SelectBlock")?;
+                write_list_field(f, "body", body)
+            }
+        }
+    }
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {:#?}", self.span, self.kind)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
 pub enum SingleQubitGateKind {
     I,
@@ -194,7 +247,7 @@ impl SingleQubitGateKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
 pub enum TwoQubitGateKind {
     CX,
@@ -253,7 +306,7 @@ impl TwoQubitGateKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ThreeQubitGateKind {
     CCZ,
     CCX,
@@ -269,25 +322,27 @@ impl ThreeQubitGateKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum PauliPair {
     XX,
     YY,
     ZZ,
 }
 
+#[derive(Debug)]
 pub struct PauliProduct {
     pub factors: Vec<PauliFactor>,
     pub negated: bool,
 }
 
+#[derive(Debug)]
 pub struct PauliFactor {
     pub pauli: Pauli,
     pub qubit: StimQubitId,
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum PauliProductGateKind {
     S,
     S_DAG,
@@ -307,6 +362,7 @@ impl PauliProductGateKind {
     }
 }
 
+#[derive(Debug)]
 pub enum Noise {
     CorrelatedError {
         kind: CorrelatedErrorKind,
@@ -342,13 +398,13 @@ pub enum Noise {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum CorrelatedErrorKind {
     Initial,
     Else,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum FaultKind {
     X,
     Y,
@@ -375,17 +431,18 @@ impl FaultKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Fault {
     pub kind: FaultKind,
     pub qubit: StimQubitId,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum SingleQubitNoiseKind {
     Depolarize,
     Fault(FaultKind),
 }
+#[derive(Debug)]
 pub enum Annotation {
     Detector {
         coordinates: Vec<f64>,
@@ -409,6 +466,7 @@ pub enum Annotation {
     Tick,
 }
 
+#[derive(Debug)]
 pub enum ObservableTarget {
     Record(MeasurementRecord),
     Pauli(PauliFactor),
