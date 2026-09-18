@@ -66,7 +66,7 @@ fn peek_loss_with_invalid_readout_noise_yields_error() {
     check(
         "PEEK_LOSS(1.1) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for PEEK_LOSS must be between 0 and 1; found 1.1
                ,----
@@ -78,7 +78,7 @@ fn peek_loss_with_invalid_readout_noise_yields_error() {
     check(
         "PEEK_LOSS(-0.1) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for PEEK_LOSS must be between 0 and 1; found -0.1
                ,----
@@ -94,14 +94,14 @@ fn peek_loss_with_readout_noise_in_radians_yields_error() {
     check(
         "PEEK_LOSS(0.1rad) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnexpectedRadians
+            Qdk.Stim.Semantic.UnexpectedRadians
 
-          x argument for PEEK_LOSS cannot be specified in radians
-           ,----
-         1 | PEEK_LOSS(0.1rad) 0
-           :           ^^^^^^
-           `----
-    "#]],
+              x argument for PEEK_LOSS cannot be specified in radians
+               ,----
+             1 | PEEK_LOSS(0.1rad) 0
+               :           ^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -110,7 +110,7 @@ fn peek_loss_with_negative_readout_noise_in_radians_yields_errors() {
     check(
         "PEEK_LOSS(-0.1rad) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnexpectedRadians
+            Qdk.Stim.Semantic.UnexpectedRadians
 
               x argument for PEEK_LOSS cannot be specified in radians
                ,----
@@ -126,7 +126,7 @@ fn peek_loss_with_negated_target_yields_error() {
     check(
         "PEEK_LOSS !0",
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: PEEK_LOSS
                ,----

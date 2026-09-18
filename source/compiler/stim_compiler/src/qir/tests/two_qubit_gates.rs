@@ -27,14 +27,14 @@ fn cx_gate_with_repeated_qubit_yields_error() {
     check(
         "CX 0 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 0 is repeated in instruction: CX
-           ,----
-         1 | CX 0 0
-           :      ^
-           `----
-    "#]],
+              x qubit 0 is repeated in instruction: CX
+               ,----
+             1 | CX 0 0
+               :      ^
+               `----
+        "#]],
     );
 }
 
@@ -227,14 +227,14 @@ fn ii_gate_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
-          x instruction II requires an even number of targets
-           ,----
-         1 | II 0
-           : ^^^^
-           `----
-    "#]],
+              x instruction II requires an even number of targets
+               ,----
+             1 | II 0
+               : ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -244,7 +244,7 @@ fn ii_gate_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: II
                ,----
@@ -285,14 +285,14 @@ fn iswap_gate_with_repeated_qubit_yields_error() {
     check(
         "ISWAP 0 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 0 is repeated in instruction: ISWAP
-           ,----
-         1 | ISWAP 0 0
-           :         ^
-           `----
-    "#]],
+              x qubit 0 is repeated in instruction: ISWAP
+               ,----
+             1 | ISWAP 0 0
+               :         ^
+               `----
+        "#]],
     );
 }
 

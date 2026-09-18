@@ -417,42 +417,42 @@ pub enum ObservableTarget {
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
     #[error("unknown instruction: {name}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnknownInstruction"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.UnknownInstruction"))]
     UnknownInstruction {
         name: String,
         #[label]
         span: Span,
     },
     #[error("{instruction} instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.InstructionWithoutBlock"))]
     InstructionWithoutBlock {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("unsupported argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedArgument"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.UnsupportedArgument"))]
     UnsupportedArgument {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("argument for {instruction} cannot be specified in radians")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnexpectedRadians"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.UnexpectedRadians"))]
     UnexpectedRadians {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("missing argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MissingArg"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.MissingArg"))]
     MissingArg {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("too few arguments for instruction {instruction}; expected {expected}, found {found}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.TooFewArgs"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.TooFewArgs"))]
     TooFewArgs {
         instruction: String,
         expected: usize,
@@ -461,7 +461,7 @@ pub enum Error {
         span: Span,
     },
     #[error("too many arguments for instruction {instruction}; expected {expected}, found {found}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.TooManyArgs"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.TooManyArgs"))]
     TooManyArgs {
         instruction: String,
         expected: usize,
@@ -470,20 +470,20 @@ pub enum Error {
         span: Span,
     },
     #[error("angle for {instruction} must be finite and representable in radians")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidAngle"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.InvalidAngle"))]
     InvalidAngle {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("logical observable index must be a non-negative 32-bit integer")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidLogicalObservableIndex"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.InvalidLogicalObservableIndex"))]
     InvalidLogicalObservableIndex {
         #[label]
         span: Span,
     },
     #[error("probability for {instruction} must be between 0 and 1; found {probability}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidProbability"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.InvalidProbability"))]
     InvalidProbability {
         instruction: String,
         probability: f64,
@@ -491,7 +491,7 @@ pub enum Error {
         span: Span,
     },
     #[error("probabilities for {instruction} must sum to at most 1.0, but they sum to {total}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InvalidProbabilitySum"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.InvalidProbabilitySum"))]
     InvalidProbabilitySum {
         instruction: String,
         total: f64,
@@ -499,49 +499,49 @@ pub enum Error {
         span: Span,
     },
     #[error("unsupported target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTarget"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.UnsupportedTarget"))]
     UnsupportedTarget {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("unsupported targets in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTargets"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.UnsupportedTargets"))]
     UnsupportedTargets {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("missing target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MissingTarget"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.MissingTarget"))]
     MissingTarget {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("target cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NegatedTarget"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.NegatedTarget"))]
     NegatedTarget {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("instruction {instruction} requires an even number of targets")]
-    #[diagnostic(code("Qdk.Stim.Compiler.OddTargetCount"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.OddTargetCount"))]
     OddTargetCount {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("instruction {instruction} requires a multiple of three targets")]
-    #[diagnostic(code("Qdk.Stim.Compiler.TargetCountNotMultipleOfThree"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.TargetCountNotMultipleOfThree"))]
     TargetCountNotMultipleOfThree {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("qubit {qubit} is repeated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.RepeatedQubit"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.RepeatedQubit"))]
     RepeatedQubit {
         instruction: String,
         qubit: StimQubitId,
@@ -549,7 +549,7 @@ pub enum Error {
         span: Span,
     },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
         instruction: String,
         #[label]
@@ -558,43 +558,43 @@ pub enum Error {
     #[error(
         "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
     )]
-    #[diagnostic(code("Qdk.Stim.Compiler.BothTargetsAreMeasurementRecords"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.BothTargetsAreMeasurementRecords"))]
     BothTargetsAreMeasurementRecords {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("measurement record is out of bounds")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfBounds"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.MeasurementRecordOutOfBounds"))]
     MeasurementRecordOutOfBounds {
         #[label]
         span: Span,
     },
     #[error("the circuit exceeds the limit of 18,446,744,073,709,551,615 measurement records")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordCounterOverflow"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.MeasurementRecordCounterOverflow"))]
     MeasurementRecordCounterOverflow,
     #[error("all measurement records referenced by {instruction} are out of scope")]
-    #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope"))]
     AllMeasurementRecordsOutOfScope {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("{instruction} must appear inside a SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.InstructionOutsideSelectBlock"))]
     InstructionOutsideSelectBlock {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("a REPEAT count of zero is not supported")]
-    #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.ZeroRepeatCount"))]
     ZeroRepeatCount {
         #[label]
         span: Span,
     },
     #[error("Pauli product must be Hermitian")]
-    #[diagnostic(code("Qdk.Stim.Compiler.AntiHermitianPauliProduct"))]
+    #[diagnostic(code("Qdk.Stim.Semantic.AntiHermitianPauliProduct"))]
     AntiHermitianPauliProduct {
         #[label]
         span: Span,
