@@ -253,7 +253,7 @@ def test_logical_preparation_is_independent_of_random_code_syndrome() -> None:
     gadget = _framed_preparation()
     gadget.frames = {}
     gadget.implements = qc.Instruction(
-        "plus",
+        gadget.implements.mnemonic,
         outputs=[qc.instructions.BlockOperand("qubit")],
         action=[qc.actions.Stabilize(["X_0"])],
     )

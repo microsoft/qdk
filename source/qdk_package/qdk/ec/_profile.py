@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from functools import cached_property
 from itertools import product
 from typing import TYPE_CHECKING, Sequence
@@ -56,7 +57,7 @@ class GadgetProfile:
                 "expected qodec.Gadget or qodec.gadgets.Circuit, got "
                 f"{type(target).__name__}"
             )
-        self._target = _snapshot(target)
+        self._target = deepcopy(target)
 
     @cached_property
     def action(self) -> ChannelAction:
@@ -454,24 +455,3 @@ def _residual(z_probe_flipped: bool, x_probe_flipped: bool) -> Pauli:
     else:
         return Pauli.identity()
     return Pauli({0: character})
-
-
-def _snapshot(target: qc.Gadget | Circuit) -> qc.Gadget | Circuit:
-    if isinstance(target, Circuit):
-        return Circuit(target.instruction_set, target.source, format=target.format)
-    circuit = Circuit(
-        target.circuit.instruction_set,
-        target.circuit.source,
-        format=target.circuit.format,
-    )
-    return qc.Gadget(
-        target.implements,
-        circuit,
-        inputs=list(target.inputs),
-        outputs=list(target.outputs),
-        checks=[list(check) for check in target.checks],
-        readouts=target.readouts,
-        frames=target.frames,
-        parameter_bindings=dict(target.parameter_bindings),
-        metadata=dict(target.metadata),
-    )
