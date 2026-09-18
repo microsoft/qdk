@@ -184,7 +184,7 @@
 }
 
 /* Answered state. The border and badge glyph carry the verdict so meaning is
-   not conveyed by color alone; missed answers stay dashed to distinguish them. */
+   not conveyed by color alone. */
 .qdk-learning-option[data-state="correct"] {
   border-color: var(--qdk-l-correct);
 }
@@ -193,17 +193,11 @@
   border-color: var(--qdk-l-incorrect);
 }
 
-.qdk-learning-option[data-state="missed"] {
-  border-color: var(--qdk-l-correct);
-  border-style: dashed;
-}
-
 .qdk-learning-option[data-state] .qdk-learning-option-badge {
   color: var(--qdk-host-background);
 }
 
-.qdk-learning-option[data-state="correct"] .qdk-learning-option-badge,
-.qdk-learning-option[data-state="missed"] .qdk-learning-option-badge {
+.qdk-learning-option[data-state="correct"] .qdk-learning-option-badge {
   border-color: var(--qdk-l-correct);
   background: var(--qdk-l-correct);
 }

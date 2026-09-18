@@ -64,6 +64,9 @@ export function renderMultipleChoice(
 
   const feedback = appendTextElement(root, "p", "qdk-learning-feedback", "");
   feedback.hidden = true;
+  // Focusable but not tab-reachable: a right answer removes the button the
+  // learner just pressed, and the verdict is where their attention goes next.
+  feedback.tabIndex = -1;
   setLiveRegion(feedback);
 
   const controls = document.createElement("div");
@@ -184,18 +187,17 @@ export function renderMultipleChoice(
       (view) => selectedIds.has(view.option.id) === view.option.correct,
     );
 
+    // Mark and explain only what the learner picked, until they get it right.
+    // Marking an option they did not pick would hand them the answer, leaving
+    // `Try again` nothing to offer.
     for (const view of optionViews) {
       const selected = selectedIds.has(view.option.id);
       view.label.dataset.selected = selected ? "true" : "false";
-      if (selected && view.option.correct) {
-        setOptionState(view, "correct");
-      } else if (selected) {
-        setOptionState(view, "incorrect");
-      } else if (view.option.correct) {
-        setOptionState(view, "missed");
+      if (selected) {
+        setOptionState(view, view.option.correct ? "correct" : "incorrect");
       }
 
-      if (view.option.explanation !== undefined) {
+      if ((selected || isCorrect) && view.option.explanation !== undefined) {
         appendRichTextElement(
           view.body,
           "span",
@@ -212,17 +214,24 @@ export function renderMultipleChoice(
       ? "Correct!"
       : incorrectMessage(selectedIds);
 
-    controls.replaceChildren(tryAgainButton);
     actionList.replaceChildren();
     actionList.hidden = true;
 
-    if (!isCorrect) {
+    // A right answer ends the question: nothing is left to retry, and the cell
+    // redraws from its saved output whenever the notebook is reopened, so the
+    // learner can always start it over. Hiding the row rather than emptying it
+    // keeps its spacing from leaving a gap.
+    if (isCorrect) {
+      controls.replaceChildren();
+      controls.hidden = true;
+    } else {
+      controls.replaceChildren(tryAgainButton);
       showWhyWrongAction(selectedIds);
     }
 
-    // Grading replaced the focused Check button, which would drop focus to the
-    // document. Move it to the control that took its place.
-    tryAgainButton.focus();
+    // Grading detached the focused Check button, which would otherwise drop
+    // focus to the document. Move it to whatever replaced it.
+    (isCorrect ? feedback : tryAgainButton).focus();
   }
 
   function resetAnswer(): void {
@@ -246,6 +255,7 @@ export function renderMultipleChoice(
     actionList.hidden = true;
     checkButton.disabled = true;
     controls.replaceChildren(checkButton);
+    controls.hidden = false;
 
     // Retrying detaches the Try again button, which is the element the learner
     // just activated, so focus would fall to the document. Send it to the first
@@ -315,22 +325,13 @@ type OptionView = {
   letter: string;
 };
 
-type OptionState = "correct" | "incorrect" | "missed";
+type OptionState = "correct" | "incorrect";
 
 function setOptionState(view: OptionView, state: OptionState): void {
   view.label.dataset.state = state;
-  view.badge.textContent =
-    state === "correct"
-      ? "\u2713"
-      : state === "incorrect"
-        ? "\u2717"
-        : "\u2022";
+  view.badge.textContent = state === "correct" ? "\u2713" : "\u2717";
   view.verdict.textContent =
-    state === "correct"
-      ? "Correct choice"
-      : state === "incorrect"
-        ? "Incorrect choice"
-        : "Missed correct choice";
+    state === "correct" ? "Correct choice" : "Incorrect choice";
 }
 
 /**

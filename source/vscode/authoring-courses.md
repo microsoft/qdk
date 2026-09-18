@@ -140,7 +140,8 @@ register_quiz(
 ```
 
 Each option is `(id, text, correct, explanation)`.
-The explanation is shown after the learner commits to a choice, so write it as the reason that option is right or wrong rather than as a hint.
+An explanation is shown for the options the learner picked, and for the rest once they answer correctly — a wrong attempt never reveals an option they didn't choose, so there is something left to try again for.
+Write each one as the reason that option is right or wrong rather than as a hint.
 A single-select question needs exactly one correct option, and ids must be unique; anything else raises when the cell runs, so mistakes surface while you're authoring.
 
 For a question with several right answers, pass `multi_select=True`:
