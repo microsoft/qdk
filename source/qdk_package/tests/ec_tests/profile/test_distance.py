@@ -320,3 +320,26 @@ def test_witness_choices_do_not_change_numeric_equality() -> None:
     assert Distance._create(1, 1, witness=first) == Distance._create(
         1, 1, witness=second
     )
+
+
+def test_gadget_profile_snapshots_shared_definitions() -> None:
+    operand = qc.instructions.BlockOperand("qubit")
+    instruction = qc.Instruction("idle", inputs=[operand], outputs=[operand])
+    physical = qc.InstructionSet(
+        "physical", blocks=[qc.instructions.Block("qubit", encodes=1)],
+        instructions=[instruction],
+    )
+    code = qc.Code("qubit", [], ["X_0"], ["Z_0"])
+    encoding = qc.gadgets.Encoding(code, support=["0"])
+    gadget = qc.Gadget(
+        instruction, qc.gadgets.Circuit(physical, "- idle: [0]", format="yaml"),
+        inputs=[encoding], outputs=[encoding],
+    )
+    profile = GadgetProfile(gadget)
+    instruction.flags.append("reject")
+    encoding.support[0] = "1"
+    code.x[0] = "Z_0"
+    physical.instructions.clear()
+
+    assert profile.distance() == 1
+    assert profile.action.is_equivalent_to(profile.objective)

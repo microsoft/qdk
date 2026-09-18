@@ -530,10 +530,12 @@ def test_a_non_z_logical_basis_omits_the_gadgets_it_cannot_support() -> None:
 
 
 def test_omissions_carry_structured_reasons() -> None:
+    from collections.abc import Mapping
+
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
 
     assert all(
-        isinstance(reason, dict)
+        isinstance(reason, Mapping)
         and set(reason) == {"stage", "kind", "message"}
         and reason["stage"] in {"completion", "verification"}
         and isinstance(reason["kind"], str)

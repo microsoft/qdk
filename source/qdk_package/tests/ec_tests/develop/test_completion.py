@@ -68,7 +68,7 @@ def test_completion_does_not_preserve_an_invalid_authored_check() -> None:
         as_qodec_code(make_steane_code(), "steane"), strategy="bare-css/v1"
     )
     gadget = protocol.layers[0].gadgets["idle"]
-    expected = gadget.checks
+    expected = tuple(gadget.checks)
     gadget.checks = [*expected, [1]]
 
     completed = complete_gadget(gadget)
