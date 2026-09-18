@@ -4,6 +4,7 @@
 mod angle_format;
 mod builder;
 mod circuit;
+mod loss;
 pub mod operations;
 
 pub use builder::{CircuitTracer, TracerConfig};
@@ -11,6 +12,7 @@ pub use circuit::{
     CURRENT_VERSION, Circuit, CircuitGroup, ComponentColumn, Operation, operation_list_to_grid,
 };
 pub use operations::Error;
+pub use rir_to_circuit::{ErrorDisplayConfig, GateErrorMode};
 pub mod circuit_to_qsharp;
 pub mod json_to_circuit;
 pub mod rir_to_circuit;

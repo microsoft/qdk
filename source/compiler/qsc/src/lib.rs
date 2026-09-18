@@ -70,7 +70,7 @@ pub use qsc_doc_gen::{display, generate_docs};
 
 pub mod circuit {
     pub use qsc_circuit::{
-        CURRENT_VERSION, Circuit, CircuitGroup, TracerConfig,
+        CURRENT_VERSION, Circuit, CircuitGroup, ErrorDisplayConfig, GateErrorMode, TracerConfig,
         circuit_to_qsharp::{circuit_to_standalone_qsharp, circuits_to_qsharp},
         json_to_circuit::json_to_circuits,
         operations::*,
