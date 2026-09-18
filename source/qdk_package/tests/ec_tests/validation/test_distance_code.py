@@ -1,9 +1,11 @@
 """Tests for stabilizer-code distance estimation."""
 
 from __future__ import annotations
-from typing import Iterable
+from typing import Iterable, Literal
+from importlib import import_module
 import operator
 from functools import reduce
+from unittest.mock import patch
 import pytest
 import qodec as qc
 from qdk.ec import CodeProfile
@@ -44,7 +46,7 @@ mwpf_cases: list[tuple[str, StabilizerCode, int]] = enumeration_cases + [
 def test_enumeration_code_distance_matches_known_value(
     name: str, code: StabilizerCode, expected: int
 ) -> None:
-    distance, witness = code_distance_of(code)
+    distance, witness = code_distance_of(code, solver="enumeration")
     assert distance == expected, name
     assert code.is_non_trivial_logical_error(product_of(witness))
     assert len(witness) == expected
@@ -66,7 +68,7 @@ def test_mwpf_upper_bound_matches_known_distance(
 def test_mwpf_agrees_with_enumeration_oracle(
     name: str, code: StabilizerCode, expected: int
 ) -> None:
-    exact, _ = code_distance_of(code)
+    exact, _ = code_distance_of(code, solver="enumeration")
     _, upper, _ = code_distance_bounds_of(code, solver=MwpfSolverOptions())
     assert upper == exact, name
     assert exact == expected, name
@@ -93,12 +95,28 @@ def test_distance_upper_bound_short_circuits_search() -> None:
 
 
 @requires_highs
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_code_profile_defaults_to_highs(method: str) -> None:
+    profile = CodeProfile(
+        qc.Code("rep3", ["Z_0 Z_1", "Z_1 Z_2"], ["X_0 X_1 X_2"], ["Z_0"])
+    )
+    with patch(
+        "qdk.ec._analysis.distance_solvers.import_module", wraps=import_module
+    ) as backend:
+        distance = getattr(profile, method)(errors="X")
+    assert distance == 3
+    assert profile.is_non_trivial_logical_error(distance.witness.product)
+    backend.assert_called_once_with("highspy")
+
+
+@requires_highs
+@pytest.mark.parametrize("solver", [None, "highs"])
 @pytest.mark.parametrize("name, code, expected", enumeration_cases)
 def test_highs_code_distance_matches_known_value(
-    name: str, code: StabilizerCode, expected: int
+    name: str, code: StabilizerCode, expected: int, solver: Literal["highs"] | None
 ) -> None:
-    distance, witness = code_distance_of(code, solver="highs")
-    lower, upper, bounded = code_distance_bounds_of(code, solver="highs")
+    distance, witness = code_distance_of(code, solver=solver)
+    lower, upper, bounded = code_distance_bounds_of(code, solver=solver)
     assert distance == lower == upper == expected, name
     assert len(witness) == len(bounded) == expected
     assert code.is_non_trivial_logical_error(product_of(witness))

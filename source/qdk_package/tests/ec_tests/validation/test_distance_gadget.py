@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from itertools import product
 from functools import reduce
+from importlib import import_module
 from operator import mul
 from unittest.mock import patch
 
@@ -16,7 +17,7 @@ from qdk.ec._analysis.distance_solvers import EnumerationSolverOptions
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.interpreter import propagate_faults
 from qdk.ec._profile import _fault_observables
-from ec_tests.testing.optional import requires_highs, requires_mwpf
+from ec_tests.testing.optional import requires_highs
 from ec_tests.testing.qodecs import c4
 
 
@@ -920,7 +921,23 @@ def test_distance_rejects_invalid_check_references(
             method(faults=[FaultEvent.after(0, Pauli("X_0"))])
 
 
-@requires_mwpf
+@requires_highs
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_gadget_profile_defaults_to_highs(rep3_qodec: qc.Qodec, method: str) -> None:
+    profile = GadgetProfile(
+        _measurement_gadget(rep3_qodec.layers[1].instruction_set, 3)
+    )
+    with patch(
+        "qdk.ec._analysis.distance_solvers.import_module", wraps=import_module
+    ) as backend:
+        distance = getattr(profile, method)()
+    assert distance == 3
+    (effect,) = profile.effects_of([distance.witness.product])
+    assert not effect.syndrome and effect.readout_flips == {0}
+    backend.assert_called_once_with("highspy")
+
+
+@requires_highs
 def test_distance_three_matches_bounds_and_cutoff(rep3_qodec: qc.Qodec) -> None:
     gadget = _measurement_gadget(rep3_qodec.layers[1].instruction_set, 3)
     faults = [FaultEvent.after(index, Pauli({index: "X"})) for index in range(3)]

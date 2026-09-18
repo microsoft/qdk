@@ -148,7 +148,7 @@ def highs_bounds(
         if exception.name != "highspy":
             raise
         raise ImportError(
-            "HiGHS is optional; install it with pip install 'qdk[ec,ec-highs]'"
+            "HiGHS is required for this solver; install it with pip install 'qdk[ec]'"
         ) from exception
     count = len(data.check_matrix)
     cap = count if upper_bound is None else min(count, upper_bound)

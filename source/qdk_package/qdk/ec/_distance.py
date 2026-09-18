@@ -24,6 +24,7 @@ from ._analysis.distance_solvers import (
     CustomExactSolver,
     ExactSolver,
     EnumerationSolverOptions,
+    HighsSolverOptions,
     MwpfSolverOptions,
 )
 from ._analysis.odd_cycles import OddCycles, cycle_labels
@@ -181,7 +182,7 @@ def code_distance_of(
     """Return the minimum allowed-error count and its list of Pauli factors."""
     data = CodeDistanceData.of(code, errors)
     size, cycle = data.odd_cycles.shortest(
-        EnumerationSolverOptions() if solver is None else solver,
+        HighsSolverOptions() if solver is None else solver,
         coset_indicator=data.parity_indicator(coset_representative),
         cycle_size_upper_bound=distance_upper_bound,
     )
@@ -201,7 +202,7 @@ def code_distance_bounds_of(
     lower, upper, cycle = data.odd_cycles.bounds(
         odd_cycle_length_upper_bound=distance_upper_bound,
         coset_indicator=data.parity_indicator(coset_representative),
-        solver=MwpfSolverOptions() if solver is None else solver,
+        solver=HighsSolverOptions() if solver is None else solver,
     )
     return lower, upper, cycle_labels(cycle, data.errors)
 

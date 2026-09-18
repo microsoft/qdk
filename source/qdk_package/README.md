@@ -310,18 +310,20 @@ be interpreted against the boundary codes. These guards are calculation
 preconditions, not a validity certificate.
 
 Both methods accept keyword-only `upper_bound` and `solver` like the code methods.
-Both accept `solver="enumeration"`, `"mwpf"`, or `"highs"`. The defaults remain
-enumeration search for `distance()` and MWPF for `distance_bounds()`.
-HiGHS is a lazily loaded, optional mixed-integer solver:
+Both accept `solver="highs"`, `"enumeration"`, or `"mwpf"`. HiGHS is the default
+for both `distance()` and `distance_bounds()` and is included in `qdk[ec]`:
 
 ```bash
-pip install 'qdk[ec,ec-highs]'
+pip install 'qdk[ec]'
 ```
 
 ```python
-distance = profile.distance(solver="highs")
-bounds = profile.distance_bounds(solver="highs")
+distance = profile.distance()
+bounds = profile.distance_bounds()
 ```
+
+MWPF remains available with `solver="mwpf"` after a separate `pip install mwpf`.
+It is not included in any QDK extra.
 
 The same selection works on `CodeProfile`. No solver classes or interfaces
 are exported. Enumeration search enumerates subsets; HiGHS minimizes fault count
