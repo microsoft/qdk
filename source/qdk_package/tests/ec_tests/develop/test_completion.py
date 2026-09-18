@@ -6,13 +6,13 @@ import qodec as qc
 import pytest
 
 from ec_tests.testing.code_catalog import make_steane_code
-from qdk.ec import audit, build_qodec, derive
+from qdk.ec import audit, build_qodec, filled
 from qdk.ec._analysis.code_algebra import as_qodec_code
-from qdk.ec._completion import complete_gadget
+from qdk.ec._fill import complete_gadget
 from qdk.ec._readouts import as_readout
 
 
-def test_complete_gadget_returns_completed_copy(idle_gadget: qc.Gadget) -> None:
+def test_filled_returns_completed_gadget_copy(idle_gadget: qc.Gadget) -> None:
     draft = qc.Gadget(
         idle_gadget.implements,
         idle_gadget.circuit,
@@ -24,7 +24,7 @@ def test_complete_gadget_returns_completed_copy(idle_gadget: qc.Gadget) -> None:
         metadata=dict(idle_gadget.metadata),
     )
 
-    completed = complete_gadget(draft)
+    completed = filled(draft)
 
     assert completed is not draft
     assert list(draft.checks) == []
@@ -77,7 +77,7 @@ def test_completion_does_not_preserve_an_invalid_authored_check() -> None:
     assert gadget.checks[-1] == (1,)
 
 
-def test_derive_restores_missing_readouts_and_output_frame_relations() -> None:
+def test_filled_restores_missing_readouts_and_output_frame_relations() -> None:
     code = qc.Code(
         "C4",
         stabilizers=["X_0 X_1 X_2 X_3", "Z_0 Z_1 Z_2 Z_3"],
@@ -91,10 +91,11 @@ def test_derive_restores_missing_readouts_and_output_frame_relations() -> None:
     layer.gadgets["transversal_cx"].checks = []
     before = protocol.dumps()
 
-    completed = derive(protocol)
+    completed = filled(protocol)
 
     assert isinstance(completed, qc.Qodec)
+    assert completed is not protocol
     report = audit(completed)
     assert not report.diagnostics, str(report)
     assert protocol.dumps() == before
-    assert derive(completed) == completed
+    assert filled(completed) == completed

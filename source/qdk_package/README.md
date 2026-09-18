@@ -126,8 +126,9 @@ allow inconsistent retained gadgets. A failed final audit raises `ValueError`.
 Audit cleanliness establishes noiseless consistency, not fault tolerance.
 The bare strategy intentionally uses no flag qubits and can lose code distance.
 Evaluate gadget distance separately before choosing an implementation.
-Re-running `ec.derive` retains verified direct readout and check equations,
-including the builder's boundary-frame relations.
+`ec.filled(artifact)` returns a new gadget or qodec with derived checks and
+readout equations, leaving the input unchanged. It retains verified direct
+readout and check equations, including the builder's boundary-frame relations.
 
 Use `qodec.gadgets.Circuit(instruction_set, source, format=...)` for circuits.
 Parsed invocations are `circuit.calls`; each call has positional `operands`

@@ -228,7 +228,7 @@ def test_physical_and_recorded_frame_faults_can_cancel() -> None:
 
 def test_completion_preserves_explicit_frames() -> None:
     gadget = _framed_preparation()
-    completed = ec.derive(gadget)
+    completed = ec.filled(gadget)
     assert isinstance(completed, qc.Gadget)
     assert completed.frames == gadget.frames
     assert ec.GadgetProfile(completed).action.is_equivalent_to(

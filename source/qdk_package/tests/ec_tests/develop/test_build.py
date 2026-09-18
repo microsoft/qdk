@@ -16,7 +16,7 @@ from ec_tests.testing.qodecs import c4
 from qdk.ec import CodeProfile, _audit, build_qodec
 from qdk.ec import _distance as distance
 from qdk.ec._analysis import channel_action as action
-from qdk.ec._completion import complete_qodec
+from qdk.ec._fill import complete_qodec
 from qdk.ec._build import _METADATA_KEY, _build as qodec_from_code
 from qdk.ec._analysis.code_algebra import as_qodec_code
 

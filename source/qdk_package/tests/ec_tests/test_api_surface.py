@@ -22,7 +22,7 @@ _SURFACE = {
     "Report",
     "audit",
     "build_qodec",
-    "derive",
+    "filled",
 }
 
 _RETIRED_MODULES = (
@@ -48,6 +48,7 @@ def test_old_names_are_not_exported() -> None:
         "action",
         "checks",
         "code",
+        "derive",
         "distance",
         "equivalence",
         "faults",
@@ -60,6 +61,8 @@ def test_old_names_are_not_exported() -> None:
     } & set(ec.__all__)
     with pytest.raises(AttributeError, match="SubsystemCode"):
         getattr(ec, "SubsystemCode")
+    with pytest.raises(AttributeError, match="derive"):
+        getattr(ec, "derive")
 
 
 @pytest.mark.parametrize("module_name", _RETIRED_MODULES)
@@ -74,7 +77,7 @@ def test_retired_module_is_not_importable(module_name: str) -> None:
 
 def test_function_signatures() -> None:
     assert (
-        str(inspect.signature(ec.derive))
+        str(inspect.signature(ec.filled))
         == "(target: 'qc.Gadget | qc.Qodec') -> 'qc.Gadget | qc.Qodec'"
     )
     assert str(inspect.signature(ec.audit)) == (
@@ -321,6 +324,6 @@ def test_gadget_profile_rejects_other_targets() -> None:
         ec.GadgetProfile(object())
 
 
-def test_derive_rejects_bare_circuit(idle_gadget) -> None:
+def test_filled_rejects_bare_circuit(idle_gadget) -> None:
     with pytest.raises(TypeError, match="Gadget or qodec.Qodec"):
-        ec.derive(idle_gadget.circuit)
+        ec.filled(idle_gadget.circuit)

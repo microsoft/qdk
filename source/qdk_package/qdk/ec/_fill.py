@@ -1,4 +1,4 @@
-"""Deterministic completion of draft qodec gadgets."""
+"""Fill in checks and readout equations for draft qodec gadgets."""
 
 from __future__ import annotations
 
@@ -129,15 +129,20 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
 
 
 @overload
-def derive(target: qc.Gadget) -> qc.Gadget: ...
+def filled(target: qc.Gadget) -> qc.Gadget: ...
 
 
 @overload
-def derive(target: qc.Qodec) -> qc.Qodec: ...
+def filled(target: qc.Qodec) -> qc.Qodec: ...
 
 
-def derive(target: qc.Gadget | qc.Qodec) -> qc.Gadget | qc.Qodec:
-    """Discover checks and readout bindings, returning a new artifact."""
+def filled(target: qc.Gadget | qc.Qodec) -> qc.Gadget | qc.Qodec:
+    """Return a new artifact with derived checks and readout bindings.
+
+    The input and all objects it references are left unchanged. Checks and
+    observable readout equations may be recomputed, including supplied
+    equations. Flag bindings are preserved, not inferred.
+    """
     if isinstance(target, qc.Gadget):
         return complete_gadget(target)
     if isinstance(target, qc.Qodec):
@@ -153,8 +158,8 @@ def _try_complete_gadget(gadget: qc.Gadget, index: int, mnemonic: str) -> qc.Gad
         return complete_gadget(gadget)
     except Exception as error:  # noqa: BLE001 - preserve the original as the cause
         raise RuntimeError(
-            f"failed to derive layer {index} gadget {mnemonic!r}"
+            f"failed to fill layer {index} gadget {mnemonic!r}"
         ) from error
 
 
-__all__ = ["derive"]
+__all__ = ["filled"]
