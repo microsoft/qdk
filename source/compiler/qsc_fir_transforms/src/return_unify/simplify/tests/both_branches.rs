@@ -31,6 +31,7 @@ use indoc::indoc;
 
 use crate::return_unify::simplify::both_branches;
 use crate::return_unify::tests::check_simplify_rule_q;
+use qsc_fir::fir::PackageSpan;
 
 #[test]
 fn simple_both_branches_collapses_to_if_else() {
@@ -369,7 +370,7 @@ fn qubit_typed_rhs_refuses_to_collapse() {
         alloc_assign_expr, alloc_block, alloc_block_expr, alloc_bool_lit, alloc_expr,
         alloc_expr_stmt, alloc_if_expr, alloc_semi_stmt,
     };
-    use qsc_data_structures::span::Span;
+
     use qsc_fir::{
         assigner::Assigner,
         fir::{ExprKind, LocalVarId, Package, Res},
@@ -396,7 +397,7 @@ fn qubit_typed_rhs_refuses_to_collapse() {
             asn,
             ty,
             ExprKind::Var(Res::Local(id), Vec::new()),
-            Span::default(),
+            PackageSpan::default(),
         )
     };
 
@@ -411,43 +412,43 @@ fn qubit_typed_rhs_refuses_to_collapse() {
             asn,
             return_ty.clone(),
             ExprKind::Var(Res::Local(slot_local), Vec::new()),
-            Span::default(),
+            PackageSpan::default(),
         );
         let slot_rhs = alloc_expr(
             pkg,
             asn,
             return_ty.clone(),
             ExprKind::Var(Res::Local(qubit_local), Vec::new()),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let slot_assign = alloc_assign_expr(pkg, asn, slot_lhs, slot_rhs, Span::default());
-        let slot_stmt = alloc_semi_stmt(pkg, asn, slot_assign, Span::default());
+        let slot_assign = alloc_assign_expr(pkg, asn, slot_lhs, slot_rhs, PackageSpan::default());
+        let slot_stmt = alloc_semi_stmt(pkg, asn, slot_assign, PackageSpan::default());
 
         let flag_lhs = alloc_expr(
             pkg,
             asn,
             bool_ty.clone(),
             ExprKind::Var(Res::Local(flag_local), Vec::new()),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let flag_rhs = alloc_bool_lit(pkg, asn, true, Span::default());
-        let flag_assign = alloc_assign_expr(pkg, asn, flag_lhs, flag_rhs, Span::default());
-        let flag_stmt = alloc_semi_stmt(pkg, asn, flag_assign, Span::default());
+        let flag_rhs = alloc_bool_lit(pkg, asn, true, PackageSpan::default());
+        let flag_assign = alloc_assign_expr(pkg, asn, flag_lhs, flag_rhs, PackageSpan::default());
+        let flag_stmt = alloc_semi_stmt(pkg, asn, flag_assign, PackageSpan::default());
 
         let arm_bid = alloc_block(
             pkg,
             asn,
             vec![slot_stmt, flag_stmt],
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
-        alloc_block_expr(pkg, asn, arm_bid, Ty::UNIT, Span::default())
+        alloc_block_expr(pkg, asn, arm_bid, Ty::UNIT, PackageSpan::default())
     };
 
     let then_arm = mk_arm(&mut package, &mut assigner);
     let else_arm = mk_arm(&mut package, &mut assigner);
 
-    let cond = alloc_bool_lit(&mut package, &mut assigner, true, Span::default());
+    let cond = alloc_bool_lit(&mut package, &mut assigner, true, PackageSpan::default());
     let outer_if = alloc_if_expr(
         &mut package,
         &mut assigner,
@@ -455,45 +456,58 @@ fn qubit_typed_rhs_refuses_to_collapse() {
         then_arm,
         Some(else_arm),
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let guard_set_stmt = alloc_semi_stmt(&mut package, &mut assigner, outer_if, Span::default());
+    let guard_set_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        outer_if,
+        PackageSpan::default(),
+    );
 
     // Build the merge `if __has_returned { __ret_val } else { __ret_val }`.
     let merge_cond = make_var(&mut package, &mut assigner, flag_local, bool_ty.clone());
     let then_slot_var = make_var(&mut package, &mut assigner, slot_local, return_ty.clone());
-    let then_slot_stmt =
-        alloc_expr_stmt(&mut package, &mut assigner, then_slot_var, Span::default());
+    let then_slot_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        then_slot_var,
+        PackageSpan::default(),
+    );
     let then_blk = alloc_block(
         &mut package,
         &mut assigner,
         vec![then_slot_stmt],
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_blk_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         then_blk,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_slot_var = make_var(&mut package, &mut assigner, slot_local, return_ty.clone());
-    let else_blk_stmt =
-        alloc_expr_stmt(&mut package, &mut assigner, else_slot_var, Span::default());
+    let else_blk_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        else_slot_var,
+        PackageSpan::default(),
+    );
     let else_blk = alloc_block(
         &mut package,
         &mut assigner,
         vec![else_blk_stmt],
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_blk_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         else_blk,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge_if = alloc_if_expr(
         &mut package,
@@ -502,16 +516,21 @@ fn qubit_typed_rhs_refuses_to_collapse() {
         then_blk_expr,
         Some(else_blk_expr),
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let merge_stmt = alloc_expr_stmt(&mut package, &mut assigner, merge_if, Span::default());
+    let merge_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        merge_if,
+        PackageSpan::default(),
+    );
 
     let outer_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![guard_set_stmt, merge_stmt],
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     // Snapshot the block contents before applying the rule.

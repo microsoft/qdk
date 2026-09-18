@@ -11,6 +11,7 @@ from qdk.applications.magnets import (
     Hypergraph,
     HypergraphEdgeColoring,
     Patch2D,
+    SecondNearestNeighborPatch2D,
     Torus2D,
 )
 
@@ -143,6 +144,54 @@ def test_patch2d_str():
     """Test string representation."""
     patch = Patch2D(3, 2)
     assert str(patch) == "3x2 lattice patch with 6 vertices and 7 edges"
+
+
+# SecondNearestNeighborPatch2D tests
+
+
+def test_second_nearest_neighbor_patch2d_edges_and_marks():
+    """Test orthogonal and diagonal edges and their marks."""
+    patch = SecondNearestNeighborPatch2D(2, 2)
+    edge_marks = {edge.vertices: edge.mark for edge in patch.edges()}
+    assert edge_marks == {
+        (0, 1): 0,
+        (0, 2): 0,
+        (1, 3): 0,
+        (2, 3): 0,
+        (0, 3): 1,
+        (1, 2): 1,
+    }
+
+
+def test_second_nearest_neighbor_patch2d_edge_count():
+    """Test that every cell contributes two diagonal edges."""
+    patch = SecondNearestNeighborPatch2D(4, 3)
+    assert patch.nvertices == 12
+    assert patch.nedges == 29
+    assert patch.width == 4
+    assert patch.height == 3
+
+
+def test_second_nearest_neighbor_patch2d_with_self_loops():
+    """Test that optional self-loops remain unmarked."""
+    patch = SecondNearestNeighborPatch2D(2, 2, self_loops=True)
+    self_loops = {
+        edge.vertices: edge.mark for edge in patch.edges() if len(edge.vertices) == 1
+    }
+    assert self_loops == {(0,): None, (1,): None, (2,): None, (3,): None}
+    assert patch.nedges == 10
+
+
+def test_second_nearest_neighbor_patch2d_coloring_is_valid():
+    """Test that same-color orthogonal and diagonal edges do not overlap."""
+    patch = SecondNearestNeighborPatch2D(5, 4)
+    coloring = patch.edge_coloring()
+    assert coloring.ncolors == 8
+    for color in coloring.colors():
+        used_vertices = set()
+        for edge in coloring.edges_of_color(color):
+            assert used_vertices.isdisjoint(edge.vertices)
+            used_vertices.update(edge.vertices)
 
 
 # Torus2D tests

@@ -983,6 +983,23 @@ impl EstimationCollection {
         self.0.errors().to_vec()
     }
 
+    #[getter]
+    pub fn maximum_error_exceeded(&self) -> usize {
+        self.0.maximum_error_exceeded()
+    }
+
+    #[getter]
+    pub fn minimum_error_for_success(&self) -> Option<f64> {
+        self.0.minimum_error_for_success()
+    }
+
+    #[getter]
+    pub fn missing_instruction_ids(&self) -> Vec<u64> {
+        let mut ids: Vec<_> = self.0.missing_instruction_ids().iter().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
     /// Returns lightweight summaries of ALL successful estimates as a list
     /// of (trace index, isa index, qubits, runtime) tuples.
     #[getter]

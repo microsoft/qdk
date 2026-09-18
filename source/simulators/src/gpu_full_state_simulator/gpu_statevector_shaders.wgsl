@@ -184,6 +184,7 @@ const OP_RECORD_OUTPUT: u32 = 0x14;
 const OP_READ_LOSS:     u32 = 0x15;
 const OP_PEEK_LOSS:     u32 = 0x16;
 const OP_READOUT_NOISE: u32 = 0x17;
+const OP_WRITE_RESULT:  u32 = 0x18;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -2172,7 +2173,7 @@ fn is_rotation_gate(id: u32) -> bool {
 fn is_dynamic_angle(shot_idx: u32) -> bool {
     let state = shots[shot_idx].interp;
     let instr = fetch_instr(state.pc - 1);
-    return (instr.opcode | FLAG_SRC0_IMM) != 0;
+    return (instr.opcode & FLAG_SRC0_IMM) == 0u;
 }
 
 // Commit a sampled qubit loss on an explicitly given qubit (measure + reset to
@@ -2788,7 +2789,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
                 let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
                 if return_reg != VOID_RETURN {
-                    write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
+                    write_reg(shot_idx, return_reg, resolve_u32(shot_idx, instr.src0, flags, 0u));
                 }
             }
 
@@ -2866,9 +2867,17 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // register, allowing classical code to branch on measurement
             // outcomes.
             case OP_READ_RESULT {
-                let result_id = instr.src0;
+                let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let result_val = read_measurement_result(shot_idx, result_id);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, result_val));
+                pc++;
+            }
+
+            // WRITE_RESULT: Writes a boolean value to the result with the given `result_id`.
+            case OP_WRITE_RESULT {
+                let value = resolve_u32(shot_idx, instr.src0, flags, 0u); // value is i1, so it can only be 0 or 1
+                let result_id = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                atomicStore(&results[shot_idx * RESULT_COUNT + result_id], value);
                 pc++;
             }
 
@@ -2882,7 +2891,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // structural and reconstructed by the host, so they remain no-ops.
             case OP_RECORD_OUTPUT {
                 if instr.aux1 == 0u {
-                    let result_id = instr.src0;
+                    let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                     let rec_val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                     atomicStore(&results[output_record_base(shot_idx) + instr.aux2], rec_val);
                 } else if instr.aux1 >= 3u {
@@ -2898,7 +2907,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // so we compare against 2u and write 1u when the result was a loss,
             // else 0u.
             case OP_READ_LOSS {
-                let result_id = instr.src0;
+                let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
                 pc++;

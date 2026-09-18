@@ -109,14 +109,19 @@ fn check_trace(file: &str, expr: &str, exec_graph_config: ExecGraphConfig, expec
     let mut core = compile::core();
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("A.qs".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -129,9 +134,13 @@ fn check_trace(file: &str, expr: &str, exec_graph_config: ExecGraphConfig, expec
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(

@@ -71,7 +71,9 @@ fn nested_for_over_qubit_slice_succeeds() {
           br i1 %var_6, label %block_7, label %block_8
         block_7:
           %var_22 = load i64, ptr %var_5
-          %var_7 = getelementptr ptr, ptr @array0, i64 %var_22
+          %var_7_offset_chk = icmp slt i64 %var_22, 0
+          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
+          %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_22
           %var_23 = load ptr, ptr %var_7
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_23)
           %var_11 = add i64 %var_22, 1
@@ -106,6 +108,7 @@ fn nested_for_over_qubit_slice_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -188,7 +191,9 @@ fn constant_folding_pattern_succeeds() {
           br i1 %var_6, label %block_7, label %block_8
         block_7:
           %var_22 = load i64, ptr %var_5
-          %var_7 = getelementptr ptr, ptr @array0, i64 %var_22
+          %var_7_offset_chk = icmp slt i64 %var_22, 0
+          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
+          %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_22
           %var_23 = load ptr, ptr %var_7
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_23)
           %var_11 = add i64 %var_22, 1
@@ -227,6 +232,7 @@ fn constant_folding_pattern_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -318,7 +324,9 @@ fn three_qubit_repetition_code_pattern_succeeds() {
           br i1 %var_6, label %block_7, label %block_8
         block_7:
           %var_34 = load i64, ptr %var_5
-          %var_7 = getelementptr ptr, ptr @array0, i64 %var_34
+          %var_7_offset_chk = icmp slt i64 %var_34, 0
+          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
+          %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_34
           %var_35 = load ptr, ptr %var_7
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_35)
           %var_11 = add i64 %var_34, 1
@@ -333,7 +341,9 @@ fn three_qubit_repetition_code_pattern_succeeds() {
           br i1 %var_13, label %block_10, label %block_11
         block_10:
           %var_31 = load i64, ptr %var_12
-          %var_14 = getelementptr ptr, ptr @array1, i64 %var_31
+          %var_14_offset_chk = icmp slt i64 %var_31, 0
+          %var_14_offset = select i1 %var_14_offset_chk, i64 1, i64 0
+          %var_14 = getelementptr [3 x ptr], ptr @array1, i64 %var_14_offset, i64 %var_31
           %var_32 = load ptr, ptr %var_14
           call void @Rx(double 6.2831853, ptr %var_32)
           %var_18 = add i64 %var_31, 1
@@ -380,6 +390,7 @@ fn three_qubit_repetition_code_pattern_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -443,7 +454,9 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
           br i1 %var_4, label %block_5, label %block_6
         block_5:
           %var_16 = load i64, ptr %var_3
-          %var_5 = getelementptr ptr, ptr @array0, i64 %var_16
+          %var_5_offset_chk = icmp slt i64 %var_16, 0
+          %var_5_offset = select i1 %var_5_offset_chk, i64 1, i64 0
+          %var_5 = getelementptr [2 x ptr], ptr @array0, i64 %var_5_offset, i64 %var_16
           %var_17 = load ptr, ptr %var_5
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_17)
           %var_9 = add i64 %var_16, 1
@@ -468,12 +481,13 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -541,7 +555,9 @@ fn result_array_dynamic_index_succeeds() {
           br label %block_2
         block_4:
           %var_18 = load i64, ptr %var_3
-          %var_6 = getelementptr ptr, ptr @array0, i64 %var_18
+          %var_6_offset_chk = icmp slt i64 %var_18, 0
+          %var_6_offset = select i1 %var_6_offset_chk, i64 1, i64 0
+          %var_6 = getelementptr [4 x ptr], ptr @array0, i64 %var_6_offset, i64 %var_18
           %var_19 = load ptr, ptr %var_6
           %var_7 = call i1 @__quantum__rt__read_result(ptr %var_19)
           br i1 %var_7, label %block_6, label %block_7
@@ -565,12 +581,13 @@ fn result_array_dynamic_index_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -642,7 +659,9 @@ fn result_array_while_loop_dynamic_index_succeeds() {
           br i1 %var_4, label %block_2, label %block_3
         block_2:
           %var_14 = load i64, ptr %var_3
-          %var_5 = getelementptr ptr, ptr @array0, i64 %var_14
+          %var_5_offset_chk = icmp slt i64 %var_14, 0
+          %var_5_offset = select i1 %var_5_offset_chk, i64 1, i64 0
+          %var_5 = getelementptr [4 x ptr], ptr @array0, i64 %var_5_offset, i64 %var_14
           %var_15 = load ptr, ptr %var_5
           %var_6 = call i1 @__quantum__rt__read_result(ptr %var_15)
           br i1 %var_6, label %block_4, label %block_5
@@ -674,12 +693,13 @@ fn result_array_while_loop_dynamic_index_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -751,7 +771,7 @@ fn mutable_result_variable_succeeds() {
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         define internal void @X(ptr %var_4) {
         block_4:
@@ -765,6 +785,7 @@ fn mutable_result_variable_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -835,7 +856,7 @@ fn result_variables_with_default_values_succeeds() {
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         define internal void @Reset(ptr %var_5) {
         block_3:
@@ -853,6 +874,7 @@ fn result_variables_with_default_values_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -905,7 +927,9 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
           br i1 %var_2, label %block_2, label %block_3
         block_2:
           %var_20 = load i64, ptr %var_1
-          %var_3 = getelementptr ptr, ptr @array0, i64 %var_20
+          %var_3_offset_chk = icmp slt i64 %var_20, 0
+          %var_3_offset = select i1 %var_3_offset_chk, i64 1, i64 0
+          %var_3 = getelementptr [4 x ptr], ptr @array0, i64 %var_3_offset, i64 %var_20
           %var_21 = load ptr, ptr %var_3
           call void @H(ptr %var_21)
           %var_6 = add i64 %var_20, 1
@@ -921,7 +945,9 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
           br i1 %var_8, label %block_5, label %block_6
         block_5:
           %var_17 = load i64, ptr %var_7
-          %var_9 = getelementptr ptr, ptr @array1, i64 %var_17
+          %var_9_offset_chk = icmp slt i64 %var_17, 0
+          %var_9_offset = select i1 %var_9_offset_chk, i64 1, i64 0
+          %var_9 = getelementptr [3 x ptr], ptr @array1, i64 %var_9_offset, i64 %var_17
           %var_18 = load ptr, ptr %var_9
           call void @Reset(ptr %var_18)
           %var_12 = add i64 %var_17, 1
@@ -956,6 +982,7 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1035,6 +1062,7 @@ fn measure_each_z_static_qubits_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1114,12 +1142,13 @@ fn static_while_inside_emit_while_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1213,6 +1242,7 @@ fn nested_emit_while_loops_succeeds() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1270,7 +1300,9 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
           br i1 %var_4, label %block_2, label %block_3
         block_2:
           %var_16 = load i64, ptr %var_3
-          %var_5 = getelementptr ptr, ptr @array0, i64 %var_16
+          %var_5_offset_chk = icmp slt i64 %var_16, 0
+          %var_5_offset = select i1 %var_5_offset_chk, i64 1, i64 0
+          %var_5 = getelementptr [3 x ptr], ptr @array0, i64 %var_5_offset, i64 %var_16
           %var_17 = load ptr, ptr %var_5
           call void @H(ptr %var_17)
           call void @__quantum__qis__mresetz__body(ptr %var_17, ptr inttoptr (i64 0 to ptr))
@@ -1304,12 +1336,13 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__bool_record_output(i1, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1435,6 +1468,7 @@ fn simple_void_operation_emits_ir_function() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1516,6 +1550,7 @@ fn two_call_sites_share_one_ir_function() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1607,6 +1642,7 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1709,6 +1745,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1787,6 +1824,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1877,6 +1915,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -1985,6 +2024,7 @@ fn tuple_of_scalars_parameter_flattens_to_ir_function() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -2108,6 +2148,7 @@ fn recursive_operation_emits_to_ir_function() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -2236,12 +2277,13 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -2317,12 +2359,13 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -2553,6 +2596,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -2643,6 +2687,7 @@ fn cross_package_library_callable_emits_standalone_define() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 

@@ -133,6 +133,103 @@ fn qubit_params() {
 }
 
 #[test]
+fn input_sizes_apply_to_flattened_array_dimensions() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions(inputSizes=[1, 2, 3, 4, 5])
+            operation Test(q: Qubit, q1: Qubit[][], q2: Qubit[], q3: Qubit[][]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
+        .expect("expression expected");
+
+    expect![[r#"
+        {
+                    use qs = Qubit[26];
+                    (Test.Test)(qs[0], [qs[1..2]], qs[3..5], [qs[6..10], qs[11..15], qs[16..20], qs[21..25]]);
+                    let r: Result[] = [];
+                    r
+                }"#]]
+    .assert_eq(&expr);
+}
+
+#[test]
+fn extra_input_sizes_are_ignored() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions(inputSizes=[3, 4, 9])
+            operation Test(q1: Qubit[], q2: Qubit[]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
+        .expect("expression expected");
+
+    expect![[r"
+        {
+                    use qs = Qubit[7];
+                    (Test.Test)(qs[0..2], qs[3..6]);
+                    let r: Result[] = [];
+                    r
+                }"]]
+    .assert_eq(&expr);
+}
+
+#[test]
+fn missing_input_sizes_use_default() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions(inputSizes=[3])
+            operation Test(q1: Qubit[][], q2: Qubit[]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
+        .expect("expression expected");
+
+    expect![[r"
+        {
+                    use qs = Qubit[8];
+                    (Test.Test)([qs[0..1], qs[2..3], qs[4..5]], qs[6..7]);
+                    let r: Result[] = [];
+                    r
+                }"]]
+    .assert_eq(&expr);
+}
+
+#[test]
+fn excessive_input_sizes_are_rejected() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions(inputSizes=[101, 100])
+            operation Test(qs: Qubit[][]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation);
+
+    expect![[r#"
+        Err(
+            TooManyQubits,
+        )
+    "#]]
+    .assert_debug_eq(&expr);
+}
+
+#[test]
 fn qubit_array_parameters_allocate_flat_register_slices() {
     let (item, operation) = compile_one_operation(
         r"

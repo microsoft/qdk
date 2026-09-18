@@ -3,8 +3,8 @@
 
 use log::trace;
 use qsc::{
-    CompileUnit, LanguageFeatures, PackageStore, PackageType, PassContext, SourceMap, Span, ast,
-    compile,
+    CompileUnit, LanguageFeatures, PackageStore, PackageType, PassContext, PassError, SourceMap,
+    Span, ast, compile,
     display::Lookup,
     error::WithSource,
     hir::{self, PackageId, Res},
@@ -445,7 +445,16 @@ fn run_fir_passes(
         PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, target_profile.into());
     if let Err(caps_errors) = caps_results {
         for err in caps_errors {
-            let err = WithSource::from_map(&unit.sources, compile::ErrorKind::Pass(err));
+            let sources = if let PassError::CapabilitiesCk(err) = &err {
+                let err_package = err.span().package;
+                &package_store
+                    .get((Into::<usize>::into(err_package)).into())
+                    .expect("package for error should exist in store")
+                    .sources
+            } else {
+                &unit.sources
+            };
+            let err = WithSource::from_map(sources, compile::ErrorKind::Pass(err));
             errors.push(err);
         }
     }

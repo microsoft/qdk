@@ -11,7 +11,7 @@
 <g id="clust1" class="cluster">
 <title>cluster_orbitals</title>
 <path fill="#e8eaf6" stroke="#5c6bc0" stroke-width="2.5" d="M20,-8C20,-8 753.6,-8 753.6,-8 759.6,-8 765.6,-14 765.6,-20 765.6,-20 765.6,-122 765.6,-122 765.6,-128 759.6,-134 753.6,-134 753.6,-134 20,-134 20,-134 14,-134 8,-128 8,-122 8,-122 8,-20 8,-20 8,-14 14,-8 20,-8"/>
-<text xml:space="preserve" text-anchor="middle" x="386.8" y="-116.7" font-family="Arial Bold" font-size="14.00" fill="#3949ab">Spatial molecular orbitals</text>
+<text xml:space="preserve" text-anchor="middle" x="386.8" y="-116.7" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Spatial molecular orbitals</text>
 </g>
 <!-- Inactive -->
 <g id="node1" class="node">

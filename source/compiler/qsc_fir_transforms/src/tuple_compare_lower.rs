@@ -45,6 +45,7 @@ use crate::walk_utils::{
     collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
 };
 use qsc_fir::assigner::Assigner;
+use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{
     BinOp, ExprId, ExprKind, Package, PackageId, PackageLookup, PackageStore, StoreItemId,
 };
@@ -220,7 +221,7 @@ fn extract_or_field(
     assigner: &mut Assigner,
     tuple_expr_id: ExprId,
     elem_tys: &[Ty],
-    span: qsc_data_structures::span::Span,
+    span: PackageSpan,
 ) -> Vec<ExprId> {
     let expr = package.get_expr(tuple_expr_id);
     if let ExprKind::Tuple(es) = &expr.kind {
@@ -249,7 +250,7 @@ fn fold_left(
     assigner: &mut Assigner,
     exprs: &[ExprId],
     joiner: BinOp,
-    span: qsc_data_structures::span::Span,
+    span: PackageSpan,
 ) -> ExprId {
     assert!(!exprs.is_empty(), "fold_left requires at least one expr");
     let mut acc = exprs[0];

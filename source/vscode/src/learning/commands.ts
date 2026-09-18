@@ -75,7 +75,9 @@ export function registerLearningCommands(
         }
 
         await service.resetExercise();
-        await openCourseNotebook(service);
+        // The whole unit was reset, so the learner's old position no longer
+        // means anything — start them at the top of the fresh notebook.
+        await openCourseNotebook(service, { reveal: "top" });
         vscode.window.showInformationMessage("Unit has been reset.");
       },
     ),
@@ -156,9 +158,11 @@ export function registerLearningCommands(
         await service.switchCourse(courseId, "tree");
 
         // python-notebook courses don't use the lesson panel — open the
-        // notebook directly and pick up where the learner left off.
+        // notebook directly. Switching lands on a unit rather than a specific
+        // activity, so start at the top of the notebook: the first activity is
+        // a code cell, which would otherwise skip the unit's introduction.
         if (isNotebookCourse(service.getActiveCourseInfo())) {
-          await openCourseNotebook(service);
+          await openCourseNotebook(service, { reveal: "top" });
           return;
         }
 
@@ -321,15 +325,6 @@ async function openCourseNotebook(
     revealNotebookTop(notebookUri);
   } else if (cellId) {
     revealNotebookCell(notebookUri, cellId);
-  }
-
-  // The notebook may appear dirty immediately after opening (e.g. cell
-  // language adjustments). Save so the user starts with a clean state.
-  const doc = vscode.workspace.notebookDocuments.find(
-    (n) => n.uri.toString() === notebookUri.toString(),
-  );
-  if (doc?.isDirty) {
-    await doc.save();
   }
 }
 

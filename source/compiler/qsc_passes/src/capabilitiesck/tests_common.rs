@@ -70,7 +70,7 @@ fn lower_hir_package_store(
 ) -> PackageStore {
     let mut fir_store = PackageStore::new();
     for (id, unit) in hir_package_store {
-        let pkg = lowerer.lower_package(&unit.package, &fir_store);
+        let pkg = lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id));
         fir_store.insert(map_hir_package_to_fir(id), pkg);
     }
     fir_store

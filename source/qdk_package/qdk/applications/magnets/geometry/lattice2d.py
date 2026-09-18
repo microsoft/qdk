@@ -99,6 +99,65 @@ class Patch2D(Hypergraph):
         return coloring
 
 
+class SecondNearestNeighborPatch2D(Patch2D):
+    """An open rectangular lattice with orthogonal and diagonal edges.
+
+    Orthogonal nearest-neighbor edges have mark 0. Diagonal second-nearest-
+    neighbor edges have mark 1. Vertices use the same row-major indexing as
+    :class:`Patch2D`.
+    """
+
+    def __init__(self, width: int, height: int, self_loops: bool = False) -> None:
+        """Initialize a 2D patch with first- and second-neighbor edges.
+
+        Args:
+            width: Number of vertices in the horizontal direction.
+            height: Number of vertices in the vertical direction.
+            self_loops: If True, include unmarked self-loop edges on each
+                vertex for single-site terms.
+        """
+        super().__init__(width, height, self_loops)
+
+        for edge in self.edges():
+            if len(edge.vertices) == 2:
+                edge.mark = 0
+
+        for y in range(height - 1):
+            for x in range(width - 1):
+                downward = Hyperedge([self._index(x, y), self._index(x + 1, y + 1)])
+                downward.mark = 1
+                self.add_edge(downward)
+
+                upward = Hyperedge([self._index(x + 1, y), self._index(x, y + 1)])
+                upward.mark = 1
+                self.add_edge(upward)
+
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
+        """Color orthogonal and diagonal edges by direction and parity."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+                continue
+
+            u, v = edge.vertices
+            x_u, y_u = u % self.width, u // self.width
+            x_v, y_v = v % self.width, v // self.width
+
+            if y_u == y_v:
+                color = min(x_u, x_v) % 2
+            elif x_u == x_v:
+                color = 2 + min(y_u, y_v) % 2
+            elif x_u < x_v:
+                color = 4 + x_u % 2
+            else:
+                color = 6 + x_v % 2
+            coloring.add_edge(edge, color)
+        return coloring
+
+
 class Torus2D(Hypergraph):
     """A two-dimensional toroidal (periodic) lattice.
 

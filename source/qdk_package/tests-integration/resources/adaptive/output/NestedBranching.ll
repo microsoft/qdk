@@ -131,7 +131,9 @@ block_24:
   br label %block_29
 block_25:
   %var_132 = load i64, ptr %var_37
-  %var_39 = getelementptr ptr, ptr @array0, i64 %var_132
+  %var_39_offset_chk = icmp slt i64 %var_132, 0
+  %var_39_offset = select i1 %var_39_offset_chk, i64 1, i64 0
+  %var_39 = getelementptr [3 x ptr], ptr @array0, i64 %var_39_offset, i64 %var_132
   %var_133 = load ptr, ptr %var_39
   call void @Reset(ptr %var_133)
   %var_42 = add i64 %var_132, 1
@@ -167,7 +169,9 @@ block_33:
   br label %block_38
 block_34:
   %var_123 = load i64, ptr %var_45
-  %var_47 = getelementptr ptr, ptr @array1, i64 %var_123
+  %var_47_offset_chk = icmp slt i64 %var_123, 0
+  %var_47_offset = select i1 %var_47_offset_chk, i64 1, i64 0
+  %var_47 = getelementptr [4 x ptr], ptr @array1, i64 %var_47_offset, i64 %var_123
   %var_124 = load ptr, ptr %var_47
   store ptr %var_124, ptr %var_48
   %var_126 = load i64, ptr %var_44
@@ -307,7 +311,9 @@ block_70:
   br i1 %var_87, label %block_76, label %block_77
 block_71:
   %var_118 = load i64, ptr %var_92
-  %var_94 = getelementptr ptr, ptr @array1, i64 %var_118
+  %var_94_offset_chk = icmp slt i64 %var_118, 0
+  %var_94_offset = select i1 %var_94_offset_chk, i64 1, i64 0
+  %var_94 = getelementptr [4 x ptr], ptr @array1, i64 %var_94_offset, i64 %var_118
   %var_119 = load ptr, ptr %var_94
   call void @Reset(ptr %var_119)
   %var_96 = add i64 %var_118, 1
@@ -408,7 +414,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_41) {
 block_95:
@@ -448,6 +454,7 @@ declare void @__quantum__rt__bool_record_output(i1, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="8" "required_num_results"="8" }
 attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 

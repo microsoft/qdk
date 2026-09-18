@@ -1441,7 +1441,33 @@ pub enum Attr {
     NoiseIntrinsic,
     /// Indicates that a callable is a test case.
     Test,
+    /// Provides options for rendering a callable in circuit diagrams.
+    CircuitRenderingOptions(CircuitRenderingOptions),
 }
+
+/// Options for rendering a callable in circuit diagrams.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CircuitRenderingOptions {
+    /// Whether the callable's group box should be hidden.
+    pub hide_box: bool,
+    /// Lengths of qubit-array input parameters, in declaration order.
+    pub input_sizes: Option<Vec<u32>>,
+}
+
+const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
+
+The argument is a comma-separated list of `key=value` expressions. Keys are case-insensitive.
+
+Supported options:
+
+- `hideBox` (`true` or `false`): If `true`, the operation's group box is omitted and its
+    contents are rendered directly in the containing scope.
+- `inputSizes` (array of positive integers): Specifies the lengths of qubit-array arguments 
+   (`Qubit[]`, `Qubit[][]`, etc.) used to render the operation. Values apply to inputs in 
+   declaration order and to each input's dimensions from outermost to innermost. Missing values
+    default to 2, and extra values are ignored.
+
+Example: `@CircuitRenderingOptions(hideBox=true,inputSizes=[3,4])`."#;
 
 impl Attr {
     /// Gets the string description of the attribute.
@@ -1454,6 +1480,7 @@ Valid arguments are `Base`, `Adaptive`, `IntegerComputations`, `FloatingPointCom
 
 The `not` operator is also supported to negate the attribute, e.g. `not Adaptive`.",
             Attr::EntryPoint => "Indicates that the callable is the entry point to a program.",
+            Attr::CircuitRenderingOptions(_) => CIRCUIT_RENDERING_OPTIONS_DESCRIPTION,
             Attr::Unimplemented => "Indicates that an item is not yet implemented.",
             Attr::SimulatableIntrinsic => "Indicates that an item should be treated as an intrinsic callable for QIR code generation and any implementation should only be used during simulation.",
             Attr::Measurement => "Indicates that an intrinsic callable is a measurement. This means that the operation will be marked as \"irreversible\" in the generated QIR, and output Result types will be moved to the arguments.",
@@ -1471,6 +1498,9 @@ impl FromStr for Attr {
         match s {
             "Config" => Ok(Self::Config),
             "EntryPoint" => Ok(Self::EntryPoint),
+            "CircuitRenderingOptions" => Ok(Self::CircuitRenderingOptions(
+                CircuitRenderingOptions::default(),
+            )),
             "Unimplemented" => Ok(Self::Unimplemented),
             "SimulatableIntrinsic" => Ok(Self::SimulatableIntrinsic),
             "Measurement" => Ok(Self::Measurement),

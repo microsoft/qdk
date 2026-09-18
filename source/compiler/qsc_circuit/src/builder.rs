@@ -7,8 +7,8 @@ pub(crate) mod tests;
 use crate::{
     angle_format::format_angle,
     circuit::{
-        Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit, Register,
-        SourceLocation, Unitary, operation_list_to_grid,
+        Circuit, ComponentColumn, ControlRegister, Ket, Measurement, Metadata, Operation, Qubit,
+        Register, SourceLocation, Unitary, operation_list_to_grid,
     },
     operations::QubitParam,
 };
@@ -86,7 +86,11 @@ impl Tracer for CircuitTracer {
             self.wire_map_builder.current(),
             name,
             is_adjoint,
-            &GateInputs { targets, controls },
+            &GateInputs {
+                targets,
+                controls,
+                classical_controls: &[],
+            },
             display_args,
             called_at,
         );
@@ -145,6 +149,7 @@ impl Tracer for CircuitTracer {
             &GateInputs {
                 targets: &qubit_args,
                 controls: &[],
+                classical_controls: &[],
             },
             if classical_args.is_empty() {
                 vec![]
@@ -553,6 +558,17 @@ fn collapse_unnecessary_scopes(
     *operations = ops;
 }
 
+/// Checks whether callable has user-specified attribute to hide box when rendering.
+fn annotated_with_hide_box(callable: &fir::CallableDecl) -> bool {
+    callable.attrs.iter().any(|attr| {
+        matches!(
+            attr,
+            fir::Attr::CircuitRenderingOptions(options)
+                if options.hide_box
+        )
+    })
+}
+
 /// If the given operation or group is an outer scope that can be collapsed,
 /// returns its children operations or groups.
 fn collapse_if_unnecessary(
@@ -591,15 +607,23 @@ fn collapse_if_unnecessary(
                 all_children.extend(take(children));
             }
             return Some(all_children);
-        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
-            && children.len() == 1
-            && source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
-                .name
-                .starts_with(".lambda")
-        {
-            // remove the lambda scope
-            return Some(take(children));
+        } else if let Scope::Callable(callable_id) = scope_stack.current_lexical_scope() {
+            if children.len() == 1
+                && source_lookup
+                    .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
+                    .name
+                    .starts_with(".lambda")
+            {
+                // remove the lambda scope
+                return Some(take(children));
+            }
+
+            // Inline group if operation is annotated with hideBox=true in Q#.
+            if let Some(callable_decl) = source_lookup.resolve_callable(callable_id)
+                && annotated_with_hide_box(callable_decl)
+            {
+                return Some(take(children));
+            }
         }
     }
     None
@@ -626,6 +650,8 @@ pub trait SourceLookup {
     /// Circuit rendering uses this to collapse bookkeeping-only callable
     /// scopes so they do not appear as separate groups in the final diagram.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
+    /// Resolves scope to FIR callable declaration.
+    fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl>;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -674,7 +700,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     is_classically_controlled: false,
                 }
             }
-            Scope::Callable(CallableId::Source(package_offset, name)) => {
+            Scope::Callable(CallableId::Source(_, package_offset, name)) => {
                 // trim the trailing dagger symbol and set `is_adjoint` accordingly
                 let (name, is_adjoint) = if let Some(pos) = name.rfind('\'') {
                     if pos == name.len() - 1 {
@@ -700,9 +726,11 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     let cond_expr = package.get_expr(cond_expr_id);
                     let expr_contents = self
                         .0
-                        .get(map_fir_package_to_hir(package_id))
+                        .get(map_fir_package_to_hir(cond_expr.span.package))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                        .and_then(|s| source_span_contents(&s.contents, s.offset, cond_expr.span));
+                        .and_then(|s| {
+                            source_span_contents(&s.contents, s.offset, cond_expr.span.span)
+                        });
 
                     LexicalScope {
                         name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
@@ -849,6 +877,19 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
 
         !hir_package_contains_callable_origin(unit, offset, name.as_ref())
     }
+
+    fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl> {
+        let store_item_id = match callable_id {
+            CallableId::Id(store_item_id, _) | CallableId::Source(store_item_id, ..) => {
+                store_item_id
+            }
+        };
+        let item = self.1.get_item(*store_item_id);
+        let fir::ItemKind::Callable(callable) = &item.kind else {
+            return None;
+        };
+        Some(callable)
+    }
 }
 
 fn callable_scope_origin_key(
@@ -868,7 +909,7 @@ fn callable_scope_origin_key(
                 displayable_callable_scope_name(&callable_decl.name.name),
             ))
         }
-        Scope::Callable(CallableId::Source(package_offset, name)) => Some((
+        Scope::Callable(CallableId::Source(_, package_offset, name)) => Some((
             package_offset.package_id,
             package_offset.offset,
             source_callable_origin_name(name),
@@ -1201,7 +1242,7 @@ impl OperationOrGroup {
         name: &str,
         is_adjoint: bool,
         targets: &[QubitWire],
-        controls: &[QubitWire],
+        controls: Vec<ControlRegister>,
         args: Vec<String>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
@@ -1215,13 +1256,7 @@ impl OperationOrGroup {
                     result: None,
                 })
                 .collect(),
-            controls: controls
-                .iter()
-                .map(|q| Register {
-                    qubit: q.0,
-                    result: None,
-                })
-                .collect(),
+            controls,
             is_adjoint,
             is_conditional: false,
             metadata: None,
@@ -1264,7 +1299,7 @@ impl OperationOrGroup {
             Operation::Unitary(unitary) => unitary
                 .targets
                 .iter()
-                .chain(unitary.controls.iter())
+                .chain(unitary.controls.iter().map(|control| &control.register))
                 .filter(|r| r.result.is_none())
                 .cloned()
                 .collect(),
@@ -1300,7 +1335,12 @@ impl OperationOrGroup {
             Operation::Unitary(unitary) => unitary
                 .controls
                 .iter()
-                .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
+                .filter_map(|control| {
+                    control
+                        .register
+                        .result
+                        .map(|res| ResultWire(control.register.qubit, res))
+                })
                 .collect(),
             Operation::Measurement(_) | Operation::Ket(_) => vec![],
         }
@@ -1347,7 +1387,7 @@ impl OperationOrGroup {
                     result: Some(result_wire.1),
                 };
                 control_result_ids_map.push((register.clone(), *result_id));
-                control_result_registers.push(register);
+                control_result_registers.push(ControlRegister::from(register));
             }
 
             metadata = Some(Metadata {
@@ -1366,7 +1406,10 @@ impl OperationOrGroup {
                 gate: String::new(),
                 args: vec![],
                 children: vec![],
-                targets: control_result_registers.clone(),
+                targets: control_result_registers
+                    .iter()
+                    .map(|control| control.register.clone())
+                    .collect(),
                 controls: control_result_registers,
                 is_adjoint: false,
                 metadata,
@@ -1590,6 +1633,12 @@ impl OperationListBuilder {
 pub(crate) struct GateInputs<'a> {
     pub(crate) targets: &'a [usize],
     pub(crate) controls: &'a [usize],
+    pub(crate) classical_controls: &'a [ClassicalControlInput],
+}
+
+pub(crate) struct ClassicalControlInput {
+    pub(crate) result_id: usize,
+    pub(crate) inverted: bool,
 }
 
 /// Trait representing a receiver of circuit operations that can accept
@@ -1632,13 +1681,23 @@ impl OperationReceiver for OperationListBuilder {
             .iter()
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
-        let controls = inputs
+        let controls: Vec<ControlRegister> = inputs
             .controls
             .iter()
-            .map(|q| wire_map.qubit_wire(*q))
+            .map(|q| ControlRegister {
+                register: Register::quantum(wire_map.qubit_wire(*q).0),
+                inverted: false,
+            })
+            .chain(inputs.classical_controls.iter().map(|control| {
+                let result = wire_map.result_wire(control.result_id);
+                ControlRegister {
+                    register: Register::classical(result.0, result.1),
+                    inverted: control.inverted,
+                }
+            }))
             .collect::<Vec<_>>();
         self.push_op(
-            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, args),
+            OperationOrGroup::new_unitary(name, is_adjoint, &targets, controls, args),
             call_stack,
             wire_map,
         );
@@ -1965,7 +2024,13 @@ impl LogicalStackEntry {
     pub fn package_id(&self) -> Option<PackageId> {
         match self.scope {
             Scope::Callable(
-                CallableId::Source(PackageOffset { package_id, .. }, _)
+                CallableId::Source(
+                    StoreItemId {
+                        package: package_id,
+                        ..
+                    },
+                    ..,
+                )
                 | CallableId::Id(
                     StoreItemId {
                         package: package_id,
@@ -2052,7 +2117,7 @@ pub enum Scope {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CallableId {
     Id(StoreItemId, FunctorApp),
-    Source(PackageOffset, Rc<str>),
+    Source(StoreItemId, PackageOffset, Rc<str>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

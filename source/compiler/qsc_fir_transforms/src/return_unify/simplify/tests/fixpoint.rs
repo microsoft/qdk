@@ -34,7 +34,6 @@
 
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
@@ -51,6 +50,7 @@ use crate::fir_builder::{
 use crate::return_unify::simplify;
 use crate::return_unify::symbols;
 use crate::return_unify::tests::{check_simplify_rule_q, synth_slots_for_block};
+use qsc_fir::fir::PackageSpan;
 
 /// Adapt [`simplify::run_to_fixpoint`] (which returns `()`) to the
 /// `FnOnce(_, _, _, _) -> bool` contract that
@@ -82,7 +82,7 @@ fn alloc_slot_decls(package: &mut Package, assigner: &mut Assigner) -> (Slots, S
     let bool_ty = Ty::Prim(Prim::Bool);
     let int_ty = Ty::Prim(Prim::Int);
 
-    let hr_init = alloc_bool_lit(package, assigner, false, Span::default());
+    let hr_init = alloc_bool_lit(package, assigner, false, PackageSpan::default());
     let (hr_local, hr_decl) = alloc_local_var(
         package,
         assigner,
@@ -97,7 +97,7 @@ fn alloc_slot_decls(package: &mut Package, assigner: &mut Assigner) -> (Slots, S
         assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let (rv_local, rv_decl) = alloc_local_var(
         package,
@@ -126,9 +126,15 @@ fn build_slot_assign_stmt(
     v_id: ExprId,
 ) -> StmtId {
     let int_ty = Ty::Prim(Prim::Int);
-    let lhs = alloc_local_var_expr(package, assigner, slots.ret_val, int_ty, Span::default());
-    let assign = alloc_assign_expr(package, assigner, lhs, v_id, Span::default());
-    alloc_semi_stmt(package, assigner, assign, Span::default())
+    let lhs = alloc_local_var_expr(
+        package,
+        assigner,
+        slots.ret_val,
+        int_ty,
+        PackageSpan::default(),
+    );
+    let assign = alloc_assign_expr(package, assigner, lhs, v_id, PackageSpan::default());
+    alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
 }
 
 /// Build a `__has_returned = true;` Semi statement.
@@ -139,11 +145,11 @@ fn build_flag_set_stmt(package: &mut Package, assigner: &mut Assigner, slots: &S
         assigner,
         slots.has_returned,
         bool_ty,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let rhs = alloc_bool_lit(package, assigner, true, Span::default());
-    let assign = alloc_assign_expr(package, assigner, lhs, rhs, Span::default());
-    alloc_semi_stmt(package, assigner, assign, Span::default())
+    let rhs = alloc_bool_lit(package, assigner, true, PackageSpan::default());
+    let assign = alloc_assign_expr(package, assigner, lhs, rhs, PackageSpan::default());
+    alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
 }
 
 /// Build a Unit-typed block expression carrying the flat slot/flag
@@ -161,9 +167,9 @@ fn build_slot_set_arm_expr(
         assigner,
         vec![slot_stmt, flag_stmt],
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
-    alloc_block_expr(package, assigner, arm_bid, Ty::UNIT, Span::default())
+    alloc_block_expr(package, assigner, arm_bid, Ty::UNIT, PackageSpan::default())
 }
 
 /// Build the canonical trailing merge
@@ -183,30 +189,36 @@ fn build_merge_stmt(package: &mut Package, assigner: &mut Assigner, slots: &Slot
         assigner,
         slots.has_returned,
         bool_ty,
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_var = alloc_local_var_expr(
         package,
         assigner,
         slots.ret_val,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let then_stmt = alloc_expr_stmt(package, assigner, then_var, Span::default());
+    let then_stmt = alloc_expr_stmt(package, assigner, then_var, PackageSpan::default());
     let then_bid = alloc_block(
         package,
         assigner,
         vec![then_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let then_expr = alloc_block_expr(package, assigner, then_bid, int_ty.clone(), Span::default());
+    let then_expr = alloc_block_expr(
+        package,
+        assigner,
+        then_bid,
+        int_ty.clone(),
+        PackageSpan::default(),
+    );
     let else_arm = alloc_local_var_expr(
         package,
         assigner,
         slots.ret_val,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge = alloc_if_expr(
         package,
@@ -215,9 +227,9 @@ fn build_merge_stmt(package: &mut Package, assigner: &mut Assigner, slots: &Slot
         then_expr,
         Some(else_arm),
         int_ty,
-        Span::default(),
+        PackageSpan::default(),
     );
-    alloc_expr_stmt(package, assigner, merge, Span::default())
+    alloc_expr_stmt(package, assigner, merge, PackageSpan::default())
 }
 
 /// Count `Semi(Assign(Var(has_returned), _))` statements in `block_id`.
@@ -554,10 +566,10 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(5)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let guard_then = build_slot_set_arm_expr(&mut package, &mut assigner, &slots, v_expr);
-    let guard_cond = alloc_bool_lit(&mut package, &mut assigner, true, Span::default());
+    let guard_cond = alloc_bool_lit(&mut package, &mut assigner, true, PackageSpan::default());
     let guard_if = alloc_if_expr(
         &mut package,
         &mut assigner,
@@ -565,9 +577,14 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
         guard_then,
         None,
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let guard_stmt = alloc_semi_stmt(&mut package, &mut assigner, guard_if, Span::default());
+    let guard_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        guard_if,
+        PackageSpan::default(),
+    );
 
     // Continuation: `if not __has_returned { 8 }`.
     let rest_value = alloc_expr(
@@ -575,31 +592,41 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(8)),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let rest_value_stmt = alloc_expr_stmt(&mut package, &mut assigner, rest_value, Span::default());
+    let rest_value_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        rest_value,
+        PackageSpan::default(),
+    );
     let rest_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![rest_value_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let rest_block_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         rest_bid,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let flag_read = alloc_local_var_expr(
         &mut package,
         &mut assigner,
         slots.has_returned,
         bool_ty,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let not_flag = alloc_not_expr(&mut package, &mut assigner, flag_read, Span::default());
+    let not_flag = alloc_not_expr(
+        &mut package,
+        &mut assigner,
+        flag_read,
+        PackageSpan::default(),
+    );
     let cont_if = alloc_if_expr(
         &mut package,
         &mut assigner,
@@ -607,9 +634,9 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
         rest_block_expr,
         None,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let cont_stmt = alloc_semi_stmt(&mut package, &mut assigner, cont_if, Span::default());
+    let cont_stmt = alloc_semi_stmt(&mut package, &mut assigner, cont_if, PackageSpan::default());
 
     let merge_stmt = build_merge_stmt(&mut package, &mut assigner, &slots);
 
@@ -625,7 +652,7 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
             merge_stmt,
         ],
         int_ty,
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let synth_slots = synth_slots_for_block(&package, block_id);

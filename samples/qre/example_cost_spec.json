@@ -1,0 +1,29 @@
+{
+    "system": {
+        "name": "example_cost_spec",
+        "target_year": 2030,
+        "lifetime_in_years": 10,
+        "uptime": 0.5,
+        "magical_speedup_factor": 1.0
+    },
+    "fixed_units": [
+        {
+            "name": "Fixed cost of building the system",
+            "cost": 1000000.0,
+            "quantity": 1
+        }
+    ],
+    "scaled_units": [
+        {
+            "name": "Cost per qubit",
+            "cost": 1000.00,
+            "units_per_qubit": 1
+        }
+    ],
+    "opex": [
+        {
+            "name": "FTE costs",
+            "cost_per_year": 100000
+        }
+    ]
+}

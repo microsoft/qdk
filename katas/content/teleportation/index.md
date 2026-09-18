@@ -65,7 +65,7 @@ We split the teleportation protocol into several steps:
     "title": "Testing Quantum Teleportation"
 })
 
-In this lesson, your goal is to put together the code from the previous exercises to teleport the states $\ket{0}$ and $\ket{1}$, as well as superposition states $\frac{1}{2}(\ket{0}+\ket{1})$, $\frac{1}{2}(\ket{0}-\ket{1})$, $\frac{1}{2}(\ket{0}+i\ket{1})$ and $\frac{1}{2}(\ket{0}-i\ket{1})$, and to verify that teleportation succeeds each time.
+In this lesson, your goal is to put together the code from the previous exercises to teleport the states $\ket{0}$ and $\ket{1}$, as well as superposition states $\frac{1}{\sqrt{2}}(\ket{0}+\ket{1})$, $\frac{1}{\sqrt{2}}(\ket{0}-\ket{1})$, $\frac{1}{\sqrt{2}}(\ket{0}+i\ket{1})$ and $\frac{1}{\sqrt{2}}(\ket{0}-i\ket{1})$, and to verify that teleportation succeeds each time.
 
 > This is an open-ended task that is not tested automatically, unlike the previous exercises. Follow the suggestions in the comments to write your code and test it!
 

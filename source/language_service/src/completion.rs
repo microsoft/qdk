@@ -51,7 +51,7 @@ pub(crate) fn get_completions(
 
     if log_enabled!(Trace) {
         let last_char = if source_offset > 0 {
-            source.contents[(package_offset as usize - 1)..]
+            source.contents[(source_offset as usize - 1)..]
                 .chars()
                 .next()
         } else {

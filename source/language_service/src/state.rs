@@ -201,7 +201,7 @@ impl<'a> CompilationStateUpdater<'a> {
         language_id: &str,
     ) -> Project {
         match self
-            .load_manifest_or_openqasm_project(doc_uri, language_id)
+            .load_manifest_or_openqasm_project(doc_uri, Some(text), language_id)
             .await
         {
             Ok(Some(p)) => p,
@@ -228,12 +228,13 @@ impl<'a> CompilationStateUpdater<'a> {
     async fn load_manifest_or_openqasm_project(
         &self,
         doc_uri: &Arc<str>,
+        text: Option<&Arc<str>>,
         language_id: &str,
     ) -> Result<Option<Project>, Vec<project::Error>> {
         if is_openqasm_file(language_id) {
             return Ok(Some(
                 self.project_host
-                    .load_openqasm_project(Path::new(doc_uri.as_ref()), None)
+                    .load_openqasm_project(Path::new(doc_uri.as_ref()), text.cloned())
                     .await,
             ));
         }
@@ -333,7 +334,7 @@ impl<'a> CompilationStateUpdater<'a> {
 
     pub(super) async fn close_document(&mut self, uri: &str, language_id: &str) {
         let project = self
-            .load_manifest_or_openqasm_project(&uri.into(), language_id)
+            .load_manifest_or_openqasm_project(&uri.into(), None, language_id)
             .await;
 
         let removed_compilation = self.remove_open_document(uri);

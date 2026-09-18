@@ -44,6 +44,13 @@ pub(super) fn completions(
                     CompletionItem::new("Unrestricted".to_string(), CompletionItemKind::Keyword),
                 ],
             };
+        } else if name.as_ref() == "CircuitRenderingOptions" {
+            return CompletionList {
+                items: vec![
+                    CompletionItem::new("hideBox".to_string(), CompletionItemKind::Keyword),
+                    CompletionItem::new("inputSizes".to_string(), CompletionItemKind::Keyword),
+                ],
+            };
         }
         // No completions in attribute expressions, they're misleading.
         return CompletionList::default();
@@ -149,6 +156,10 @@ fn collect_hardcoded_words(expected: WordKinds) -> Vec<Completion> {
                     Completion::new("Measurement".to_string(), CompletionItemKind::Interface),
                     Completion::new("Reset".to_string(), CompletionItemKind::Interface),
                     Completion::new("Test".to_string(), CompletionItemKind::Interface),
+                    Completion::new(
+                        "CircuitRenderingOptions".to_string(),
+                        CompletionItemKind::Interface,
+                    ),
                 ]);
             }
             HardcodedIdentKind::Size => {

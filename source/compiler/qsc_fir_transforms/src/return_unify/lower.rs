@@ -12,7 +12,6 @@ use crate::{
     },
     walk_utils::{expr_is_safe_to_discard, for_each_expr},
 };
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
@@ -21,6 +20,8 @@ use qsc_fir::{
     },
     ty::{Prim, Ty},
 };
+
+use qsc_fir::fir::PackageSpan;
 
 use super::{
     UdtPureTyCache,
@@ -540,13 +541,19 @@ fn create_lazy_flag_continuation_stmt(
     match output {
         // A value-producing block ends in an expression statement (no trailing
         // semicolon) so the guarded `if` becomes the block's value.
-        FlagBlockOutput::ReturnValue { .. } => {
-            alloc_expr_stmt(package, assigner, lazy_continuation, Span::default())
-        }
+        FlagBlockOutput::ReturnValue { .. } => alloc_expr_stmt(
+            package,
+            assigner,
+            lazy_continuation,
+            package.synthetic_span(),
+        ),
         // A unit block ends in a semicolon statement.
-        FlagBlockOutput::Unit => {
-            alloc_semi_stmt(package, assigner, lazy_continuation, Span::default())
-        }
+        FlagBlockOutput::Unit => alloc_semi_stmt(
+            package,
+            assigner,
+            lazy_continuation,
+            package.synthetic_span(),
+        ),
     }
 }
 
@@ -615,7 +622,7 @@ fn create_lazy_flag_continuation_expr(
                     package,
                     assigner,
                     missing_value,
-                    Span::default(),
+                    package.synthetic_span(),
                 ));
             }
 
@@ -637,14 +644,14 @@ fn create_lazy_flag_continuation_expr(
         assigner,
         continuation_stmts,
         continuation_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let continuation_expr = alloc_block_expr(
         package,
         assigner,
         continuation_block,
         continuation_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     // Guard on `not __has_returned` so the suffix runs only when no early return
     // has fired; otherwise control takes the `else` (slot read) path.
@@ -657,7 +664,7 @@ fn create_lazy_flag_continuation_expr(
         continuation_expr,
         else_expr,
         continuation_ty,
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -753,7 +760,7 @@ fn transform_while_in_expr(
                 not_flag,
                 cond_id,
                 Ty::Prim(Prim::Bool),
-                Span::default(),
+                package.synthetic_span(),
             );
 
             if contains_return_in_block(package, body_block_id) {
@@ -1006,9 +1013,10 @@ fn replace_returns_in_expr(
                 inner_id,
                 &inner_ty,
             );
-            let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
+            let assign_val_semi =
+                alloc_semi_stmt(package, assigner, assign_val, package.synthetic_span());
 
-            let true_lit = alloc_bool_lit(package, assigner, true, Span::default());
+            let true_lit = alloc_bool_lit(package, assigner, true, package.synthetic_span());
             let assign_flag = create_assign_expr(
                 package,
                 assigner,
@@ -1016,17 +1024,23 @@ fn replace_returns_in_expr(
                 true_lit,
                 &Ty::Prim(Prim::Bool),
             );
-            let assign_flag_semi = alloc_semi_stmt(package, assigner, assign_flag, Span::default());
+            let assign_flag_semi =
+                alloc_semi_stmt(package, assigner, assign_flag, package.synthetic_span());
 
             let flag_block = alloc_block(
                 package,
                 assigner,
                 vec![assign_val_semi, assign_flag_semi],
                 Ty::UNIT,
-                Span::default(),
+                package.synthetic_span(),
             );
-            let flag_block_expr =
-                alloc_block_expr(package, assigner, flag_block, Ty::UNIT, Span::default());
+            let flag_block_expr = alloc_block_expr(
+                package,
+                assigner,
+                flag_block,
+                Ty::UNIT,
+                package.synthetic_span(),
+            );
 
             let replacement = package.get_expr(flag_block_expr).clone();
             let e = package.exprs.get_mut(expr_id).expect("expr not found");
@@ -1284,7 +1298,7 @@ fn replace_condition_return_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
     return_expr_id: ExprId,
-    span: Span,
+    span: PackageSpan,
     inner_id: ExprId,
     flag_context: &FlagContext<'_>,
 ) {
@@ -1296,9 +1310,9 @@ fn replace_condition_return_with_flags(
         inner_id,
         &inner_ty,
     );
-    let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
+    let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, package.synthetic_span());
 
-    let true_lit = alloc_bool_lit(package, assigner, true, Span::default());
+    let true_lit = alloc_bool_lit(package, assigner, true, package.synthetic_span());
     let assign_flag = create_assign_expr(
         package,
         assigner,
@@ -1306,24 +1320,25 @@ fn replace_condition_return_with_flags(
         true_lit,
         &Ty::Prim(Prim::Bool),
     );
-    let assign_flag_semi = alloc_semi_stmt(package, assigner, assign_flag, Span::default());
+    let assign_flag_semi =
+        alloc_semi_stmt(package, assigner, assign_flag, package.synthetic_span());
 
-    let false_lit = alloc_bool_lit(package, assigner, false, Span::default());
-    let false_stmt = alloc_expr_stmt(package, assigner, false_lit, Span::default());
+    let false_lit = alloc_bool_lit(package, assigner, false, package.synthetic_span());
+    let false_stmt = alloc_expr_stmt(package, assigner, false_lit, package.synthetic_span());
 
     let flag_block = alloc_block(
         package,
         assigner,
         vec![assign_val_semi, assign_flag_semi, false_stmt],
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        package.synthetic_span(),
     );
     let flag_block_expr = alloc_block_expr(
         package,
         assigner,
         flag_block,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        package.synthetic_span(),
     );
 
     let replacement = package.get_expr(flag_block_expr).clone();
@@ -1361,36 +1376,38 @@ pub(super) fn guard_stmt_with_flag(
 
         let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
 
-        let then_trailing = alloc_expr_stmt(package, assigner, init_expr_id, Span::default());
+        let then_trailing =
+            alloc_expr_stmt(package, assigner, init_expr_id, package.synthetic_span());
         let then_block = alloc_block(
             package,
             assigner,
             vec![then_trailing],
             init_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
         let then_expr = alloc_block_expr(
             package,
             assigner,
             then_block,
             init_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
 
-        let else_trailing = alloc_expr_stmt(package, assigner, default_val, Span::default());
+        let else_trailing =
+            alloc_expr_stmt(package, assigner, default_val, package.synthetic_span());
         let else_block = alloc_block(
             package,
             assigner,
             vec![else_trailing],
             init_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
         let else_expr = alloc_block_expr(
             package,
             assigner,
             else_block,
             init_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
 
         let if_expr = alloc_if_expr(
@@ -1400,7 +1417,7 @@ pub(super) fn guard_stmt_with_flag(
             then_expr,
             Some(else_expr),
             init_ty,
-            Span::default(),
+            package.synthetic_span(),
         );
 
         let stmt = package.stmts.get_mut(stmt_id).expect("stmt not found");
@@ -1417,9 +1434,20 @@ pub(super) fn guard_stmt_with_flag(
         "guard_stmt_with_flag requires Unit-typed inner stmt"
     );
     let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
-    let guard_block = alloc_block(package, assigner, vec![stmt_id], Ty::UNIT, Span::default());
-    let guard_block_expr =
-        alloc_block_expr(package, assigner, guard_block, Ty::UNIT, Span::default());
+    let guard_block = alloc_block(
+        package,
+        assigner,
+        vec![stmt_id],
+        Ty::UNIT,
+        package.synthetic_span(),
+    );
+    let guard_block_expr = alloc_block_expr(
+        package,
+        assigner,
+        guard_block,
+        Ty::UNIT,
+        package.synthetic_span(),
+    );
     let if_expr = alloc_if_expr(
         package,
         assigner,
@@ -1427,9 +1455,9 @@ pub(super) fn guard_stmt_with_flag(
         guard_block_expr,
         None,
         Ty::UNIT,
-        Span::default(),
+        package.synthetic_span(),
     );
-    alloc_semi_stmt(package, assigner, if_expr, Span::default())
+    alloc_semi_stmt(package, assigner, if_expr, package.synthetic_span())
 }
 
 #[cfg(test)]
@@ -1476,7 +1504,7 @@ fn create_flag_trailing_expr_for_slot(
         assigner,
         flag_context.has_returned_var_id,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        package.synthetic_span(),
     );
     let ret_var = create_return_slot_read_expr(
         package,
@@ -1503,7 +1531,7 @@ fn create_flag_trailing_expr_for_slot(
             assigner,
             trailing_var_id,
             flag_context.return_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
         let if_expr = alloc_if_expr(
             package,
@@ -1512,15 +1540,20 @@ fn create_flag_trailing_expr_for_slot(
             ret_var,
             Some(trailing_var_expr),
             flag_context.return_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
         (
-            Some(alloc_expr_stmt(package, assigner, if_expr, Span::default())),
+            Some(alloc_expr_stmt(
+                package,
+                assigner,
+                if_expr,
+                package.synthetic_span(),
+            )),
             Some(trailing_var_id),
         )
     } else {
         let fallback_expr = if flag_context.return_ty == &Ty::UNIT {
-            alloc_unit_expr(package, assigner, Span::default())
+            alloc_unit_expr(package, assigner, package.synthetic_span())
         } else {
             create_return_slot_unwritten_fallback_expr(
                 package,
@@ -1536,10 +1569,15 @@ fn create_flag_trailing_expr_for_slot(
             ret_var,
             Some(fallback_expr),
             flag_context.return_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         );
         (
-            Some(alloc_expr_stmt(package, assigner, if_expr, Span::default())),
+            Some(alloc_expr_stmt(
+                package,
+                assigner,
+                if_expr,
+                package.synthetic_span(),
+            )),
             None,
         )
     }
@@ -1555,9 +1593,9 @@ fn create_not_var_expr(
         assigner,
         var_id,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        package.synthetic_span(),
     );
-    alloc_not_expr(package, assigner, var, Span::default())
+    alloc_not_expr(package, assigner, var, package.synthetic_span())
 }
 
 fn create_assign_expr(
@@ -1567,8 +1605,14 @@ fn create_assign_expr(
     value: ExprId,
     ty: &Ty,
 ) -> ExprId {
-    let var_expr = alloc_local_var_expr(package, assigner, var_id, ty.clone(), Span::default());
-    alloc_assign_expr(package, assigner, var_expr, value, Span::default())
+    let var_expr = alloc_local_var_expr(
+        package,
+        assigner,
+        var_id,
+        ty.clone(),
+        package.synthetic_span(),
+    );
+    alloc_assign_expr(package, assigner, var_expr, value, package.synthetic_span())
 }
 
 fn create_mutable_bool_var(
@@ -1577,7 +1621,7 @@ fn create_mutable_bool_var(
     name: &str,
     value: bool,
 ) -> (LocalVarId, StmtId) {
-    let init_expr = alloc_bool_lit(package, assigner, value, Span::default());
+    let init_expr = alloc_bool_lit(package, assigner, value, package.synthetic_span());
     alloc_local_var(
         package,
         assigner,

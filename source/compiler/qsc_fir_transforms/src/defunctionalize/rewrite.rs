@@ -53,8 +53,8 @@ use crate::walk_utils::{
     expr_is_safe_to_discard_with_total_foreign, expr_is_side_effect_free, for_each_direct_child,
 };
 use qsc_data_structures::functors::FunctorApp;
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
+use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field, FieldAssign,
     FieldPath, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
@@ -600,6 +600,7 @@ fn rewrite_direct_call(
         return;
     };
     if let Some(span) = direct_call_site.def_span {
+        let span = package.span(span);
         package
             .exprs
             .get_mut(direct_call_site.call_expr_id)
@@ -1372,7 +1373,7 @@ fn alloc_index_eq_expr(
     package: &mut Package,
     index_expr_id: ExprId,
     index_value: usize,
-    span: Span,
+    span: PackageSpan,
     assigner: &mut Assigner,
 ) -> ExprId {
     let index_value = i64::try_from(index_value).expect("dispatch index should fit in i64");
@@ -2799,7 +2800,7 @@ fn create_direct_branch_call(
     package_id: PackageId,
     orig_callee: &Expr,
     orig_args: &Expr,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     direct_call_site: &DirectCallSite,
     assigner: &mut Assigner,
@@ -4387,7 +4388,7 @@ fn materialize_struct_copy_field(
     copy_id: ExprId,
     field_index: usize,
     field_ty: Ty,
-    span: Span,
+    span: PackageSpan,
     assigner: &mut Assigner,
 ) -> Option<ExprId> {
     let copy_expr = package.get_expr(copy_id).clone();
@@ -4671,7 +4672,7 @@ fn remove_element_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]
 /// expression when possible and otherwise synthesizing `Var(Local(_))` nodes.
 fn allocate_capture_exprs(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     captures: &[CapturedVar],
     assigner: &mut Assigner,
 ) -> Vec<ExprId> {
@@ -5396,7 +5397,7 @@ fn install_branch_split_dispatch<'a>(
     call_expr_id: ExprId,
     orig_callee_id: ExprId,
     orig_args_id: ExprId,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     conditioned: Vec<ConditionedHofTarget<'a>>,
     default_entry: HofDispatchTarget<'a>,
@@ -5481,7 +5482,7 @@ fn create_branch_call(
     _package_id: PackageId,
     orig_callee: &Expr,
     orig_args: &Expr,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     call_site: &CallSite,
     param: &CallableParam,
@@ -5561,7 +5562,7 @@ fn create_combined_branch_call(
     package: &mut Package,
     orig_callee: &Expr,
     orig_args: &Expr,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     candidate: &CallSite,
     candidate_param: &CallableParam,
@@ -5677,7 +5678,7 @@ fn build_combined_branch_args_data(
     orig_args: &Expr,
     remove_indices: &[usize],
     captures: &[CapturedVar],
-    span: Span,
+    span: PackageSpan,
     assigner: &mut Assigner,
 ) -> (ExprKind, Ty) {
     let new_ty = remove_tys_at_indices(package, &orig_args.ty, remove_indices, captures);
@@ -5714,7 +5715,7 @@ fn build_combined_nested_branch_args_data(
     orig_args: &Expr,
     remove_indices: &[usize],
     captures: &[CapturedVar],
-    span: Span,
+    span: PackageSpan,
     assigner: &mut Assigner,
 ) -> (ExprKind, Ty) {
     let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
@@ -5910,7 +5911,7 @@ fn build_branch_args_data(
     orig_args: &Expr,
     input_path: &[usize],
     captures: &[CapturedVar],
-    span: Span,
+    span: PackageSpan,
     assigner: &mut Assigner,
 ) -> (ExprKind, Ty) {
     if input_path.is_empty() {
@@ -6046,7 +6047,7 @@ fn alloc_specialized_callee_expr(
 /// `assigner`.
 fn alloc_item_callee_expr_with_functor(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     item_id: ItemId,
     callee_ty: &Ty,
     functor: FunctorApp,
@@ -6066,7 +6067,7 @@ fn alloc_item_callee_expr_with_functor(
 /// through `assigner`.
 fn alloc_if_expr(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     cond_id: ExprId,
     true_id: ExprId,
@@ -6100,7 +6101,7 @@ fn alloc_if_expr(
 /// `kind`/`ty` back into the original call expression.
 fn build_branch_tree<E: Copy>(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     conditioned: Vec<(E, Vec<ExprId>)>,
     default_entry: E,

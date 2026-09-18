@@ -28,7 +28,9 @@ block_1:
   br i1 %var_7, label %block_2, label %block_3
 block_2:
   %var_59 = load i64, ptr %var_6
-  %var_8 = getelementptr ptr, ptr @array0, i64 %var_59
+  %var_8_offset_chk = icmp slt i64 %var_59, 0
+  %var_8_offset = select i1 %var_8_offset_chk, i64 1, i64 0
+  %var_8 = getelementptr [5 x ptr], ptr @array0, i64 %var_8_offset, i64 %var_59
   %var_60 = load ptr, ptr %var_8
   call void @X(ptr %var_60)
   %var_11 = add i64 %var_59, 1
@@ -48,7 +50,9 @@ block_4:
   br i1 %var_14, label %block_5, label %block_6
 block_5:
   %var_47 = load i64, ptr %var_13
-  %var_15 = getelementptr ptr, ptr @array1, i64 %var_47
+  %var_15_offset_chk = icmp slt i64 %var_47, 0
+  %var_15_offset = select i1 %var_15_offset_chk, i64 1, i64 0
+  %var_15 = getelementptr [5 x ptr], ptr @array1, i64 %var_15_offset, i64 %var_47
   %var_48 = load ptr, ptr %var_15
   %var_17 = call i1 @__quantum__rt__read_result(ptr %var_48)
   br i1 %var_17, label %block_7, label %block_9
@@ -80,7 +84,9 @@ block_9:
   br label %block_4
 block_10:
   %var_44 = load i64, ptr %var_24
-  %var_26 = getelementptr ptr, ptr @array0, i64 %var_44
+  %var_26_offset_chk = icmp slt i64 %var_44, 0
+  %var_26_offset = select i1 %var_26_offset_chk, i64 1, i64 0
+  %var_26 = getelementptr [5 x ptr], ptr @array0, i64 %var_26_offset, i64 %var_44
   %var_45 = load ptr, ptr %var_26
   call void @Reset(ptr %var_45)
   %var_29 = add i64 %var_44, 1
@@ -111,7 +117,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_28) {
 block_13:
@@ -127,6 +133,7 @@ declare void @__quantum__rt__int_record_output(i64, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="5" "required_num_results"="5" }
 attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 

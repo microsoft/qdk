@@ -50,6 +50,20 @@ pub fn estimate_parallel<'a>(
     let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
 
+    if !isas.is_empty() {
+        let available_instruction_ids: FxHashSet<_> = isas
+            .iter()
+            .flat_map(|isa| isa.node_entries().map(|(id, _)| *id))
+            .collect();
+        for trace in traces {
+            for constraint in trace.required_instruction_ids(None).constraints() {
+                if !available_instruction_ids.contains(&constraint.id()) {
+                    collection.record_missing_instruction(constraint.id());
+                }
+            }
+        }
+    }
+
     std::thread::scope(|scope| {
         let num_threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 
@@ -98,6 +112,7 @@ pub fn estimate_parallel<'a>(
             for result in local_results {
                 match result {
                     Ok(result) => {
+                        collection.record_successful_error(result.error());
                         if post_process {
                             collection.push_summary(ResultSummary {
                                 trace_index: result.trace_index().unwrap_or(0),
@@ -115,6 +130,19 @@ pub fn estimate_parallel<'a>(
         }
         collection.set_successful_estimates(successful);
     });
+
+    if collection.successful_estimates() == 0
+        && collection.maximum_error_exceeded() > 0
+        && max_error.is_some()
+    {
+        for trace in traces {
+            for isa in isas {
+                if let Ok(result) = trace.estimate(isa, None, composition) {
+                    collection.record_successful_error(result.error());
+                }
+            }
+        }
+    }
 
     // Attach ISAs only to Pareto-surviving results, avoiding O(M) HashMap
     // clones for discarded results.
@@ -349,40 +377,43 @@ pub fn estimate_with_graph(
         let required = trace.required_instruction_ids(Some(max_error));
 
         let graph_lock = graph.read().expect("Graph lock poisoned");
-        let id_and_nodes: Vec<_> = required
-            .constraints()
-            .iter()
-            .filter_map(|constraint| {
-                graph_lock.pareto_nodes(constraint.id()).map(|nodes| {
-                    (
-                        constraint.id(),
-                        nodes
-                            .iter()
-                            .filter(|&&node| {
-                                // Filter out nodes that don't meet the constraint bounds.
-                                let instruction = graph_lock.instruction(node);
-                                constraint.error_rate().is_none_or(|c| {
-                                    c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
-                                })
-                            })
-                            .map(|&node| {
-                                let instruction = graph_lock.instruction(node);
-                                let space = instruction.space(Some(1), &[]).unwrap_or(0);
-                                let time = instruction.time(Some(1), &[]).unwrap_or(0);
-                                NodeProfile {
-                                    node_index: node,
-                                    space,
-                                    time,
-                                }
-                            })
-                            .collect::<Vec<_>>(),
-                    )
+        let mut id_and_nodes = Vec::with_capacity(required.len());
+        let mut has_missing_instruction = false;
+        for constraint in required.constraints() {
+            let Some(nodes) = graph_lock.pareto_nodes(constraint.id()) else {
+                collection.record_missing_instruction(constraint.id());
+                has_missing_instruction = true;
+                continue;
+            };
+
+            let matching_nodes = nodes
+                .iter()
+                .filter(|&&node| {
+                    // Filter out nodes that don't meet the constraint bounds.
+                    let instruction = graph_lock.instruction(node);
+                    constraint.error_rate().is_none_or(|c| {
+                        c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
+                    })
                 })
-            })
-            .collect();
+                .map(|&node| {
+                    let instruction = graph_lock.instruction(node);
+                    let space = instruction.space(Some(1), &[]).unwrap_or(0);
+                    let time = instruction.time(Some(1), &[]).unwrap_or(0);
+                    NodeProfile {
+                        node_index: node,
+                        space,
+                        time,
+                    }
+                })
+                .collect::<Vec<_>>();
+            id_and_nodes.push((constraint.id(), matching_nodes));
+        }
+        if id_and_nodes.iter().any(|(_, nodes)| nodes.is_empty()) {
+            collection.record_maximum_error_exceeded();
+        }
         drop(graph_lock);
 
-        if id_and_nodes.len() != required.len() {
+        if has_missing_instruction {
             // If any required instruction is missing from the graph, we can't
             // run any estimation for this trace.
             continue;
@@ -493,6 +524,7 @@ pub fn estimate_with_graph(
             for result in local_results {
                 match result {
                     Ok(result) => {
+                        collection.record_successful_error(result.error());
                         if post_process {
                             collection.push_summary(ResultSummary {
                                 trace_index: result.trace_index().unwrap_or(0),
@@ -526,6 +558,48 @@ pub fn estimate_with_graph(
     }
 
     collection.set_isas(isa_index.into());
+
+    if collection.successful_estimates() == 0 && collection.maximum_error_exceeded() > 0 {
+        for trace in traces {
+            let required = trace.required_instruction_ids(None);
+            let graph_lock = graph.read().expect("Graph lock poisoned");
+            let mut id_and_nodes = Vec::with_capacity(required.len());
+            for constraint in required.constraints() {
+                let nodes = graph_lock
+                    .pareto_nodes(constraint.id())
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .filter(|&node| constraint.is_satisfied_by(graph_lock.instruction(node)))
+                    .map(|node_index| NodeProfile {
+                        node_index,
+                        space: 0,
+                        time: 0,
+                    })
+                    .collect::<Vec<_>>();
+                id_and_nodes.push((constraint.id(), nodes));
+            }
+            drop(graph_lock);
+
+            let mut diagnostic_jobs = Vec::new();
+            let mut diagnostic_slots = 0;
+            push_cartesian_product(
+                &id_and_nodes,
+                0,
+                &mut diagnostic_jobs,
+                &mut diagnostic_slots,
+            );
+            for (_, combination) in diagnostic_jobs {
+                let mut isa = ISA::with_graph(Arc::clone(graph));
+                for entry in combination {
+                    isa.add_node(entry.instruction_id, entry.node.node_index);
+                }
+                if let Ok(result) = trace.estimate(&isa, None, composition) {
+                    collection.record_successful_error(result.error());
+                }
+            }
+        }
+    }
 
     collection
 }

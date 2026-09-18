@@ -7,8 +7,8 @@ use crate::test_utils::{
     compile_and_run_pipeline_to_with_library, compile_to_fir, compile_to_fir_with_library,
 };
 use indoc::indoc;
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
+use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{ItemKind, PackageLookup};
 
 /// Counts total items in the user package.
@@ -428,7 +428,7 @@ mod item_dce_contracts {
             stmt_id,
             qsc_fir::fir::Stmt {
                 id: stmt_id,
-                span: Span::default(),
+                span: PackageSpan::default(),
                 kind: qsc_fir::fir::StmtKind::Item(item_id),
                 exec_graph_range: crate::EMPTY_EXEC_RANGE,
             },

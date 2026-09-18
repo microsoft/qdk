@@ -371,6 +371,32 @@ async fn close_last_doc_in_openqasm_project() {
 }
 
 #[tokio::test]
+async fn untitled_openqasm_document_uses_buffer_contents() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&received_errors, &test_cases);
+
+    updater
+        .update_document(
+            "untitled:Untitled-1",
+            1,
+            "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit q;\nh q;\n",
+            "openqasm",
+        )
+        .await;
+
+    assert_compilation_sources(
+        &updater,
+        &expect![[r#"
+            untitled:Untitled-1: [
+              "untitled:Untitled-1": "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit q;\nh q;\n",
+            ],
+        "#]],
+    );
+    expect_errors(&received_errors, &expect!["[]"]);
+}
+
+#[tokio::test]
 async fn clear_on_document_close() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());

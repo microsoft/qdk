@@ -49,7 +49,9 @@ block_1:
   br i1 %var_35, label %block_2, label %block_3
 block_2:
   %var_52 = load i64, ptr %var_34
-  %var_36 = getelementptr ptr, ptr @array0, i64 %var_52
+  %var_36_offset_chk = icmp slt i64 %var_52, 0
+  %var_36_offset = select i1 %var_36_offset_chk, i64 1, i64 0
+  %var_36 = getelementptr [2 x ptr], ptr @array0, i64 %var_36_offset, i64 %var_52
   %var_53 = load ptr, ptr %var_36
   call void @Reset(ptr %var_53)
   %var_39 = add i64 %var_52, 1
@@ -97,7 +99,7 @@ declare void @__quantum__qis__cx__body(ptr, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @SuperdenseEncode(i1 %var_18, i1 %var_19, ptr %var_20) {
 block_7:
@@ -152,6 +154,7 @@ declare void @__quantum__rt__bool_record_output(i1, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="4" }
 attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 

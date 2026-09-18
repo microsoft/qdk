@@ -63,7 +63,9 @@ block_9:
   br label %block_8
 block_10:
   %var_56 = load i64, ptr %var_39
-  %var_41 = getelementptr ptr, ptr @array1, i64 %var_56
+  %var_41_offset_chk = icmp slt i64 %var_56, 0
+  %var_41_offset = select i1 %var_41_offset_chk, i64 1, i64 0
+  %var_41 = getelementptr [2 x ptr], ptr @array1, i64 %var_41_offset, i64 %var_56
   %var_57 = load ptr, ptr %var_41
   call void @Reset(ptr %var_57)
   %var_44 = add i64 %var_56, 1
@@ -101,7 +103,9 @@ block_16:
   br i1 %var_29, label %block_21, label %block_22
 block_17:
   %var_75 = load i64, ptr %var_13
-  %var_15 = getelementptr ptr, ptr @array0, i64 %var_75
+  %var_15_offset_chk = icmp slt i64 %var_75, 0
+  %var_15_offset = select i1 %var_15_offset_chk, i64 1, i64 0
+  %var_15 = getelementptr [3 x ptr], ptr @array0, i64 %var_15_offset, i64 %var_75
   %var_76 = load ptr, ptr %var_15
   call void @Rx(double 1.5707963267948966, ptr %var_76)
   %var_19 = add i64 %var_75, 1
@@ -179,7 +183,7 @@ declare void @__quantum__qis__rx__body(double, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @X(ptr %var_28) {
 block_32:
@@ -211,6 +215,7 @@ declare void @__quantum__rt__int_record_output(i64, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="5" "required_num_results"="3" }
 attributes #1 = { "irreversible" }
+attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 

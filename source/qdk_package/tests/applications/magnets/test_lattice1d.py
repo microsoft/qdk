@@ -11,6 +11,7 @@ from qdk.applications.magnets import (
     Chain1D,
     Hypergraph,
     HypergraphEdgeColoring,
+    MthNearestNeighborChain1D,
     Ring1D,
 )
 
@@ -128,6 +129,112 @@ def test_chain1d_str():
     chain = Chain1D(4)
     assert "4 vertices" in str(chain)
     assert "3 edges" in str(chain)
+
+
+# MthNearestNeighborChain1D tests
+
+
+def test_mth_nearest_neighbor_chain1d_init_basic():
+    """Test basic m-th nearest-neighbor chain initialization."""
+    chain = MthNearestNeighborChain1D(5, 2)
+    assert chain.nvertices == 5
+    assert chain.nedges == 7
+    assert chain.length == 5
+    assert chain.m == 2
+
+
+def test_mth_nearest_neighbor_chain1d_edges_and_marks():
+    """Test that edges through distance m are created and marked."""
+    chain = MthNearestNeighborChain1D(5, 2)
+    edge_marks = {edge.vertices: edge.mark for edge in chain.edges()}
+    assert edge_marks == {
+        (0, 1): 0,
+        (1, 2): 0,
+        (2, 3): 0,
+        (3, 4): 0,
+        (0, 2): 1,
+        (1, 3): 1,
+        (2, 4): 1,
+    }
+
+
+def test_mth_nearest_neighbor_chain1d_m_one_matches_chain1d():
+    """Test that range one has the same edges as a nearest-neighbor chain."""
+    chain = MthNearestNeighborChain1D(4, 1)
+    edge_vertices = {edge.vertices for edge in chain.edges()}
+    assert edge_vertices == {(0, 1), (1, 2), (2, 3)}
+    assert all(edge.mark == 0 for edge in chain.edges())
+
+
+def test_mth_nearest_neighbor_chain1d_with_self_loops():
+    """Test that optional self-loops remain unmarked."""
+    chain = MthNearestNeighborChain1D(4, 2, self_loops=True)
+    self_loops = {
+        edge.vertices: edge.mark for edge in chain.edges() if len(edge.vertices) == 1
+    }
+    assert self_loops == {(0,): None, (1,): None, (2,): None, (3,): None}
+    assert chain.nedges == 9
+
+
+def test_mth_nearest_neighbor_chain1d_m_exceeds_length():
+    """Test that the interaction range is limited by the chain length."""
+    chain = MthNearestNeighborChain1D(4, 10)
+    edge_vertices = {edge.vertices for edge in chain.edges()}
+    assert edge_vertices == {
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (1, 2),
+        (1, 3),
+        (2, 3),
+    }
+
+
+def test_mth_nearest_neighbor_chain1d_coloring():
+    """Test that each distance uses two alternating colors."""
+    chain = MthNearestNeighborChain1D(7, 3)
+    assert isinstance(chain, Hypergraph)
+    coloring = chain.edge_coloring()
+    assert isinstance(coloring, HypergraphEdgeColoring)
+    assert _vertex_color_map(chain) == {
+        (0, 1): 0,
+        (1, 2): 1,
+        (2, 3): 0,
+        (3, 4): 1,
+        (4, 5): 0,
+        (5, 6): 1,
+        (0, 2): 2,
+        (1, 3): 2,
+        (2, 4): 3,
+        (3, 5): 3,
+        (4, 6): 2,
+        (0, 3): 4,
+        (1, 4): 4,
+        (2, 5): 4,
+        (3, 6): 5,
+    }
+
+
+def test_mth_nearest_neighbor_chain1d_coloring_is_valid():
+    """Test that same-color range-neighbor edges do not overlap."""
+    chain = MthNearestNeighborChain1D(8, 3)
+    coloring = chain.edge_coloring()
+    for color in coloring.colors():
+        used_vertices = set()
+        for edge in coloring.edges_of_color(color):
+            assert used_vertices.isdisjoint(edge.vertices)
+            used_vertices.update(edge.vertices)
+
+
+def test_mth_nearest_neighbor_chain1d_coloring_with_self_loops():
+    """Test that self-loops use the special negative color."""
+    chain = MthNearestNeighborChain1D(4, 2, self_loops=True)
+    coloring = chain.edge_coloring()
+    assert all(
+        coloring.color(edge.vertices) == -1
+        for edge in chain.edges()
+        if len(edge.vertices) == 1
+    )
 
 
 # Ring1D tests

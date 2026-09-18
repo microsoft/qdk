@@ -73,7 +73,7 @@ class TrialStateWorkflowResult:
     """Reference data and trial-state comparisons used by the chapter.
 
     Attributes:
-        active_space_result: Coordinate-minimized selected molecular model.
+        active_space_result: Gauge-fixed selected molecular model.
         active_hamiltonian: Fermionic Hamiltonian in the selected orbital gauge.
         reference_determinants: Leading CASCI determinants for interpretation.
         trial_states: PMC/circuit results in requested determinant-count order.
