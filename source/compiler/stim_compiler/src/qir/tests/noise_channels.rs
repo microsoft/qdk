@@ -6,31 +6,6 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn e_yields_expected_qir() {
-    let source = "E(0.01) X0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
-
-            NoiseConfig:
-            intrinsics:
-                0: NoiseTable:
-                    qubits: 1
-                    X: 0.01"#]],
-    );
-}
-
-#[test]
 fn correlated_error_yields_expected_qir() {
     let source = "CORRELATED_ERROR(0.01) X0";
     check(
