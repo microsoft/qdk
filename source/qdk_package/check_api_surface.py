@@ -13,8 +13,8 @@ ABC, protocol) is an implementation detail that users never need to
 reference directly, so it does not constitute actionable leakage.
 
 Types that are defined in a private module but re-exported through a
-public module's ``__all__`` are **not** flagged — they are considered
-public.
+public module's ``__all__`` or public attributes of an exported class
+are **not** flagged — they are considered public.
 
 Exit code 0  - no violations found.
 Exit code 1  - one or more violations found (details printed to stderr).
@@ -155,26 +155,64 @@ def _build_public_types(
     Returns:
         A tuple of (public_type_ids, public_type_names) where:
         - public_type_ids is a set of ``id()`` values for type objects
-          found in any public module's ``__all__``.
+          reachable through a public module's ``__all__`` or public
+          attributes of its exported classes.
         - public_type_names is a set of unqualified names (e.g. "Config")
           for resolving forward-reference strings.
     """
     public_type_ids: set[int] = set()
     public_type_names: set[str] = set()
+    pending_types: list[tuple[str, type]] = []
 
     for mod_name, mod in modules:
         all_symbols = getattr(mod, "__all__", None)
         if all_symbols is None:
             continue
         for sym_name in all_symbols:
-            obj = getattr(mod, sym_name, None)
+            obj = _lazy_getattr(mod, mod_name, sym_name)
             if obj is None:
                 continue
             if isinstance(obj, type):
-                public_type_ids.add(id(obj))
-                public_type_names.add(sym_name)
+                pending_types.append((sym_name, obj))
+
+    while pending_types:
+        type_name, public_type = pending_types.pop()
+        public_type_names.add(type_name)
+        if id(public_type) in public_type_ids:
+            continue
+        public_type_ids.add(id(public_type))
+        for attr_name in dir(public_type):
+            if attr_name.startswith("_"):
+                continue
+            try:
+                attr = getattr(public_type, attr_name)
+            except Exception:
+                continue
+            if isinstance(attr, type):
+                pending_types.append((attr_name, attr))
 
     return public_type_ids, public_type_names
+
+
+_UNRESOLVED_WARNED: set[str] = set()
+
+
+def _lazy_getattr(mod: types.ModuleType, mod_name: str, sym_name: str):
+    """``getattr`` that tolerates a lazy module attribute failing to resolve.
+
+    Modules with a lazy ``__getattr__`` import an
+    optional backend on first attribute access. When that backend is not
+    installed the access raises rather than returning ``None``; such a symbol
+    simply cannot be scanned, so it is reported once and skipped.
+    """
+    try:
+        return getattr(mod, sym_name, None)
+    except Exception as exc:  # noqa: BLE001 - any import-time failure
+        qualified = f"{mod_name}.{sym_name}"
+        if qualified not in _UNRESOLVED_WARNED:
+            _UNRESOLVED_WARNED.add(qualified)
+            print(f"WARNING: could not resolve {qualified}: {exc}", file=sys.stderr)
+        return None
 
 
 def _check_annotation(
@@ -373,7 +411,7 @@ def scan() -> list[Violation]:
             continue  # only check modules that declare __all__
 
         for sym_name in all_symbols:
-            obj = getattr(mod, sym_name, None)
+            obj = _lazy_getattr(mod, mod_name, sym_name)
             if obj is None:
                 continue
 
