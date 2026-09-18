@@ -318,23 +318,9 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("{instruction} must appear inside a SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
-    InstructionOutsideSelectBlock {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
     #[error("NOTLEAKED cannot reference a record produced by PEEK_LOSS")]
     #[diagnostic(code("Qdk.Stim.Compiler.NotLeakedOnPeekLoss"))]
     NotLeakedOnPeekLoss {
-        #[label]
-        span: Span,
-    },
-    #[error("all measurement records referenced by {instruction} are out of scope")]
-    #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
-    AllMeasurementRecordsOutOfScope {
-        instruction: String,
         #[label]
         span: Span,
     },
@@ -348,19 +334,13 @@ pub enum Error {
     },
 }
 
-#[derive(Clone, Copy)]
-enum Scope {
-    TopLevel,
-    Select { id: u32, first_record: ResultId },
-}
-
 struct IdMap {
     qubit_map: FxHashMap<StimQubitId, QubitId>,
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
     record_count: u32,                           // number of allocated measurement records
     peek_loss_record_ids: FxHashSet<u32>,        // record ids produced by PEEK_LOSS
-    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
-    next_scope_id: u32,      // used to generate unique ids for scopes
+    select_scope_ids: Vec<u32>,
+    next_scope_id: u32,
 }
 
 impl IdMap {
@@ -370,7 +350,7 @@ impl IdMap {
             name_counters: FxHashMap::default(),
             record_count: 0,
             peek_loss_record_ids: FxHashSet::default(),
-            scope_stack: Vec::new(),
+            select_scope_ids: Vec::new(),
             next_scope_id: 0,
         }
     }
@@ -382,28 +362,22 @@ impl IdMap {
         format!("{prefix}_{id}")
     }
 
-    fn enter_select_scope(&mut self) {
-        let id = self.next_scope_id;
-        self.scope_stack.push(Scope::Select {
-            id,
-            first_record: self.record_count,
-        });
+    fn enter_select_scope(&mut self) -> u32 {
+        let scope_id = self.next_scope_id;
+        self.select_scope_ids.push(scope_id);
         self.next_scope_id += 1;
+        scope_id
     }
 
     fn exit_select_scope(&mut self) {
-        self.scope_stack.pop();
+        self.select_scope_ids.pop();
     }
 
-    fn current_scope(&self) -> Scope {
-        self.scope_stack.last().copied().unwrap_or(Scope::TopLevel)
-    }
-
-    fn record_in_scope(&self, record_id: ResultId) -> bool {
-        let Scope::Select { first_record, .. } = self.current_scope() else {
-            return true;
-        };
-        record_id >= first_record
+    fn current_select_scope_id(&self) -> u32 {
+        self.select_scope_ids
+            .last()
+            .copied()
+            .expect("semantic lowering ensures this instruction is inside a SELECT block")
     }
 
     fn allocate_record(&mut self) -> ResultId {
@@ -422,8 +396,8 @@ impl IdMap {
     }
 }
 
-fn select_label(scope: u32) -> String {
-    format!("select_{scope}")
+fn select_label(scope_id: u32) -> String {
+    format!("select_{scope_id}")
 }
 
 struct CorrelatedRow {
@@ -606,10 +580,7 @@ impl<'noise> Compiler<'noise> {
                 }
             }
             semantic::Block::SelectBlock { body } => {
-                self.id_map.enter_select_scope();
-                let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
-                    unreachable!("select scope was just entered");
-                };
+                let scope_id = self.id_map.enter_select_scope();
 
                 let label = select_label(scope_id);
                 self.writer.write_jump(&label); // terminate the previous block
@@ -694,10 +665,10 @@ impl<'noise> Compiler<'noise> {
                 self.emit_optional_readout_noise(*readout_noise, result_id);
             }
             semantic::InstructionKind::Require { records } => {
-                self.compile_require(instruction.span, records);
+                self.compile_require(records);
             }
             semantic::InstructionKind::NotLeaked { records } => {
-                self.compile_not_leaked(instruction.span, records);
+                self.compile_not_leaked(records);
             }
             semantic::InstructionKind::Annotation(semantic::Annotation::MeasurementPadding {
                 ..
@@ -1279,22 +1250,12 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
-    fn compile_require(
-        &mut self,
-        instruction_span: Span,
-        records: &[semantic::NegatableMeasurementRecord],
-    ) {
-        let Some(scope_id) = self.expect_select_scope_id("REQUIRE", instruction_span) else {
-            return;
-        };
+    fn compile_require(&mut self, records: &[semantic::NegatableMeasurementRecord]) {
+        let scope_id = self.id_map.current_select_scope_id();
         let result_ids = records
             .iter()
             .map(|negatable_record| self.resolve_record(negatable_record.record))
             .collect::<Vec<_>>();
-
-        if !self.validate_record_scoping("REQUIRE", instruction_span, &result_ids) {
-            return;
-        }
 
         let mut loss_registers = Vec::new();
         let mut result_registers = Vec::new();
@@ -1316,21 +1277,12 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_label(&continue_label);
     }
 
-    fn compile_not_leaked(
-        &mut self,
-        instruction_span: Span,
-        records: &[semantic::MeasurementRecord],
-    ) {
-        let Some(scope_id) = self.expect_select_scope_id("NOTLEAKED", instruction_span) else {
-            return;
-        };
+    fn compile_not_leaked(&mut self, records: &[semantic::MeasurementRecord]) {
+        let scope_id = self.id_map.current_select_scope_id();
         let result_ids = records
             .iter()
             .map(|record| self.resolve_record(*record))
             .collect::<Vec<_>>();
-        if !self.validate_record_scoping("NOTLEAKED", instruction_span, &result_ids) {
-            return;
-        }
 
         let mut has_error = false;
         for (&result_id, record) in result_ids.iter().zip(records) {
@@ -1412,37 +1364,6 @@ impl<'noise> Compiler<'noise> {
 
     fn resolve_record(&self, record: semantic::MeasurementRecord) -> ResultId {
         self.id_map.record_count - record.offset
-    }
-
-    fn expect_select_scope_id(&mut self, instruction: &str, instruction_span: Span) -> Option<u32> {
-        let Scope::Select { id, .. } = self.id_map.current_scope() else {
-            self.push_error(Error::InstructionOutsideSelectBlock {
-                instruction: instruction.to_string(),
-                span: instruction_span,
-            });
-            return None;
-        };
-        Some(id)
-    }
-
-    fn validate_record_scoping(
-        &mut self,
-        instruction_name: &str,
-        instruction_span: Span,
-        result_ids: &[ResultId],
-    ) -> bool {
-        if result_ids
-            .iter()
-            .any(|&result_id| self.id_map.record_in_scope(result_id))
-        {
-            true
-        } else {
-            self.push_error(Error::AllMeasurementRecordsOutOfScope {
-                instruction: instruction_name.to_string(),
-                span: instruction_span,
-            });
-            false
-        }
     }
 
     fn unsupported(&mut self, instruction_name: &str, instruction_span: Span) {
