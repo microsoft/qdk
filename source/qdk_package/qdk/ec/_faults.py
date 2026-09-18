@@ -29,6 +29,9 @@ class FaultEvent:
     to combine their changes, including across calls. One event costs one in a
     distance search regardless of its weight. The representation is private;
     ``repr`` shows equivalent constructor expressions using call-local indexes.
+    ``str`` uses sparse Paulis and explicit call-local readouts, for example
+    ``X_0 after call 2`` and ``flip call 2 readout 0``. Parentheses group mixed
+    events and events spanning multiple calls.
 
     ``FaultEvent()`` is the identity event. The optional ``locations`` mapping
     constructs post-call Pauli errors, with the same call indexes as ``after``.
@@ -122,6 +125,24 @@ class FaultEvent:
                 for location, (error, flips) in sorted(self._locations.items())
             )
         )
+
+    def __str__(self) -> str:
+        parts = []
+        for location, (error, flips) in sorted(self._locations.items()):
+            changes = [f"{error:sparse,ascii} after call {location}"] if error.weight else []
+            if flips:
+                label = "readout" if len(flips) == 1 else "readouts"
+                changes.append(
+                    f"flip call {location} {label} {', '.join(map(str, sorted(flips)))}"
+                )
+            description = "; ".join(changes)
+            if len(changes) > 1:
+                description = f"({description})"
+            parts.append(description)
+        if not parts:
+            return "no fault"
+        description = "; ".join(parts)
+        return f"({description})" if len(parts) > 1 else description
 
     def __repr__(self) -> str:
         name = type(self).__name__

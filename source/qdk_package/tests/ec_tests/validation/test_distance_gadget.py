@@ -354,7 +354,7 @@ def test_readout_dependencies_are_reduced_once_for_all_faults(
         effects = profile.effects_of(faults)
     readout_matrix.zeros.assert_called_once_with(2, 2 + len(faults))
     assert [effect.readout_flips for effect in effects] == [{0, 1}, {0, 1}, set()]
-    assert profile.distance(faults=faults).value == 1
+    assert profile.distance(faults=faults).value is None
 
 
 @pytest.mark.parametrize("preserves_input", [False, True])
@@ -638,7 +638,7 @@ def test_distance_finds_combinations_and_returns_replayable_faults(
     assert profile.distance_bounds(faults=[]).lower_bound is None
 
 
-def test_flag_alone_is_not_a_logical_failure_or_a_detector(
+def test_flag_alone_is_not_a_logical_failure(
     rep3_qodec: qc.Qodec,
 ) -> None:
     physical = rep3_qodec.layers[1].instruction_set
@@ -651,25 +651,91 @@ def test_flag_alone_is_not_a_logical_failure_or_a_detector(
     )
     assert GadgetProfile(flag_only).distance(faults=[fault]).lower_bound is None
     assert GadgetProfile(flag_only).distance_bounds(faults=[fault]).lower_bound is None
+
+
+def _flagged_measurement_gadget(physical: qc.InstructionSet) -> qc.Gadget:
     base = _measurement_gadget(physical, 1)
-    measurement = qc.Gadget(
+    return qc.Gadget(
         qc.Instruction(
             "measure",
             inputs=list(base.implements.inputs),
-            flags=["reject"],
+            flags=["reject_first", "reject_second"],
             action=[qc.actions.Observe(["Z_0"])],
         ),
-        base.circuit,
+        qc.gadgets.Circuit(
+            physical,
+            "- R: [1]\n- R: [2]\n- idle: [0]\n- M: [0]\n- M: [1]\n- M: [2]",
+            format="yaml",
+        ),
         inputs=base.inputs,
-        readouts=[["circuit.readouts[0]"], {"reject": ["circuit.readouts[0]"]}],
+        readouts=[
+            ["circuit.readouts[0]", "in[0].z[0]"],
+            {"reject_first": ["circuit.readouts[1]"]},
+            {"reject_second": ["circuit.readouts[2]"]},
+        ],
     )
-    distance = GadgetProfile(measurement).distance(faults=[fault])
-    assert distance == 1
-    assert distance.witness.factors == (fault,)
-    measurement.checks = [["circuit.readouts[0]"]]
-    assert GadgetProfile(measurement).distance(faults=[fault]).lower_bound is None
-    measurement.checks = [["readouts[1]"]]
-    assert GadgetProfile(measurement).distance(faults=[fault]).lower_bound is None
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_distance_requires_each_flag_zero_in_the_combined_fault(
+    rep3_qodec: qc.Qodec, method: str
+) -> None:
+    gadget = _flagged_measurement_gadget(rep3_qodec.layers[1].instruction_set)
+    profile = GadgetProfile(gadget)
+    search = getattr(profile, method)
+    logical_fault = FaultEvent.after(2, Pauli("X_0 X_1 X_2"))
+    first_mask = FaultEvent.after(4, readout_flips=0)
+    second_mask = FaultEvent.after(5, readout_flips=0)
+    faults = [logical_fault, first_mask, second_mask]
+    (effect,) = profile.effects_of([logical_fault])
+    assert not effect.syndrome
+    assert effect.readout_flips == {0, 1, 2}
+    for incomplete in ([logical_fault], faults[:2], [logical_fault, second_mask]):
+        assert search(faults=incomplete, solver="enumeration").lower_bound is None
+
+    distance = search(faults=faults, solver="enumeration")
+
+    assert distance == 3
+    assert distance.witness.factors == tuple(faults)
+    for witness in distance.witnesses:
+        (combined,) = profile.effects_of([witness.product])
+        assert not combined.syndrome
+        assert combined.readout_flips == {0}
+    assert not gadget.checks
+    assert search(faults=[distance.witness.product], solver="enumeration") == 1
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_distance_allows_two_faults_to_cancel_flags(
+    rep3_qodec: qc.Qodec, method: str
+) -> None:
+    gadget = _flagged_measurement_gadget(rep3_qodec.layers[1].instruction_set)
+    profile = GadgetProfile(gadget)
+    faults = [
+        FaultEvent.after(2, Pauli("X_0 X_1 X_2")),
+        FaultEvent.after(2, Pauli("X_1 X_2")),
+    ]
+    assert all({1, 2} <= effect.readout_flips for effect in profile.effects_of(faults))
+
+    distance = getattr(profile, method)(faults=faults, solver="enumeration")
+
+    assert distance == 2
+    (combined,) = profile.effects_of([distance.witness.product])
+    assert combined.readout_flips == {0}
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+@pytest.mark.parametrize("bound_flags", [0, 1])
+def test_distance_requires_all_flag_equations_even_without_faults(
+    rep3_qodec: qc.Qodec, method: str, bound_flags: int
+) -> None:
+    gadget = _flagged_measurement_gadget(rep3_qodec.layers[1].instruction_set)
+    gadget.readouts = [
+        list(readout.equation) for readout in gadget.readouts[: 1 + bound_flags]
+    ]
+
+    with pytest.raises(ValueError, match="every flag readout to be bound"):
+        getattr(GadgetProfile(gadget), method)(faults=[], solver="enumeration")
 
 
 def test_output_codespace_is_required_without_adding_declared_checks(
@@ -802,8 +868,8 @@ def test_readout_dependencies_are_solved_for_fault_effects(
     (effect,) = GadgetProfile(gadget).effects_of([fault])
     assert effect.readout_flips == {0, 1}
     distance = GadgetProfile(gadget).distance(faults=[fault])
-    assert distance == 1
-    assert distance.witness.factors == (fault,)
+    assert distance.value is None
+    assert GadgetProfile(gadget).distance_bounds(faults=[fault]).value is None
     gadget.readouts = [["readouts[0]"], []]
     for method in ("distance", "distance_bounds"):
         with pytest.raises(ValueError, match="uniquely determine"):

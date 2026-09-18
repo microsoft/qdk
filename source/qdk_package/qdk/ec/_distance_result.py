@@ -175,6 +175,8 @@ class Distance(Generic[Factor]):
         Factors are ordered for multiplication. Equality and hashing use that
         ordered tuple, not just the product. Neither proves minimality.
         Returned factors and products are copies of the retained snapshot.
+        ``str`` joins the readable factors with semicolons, without repeating
+        the product; an empty selection is displayed as ``1``.
         """
 
         _factors: tuple[WitnessFactor, ...]
@@ -210,10 +212,7 @@ class Distance(Generic[Factor]):
             return self._copy(self._product)
 
         def __str__(self) -> str:
-            factors = " * ".join(map(str, self._factors)) or "1"
-            count = len(self._factors)
-            label = "factor" if count == 1 else "factors"
-            return f"{count} {label}: {factors} = {self._product}"
+            return "; ".join(map(str, self._factors)) or "1"
 
         def __repr__(self) -> str:
             return f"Distance.Witness(factors={self._factors!r})"

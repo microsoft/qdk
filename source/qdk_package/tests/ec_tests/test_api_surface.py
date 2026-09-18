@@ -166,6 +166,41 @@ def test_fault_event_repr_is_replayable() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "event, expected",
+    [
+        (ec.FaultEvent(), "no fault"),
+        (ec.FaultEvent.after(2, ec.Pauli("X_0")), "X_0 after call 2"),
+        (ec.FaultEvent.after(2, ec.Pauli("X_0 Z_3")), "X_0 Z_3 after call 2"),
+        (ec.FaultEvent.after(2, ec.Pauli("-Y_2")), "-Y_2 after call 2"),
+        (ec.FaultEvent.after(2, readout_flips=0), "flip call 2 readout 0"),
+        (
+            ec.FaultEvent.after(2, readout_flips=[3, 0]),
+            "flip call 2 readouts 0, 3",
+        ),
+        (
+            ec.FaultEvent.after(2, ec.Pauli("X_0"), readout_flips=0),
+            "(X_0 after call 2; flip call 2 readout 0)",
+        ),
+        (
+            ec.FaultEvent.after(7, readout_flips=0)
+            * ec.FaultEvent.after(2, ec.Pauli("X_0")),
+            "(X_0 after call 2; flip call 7 readout 0)",
+        ),
+        (
+            ec.FaultEvent.after(2, ec.Pauli("X_0"))
+            * ec.FaultEvent.after(2, ec.Pauli("X_0")),
+            "no fault",
+        ),
+    ],
+)
+def test_fault_event_str_describes_pauli_errors_and_call_local_readouts(
+    event: ec.FaultEvent, expected: str
+) -> None:
+    assert str(event) == expected
+    assert f"{event}" == expected
+
+
 def test_code_profile_contract() -> None:
     import qodec as qc
 

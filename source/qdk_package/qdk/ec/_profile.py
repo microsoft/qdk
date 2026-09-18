@@ -134,7 +134,8 @@ class GadgetProfile:
         Incoming signs have zero change for circuit-internal faults.
         FaultEvent.after(..., readout_flips=...) indexes the selected call's
         own readouts, starting at zero, whereas
-        FaultEffect.readout_flips indexes the gadget's declared logical readouts.
+        FaultEffect.readout_flips indexes the gadget's declared readouts,
+        including logical measurements and flags.
         Recorded-bit flips do not themselves change the surviving quantum state.
         Invalid references or ambiguous readouts raise ValueError.
         Conditional/selected calls and circuit instruction flags are unsupported.
@@ -150,7 +151,7 @@ class GadgetProfile:
         upper_bound: int | None = None,
         solver: ExactSolver | None = None,
     ) -> Distance[FaultEvent]:
-        """Return the smallest undetected fault count and its fault factors.
+        """Minimum fault count causing logical failure with all checks and flags zero.
 
         By default, allow every combination of a post-call Pauli on a call's
         qubits and flips of its recorded readout bits, except the identity event.
@@ -162,16 +163,17 @@ class GadgetProfile:
         Pass an explicit sequence to replace that fault set, including [].
         An explicit event may span several call positions and still costs one.
 
-        Detected means a nonzero declared check syndrome. The combined fault
-        must also commute with every output-code stabilizer: a nonzero output
+        The combined fault must leave every declared check and flag zero and
+        commute with every output-code stabilizer: a nonzero output
         syndrome is not a logical error. Failure means changing the realized
         logical action: its prepared-state stabilizers, preserved logical
         mappings, or logical measurement signs. A logical Z on a prepared
         logical zero is harmless. Output errors and measurement-dependent
         signs are evaluated together and may cancel. Individual factors may leave
         the codespace as long as their combined output syndromes cancel.
-        This constraint does not add declared checks or alter FaultEffect.syndrome.
-        Flags are not automatically detectors or failures. A bare circuit
+        These constraints do not add declared checks or alter FaultEffect.syndrome.
+        Individual factors may raise flags as long as their combined flag flips
+        cancel. A flag alone is not a logical failure. A bare circuit
         uses its discovered checks and identity encodings on the qubits it
         does not prepare. No decoder or additional output recovery is assumed.
 
@@ -179,7 +181,7 @@ class GadgetProfile:
         through its output encodings. Audit noiseless validity separately with
         ec.audit(protocol). Distance retains only calculation preconditions;
         the action must be interpretable against the boundary codes, and
-        declared but unbound logical readouts cannot silently be ignored.
+        declared but unbound logical readouts or flags cannot silently be ignored.
 
         The result's witness contains the selected factors and their product.
         Replay the combined fault with effects_of([result.witness.product]).
@@ -189,7 +191,7 @@ class GadgetProfile:
         or an open bound gap raises RuntimeError rather than claiming exactness.
         FaultEvent.after selects a zero-based Circuit.calls index; its readout
         indexes are local to that call, excluding hidden reset outcomes.
-        Invalid indices, references, or unbound logical readouts raise ValueError. Propagation
+        Invalid indices, references, or unbound readouts raise ValueError. Propagation
         restrictions are the same as for effects_of. The fault set grows
         exponentially with call support; exact search is also combinatorial.
         """
@@ -216,7 +218,8 @@ class GadgetProfile:
     ) -> Distance[FaultEvent]:
         """Bound the undetected fault count and return an upper-bound witness.
 
-        Faults, detection, and failure have the same meaning as in distance.
+        Faults and failure have the same meaning as in distance, with all checks
+        and flags zero for the combined fault.
         Select solver="mwpf" (the default), "enumeration", or "highs".
         HiGHS requires qdk[ec,ec-highs]. Enumeration and HiGHS searches use
         upper_bound as a search cutoff; MWPF does not use it. An upper bound of
@@ -256,7 +259,17 @@ class GadgetProfile:
                 "distance requires every logical measurement readout to be bound"
             )
         observables = self._fault_probes if allowed else FrameGroup(())
+        flag_positions = frozenset()
         if isinstance(self._target, qc.Gadget):
+            if len(self._target.readouts) < observable_count + len(
+                self._target.implements.flags
+            ):
+                raise ValueError("distance requires every flag readout to be bound")
+            flag_positions = frozenset(
+                position
+                for position, readout in enumerate(self._target.readouts)
+                if readout.is_flag
+            )
             effects, output_syndromes, indicators = _gadget_fault_data(
                 self._target, allowed, observables=observables
             )
@@ -265,7 +278,9 @@ class GadgetProfile:
                 allowed, observables=observables
             )
             output_syndromes = tuple(frozenset() for _ in allowed)
-        return _FaultDistanceData.of(allowed, effects, output_syndromes, indicators)
+        return _FaultDistanceData.of(
+            allowed, effects, output_syndromes, indicators, flag_positions=flag_positions
+        )
 
     @cached_property
     def _fault_probes(self) -> FrameGroup:
