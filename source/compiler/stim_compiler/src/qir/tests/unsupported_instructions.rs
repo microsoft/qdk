@@ -3,6 +3,41 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
+
+#[test]
+fn mpad_yields_unsupported_error() {
+    let source = "MPAD 0 1";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnsupportedInstruction
+
+          x unsupported instruction: MPAD
+           ,----
+         1 | MPAD 0 1
+           : ^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn other_annotations_are_ignored() {
+    let source = indoc! {"
+    DETECTOR
+    OBSERVABLE_INCLUDE(0)
+    QUBIT_COORDS(0, 0) 0
+    SHIFT_COORDS(1, 1)
+    TICK
+  "};
+    check(
+        source,
+        &expect![[r#"
+        required_num_qubits: 0
+        required_num_results: 0"#]],
+    );
+}
 
 #[test]
 fn heralded_erase_yields_unsupported_error() {

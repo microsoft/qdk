@@ -83,7 +83,7 @@ fn mxx_with_invalid_readout_noise_yields_error() {
     check(
         "MXX(1.1) 0 1",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for MXX must be between 0 and 1; found 1.1
                ,----
@@ -95,7 +95,7 @@ fn mxx_with_invalid_readout_noise_yields_error() {
     check(
         "MXX(-0.1) 0 1",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for MXX must be between 0 and 1; found -0.1
                ,----
@@ -111,14 +111,14 @@ fn mxx_with_readout_noise_in_radians_yields_error() {
     check(
         "MXX(0.1rad) 0 1",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnexpectedRadians
+            Qdk.Stim.Semantic.UnexpectedRadians
 
-          x argument for MXX cannot be specified in radians
-           ,----
-         1 | MXX(0.1rad) 0 1
-           :     ^^^^^^
-           `----
-    "#]],
+              x argument for MXX cannot be specified in radians
+               ,----
+             1 | MXX(0.1rad) 0 1
+               :     ^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -127,14 +127,14 @@ fn mxx_measurement_with_repeated_qubit_yields_error() {
     check(
         "MXX 0 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.RepeatedQubit
+            Qdk.Stim.Semantic.RepeatedQubit
 
-          x qubit 0 is repeated in instruction: MXX
-           ,----
-         1 | MXX 0 0
-           :       ^
-           `----
-    "#]],
+              x qubit 0 is repeated in instruction: MXX
+               ,----
+             1 | MXX 0 0
+               :       ^
+               `----
+        "#]],
     );
 }
 

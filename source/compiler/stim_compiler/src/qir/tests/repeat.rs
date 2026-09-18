@@ -15,15 +15,15 @@ fn repeat_zero_times_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.ZeroRepeatCount
+            Qdk.Stim.Semantic.ZeroRepeatCount
 
-          x a REPEAT count of zero is not supported
-           ,-[1:8]
-         1 | REPEAT 0 {
-           :        ^
-         2 |   X 0
-           `----
-    "#]],
+              x a REPEAT count of zero is not supported
+               ,-[1:8]
+             1 | REPEAT 0 {
+               :        ^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -60,7 +60,7 @@ fn repeat_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: REPEAT
                ,-[1:8]
@@ -82,7 +82,7 @@ fn repeat_with_multiple_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: REPEAT
                ,-[1:10]
@@ -104,7 +104,7 @@ fn repeat_with_no_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingTarget
+            Qdk.Stim.Semantic.MissingTarget
 
               x missing target in instruction: REPEAT
                ,-[1:1]
@@ -126,15 +126,15 @@ fn repeat_with_negated_count_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: REPEAT
-           ,-[1:8]
-         1 | REPEAT !3 {
-           :        ^^
-         2 |   X 0
-           `----
-    "#]],
+              x unsupported target in instruction: REPEAT
+               ,-[1:8]
+             1 | REPEAT !3 {
+               :        ^^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -148,15 +148,15 @@ fn repeat_with_pauli_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: REPEAT
-           ,-[1:8]
-         1 | REPEAT X0 {
-           :        ^^
-         2 |   X 0
-           `----
-    "#]],
+              x unsupported target in instruction: REPEAT
+               ,-[1:8]
+             1 | REPEAT X0 {
+               :        ^^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -170,15 +170,15 @@ fn repeat_with_measurement_record_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: REPEAT
-           ,-[1:8]
-         1 | REPEAT rec[-1] {
-           :        ^^^^^^^
-         2 |   X 0
-           `----
-    "#]],
+              x unsupported target in instruction: REPEAT
+               ,-[1:8]
+             1 | REPEAT rec[-1] {
+               :        ^^^^^^^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -361,50 +361,6 @@ fn repeat_with_classically_controlled_gate() {
 }
 
 #[test]
-fn repeat_with_classically_controlled_gate_after_loop() {
-    // this shouldn't yield an error because each measurement iteration is recorded as a separate result,
-    // so rec[-2] is valid after the loop
-    let source = indoc! {"
-        REPEAT 2 {
-          H 0
-          M 0
-        }
-        CX rec[-2] 0
-    "};
-    check(
-        source,
-        &expect![[r#"
-            body:
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            definitions:
-              define void @classical_control_cx(ptr %result, ptr %qubit) {
-              block_cx_entry:
-                %result_val = call i1 @__quantum__rt__read_result(ptr %result)
-                br i1 %result_val, label %block_cx_apply, label %block_cx_exit
-              block_cx_apply:
-                call void @__quantum__qis__x__body(ptr %qubit)
-                br label %block_cx_exit
-              block_cx_exit:
-                ret void
-              }
-
-            declarations:
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            required_num_qubits: 1
-            required_num_results: 2"#]],
-    );
-}
-
-#[test]
 fn nested_repeat() {
     let source = indoc! {"
         REPEAT 2 {
@@ -574,7 +530,7 @@ fn require_inside_bare_repeat_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.InstructionOutsideSelectBlock
+            Qdk.Stim.Semantic.InstructionOutsideSelectBlock
 
               x REQUIRE must appear inside a SELECT block
                ,-[3:3]

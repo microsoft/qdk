@@ -80,7 +80,7 @@ fn m_gate_with_invalid_readout_noise_yields_error() {
     check(
         "M(1.1) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for M must be between 0 and 1; found 1.1
                ,----
@@ -93,7 +93,7 @@ fn m_gate_with_invalid_readout_noise_yields_error() {
     check(
         "M(-0.1) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for M must be between 0 and 1; found -0.1
                ,----
@@ -109,14 +109,14 @@ fn m_gate_with_readout_noise_in_radians_yields_error() {
     check(
         "M(0.1rad) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnexpectedRadians
+            Qdk.Stim.Semantic.UnexpectedRadians
 
-          x argument for M cannot be specified in radians
-           ,----
-         1 | M(0.1rad) 0
-           :   ^^^^^^
-           `----
-    "#]],
+              x argument for M cannot be specified in radians
+               ,----
+             1 | M(0.1rad) 0
+               :   ^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -125,7 +125,7 @@ fn m_gate_with_two_args_yields_error() {
     check(
         "M(0.1, 0.2) 0",
         &expect![[r#"
-            Qdk.Stim.Compiler.TooManyArgs
+            Qdk.Stim.Semantic.TooManyArgs
 
               x too many arguments for instruction M; expected 1, found 2
                ,----

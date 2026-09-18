@@ -21,7 +21,6 @@ use qsc_data_structures::{
 use std::{fmt::Display, iter::Peekable, num::IntErrorKind, str::FromStr};
 use thiserror::Error;
 
-#[derive(Debug)]
 pub struct Circuit {
     pub span: Span,
     pub items: Vec<Item>,
@@ -34,36 +33,23 @@ impl Display for Circuit {
     }
 }
 
-#[derive(Debug)]
 pub enum Item {
-    Line(Line),
+    Instruction(Instruction),
     Block(Block),
 }
 
 impl Display for Item {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Item::Line(line) => write!(f, "{line}"),
+            Item::Instruction(instruction) => write!(f, "{instruction}"),
             Item::Block(block) => write!(f, "{block}"),
         }
     }
 }
 
-#[derive(Debug)]
-pub struct Line {
-    pub instruction: Instruction,
-}
-
-impl Display for Line {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.instruction.fmt(f)
-    }
-}
-
-#[derive(Debug)]
 pub struct Block {
     pub span: Span,
-    pub block_instruction: Instruction, // currently, only the "REPEAT" instruction is supported
+    pub block_instruction: Instruction,
     pub items: Vec<Item>,
 }
 
@@ -75,7 +61,6 @@ impl Display for Block {
     }
 }
 
-#[derive(Debug)]
 pub struct Instruction {
     pub span: Span,
     pub name: String,
@@ -94,7 +79,7 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Arg {
     pub span: Span,
     pub value: ArgValue,
@@ -114,7 +99,7 @@ pub fn args_span(args: &[Arg]) -> Span {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum ArgValue {
     Default(f64),
     Radians(f64),
@@ -129,7 +114,6 @@ impl Display for ArgValue {
     }
 }
 
-#[derive(Debug)]
 pub struct Target {
     pub span: Span,
     pub kind: TargetKind,
@@ -142,7 +126,6 @@ impl Display for Target {
     }
 }
 
-#[derive(Debug)]
 pub enum TargetKind {
     Qubit { negated: bool, value: u32 },
     MeasurementRecord { negated: bool, value: u32 },
@@ -186,7 +169,7 @@ impl Display for TargetKind {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Pauli {
     X,
     Y,
@@ -194,6 +177,14 @@ pub enum Pauli {
 }
 
 impl Pauli {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Z => "Z",
+        }
+    }
+
     /// Multiplies two Paulis acting on the same qubit. Returns the resulting Pauli (`None` when
     /// they cancel to the identity) and the exponent `k` of the accompanying phase `i^k`.
     pub fn multiply(self, other: Pauli) -> (Option<Pauli>, u8) {
@@ -211,12 +202,8 @@ impl Pauli {
 }
 
 impl Display for Pauli {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Pauli::X => write!(f, "X"),
-            Pauli::Y => write!(f, "Y"),
-            Pauli::Z => write!(f, "Z"),
-        }
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
     }
 }
 
@@ -233,7 +220,7 @@ impl FromStr for Pauli {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct PauliTarget {
     pub negated: bool,
     pub pauli: Pauli,
@@ -306,12 +293,6 @@ pub enum Error {
     #[error("input is too large; Stim programs must be smaller than 4 GiB")]
     #[diagnostic(code("Qdk.Stim.Parser.InputTooLarge"))]
     InputTooLarge,
-}
-
-pub fn parse(input: &str) -> (Circuit, Vec<Error>) {
-    let mut parser = Parser::new(input);
-    let circuit = parser.parse();
-    (circuit, parser.errors)
 }
 
 struct Parser<'a> {
@@ -428,7 +409,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Circuit {
+    pub fn parse_circuit(&mut self) -> Circuit {
         let mut items = Vec::new();
 
         while self.peek().is_some() {
@@ -471,7 +452,8 @@ impl<'a> Parser<'a> {
                 return Some(Item::Block(self.parse_block(instruction)?));
             }
 
-            Some(Item::Line(self.parse_line(instruction)?))
+            self.expect_line_end()?;
+            Some(Item::Instruction(instruction))
         } else {
             self.emit_error(Error::ExpectedToken {
                 expected: TokenKind::InstructionName,
@@ -504,11 +486,6 @@ impl<'a> Parser<'a> {
             block_instruction: instruction,
             items,
         })
-    }
-
-    fn parse_line(&mut self, instruction: Instruction) -> Option<Line> {
-        self.expect_line_end()?;
-        Some(Line { instruction })
     }
 
     fn parse_instruction(&mut self) -> Option<Instruction> {
@@ -784,4 +761,10 @@ impl<'a> Parser<'a> {
     fn extract_string(&self, source_span: Span) -> String {
         self.slice_input(source_span).to_string()
     }
+}
+
+pub fn parse(input: &str) -> (Circuit, Vec<Error>) {
+    let mut parser = Parser::new(input);
+    let circuit = parser.parse_circuit();
+    (circuit, parser.errors)
 }

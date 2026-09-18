@@ -435,14 +435,14 @@ fn mpp_product_folding_to_identity_yields_error() {
     check(
         "MPP X0*X0",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: MPP
-           ,----
-         1 | MPP X0*X0
-           :     ^^^^^
-           `----
-    "#]],
+              x unsupported target in instruction: MPP
+               ,----
+             1 | MPP X0*X0
+               :     ^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -452,7 +452,7 @@ fn mpp_product_with_imaginary_phase_yields_anti_hermitian_error() {
     check(
         "MPP X0*Y0",
         &expect![[r#"
-            Qdk.Stim.Compiler.AntiHermitianPauliProduct
+            Qdk.Stim.Semantic.AntiHermitianPauliProduct
 
               x Pauli product must be Hermitian
                ,----
@@ -468,14 +468,14 @@ fn mpp_with_qubit_target_yields_unsupported_target_error() {
     check(
         "MPP 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: MPP
-           ,----
-         1 | MPP 0
-           :     ^
-           `----
-    "#]],
+              x unsupported target in instruction: MPP
+               ,----
+             1 | MPP 0
+               :     ^
+               `----
+        "#]],
     );
 }
 
@@ -488,15 +488,15 @@ fn mpp_with_measurement_record_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: MPP
-           ,-[2:5]
-         1 | M 0
-         2 | MPP rec[-1]
-           :     ^^^^^^^
-           `----
-    "#]],
+              x unsupported target in instruction: MPP
+               ,-[2:5]
+             1 | M 0
+             2 | MPP rec[-1]
+               :     ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -505,14 +505,14 @@ fn mpp_with_loss_target_yields_unsupported_target_error() {
     check(
         "MPP L0",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: MPP
-           ,----
-         1 | MPP L0
-           :     ^^
-           `----
-    "#]],
+              x unsupported target in instruction: MPP
+               ,----
+             1 | MPP L0
+               :     ^^
+               `----
+        "#]],
     );
 }
 
@@ -543,7 +543,7 @@ fn mpp_with_invalid_readout_noise_yields_error() {
     check(
         "MPP(1.1) Z1*Z2",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for MPP must be between 0 and 1; found 1.1
                ,----
@@ -555,7 +555,7 @@ fn mpp_with_invalid_readout_noise_yields_error() {
     check(
         "MPP(-0.1) Z1*Z2",
         &expect![[r#"
-            Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Semantic.InvalidProbability
 
               x probability for MPP must be between 0 and 1; found -0.1
                ,----
@@ -571,14 +571,14 @@ fn mpp_with_readout_noise_in_radians_yields_error() {
     check(
         "MPP(0.01rad) Z1*Z2",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnexpectedRadians
+            Qdk.Stim.Semantic.UnexpectedRadians
 
-          x argument for MPP cannot be specified in radians
-           ,----
-         1 | MPP(0.01rad) Z1*Z2
-           :     ^^^^^^^
-           `----
-    "#]],
+              x argument for MPP cannot be specified in radians
+               ,----
+             1 | MPP(0.01rad) Z1*Z2
+               :     ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -788,7 +788,7 @@ fn spp_anti_hermitian_product_yields_error() {
     check(
         "SPP X0*Y0",
         &expect![[r#"
-            Qdk.Stim.Compiler.AntiHermitianPauliProduct
+            Qdk.Stim.Semantic.AntiHermitianPauliProduct
 
               x Pauli product must be Hermitian
                ,----
@@ -804,7 +804,7 @@ fn spp_with_argument_yields_error() {
     check(
         "SPP(0.001) Z0",
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: SPP
                ,----

@@ -237,7 +237,7 @@ fn select_block_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: SELECT
                ,-[1:8]
@@ -260,7 +260,7 @@ fn select_block_with_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: SELECT
                ,-[1:8]
@@ -346,7 +346,7 @@ fn require_with_integer_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: REQUIRE
                ,-[3:11]
@@ -370,7 +370,7 @@ fn require_with_pauli_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: REQUIRE
                ,-[3:11]
@@ -394,7 +394,7 @@ fn require_with_no_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingTarget
+            Qdk.Stim.Semantic.MissingTarget
 
               x missing target in instruction: REQUIRE
                ,-[3:3]
@@ -409,15 +409,19 @@ fn require_with_no_targets_yields_error() {
 
 #[test]
 fn require_no_select_block_yields_error() {
-    let source = "REQUIRE rec[-1]";
+    let source = indoc! {"
+    M 0
+    REQUIRE rec[-1]
+  "};
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.InstructionOutsideSelectBlock
+            Qdk.Stim.Semantic.InstructionOutsideSelectBlock
 
               x REQUIRE must appear inside a SELECT block
-               ,----
-             1 | REQUIRE rec[-1]
+               ,-[2:1]
+             1 | M 0
+             2 | REQUIRE rec[-1]
                : ^^^^^^^^^^^^^^^
                `----
         "#]],
@@ -436,7 +440,7 @@ fn require_before_measurement_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
               x all measurement records referenced by REQUIRE are out of scope
                ,-[3:3]
@@ -444,30 +448,6 @@ fn require_before_measurement_yields_error() {
              3 |   REQUIRE rec[-1]
                :   ^^^^^^^^^^^^^^^
              4 |   M 1
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn rec_index_out_of_bounds() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE rec[-2]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[3:11]
-             2 |   M 0
-             3 |   REQUIRE rec[-2]
-               :           ^^^^^^^
-             4 | }
                `----
         "#]],
     );
@@ -485,7 +465,7 @@ fn all_measurement_records_out_of_scope() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
               x all measurement records referenced by REQUIRE are out of scope
                ,-[4:3]
@@ -532,31 +512,6 @@ fn require_with_at_least_one_record_in_scope() {
 
             required_num_qubits: 2
             required_num_results: 2"#]],
-    );
-}
-
-#[test]
-fn reset_does_not_count_as_measurement() {
-    // R does not produce a measurement record, so rec[-1] should be out of bounds.
-    let source = indoc! {"
-        SELECT {
-          R 0
-          REQUIRE rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[3:11]
-             2 |   R 0
-             3 |   REQUIRE rec[-1]
-               :           ^^^^^^^
-             4 | }
-               `----
-        "#]],
     );
 }
 
@@ -623,32 +578,6 @@ fn pair_measurement_record_in_select() {
 
             required_num_qubits: 2
             required_num_results: 1"#]],
-    );
-}
-
-#[test]
-fn pair_measurement_record_in_select_out_of_bounds() {
-    // A two-qubit measurement produces a single measurement record.
-    // So this should not be valid
-    let source = indoc! {"
-        SELECT {
-          MZZ 0 1
-          REQUIRE rec[-1] rec[-2]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[3:19]
-             2 |   MZZ 0 1
-             3 |   REQUIRE rec[-1] rec[-2]
-               :                   ^^^^^^^
-             4 | }
-               `----
-        "#]],
     );
 }
 
@@ -837,7 +766,7 @@ fn all_inner_selects_recs_out_of_scope() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
               x all measurement records referenced by REQUIRE are out of scope
                ,-[4:5]
@@ -907,7 +836,7 @@ fn all_sibling_select_block_recs_out_of_scope() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
               x all measurement records referenced by REQUIRE are out of scope
                ,-[6:3]
@@ -935,16 +864,16 @@ fn require_with_multiple_records_out_of_scope() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
-          x all measurement records referenced by REQUIRE are out of scope
-           ,-[7:3]
-         6 |   M 2
-         7 |   REQUIRE rec[-2] rec[-3]
-           :   ^^^^^^^^^^^^^^^^^^^^^^^
-         8 | }
-           `----
-    "#]],
+              x all measurement records referenced by REQUIRE are out of scope
+               ,-[7:3]
+             6 |   M 2
+             7 |   REQUIRE rec[-2] rec[-3]
+               :   ^^^^^^^^^^^^^^^^^^^^^^^
+             8 | }
+               `----
+        "#]],
     );
 }
 
@@ -958,7 +887,7 @@ fn blockless_select_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.InstructionWithoutBlock
+            Qdk.Stim.Semantic.InstructionWithoutBlock
 
               x SELECT instruction must start a block
                ,-[2:1]
@@ -982,7 +911,7 @@ fn require_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: REQUIRE
                ,-[3:11]
@@ -1110,7 +1039,7 @@ fn notleaked_with_negated_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Semantic.NegatedTarget
 
               x target cannot be negated in instruction: NOTLEAKED
                ,-[3:13]
@@ -1166,16 +1095,16 @@ fn notleaked_with_integer_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: NOTLEAKED
-           ,-[3:13]
-         2 |   M 0
-         3 |   NOTLEAKED 0
-           :             ^
-         4 | }
-           `----
-    "#]],
+              x unsupported target in instruction: NOTLEAKED
+               ,-[3:13]
+             2 |   M 0
+             3 |   NOTLEAKED 0
+               :             ^
+             4 | }
+               `----
+        "#]],
     );
 }
 
@@ -1190,16 +1119,16 @@ fn notleaked_with_pauli_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: NOTLEAKED
-           ,-[3:13]
-         2 |   M 0
-         3 |   NOTLEAKED X0
-           :             ^^
-         4 | }
-           `----
-    "#]],
+              x unsupported target in instruction: NOTLEAKED
+               ,-[3:13]
+             2 |   M 0
+             3 |   NOTLEAKED X0
+               :             ^^
+             4 | }
+               `----
+        "#]],
     );
 }
 
@@ -1214,57 +1143,37 @@ fn notleaked_with_no_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.MissingTarget
+            Qdk.Stim.Semantic.MissingTarget
 
-          x missing target in instruction: NOTLEAKED
-           ,-[3:3]
-         2 |   M 0
-         3 |   NOTLEAKED
-           :   ^^^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x missing target in instruction: NOTLEAKED
+               ,-[3:3]
+             2 |   M 0
+             3 |   NOTLEAKED
+               :   ^^^^^^^^^
+             4 | }
+               `----
+        "#]],
     );
 }
 
 #[test]
 fn notleaked_no_select_block_yields_error() {
-    let source = "NOTLEAKED rec[-1]";
-    check(
-        source,
-        &expect![[r#"
-        Qdk.Stim.Compiler.InstructionOutsideSelectBlock
-
-          x NOTLEAKED must appear inside a SELECT block
-           ,----
-         1 | NOTLEAKED rec[-1]
-           : ^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
-    );
-}
-
-#[test]
-fn notleaked_rec_index_out_of_bounds() {
     let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED rec[-2]
-        }
-    "};
+    M 0
+    NOTLEAKED rec[-1]
+  "};
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Semantic.InstructionOutsideSelectBlock
 
-          x measurement record is out of bounds
-           ,-[3:13]
-         2 |   M 0
-         3 |   NOTLEAKED rec[-2]
-           :             ^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x NOTLEAKED must appear inside a SELECT block
+               ,-[2:1]
+             1 | M 0
+             2 | NOTLEAKED rec[-1]
+               : ^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -1280,16 +1189,16 @@ fn notleaked_all_measurement_records_out_of_scope() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
-          x all measurement records referenced by NOTLEAKED are out of scope
-           ,-[4:3]
-         3 |   M 1
-         4 |   NOTLEAKED rec[-2]
-           :   ^^^^^^^^^^^^^^^^^
-         5 | }
-           `----
-    "#]],
+              x all measurement records referenced by NOTLEAKED are out of scope
+               ,-[4:3]
+             3 |   M 1
+             4 |   NOTLEAKED rec[-2]
+               :   ^^^^^^^^^^^^^^^^^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -1306,7 +1215,7 @@ fn notleaked_with_all_multiple_records_out_of_scope() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+            Qdk.Stim.Semantic.AllMeasurementRecordsOutOfScope
 
               x all measurement records referenced by NOTLEAKED are out of scope
                ,-[5:3]
@@ -1330,7 +1239,7 @@ fn notleaked_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: NOTLEAKED
                ,-[3:13]
