@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod broadcasting;
+
 use expect_test::Expect;
 use miette::Report;
 

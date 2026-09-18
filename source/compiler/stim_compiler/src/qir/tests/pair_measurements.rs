@@ -297,3 +297,20 @@ fn mzz_with_readout_noise_yields_correct_qir() {
             uses_noise: true"#]],
     );
 }
+
+#[test]
+fn mzz_with_odd_number_of_targets_yields_error() {
+    let source = "MZZ 0 1 2";
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Semantic.OddTargetCount
+
+              x instruction MZZ requires an even number of targets
+               ,----
+             1 | MZZ 0 1 2
+               : ^^^^^^^^^
+               `----
+        "#]],
+    );
+}
