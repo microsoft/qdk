@@ -259,16 +259,29 @@ fn repeats_append_expected_records() {
 }
 
 #[test]
-fn record_count_saturates_at_u32_max() {
-    let source = indoc! {"
-    REPEAT 4294967295 {
-      M 0 1
-    }
-    DETECTOR rec[-4294967295]
-  "};
-    let (circuit, parser_errors) = crate::parser::parse(source);
-    assert!(parser_errors.is_empty());
+fn record_count_overflow_yields_error() {
+    // UNDO THESE COMMENTS AFTER HANDLING REPEAT COUNTS CORRECTLY
+    // let direct_repeat = indoc! {"
+    //     REPEAT 18446744073709551615 {
+    //       M 0 1
+    //     }
+    // "};
+    // check(direct_repeat, &expect![[r#""#]]);
 
-    let (_, semantic_errors) = crate::semantic::lower(circuit);
-    assert!(semantic_errors.is_empty());
+    let nested_repeats = indoc! {"
+        REPEAT 4294967295 {
+          REPEAT 4294967295 {
+            M 0 1
+          }
+        }
+    "};
+    check(
+        nested_repeats,
+        &expect![[r#"
+        Qdk.Stim.Compiler.MeasurementRecordCounterOverflow
+
+          x the circuit exceeds the limit of 18,446,744,073,709,551,615 measurement
+          | records
+    "#]],
+    );
 }

@@ -570,6 +570,23 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("the circuit exceeds the limit of 18,446,744,073,709,551,615 measurement records")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordCounterOverflow"))]
+    MeasurementRecordCounterOverflow,
+    #[error("all measurement records referenced by {instruction} are out of scope")]
+    #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
+    AllMeasurementRecordsOutOfScope {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("{instruction} must appear inside a SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
+    InstructionOutsideSelectBlock {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("a REPEAT count of zero is not supported")]
     #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
     ZeroRepeatCount {
@@ -601,34 +618,97 @@ impl AllowedRecPosition {
     }
 }
 
+struct MeasurementRecordTracker {
+    count: u64,
+    select_starts: Vec<u64>,
+}
+
+impl MeasurementRecordTracker {
+    fn new() -> Self {
+        Self {
+            count: 0,
+            select_starts: Vec::new(),
+        }
+    }
+
+    fn try_increase_record_count(&mut self, count: usize) -> Option<u64> {
+        let updated_count = self.count.checked_add(count as u64)?;
+        self.count = updated_count;
+        Some(updated_count)
+    }
+
+    fn try_update_record_count_after_repeat(
+        &mut self,
+        count_before_repeat: u64,
+        repeat_count: u32,
+    ) -> Option<u64> {
+        let records_per_iteration = self.count - count_before_repeat;
+        let updated_count = records_per_iteration
+            .checked_mul(u64::from(repeat_count))
+            .and_then(|records| count_before_repeat.checked_add(records))?;
+        self.count = updated_count;
+        Some(updated_count)
+    }
+
+    fn is_offset_out_of_bounds(&self, offset: u32) -> bool {
+        self.count < u64::from(offset)
+    }
+
+    fn enter_select_scope(&mut self) {
+        self.select_starts.push(self.count);
+    }
+
+    fn exit_select_scope(&mut self) {
+        self.select_starts.pop();
+    }
+
+    fn has_active_select_scope(&self) -> bool {
+        !self.select_starts.is_empty()
+    }
+
+    fn is_offset_outside_current_select_scope(&self, offset: u32) -> bool {
+        let Some(&select_start) = self.select_starts.last() else {
+            return false;
+        };
+        let referenced_record = self.count - u64::from(offset); // already checked it's not out of bounds
+        referenced_record < select_start
+    }
+}
+
 struct Lowerer {
     errors: Vec<Error>,
-    record_count: u32,
+    record_tracker: MeasurementRecordTracker,
 }
 
 impl Lowerer {
     fn new() -> Self {
         Self {
             errors: Vec::new(),
-            record_count: 0,
+            record_tracker: MeasurementRecordTracker::new(),
         }
     }
 
-    fn increase_record_count(&mut self, count: usize) {
-        // Record offsets are u32, so once this count reaches u32::MAX, every
-        // representable offset is in bounds. Saturation preserves that without overflow.
-        let count = u32::try_from(count).unwrap_or(u32::MAX);
-        self.record_count = self.record_count.saturating_add(count);
+    fn increase_record_count(&mut self, count: usize) -> Option<u64> {
+        let Some(updated_count) = self.record_tracker.try_increase_record_count(count) else {
+            self.errors.push(Error::MeasurementRecordCounterOverflow);
+            return None;
+        };
+        Some(updated_count)
     }
 
     fn update_record_count_after_repeat(
         &mut self,
-        record_count_before_repeat: u32,
+        count_before_repeat: u64,
         repeat_count: u32,
-    ) {
-        let records_per_iteration = self.record_count.saturating_sub(record_count_before_repeat);
-        self.record_count = record_count_before_repeat
-            .saturating_add(records_per_iteration.saturating_mul(repeat_count));
+    ) -> Option<u64> {
+        let Some(updated_count) = self
+            .record_tracker
+            .try_update_record_count_after_repeat(count_before_repeat, repeat_count)
+        else {
+            self.errors.push(Error::MeasurementRecordCounterOverflow);
+            return None;
+        };
+        Some(updated_count)
     }
 
     fn lower_circuit(&mut self, circuit: &parser::Circuit) -> Circuit {
@@ -724,11 +804,11 @@ impl Lowerer {
             return None;
         }
 
-        let record_count_before_repeat = self.record_count;
+        let record_count_before_repeat = self.record_tracker.count;
         let body = self.lower_items(items);
         // The body is lowered once but executes num_repeats times, so later record
         // references must account for the records produced by every iteration.
-        self.update_record_count_after_repeat(record_count_before_repeat, num_repeats);
+        self.update_record_count_after_repeat(record_count_before_repeat, num_repeats)?;
 
         Some(Block::RepeatBlock {
             count: num_repeats,
@@ -755,9 +835,11 @@ impl Lowerer {
             });
             return None;
         }
-        Some(Block::SelectBlock {
-            body: self.lower_items(items),
-        })
+        self.record_tracker.enter_select_scope();
+        let body = self.lower_items(items);
+        self.record_tracker.exit_select_scope();
+
+        Some(Block::SelectBlock { body })
     }
 
     fn lower_instruction(&mut self, instruction: &parser::Instruction) -> Vec<Instruction> {
@@ -1530,6 +1612,15 @@ impl Lowerer {
             return None;
         }
 
+        self.validate_instruction_in_select_block(instruction)?;
+        self.validate_any_measurement_record_in_scope(
+            instruction,
+            &records
+                .iter()
+                .map(|record| record.record)
+                .collect::<Vec<_>>(),
+        )?;
+
         Some(Instruction {
             span: instruction.span,
             kind: InstructionKind::Require { records },
@@ -1550,6 +1641,9 @@ impl Lowerer {
         if records.is_empty() {
             return None;
         }
+
+        self.validate_instruction_in_select_block(instruction)?;
+        self.validate_any_measurement_record_in_scope(instruction, &records)?;
 
         Some(Instruction {
             span: instruction.span,
@@ -1653,6 +1747,38 @@ impl Lowerer {
             measurement_records.push(measurement_record);
         }
         measurement_records
+    }
+
+    fn validate_instruction_in_select_block(
+        &mut self,
+        instruction: &parser::Instruction,
+    ) -> Option<()> {
+        if !self.record_tracker.has_active_select_scope() {
+            self.push_error(Error::InstructionOutsideSelectBlock {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(())
+    }
+
+    fn validate_any_measurement_record_in_scope(
+        &mut self,
+        instruction: &parser::Instruction,
+        records: &[MeasurementRecord],
+    ) -> Option<()> {
+        if records.iter().all(|record| {
+            self.record_tracker
+                .is_offset_outside_current_select_scope(record.offset)
+        }) {
+            self.push_error(Error::AllMeasurementRecordsOutOfScope {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(())
     }
 
     fn expect_observable_targets(
@@ -1916,7 +2042,11 @@ impl Lowerer {
         instruction: &parser::Instruction,
         target: &parser::Target,
     ) -> Option<NegatableMeasurementRecord> {
-        let parser::TargetKind::MeasurementRecord { negated, value } = target.kind else {
+        let parser::TargetKind::MeasurementRecord {
+            negated,
+            value: offset,
+        } = target.kind
+        else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
@@ -1924,14 +2054,14 @@ impl Lowerer {
             return None;
         };
 
-        if self.record_count.checked_sub(value).is_none() {
+        if self.record_tracker.is_offset_out_of_bounds(offset) {
             self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
             return None;
         };
 
         Some(NegatableMeasurementRecord {
             record: MeasurementRecord {
-                offset: value,
+                offset,
                 span: target.span,
             },
             negated,
