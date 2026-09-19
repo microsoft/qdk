@@ -34,13 +34,15 @@ Unless stated otherwise, paths and shell commands below are relative to
 
 ## What lives here
 
-| File / target              | Role                                                                                                                         |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `cutensornet-symbols.txt`  | The symbol manifest. Single source of truth for **which functions** the crate binds.                                         |
-| `generate-bindings.sh`     | Headers and function/type selection &rarr; `src/bindings/v2_13.rs`. Requires the pinned x86-64 tools and headers, not a GPU. |
-| `src/generator.rs`         | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.                                           |
-| `--bin generate-loader`    | Reads the manifest and Rust bindings; writes/formats the loader files. Runs on any supported Rust development host.          |
-| `validate-on-cuda-host.sh` | Checks the FFI surface on Linux x86-64, with native-library and optional GPU qualification steps.                            |
+| File / target                     | Role                                                                                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cutensornet-symbols.txt`         | The symbol manifest. Single source of truth for **which functions** the crate binds.                                                          |
+| `generate-bindings.sh`            | Headers and function/type selection &rarr; `src/bindings/v2_13.rs`. Requires the pinned x86-64 tools and headers, not a GPU.                  |
+| `src/generator.rs`                | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.                                                            |
+| `--bin generate-loader`           | Reads the manifest and Rust bindings; writes/formats the loader files. Runs on any supported Rust development host.                           |
+| `validate-on-cuda-host.sh`        | Checks the FFI surface on Linux x86-64, with native-library and optional GPU qualification steps.                                             |
+| `contraction-experiments.py`      | Source-built, sequential frozen-4x4 plan-quality campaign; [policy, evidence and usage](../README.md#overnight-contraction-plan-experiments). |
+| `test_contraction_experiments.py` | Host-only behavioral coverage of the campaign driver using injected child commands and samplers; not native evidence.                         |
 
 Both generators consume the same manifest, so the bindgen allowlist and the
 dynamic loader cannot disagree about which symbols exist.

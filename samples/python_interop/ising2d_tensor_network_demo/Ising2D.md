@@ -3,7 +3,7 @@
 This document records the general-contraction objective and its independently reviewed
 iterations. **I1 has a retained 4x4 input and independent CPU state reference;
 I2 builds and qualifies its neutral tensor network and coefficient bindings;
-I3a's diagnostic and 2x2 cases pass natively; 4x4 awaits a larger-workspace retry;
+I3a's diagnostic, 2x2 and frozen 4x4 cases pass native numerical qualification;
 the public A100 milestone is not implemented.**
 It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
 sits next to the one it builds on, and it follows the same iteration discipline as
@@ -25,9 +25,13 @@ plan/optimizer/executor interfaces**. The reusable private cuTensorNet path is
 implemented through the actual I2 builder and its immutable shared-buffer bank.
 The diagnostic and 2x2 each passed two native A100 contractions, with byte-identical
 repeated readbacks and amplitude/norm/probability errors below `1e-12`. The 4x4
-case was rejected before contraction because its selected path required about
-2.04 GiB of scratch, exceeding the original 64 MiB ceiling. Its retry is pending;
-kernel tracing is deferred.
+case was initially rejected before contraction because its selected path required
+about 2.04 GiB of scratch, exceeding the original 64 MiB ceiling. The source-built
+retry at `511141aba105cbd5738380d67246a1f1e8f909a9`, with a 3 GiB ceiling,
+passed both 4x4 contractions with byte-identical readbacks. Maximum amplitude
+error was `5.983150429055106e-10`; probability TV and squared-norm error also
+passed the `1e-8` limit. All explicit cleanup succeeded. Kernel tracing remains
+deferred; this is private numerical execution, not public `run_qir` integration.
 
 | Case | Circuit | Output | Numerical limit |
 | --- | --- | --- | --- |
@@ -75,6 +79,17 @@ and cleanup remain acceptance gates. The observed 4x4 budget rejection is retain
 as a host regression through the production owner; the larger native ceiling
 does not relax that guard. Nsight tracing and performance analysis are later work.
 Common interfaces and I4 public `run_qir`/sampling stay paused.
+
+The separate [overnight plan-quality suite](../../../source/cutensornet/README.md#overnight-contraction-plan-experiments)
+keeps these qualification cases unchanged and sweeps only frozen 4x4 Case A:
+eight optimizer configurations plus a supplied chronological control through the
+same native owner. Review this nine-trial first stage before selecting seed
+follow-ups or intermediate search settings; the original 55-case grid is opt-in.
+It uses 32 GiB optimizer/device-scratch limits, no host-scratch
+policy ceiling, and records actual allocations and sampled process memory.
+First/repeated execution timings, independent numerical checks and failure
+evidence are retained per trial. This new suite still needs source review and
+native execution; it is not covered by the accepted fixed-case results above.
 
 ## I1 retained input and CPU reference
 

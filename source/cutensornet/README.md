@@ -58,7 +58,7 @@ only their approved version and error probes and performs no GPU work.
 | Availability API          | `src/lib.rs`, `src/error.rs`                      | Implemented                                        | Exposes explicit discovery, a report, and structured failures without exposing raw FFI.                                                             |
 | Native qualification      | `src/library/simulation*`                         | Private B0-B5 gate-1 qualified                     | Owns thread-confined native resources and validates Base execution, terminal product-term Queries, cap convergence, and forced-branch continuation. |
 | Native path metadata      | `src/library/simulation/contraction*`             | Private implementation; native acceptance separate | Builds topology, optimizes or imports a binary path, and copies path/slicing/structural metadata into owned Rust storage. No numerical contractor.  |
-| Native contraction        | `src/library/simulation/contraction/execution.rs` | Private implementation; GPU qualification pending  | Consumes selected metadata, owns shared-buffer uploads and bounded workspace, prepares without search, contracts and reads back.                    |
+| Native contraction        | `src/library/simulation/contraction/execution.rs` | Private diagnostic/2x2/4x4 native-qualified        | Consumes selected metadata, owns shared-buffer uploads and bounded workspace, prepares without search, contracts and reads back.                    |
 | QDK provider integration  | Future phase                                      | Not implemented                                    | Will translate QDK simulation requests without exposing native details to callers.                                                                  |
 
 The raw bindings, function tables, library guards, resolver seam, and native
@@ -438,8 +438,8 @@ and the existing I2 immutable buffer bank/node bindings. Its exclusive session
 borrow and ownership of the topology prevent changing selected metadata while
 prepared native resources retain buffer pointers. This is a private production
 path, not a second test-local executor or a common Execution Framework interface.
-The diagnostic and 2x2 cases have passed native A100 numerical qualification;
-4x4 numerical execution remains pending after an explicit workspace rejection.
+The diagnostic, 2x2 and frozen 4x4 cases have passed native A100 numerical
+qualification, including the 4x4 retry after an explicit workspace rejection.
 Host tests and native-target compilation alone do not establish native execution.
 
 ```text
@@ -493,9 +493,38 @@ The selected unsliced 4x4 path required **2,186,281,216 bytes** of device
 scratch and was rejected before allocation/contraction under its original
 64 MiB ceiling. This rejection is retained as an injected production-owner
 regression, independent of future optimizer path choices. Only the 4x4 execution
-ceiling was subsequently increased to 3 GiB; its numerical retry is pending.
+ceiling was subsequently increased to 3 GiB.
 The SDK's disable-slicing option applies regardless of available memory, so an
 optimizer constraint is not a substitute for checking actual execution needs.
+
+The source-built retry at `511141aba105cbd5738380d67246a1f1e8f909a9`
+passed all three cases. The 4x4 readbacks were byte-identical across both
+contractions, with maximum amplitude error `5.99e-10` or less, probability TV
+below `9.56e-11`, and squared-norm error below `7.55e-14`, each within `1e-8`.
+Its selected metadata matched the earlier rejected run; preparation and repeated
+execution preserved the metadata and native intermediate mode sets. All explicit
+cleanup succeeded.
+
+4x4 allocated the **2,186,281,216-byte minimum**, despite a
+**3,289,383,680-byte recommendation** exceeding the 3 GiB ceiling. The
+recommendation is advisory, not a second minimum. Six unique coefficient
+buffers occupied 352 bytes; the output occupied 1,048,576 bytes, bringing owned
+device storage to 2,187,330,144 bytes. No host scratch or cache was needed.
+These observations confirm the bounded binding/preparation/readback lifecycle,
+not numerical slicing, a total-memory cap, optimal performance or a portable
+plan/interface design.
+
+The qualified 4x4 path is a correctness baseline, not a tuned performance result.
+It reports 55,136,810,460 FLOPs and a largest intermediate of 2^26 complex-f64
+elements (1 GiB), versus a 2^16-element final state (1 MiB). Intermediate indices
+can span multiple circuit times; 26 indices do not mean 26 physical qubits.
+The retained logical path includes a contraction equivalent to multiplying
+`(256 x 262,144)` by `(262,144 x 256)`, containing over 17 billion product terms.
+This illustrates the cost of this order, not an unavoidable cost for 16 qubits
+or a normalized hardware FLOP count. The qualification explicitly uses one
+hyper-sample, zero subtree-reconfiguration iterations, and disables deferred
+rank simplification and slicing. Its 1.67-second whole-case time includes both
+contractions and setup; individual contraction times were not recorded.
 
 Use `scripts/validate-on-cuda-host.sh --contraction-qualification`; this never
 changes the metadata-only or MPS selectors. Numerical acceptance requires
@@ -504,6 +533,133 @@ Nsight kernel tracing and performance analysis are deferred to a later iteration
 not prerequisites for numerical results. No kernel trace is claimed from these
 runs; no profiler installation or privileged configuration is implied.
 The experiment informs later common interfaces; it does not implement them.
+
+### Overnight contraction-plan experiments
+
+`scripts/contraction-experiments.py` explores the **same frozen 4x4 Case A**
+through `ContractionResources` and `ContractionExecution`. It does not change the
+three fixed qualification cases or introduce a common plan API. This suite is a
+separate review candidate; the accepted numerical evidence above does **not**
+qualify its new configurations or chronological control on GPU.
+
+```text
+fresh release test build -> diagnostic / 2x2 / 4x4 qualification preflight
+    -> chronological control -> 8 optimizer trials (sequential child processes)
+        select/export -> close source owners -> fresh import -> prepare once
+        -> first contraction/readback -> five repeated contractions/readbacks
+        -> independent-oracle checks outside timings -> explicit cleanup
+```
+
+The default first stage is **nine trials**: hyper-samples `{1,64}`,
+reconfiguration iterations `{0,500}`, deferred rank simplification
+disabled/enabled, and seed `17`, plus the chronological control.
+Review those results before selecting two informative optimizer configurations
+for seeds `29` and `43` (four additional optimizer trials). Selection should
+consider planning time, execution time and memory, not just the fastest
+contraction. Add intermediate settings only when the evidence justifies them;
+endpoint testing does not establish monotonic plan quality. Follow-up selection
+and execution are not automatic; exact follow-up manifests are deferred until
+that review. The runner currently always includes the control and both
+simplification settings.
+
+Each optimizer uses one thread with slicing disabled. The supplied
+chronological positional path folds the I2 initial boundaries followed by gates
+in circuit order; it uses the same native executor, not a statevector fallback.
+It has no optimizer search or fabricated FLOP/largest-tensor estimate.
+All trials use complex-f64, the unchanged independent CPU oracle and inclusive
+`1e-8` amplitude/norm/probability-TV limits. Caches and autotuning remain off.
+Repeated outputs are checked against the oracle and report bitwise equality to
+the first output; bitwise equality is an observation, not a new numerical bar.
+
+| Resource policy              | Meaning                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------- |
+| Optimizer workspace argument | 32 GiB (`34,359,738,368` bytes); not a guarantee that execution fits                      |
+| Execution device scratch     | Independent 32 GiB ceiling, allocating the native minimum with a 256-byte floor           |
+| Execution host scratch       | No policy ceiling; allocate only the requested minimum                                    |
+| Total process GPU/RAM        | Not capped by these scratch policies; native/optimizer/context allocations are additional |
+
+Five-minute trial and six-hour campaign deadlines exclude build/preflight.
+The active trial receives the smaller of its own timeout and the remaining
+campaign time. Termination uses the child's process group, escalates from TERM
+to KILL after up to two seconds, and reaps the child before continuing.
+Memory sampling calls can take up to five seconds; deadline detection, termination
+and evidence finalization can therefore finish after the nominal deadline.
+No next trial starts after the campaign deadline.
+
+Resource rejection/allocation failure and timeout permit continuation without
+raising limits or rerunning search. Numerical errors, metadata invariants,
+cleanup failures, malformed evidence, sampling/I/O failures and interruption stop
+the campaign. A recorded fatal error takes precedence over a subsequent timeout.
+A timed-out process cannot certify successful explicit native cleanup; process
+termination is reported instead. An unavailable GPU is not a skipped success.
+
+The runner requires Linux x86-64, a clean checkout at an explicitly supplied full
+commit, an unused evidence directory and an unused Cargo target directory. It
+builds the library test binary from source with `--locked --release`, checks exact
+ignored selectors, and runs the unchanged qualification preflight. It neither
+installs dependencies nor switches branches. Use a separate validation checkout;
+do not build in a protected known-good checkout. A reviewed, versioned VM delivery
+must still check pinned SDK/toolchain inputs and preserve existing refs before
+invoking this runner.
+
+After source review/commit and environment approval, the invocation is:
+
+```sh
+python3 source/cutensornet/scripts/contraction-experiments.py \
+  --expected-head <reviewed-full-commit-sha> \
+  --output /absolute/path/to/new-evidence-directory \
+  --target-dir /absolute/path/to/new-target-directory
+```
+
+`--hyper-samples`, `--reconfigurations` and `--seeds` accept distinct,
+comma-separated nonnegative i32 integers. `--repeats` must be positive.
+`--trial-seconds` and `--campaign-seconds` override the time bounds. Resource
+policy and numerical thresholds are intentionally not CLI overrides.
+The original 55-trial grid remains available by explicitly adding
+`--hyper-samples 1,8,64 --reconfigurations 0,64,500 --seeds 17,29,43`;
+it is not the default or a prerequisite for interface work.
+
+Each trial retains `config.json`, flushed `events.jsonl`, `trial.log`, sampled
+`memory-observations.jsonl`, and `summary.json`. The native journal records path,
+intermediate modes, available estimates, library versions/paths, requirements,
+allocations, comparisons and cleanup. The first raw readback is retained and
+hashed; a failed comparison's output is also saved when available.
+A preparation rejection retains its plan and available required/maximum bytes,
+but **does not supply a complete allocation report**. Missing measurements remain
+absent, never zero or invented runtime results.
+
+Wall timings separate search, metadata export/import, host preparation, and each
+contract/synchronize/readback/host-conversion call. Preparation is a host-call
+timing; the first contraction can include queued preparation work. Comparisons,
+readback persistence and hashing are outside these intervals. These are not
+GPU-only timings. Approximately 100 ms `nvidia-smi`/`/proc` sampling records
+observed process GPU peaks and host RSS high-water marks; it adds overhead and
+can miss allocations before the last observation. Exact owned allocations are
+reported separately.
+
+`results.jsonl` and `results.csv` accumulate completed trials; `campaign.json`
+ranks successful trials by median repeated contract/readback time, excluding the
+first execution. Planning/preparation costs remain separate columns.
+`source-before.json`, `binary.json`, `provenance.json` and `final.json` retain
+source/fixture/binary identities and environment. Source, fixtures, local branch
+refs and binary identity are rechecked after preflight and on exit. Per-trial
+summaries also hash the reported native libraries. A successful campaign may
+contain documented resource rejections/timeouts; require `final.json` exit code
+zero, completed campaign status and inspect nonpassing trials, not merely rankings.
+Partial logs survive failures; an unwritable evidence directory or SIGKILL cannot
+guarantee a final summary.
+
+Native library identities must name absolute files for hashing. On hosts using
+the loader's bare-soname fallback, set the existing `QDK_CUTENSORNET_LIBRARY` and
+`QDK_CUDART_LIBRARY` overrides to the audited absolute paths.
+
+Host-only driver coverage uses real injected child commands and memory samplers,
+without CUDA, a duplicate contractor or monkey-patching:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s source/cutensornet/scripts -p 'test_contraction_experiments.py'
+```
 
 ## Threading and process model
 

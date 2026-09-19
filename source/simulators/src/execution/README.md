@@ -105,7 +105,7 @@ source/
 │   │   ├── contraction.rs ............... Private topology/path-metadata owner; no numerical execution
 │   │   ├── contraction/tests.rs ......... Host metadata/ownership/failure test double
 │   │   ├── contraction/qualification.rs . Four ignored native metadata cases; separate from MPS
-│   │   ├── contraction/execution.rs ..... Private numerical owner; GPU qualification pending
+│   │   ├── contraction/execution.rs ..... Private numerical owner; diagnostic/2x2/4x4 native-qualified
 │   │   ├── contraction/execution/tests.rs Host lifecycle/failure checks through the same owner
 │   │   ├── contraction/execution/qualification.rs I2 diagnostic/2x2/4x4; native cases gated/ignored
 │   │   ├── memory_workspace.rs .......... Private allocation/copy/workspace primitives shared with MPS
@@ -274,7 +274,8 @@ Three placement facts worth knowing before moving anything:
   Its owned positional metadata is not the planned portable plan or shared
   optimizer/executor interface. The numerical child owner consumes its selected
   metadata and I2 bindings without a new search. The bounded numerical experiment
-  precedes shared-interface work; native numerical evidence remains pending.
+  precedes shared-interface work; diagnostic/2x2/4x4 native numerical results
+  now qualify this bounded lifecycle, not the future common interfaces.
   See the [native contract](../../../cutensornet/README.md#private-general-network-numerical-execution).
   Neither is wrong; the
   collision is worth knowing when grepping.

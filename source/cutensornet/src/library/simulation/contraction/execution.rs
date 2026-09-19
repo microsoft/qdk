@@ -56,10 +56,12 @@ pub(crate) trait ContractionExecutionApi:
     ) -> Result<(), SimulationError>;
 }
 
+/// `None` omits a scratch policy ceiling, not native allocation failure checks.
+/// Neither field limits total process or device memory.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct WorkspaceLimits {
-    pub(crate) device_scratch: usize,
-    pub(crate) host_scratch: usize,
+    pub(crate) device_scratch: Option<usize>,
+    pub(crate) host_scratch: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -441,9 +443,8 @@ impl HostScratch {
     fn new(bytes: usize) -> Result<Self, SimulationError> {
         let layout = Layout::from_size_align(bytes, 256).map_err(|_| overflow())?;
         // SAFETY: positive size, checked layout; this owner deallocates once.
-        let pointer = NonNull::new(unsafe { std::alloc::alloc(layout) }).ok_or_else(|| {
-            unexpected(format!("failed to allocate {bytes} bytes of host scratch"))
-        })?;
+        let pointer = NonNull::new(unsafe { std::alloc::alloc(layout) })
+            .ok_or(SimulationError::HostScratchAllocationFailed { bytes })?;
         Ok(Self {
             pointer: pointer.cast(),
             layout,
@@ -474,8 +475,10 @@ fn native_bytes(bytes: usize) -> Result<i64, SimulationError> {
     i64::try_from(bytes).map_err(|_| overflow())
 }
 
-fn check_limit(required: usize, maximum: usize) -> Result<(), SimulationError> {
-    if required > maximum {
+fn check_limit(required: usize, maximum: Option<usize>) -> Result<(), SimulationError> {
+    if let Some(maximum) = maximum
+        && required > maximum
+    {
         Err(SimulationError::WorkspaceLimitExceeded { required, maximum })
     } else {
         Ok(())

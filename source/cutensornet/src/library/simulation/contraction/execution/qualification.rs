@@ -4,6 +4,9 @@ use num_complex::Complex64;
 use qdk_simulators::execution::{CircuitTensorNetwork, QuantumEvolutionRegion, UnitaryOperation};
 use std::{fs, path::PathBuf};
 
+#[path = "experiment.rs"]
+mod experiment;
+
 struct Fixture {
     circuit: CircuitTensorNetwork,
     expected: Vec<Complex64>,
@@ -237,12 +240,12 @@ mod native {
             disable_slicing: true,
         };
         let limits = WorkspaceLimits {
-            device_scratch: if name == "case_a_4x4" {
+            device_scratch: Some(if name == "case_a_4x4" {
                 3 * 1024 * 1024 * 1024
             } else {
                 67_108_864
-            },
-            host_scratch: 1_048_576,
+            }),
+            host_scratch: Some(1_048_576),
         };
         println!(
             "{name}: settings={settings:?}; limits={limits:?}; remaining SDK defaults unchanged; cache disabled; no autotuning"
@@ -344,7 +347,10 @@ mod native {
         combine_execution_and_cleanup(selected, cleanup)
     }
 
-    fn assert_mode_sets(expected: &[Vec<i32>], actual: &[Vec<i32>]) -> Result<(), SimulationError> {
+    pub(super) fn assert_mode_sets(
+        expected: &[Vec<i32>],
+        actual: &[Vec<i32>],
+    ) -> Result<(), SimulationError> {
         use std::collections::BTreeSet;
         if expected.len() != actual.len()
             || expected
@@ -359,7 +365,7 @@ mod native {
         Ok(())
     }
 
-    fn save_output(
+    pub(super) fn save_output(
         name: &str,
         iteration: usize,
         output: &[Complex64],

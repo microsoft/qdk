@@ -250,8 +250,8 @@ impl ContractionExecutionApi for TestDoubleContractionApi {
 
 fn limits() -> WorkspaceLimits {
     WorkspaceLimits {
-        device_scratch: 1024,
-        host_scratch: 256,
+        device_scratch: Some(1024),
+        host_scratch: Some(256),
     }
 }
 
@@ -455,8 +455,8 @@ fn honors_exact_workspace_limits_and_distinguishes_zero_scratch_from_disabled_ca
             &coefficients(),
             &[0; 4],
             WorkspaceLimits {
-                device_scratch: usize::try_from(device.max(256)).expect("size"),
-                host_scratch: usize::try_from(host).expect("size"),
+                device_scratch: Some(usize::try_from(device.max(256)).expect("size")),
+                host_scratch: Some(usize::try_from(host).expect("size")),
             },
             |execution| {
                 assert_eq!(
@@ -497,8 +497,8 @@ fn honors_exact_workspace_limits_and_distinguishes_zero_scratch_from_disabled_ca
                 &coefficients(),
                 &[0; 4],
                 WorkspaceLimits {
-                    device_scratch: device,
-                    host_scratch: host
+                    device_scratch: Some(device),
+                    host_scratch: Some(host)
                 },
                 |_| Ok(())
             ),
@@ -526,8 +526,8 @@ fn observed_4x4_workspace_requirement_is_rejected_before_allocation() {
             &coefficients(),
             &[0; 4],
             WorkspaceLimits {
-                device_scratch: 67_108_864,
-                host_scratch: 1_048_576,
+                device_scratch: Some(67_108_864),
+                host_scratch: Some(1_048_576),
             },
             |_| panic!("over-budget preparation must not reach execution"),
         ),
@@ -542,6 +542,79 @@ fn observed_4x4_workspace_requirement_is_rejected_before_allocation() {
     assert!(!events.contains(&"allocate"));
     assert!(!events.contains(&"prepare_contraction"));
     assert!(!events.contains(&"contract"));
+}
+
+#[test]
+fn absent_workspace_limits_allocate_and_report_the_native_minimum() {
+    let api = api(
+        vec![],
+        NumericalSettings {
+            device_minimum: 2_186_281_216,
+            host_minimum: 128,
+            nonfinite_output: false,
+        },
+    );
+    run_numerical(
+        api.clone(),
+        &coefficients(),
+        &[0; 4],
+        WorkspaceLimits {
+            device_scratch: None,
+            host_scratch: None,
+        },
+        |execution| {
+            assert_eq!(execution.memory().device_scratch_allocated, 2_186_281_216);
+            assert_eq!(execution.memory().host_scratch_allocated, 128);
+            assert_eq!(
+                execution.memory().owned_device_bytes,
+                2_186_281_216 + 64 + 64
+            );
+            execution.contract()
+        },
+    )
+    .expect("no policy ceiling");
+    api.assert_released();
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn overnight_policy_enforces_device_ceiling_independently_of_host_scratch() {
+    const CEILING: usize = 32 * 1024 * 1024 * 1024;
+    for required in [CEILING, CEILING + 256] {
+        let api = api(
+            vec![],
+            NumericalSettings {
+                device_minimum: i64::try_from(required).expect("size"),
+                host_minimum: 1_048_832,
+                nonfinite_output: false,
+            },
+        );
+        let result = run_numerical(
+            api.clone(),
+            &coefficients(),
+            &[0; 4],
+            WorkspaceLimits {
+                device_scratch: Some(CEILING),
+                host_scratch: None,
+            },
+            |execution| {
+                assert_eq!(execution.memory().device_scratch_allocated, CEILING);
+                assert_eq!(execution.memory().host_scratch_allocated, 1_048_832);
+                execution.contract()
+            },
+        );
+        if required == CEILING {
+            result.expect("inclusive device limit and no host policy ceiling");
+        } else {
+            assert!(matches!(
+                result,
+                Err(SimulationError::WorkspaceLimitExceeded { required: value, maximum })
+                    if value == required && maximum == CEILING
+            ));
+            assert!(!api.events().contains(&"allocate"));
+        }
+        api.assert_released();
+    }
 }
 
 #[test]

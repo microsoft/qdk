@@ -37,6 +37,9 @@ pub enum SimulationError {
     #[error("native workspace requires {required} bytes, exceeding the {maximum}-byte limit")]
     WorkspaceLimitExceeded { required: usize, maximum: usize },
 
+    #[error("failed to allocate {bytes} bytes of host scratch")]
+    HostScratchAllocationFailed { bytes: usize },
+
     #[error("invalid native result: {reason}")]
     InvalidNativeResult { reason: String },
 
