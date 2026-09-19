@@ -15,6 +15,8 @@ pub(crate) mod contraction;
 mod error;
 #[path = "library/simulation/ffi.rs"]
 mod ffi;
+#[path = "library/simulation/memory_workspace.rs"]
+pub(crate) mod memory_workspace;
 #[path = "library/simulation/mps_execution.rs"]
 mod mps_execution;
 #[path = "library/simulation/policy.rs"]

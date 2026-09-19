@@ -23,6 +23,9 @@
 #     --metadata-qualification
 #                        also run native path-metadata conformance (no numerical
 #                        contraction and no MPS qualification)
+#     --contraction-qualification
+#                        also run the three fixed numerical contraction cases,
+#                        smallest first, stopping that sequence on failure
 #     --skip-hardware    skip everything that needs the native libraries
 #
 # Run it from anywhere; it validates the checkout it lives in and touches no
@@ -30,11 +33,11 @@
 # commit hashes: those belong to whatever transfer workflow got the code here,
 # and baking them in makes the script stale the moment a commit is added.
 #
-# Note there are no expected test *counts* either. An earlier version of this
+# Note there are no expected whole-suite test *counts*. An earlier version of this
 # script hard-coded them and reported a false failure when the real total was
 # correct, because tests move between platforms as modules are re-included.
 # What actually matters is that the x86_64-only modules ran at all, so that is
-# what is asserted.
+# what is asserted. An exact single-case selector must still run that one case.
 
 set -uo pipefail
 
@@ -48,6 +51,7 @@ archive=""
 skip_hardware=0
 qualification=0
 metadata_qualification=0
+contraction_qualification=0
 failed=0
 
 usage() {
@@ -85,6 +89,10 @@ while [[ $# -gt 0 ]]; do
             metadata_qualification=1
             shift
             ;;
+        --contraction-qualification)
+            contraction_qualification=1
+            shift
+            ;;
         -h | --help)
             usage
             exit 0
@@ -97,7 +105,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "$skip_hardware" -eq 1 && ( "$qualification" -eq 1 || "$metadata_qualification" -eq 1 ) ]]; then
+if [[ "$skip_hardware" -eq 1 && ( "$qualification" -eq 1 || "$metadata_qualification" -eq 1 || "$contraction_qualification" -eq 1 ) ]]; then
     printf 'qualification cannot be combined with --skip-hardware\n' >&2
     exit 2
 fi
@@ -195,7 +203,7 @@ locate_library "$CUTENSORNET_SO" libcutensornet.so.2 QDK_CUTENSORNET_LIBRARY || 
 locate_library "$CUDART_SO" libcudart.so.12 QDK_CUDART_LIBRARY || true
 
 step "7. hardware tests"
-# Two very different ignored suites live in this crate:
+# Separate ignored suites live in this crate:
 #
 #   tests/availability.rs  - resolves every required symbol against the real
 #                            library and reads the version triple. Cheap,
@@ -205,9 +213,12 @@ step "7. hardware tests"
 #                            own parameters from a pinned table, so no
 #                            configuration is needed. They validate simulation
 #                            behaviour, not the symbol surface.
+#   contraction/qualification.rs - metadata-only native conformance.
+#   contraction/execution/qualification.rs::native - bounded general numerical
+#                            contraction, separate from both suites above.
 #
 # Default to the first, since that is what a manifest or loader change can
-# break. The second is opt-in via --qualification.
+# break. Numerical/metadata qualification each require their own explicit flag.
 if [[ "$skip_hardware" -eq 1 ]]; then
     printf 'SKIPPED (--skip-hardware)\n'
 elif [[ "$have_cutensornet" -eq 0 ]]; then
@@ -247,6 +258,25 @@ else
         fi
     else
         printf -- '-- native path-metadata conformance: SKIPPED (pass --metadata-qualification) --\n'
+    fi
+
+    if [[ "$contraction_qualification" -eq 1 ]]; then
+        printf -- '-- native numerical contraction (not MPS or metadata-only qualification) --\n'
+        for case_name in a_asymmetric_diagnostic b_case_a_2x2 c_case_a_4x4; do
+            selector="simulation::contraction::execution::qualification::native::$case_name"
+            cargo test --locked -p "$PACKAGE" --lib "$selector" \
+                -- --exact --ignored --nocapture --test-threads=1 2>&1 | tee "$test_log"
+            if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+                fail "native contraction case failed: $case_name; no larger case will run"
+                break
+            elif ! grep -qF "test $selector ... " "$test_log" ||
+                 ! grep -qF "test result: ok. 1 passed; 0 failed; 0 ignored;" "$test_log"; then
+                fail "native contraction case did not execute: $case_name"
+                break
+            fi
+        done
+    else
+        printf -- '-- native numerical contraction: SKIPPED (pass --contraction-qualification) --\n'
     fi
 fi
 

@@ -19,7 +19,7 @@ from qdk.simulation._simulation import (
     preprocess_simulation_input,
 )
 
-from build_measured_circuit import ParsedCircuit, compile_measured_qir, qsharp_source
+from build_measured_circuit import ParsedCircuit, compile_measured_qir, qsharp_source, shared_buffer_diagnostic
 from reference import qir_instructions
 
 
@@ -94,10 +94,8 @@ def test_every_rzz_phase_on_nonadjacent_basis_states(angle, bit0, bit2):
 
 def test_shared_buffers_with_interference_and_changed_wire_versions():
     a, b, phi, c = 0.7, -0.3, 0.41, 0.29
-    report = build(3, [
-        ("rx", a, 0), ("rx", a, 2), ("rzz", phi, 0, 2),
-        ("rx", b, 0), ("rzz", phi, 2, 0), ("rx", c, 2),
-    ])
+    diagnostic = shared_buffer_diagnostic()
+    report = build(diagnostic.num_qubits, diagnostic.gates)
     ids = report["node_buffer_ids"]
     assert ids[3] == ids[4]
     assert ids[5] == ids[7]

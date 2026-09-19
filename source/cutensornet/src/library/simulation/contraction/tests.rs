@@ -7,6 +7,9 @@ use std::{
 };
 use tensornet::{Index, TensorNetwork};
 
+#[path = "execution/tests.rs"]
+mod execution;
+
 const P1: [[i32; 2]; 3] = [[1, 2], [0, 2], [0, 1]];
 
 fn chain() -> TensorNetwork {
@@ -88,12 +91,14 @@ struct State {
     path: Vec<[i32; 2]>,
     slicing: Vec<SlicedMode>,
     settings: Vec<(OptimizerSetting, i32)>,
+    numerical: execution::NumericalState,
 }
 
 struct TestDoubleContractionApi {
     state: Mutex<State>,
     failures: Vec<(&'static str, usize)>,
     corruption: Corruption,
+    numerical: execution::NumericalSettings,
 }
 
 impl TestDoubleContractionApi {
@@ -102,6 +107,7 @@ impl TestDoubleContractionApi {
             state: Mutex::new(State::default()),
             failures,
             corruption,
+            numerical: execution::NumericalSettings::default(),
         })
     }
 
@@ -136,6 +142,22 @@ impl TestDoubleContractionApi {
         let id = object.as_ptr() as usize;
         let mut state = self.state.lock().expect("test state lock should succeed");
         assert!(state.live.remove(&id), "double destruction of {id}");
+        if id == 3 || id == 8 || id >= 1000 {
+            assert!(
+                !state.numerical.pending,
+                "synchronize before releasing resources"
+            );
+        }
+        if id >= 1000 {
+            assert!(
+                !state.live.contains(&3),
+                "network must close before buffers"
+            );
+            assert!(
+                !state.live.contains(&8),
+                "workspace must close before buffers"
+            );
+        }
         if id == 3 {
             assert!(!state.live.contains(&5), "info must close before network");
         }
@@ -184,7 +206,10 @@ impl SessionApi for TestDoubleContractionApi {
         self.create("create_stream", 1)
     }
     fn synchronize_stream(&self, _stream: Stream) -> Result<(), SimulationError> {
-        self.event("synchronize_stream")
+        let result = self.event("synchronize_stream");
+        // Model a reported asynchronous error after the stream has drained.
+        self.state.lock().expect("test state").numerical.pending = false;
+        result
     }
     fn destroy_stream(&self, stream: Stream) -> Result<(), SimulationError> {
         self.destroy("destroy_stream", stream)

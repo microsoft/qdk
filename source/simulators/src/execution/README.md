@@ -105,6 +105,10 @@ source/
 │   │   ├── contraction.rs ............... Private topology/path-metadata owner; no numerical execution
 │   │   ├── contraction/tests.rs ......... Host metadata/ownership/failure test double
 │   │   ├── contraction/qualification.rs . Four ignored native metadata cases; separate from MPS
+│   │   ├── contraction/execution.rs ..... Private numerical owner; GPU qualification pending
+│   │   ├── contraction/execution/tests.rs Host lifecycle/failure checks through the same owner
+│   │   ├── contraction/execution/qualification.rs I2 diagnostic/2x2/4x4; native cases gated/ignored
+│   │   ├── memory_workspace.rs .......... Private allocation/copy/workspace primitives shared with MPS
 │   │   ├── resources.rs ................. Shared device/stream/handle owner; host-tested
 │   │   ├── mps_session.rs ............... MpsSession: resources + MPS policy — NOT crate::simulation
 │   │   ├── branch.rs .............. 246    Mid-circuit branch capture           9 tests
@@ -268,8 +272,10 @@ Three placement facts worth knowing before moving anything:
   `ContractionQuery` — what to compute. In `cutensornet/` it is
   `ContractionResources` — borrowed native topology/optimizer metadata ownership.
   Its owned positional metadata is not the planned portable plan or shared
-  optimizer/executor interface. Native metadata qualification precedes that
-  interface work; see the [native contract](../../../cutensornet/README.md#private-general-network-metadata).
+  optimizer/executor interface. The numerical child owner consumes its selected
+  metadata and I2 bindings without a new search. The bounded numerical experiment
+  precedes shared-interface work; native numerical evidence remains pending.
+  See the [native contract](../../../cutensornet/README.md#private-general-network-numerical-execution).
   Neither is wrong; the
   collision is worth knowing when grepping.
 - **`mps_execution/tests.rs` is larger than the file it tests.** 1714 lines of host

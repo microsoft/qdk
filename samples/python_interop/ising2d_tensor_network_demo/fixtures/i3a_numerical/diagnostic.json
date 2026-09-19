@@ -1,0 +1,43 @@
+{
+  "amplitudes": "diagnostic.npy",
+  "amplitudes_sha256": "dc4ba7404154036b3d145ca845e9cbd206881391f9b74a6d3f8e93051eb89fd4",
+  "angle_encoding": "IEEE754 binary64 bits as unsigned integer",
+  "basis": "q0 least significant; first axis fastest",
+  "gates": [
+    [
+      "rx",
+      4604480259023595110,
+      0
+    ],
+    [
+      "rx",
+      4604480259023595110,
+      2
+    ],
+    [
+      "rzz",
+      4601057523306793533,
+      0,
+      2
+    ],
+    [
+      "rx",
+      13822447976325526323,
+      0
+    ],
+    [
+      "rzz",
+      4601057523306793533,
+      2,
+      0
+    ],
+    [
+      "rx",
+      4598895795485655695,
+      2
+    ]
+  ],
+  "limit": 1e-12,
+  "name": "diagnostic",
+  "qubits": 3
+}

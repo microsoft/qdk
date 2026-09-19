@@ -5,6 +5,8 @@
 //! framework; arbitrary-network path optimization belongs to `contraction`.
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::memory_workspace::MemoryWorkspaceApi;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use super::query::BaseQueryResult;
 use super::{
     Circuit, Gate, OpaqueHandle, SimulationError, SimulationResult, Stream, branch,
@@ -147,20 +149,7 @@ pub(crate) enum StateU32Configuration {
 /// Callers keep the context, stream and child handles live and device-compatible.
 /// Registered tensor buffers must outlive the native objects retaining them;
 /// asynchronous results require stream synchronization before host access.
-pub(crate) trait MpsExecutionApi {
-    fn memory_info(&self) -> Result<(usize, usize), SimulationError>;
-    fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, SimulationError>;
-    fn free(&self, allocation: OpaqueHandle) -> Result<(), SimulationError>;
-    fn copy_to_device(
-        &self,
-        destination: OpaqueHandle,
-        source: &[Complex64Abi],
-    ) -> Result<(), SimulationError>;
-    fn copy_from_device(
-        &self,
-        source: OpaqueHandle,
-        destination: &mut [Complex64Abi],
-    ) -> Result<(), SimulationError>;
+pub(crate) trait MpsExecutionApi: super::memory_workspace::MemoryWorkspaceApi {
     fn create_state(
         &self,
         handle: OpaqueHandle,
@@ -196,8 +185,6 @@ pub(crate) trait MpsExecutionApi {
         state: OpaqueHandle,
         configuration: StateU32Configuration,
     ) -> Result<(), SimulationError>;
-    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError>;
-    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError>;
     fn prepare_state(
         &self,
         handle: OpaqueHandle,
@@ -210,14 +197,33 @@ pub(crate) trait MpsExecutionApi {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
-    ) -> Result<i64, SimulationError>;
+    ) -> Result<i64, SimulationError> {
+        use super::memory_workspace::{MemorySpace, WorkspaceKind, WorkspacePreference};
+        self.workspace_memory_size(
+            handle,
+            workspace,
+            WorkspacePreference::Recommended,
+            MemorySpace::Device,
+            WorkspaceKind::Scratch,
+        )
+    }
     fn set_workspace(
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
         allocation: OpaqueHandle,
         bytes: i64,
-    ) -> Result<(), SimulationError>;
+    ) -> Result<(), SimulationError> {
+        use super::memory_workspace::{MemorySpace, WorkspaceKind};
+        self.set_workspace_memory(
+            handle,
+            workspace,
+            MemorySpace::Device,
+            WorkspaceKind::Scratch,
+            Some(allocation),
+            bytes,
+        )
+    }
     fn compute_state(
         &self,
         handle: OpaqueHandle,

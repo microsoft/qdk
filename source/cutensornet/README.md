@@ -48,17 +48,18 @@ stream APIs. NVIDIA cuTensorNet (`libcutensornet.so.2`) provides the tensor
 network API. Discovery loads and validates both libraries, although it invokes
 only their approved version and error probes and performs no GPU work.
 
-| Layer                     | Location                              | Status                                             | Responsibility                                                                                                                                      |
-| ------------------------- | ------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Generated cuTensorNet ABI | `src/bindings/v2_13.rs`               | Implemented                                        | Reduced declarations generated from the audited cuTensorNet 2.13 header.                                                                            |
-| Audited CUDA Runtime ABI  | `src/bindings/cudart_12.rs`           | Implemented                                        | Hand-audited declarations for the 12 CUDA Runtime calls required by the spike.                                                                      |
-| ABI assertions            | `src/bindings/mod.rs`                 | Implemented                                        | Compile-time size, alignment, offset, and selected constant checks.                                                                                 |
-| Version policy            | `src/version.rs`                      | Implemented                                        | Accepts only the audited cuTensorNet and CUDA Runtime versions.                                                                                     |
-| Dynamic loader            | `src/library.rs`                      | Implemented                                        | Opens `libcudart.so.12` and `libcutensornet.so.2`, resolves typed function tables, probes versions, and retains library guards.                     |
-| Availability API          | `src/lib.rs`, `src/error.rs`          | Implemented                                        | Exposes explicit discovery, a report, and structured failures without exposing raw FFI.                                                             |
-| Native qualification      | `src/library/simulation*`             | Private B0-B5 gate-1 qualified                     | Owns thread-confined native resources and validates Base execution, terminal product-term Queries, cap convergence, and forced-branch continuation. |
-| Native path metadata      | `src/library/simulation/contraction*` | Private implementation; native acceptance separate | Builds topology, optimizes or imports a binary path, and copies path/slicing/structural metadata into owned Rust storage. No numerical contractor.  |
-| QDK provider integration  | Future phase                          | Not implemented                                    | Will translate QDK simulation requests without exposing native details to callers.                                                                  |
+| Layer                     | Location                                          | Status                                             | Responsibility                                                                                                                                      |
+| ------------------------- | ------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generated cuTensorNet ABI | `src/bindings/v2_13.rs`                           | Implemented                                        | Reduced declarations generated from the audited cuTensorNet 2.13 header.                                                                            |
+| Audited CUDA Runtime ABI  | `src/bindings/cudart_12.rs`                       | Implemented                                        | Hand-audited declarations for the 12 CUDA Runtime calls required by the spike.                                                                      |
+| ABI assertions            | `src/bindings/mod.rs`                             | Implemented                                        | Compile-time size, alignment, offset, and selected constant checks.                                                                                 |
+| Version policy            | `src/version.rs`                                  | Implemented                                        | Accepts only the audited cuTensorNet and CUDA Runtime versions.                                                                                     |
+| Dynamic loader            | `src/library.rs`                                  | Implemented                                        | Opens `libcudart.so.12` and `libcutensornet.so.2`, resolves typed function tables, probes versions, and retains library guards.                     |
+| Availability API          | `src/lib.rs`, `src/error.rs`                      | Implemented                                        | Exposes explicit discovery, a report, and structured failures without exposing raw FFI.                                                             |
+| Native qualification      | `src/library/simulation*`                         | Private B0-B5 gate-1 qualified                     | Owns thread-confined native resources and validates Base execution, terminal product-term Queries, cap convergence, and forced-branch continuation. |
+| Native path metadata      | `src/library/simulation/contraction*`             | Private implementation; native acceptance separate | Builds topology, optimizes or imports a binary path, and copies path/slicing/structural metadata into owned Rust storage. No numerical contractor.  |
+| Native contraction        | `src/library/simulation/contraction/execution.rs` | Private implementation; GPU qualification pending  | Consumes selected metadata, owns shared-buffer uploads and bounded workspace, prepares without search, contracts and reads back.                    |
+| QDK provider integration  | Future phase                                      | Not implemented                                    | Will translate QDK simulation requests without exposing native details to callers.                                                                  |
 
 The raw bindings, function tables, library guards, resolver seam, and native
 status mapping are private. The only public Phase 2 capability is
@@ -304,6 +305,11 @@ reused while a child is alive. Safe external callers receive no raw pointers.
 live `MpsSession`. `MpsExecutionApi` and `ContractionApi` are private cuTensorNet
 injection boundaries, implemented by `CuTensorNetApi`, not shared Execution
 Framework interfaces. `SessionApi` provides their common context lifecycle.
+`MemoryWorkspaceApi` supplies shared allocation/copy and workspace primitives;
+MPS retains its recommended-device-scratch wrappers and State-specific calls.
+`ContractionExecutionApi` adds only the general-contraction native operations.
+These generic owners and injected host tests compile on every platform. The
+concrete NVIDIA implementations and native qualification remain Linux/x86-64-only.
 
 This boundary follows the evidence:
 
@@ -371,13 +377,22 @@ use dimensions `[2,3,5,7,11]` and labels `[11,23,37,53,71]`.
 | `(1,2), (0,2), (0,1)` | `{b,d}`, `{a,d}`, `{a,e}`       |
 | `(2,3), (1,2), (0,1)` | `{c,e}`, `{b,e}`, `{a,e}`       |
 
-These are documented expectations, not observations established by a host
-test double. The native tests read `NUM_INTERMEDIATE_MODES` and
+The table defines expectations independently of the host test double.
+The native tests read `NUM_INTERMEDIATE_MODES` and
 `INTERMEDIATE_MODES`, comparing **sets**, not an assumed intermediate axis
 order. They also export an optimized path, close its native owners and import
 the owned metadata into a fresh network. A separate case imports internal mode
 `b` with extent one and requires three slices. No optimizer call occurs during
 import, including when structural diagnostics are unavailable.
+
+Qualification on cuTensorNet 2.13 / CUDA Runtime 12.9 with an A100 observed
+both supplied paths' intermediate mode sets exactly as listed. Manual import
+provided the native structural attributes without another optimizer call.
+Optimize/export/close/fresh-import preserved path, slicing and intermediate
+mode sets; internal mode `b` at unit extent round-tripped with three slices.
+All explicit topology and session cleanup calls succeeded. These observations
+qualify this fixture and metadata subset, not arbitrary networks or numerical
+execution. Native intermediate axis order remains unconstrained.
 
 Path echo alone does not establish interpretation. A missing or inconsistent
 native structural result fails the structural qualification with an explicit
@@ -415,6 +430,64 @@ selects these ignored tests with `--metadata-qualification`, independently of
 the MPS numerical suite. Native acceptance requires inspecting that run's
 executed cases, structural results, errors and cleanup; host tests and symbol
 availability cannot supply it.
+
+### Private general-network numerical execution
+
+The retained `ContractionExecution` consumes a populated `ContractionResources`
+and the existing I2 immutable buffer bank/node bindings. Its exclusive session
+borrow and ownership of the topology prevent changing selected metadata while
+prepared native resources retain buffer pointers. This is a private production
+path, not a second test-local executor or a common Execution Framework interface.
+Native numerical qualification is **pending**; host tests and native-target
+compilation do not establish numerical GPU execution.
+
+```text
+I2 topology -> optimize -> owned metadata -> close source network/session
+                                           |
+fresh network/session <- import metadata (no search)
+    -> validate coefficients/bindings
+    -> size bounded workspace + upload each referenced buffer once
+    -> bind using native tensor IDs + prepare kernels (no path search)
+    -> contract with replacement -> synchronize -> owned host readback
+    -> repeat on the same preparation, without clearing output
+    -> synchronize -> close workspace/network -> free buffers -> close session
+```
+
+Input and output use complex-f64 column-major storage with explicit
+`Complex64Abi` conversion, not a cast of Rust complex values. Shared immutable
+coefficient buffers remain distinct from tensor nodes. Output is uninitialized
+before the first contraction: `accumulateOutput=0` must replace it. Execution
+failure disables further execution/native inspection; explicit close preserves
+cleanup errors alongside the primary failure. Drop is a best-effort fallback.
+Numerical slicing is explicitly rejected in this bounded unit; the existing
+metadata-only slicing qualification remains intact.
+
+The three fixed cases run smallest first through this same owner:
+the asymmetric three-qubit shared-buffer diagnostic, 2x2 Case A, and unchanged
+4x4 Case A. The [retained workload inputs and independent CPU oracles](../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i3a-bounded-native-numerical-experiment)
+fix the gates, output order and comparison limits. Each case optimizes once,
+closes source resources, imports into fresh resources and contracts twice.
+No MPS State API, fallback CPU contractor, public `run_qir` route or new
+optimizer dependency is involved.
+
+Search uses the metadata qualification settings above, including its 64 MiB
+optimizer workspace constraint. **Separate execution ceilings** are 64 MiB
+device scratch and 1 MiB host scratch. Allocate the native minimum, with a
+256-byte positive device-scratch floor when the minimum is zero; allocate host
+scratch only when positive. Both caches are disabled with `(null, 0)`, with no
+memory pool or autotuning. Minimum/recommended scratch, recommended cache,
+actual scratch, unique coefficients, output and owned device bytes are reported
+separately. Exceeding a ceiling fails; it does not trigger reoptimization or a
+larger allocation. There is **no total GPU-memory cap**: context/library/profiler
+allocations and device-wide free-memory snapshots are not per-owner accounting.
+
+Use `scripts/validate-on-cuda-host.sh --contraction-qualification`; this never
+changes the metadata-only or MPS selectors. Native acceptance also requires
+source provenance, actual readbacks and CUDA compute-kernel activity with launch
+and stream correlation, not merely a CUDA context, copies or elapsed time.
+Nsight Systems availability/permissions and the eventual trace remain to be
+qualified; no profiler installation or privileged configuration is implied.
+The experiment informs later common interfaces; it does not implement them.
 
 ## Threading and process model
 

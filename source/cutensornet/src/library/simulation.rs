@@ -16,8 +16,12 @@ pub(crate) use mps_session::MpsSession;
 
 use super::CuTensorNetApi;
 use crate::bindings::{cudart_12, v2_13};
+use crate::simulation::contraction::execution::ContractionExecutionApi;
 use crate::simulation::contraction::{
     NativeTensor, OptimizerEstimate, OptimizerSetting, SlicedMode,
+};
+use crate::simulation::memory_workspace::{
+    MemorySpace, MemoryWorkspaceApi, WorkspaceKind, WorkspacePreference,
 };
 use crate::simulation::resources::SessionApi;
 use crate::simulation::{
@@ -855,7 +859,108 @@ impl SessionApi for CuTensorNetApi {
     }
 }
 
-impl MpsExecutionApi for CuTensorNetApi {
+impl ContractionExecutionApi for CuTensorNetApi {
+    fn compute_contraction_workspace(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        info: OpaqueHandle,
+        workspace: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: matching live network/info, initialized path, writable workspace.
+        let status = unsafe {
+            (self
+                .cutensornet_functions
+                .workspace_compute_contraction_sizes)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                info.as_ptr(),
+                workspace.as_ptr(),
+            )
+        };
+        self.check_cutensornet("cutensornetWorkspaceComputeContractionSizes", status)
+    }
+
+    fn bind_input(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        tensor_id: i64,
+        allocation: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: ID came from this network; validated column-major allocation
+        // remains owned through network destruction.
+        let status = unsafe {
+            (self.cutensornet_functions.network_set_input_tensor_memory)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                tensor_id,
+                allocation.as_ptr(),
+                std::ptr::null(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetInputTensorMemory", status)
+    }
+
+    fn bind_output(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        allocation: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: validated, retained output allocation; null strides mean column-major.
+        let status = unsafe {
+            (self.cutensornet_functions.network_set_output_tensor_memory)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                allocation.as_ptr(),
+                std::ptr::null(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkSetOutputTensorMemory", status)
+    }
+
+    fn prepare_contraction(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        workspace: OpaqueHandle,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: selected metadata is attached and workspace meets its minimum.
+        let status = unsafe {
+            (self.cutensornet_functions.network_prepare_contraction)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                workspace.as_ptr(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkPrepareContraction", status)
+    }
+
+    fn contract(
+        &self,
+        handle: OpaqueHandle,
+        network: OpaqueHandle,
+        workspace: OpaqueHandle,
+        stream: Stream,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: prepared network retains all buffers, including the workspace
+        // offered at prepare. Zero replaces output; null selects all slices.
+        let status = unsafe {
+            (self.cutensornet_functions.network_contract)(
+                handle.as_ptr(),
+                network.as_ptr(),
+                0,
+                workspace.as_ptr(),
+                std::ptr::null_mut(),
+                stream.as_ptr().cast(),
+            )
+        };
+        self.check_cutensornet("cutensornetNetworkContract", status)
+    }
+}
+
+impl MemoryWorkspaceApi for CuTensorNetApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError> {
         let mut free = 0;
         let mut total = 0;
@@ -921,6 +1026,97 @@ impl MpsExecutionApi for CuTensorNetApi {
         self.check_cuda("cudaMemcpy(D2H)", status)
     }
 
+    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
+        let mut workspace = std::ptr::null_mut();
+        // SAFETY: the handle is live and workspace is a writable out-pointer.
+        let status = unsafe {
+            (self.cutensornet_functions.create_workspace)(handle.as_ptr(), &raw mut workspace)
+        };
+        self.check_cutensornet("cutensornetCreateWorkspaceDescriptor", status)?;
+        NonNull::new(workspace).ok_or(SimulationError::MissingNativeResource {
+            operation: "cutensornetCreateWorkspaceDescriptor",
+            resource: "workspace descriptor",
+        })
+    }
+
+    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError> {
+        // SAFETY: the owner consumes this descriptor exactly once.
+        let status = unsafe { (self.cutensornet_functions.destroy_workspace)(workspace.as_ptr()) };
+        self.check_cutensornet("cutensornetDestroyWorkspaceDescriptor", status)
+    }
+
+    fn workspace_memory_size(
+        &self,
+        handle: OpaqueHandle,
+        workspace: OpaqueHandle,
+        preference: WorkspacePreference,
+        space: MemorySpace,
+        kind: WorkspaceKind,
+    ) -> Result<i64, SimulationError> {
+        let preference = match preference {
+            WorkspacePreference::Minimum => {
+                v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_MIN
+            }
+            WorkspacePreference::Recommended => {
+                v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_RECOMMENDED
+            }
+        };
+        let mut bytes = 0;
+        // SAFETY: live, sized workspace; bytes is a writable int64_t.
+        let status = unsafe {
+            (self.cutensornet_functions.workspace_get_memory_size)(
+                handle.as_ptr(),
+                workspace.as_ptr(),
+                preference,
+                memory_space(space),
+                workspace_kind(kind),
+                &raw mut bytes,
+            )
+        };
+        self.check_cutensornet("cutensornetWorkspaceGetMemorySize", status)?;
+        Ok(bytes)
+    }
+
+    fn set_workspace_memory(
+        &self,
+        handle: OpaqueHandle,
+        workspace: OpaqueHandle,
+        space: MemorySpace,
+        kind: WorkspaceKind,
+        allocation: Option<OpaqueHandle>,
+        bytes: i64,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the caller validates size/null semantics and retains any
+        // allocation in the requested memory space through descriptor use.
+        let status = unsafe {
+            (self.cutensornet_functions.workspace_set_memory)(
+                handle.as_ptr(),
+                workspace.as_ptr(),
+                memory_space(space),
+                workspace_kind(kind),
+                allocation.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+                bytes,
+            )
+        };
+        self.check_cutensornet("cutensornetWorkspaceSetMemory", status)
+    }
+}
+
+fn memory_space(space: MemorySpace) -> v2_13::cutensornetMemspace_t {
+    match space {
+        MemorySpace::Device => v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
+        MemorySpace::Host => v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_HOST,
+    }
+}
+
+fn workspace_kind(kind: WorkspaceKind) -> v2_13::cutensornetWorkspaceKind_t {
+    match kind {
+        WorkspaceKind::Scratch => v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
+        WorkspaceKind::Cache => v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_CACHE,
+    }
+}
+
+impl MpsExecutionApi for CuTensorNetApi {
     fn create_state(
         &self,
         handle: OpaqueHandle,
@@ -1082,25 +1278,6 @@ impl MpsExecutionApi for CuTensorNetApi {
         self.check_cutensornet("cutensornetStateConfigure(u32)", status)
     }
 
-    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
-        let mut workspace = std::ptr::null_mut();
-        // SAFETY: the handle is live and `workspace` is a writable out-pointer.
-        let status = unsafe {
-            (self.cutensornet_functions.create_workspace)(handle.as_ptr(), &raw mut workspace)
-        };
-        self.check_cutensornet("cutensornetCreateWorkspaceDescriptor", status)?;
-        NonNull::new(workspace).ok_or(SimulationError::MissingNativeResource {
-            operation: "cutensornetCreateWorkspaceDescriptor",
-            resource: "workspace descriptor",
-        })
-    }
-
-    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError> {
-        // SAFETY: the replay consumes this descriptor exactly once.
-        let status = unsafe { (self.cutensornet_functions.destroy_workspace)(workspace.as_ptr()) };
-        self.check_cutensornet("cutensornetDestroyWorkspaceDescriptor", status)
-    }
-
     fn prepare_state(
         &self,
         handle: OpaqueHandle,
@@ -1121,49 +1298,6 @@ impl MpsExecutionApi for CuTensorNetApi {
             )
         };
         self.check_cutensornet("cutensornetStatePrepare", status)
-    }
-
-    fn workspace_size(
-        &self,
-        handle: OpaqueHandle,
-        workspace: OpaqueHandle,
-    ) -> Result<i64, SimulationError> {
-        let mut bytes = 0;
-        // SAFETY: handle/workspace are live and `bytes` is a writable out-pointer.
-        let status = unsafe {
-            (self.cutensornet_functions.workspace_get_memory_size)(
-                handle.as_ptr(),
-                workspace.as_ptr(),
-                v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_RECOMMENDED,
-                v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
-                v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
-                &raw mut bytes,
-            )
-        };
-        self.check_cutensornet("cutensornetWorkspaceGetMemorySize", status)?;
-        Ok(bytes)
-    }
-
-    fn set_workspace(
-        &self,
-        handle: OpaqueHandle,
-        workspace: OpaqueHandle,
-        allocation: OpaqueHandle,
-        bytes: i64,
-    ) -> Result<(), SimulationError> {
-        // SAFETY: the retained cudaMalloc allocation is at least `bytes` long
-        // and remains live until after descriptor destruction.
-        let status = unsafe {
-            (self.cutensornet_functions.workspace_set_memory)(
-                handle.as_ptr(),
-                workspace.as_ptr(),
-                v2_13::cutensornetMemspace_t_CUTENSORNET_MEMSPACE_DEVICE,
-                v2_13::cutensornetWorkspaceKind_t_CUTENSORNET_WORKSPACE_SCRATCH,
-                allocation.as_ptr(),
-                bytes,
-            )
-        };
-        self.check_cutensornet("cutensornetWorkspaceSetMemory", status)
     }
 
     fn compute_state(

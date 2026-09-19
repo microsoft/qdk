@@ -63,6 +63,15 @@ def ising_lattice(nx: int, ny: int) -> LatticeGraph:
     return LatticeGraph.square(nx, ny)
 
 
+def shared_buffer_diagnostic() -> ParsedCircuit:
+    """The I2 asymmetric interference case, also used for native qualification."""
+    a, b, phi, c = 0.7, -0.3, 0.41, 0.29
+    return ParsedCircuit(3, [
+        ("rx", a, 0), ("rx", a, 2), ("rzz", phi, 0, 2),
+        ("rx", b, 0), ("rzz", phi, 2, 0), ("rx", c, 2),
+    ])
+
+
 def build_ising_2d_qir(nx: int, ny: int, total_time: float, order: int, num_divisions: int) -> str:
     """Reproduce the estimation_ising_2d.ipynb recipe and return its QIR (unmeasured)."""
     from qdk_chemistry.algorithms import create

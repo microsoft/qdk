@@ -16,6 +16,9 @@ use crate::simulation::{
 };
 use std::{cell::RefCell, collections::VecDeque, ffi::c_void, ptr::NonNull};
 
+use crate::simulation::memory_workspace::{
+    MemorySpace, MemoryWorkspaceApi, WorkspaceKind, WorkspacePreference,
+};
 use num_complex::Complex64;
 use tensornet::Mps;
 
@@ -287,7 +290,7 @@ impl TestDoubleMpsExecutionApi {
     }
 }
 
-impl MpsExecutionApi for TestDoubleMpsExecutionApi {
+impl MemoryWorkspaceApi for TestDoubleMpsExecutionApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError> {
         let event = {
             let mut state = self.state.borrow_mut();
@@ -352,6 +355,90 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
         Ok(())
     }
 
+    fn create_workspace(&self, _handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
+        let event = {
+            let state = self.state.borrow();
+            if state.state_workspace_handle.is_none() {
+                Event::CreateWorkspace
+            } else {
+                Event::CreateQueryWorkspace
+            }
+        };
+        self.record(event)?;
+        let workspace = self.handle();
+        let mut state = self.state.borrow_mut();
+        let address = workspace.as_ptr() as usize;
+        if state.state_workspace_handle.is_none() {
+            state.state_workspace_handle = Some(address);
+        }
+        state.workspace_handles.push(address);
+        Ok(workspace)
+    }
+
+    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError> {
+        let event = {
+            let state = self.state.borrow();
+            if state.state_workspace_handle == Some(workspace.as_ptr() as usize) {
+                Event::DestroyWorkspace
+            } else {
+                Event::DestroyQueryWorkspace
+            }
+        };
+        self.record(event)
+    }
+
+    fn workspace_memory_size(
+        &self,
+        _handle: OpaqueHandle,
+        _workspace: OpaqueHandle,
+        preference: WorkspacePreference,
+        space: MemorySpace,
+        kind: WorkspaceKind,
+    ) -> Result<i64, SimulationError> {
+        assert_eq!(preference, WorkspacePreference::Recommended);
+        assert_eq!(space, MemorySpace::Device);
+        assert_eq!(kind, WorkspaceKind::Scratch);
+        let event = {
+            let mut state = self.state.borrow_mut();
+            let event = if state.workspace_size_count == 0 {
+                Event::WorkspaceSize
+            } else {
+                Event::QueryWorkspaceSize
+            };
+            state.workspace_size_count += 1;
+            event
+        };
+        self.record(event)?;
+        Ok(self.workspace_size)
+    }
+
+    fn set_workspace_memory(
+        &self,
+        _handle: OpaqueHandle,
+        _workspace: OpaqueHandle,
+        space: MemorySpace,
+        kind: WorkspaceKind,
+        allocation: Option<OpaqueHandle>,
+        _bytes: i64,
+    ) -> Result<(), SimulationError> {
+        assert_eq!(space, MemorySpace::Device);
+        assert_eq!(kind, WorkspaceKind::Scratch);
+        assert!(allocation.is_some());
+        let event = {
+            let mut state = self.state.borrow_mut();
+            let event = if state.set_workspace_count == 0 {
+                Event::SetWorkspace
+            } else {
+                Event::QuerySetWorkspace
+            };
+            state.set_workspace_count += 1;
+            event
+        };
+        self.record(event)
+    }
+}
+
+impl MpsExecutionApi for TestDoubleMpsExecutionApi {
     fn create_state(
         &self,
         _handle: OpaqueHandle,
@@ -412,38 +499,6 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
         self.record(self.next_configure_u32())
     }
 
-    fn create_workspace(&self, _handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
-        let event = {
-            let state = self.state.borrow();
-            if state.state_workspace_handle.is_none() {
-                Event::CreateWorkspace
-            } else {
-                Event::CreateQueryWorkspace
-            }
-        };
-        self.record(event)?;
-        let workspace = self.handle();
-        let mut state = self.state.borrow_mut();
-        let address = workspace.as_ptr() as usize;
-        if state.state_workspace_handle.is_none() {
-            state.state_workspace_handle = Some(address);
-        }
-        state.workspace_handles.push(address);
-        Ok(workspace)
-    }
-
-    fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError> {
-        let event = {
-            let state = self.state.borrow();
-            if state.state_workspace_handle == Some(workspace.as_ptr() as usize) {
-                Event::DestroyWorkspace
-            } else {
-                Event::DestroyQueryWorkspace
-            }
-        };
-        self.record(event)
-    }
-
     fn prepare_state(
         &self,
         _handle: OpaqueHandle,
@@ -457,45 +512,6 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
             .prepare_maximum_workspace_bytes
             .push(maximum_workspace_bytes);
         self.record(Event::PrepareState)
-    }
-
-    fn workspace_size(
-        &self,
-        _handle: OpaqueHandle,
-        _workspace: OpaqueHandle,
-    ) -> Result<i64, SimulationError> {
-        let event = {
-            let mut state = self.state.borrow_mut();
-            let event = if state.workspace_size_count == 0 {
-                Event::WorkspaceSize
-            } else {
-                Event::QueryWorkspaceSize
-            };
-            state.workspace_size_count += 1;
-            event
-        };
-        self.record(event)?;
-        Ok(self.workspace_size)
-    }
-
-    fn set_workspace(
-        &self,
-        _handle: OpaqueHandle,
-        _workspace: OpaqueHandle,
-        _allocation: OpaqueHandle,
-        _bytes: i64,
-    ) -> Result<(), SimulationError> {
-        let event = {
-            let mut state = self.state.borrow_mut();
-            let event = if state.set_workspace_count == 0 {
-                Event::SetWorkspace
-            } else {
-                Event::QuerySetWorkspace
-            };
-            state.set_workspace_count += 1;
-            event
-        };
-        self.record(event)
     }
 
     fn compute_state(

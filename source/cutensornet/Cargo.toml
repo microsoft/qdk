@@ -16,6 +16,9 @@ rand = { workspace = true }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 [lints]
 workspace = true
 

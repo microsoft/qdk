@@ -269,6 +269,7 @@ scripts/validate-on-cuda-host.sh                      # the FFI surface, fast
 scripts/validate-on-cuda-host.sh --archive <archive>  # also regenerate and diff the bindings
 scripts/validate-on-cuda-host.sh --qualification      # also run the slow A100 suite
 scripts/validate-on-cuda-host.sh --metadata-qualification # native path metadata only; no contraction
+scripts/validate-on-cuda-host.sh --contraction-qualification # diagnostic, 2x2 and 4x4 contraction
 scripts/validate-on-cuda-host.sh --skip-hardware      # CUDA host without a usable library
 ```
 
@@ -294,14 +295,15 @@ misleading pass, then checks:
 
 The host ABI, native libraries and GPU requirements are independent:
 
-| Step                                                  | x86-64 | The real `.so` | A GPU   |
-| ----------------------------------------------------- | ------ | -------------- | ------- |
-| `generate-bindings.sh` &rarr; `src/bindings/v2_13.rs` | yes    | no             | **no**  |
-| `generate-loader` and its tests                       | **no** | no             | no      |
-| `library::tests::*` (resolver tests, `FakeResolver`)  | yes    | no             | **no**  |
-| `tests/availability.rs`                               | yes    | yes            | **no**  |
-| `mps_execution/qualification.rs` (7 `#[ignore]`d)     | yes    | yes            | **yes** |
-| `contraction/qualification.rs` (4 `#[ignore]`d)       | yes    | yes            | **yes** |
+| Step                                                              | x86-64 | The real `.so` | A GPU   |
+| ----------------------------------------------------------------- | ------ | -------------- | ------- |
+| `generate-bindings.sh` &rarr; `src/bindings/v2_13.rs`             | yes    | no             | **no**  |
+| `generate-loader` and its tests                                   | **no** | no             | no      |
+| `library::tests::*` (resolver tests, `FakeResolver`)              | yes    | no             | **no**  |
+| `tests/availability.rs`                                           | yes    | yes            | **no**  |
+| `mps_execution/qualification.rs` (7 `#[ignore]`d)                 | yes    | yes            | **yes** |
+| `contraction/qualification.rs` (4 `#[ignore]`d)                   | yes    | yes            | **yes** |
+| `contraction/execution/qualification.rs::native` (3 `#[ignore]`d) | yes    | yes            | **yes** |
 
 The qualification rows need a GPU. Native-library availability checks need the
 installed `.so` files; header generation and fake-resolver tests do not.
@@ -319,7 +321,7 @@ behavior.
 
 `--metadata-qualification` independently selects
 `simulation::contraction::qualification::`, while `--qualification` selects
-only `simulation::mps_execution::qualification::`. The flags can be combined; neither
+only `simulation::mps_execution::qualification::`. The flags can be combined; none
 can be combined with `--skip-hardware`. Metadata qualification does not upload
 tensor coefficients, allocate contraction workspace or run a numerical
 contractor. It covers two supplied positional paths on the same asymmetric
@@ -332,6 +334,27 @@ manual import is a failing acceptance gap, not a successful path-echo test or
 permission to invoke another optimizer. Their bounded settings and distinction
 between documented expectations and observations are described in the
 [crate metadata contract](../README.md#private-general-network-metadata).
+
+`--contraction-qualification` separately selects exactly one test at a time in
+`simulation::contraction::execution::qualification::native`: the asymmetric
+diagnostic, 2x2 Case A, then 4x4 Case A. Each exact invocation must report one
+passing case, preventing zero-test success. Failure or a resource-limit
+rejection stops this sequence before a larger case. This is not the MPS suite
+and is never included by `--metadata-qualification`.
+
+Set `QDK_CONTRACTION_EVIDENCE_DIR` to an existing, fresh evidence directory to
+retain the two readbacks per case:
+`diagnostic-{0,1}.complex64le`, `case_a_2x2-{0,1}.complex64le`, and
+`case_a_4x4-{0,1}.complex64le`. These are interleaved little-endian **f64**
+real/imaginary values (16 bytes per amplitude), in q0-least-significant order.
+Existing files cause failure rather than being overwritten. Without the
+variable, tests explicitly log that raw outputs were not retained; a delivery
+requiring those outputs must set it. The logs retain selected metadata, native
+intermediate modes, workspace requirements/allocations, comparison metrics and
+explicit cleanup results. Resource and numerical limits are in the
+[numerical contract](../README.md#private-general-network-numerical-execution).
+This selector alone does not capture GPU kernel activity: that remains a
+separate native-evidence requirement, not something inferred from a green test.
 
 Nothing about a particular transfer workflow — bundle hashes, clone URLs, commit
 ranges — belongs in this script; that would go stale on the next commit.

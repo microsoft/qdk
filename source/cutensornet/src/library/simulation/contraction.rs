@@ -1,4 +1,4 @@
-//! Private cuTensorNet topology and optimizer metadata, without tensor data.
+//! Private cuTensorNet topology and optimizer metadata.
 //!
 //! A mode is a labeled tensor axis; its extent is its dimension. A binary path
 //! selects two positions in the current operand list, removes them and appends
@@ -10,8 +10,8 @@
 //! separately. Only full coverage of internal modes at unit extent is supported
 //! here: the slice count is the product of their original dimensions, or one
 //! without slicing. Intermediate modes describe each path result, including the
-//! final output. No coefficients, device workspace or numerical execution live
-//! here; the metadata is not a portable contraction plan.
+//! final output. Numerical resources live in `execution`; the metadata is not
+//! a portable contraction plan.
 
 use super::{
     OpaqueHandle, SimulationError,
@@ -21,6 +21,8 @@ use super::{
 use std::collections::{BTreeMap, BTreeSet};
 use tensornet::{ContractionQuery, Indices};
 
+#[path = "contraction/execution.rs"]
+pub(crate) mod execution;
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
 #[path = "contraction/qualification.rs"]
 mod qualification;

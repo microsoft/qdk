@@ -3,7 +3,8 @@
 This document records the general-contraction objective and its independently reviewed
 iterations. **I1 has a retained 4x4 input and independent CPU state reference;
 I2 builds and qualifies its neutral tensor network and coefficient bindings;
-general TN contraction and the public A100 milestone are not implemented.**
+I3a has a private numerical path awaiting native qualification;
+the public A100 milestone is not implemented.**
 It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
 sits next to the one it builds on, and it follows the same iteration discipline as
 [`README.md`'s "Next Integration Iteration"](../../../source/simulators/src/execution/README.md#next-integration-iteration)
@@ -16,6 +17,57 @@ sits next to the one it builds on, and it follows the same iteration discipline 
 | What this document scopes     | Actually **classically simulating** that circuit (or a size-reduced version of it), to validate correctness and to explore how hard it can be made.                                   |
 | Prior art this builds on      | [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) — 1D MPS execution, same execution layer, same public API shape                                                                       |
 | Status                        | I1 input/reference and I2 builder qualification delivered below. I3a/I3b and I4 remain separate implementation/review units.                                                                                                |
+
+## I3a bounded native numerical experiment
+
+The approved order is **numerical end-to-end evidence before common
+plan/optimizer/executor interfaces**. The reusable private cuTensorNet path is
+implemented and host-tested; no native numerical result or GPU-kernel trace is
+claimed yet. It uses the actual I2 builder and its immutable shared-buffer bank.
+
+| Case | Circuit | Output | Numerical limit |
+| --- | --- | --- | --- |
+| Asymmetric diagnostic | 3 qubits, idle q1; Rx(0.7,q0), Rx(0.7,q2), Rzz(0.41,q0,q2), Rx(-0.3,q0), Rzz(0.41,q2,q0), Rx(0.29,q2) | 8 amplitudes | `1e-12` |
+| 2x2 Case A | Open row-major grid; J=1, h=0.5, time=1, order 4, two subdivisions, identity preparation; 48 Rx + 40 Rzz | 16 amplitudes | `1e-12` |
+| Frozen 4x4 Case A | Unchanged I1 input; 192 Rx + 240 Rzz | 65,536 amplitudes (1 MiB) | `1e-8` |
+
+Every limit applies independently to maximum complex-amplitude absolute error,
+probability total variation and squared-norm error. Values must be finite.
+There is no global-phase alignment or amplitude normalization; probabilities
+are normalized only after both vectors' squared norms pass.
+Output order is q0 least significant/first tensor axis fastest.
+
+`fixtures/i3a_numerical/` retains exact f64 gate-angle bits, the diagnostic and
+2x2 CPU arrays, and hashes/provenance. Its 4x4 adapter references the existing I1
+array without replacing it. `i3a_reference.py` reuses the released QDK sparse
+engine and the existing recipe/conversion/reference machinery, independently of
+the new contractor; the diagnostic also has the phase-sensitive I2 analytic
+cross-check. Reproduce checks in the existing pinned reference environment:
+
+```sh
+.venv-ising-i1/bin/python samples/python_interop/ising2d_tensor_network_demo/i3a_reference.py verify \
+  samples/python_interop/ising2d_tensor_network_demo/fixtures/i3a_numerical
+.venv-ising-i1/bin/python -m pytest -q \
+  samples/python_interop/ising2d_tensor_network_demo/test_i3a_reference.py
+```
+
+Each case optimizes once, exports owned metadata, closes source owners, imports
+into a fresh network without search, prepares and contracts twice with overwrite
+semantics and no intervening output clear. The separate
+`--contraction-qualification` validator selector stops before larger cases on
+failure. Search uses one sample/thread, seed 17, no reconfiguration, deferred
+rank simplification or automatic slicing, and a 64 MiB optimizer constraint.
+Separately, execution limits are 64 MiB device scratch and 1 MiB host scratch,
+allocating minima (256-byte device floor), disabling caches, and using no
+autotuning or memory pool. Unique inputs/output are separately accounted;
+there is **no total GPU-memory cap**. See the
+[native numerical contract](../../../source/cutensornet/README.md#private-general-network-numerical-execution)
+for ownership, cleanup and evidence requirements.
+
+This includes one bounded frozen 4x4 run in I3a, not a broader I3b campaign.
+Native source-build provenance, retained numerical readbacks and actual CUDA
+compute-kernel activity with launch/stream correlation remain acceptance gates.
+Common interfaces and I4 public `run_qir`/sampling stay paused.
 
 ## I1 retained input and CPU reference
 
@@ -401,8 +453,8 @@ Each iteration is independently evidenced before the next begins, following the 
 flowchart TB
     Input["I1: frozen 4x4 Case A<br/>independent CPU amplitudes/probabilities<br/>DELIVERED"] --> Graph
     Graph["I2: neutral circuit-to-network builder<br/>shared coefficient bank + qualification DELIVERED"] --> Tiny
-    Tiny["I3a: tiny real A100 optimize/contract<br/>qualify layout and native lifecycle"] --> Full
-    Full["I3b: assembled 4x4 numerical execution<br/>compare against I1"] --> Wire
+    Tiny["I3a: diagnostic + 2x2 + frozen 4x4<br/>native lifecycle/numerics BEFORE interfaces"] --> Full
+    Full["Review native evidence and refine interfaces<br/>broader I3b work remains separate"] --> Wire
     Wire["I4: public run_qir and terminal shots<br/>A100 evidence + MPS regression"] --> Later
     Later["Later: Case B convergence<br/>scalable readout and scaling campaigns"]
 ```
@@ -419,12 +471,12 @@ flowchart TB
 3. **I3a then I3b: native contraction.** First qualify native path metadata
    on tiny asymmetric networks through the reusable
    [native topology/metadata owner](../../../source/cutensornet/README.md#private-general-network-metadata).
-   This precedes the portable plan/interfaces and numerical contractor; binding
-   generation, symbol resolution and host test doubles do not establish native
-   positional-path semantics. Then qualify a tiny non-symmetric real A100
-   optimize/contract example, and execute the assembled 4x4 network and compare
-   amplitudes/probabilities with I1 under explicit numerical tolerances. Reuse the
-   existing bindings/resource owners; do not substitute the MPS State API.
+   Metadata qualification is accepted. Next, run the bounded diagnostic, 2x2
+   and frozen 4x4 numerical experiment described above **before** defining common
+   interfaces. Its private implementation is retained, not throw-away code.
+   Use the resulting native evidence and earlier cross-tool analysis to refine
+   those interfaces, then review before proceeding. Reuse the existing
+   bindings/resource owners; do not substitute the MPS State API.
 4. **I4: public integration.** Add only the needed shared batch/sampling and public
    wiring. Evidence must include the real A100 `run_qir` route, ordered terminal
    results, seeded repeatability, distributional correctness and MPS regression.
@@ -742,7 +794,7 @@ without adding safety.
   ("Port ... from eed6e1bbe"). Confirmed that worktree has no Network/contraction work at all (§9
   above), so these bindings are written fresh from the NVIDIA reference signatures, not ported.
 
-The remaining I3a gate is a small, layout-discriminating A100 execution through
-these existing bindings, with workspace/lifetime/slice/cleanup evidence. I3b then
-compares the assembled 4x4 network with I1. Neither symbol resolution nor a host
-fake replaces those numerical checks.
+The remaining I3a gate is the approved diagnostic/2x2/frozen-4x4 A100 numerical
+sequence, with workspace/lifetime/readback/cleanup and kernel-activity evidence.
+Numerical slicing and broader I3b work remain separate. Neither symbol resolution
+nor a host fake replaces those numerical checks.

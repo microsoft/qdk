@@ -1,0 +1,188 @@
+{
+  "frozen_4x4_provenance_sha256": "b3a97e69605b5ef8691e38f807a6170e38f23221b04126be09b3cf8be43811c3",
+  "generated_at_utc": "2026-09-18T23:38:17.549814+00:00",
+  "native_binary_sha256": {
+    "qdk-chemistry/qdk_chemistry/_core.cpython-311-aarch64-linux-gnu.so": "01ff06e3c72f4942f8a1aa47d7d86102290b83f3214f1e01a1d85594b518d8e6",
+    "qdk/qdk/_native.abi3.so": "9dfd78d65dd2650797fda71192bd2b4a4d6491b5c23b244485262710de8d0979"
+  },
+  "packages": {
+    "numpy": "2.3.5",
+    "pyqir": "0.12.5",
+    "qdk": "1.32.3",
+    "qdk-chemistry": "2.2.1"
+  },
+  "platform": {
+    "machine": "aarch64",
+    "python": "3.11.15"
+  },
+  "reports": {
+    "case_a_2x2": {
+      "conversion": {
+        "gate_counts": {
+          "rx": 48,
+          "rzz": 40
+        },
+        "gate_sequence_preserved": true,
+        "measurement_operations": [
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M"
+        ],
+        "measurement_qubits": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "output_result_ids": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "qubits": 4,
+        "results": 4,
+        "unitary_gate_count": 88
+      },
+      "global_phase_aligned": false,
+      "limit": 1e-12,
+      "maximum_amplitude_error": 0.0,
+      "probability_total_variation": 0.0,
+      "schedule": {
+        "dfs_ordering": false,
+        "edge_count": 4,
+        "edges": [
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1,
+            3
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "maximum_coefficient_error": 0.0,
+        "periodic_x": false,
+        "periodic_y": false,
+        "site_index": "q = y * nx + x",
+        "suzuki_p": 0.4144907717943757
+      },
+      "squared_norm": 0.9999999999999987,
+      "squared_norm_error": 1.3322676295501878e-15
+    },
+    "case_a_4x4": {
+      "conversion": {
+        "gate_counts": {
+          "rx": 192,
+          "rzz": 240
+        },
+        "gate_sequence_preserved": true,
+        "measurement_operations": [
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M",
+          "QirInstructionId.M"
+        ],
+        "measurement_qubits": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "output_result_ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "qubits": 16,
+        "results": 16,
+        "unitary_gate_count": 432
+      },
+      "passed": true,
+      "recompiled_qir_byte_identical": true,
+      "reference_comparison": {
+        "global_phase_aligned": false,
+        "limit": 1e-12,
+        "maximum_amplitude_error": 0.0,
+        "probability_total_variation": 0.0,
+        "squared_norm": 0.9999999999999933,
+        "squared_norm_error": 6.661338147750939e-15
+      },
+      "scope": "I1 CPU reference only; no TN or A100 execution"
+    },
+    "diagnostic": {
+      "global_phase_aligned": false,
+      "limit": 1e-12,
+      "maximum_amplitude_error": 0.0,
+      "probability_total_variation": 0.0,
+      "squared_norm": 0.9999999999999998,
+      "squared_norm_error": 2.220446049250313e-16
+    }
+  },
+  "scope": "Independent CPU inputs/oracles; no native TN or GPU execution",
+  "script_sha256": {
+    "build_measured_circuit.py": "d155eed80a490e5715569b4aabf029f444bd17fb5975231bb15ce71e0431f5d6",
+    "i3a_reference.py": "516be6926d4efcb2e6a2b248e2261918a749d9427bfa9a7f4f803fb847885cfc",
+    "reference.py": "c279aaf318fa2650be5fa4fd0b81618193786a823b8072dd0e38e792c6e82a52"
+  },
+  "sha256": {
+    "case_a_2x2.json": "6cc5435d67d44bf22ef2e803043744eb05db25a61fe5a2bdec07b8fd803db6fd",
+    "case_a_2x2.measured.ll": "94f5a762cce2ca6503c4b11e953a10a2ecc240e0242a13c5adeee6cad3b295bf",
+    "case_a_2x2.npy": "3329b780c6dd9bc187be3b6626e78d27f6a7c2dbff441bc90ecc8a386de5e4e8",
+    "case_a_2x2.qs": "88838008d94a5432074e2dc597dc08447c27bc04446c144b0885ffdf6dd3893a",
+    "case_a_2x2.reference.qs": "e1e249fe60a950dcb1706af25791a7e52d6cc3626276f07725544d8ef42f6432",
+    "case_a_2x2.unmeasured.ll": "f847968756df22ad9dd6fca95386bd29ff83ae7bda70407e70068237e624cae9",
+    "case_a_4x4.json": "5b6e0ef2c0eaeef511bae032632006986506888883502cfcdfeedfdf000c445c",
+    "diagnostic.json": "14cb36eb907d1032046783f5d01c12b5be6a433b23d01e247322e785a1a601a8",
+    "diagnostic.npy": "dc4ba7404154036b3d145ca845e9cbd206881391f9b74a6d3f8e93051eb89fd4",
+    "diagnostic.qs": "50cc507944972bd2de71cc92ebcd1316618cbf67bd2f17ee1058e2db613785b5",
+    "diagnostic.reference.qs": "001cbc48f847955a85f4a1d222c52ea04b05ece18a267319832419d21d12b3e2"
+  },
+  "source_base_commit": "3c89a35d9c8b529d16c43f69546819b10becd2e5"
+}
