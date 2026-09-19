@@ -564,6 +564,7 @@ impl Simulator for StabilizerSimulator {
                     LossPolicy::ApplyAnyway => {
                         self.state.permute(&[1, 0], &[q1, q2]);
                         self.loss.swap(q1, q2);
+                        self.last_operation_time.swap(q1, q2);
                     }
                 }
             }
