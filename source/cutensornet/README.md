@@ -438,8 +438,9 @@ and the existing I2 immutable buffer bank/node bindings. Its exclusive session
 borrow and ownership of the topology prevent changing selected metadata while
 prepared native resources retain buffer pointers. This is a private production
 path, not a second test-local executor or a common Execution Framework interface.
-Native numerical qualification is **pending**; host tests and native-target
-compilation do not establish numerical GPU execution.
+The diagnostic and 2x2 cases have passed native A100 numerical qualification;
+4x4 numerical execution remains pending after an explicit workspace rejection.
+Host tests and native-target compilation alone do not establish native execution.
 
 ```text
 I2 topology -> optimize -> owned metadata -> close source network/session
@@ -472,7 +473,8 @@ optimizer dependency is involved.
 
 Search uses the metadata qualification settings above, including its 64 MiB
 optimizer workspace constraint. **Separate execution ceilings** are 64 MiB
-device scratch and 1 MiB host scratch. Allocate the native minimum, with a
+device scratch for the diagnostic/2x2 cases, **3 GiB for 4x4**, and 1 MiB host
+scratch for all cases. Allocate the native minimum, with a
 256-byte positive device-scratch floor when the minimum is zero; allocate host
 scratch only when positive. Both caches are disabled with `(null, 0)`, with no
 memory pool or autotuning. Minimum/recommended scratch, recommended cache,
@@ -481,12 +483,26 @@ separately. Exceeding a ceiling fails; it does not trigger reoptimization or a
 larger allocation. There is **no total GPU-memory cap**: context/library/profiler
 allocations and device-wide free-memory snapshots are not per-owner accounting.
 
+On cuTensorNet 2.13 / CUDA Runtime 12.9 / A100, the diagnostic and 2x2 each
+contracted twice after optimize/export/close/fresh-import. Their repeated
+readbacks were byte-identical; maximum amplitude errors against the independent
+oracles were `1.25e-16` and `1.12e-15` or less, respectively, with norm and
+probability errors below `1e-12`. Explicit cleanup succeeded. Device scratch
+requirements were 1,024 and 33,559,040 bytes, with no host scratch or cache.
+The selected unsliced 4x4 path required **2,186,281,216 bytes** of device
+scratch and was rejected before allocation/contraction under its original
+64 MiB ceiling. This rejection is retained as an injected production-owner
+regression, independent of future optimizer path choices. Only the 4x4 execution
+ceiling was subsequently increased to 3 GiB; its numerical retry is pending.
+The SDK's disable-slicing option applies regardless of available memory, so an
+optimizer constraint is not a substitute for checking actual execution needs.
+
 Use `scripts/validate-on-cuda-host.sh --contraction-qualification`; this never
-changes the metadata-only or MPS selectors. Native acceptance also requires
-source provenance, actual readbacks and CUDA compute-kernel activity with launch
-and stream correlation, not merely a CUDA context, copies or elapsed time.
-Nsight Systems availability/permissions and the eventual trace remain to be
-qualified; no profiler installation or privileged configuration is implied.
+changes the metadata-only or MPS selectors. Numerical acceptance requires
+source provenance, actual readbacks, resource reporting and cleanup outcomes.
+Nsight kernel tracing and performance analysis are deferred to a later iteration,
+not prerequisites for numerical results. No kernel trace is claimed from these
+runs; no profiler installation or privileged configuration is implied.
 The experiment informs later common interfaces; it does not implement them.
 
 ## Threading and process model

@@ -3,7 +3,7 @@
 This document records the general-contraction objective and its independently reviewed
 iterations. **I1 has a retained 4x4 input and independent CPU state reference;
 I2 builds and qualifies its neutral tensor network and coefficient bindings;
-I3a has a private numerical path awaiting native qualification;
+I3a's diagnostic and 2x2 cases pass natively; 4x4 awaits a larger-workspace retry;
 the public A100 milestone is not implemented.**
 It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
 sits next to the one it builds on, and it follows the same iteration discipline as
@@ -22,8 +22,12 @@ sits next to the one it builds on, and it follows the same iteration discipline 
 
 The approved order is **numerical end-to-end evidence before common
 plan/optimizer/executor interfaces**. The reusable private cuTensorNet path is
-implemented and host-tested; no native numerical result or GPU-kernel trace is
-claimed yet. It uses the actual I2 builder and its immutable shared-buffer bank.
+implemented through the actual I2 builder and its immutable shared-buffer bank.
+The diagnostic and 2x2 each passed two native A100 contractions, with byte-identical
+repeated readbacks and amplitude/norm/probability errors below `1e-12`. The 4x4
+case was rejected before contraction because its selected path required about
+2.04 GiB of scratch, exceeding the original 64 MiB ceiling. Its retry is pending;
+kernel tracing is deferred.
 
 | Case | Circuit | Output | Numerical limit |
 | --- | --- | --- | --- |
@@ -57,7 +61,8 @@ semantics and no intervening output clear. The separate
 `--contraction-qualification` validator selector stops before larger cases on
 failure. Search uses one sample/thread, seed 17, no reconfiguration, deferred
 rank simplification or automatic slicing, and a 64 MiB optimizer constraint.
-Separately, execution limits are 64 MiB device scratch and 1 MiB host scratch,
+Separately, device-scratch limits are 64 MiB for diagnostic/2x2 and **3 GiB for
+4x4**; the host-scratch limit remains 1 MiB for all cases,
 allocating minima (256-byte device floor), disabling caches, and using no
 autotuning or memory pool. Unique inputs/output are separately accounted;
 there is **no total GPU-memory cap**. See the
@@ -65,8 +70,10 @@ there is **no total GPU-memory cap**. See the
 for ownership, cleanup and evidence requirements.
 
 This includes one bounded frozen 4x4 run in I3a, not a broader I3b campaign.
-Native source-build provenance, retained numerical readbacks and actual CUDA
-compute-kernel activity with launch/stream correlation remain acceptance gates.
+Native source-build provenance, retained numerical readbacks, resource reports
+and cleanup remain acceptance gates. The observed 4x4 budget rejection is retained
+as a host regression through the production owner; the larger native ceiling
+does not relax that guard. Nsight tracing and performance analysis are later work.
 Common interfaces and I4 public `run_qir`/sampling stay paused.
 
 ## I1 retained input and CPU reference

@@ -237,7 +237,11 @@ mod native {
             disable_slicing: true,
         };
         let limits = WorkspaceLimits {
-            device_scratch: 67_108_864,
+            device_scratch: if name == "case_a_4x4" {
+                3 * 1024 * 1024 * 1024
+            } else {
+                67_108_864
+            },
             host_scratch: 1_048_576,
         };
         println!(

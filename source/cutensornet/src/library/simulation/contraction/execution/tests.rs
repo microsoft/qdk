@@ -510,6 +510,41 @@ fn honors_exact_workspace_limits_and_distinguishes_zero_scratch_from_disabled_ca
 }
 
 #[test]
+fn observed_4x4_workspace_requirement_is_rejected_before_allocation() {
+    // The native unsliced 4x4 run reported this minimum before rejecting 64 MiB.
+    let api = api(
+        vec![],
+        NumericalSettings {
+            device_minimum: 2_186_281_216,
+            host_minimum: 0,
+            nonfinite_output: false,
+        },
+    );
+    assert!(matches!(
+        run_numerical::<()>(
+            api.clone(),
+            &coefficients(),
+            &[0; 4],
+            WorkspaceLimits {
+                device_scratch: 67_108_864,
+                host_scratch: 1_048_576,
+            },
+            |_| panic!("over-budget preparation must not reach execution"),
+        ),
+        Err(SimulationError::WorkspaceLimitExceeded {
+            required: 2_186_281_216,
+            maximum: 67_108_864,
+        })
+    ));
+    api.assert_released();
+    let events = api.events();
+    assert!(events.contains(&"compute_contraction_workspace"));
+    assert!(!events.contains(&"allocate"));
+    assert!(!events.contains(&"prepare_contraction"));
+    assert!(!events.contains(&"contract"));
+}
+
+#[test]
 #[expect(
     clippy::redundant_closure_for_method_calls,
     reason = "method items cannot satisfy the driver's independently quantified session lifetime"
