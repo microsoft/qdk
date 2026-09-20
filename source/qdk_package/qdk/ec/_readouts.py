@@ -17,7 +17,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import qodec as qc
-from qodec.gadgets import Readout, ReadoutLike, ReferenceLike
+from qodec import ReferenceLike
+from qodec.gadgets import Readout, ReadoutLike
 
 from ._references import (
     Equation,

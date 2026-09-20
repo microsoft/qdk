@@ -50,14 +50,20 @@ def _feedforward_instruction_set(
     )
 
 
-def test_walker_honors_measurement_conditioned_pauli() -> None:
+@pytest.mark.parametrize(
+    "readout",
+    ["circuit.readouts[0]", "circuit.readouts[00:01]", "circuit.readouts[0:2:2]"],
+)
+def test_walker_honors_measurement_conditioned_pauli(readout: str) -> None:
     for invert in (False, True):
         physical = _feedforward_instruction_set(invert)
         circuit = qc.gadgets.Circuit(
             physical,
-            '- R: [0]\n- H: [0]\n- M: [0]\n- correct: [0, bit: "circuit.readouts[0]"]',
+            f'- R: [0]\n- H: [0]\n- M: [0]\n- correct: [0, bit: "{readout}"]',
             format="yaml",
         )
+        assert circuit.calls()[-1].arguments["bit"] == "circuit.readouts[0]"
+        assert readout in circuit.source
         frames = _FramePropagator(1)
         frames.apply_pauli_to_shot(0, Pauli("X_0"))
         simulation = walk_program(circuit, extra_engines=[frames]).simulation

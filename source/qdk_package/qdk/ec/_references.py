@@ -1,16 +1,11 @@
-"""The atom vocabulary behind qodec's property-path reference grammar.
-
-A qodec parity equation is a flat list of JsonPath-style references relative to
-the gadget root. That grammar is *text*, and text is a poor thing to reason
-with: asking "does this check constrain an output stabilizer?" of a string means
-knowing the grammar at the asking site. This module is the one place qdk.ec
-turns those strings into values and back, so everything else matches on atom
-types instead.
+"""Interpret gadget-local parity references as circuit outcomes, declared
+readouts, or encoding signs. Selectors produce terms in order, preserving duplicates.
 
 ===================================  =========================
 reference text                       atom
 ===================================  =========================
 ``circuit.readouts[<sel>]``          :class:`Outcome`
+``readouts[<sel>]``                  :class:`ReadoutSign`
 ``(in|out)[<e>].stabilizers[<i>]``   :class:`StabilizerSign`
 ``(in|out)[<e>].(x|z)[<i>]``         :class:`LogicalSign`
 ===================================  =========================
@@ -22,11 +17,11 @@ union (``N,M,P``); a selector addressing several records parses to one
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Literal, Union
 
-from qodec.gadgets import Reference, ReferenceLike
+from qodec import Reference, ReferenceLike
 
 #: Which side of a gadget boundary an encoding reference names.
 Side = Literal["in", "out"]
@@ -43,6 +38,16 @@ class Outcome:
 
     def __str__(self) -> str:
         return f"circuit.readouts[{self.index}]"
+
+
+@dataclass(frozen=True)
+class ReadoutSign:
+    """One declared gadget readout, before substituting its equation."""
+
+    index: int
+
+    def __str__(self) -> str:
+        return f"readouts[{self.index}]"
 
 
 @dataclass(frozen=True)
@@ -94,31 +99,71 @@ Atom = Union[Outcome, StabilizerSign, LogicalSign, Literal[0, 1]]
 Equation = tuple[Atom, ...]
 
 
+def reference_terms(
+    reference: ReferenceLike,
+) -> Iterator[Outcome | ReadoutSign | StabilizerSign | LogicalSign]:
+    """Check gadget-local syntax immediately and produce selected terms lazily."""
+    parsed = reference if isinstance(reference, Reference) else Reference(reference)
+    segments = parsed.segments
+    if not segments:
+        raise ValueError(f"model address {parsed.path!r} is not a parity reference")
+    match segments[-1]:
+        case Reference.Index(index):
+            indices = (index,)
+        case Reference.Slice(start, stop, step):
+            indices = range(start, stop, step)
+        case Reference.Union(values):
+            indices = values
+        case _:
+            raise ValueError(f"model address {parsed.path!r} is not a parity reference")
+    match segments[:-1]:
+        case (Reference.Field("circuit"), Reference.Field("readouts")):
+            return (Outcome(index) for index in indices)
+        case (Reference.Field("readouts"),):
+            return (ReadoutSign(index) for index in indices)
+        case (
+            Reference.Field(("in" | "out") as side),
+            Reference.Index(entry),
+            Reference.Field("stabilizers"),
+        ):
+            return (StabilizerSign(side, entry, index) for index in indices)
+        case (
+            Reference.Field(("in" | "out") as side),
+            Reference.Index(entry),
+            Reference.Field(("x" | "z") as basis),
+        ):
+            return (LogicalSign(side, entry, basis, index) for index in indices)
+        case _:
+            raise ValueError(f"model address {parsed.path!r} is not a parity reference")
+
+
+def reference_term(
+    reference: ReferenceLike,
+) -> Outcome | ReadoutSign | StabilizerSign | LogicalSign:
+    """Require one selected parity term without expanding the remaining selection."""
+    terms = reference_terms(reference)
+    first = next(terms)
+    if next(terms, None) is not None:
+        raise ValueError(
+            f"reference {str(reference)!r} must select exactly one position"
+        )
+    return first
+
+
 def _parse_atom(reference: ReferenceLike | Literal[0, 1]) -> list[Atom]:
     if isinstance(reference, int):
         if type(reference) is not int or reference not in (0, 1):
             raise ValueError("parity constants must be integer bits 0 or 1")
         return [reference]
-    atoms: list[Atom] = []
-    for term in Reference(reference).expand():
-        if term.kind == "circuit_readout":
-            atoms.append(Outcome(term.index))
-        elif term.kind == "encoding":
-            side, entry, basis = term.boundary, term.entry, term.encoding_property
-            assert side is not None and entry is not None
-            if basis == "stabilizers":
-                atoms.append(StabilizerSign(side, entry, term.index))
-            elif basis in ("x", "z"):
-                atoms.append(LogicalSign(side, entry, basis, term.index))
-    return atoms
+    return [
+        term for term in reference_terms(reference) if not isinstance(term, ReadoutSign)
+    ]
 
 
 def parse_equation(references: Iterable[ReferenceLike | Literal[0, 1]]) -> Equation:
-    """Every atom of one parity equation, in declared order.
+    """Circuit outcomes, encoding signs, and literal bits in declared order.
 
-    References of a shape this module does not model are dropped rather than
-    rejected: qodec validates the path grammar itself, and an equation may
-    legitimately carry atoms qdk.ec has no use for.
+    Declared-readout references are omitted; general model addresses raise ValueError.
     """
     return tuple(atom for reference in references for atom in _parse_atom(reference))
 
