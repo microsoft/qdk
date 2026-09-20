@@ -12,6 +12,7 @@ import qodec as qc
 from ._analysis.propagation.interpreter import program_of, propagate_faults
 from ._analysis.propagation.frames import FrameGroup
 from ._frames import FrameMap
+from ._references import LogicalSign, ReadoutSign, StabilizerSign, reference_terms
 from ._analysis.propagation.pauli import Pauli, PauliCharacter, relabel
 from ._analysis.propagation.pauli_remap import (
     Basis,
@@ -315,34 +316,32 @@ def _parity_effects(
     count = len(gadget.readouts)
 
     def equation(
-        references: Sequence[qc.gadgets.Reference | int],
+        references: Sequence[qc.Reference | int],
     ) -> tuple[BitVector, BitVector]:
         external = BitVector.zeros(fault_count)
         readouts = BitVector.zeros(count)
         for reference in references:
             if isinstance(reference, int):
                 continue
-            for term in reference.expand():
-                if term.kind == "readout":
+            for term in reference_terms(reference):
+                if isinstance(term, ReadoutSign):
                     if term.index >= count:
                         raise ValueError(f"readout reference {term} is out of bounds")
                     readouts[term.index] = not readouts[term.index]
                     continue
-                if term.kind == "encoding":
-                    encodings = (
-                        gadget.inputs if term.boundary == "in" else gadget.outputs
+                if isinstance(term, (LogicalSign, StabilizerSign)):
+                    encodings = gadget.inputs if term.side == "in" else gadget.outputs
+                    entry = term.entry
+                    field = (
+                        term.basis if isinstance(term, LogicalSign) else "stabilizers"
                     )
-                    entry, field = term.entry, term.encoding_property
-                    assert entry is not None and field is not None
                     if entry >= len(encodings) or term.index >= len(
                         getattr(encodings[entry].code, field)
                     ):
                         raise ValueError(f"encoding reference {term} is out of bounds")
-                    if term.boundary == "in":
+                    if term.side == "in":
                         continue
-                    path = f"out[{entry}].{field}[{term.index}]"
-                else:
-                    path = f"circuit.readouts[{term.index}]"
+                path = str(term)
                 if path not in values:
                     raise ValueError(f"circuit reference {term} is out of bounds")
                 external = external ^ values[path]

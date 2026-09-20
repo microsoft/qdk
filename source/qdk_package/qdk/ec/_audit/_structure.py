@@ -1,8 +1,9 @@
-"""Protocol declaration checks, independent of qodec persistence guards."""
+"""Check protocol declarations for consistency and valid references."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from itertools import chain
 import json
 import re
 
@@ -10,6 +11,13 @@ import qodec as qc
 
 from .._analysis.propagation.pauli import Pauli
 from .._readouts import observe_count_of
+from .._references import (
+    LogicalSign,
+    Outcome,
+    ReadoutSign,
+    reference_term,
+    reference_terms,
+)
 
 
 def _pauli_indices(text: str) -> set[int]:
@@ -111,11 +119,14 @@ def _argument_issue(
     kind = qc.instructions.Parameter.Kind
     expected = parameter.kind
     if isinstance(value, str):
-        match = re.fullmatch(r"circuit\.readouts\[([0-9]+)\]", value)
-        if match:
+        try:
+            term = reference_term(value)
+        except ValueError:
+            term = None
+        if isinstance(term, Outcome):
             if expected != kind.BIT:
                 return "a circuit readout can bind only a bit parameter"
-            if int(match[1]) >= preceding:
+            if term.index >= preceding:
                 return f"{value} is out of bounds for {preceding} preceding readouts"
             return None
         for name, source_name in gadget.parameter_bindings.items():
@@ -278,27 +289,27 @@ def _gadget_issues(
             if isinstance(reference, int):
                 continue
             capacity = None
-            if reference.kind == "circuit_readout":
+            terms = reference_terms(reference)
+            first = next(terms)
+            if isinstance(first, Outcome):
                 capacity = circuit_count
-            elif reference.kind == "readout":
+            elif isinstance(first, ReadoutSign):
                 capacity = len(gadget.readouts)
             else:
-                encodings = (
-                    gadget.inputs if reference.boundary == "in" else gadget.outputs
-                )
-                entry = reference.entry
-                assert entry is not None
+                encodings = gadget.inputs if first.side == "in" else gadget.outputs
+                entry = first.entry
                 if entry >= len(encodings):
-                    yield f"{label}: {reference} is out of bounds for {len(encodings)} {reference.boundary} encodings"
+                    yield f"{label}: {reference} is out of bounds for {len(encodings)} {first.side} encodings"
                     continue
-                property_name = reference.encoding_property
-                assert property_name is not None
+                property_name = (
+                    first.basis if isinstance(first, LogicalSign) else "stabilizers"
+                )
                 capacity = len(getattr(encodings[entry].code, property_name))
             if capacity is not None:
                 invalid = next(
                     (
                         atom.index
-                        for atom in reference.expand()
+                        for atom in chain((first,), terms)
                         if atom.index >= capacity
                     ),
                     None,

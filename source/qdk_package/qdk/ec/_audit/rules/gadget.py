@@ -10,7 +10,7 @@ from binar import BitVector
 import qodec as qc
 
 from ..._readouts import flag_slots, observable_slots, observe_count_of
-from ..._references import StabilizerSign
+from ..._references import StabilizerSign, reference_term
 from ..._analysis.channel_action import (
     declared_action_of,
     realized_action_of,
@@ -450,10 +450,9 @@ class IncompleteOutputFrameRule:
         if not missing:
             return
         for path in missing:
-            reference = qc.gadgets.Reference(path)
-            operand, index = reference.entry, reference.index
-            assert operand is not None
-            sign = StabilizerSign("out", operand, index)
+            sign = reference_term(path)
+            assert isinstance(sign, StabilizerSign)
+            operand, index = sign.entry, sign.index
             encoding = gadget.outputs[operand]
             expected = analysis.external(path)
             relation = analysis.candidate(expected)

@@ -25,6 +25,7 @@ from qodec.gadgets import Circuit
 
 from ..._layout import ProgramLayout
 from ..._readouts import observe_count_of
+from ..._references import Outcome, reference_term
 from .isa_actions import (
     build_clifford_images,
     remap_pauli,
@@ -155,12 +156,12 @@ def _condition_indices(
         if isinstance(value, (bool, int)) and value in (0, 1):
             parity ^= bool(value)
         elif isinstance(value, str):
-            reference = qc.gadgets.Reference(value)
-            if reference.kind != "circuit_readout" or reference.index >= record_size:
+            term = reference_term(value)
+            if not isinstance(term, Outcome) or term.index >= record_size:
                 raise ValueError(
                     f"condition {predicate!r} must reference a preceding circuit readout"
                 )
-            indices.append(reference.index)
+            indices.append(term.index)
         else:
             raise ValueError(f"condition {predicate!r} has no bit argument")
     return indices, parity

@@ -8,7 +8,7 @@ import json
 
 from binar import BitMatrix, BitVector, solve
 import qodec as qc
-from qodec.gadgets import Reference
+from qodec import Reference
 
 from .._analysis.channel_action import declared_action_of, realized_codes_of
 from .._analysis.check_discovery import choi_prepare
@@ -21,6 +21,7 @@ from .._analysis.propagation.pauli_remap import (
 )
 from .._layout import ProgramLayout
 from .._frames import FrameMap
+from .._references import ReadoutSign, reference_term, reference_terms
 
 
 def terms_of(equation: Iterable[Reference | int]) -> tuple[str, ...]:
@@ -37,13 +38,8 @@ def terms_of(equation: Iterable[Reference | int]) -> tuple[str, ...]:
             continue
         if not isinstance(reference, Reference):
             raise ValueError("parity terms must be references or integer bits")
-        for atom in reference.expand():
-            if atom.kind == "circuit_readout":
-                path = f"circuit.readouts[{atom.index}]"
-            elif atom.kind == "readout":
-                path = f"readouts[{atom.index}]"
-            else:
-                path = f"{atom.boundary}[{atom.entry}].{atom.encoding_property}[{atom.index}]"
+        for atom in reference_terms(reference):
+            path = str(atom)
             if path in terms:
                 del terms[path]
             else:
@@ -420,8 +416,8 @@ class ParityAnalysis:
                 if path == "1":
                     value = value ^ self.values["1"]
                     continue
-                reference = Reference(path)
-                if reference.kind == "readout":
+                reference = reference_term(path)
+                if isinstance(reference, ReadoutSign):
                     matrix[position, reference.index] = not matrix[
                         position, reference.index
                     ]
@@ -459,8 +455,8 @@ class ParityAnalysis:
             if path == "1":
                 result = result ^ self.values["1"]
                 continue
-            reference = Reference(path)
-            if reference.kind == "readout":
+            reference = reference_term(path)
+            if isinstance(reference, ReadoutSign):
                 values, unresolved, error = self.resolved
                 if error or reference.index in unresolved:
                     raise ValueError(

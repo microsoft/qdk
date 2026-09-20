@@ -50,7 +50,7 @@ def _complete_frame_equations(gadget: qc.Gadget) -> None:
         if equation is None:
             raise ValueError(f"readouts[{position}] has no frame-aware equation")
         readouts[position] = [
-            1 if term == "1" else qc.gadgets.Reference(term) for term in equation
+            1 if term == "1" else qc.Reference(term) for term in equation
         ]
     gadget.readouts = readouts
 
@@ -62,8 +62,7 @@ def _complete_frame_equations(gadget: qc.Gadget) -> None:
             raise ValueError(f"{path} has no frame-aware equation")
         checks.append(
             tuple(
-                1 if term == "1" else qc.gadgets.Reference(term)
-                for term in (path, *equation)
+                1 if term == "1" else qc.Reference(term) for term in (path, *equation)
             )
         )
     gadget.checks = checks
