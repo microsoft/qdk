@@ -3,6 +3,7 @@
 
 mod aliases;
 mod broadcasting;
+mod target_arity;
 
 use expect_test::Expect;
 use miette::Report;

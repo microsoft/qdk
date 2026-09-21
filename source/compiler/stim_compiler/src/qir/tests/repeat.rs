@@ -74,50 +74,6 @@ fn repeat_with_args_yields_error() {
 }
 
 #[test]
-fn repeat_with_multiple_targets_yields_error() {
-    let source = indoc! {"
-        REPEAT 3 2 1 {
-          X 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: REPEAT
-               ,-[1:10]
-             1 | REPEAT 3 2 1 {
-               :          ^
-             2 |   X 0
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn repeat_with_no_targets_yields_error() {
-    let source = indoc! {"
-        REPEAT {
-          X 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingTarget
-
-              x missing target in instruction: REPEAT
-               ,-[1:1]
-             1 | REPEAT {
-               : ^^^^^^
-             2 |   X 0
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn repeat_with_negated_count_yields_error() {
     let source = indoc! {"
         REPEAT !3 {

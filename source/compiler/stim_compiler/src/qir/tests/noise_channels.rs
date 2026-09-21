@@ -574,23 +574,6 @@ fn depolarize2_without_probability_yields_error() {
 }
 
 #[test]
-fn depolarize2_with_odd_number_of_targets_yields_error() {
-    let source = "DEPOLARIZE2(0.01) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction DEPOLARIZE2 requires an even number of targets
-               ,----
-             1 | DEPOLARIZE2(0.01) 0
-               : ^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 #[ignore = "unsupported instruction"]
 fn heralded_erase_yields_expected_qir() {
     let source = "HERALDED_ERASE(0.01) 0";
@@ -685,22 +668,6 @@ fn ii_error_yields_expected_qir() {
 }
 
 #[test]
-fn ii_error_with_incomplete_trailing_pair_yields_error() {
-    check(
-        "II_ERROR 0 1 2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction II_ERROR requires an even number of targets
-               ,----
-             1 | II_ERROR 0 1 2
-               : ^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ii_error_with_invalid_probability_list_yields_error() {
     check(
         "II_ERROR(0.6, 0.6) 0 1",
@@ -727,23 +694,6 @@ fn ii_error_with_unsupported_target_yields_error() {
                ,----
              1 | II_ERROR 0 X1
                :            ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_error_with_odd_number_of_targets_yields_error() {
-    let source = "II_ERROR 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction II_ERROR requires an even number of targets
-               ,----
-             1 | II_ERROR 0
-               : ^^^^^^^^^^
                `----
         "#]],
     );
@@ -944,23 +894,6 @@ fn pauli_channel_2_yields_expected_qir() {
                     ZX: 0
                     ZY: 0
                     ZZ: 0"#]],
-    );
-}
-
-#[test]
-fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
-    let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction PAULI_CHANNEL_2 requires an even number of targets
-               ,----
-             1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
     );
 }
 

@@ -420,54 +420,6 @@ fn ccx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ccx_gate_with_one_target_yields_error() {
-    check(
-        "CCX 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TargetCountNotMultipleOfThree
-
-              x instruction CCX requires a multiple of three targets
-               ,----
-             1 | CCX 0
-               : ^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ccx_gate_with_two_targets_yields_error() {
-    check(
-        "CCX 0 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TargetCountNotMultipleOfThree
-
-              x instruction CCX requires a multiple of three targets
-               ,----
-             1 | CCX 0 1
-               : ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ccx_gate_with_four_targets_yields_error() {
-    check(
-        "CCX 0 1 2 3",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TargetCountNotMultipleOfThree
-
-              x instruction CCX requires a multiple of three targets
-               ,----
-             1 | CCX 0 1 2 3
-               : ^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ccx_gate_with_argument_yields_error() {
     check(
         "CCX(0.5) 0 1 2",
@@ -864,22 +816,6 @@ fn r_zz_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn r_xx_with_odd_target_count_yields_error() {
-    check(
-        "R_XX(0.25) 0 1 2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction R_XX requires an even number of targets
-               ,----
-             1 | R_XX(0.25) 0 1 2
-               : ^^^^^^^^^^^^^^^^
-               `----
-        "#]],
     );
 }
 

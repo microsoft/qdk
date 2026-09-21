@@ -256,29 +256,6 @@ fn select_block_with_args_yields_error() {
 }
 
 #[test]
-fn select_block_with_targets_yields_error() {
-    let source = indoc! {"
-        SELECT 0 1 {
-          M 0
-          REQUIRE rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: SELECT
-               ,-[1:8]
-             1 | SELECT 0 1 {
-               :        ^
-             2 |   M 0
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn select_block_with_tag() {
     let source = indoc! {"
         SELECT[some_tag] {
@@ -385,30 +362,6 @@ fn require_with_pauli_target_yields_error() {
              2 |   M 0
              3 |   REQUIRE X0
                :           ^^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn require_with_no_targets_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingTarget
-
-              x missing target in instruction: REQUIRE
-               ,-[3:3]
-             2 |   M 0
-             3 |   REQUIRE
-               :   ^^^^^^^
              4 | }
                `----
         "#]],
@@ -1146,30 +1099,6 @@ fn notleaked_with_pauli_target_yields_error() {
              2 |   M 0
              3 |   NOTLEAKED X0
                :             ^^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn notleaked_with_no_targets_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingTarget
-
-              x missing target in instruction: NOTLEAKED
-               ,-[3:3]
-             2 |   M 0
-             3 |   NOTLEAKED
-               :   ^^^^^^^^^
              4 | }
                `----
         "#]],

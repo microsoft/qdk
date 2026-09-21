@@ -128,23 +128,6 @@ fn ii_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ii_gate_with_odd_number_of_targets_yields_error() {
-    let source = "II 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction II requires an even number of targets
-               ,----
-             1 | II 0
-               : ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ii_gate_with_args_yields_error() {
     let source = "II(0.01) 0 1";
     check(
@@ -561,22 +544,5 @@ fn ycz_gate_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn cx_with_odd_number_of_targets_yields_error() {
-    let source = "CX 0 1 2";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction CX requires an even number of targets
-               ,----
-             1 | CX 0 1 2
-               : ^^^^^^^^
-               `----
-        "#]],
     );
 }

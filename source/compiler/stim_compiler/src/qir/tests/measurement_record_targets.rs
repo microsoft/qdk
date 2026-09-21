@@ -243,27 +243,6 @@ fn cx_with_two_rec_targets_yields_error() {
 }
 
 #[test]
-fn cx_with_odd_targets_including_rec_yields_error() {
-    let source = indoc! {"
-        M 0
-        CX rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction CX requires an even number of targets
-               ,-[2:1]
-             1 | M 0
-             2 | CX rec[-1]
-               : ^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn cy_with_rec_control_yields_expected_qir() {
     let source = indoc! {"
         M 0
