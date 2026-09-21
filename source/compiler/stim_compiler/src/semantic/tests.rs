@@ -2,8 +2,10 @@
 // Licensed under the MIT License.
 
 mod aliases;
-mod broadcasting;
+mod block_lowering;
+mod instruction_lowering;
 mod target_arity;
+mod target_broadcasting;
 
 use expect_test::Expect;
 use miette::Report;
