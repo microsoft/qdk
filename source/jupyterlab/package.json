@@ -29,7 +29,7 @@
     "build:dev": "npm run build:lib && npm run build:labextension:dev",
     "build:prod": "npm run build:lib && npm run build:labextension:prod",
     "build:lib": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
-    "build:labextension:dev": "jupyter-builder build --core-package-file ./jupyterlab-core/package.json --development True .",
+    "build:labextension:dev": "jupyter-builder build --core-package-file ./jupyterlab-core/package.json --development .",
     "build:labextension:prod": "jupyter-builder build --core-package-file ./jupyterlab-core/package.json ."
   },
   "devDependencies": {
