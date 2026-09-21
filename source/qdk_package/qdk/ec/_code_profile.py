@@ -74,6 +74,8 @@ class CodeProfile:
         return self._algebra.logical_qubit_count
 
     def syndrome_of(self, error: Pauli) -> frozenset[int]:
+        """Zero-based positions in ``stabilizers`` that anticommute with ``error``."""
+
         return self._algebra.syndrome_of(error)
 
     def logical_effect_of(self, error: Pauli) -> Pauli:
@@ -156,6 +158,13 @@ class CodeProfile:
     def encoding_clifford(
         self, *, supported_by: Sequence[int] | None = None
     ) -> CliffordUnitary:
+        """Return the encoding Clifford with physical support mapped to dense indices.
+
+        ``supported_by`` lists every physical qubit label in ``support`` once;
+        its order assigns positions 0, 1, ... in the returned Clifford. The
+        default is increasing label order. Incomplete or different support
+        raises ``ValueError``.
+        """
         return self._algebra.encoding_clifford(supported_by=supported_by)
 
     def is_trivial_error(self, error: Pauli) -> bool:

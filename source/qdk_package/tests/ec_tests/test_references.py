@@ -1,8 +1,7 @@
 """Unit tests for the qodec property-path atom vocabulary.
 
-:mod:`qdk.ec._references` is the single source of truth for the property-path
-DSL; every other module delegates to it and matches on atom types. The cases
-below pin the reference shapes it must accept and the text it must render back.
+qodec parses paths; :mod:`qdk.ec._references` interprets their parity roles.
+These cases pin the accepted shapes and preserve every parsed term.
 """
 
 from __future__ import annotations
@@ -158,8 +157,22 @@ def test_parse_equation_expands_bracket_selectors() -> None:
     )
 
 
-def test_parse_equation_drops_logical_readout_references() -> None:
-    assert parse_equation(["readouts[1]"]) == ()
+def test_parse_equation_preserves_declared_readout_terms() -> None:
+    equation = parse_equation(["readouts[1,0,1]", "circuit.readouts[2]", 1])
+    assert equation == (ReadoutSign(1), ReadoutSign(0), ReadoutSign(1), Outcome(2), 1)
+    assert outcomes_of(equation) == [2]
+
+
+def test_readout_equation_preserves_dependencies() -> None:
+    import qodec as qc
+    from qdk.ec._readouts import readout_equation
+
+    gadget = qc.Gadget(
+        qc.Instruction("draft", flags=["reject"]),
+        qc.gadgets.Circuit(qc.InstructionSet("draft"), "opaque", format="unknown"),
+        readouts=[["readouts[1]", "circuit.readouts[2]", 1]],
+    )
+    assert readout_equation(gadget.readouts[0]) == (ReadoutSign(1), Outcome(2), 1)
 
 
 @pytest.mark.parametrize(

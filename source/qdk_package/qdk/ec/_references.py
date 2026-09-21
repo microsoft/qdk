@@ -93,7 +93,7 @@ class LogicalSign:
         return f"{self.side}[{self.entry}].{self.basis}[{self.index}]"
 
 
-Atom = Union[Outcome, StabilizerSign, LogicalSign, Literal[0, 1]]
+Atom = Union[Outcome, ReadoutSign, StabilizerSign, LogicalSign, Literal[0, 1]]
 
 #: One parity equation, parsed.
 Equation = tuple[Atom, ...]
@@ -155,16 +155,11 @@ def _parse_atom(reference: ReferenceLike | Literal[0, 1]) -> list[Atom]:
         if type(reference) is not int or reference not in (0, 1):
             raise ValueError("parity constants must be integer bits 0 or 1")
         return [reference]
-    return [
-        term for term in reference_terms(reference) if not isinstance(term, ReadoutSign)
-    ]
+    return list(reference_terms(reference))
 
 
 def parse_equation(references: Iterable[ReferenceLike | Literal[0, 1]]) -> Equation:
-    """Circuit outcomes, encoding signs, and literal bits in declared order.
-
-    Declared-readout references are omitted; general model addresses raise ValueError.
-    """
+    """Retain all parity terms in declared order, expanding reference selectors."""
     return tuple(atom for reference in references for atom in _parse_atom(reference))
 
 

@@ -299,9 +299,11 @@ def test_gadget_alternatives_replay_without_simulation_during_iteration(
         assert {witness.product for witness in witnesses} == set(expected)
         assert list(distance.witnesses) == witnesses
     effects = profile.effects_of([witness.product for witness in witnesses])
+    assert all(effects)
     assert all(
-        any(error.weight for error in effect.output_error.values())
+        reference.path in {"out[0].x[0]", "out[0].z[0]"}
         for effect in effects
+        for reference in effect
     )
 
 

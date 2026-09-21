@@ -112,7 +112,7 @@ canonical format's guarantees, and the visitor's context protocol.
 ### Error Correction Preview
 
 `qdk.ec` analyzes codes and gadgets and can derive checks and readout equations.
-It requires Python 3.11 or newer and `qodec>=0.1.1.dev0,<0.2`. Install the local
+It requires Python 3.11 or newer and `qodec>=0.2.0.dev0,<0.3`. Install the local
 qodec Python bindings first while that version is unpublished, then install
 `qdk[ec]`.
 
@@ -266,13 +266,52 @@ which sums Pauli support weights and the number of flipped readout bits.
 expressions with call-local indexes. Witness products combine Pauli errors and
 XOR readout flips at each call for replay with `effects_of`. `FaultEvent()` is
 the identity; the mapping constructor remains available for post-call Pauli
-errors. `FaultEffect.readout_flips` still reports changes to gadget logical
-readouts (or the full record when profiling a bare circuit).
+errors.
+
+`FaultEffect` is an immutable set of changed gadget quantities, expressed as
+qodec references:
+
+```python
+effect = ec.FaultEffect(["checks[1]", "checks[3]", "out[0].z[1]"])
+assert "checks[1]" in effect
+assert "readouts[0]" not in effect
+assert effect ^ effect == ec.FaultEffect()
+print(effect)
+```
+
+This prints `["checks[1]", "checks[3]", "out[0].z[1]"]`. Checks and readouts use
+the gadget's declaration indices, including flag readouts. Output references
+identify logical X/Z signs or stabilizer signs in each output encoding, after
+applying frame corrections. A flipped Z sign corresponds to an X error, not an
+X-sign change. These are evaluated changes, not mutations to the model fields
+or to `Gadget.frames` equations.
+
+Construction expands final selectors and deduplicates canonical targets;
+iteration yields typed `qodec.Reference` values in deterministic numeric order.
+qodec owns their normalized equality and hashing. Effects store those references
+directly; only the distance adapter assigns solver indices.
+Membership requires a single selected target. The effect is hashable; XOR takes
+the symmetric difference for effects on the same analyzed snapshot. Empty means
+no recorded change, not no fault. Bounds are checked by analysis or model
+resolution, not by the standalone set constructor.
+
+The read-only `effect.checks`, `effect.readouts`, and `effect.frames` properties
+return `tuple[qodec.Reference, ...]` in the effect's iteration order. `frames`
+includes output X/Z and stabilizer signs. For example, `bool(effect.checks)` asks
+whether any check flipped. These are ordinary tuples: use Reference values for
+membership, not strings. XOR and string-aware membership belong to `FaultEffect`.
+The tuples are computed on access, not stored as additional state.
+
+For bare circuits, readouts index the full record and checks are discovered.
+Output encodings follow increasing circuit-layout slot order, excluding slots
+prepared by the circuit but including unused slots. Each encoding represents
+one qubit, so its logical index is zero. Effects describe the profile's snapshot,
+not later edits to its source.
 
 `FaultEvent` has two named members, `after` and `weight`; there are no public
 `locations` or `readout_flips` fields.
 `after` keeps the existing call-location convention, and the `readout_flips`
-keyword follows the existing effect vocabulary. A separate `flip_readout`
+keyword describes recorded-bit changes. A separate `flip_readout`
 method would duplicate this constructor; a boolean shortcut would need an
 extra rule for calls with multiple readouts.
 
@@ -283,7 +322,8 @@ data error must not count as a logical error merely because a logical probe flip
 Individual fault factors need not preserve the codespace: their output syndromes
 may cancel in combination. Syndromes on different output blocks cannot cancel
 each other. This is a constraint on what constitutes a logical error, not a new
-declared detector, and it does not change `FaultEffect.syndrome`.
+declared detector: `out[k].stabilizers[i]` targets remain distinct from
+`checks[j]` targets in a `FaultEffect`.
 
 Among combinations satisfying both constraints, failure means changing the
 **realized logical action**. Indicators come from its prepared-state stabilizers,

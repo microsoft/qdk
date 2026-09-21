@@ -137,7 +137,7 @@ def test_recorded_frame_bit_fault_changes_logical_output() -> None:
     profile = ec.GadgetProfile(_framed_preparation())
     fault = ec.FaultEvent.after(4, readout_flips=0)
     (effect,) = profile.effects_of([fault])
-    assert effect.output_error[0] == Pauli("X_0")
+    assert effect == ec.FaultEffect(["out[0].z[0]"])
     assert profile.distance(faults=[fault]).value == 1
 
 
@@ -149,7 +149,7 @@ def test_constant_frame_flips_action_without_creating_faults() -> None:
     assert profile.objective is not None
     assert profile.action.is_equivalent_to(profile.objective)
     (effect,) = profile.effects_of([ec.FaultEvent()])
-    assert not effect.output_error[0].weight
+    assert not effect
 
 
 @pytest.mark.parametrize(
@@ -159,7 +159,6 @@ def test_constant_frame_flips_action_without_creating_faults() -> None:
         ({"out[0].stabilizers[0]": []}, "output logical"),
         ({"out[1].z[0]": []}, "out of bounds"),
         ({"out[0].z[1]": []}, "out of bounds"),
-        ({"out[0].z[0]": [], "out[00].z[0]": []}, "duplicate"),
         ({"out[0].z[0]": ["out[0].z[0]"]}, "not available"),
         ({"out[0].z[0]": ["circuit.readouts[1]"]}, "out of bounds"),
     ],
@@ -171,6 +170,12 @@ def test_invalid_frames_are_rejected(
     gadget.frames = frames
     with pytest.raises(ValueError, match=message):
         _ = ec.GadgetProfile(gadget).action
+
+
+def test_duplicate_frame_targets_are_rejected_on_assignment() -> None:
+    gadget = _framed_preparation()
+    with pytest.raises(ValueError, match="duplicate frame target"):
+        gadget.frames = {"out[0].z[0]": [], "out[00].z[0]": []}
 
 
 def test_frame_readout_cycles_are_rejected() -> None:
@@ -228,7 +233,15 @@ def test_physical_and_recorded_frame_faults_can_cancel() -> None:
     profile = ec.GadgetProfile(_framed_preparation())
     fault = ec.FaultEvent.after(4, Pauli("X_0"), readout_flips=0)
     (effect,) = profile.effects_of([fault])
-    assert not effect.output_error[0].weight
+    assert not effect
+    quantum, recorded = profile.effects_of(
+        [
+            ec.FaultEvent.after(4, Pauli("X_0")),
+            ec.FaultEvent.after(4, readout_flips=0),
+        ]
+    )
+    assert quantum == recorded == ec.FaultEffect(["out[0].z[0]"])
+    assert quantum ^ recorded == effect
     assert profile.distance(faults=[fault]).lower_bound is None
 
 

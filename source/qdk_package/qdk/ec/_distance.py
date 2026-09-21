@@ -100,24 +100,30 @@ class _FaultDistanceData:
         cls,
         faults: tuple[FaultEvent, ...],
         effects: Sequence[FaultEffect],
-        output_syndromes: Sequence[frozenset[int]],
         indicators: Sequence[frozenset[int]],
         *,
         flag_positions: frozenset[int] = frozenset(),
     ) -> _FaultDistanceData:
-        output_offset = 1 + max(
-            (index for effect in effects for index in effect.syndrome), default=-1
-        )
-        flag_offset = output_offset + 1 + max(
-            (index for syndrome in output_syndromes for index in syndrome), default=-1
-        )
+        flags = {qc.Reference(f"readouts[{index}]") for index in flag_positions}
+        references = {
+            reference for effect in effects for reference in effect._references
+        }
+        positions: dict[qc.Reference, int] = {}
+        for reference in references:
+            segments = reference.segments
+            if (
+                segments[0] == qc.Reference.Field("checks")
+                or reference in flags
+                or segments[-2] == qc.Reference.Field("stabilizers")
+            ):
+                positions[reference] = len(positions)
         constraints = [
-            effect.syndrome
-            | frozenset(output_offset + index for index in output_syndrome)
-            | frozenset(
-                flag_offset + index for index in effect.readout_flips & flag_positions
+            frozenset(
+                positions[reference]
+                for reference in effect._references
+                if reference in positions
             )
-            for effect, output_syndrome in zip(effects, output_syndromes, strict=True)
+            for effect in effects
         ]
         return cls(faults, OddCycles(constraints, indicators))
 
