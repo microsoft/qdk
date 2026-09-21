@@ -30,9 +30,11 @@ mod error;
 mod index;
 mod mps;
 mod network;
+mod plan;
 
 pub use contraction::ContractionQuery;
 pub use error::{ContractionError, MpsError, NetworkError};
 pub use index::{Index, Indices};
 pub use mps::Mps;
 pub use network::TensorNetwork;
+pub use plan::{ContractionPlan, ContractionStep, Operand, PlanError};

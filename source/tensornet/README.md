@@ -95,6 +95,41 @@ pub enum ContractionError {
     RepeatedKeptIndex { id: u32 },
     InconsistentDimension { id: u32, network: usize, kept: usize },
 }
+
+pub enum Operand {
+    Input(usize),   // a position in TensorNetwork::nodes
+    Result(usize),  // an earlier step of the same plan
+}
+
+pub struct ContractionStep { /* operands: Vec<Operand>, result_axes: Indices */ }
+
+impl ContractionStep {
+    pub fn new(operands: Vec<Operand>, result_axes: Indices) -> Self;
+    pub fn operands(&self) -> &[Operand];
+    pub fn result_axes(&self) -> &Indices;
+    pub fn arity(&self) -> usize;
+}
+
+pub struct ContractionPlan { /* steps: Vec<ContractionStep> */ }
+
+impl ContractionPlan {
+    pub fn new(query: &ContractionQuery<'_>, steps: Vec<ContractionStep>) -> Result<Self, PlanError>;
+    pub fn steps(&self) -> &[ContractionStep];
+    pub fn is_pairwise(&self) -> bool; // every step consumes exactly two operands
+}
+
+pub enum PlanError {
+    EmptyNetwork,
+    MissingSteps { nodes: usize },
+    UnknownInput { step: usize, index: usize },
+    ForwardReference { step: usize, index: usize },
+    AlreadyConsumed { step: usize, operand: Operand },
+    EmptyStep { step: usize },
+    RepeatedResultAxis { step: usize, id: u32 },
+    WrongResultAxes { step: usize, expected: Vec<Index>, actual: Vec<Index> },
+    WrongOutputAxes { expected: Vec<Index>, actual: Vec<Index> },
+    UnconsumedOperands { operands: Vec<Operand> },
+}
 ```
 
 Every method above has a named consumer. Anything derivable that nothing yet
@@ -116,6 +151,31 @@ is well defined, and by the rule this crate follows throughout — reject what i
 ambiguous, allow what is determined — there is nothing to reject. It is
 unlikely to be what a caller meant, and a backend that cannot contract it is
 the right place to say so.
+
+### Plans schedule a query, without a numerical engine
+
+A `ContractionPlan` is a portable, declarative schedule for one
+`ContractionQuery`: an ordered list of steps, each naming the operands it
+consumes (by input position or by an earlier step's result) and the axes its
+result keeps, in order. It carries no coefficients, no native handles and no
+optimizer identity — only enough to say which axes survive each step and in
+what order, which is exactly what `ContractionPlan::new` checks against the
+query it is built from.
+
+Arity is not restricted to two; a step may consume any number of operands, and
+`is_pairwise` reports whether a particular plan happens to use only binary
+steps. That distinction matters because the currently supported execution
+subset is unsliced, pairwise contraction plans with fixed coefficient
+bindings — a capability of today's executor, not a limit of the model. A
+single-node network needs no steps only when that node's axes already equal
+the query's kept axes as a set; anything else, including a one-node diagonal,
+needs a (possibly unary) step to say so.
+
+A validated plan borrows nothing from the query or network it was checked
+against, so the same plan can be validated again later against a fresh but
+topologically identical query — the same guarantee a selected native
+contraction path relies on when it outlives its optimizer and is imported into
+a new owner without another search.
 
 `Mps` is described separately, and shares nothing with the above but the crate
 it lives in:
