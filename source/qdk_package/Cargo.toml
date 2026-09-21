@@ -40,6 +40,7 @@ allocator = { path = "../allocator" }
 [target.'cfg(not(any(target_os = "windows")))'.dependencies]
 pyo3 = { workspace = true, features = [
     "abi3-py310",
+    "abi3t-py315",
     "extension-module",
     "num-bigint",
     "num-complex",
@@ -50,6 +51,7 @@ pyo3 = { workspace = true, features = [
 # files to be present on the (cross-)compile host system.
 pyo3 = { workspace = true, features = [
     "abi3-py310",
+    "abi3t-py315",
     "extension-module",
     "generate-import-lib",
     "num-bigint",
