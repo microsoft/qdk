@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType
 
 from binar import BitMatrix, BitVector
@@ -13,7 +13,7 @@ from ._analysis.propagation.interpreter import program_of, propagate_faults
 from ._analysis.propagation.frames import FrameGroup
 from ._frames import FrameMap
 from ._references import LogicalSign, ReadoutSign, StabilizerSign, reference_terms
-from ._analysis.propagation.pauli import Pauli, PauliCharacter, relabel
+from ._analysis.propagation.pauli import Pauli, relabel
 from ._analysis.propagation.pauli_remap import (
     Basis,
     encoding_qubit_relocation,
@@ -161,24 +161,143 @@ class FaultEvent:
         return " * ".join(parts) if parts else f"{name}()"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False, repr=False, slots=True)
 class FaultEffect:
-    """What one fault does at a gadget's checks, readouts, and outputs."""
+    """An immutable set of changed checks, readouts, and output signs.
 
-    syndrome: frozenset[int] = field(default_factory=frozenset)
-    readout_flips: frozenset[int] = field(default_factory=frozenset)
-    output_error: Mapping[int, Pauli] = field(default_factory=dict)
+    References are relative to the analyzed gadget snapshot: ``checks[i]``,
+    ``readouts[i]`` (including flags), and ``out[k].{x,z,stabilizers}[i]``.
+    Output signs include declared frame corrections. They describe changes
+    from fault-free execution, not changes to the gadget's equations.
 
-    def __post_init__(self) -> None:
+    Construction expands final selectors and deduplicates canonical targets;
+    bounds require a gadget and are checked by analysis or resolution. Iteration
+    yields References in numeric order: checks, readouts, then outputs by block
+    and x/z/stabilizer index. Membership requires one selected target.
+
+    XOR combines effects against the same target layout. Equality and hashing
+    compare targets only, not gadget ownership. An empty effect means no recorded
+    change, not no fault; a nonempty effect need not be a logical failure.
+    """
+
+    _references: frozenset[qc.Reference]
+
+    def __init__(self, references: Iterable[qc.ReferenceLike] = ()) -> None:
+        if isinstance(references, (str, qc.Reference)):
+            raise TypeError("expected an iterable of references, not one reference")
         object.__setattr__(
-            self, "output_error", MappingProxyType(dict(self.output_error))
+            self,
+            "_references",
+            frozenset(
+                expanded
+                for reference in references
+                for expanded in _effect_references(reference)
+            ),
         )
 
-    def __hash__(self) -> int:
-        output = tuple(
-            sorted((entry, str(error)) for entry, error in self.output_error.items())
+    @classmethod
+    def _from_references(cls, references: Iterable[qc.Reference]) -> FaultEffect:
+        effect = cls()
+        object.__setattr__(effect, "_references", frozenset(references))
+        return effect
+
+    @property
+    def checks(self) -> tuple[qc.Reference, ...]:
+        """Changed check references, in increasing check-index order."""
+        return tuple(
+            reference
+            for reference in self
+            if reference.segments[0] == qc.Reference.Field("checks")
         )
-        return hash((self.syndrome, self.readout_flips, output))
+
+    @property
+    def readouts(self) -> tuple[qc.Reference, ...]:
+        """Changed readout references, including flags, in increasing index order."""
+        return tuple(
+            reference
+            for reference in self
+            if reference.segments[0] == qc.Reference.Field("readouts")
+        )
+
+    @property
+    def frames(self) -> tuple[qc.Reference, ...]:
+        """Changed output signs, ordered by block, x/z/stabilizers, then index."""
+        return tuple(
+            reference
+            for reference in self
+            if reference.segments[0] == qc.Reference.Field("out")
+        )
+
+    def __contains__(self, reference: qc.ReferenceLike) -> bool:
+        references = _effect_references(reference)
+        first = next(references)
+        if next(references, None) is not None:
+            raise ValueError("membership requires a single target")
+        return first in self._references
+
+    def __iter__(self) -> Iterator[qc.Reference]:
+        return iter(sorted(self._references, key=_effect_order))
+
+    def __len__(self) -> int:
+        return len(self._references)
+
+    def __xor__(self, other: FaultEffect) -> FaultEffect:
+        if not isinstance(other, FaultEffect):
+            return NotImplemented
+        return type(self)._from_references(self._references ^ other._references)
+
+    def __str__(self) -> str:
+        return repr([reference.path for reference in self])
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self})"
+
+
+def _effect_references(reference: qc.ReferenceLike) -> Iterator[qc.Reference]:
+    """Validate effect targets and let qodec expand and canonicalize their paths."""
+    parsed = (
+        reference if isinstance(reference, qc.Reference) else qc.Reference(reference)
+    )
+    segments = parsed.segments
+    match segments[:-1]:
+        case (qc.Reference.Field("checks" | "readouts"),):
+            pass
+        case (
+            qc.Reference.Field("out"),
+            qc.Reference.Index(),
+            qc.Reference.Field("x" | "z" | "stabilizers"),
+        ) | (
+            qc.Reference.Field("out"),
+            qc.Reference.Index(),
+            qc.Reference.Field("code"),
+            qc.Reference.Field("x" | "z" | "stabilizers"),
+        ):
+            pass
+        case _:
+            raise ValueError(f"unsupported fault-effect target {parsed.path!r}")
+    match segments[-1]:
+        case qc.Reference.Index() | qc.Reference.Slice() | qc.Reference.Union():
+            return iter(parsed.expand())
+        case _:
+            raise ValueError(f"fault-effect target {parsed.path!r} requires an index")
+
+
+def _effect_order(reference: qc.Reference) -> tuple[int, int, int, int]:
+    match reference.segments:
+        case (
+            qc.Reference.Field(("checks" | "readouts") as field),
+            qc.Reference.Index(index),
+        ):
+            return (0 if field == "checks" else 1, 0, 0, index)
+        case (
+            qc.Reference.Field("out"),
+            qc.Reference.Index(entry),
+            qc.Reference.Field(("x" | "z" | "stabilizers") as field),
+            qc.Reference.Index(index),
+        ):
+            return (2, entry, ("x", "z", "stabilizers").index(field), index)
+        case _:
+            raise ValueError(f"unsupported fault-effect target {reference.path!r}")
 
 
 def fault_effects_of(
@@ -197,13 +316,11 @@ def _gadget_fault_data(
     basis: Sequence[FaultEvent],
     *,
     observables: FrameGroup = FrameGroup(()),
-) -> tuple[
-    tuple[FaultEffect, ...], tuple[frozenset[int], ...], tuple[frozenset[int], ...]
-]:
-    """Return effects, output syndromes, and extra probe flips from one propagation."""
+) -> tuple[tuple[FaultEffect, ...], tuple[frozenset[int], ...]]:
+    """Return effects and extra probe flips from one propagation."""
     fault_basis = tuple(basis)
     if not fault_basis:
-        return (), (), ()
+        return (), ()
 
     program = program_of(gadget)
     z_probes, z_layout = _build_basis_probes(gadget.outputs, "Z")
@@ -223,8 +340,6 @@ def _gadget_fault_data(
         residual_frames=[frozenset() for _ in probes]
         + [item.frame for item in observables.generators],
     )
-    z_offset = hidden_count + outcome_count
-    x_offset = z_offset + len(z_probes)
     paths = [
         *(f"circuit.readouts[{index}]" for index in range(outcome_count)),
         *(f"out[{entry}].z[{index}]" for entry, index in z_layout),
@@ -251,42 +366,20 @@ def _gadget_fault_data(
         for fault in correction.support:
             deltas[hidden_count + outcome_count + len(probes) + index, fault] ^= True
     checks, readouts = _parity_effects(gadget, values, len(fault_basis))
-    effects = []
-    for fault_index in range(len(fault_basis)):
-        flipped_checks = frozenset(
-            index for index, value in enumerate(checks) if value[fault_index]
-        )
-        readout_flips = frozenset(
-            index for index, value in enumerate(readouts) if value[fault_index]
-        )
-        z_flips = {
-            index
-            for index in range(len(z_probes))
-            if deltas[z_offset + index, fault_index]
-        }
-        x_flips = {
-            index
-            for index in range(len(x_probes))
-            if deltas[x_offset + index, fault_index]
-        }
-        effects.append(
-            FaultEffect(
-                flipped_checks,
-                readout_flips,
-                _combine_residual_passes(
-                    gadget.outputs,
-                    z_flips,
-                    z_layout,
-                    x_flips,
-                    x_layout,
-                ),
-            )
-        )
-    output_syndromes = tuple(
-        frozenset(
-            index
-            for index, path in enumerate(stabilizer_paths)
-            if values[path][fault_index]
+    columns = (
+        [
+            (qc.Reference(f"checks[{index}]"), value)
+            for index, value in enumerate(checks)
+        ]
+        + [
+            (qc.Reference(f"readouts[{index}]"), value)
+            for index, value in enumerate(readouts)
+        ]
+        + [(qc.Reference(path), values[path]) for path in paths[outcome_count:]]
+    )
+    effects = tuple(
+        FaultEffect._from_references(
+            reference for reference, value in columns if value[fault_index]
         )
         for fault_index in range(len(fault_basis))
     )
@@ -296,7 +389,7 @@ def _gadget_fault_data(
         len(observables.generators),
         len(fault_basis),
     )
-    return tuple(effects), output_syndromes, indicators
+    return effects, indicators
 
 
 def _probe_flips(
@@ -386,38 +479,6 @@ def _build_basis_probes(
             probes.append(remap_to_global(characters, relocation))
             layout.append((entry, index))
     return probes, layout
-
-
-def _combine_residual_passes(
-    encodings: Sequence[qc.gadgets.Encoding],
-    z_flips: set[int],
-    z_layout: list[tuple[int, int]],
-    x_flips: set[int],
-    x_layout: list[tuple[int, int]],
-) -> dict[int, Pauli]:
-    residuals: dict[int, dict[int, PauliCharacter]] = {
-        entry: {} for entry in range(len(encodings))
-    }
-    flips: dict[tuple[int, int], dict[str, bool]] = {}
-    for index, key in enumerate(z_layout):
-        if index in z_flips:
-            flips.setdefault(key, {})["x"] = True
-    for index, key in enumerate(x_layout):
-        if index in x_flips:
-            flips.setdefault(key, {})["z"] = True
-    for (encoding, logical), value in flips.items():
-        x_residual = value.get("x", False)
-        z_residual = value.get("z", False)
-        if x_residual and z_residual:
-            basis: PauliCharacter = "Y"
-        elif x_residual:
-            basis = "X"
-        elif z_residual:
-            basis = "Z"
-        else:
-            continue
-        residuals[encoding][logical] = basis
-    return {name: Pauli(characters) for name, characters in residuals.items()}
 
 
 __all__ = [

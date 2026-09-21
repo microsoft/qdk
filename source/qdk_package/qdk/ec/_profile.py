@@ -23,7 +23,7 @@ from ._analysis.channel_action import (
 from ._analysis.equivalence import gadgets_equivalent, why_not_equivalent
 from ._analysis.propagation.frames import FrameGroup, PauliFrame
 from ._analysis.propagation.interpreter import propagate_faults
-from ._analysis.propagation.pauli import Pauli, PauliCharacter
+from ._analysis.propagation.pauli import Pauli
 from ._layout import ProgramLayout
 from ._readouts import observe_count_of
 from ._references import outcomes_of
@@ -135,8 +135,16 @@ class GadgetProfile:
         Incoming signs have zero change for circuit-internal faults.
         FaultEvent.after(..., readout_flips=...) indexes the selected call's
         own readouts, starting at zero, whereas
-        FaultEffect.readout_flips indexes the gadget's declared readouts,
-        including logical measurements and flags.
+        ``readouts[i]`` in a FaultEffect indexes the gadget's declared readouts,
+        including logical measurements and flags. ``checks[i]`` indexes its
+        declared checks; ``out[k].{x,z,stabilizers}[i]`` names an output sign.
+        Output signs include declared frame corrections.
+        For a bare circuit, checks are discovered, readouts are circuit outcomes,
+        and output blocks are single-qubit identity encodings for all circuit
+        layout slots not prepared by the circuit, in increasing slot order
+        (including unused slots). ``out[k]`` indexes that sequence, not the
+        physical qubit label; its logical index is always zero.
+        Effects refer to this profile's snapshot, not later edits to the source.
         Recorded-bit flips do not themselves change the surviving quantum state.
         Invalid references or ambiguous readouts raise ValueError.
         Conditional/selected calls and circuit instruction flags are unsupported.
@@ -172,7 +180,7 @@ class GadgetProfile:
         logical zero is harmless. Output errors and measurement-dependent
         signs are evaluated together and may cancel. Individual factors may leave
         the codespace as long as their combined output syndromes cancel.
-        These constraints do not add declared checks or alter FaultEffect.syndrome.
+        Output stabilizer targets remain distinct from declared check targets.
         Individual factors may raise flags as long as their combined flag flips
         cancel. A flag alone is not a logical failure. A bare circuit
         uses its discovered checks and identity encodings on the qubits it
@@ -272,16 +280,15 @@ class GadgetProfile:
                 for position, readout in enumerate(self._target.readouts)
                 if readout.is_flag
             )
-            effects, output_syndromes, indicators = _gadget_fault_data(
+            effects, indicators = _gadget_fault_data(
                 self._target, allowed, observables=observables
             )
         else:
             effects, indicators = self._circuit_fault_data(
                 allowed, observables=observables
             )
-            output_syndromes = tuple(frozenset() for _ in allowed)
         return _FaultDistanceData.of(
-            allowed, effects, output_syndromes, indicators, flag_positions=flag_positions
+            allowed, effects, indicators, flag_positions=flag_positions
         )
 
     @cached_property
@@ -353,6 +360,17 @@ class GadgetProfile:
         z_offset = hidden_count + outcome_count
         x_offset = z_offset + len(z_probes)
         checks = self.checks
+        check_references = [
+            qc.Reference(f"checks[{index}]") for index in range(len(checks))
+        ]
+        readout_references = [
+            qc.Reference(f"readouts[{index}]") for index in range(outcome_count)
+        ]
+        output_references = [
+            (qc.Reference(f"out[{entry}].{field}[0]"), offset + entry)
+            for entry in range(len(outputs))
+            for field, offset in (("x", x_offset), ("z", z_offset))
+        ]
         effects = []
         for index in range(len(basis)):
             flipped = frozenset(
@@ -361,20 +379,18 @@ class GadgetProfile:
                 if deltas[hidden_count + outcome, index]
             )
             effects.append(
-                FaultEffect(
-                    frozenset(
-                        position
+                FaultEffect._from_references(
+                    [
+                        check_references[position]
                         for position, check in enumerate(checks)
                         if len(check & flipped) % 2
-                    ),
-                    flipped,
-                    {
-                        entry: _residual(
-                            deltas[z_offset + entry, index],
-                            deltas[x_offset + entry, index],
-                        )
-                        for entry in range(len(outputs))
-                    },
+                    ]
+                    + [readout_references[position] for position in flipped]
+                    + [
+                        reference
+                        for reference, row in output_references
+                        if deltas[row, index]
+                    ]
                 )
             )
         indicators = _probe_flips(
@@ -443,16 +459,3 @@ def _fault_observables(action: ChannelAction) -> FrameGroup:
             ),
         )
     )
-
-
-def _residual(z_probe_flipped: bool, x_probe_flipped: bool) -> Pauli:
-    """A flipped Z probe reports an X error on that output, and vice versa."""
-    if z_probe_flipped and x_probe_flipped:
-        character: PauliCharacter = "Y"
-    elif z_probe_flipped:
-        character = "X"
-    elif x_probe_flipped:
-        character = "Z"
-    else:
-        return Pauli.identity()
-    return Pauli({0: character})

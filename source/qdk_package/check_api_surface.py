@@ -18,6 +18,7 @@ are **not** flagged — they are considered public.
 
 Exit code 0  - no violations found.
 Exit code 1  - one or more violations found (details printed to stderr).
+Exit code 2  - scan incomplete because a required module or export is unavailable.
 
 Usage::
 
@@ -91,7 +92,7 @@ def _type_fqn(tp: type) -> str:
     return qual
 
 
-def _extract_leaf_types(annotation) -> list:
+def _extract_leaf_types(annotation: typing.Any) -> list:
     """Recursively unwrap generic aliases and return leaf types."""
     origin = getattr(annotation, "__origin__", None)
     args = getattr(annotation, "__args__", None)
@@ -147,6 +148,10 @@ class Violation:
         )
 
 
+class ScanIncomplete(RuntimeError):
+    """A required public module or export could not be inspected."""
+
+
 def _build_public_types(
     modules: list[tuple[str, types.ModuleType]],
 ) -> tuple[set[int], set[str]]:
@@ -184,39 +189,25 @@ def _build_public_types(
         for attr_name in dir(public_type):
             if attr_name.startswith("_"):
                 continue
-            try:
-                attr = getattr(public_type, attr_name)
-            except Exception:
-                continue
+            attr = _lazy_getattr(public_type, _type_fqn(public_type), attr_name)
             if isinstance(attr, type):
                 pending_types.append((attr_name, attr))
 
     return public_type_ids, public_type_names
 
 
-_UNRESOLVED_WARNED: set[str] = set()
-
-
-def _lazy_getattr(mod: types.ModuleType, mod_name: str, sym_name: str):
-    """``getattr`` that tolerates a lazy module attribute failing to resolve.
-
-    Modules with a lazy ``__getattr__`` import an
-    optional backend on first attribute access. When that backend is not
-    installed the access raises rather than returning ``None``; such a symbol
-    simply cannot be scanned, so it is reported once and skipped.
-    """
+def _lazy_getattr(mod: types.ModuleType | type, mod_name: str, sym_name: str):
+    """Resolve a declared export; missing dependencies make the scan incomplete."""
     try:
-        return getattr(mod, sym_name, None)
-    except Exception as exc:  # noqa: BLE001 - any import-time failure
-        qualified = f"{mod_name}.{sym_name}"
-        if qualified not in _UNRESOLVED_WARNED:
-            _UNRESOLVED_WARNED.add(qualified)
-            print(f"WARNING: could not resolve {qualified}: {exc}", file=sys.stderr)
-        return None
+        return getattr(mod, sym_name)
+    except (ImportError, AttributeError) as error:
+        raise ScanIncomplete(
+            f"could not resolve {mod_name}.{sym_name}: {error}"
+        ) from error
 
 
 def _check_annotation(
-    annotation,
+    annotation: typing.Any,
     module_name: str,
     symbol_name: str,
     context: str,
@@ -261,7 +252,7 @@ def _check_annotation(
 
 
 def _check_callable(
-    obj,
+    obj: typing.Any,
     module_name: str,
     symbol_name: str,
     violations: list[Violation],
@@ -310,10 +301,7 @@ def _check_class(
     for attr_name in dir(cls):
         if attr_name.startswith("_") and not attr_name.startswith("__"):
             continue  # skip private methods
-        try:
-            attr = getattr(cls, attr_name)
-        except Exception:
-            continue
+        attr = _lazy_getattr(cls, _type_fqn(cls), attr_name)
         if not callable(attr):
             continue
         if not (inspect.isfunction(attr) or inspect.ismethod(attr)):
@@ -379,11 +367,17 @@ def _import_root_package() -> types.ModuleType:
 
 def _iter_qdk_modules() -> list[tuple[str, types.ModuleType]]:
     """Import and yield all public qdk submodules."""
-    root = _import_root_package()
+    try:
+        root = _import_root_package()
+    except ImportError as error:
+        raise ScanIncomplete(f"could not import {ROOT_PACKAGE}: {error}") from error
     result: list[tuple[str, types.ModuleType]] = [(ROOT_PACKAGE, root)]
 
+    def import_failed(name: str) -> typing.NoReturn:
+        raise ScanIncomplete(f"could not discover modules below {name}")
+
     for importer, modname, ispkg in pkgutil.walk_packages(
-        root.__path__, prefix=ROOT_PACKAGE + "."
+        root.__path__, prefix=ROOT_PACKAGE + ".", onerror=import_failed
     ):
         # Skip private modules entirely
         if any(_is_private_name(part) for part in modname.split(".")):
@@ -393,8 +387,8 @@ def _iter_qdk_modules() -> list[tuple[str, types.ModuleType]]:
         try:
             mod = importlib.import_module(modname)
             result.append((modname, mod))
-        except Exception as exc:
-            print(f"WARNING: could not import {modname}: {exc}", file=sys.stderr)
+        except ImportError as error:
+            raise ScanIncomplete(f"could not import {modname}: {error}") from error
     return result
 
 
@@ -449,7 +443,14 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="Output violations as JSON")
     args = parser.parse_args()
 
-    violations = scan()
+    try:
+        violations = scan()
+    except ScanIncomplete as error:
+        if args.json:
+            print(json.dumps({"error": "incomplete scan", "detail": str(error)}))
+        else:
+            print(f"API scan incomplete: {error}", file=sys.stderr)
+        return 2
 
     if not violations:
         print("No private API leakage detected.", file=sys.stderr)

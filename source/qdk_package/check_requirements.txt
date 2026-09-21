@@ -11,4 +11,4 @@ paulimer>=0.2.2
 pyqir>=0.12.5,<0.13
 pyright==1.1.411
 qiskit>=1.2.2,<3.0.0
-qodec[parsers]>=0.1.1.dev0,<0.2
+qodec[parsers]>=0.2.0.dev0,<0.3

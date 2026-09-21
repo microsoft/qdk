@@ -243,6 +243,164 @@ def test_code_profile_contract() -> None:
     assert view.why_not_equivalent_to(view) == ""
 
 
+def test_fault_effect_display_uses_the_reference_set() -> None:
+    effect = ec.FaultEffect(["checks[3,1,3]", "out[0].z[1]"])
+    assert str(effect) == "['checks[1]', 'checks[3]', 'out[0].z[1]']"
+    assert repr(effect) == f"FaultEffect({effect})"
+    assert eval(repr(effect), {"FaultEffect": ec.FaultEffect}) == effect
+    assert str(ec.FaultEffect()) == "[]"
+
+
+def test_fault_effect_membership_accepts_one_normalized_reference() -> None:
+    import qodec as qc
+
+    effect = ec.FaultEffect(["checks[1,3]", "out[0].z[1]"])
+    assert "checks[1]" in effect
+    assert qc.Reference("checks[01]") in effect
+    assert "readouts[0]" not in effect
+    assert "out[0].code.z[1]" in effect
+    assert "checks[1:2]" in effect
+    with pytest.raises(ValueError, match="single target"):
+        "checks[1,3]" in effect
+
+
+def test_fault_effect_normalization_controls_equality_and_hashing() -> None:
+    import qodec as qc
+
+    effect = ec.FaultEffect(["checks[3,1,3]", "out[0].z[1]"])
+    assert len(effect) == 3
+    assert all(isinstance(reference, qc.Reference) for reference in effect)
+    assert effect == ec.FaultEffect(["out[0].code.z[01]", "checks[1:4:2]"])
+    assert ec.FaultEffect(["checks[1,1]"]) == ec.FaultEffect(["checks[1]"])
+    assert effect != frozenset(effect)
+    assert effect != ec.FaultEffect()
+    assert hash(effect) == hash(ec.FaultEffect(reversed(list(effect))))
+
+
+def test_fault_effect_xor_cancels_repeated_changes() -> None:
+    effect = ec.FaultEffect(["checks[1]", "out[0].z[1]"])
+    assert effect ^ effect == ec.FaultEffect()
+    assert effect ^ ec.FaultEffect(["checks[1]"]) == ec.FaultEffect(["out[0].z[1]"])
+    assert not ec.FaultEffect()
+    with pytest.raises(TypeError):
+        effect ^ frozenset()
+
+
+def test_fault_effect_surface_is_opaque_and_immutable() -> None:
+    effect = ec.FaultEffect(["checks[1]"])
+    assert {name for name in dir(effect) if not name.startswith("_")} == {
+        "checks",
+        "readouts",
+        "frames",
+    }
+    with pytest.raises(AttributeError):
+        effect._references = frozenset()
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "in[0].x[0]",
+        "circuit.readouts[0]",
+        'metadata["name"]',
+        "out[0].X_1",
+        "out[0].x",
+        "out[0:2].x[0]",
+        "checks[-1]",
+        "checks[0:0]",
+        "outputs[0].code.z[1]",
+        "",
+        "checks",
+        "checks[1].equation[0]",
+    ],
+)
+def test_fault_effect_rejects_invalid_targets(reference: str) -> None:
+    with pytest.raises(ValueError):
+        ec.FaultEffect([reference])
+    with pytest.raises(ValueError):
+        reference in ec.FaultEffect()
+
+
+def test_fault_effect_orders_targets_and_copies_input() -> None:
+    references = [
+        "out[10].x[0]",
+        "out[2].stabilizers[0]",
+        "checks[10,2]",
+        "readouts[1]",
+        "out[2].z[1]",
+        "out[2].x[3,0]",
+    ]
+    effect = ec.FaultEffect(iter(references))
+    references.clear()
+    assert [str(reference) for reference in effect] == [
+        "checks[2]",
+        "checks[10]",
+        "readouts[1]",
+        "out[2].x[0]",
+        "out[2].x[3]",
+        "out[2].z[1]",
+        "out[2].stabilizers[0]",
+        "out[10].x[0]",
+    ]
+    assert effect ^ ec.FaultEffect(["checks[2]"]) == ec.FaultEffect(list(effect)[1:])
+    for invalid in (1, True, None):
+        with pytest.raises(TypeError):
+            ec.FaultEffect([invalid])
+        with pytest.raises(TypeError):
+            invalid in effect
+    with pytest.raises(TypeError, match="iterable"):
+        ec.FaultEffect("checks[0]")
+
+
+@pytest.mark.parametrize(
+    "references",
+    [
+        [],
+        ["checks[10,2]"],
+        ["readouts[3,0]"],
+        ["out[1].x[0]", "out[0].z[2]", "out[0].stabilizers[1]"],
+        [
+            "checks[10,2]",
+            "readouts[3,0]",
+            "out[1].x[0]",
+            "out[0].z[2]",
+            "out[0].stabilizers[1]",
+        ],
+    ],
+)
+def test_fault_effect_filtered_views_partition_the_effect(
+    references: list[str],
+) -> None:
+    import qodec as qc
+
+    effect = ec.FaultEffect(references)
+    original = ec.FaultEffect(references)
+    for name, root in (
+        ("checks", "checks["),
+        ("readouts", "readouts["),
+        ("frames", "out["),
+    ):
+        view = getattr(effect, name)
+        expected = tuple(
+            reference for reference in effect if reference.path.startswith(root)
+        )
+        assert isinstance(view, tuple)
+        assert all(isinstance(reference, qc.Reference) for reference in view)
+        assert view == expected
+        assert bool(view) == bool(expected)
+        assert hash(view) == hash(expected)
+        if view:
+            assert qc.Reference(view[0].path) in view
+            assert view[0].path not in view
+        with pytest.raises(AttributeError):
+            getattr(view, "append")(qc.Reference("checks[0]"))
+        with pytest.raises((AttributeError, TypeError)):
+            setattr(effect, name, ())
+    assert effect.checks + effect.readouts + effect.frames == tuple(effect)
+    assert ec.FaultEffect(effect.checks + effect.readouts + effect.frames) == effect
+    assert effect == original
+
+
 def test_gadget_profile_contract(idle_gadget) -> None:
     profile = ec.GadgetProfile(idle_gadget)
 
@@ -279,13 +437,22 @@ def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
     assert all(isinstance(check, frozenset) for check in profile.checks)
     outputs = profile._circuit_outputs
     for _, effect in profile.fault_effects:
-        assert set(effect.output_error) == set(range(len(outputs)))
-        assert all(position < len(profile.checks) for position in effect.syndrome)
-        assert all(
-            position < len(profile.readouts) for position in effect.readout_flips
+        allowed = ec.FaultEffect(
+            [
+                *(f"checks[{index}]" for index in range(len(profile.checks))),
+                *(f"readouts[{index}]" for index in range(len(profile.readouts))),
+                *(
+                    f"out[{index}].{basis}[0]"
+                    for index in range(len(outputs))
+                    for basis in ("x", "z")
+                ),
+            ]
         )
+        assert set(effect) <= set(allowed)
     assert any(
-        effect.syndrome or effect.readout_flips for _, effect in profile.fault_effects
+        reference.path.startswith(("checks[", "readouts["))
+        for _, effect in profile.fault_effects
+        for reference in effect
     )
 
 
