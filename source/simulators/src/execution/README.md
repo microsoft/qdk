@@ -14,6 +14,7 @@ evolution. The public API remains available through `qdk_simulators::execution`;
 | `unitary.rs`        | Defines resolved unitary operations and the legacy `Simulator` application bridge.                           |
 | `immediate.rs`      | Provides the generic synchronous shot driver and adapts the legacy `Simulator` trait.                        |
 | `tensor_network.rs` | Builds a zero-state ket network and immutable shared coefficient bank from a resolved region; no execution.  |
+| `contraction.rs`    | Defines shared contraction optimizer, preparation and execution contracts, constraints, reports and errors.  |
 
 The source-level dependency direction is:
 
@@ -137,6 +138,7 @@ source/
 │   ├── unitary.rs ................. 182    UnitaryOperation (21 variants)
 │   ├── immediate.rs ............... 248    Synchronous shot driver
 │   ├── tensor_network.rs ................. CircuitTensorNetwork: shapes + shared coefficients
+│   ├── contraction.rs .................... Shared contraction contracts; no numerical backend
 │   ├── tests.rs ................... 903                                      20 tests
 │   └── README.md ................. 1013    This file: block plan and defects
 │
@@ -186,7 +188,7 @@ QuantumEvolutionRegion + qubit_count
        node_buffer_ids
                  |
       query() borrows network
-      I3: optimize/contract (not implemented here)
+      I3: contraction contracts (numerical adaptation is separate)
 ```
 
 The owning result exposes read-only `network()`, `buffers()`,
@@ -228,7 +230,95 @@ Public Rust API tests cover the owner and binding contracts; the sample's
 Python tests lower actual QIR and use NumPy `einsum` only for tiny analytic
 checks. See [I2 reproduction and evidence](../../../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i2-neutral-network-and-shared-coefficient-buffers).
 
-#### Required I4 consumer guard
+### Shared contraction contracts (I3)
+
+`tensornet::ContractionPlan` is a portable schedule, not an optimizer report or
+a native resource owner. The shared traits keep those responsibilities
+separate:
+
+```text
+query + constraints + optimizer-specific settings
+                     |
+          ContractionOptimizer::optimize
+                     |
+               plan + report
+                     |
+supplied plan -------+
+                     |
+query + plan + coefficients + execution limits
+                     |
+          ContractionExecutor::prepare   (never searches)
+                     |
+           ExecutableContraction
+             | resources()
+             | execute() -> independently owned output (repeatable)
+             + close()   -> fallible, consuming cleanup
+```
+
+All shared types are exported through `qdk_simulators::execution`. Optimizers
+choose their own `Settings`, `Report: AsRef<PlanningReport>` and `Error`.
+`PlanningReport` implements `AsRef` itself for providers without additional
+diagnostics. Executors choose their coefficient representation, prepared
+owner (`type Executable: ExecutableContraction`) and error type; no shared
+type depends on a native backend.
+
+`prepare(&query, &plan, coefficients, limits)` receives the query explicitly
+because a plan does not store input topology. Preparation revalidates the
+plan against that query, validates bindings, rejects unsupported features,
+and respects allocation ceilings. It must not search, complete or binarize a
+plan. A supplied-plan flow uses no optimizer and fabricates no planning report.
+The model supports arbitrary step arity and zero-step single-input plans;
+the initial native execution subset remains unsliced, pairwise contraction
+with fixed coefficient bindings. Capability rejection is a backend error,
+not a new model restriction.
+
+| Type                            | Meaning                                                                                                                            |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `PlanningConstraints`           | Requested workspace budget considered during path search; not an allocation ceiling or measured search memory.                     |
+| `PlanningReport`                | Optimizer identity, optional elapsed search seconds, honored constraints, and provider-labelled estimates.                         |
+| `CostEstimate` / `EstimateKind` | Provider-defined FLOP counts or largest-intermediate element counts, not measured resource bytes.                                  |
+| `ExecutionLimits`               | Device/host scratch allocation ceilings; not total memory limits. `None` omits a ceiling; `Some(0)` imposes zero.                  |
+| `ResourceReport`                | Discovered coefficient/output sizes, unique bound buffers, minimum/recommended/allocated scratch, and actually owned device bytes. |
+| `PreparationFailure<E>`         | Partial resource evidence, primary error and optional cleanup error, retained separately.                                          |
+
+Only honored planning constraints appear in `accepted_constraints`; callers
+compare that echo with their request. Missing estimates are absent from the
+estimate vector. Every resource observation is optional: `None` is unknown
+and `Some(0)` is known zero. Coefficient storage counts distinct bound buffers,
+not nodes; owned device bytes exclude other owners and process-level sampling.
+Failure retains facts already discovered, even if cleanup frees allocations.
+`PreparationFailure` displays both errors and exposes the primary error as
+its standard error source; the cleanup error remains separately accessible.
+The failure is returned by value: packaging resource-failure evidence requires
+no additional heap allocation, although the backend error type may itself
+own allocations. The preparation signature has a localized large-error lint
+exception for this tradeoff.
+
+The prepared owner does not borrow the query, plan or temporary mutable
+executor borrow; backend session lifetimes remain possible. Bindings and
+coefficient values stay fixed. Execution synchronizes required work and
+returns independently owned output that survives another execution and
+`close`. An execution failure prohibits retries, returning a distinguishable
+unusable-state error on subsequent attempts, but leaves resource evidence
+and explicit cleanup available. `close(self)` reports cleanup errors and
+consumes the owner even on failure. Callers must retain the execution result
+and call `close` on both success and failure, rather than early-returning
+with `execute()?` when cleanup errors matter.
+
+`ExecutableContraction` is backend-specific, unlike the portable plan. It
+retains or borrows the context required by its live resources, and execution
+must establish that context and report backend failures, not silently switch
+backends. It is not a transferable description for another host. Preparing
+the portable plan on a different host/backend creates a new executable owner.
+The shared trait does not currently expose a runtime backend-identity field.
+
+`tests/contraction.rs` exercises these public contracts through injected
+fake optimizers and executors, without a numerical backend dependency. These
+tests establish interface usability and reporting semantics, not native
+conformance. Implementing the native adapters and verifying their behavior is
+a separate slice.
+
+### Required I4 consumer guard
 
 **Acceptance requirement, not implemented runtime behavior:** before public
 integration, the concrete tensor-network consumer must enforce that
