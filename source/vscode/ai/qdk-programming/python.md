@@ -461,7 +461,7 @@ import qdk.stim as stim
 
 source = "H 0\nT 0\nH 0\nM(0.01) 0"
 
-# M(0.01) applies 1% symmetric readout noise to the measurement result.
+# M(0.01) applies 1% readout noise to the measurement result.
 results = stim.run(source, shots=1000, seed=42, type="clifford")
 
 # Compile separately when another QIR-consuming simulator or service will run it.
