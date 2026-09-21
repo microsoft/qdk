@@ -794,14 +794,14 @@ def run_qir(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
 ) -> List:
     """
     Simulate the given QIR source.
 
     :param input: The QIR source to simulate.
     :param type: The type of simulator to use.
-        Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
+        Use ``"stabilizer"`` if your QIR only contains Clifford gates, a limited number of T gates, and measurements.
         Use ``"gpu"`` if you have a GPU available in your system.
         Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
         If ``None`` (default), the GPU simulator will be tried first, falling back to
@@ -820,7 +820,7 @@ def run_qir(
             type = "cpu"
 
     match type:
-        case "clifford":
+        case "clifford" | "stabilizer":
             return run_qir_clifford(input, shots, noise, seed)
         case "cpu":
             return run_qir_cpu(input, shots, noise, seed)

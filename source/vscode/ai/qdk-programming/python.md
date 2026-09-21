@@ -415,7 +415,7 @@ qsharp.init(target_profile=qsharp.TargetProfile.Base)
 qir = qsharp.compile("Main()")
 
 # Noiseless Clifford simulation
-results = device.simulate(qir, shots=1000, type="clifford")
+results = device.simulate(qir, shots=1000, type="stabilizer")
 
 # View device-level gate decomposition and scheduling
 device.show_trace(qir)
@@ -429,7 +429,7 @@ from qdk.simulation import NeutralAtomDevice
 
 qir = compile(source, target_profile=qsharp.TargetProfile.Base)
 device = NeutralAtomDevice()
-results = device.simulate(qir, shots=1000, type="clifford")
+results = device.simulate(qir, shots=1000, type="stabilizer")
 ```
 
 #### With Noise Configuration
@@ -452,7 +452,7 @@ noise.cz.loss = 0.003
 noise.mov.z = 1e-3
 noise.mov.loss = 0.0005
 
-results = device.simulate(qir, shots=1000, noise=noise, type="clifford")
+results = device.simulate(qir, shots=1000, noise=noise, type="stabilizer")
 ```
 
 ### Sparse Simulation (Default)
