@@ -29,7 +29,7 @@ from typing import Literal
 # Deterministic programs need a single shot but we run multiple shots
 # to verify that multiple shots yield the same result.
 SHOTS = 100
-SIM_TYPES = ["cpu", "stabilizer"]
+SIM_TYPES = ["cpu", "stabilizer", "clifford"]
 
 
 def map_result_list_to_str(results):
@@ -52,7 +52,7 @@ def _run(
     qir: str,
     shots: int = SHOTS,
     seed: int = 42,
-    sim_type: Literal["stabilizer", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu", "clifford"] = "cpu",
 ):
     """Run *qir* on the given simulator and return shot results as a list of strings."""
     results = run_qir(qir, shots, seed=seed, type=sim_type)
@@ -67,7 +67,7 @@ def check_result(
     num_qubits: int = 1,
     num_results: int = 1,
     record=None,
-    sim_type: Literal["stabilizer", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu", "clifford"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     qir = format_qir(
@@ -85,7 +85,9 @@ def check_result(
 
 
 def check_arith_result(
-    qir_fragment: str, expected: str, sim_type: Literal["stabilizer", "cpu"] = "cpu"
+    qir_fragment: str,
+    expected: str,
+    sim_type: Literal["stabilizer", "cpu", "clifford"] = "cpu",
 ):
     body = build_arith_body(qir_fragment)
     check_result(body, expected, sim_type=sim_type)
