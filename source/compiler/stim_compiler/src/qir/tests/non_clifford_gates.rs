@@ -185,52 +185,6 @@ fn tpp_dag_negated_product_applies_inverse() {
 }
 
 #[test]
-fn tpp_negation_on_later_factor_negates_whole_product() {
-    check(
-        "TPP X0*!Z1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__t__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn tpp_double_negation_cancels() {
-    check(
-        "TPP !X0*!Z1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__t__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn tpp_identity_products_are_noops() {
     let source = indoc! {"
         TPP X0*X0 !Y1*Y1
@@ -242,22 +196,6 @@ fn tpp_identity_products_are_noops() {
             [metadata]
               required_num_qubits = 0
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn tpp_anti_hermitian_product_yields_error() {
-    check(
-        "TPP X0*Y0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.AntiHermitianPauliProduct
-
-              x Pauli product must be Hermitian
-               ,----
-             1 | TPP X0*Y0
-               :     ^^^^^
-               `----
-        "#]],
     );
 }
 

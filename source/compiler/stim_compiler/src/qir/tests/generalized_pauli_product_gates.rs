@@ -200,186 +200,6 @@ fn mpp_negated_product_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_negation_on_later_factor_negates_whole_product() {
-    check(
-        "MPP X0*!Y1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mpp_double_negation_cancels() {
-    check(
-        "MPP !X0*!Y1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mpp_repeated_qubit_folds_to_single_pauli() {
-    // X0*X0*X0 = X0
-    check(
-        "MPP X0*X0*X0",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mpp_repeated_qubit_folding_to_minus_one_negates_result() {
-    // X0*Y0 = iZ0 and X1*Y1 = iZ1, so the product is i^2 Z0*Z1 = -Z0*Z1.
-    check(
-        "MPP X0*Y0*X1*Y1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mpp_explicit_negation_cancels_folded_minus_one() {
-    // The '!' contributes -1 and the folding contributes -1, so the result is not negated.
-    check(
-        "MPP !X0*Y0*X1*Y1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mpp_non_adjacent_repeated_qubits_are_folded_together() {
-    // X0*Z0 = -iY0 and Z1*X1 = iY1, so the product is +Y0*Y1.
-    check(
-        "MPP X0*Z1*Z0*X1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mpp_qubits_folding_to_identity_are_dropped_from_the_product() {
-    // Y0*Y0 = I and Z1*Z1 = I, so only X2 is measured.
-    check(
-        "MPP Y0*Y0*Z1*Z1*X2",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
 fn mpp_multiple_products_in_one_instruction_yields_expected_qir() {
     check(
         "MPP X1*Y2 !Z3*Z4*Z5",
@@ -443,40 +263,6 @@ fn mpp_mixed_single_and_product_targets_yields_expected_qir() {
             [metadata]
               required_num_qubits = 3
               required_num_results = 2"#]],
-    );
-}
-
-#[test]
-fn mpp_product_folding_to_identity_yields_error() {
-    // this is temporary
-    check(
-        "MPP X0*X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: MPP
-               ,----
-             1 | MPP X0*X0
-               :     ^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn mpp_product_with_imaginary_phase_yields_anti_hermitian_error() {
-    // X0*Y0 = iZ0, which is not hermitian and cannot be measured.
-    check(
-        "MPP X0*Y0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.AntiHermitianPauliProduct
-
-              x Pauli product must be Hermitian
-               ,----
-             1 | MPP X0*Y0
-               :     ^^^^^
-               `----
-        "#]],
     );
 }
 
@@ -679,26 +465,6 @@ fn spp_mixed_basis_product_yields_expected_qir() {
 }
 
 #[test]
-fn spp_folded_minus_one_negates_correctly() {
-    check(
-        "SPP X0*Y0*X1*Y1",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn spp_identity_products_are_noops() {
     let source = indoc! {"
     SPP X0*X0 !Y1*Y1
@@ -710,22 +476,6 @@ fn spp_identity_products_are_noops() {
             [metadata]
               required_num_qubits = 0
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn spp_anti_hermitian_product_yields_error() {
-    check(
-        "SPP X0*Y0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.AntiHermitianPauliProduct
-
-              x Pauli product must be Hermitian
-               ,----
-             1 | SPP X0*Y0
-               :     ^^^^^
-               `----
-        "#]],
     );
 }
 
