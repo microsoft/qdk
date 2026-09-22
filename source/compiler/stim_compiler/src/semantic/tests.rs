@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 mod aliases;
+mod argument_arity;
+mod argument_values;
 mod block_lowering;
 mod instruction_lowering;
 mod target_arity;

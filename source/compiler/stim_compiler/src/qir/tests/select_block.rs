@@ -233,29 +233,6 @@ fn empty_select_block() {
 }
 
 #[test]
-fn select_block_with_args_yields_error() {
-    let source = indoc! {"
-        SELECT(0.5) {
-          M 0
-          REQUIRE rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: SELECT
-               ,-[1:8]
-             1 | SELECT(0.5) {
-               :        ^^^
-             2 |   M 0
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn select_block_with_tag() {
     let source = indoc! {"
         SELECT[some_tag] {
@@ -789,30 +766,6 @@ fn blockless_select_yields_error() {
 }
 
 #[test]
-fn require_with_args_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE(0.5) rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: REQUIRE
-               ,-[3:11]
-             2 |   M 0
-             3 |   REQUIRE(0.5) rec[-1]
-               :           ^^^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn simple_notleaked() {
     let source = indoc! {"
         SELECT {
@@ -1019,30 +972,6 @@ fn notleaked_with_all_multiple_records_out_of_scope() {
              5 |   NOTLEAKED rec[-2] rec[-3]
                :   ^^^^^^^^^^^^^^^^^^^^^^^^^
              6 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn notleaked_with_args_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED(0.5) rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: NOTLEAKED
-               ,-[3:13]
-             2 |   M 0
-             3 |   NOTLEAKED(0.5) rec[-1]
-               :             ^^^
-             4 | }
                `----
         "#]],
     );

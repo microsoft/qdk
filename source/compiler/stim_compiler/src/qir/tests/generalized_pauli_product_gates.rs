@@ -504,50 +504,6 @@ fn mpp_with_readout_noise_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_with_invalid_readout_noise_yields_error() {
-    check(
-        "MPP(1.1) Z1*Z2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for MPP must be between 0 and 1; found 1.1
-               ,----
-             1 | MPP(1.1) Z1*Z2
-               :     ^^^
-               `----
-        "#]],
-    );
-    check(
-        "MPP(-0.1) Z1*Z2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for MPP must be between 0 and 1; found -0.1
-               ,----
-             1 | MPP(-0.1) Z1*Z2
-               :     ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn mpp_with_readout_noise_in_radians_yields_error() {
-    check(
-        "MPP(0.01rad) Z1*Z2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnexpectedRadians
-
-              x argument for MPP cannot be specified in radians
-               ,----
-             1 | MPP(0.01rad) Z1*Z2
-               :     ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn spp_single_z_yields_expected_qir() {
     check(
         "SPP Z1",
@@ -767,22 +723,6 @@ fn spp_anti_hermitian_product_yields_error() {
               x Pauli product must be Hermitian
                ,----
              1 | SPP X0*Y0
-               :     ^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn spp_with_argument_yields_error() {
-    check(
-        "SPP(0.001) Z0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: SPP
-               ,----
-             1 | SPP(0.001) Z0
                :     ^^^^^
                `----
         "#]],

@@ -52,28 +52,6 @@ fn repeat_with_tag() {
 }
 
 #[test]
-fn repeat_with_args_yields_error() {
-    let source = indoc! {"
-        REPEAT(0.1) 3 {
-          X 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: REPEAT
-               ,-[1:8]
-             1 | REPEAT(0.1) 3 {
-               :        ^^^
-             2 |   X 0
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn repeat_single_iteration() {
     let source = indoc! {"
         REPEAT 1 {

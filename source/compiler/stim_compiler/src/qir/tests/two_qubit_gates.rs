@@ -128,23 +128,6 @@ fn ii_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ii_gate_with_args_yields_error() {
-    let source = "II(0.01) 0 1";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: II
-               ,----
-             1 | II(0.01) 0 1
-               :    ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn iswap_gate_yields_expected_qir() {
     let source = "ISWAP 0 1";
     check(

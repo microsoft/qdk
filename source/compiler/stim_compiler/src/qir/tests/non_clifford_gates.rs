@@ -40,22 +40,6 @@ fn t_dag_gate_yields_expected_qir() {
 }
 
 #[test]
-fn t_gate_with_argument_yields_error() {
-    check(
-        "T(0.5) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: T
-               ,----
-             1 | T(0.5) 0
-               :   ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn tpp_single_z_yields_expected_qir() {
     // same as T 0
     check(
@@ -278,22 +262,6 @@ fn tpp_anti_hermitian_product_yields_error() {
 }
 
 #[test]
-fn tpp_with_argument_yields_error() {
-    check(
-        "TPP(0.5) Z0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: TPP
-               ,----
-             1 | TPP(0.5) Z0
-               :     ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ch_gate_yields_expected_qir() {
     check(
         "CH 0 1",
@@ -347,22 +315,6 @@ fn ccx_gate_yields_expected_qir() {
             [metadata]
               required_num_qubits = 3
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn ccx_gate_with_argument_yields_error() {
-    check(
-        "CCX(0.5) 0 1 2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: CCX
-               ,----
-             1 | CCX(0.5) 0 1 2
-               :     ^^^
-               `----
-        "#]],
     );
 }
 
@@ -436,23 +388,6 @@ fn r_x_yields_expected_qir() {
 }
 
 #[test]
-fn r_x_with_angle_in_radians_yields_expected_qir() {
-    check(
-        "R_X(1rad) 0",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__rx__body(double 1.0, ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__rx__body(double, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn r_y_yields_expected_qir() {
     check(
         "R_Y(-0.375) 0",
@@ -487,38 +422,6 @@ fn r_z_yields_expected_qir() {
 }
 
 #[test]
-fn r_x_without_argument_yields_error() {
-    check(
-        "R_X 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: R_X
-               ,----
-             1 | R_X 0
-               : ^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn r_x_with_two_arguments_yields_error() {
-    check(
-        "R_X(0.25, 0.5) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooManyArgs
-
-              x too many arguments for instruction R_X; expected 1, found 2
-               ,----
-             1 | R_X(0.25, 0.5) 0
-               :           ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn u3_yields_expected_qir() {
     check(
         "U3(0.1, 0.2, 0.3) 0",
@@ -535,114 +438,6 @@ fn u3_yields_expected_qir() {
             [metadata]
               required_num_qubits = 1
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn u3_with_mixed_angle_units_yields_expected_qir() {
-    check(
-        "U3(0.1, -0.2rad, 3e-1rad) 0",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__rz__body(double 0.3, ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__rz__body(double -0.2, ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__ry__body(double, ptr)
-              declare void @__quantum__qis__rz__body(double, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn u3_without_arguments_yields_error() {
-    check(
-        "U3 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: U3
-               ,----
-             1 | U3 0
-               : ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn u3_with_one_argument_yields_error() {
-    check(
-        "U3(0.1) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooFewArgs
-
-              x too few arguments for instruction U3; expected 3, found 1
-               ,----
-             1 | U3(0.1) 0
-               :    ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn u3_with_two_arguments_yields_error() {
-    check(
-        "U3(0.1, 0.2) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooFewArgs
-
-              x too few arguments for instruction U3; expected 3, found 2
-               ,----
-             1 | U3(0.1, 0.2) 0
-               :    ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn u3_with_four_arguments_yields_error() {
-    check(
-        "U3(0.1, 0.2, 0.3, 0.4) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooManyArgs
-
-              x too many arguments for instruction U3; expected 3, found 4
-               ,----
-             1 | U3(0.1, 0.2, 0.3, 0.4) 0
-               :                   ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn u3_with_multiple_angles_that_overflow_radians_yields_errors() {
-    check(
-        "U3(1e308, 0.25, -1e308) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidAngle
-
-              x angle for U3 must be finite and representable in radians
-               ,----
-             1 | U3(1e308, 0.25, -1e308) 0
-               :    ^^^^^
-               `----
-
-            Qdk.Stim.Semantic.InvalidAngle
-
-              x angle for U3 must be finite and representable in radians
-               ,----
-             1 | U3(1e308, 0.25, -1e308) 0
-               :                 ^^^^^^
-               `----
-        "#]],
     );
 }
 
@@ -694,38 +489,6 @@ fn r_zz_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn r_xx_without_argument_yields_error() {
-    check(
-        "R_XX 0 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: R_XX
-               ,----
-             1 | R_XX 0 1
-               : ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn r_xx_with_two_arguments_yields_error() {
-    check(
-        "R_XX(0.25, 0.5) 0 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooManyArgs
-
-              x too many arguments for instruction R_XX; expected 1, found 2
-               ,----
-             1 | R_XX(0.25, 0.5) 0 1
-               :            ^^^
-               `----
-        "#]],
     );
 }
 
@@ -836,37 +599,5 @@ fn r_pauli_negated_product_negates_angle() {
             [metadata]
               required_num_qubits = 1
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn r_pauli_without_argument_yields_error() {
-    check(
-        "R_PAULI X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: R_PAULI
-               ,----
-             1 | R_PAULI X0
-               : ^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn r_pauli_with_two_arguments_yields_error() {
-    check(
-        "R_PAULI(0.25, 0.5) X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooManyArgs
-
-              x too many arguments for instruction R_PAULI; expected 1, found 2
-               ,----
-             1 | R_PAULI(0.25, 0.5) X0
-               :               ^^^
-               `----
-        "#]],
     );
 }
