@@ -234,7 +234,7 @@ class NeutralAtomDevice(Device):
         qir: str | QirInputData,
         shots: int = 1,
         noise: NoiseConfig | None = None,
-        type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+        type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
         seed: Optional[int] = None,
     ) -> List[Any]:
         """
@@ -246,7 +246,7 @@ class NeutralAtomDevice(Device):
         :param shots: The number of shots to simulate. Defaults to 1.
         :param noise: An optional NoiseConfig to include noise in the simulation.
         :param type: The type of simulator to use:
-            Use `"clifford"` if your QIR only contains Clifford gates and measurements.
+            Use `"stabilizer"` if your QIR only contains Clifford gates, a limited number of T gates, and measurements.
             Use `"gpu"` if you have a GPU available in your system.
             Use `"cpu"` as a fallback option if you don't have a GPU in your system.
             If `None` (default), the GPU simulator will be tried first, falling back to
@@ -314,7 +314,7 @@ class NeutralAtomDevice(Device):
         telemetry_events.on_neutral_atom_simulate(shots, using_noise, type)
 
         match type:
-            case "clifford":
+            case "clifford" | "stabilizer":
                 DecomposeRzAnglesToCliffordGates().run(module)
                 result = run_qir_clifford(
                     str(module),
