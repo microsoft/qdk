@@ -149,6 +149,11 @@ impl<E: std::error::Error + 'static> std::error::Error for PreparationFailure<E>
 /// path, complete or binarize a plan, or silently change its semantics.
 /// Input topology and ordered output axes come from `query`, not the plan.
 ///
+/// Backends may choose private intermediate layouts without changing the
+/// selected contractions or the logical tensor axes. This is layout lowering,
+/// not path search; input-buffer interpretation and output ordering must remain
+/// as specified. It does not authorize approximation or coefficient rebinding.
+///
 /// Model validity and executor capabilities are distinct: the initial native
 /// executable subset is unsliced, pairwise contraction, but a model-valid
 /// arbitrary-arity or single-input plan may be rejected by a backend.

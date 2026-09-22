@@ -272,6 +272,13 @@ the initial native execution subset remains unsliced, pairwise contraction
 with fixed coefficient bindings. Capability rejection is a backend error,
 not a new model restriction.
 
+Intermediate `result_axes` specify a logical representation, not a mandate on
+backend-private storage order. Layout lowering must preserve axis identities,
+dimensions and selected contractions, as well as the interpretation of input
+buffers and the ordered final output. It is not path search and does not permit
+approximation or coefficient rebinding. Native path metadata may omit logical
+intermediate order, so retain the portable plan when exact re-export is needed.
+
 | Type                            | Meaning                                                                                                                            |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `PlanningConstraints`           | Requested workspace budget considered during path search; not an allocation ceiling or measured search memory.                     |

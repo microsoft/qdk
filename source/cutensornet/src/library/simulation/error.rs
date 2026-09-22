@@ -14,6 +14,15 @@ pub enum SimulationError {
     #[error("invalid contraction configuration: {reason}")]
     InvalidContractionConfiguration { reason: &'static str },
 
+    #[error("invalid portable contraction plan: {error}")]
+    InvalidContractionPlan {
+        #[source]
+        error: tensornet::PlanError,
+    },
+
+    #[error("unsupported contraction capability: {reason}")]
+    UnsupportedContraction { reason: &'static str },
+
     #[error("no CUDA-capable device is available")]
     NoDevice,
 

@@ -7,6 +7,8 @@ use std::{
 };
 use tensornet::{Index, TensorNetwork};
 
+#[path = "adapter/tests.rs"]
+mod adapter;
 #[path = "execution/tests.rs"]
 mod execution;
 
@@ -71,6 +73,7 @@ enum Corruption {
     DuplicateId,
     PathCount,
     PathOperand,
+    ChangedPath,
     NegativeSlicedCount,
     ExcessSlicedCount,
     ChangedSlicedCount,
@@ -91,7 +94,26 @@ struct State {
     path: Vec<[i32; 2]>,
     slicing: Vec<SlicedMode>,
     settings: Vec<(OptimizerSetting, i32)>,
+    workspace_constraints: Vec<u64>,
     numerical: execution::NumericalState,
+}
+
+struct NativeObservations {
+    selected: NativeMetadata,
+    modes: Vec<Vec<i32>>,
+    estimates: [f64; 2],
+    memory: Vec<(usize, usize)>,
+}
+
+impl Default for NativeObservations {
+    fn default() -> Self {
+        Self {
+            selected: metadata(),
+            modes: vec![vec![23, 53], vec![11, 53], vec![11, 71]],
+            estimates: [42.0, 42.0],
+            memory: vec![(1024 * 1024, 2 * 1024 * 1024)],
+        }
+    }
 }
 
 struct TestDoubleContractionApi {
@@ -99,15 +121,25 @@ struct TestDoubleContractionApi {
     failures: Vec<(&'static str, usize)>,
     corruption: Corruption,
     numerical: execution::NumericalSettings,
+    observations: NativeObservations,
 }
 
 impl TestDoubleContractionApi {
     fn new(failures: Vec<(&'static str, usize)>, corruption: Corruption) -> Arc<Self> {
+        Self::with_observations(failures, corruption, NativeObservations::default())
+    }
+
+    fn with_observations(
+        failures: Vec<(&'static str, usize)>,
+        corruption: Corruption,
+        observations: NativeObservations,
+    ) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(State::default()),
             failures,
             corruption,
             numerical: execution::NumericalSettings::default(),
+            observations,
         })
     }
 
@@ -303,8 +335,12 @@ impl ContractionApi for TestDoubleContractionApi {
     ) -> Result<OpaqueHandle, SimulationError> {
         {
             let state = self.state.lock().expect("test state lock should succeed");
-            assert_eq!(state.tensors.len(), 4, "topology precedes optimizer info");
-            assert_eq!(state.output.as_deref(), Some([11, 71].as_slice()));
+            assert_eq!(
+                state.tensors.len(),
+                self.observations.selected.path.len() + 1,
+                "topology precedes optimizer info"
+            );
+            assert!(state.output.is_some(), "output precedes optimizer info");
         }
         self.create("create_optimizer_info", 5)
     }
@@ -320,11 +356,12 @@ impl ContractionApi for TestDoubleContractionApi {
         _info: OpaqueHandle,
     ) -> Result<(), SimulationError> {
         self.event("optimize")?;
-        assert_eq!(workspace_constraint, 67_108_864);
-        self.state
-            .lock()
-            .expect("test state lock should succeed")
-            .path = P1.to_vec();
+        let mut state = self.state.lock().expect("test state lock should succeed");
+        state.workspace_constraints.push(workspace_constraint);
+        state.path.clone_from(&self.observations.selected.path);
+        state
+            .slicing
+            .clone_from(&self.observations.selected.slicing);
         Ok(())
     }
     fn set_path(
@@ -378,10 +415,13 @@ impl ContractionApi for TestDoubleContractionApi {
         if matches!(self.corruption, Corruption::PathOperand) {
             path[1] = [0, 3];
         }
+        if matches!(self.corruption, Corruption::ChangedPath) {
+            path[0].swap(0, 1);
+        }
         Ok(if matches!(self.corruption, Corruption::PathCount) {
             -1
         } else {
-            3
+            i32::try_from(path.len()).expect("fixture path length")
         })
     }
     fn num_sliced_modes(
@@ -455,7 +495,9 @@ impl ContractionApi for TestDoubleContractionApi {
         counts: &mut [i32],
     ) -> Result<(), SimulationError> {
         self.event("intermediate_mode_counts")?;
-        counts.copy_from_slice(&[2, 2, 2]);
+        for (count, modes) in counts.iter_mut().zip(&self.observations.modes) {
+            *count = i32::try_from(modes.len()).expect("fixture rank");
+        }
         match self.corruption {
             Corruption::NegativeRank => counts[0] = -1,
             Corruption::ExcessRank => counts[0] = i32::MAX,
@@ -470,7 +512,15 @@ impl ContractionApi for TestDoubleContractionApi {
         modes: &mut [i32],
     ) -> Result<(), SimulationError> {
         self.event("intermediate_modes")?;
-        modes.copy_from_slice(&[23, 53, 11, 53, 11, 71]);
+        modes.copy_from_slice(
+            &self
+                .observations
+                .modes
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>(),
+        );
         match self.corruption {
             Corruption::UnknownMode => modes[0] = 999,
             Corruption::DuplicateMode => modes[0] = modes[1],
@@ -482,13 +532,16 @@ impl ContractionApi for TestDoubleContractionApi {
         &self,
         _handle: OpaqueHandle,
         _info: OpaqueHandle,
-        _estimate: OptimizerEstimate,
+        estimate: OptimizerEstimate,
     ) -> Result<f64, SimulationError> {
         self.event("estimate")?;
         Ok(if matches!(self.corruption, Corruption::Estimate) {
             f64::NAN
         } else {
-            42.0
+            self.observations.estimates[match estimate {
+                OptimizerEstimate::FlopCount => 0,
+                OptimizerEstimate::LargestTensor => 1,
+            }]
         })
     }
     fn create_slice_group_from_id_range(
@@ -534,6 +587,7 @@ fn topology_precedes_info_and_retains_native_ids_separately_from_path_positions(
     assert_eq!(exported, metadata());
     assert_eq!(modes, [vec![23, 53], vec![11, 53], vec![11, 71]]);
     let state = api.state.lock().expect("test state lock should succeed");
+    assert_eq!(state.output.as_deref(), Some([11, 71].as_slice()));
     assert_eq!(
         state.tensors,
         [
@@ -570,6 +624,14 @@ fn optimize_export_close_and_import_into_fresh_owners_preserves_owned_metadata()
     })
     .expect("valid fixture and successful test operation");
     source.assert_released();
+    assert_eq!(
+        source
+            .state
+            .lock()
+            .expect("test state")
+            .workspace_constraints,
+        [67_108_864]
+    );
     assert_eq!(
         source
             .state

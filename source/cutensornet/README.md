@@ -58,6 +58,7 @@ only their approved version and error probes and performs no GPU work.
 | Availability API          | `src/lib.rs`, `src/error.rs`                      | Implemented                                        | Exposes explicit discovery, a report, and structured failures without exposing raw FFI.                                                             |
 | Native qualification      | `src/library/simulation*`                         | Private B0-B5 gate-1 qualified                     | Owns thread-confined native resources and validates Base execution, terminal product-term Queries, cap convergence, and forced-branch continuation. |
 | Native path metadata      | `src/library/simulation/contraction*`             | Private implementation; native acceptance separate | Builds topology, optimizes or imports a binary path, and copies path/slicing/structural metadata into owned Rust storage. No numerical contractor.  |
+| Shared planning adapter   | `src/library/simulation/contraction/adapter.rs`   | Private; native qualification pending              | Implements the shared optimizer and checked portable-plan import without numerical preparation or execution.                                        |
 | Native contraction        | `src/library/simulation/contraction/execution.rs` | Private diagnostic/2x2/4x4 native-qualified        | Consumes selected metadata, owns shared-buffer uploads and bounded workspace, prepares without search, contracts and reads back.                    |
 | QDK provider integration  | Future phase                                      | Not implemented                                    | Will translate QDK simulation requests without exposing native details to callers.                                                                  |
 
@@ -351,8 +352,8 @@ SessionResources (device / stream / handle; no MPS policy)
 ```
 
 `NativeMetadata` is a private copy of NVIDIA's positional path, sliced
-mode/extent pairs and slice count. It is **not** the future portable
-contraction plan or optimizer/executor interface. This layer qualifies
+mode/extent pairs and slice count. It is **not** the portable contraction
+plan or shared optimizer/executor interface. This layer qualifies
 complete binary paths over at least two inputs and full internal slicing
 with sliced extent one. It rejects unsupported slicing rather than dropping
 it, completing a path or silently optimizing a replacement. It binds no
@@ -424,6 +425,61 @@ cleanup. Explicit close consumes owners, and partial-construction paths combine
 the operation and cleanup errors. Drop is a non-panicking best-effort safety
 net; callers use explicit close to observe native release errors. Session and
 contraction cleanup rebind the selected device before releasing resources.
+
+#### Shared planning and portable-plan lowering
+
+The crate-private `CuTensorNetOptimizer` implements
+`qdk_simulators::execution::ContractionOptimizer` over the existing
+`ContractionResources` and injected native APIs. It exclusively borrows a
+caller-owned session; each search explicitly closes its temporary topology
+and optimizer objects before returning an independently owned plan and report.
+The adapter never closes the session. Cleanup failure is observable even after
+otherwise successful planning, and simultaneous primary/cleanup errors are
+preserved by the existing native error machinery.
+
+`PlanningConstraints.workspace_bytes` is resolved per optimization:
+
+- `None` selects half of the currently free memory on the session's device,
+  rounded down to whole bytes. This is a backend policy, not a cuTensorNet
+  default or a reservation of that memory.
+- `Some(n)` with positive `n` passes the exact byte budget to native search
+  without querying available memory.
+- `Some(0)`, failed memory queries and a zero automatically resolved budget
+  fail explicitly; none is replaced by a different budget.
+
+The budget is what path search considers for device workspace, not an
+allocation, search-process memory limit, or total GPU-memory cap. The
+optimizer allocates no coefficient, output or scratch buffers. Actual scratch
+allocation limits remain an execution concern, and available memory can change
+before preparation. The backend report embeds `PlanningReport` and records
+effective workspace bytes and explicit/automatic origin. Its accepted-constraint
+echo includes only caller requests, not automatically chosen values. Native
+FLOP and largest-intermediate-element estimates retain the `"cuTensorNet"`
+provider label. Search time is unmeasured (`None`); failed or invalid estimate
+reads are errors, not fabricated zero or missing values.
+
+Conversion preserves stable input/result references independently of native
+tensor IDs and recycled path positions. It uses `ContractionPlan::new` for
+model validation. This adapter supports at least two inputs, unsliced pairwise
+plans and native-width axes. Unsupported capabilities are distinct from an
+invalid portable plan or an invalid native result. Slicing is disabled during
+search and checked again on export.
+
+Portable intermediate axes describe logical tensors. cuTensorNet may choose
+different private intermediate layouts, but may not change axis identities,
+dimensions, the selected path, input-buffer interpretation or ordered output.
+Export orders observed surviving modes by first occurrence in the two operands;
+the final axes follow `query.keep()` exactly. Supplied intermediate orders need
+not follow this convention: import does not rewrite the plan and compares
+native structural semantics, not physical intermediate ordering.
+
+`import_plan` creates a fresh native owner, attaches the supplied path and
+checks path/slicing/intermediate readback without creating a search config or
+invoking optimization. It produces no planning report and performs no numerical
+preparation. Native metadata is a lowering, not lossless serialization of all
+portable axis-order choices; retain the original portable plan for exact
+re-export. Fixed-coefficient execution adapters, rebinding, noise, and GPU
+qualification are separate later work.
 
 The [native validator](scripts/README.md#validating-the-ffi-surface-and-gpu-behavior)
 selects these ignored tests with `--metadata-qualification`, independently of

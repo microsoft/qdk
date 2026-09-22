@@ -18,6 +18,11 @@ pub enum Operand {
 /// One contraction step: the listed operands are consumed and replaced by one
 /// result carrying `result_axes`, in that order.
 ///
+/// This is the logical axis order, not a requirement on an executor's private
+/// intermediate storage. A backend may lower it to a different physical layout
+/// while preserving axis identities, dimensions and the selected contractions.
+/// Input buffers and the final output must retain their specified interpretation.
+///
 /// Arity is not restricted to two. A binary-only executor is a capability of
 /// *that* executor, not a rule of this model — an optimizer is free to
 /// describe a unary step (extracting a diagonal on its own) or a

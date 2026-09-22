@@ -21,6 +21,8 @@ use super::{
 use std::collections::{BTreeMap, BTreeSet};
 use tensornet::{ContractionQuery, Indices};
 
+#[path = "contraction/adapter.rs"]
+pub(crate) mod adapter;
 #[path = "contraction/execution.rs"]
 pub(crate) mod execution;
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]

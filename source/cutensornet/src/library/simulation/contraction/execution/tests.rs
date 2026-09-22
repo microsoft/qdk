@@ -43,13 +43,19 @@ fn api(
         failures,
         corruption: Corruption::None,
         numerical,
+        observations: NativeObservations::default(),
     })
 }
 
 impl MemoryWorkspaceApi for TestDoubleContractionApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError> {
         self.event("memory_info")?;
-        Ok((1024 * 1024, 2 * 1024 * 1024))
+        let count = self
+            .events()
+            .iter()
+            .filter(|&&event| event == "memory_info")
+            .count();
+        Ok(self.observations.memory[count - 1])
     }
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, SimulationError> {
         assert!(bytes > 0);
