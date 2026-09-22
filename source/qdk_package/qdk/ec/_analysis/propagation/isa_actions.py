@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, TypeVar
 
 from paulimer import DensePauli
 
 from .pauli import Pauli, parse_term, relabel
+
+_PauliKey = TypeVar("_PauliKey", bound=str)
 
 
 def remap_pauli(pauli_str: str, qubit_map: Mapping[int, int]) -> Pauli:
@@ -17,7 +19,7 @@ def remap_pauli(pauli_str: str, qubit_map: Mapping[int, int]) -> Pauli:
 
 
 def build_clifford_images(
-    generators: dict[str, str],
+    generators: Mapping[_PauliKey, str],
     qubit_map: dict[int, int],
     local_map: dict[int, int],
     qubit_count: int,
