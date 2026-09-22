@@ -386,20 +386,6 @@ fn depolarize2_yields_expected_qir() {
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
-fn heralded_erase_yields_expected_qir() {
-    let source = "HERALDED_ERASE(0.01) 0";
-    check(source, &expect![[""]]);
-}
-
-#[test]
-#[ignore = "unsupported instruction"]
-fn heralded_pauli_channel_1_yields_expected_qir() {
-    let source = "HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0";
-    check(source, &expect![[""]]);
-}
-
-#[test]
 fn pauli_channel_1_yields_expected_qir() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
     check(

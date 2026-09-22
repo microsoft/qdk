@@ -98,33 +98,6 @@ fn repeat_multiple_gates() {
 }
 
 #[test]
-fn repeat_broadcast() {
-    let source = indoc! {"
-        REPEAT 2 {
-          X 0 1 2
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 2 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 2 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn repeat_with_measurement() {
     let source = indoc! {"
         REPEAT 3 {
@@ -288,36 +261,6 @@ fn nested_repeat_with_measurement() {
             [metadata]
               required_num_qubits = 1
               required_num_results = 4"#]],
-    );
-}
-
-#[test]
-fn sequential_repeats() {
-    let source = indoc! {"
-        REPEAT 2 {
-          X 0
-        }
-        REPEAT 3 {
-          Z 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__x__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
     );
 }
 

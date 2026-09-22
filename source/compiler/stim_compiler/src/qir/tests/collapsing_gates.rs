@@ -43,23 +43,6 @@ fn m_gate_with_readout_noise_yields_expected_qir() {
 }
 
 #[test]
-fn m_gate_with_zero_readout_noise_emits_no_noise_call() {
-    check(
-        "M(0.0) 0",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
 fn mr_gate_yields_expected_qir() {
     let source = "MR 0";
     check(

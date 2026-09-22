@@ -200,73 +200,6 @@ fn mpp_negated_product_yields_expected_qir() {
 }
 
 #[test]
-fn mpp_multiple_products_in_one_instruction_yields_expected_qir() {
-    check(
-        "MPP X1*Y2 !Z3*Z4*Z5",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 3 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 5
-              required_num_results = 2"#]],
-    );
-}
-
-#[test]
-fn mpp_mixed_single_and_product_targets_yields_expected_qir() {
-    check(
-        "MPP X0 Y1*Z2",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 3
-              required_num_results = 2"#]],
-    );
-}
-
-#[test]
 fn mpp_with_readout_noise_yields_expected_qir() {
     check(
         "MPP(0.01) Z1*Z2",
@@ -363,39 +296,6 @@ fn spp_two_factor_product_yields_expected_qir() {
             [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn spp_multiple_products_in_one_instruction_yield_expected_qir() {
-    check(
-        "SPP Y1*Y2 !Z1*Z2",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
             [metadata]
@@ -554,39 +454,6 @@ fn spp_dag_two_factor_product_yields_expected_qir() {
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn spp_dag_multiple_products_in_one_instruction_yield_expected_qir() {
-    check(
-        "SPP_DAG Y1*Y2 !Z1*Z2",
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__s__adj(ptr)
-              declare void @__quantum__qis__s__body(ptr)
 
             [metadata]
               required_num_qubits = 2

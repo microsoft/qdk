@@ -712,6 +712,43 @@ fn cx_with_record_control_lowers() {
 }
 
 #[test]
+fn cx_with_mixed_quantum_and_classical_pairs_lowers() {
+    let source = indoc! {"
+        M 0
+        CX rec[-1] 1 2 3
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Circuit [0-21]:
+            items:
+                [0-3] SingleQubitMeasurement {
+                    reset: false,
+                    observable: Z,
+                    readout_noise: 0.0,
+                    negated: false,
+                    qubit: 0,
+                }
+                [4-20] ClassicallyControlledPauli {
+                    control: MeasurementRecord {
+                        offset: 1,
+                        span: Span {
+                            lo: 7,
+                            hi: 14,
+                        },
+                    },
+                    target: 1,
+                    pauli: X,
+                }
+                [4-20] TwoQubitGate {
+                    q0: 2,
+                    q1: 3,
+                    gate: CX,
+                }"#]],
+    );
+}
+
+#[test]
 fn cy_with_record_control_lowers() {
     let source = indoc! {"
         M 0
