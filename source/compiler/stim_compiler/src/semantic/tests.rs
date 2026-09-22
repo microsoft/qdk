@@ -6,6 +6,7 @@ mod block_lowering;
 mod instruction_lowering;
 mod target_arity;
 mod target_broadcasting;
+mod target_types;
 
 use expect_test::Expect;
 use miette::Report;

@@ -481,59 +481,6 @@ fn mpp_product_with_imaginary_phase_yields_anti_hermitian_error() {
 }
 
 #[test]
-fn mpp_with_qubit_target_yields_unsupported_target_error() {
-    check(
-        "MPP 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: MPP
-               ,----
-             1 | MPP 0
-               :     ^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn mpp_with_measurement_record_target_yields_unsupported_target_error() {
-    let source = indoc! {"
-        M 0
-        MPP rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: MPP
-               ,-[2:5]
-             1 | M 0
-             2 | MPP rec[-1]
-               :     ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn mpp_with_loss_target_yields_unsupported_target_error() {
-    check(
-        "MPP L0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: MPP
-               ,----
-             1 | MPP L0
-               :     ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn mpp_with_readout_noise_yields_expected_qir() {
     check(
         "MPP(0.01) Z1*Z2",

@@ -103,22 +103,6 @@ fn peek_loss_with_negative_readout_noise_in_radians_yields_errors() {
 }
 
 #[test]
-fn peek_loss_with_negated_target_yields_error() {
-    check(
-        "PEEK_LOSS !0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: PEEK_LOSS
-               ,----
-             1 | PEEK_LOSS !0
-               :           ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn peek_loss_referenced_by_classical_control() {
     let source = indoc! {"
         PEEK_LOSS 0

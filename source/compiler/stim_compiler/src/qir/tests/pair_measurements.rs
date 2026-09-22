@@ -29,33 +29,6 @@ fn mxx_measurement_yields_correct_qir() {
 }
 
 #[test]
-fn mxx_with_negated_target_yields_correct_qir() {
-    let source = "MXX !0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
 fn mxx_with_readout_noise_yields_correct_qir() {
     check(
         "MXX(0.01) 0 1",
@@ -173,40 +146,6 @@ fn myy_measurement_yields_correct_qir() {
 }
 
 #[test]
-fn myy_with_negated_target_yields_correct_qir() {
-    let source = "MYY !0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__z__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__s__body(ptr)
-              declare void @__quantum__qis__x__body(ptr)
-              declare void @__quantum__qis__z__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
 fn myy_with_readout_noise_yields_correct_qir() {
     check(
         "MYY(0.01) 0 1",
@@ -253,30 +192,6 @@ fn mzz_measurement_yields_correct_qir() {
             [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn mzz_with_negated_target_yields_correct_qir() {
-    let source = "MZZ !0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-              declare void @__quantum__qis__x__body(ptr)
 
             [metadata]
               required_num_qubits = 2

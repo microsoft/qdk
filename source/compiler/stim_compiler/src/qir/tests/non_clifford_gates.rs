@@ -56,59 +56,6 @@ fn t_gate_with_argument_yields_error() {
 }
 
 #[test]
-fn t_gate_with_negated_target_yields_error() {
-    check(
-        "T !0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: T
-               ,----
-             1 | T !0
-               :   ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn t_gate_with_measurement_record_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        T rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: T
-               ,-[2:3]
-             1 | M 0
-             2 | T rec[-1]
-               :   ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn t_gate_with_pauli_target_yields_error() {
-    check(
-        "T X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: T
-               ,----
-             1 | T X0
-               :   ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn tpp_single_z_yields_expected_qir() {
     // same as T 0
     check(
@@ -347,22 +294,6 @@ fn tpp_with_argument_yields_error() {
 }
 
 #[test]
-fn tpp_with_qubit_target_yields_error() {
-    check(
-        "TPP 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: TPP
-               ,----
-             1 | TPP 0
-               :     ^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ch_gate_yields_expected_qir() {
     check(
         "CH 0 1",
@@ -436,22 +367,6 @@ fn ccx_gate_with_argument_yields_error() {
 }
 
 #[test]
-fn ccx_gate_with_negated_target_yields_error() {
-    check(
-        "CCX 0 1 !2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: CCX
-               ,----
-             1 | CCX 0 1 !2
-               :         ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ccx_gate_with_repeated_qubit_yields_error() {
     check(
         "CCX 0 0 1",
@@ -498,27 +413,6 @@ fn ccx_gate_with_repeated_qubit_yields_error() {
                ,----
              1 | CCX 0 0 0
                :       ^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ccz_gate_with_measurement_record_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        CCZ rec[-1] 1 2
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: CCZ
-               ,-[2:5]
-             1 | M 0
-             2 | CCZ rec[-1] 1 2
-               :     ^^^^^^^
                `----
         "#]],
     );
@@ -619,22 +513,6 @@ fn r_x_with_two_arguments_yields_error() {
                ,----
              1 | R_X(0.25, 0.5) 0
                :           ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn r_x_with_negated_target_yields_error() {
-    check(
-        "R_X(0.25) !0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: R_X
-               ,----
-             1 | R_X(0.25) !0
-               :           ^^
                `----
         "#]],
     );

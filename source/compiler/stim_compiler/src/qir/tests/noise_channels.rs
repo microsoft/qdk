@@ -628,22 +628,6 @@ fn i_error_with_invalid_probability_list_yields_error() {
 }
 
 #[test]
-fn i_error_with_unsupported_target_yields_error() {
-    check(
-        "I_ERROR X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: I_ERROR
-               ,----
-             1 | I_ERROR X0
-               :         ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ii_error_yields_expected_qir() {
     let source = indoc! {"
         # does nothing
@@ -678,22 +662,6 @@ fn ii_error_with_invalid_probability_list_yields_error() {
                ,----
              1 | II_ERROR(0.6, 0.6) 0 1
                :          ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_error_with_unsupported_target_yields_error() {
-    check(
-        "II_ERROR 0 X1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: II_ERROR
-               ,----
-             1 | II_ERROR 0 X1
-               :            ^^
                `----
         "#]],
     );

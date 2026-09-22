@@ -1181,6 +1181,20 @@ fn m_lowers() {
 }
 
 #[test]
+fn m_with_negated_target_lowers() {
+    check("M !0", &expect![[r#"
+        Circuit [0-4]:
+            items:
+                [0-4] SingleQubitMeasurement {
+                    reset: false,
+                    observable: Z,
+                    readout_noise: 0.0,
+                    negated: true,
+                    qubit: 0,
+                }"#]]);
+}
+
+#[test]
 fn mr_lowers() {
     check(
         "MR 0",
@@ -1195,6 +1209,20 @@ fn mr_lowers() {
                     qubit: 0,
                 }"#]],
     );
+}
+
+#[test]
+fn mr_with_negated_target_lowers() {
+    check("MR !0", &expect![[r#"
+        Circuit [0-5]:
+            items:
+                [0-5] SingleQubitMeasurement {
+                    reset: true,
+                    observable: Z,
+                    readout_noise: 0.0,
+                    negated: true,
+                    qubit: 0,
+                }"#]]);
 }
 
 #[test]
@@ -1215,6 +1243,20 @@ fn mrx_lowers() {
 }
 
 #[test]
+fn mrx_with_negated_target_lowers() {
+    check("MRX !0", &expect![[r#"
+        Circuit [0-6]:
+            items:
+                [0-6] SingleQubitMeasurement {
+                    reset: true,
+                    observable: X,
+                    readout_noise: 0.0,
+                    negated: true,
+                    qubit: 0,
+                }"#]]);
+}
+
+#[test]
 fn mry_lowers() {
     check(
         "MRY 0",
@@ -1229,6 +1271,20 @@ fn mry_lowers() {
                     qubit: 0,
                 }"#]],
     );
+}
+
+#[test]
+fn mry_with_negated_target_lowers() {
+    check("MRY !0", &expect![[r#"
+        Circuit [0-6]:
+            items:
+                [0-6] SingleQubitMeasurement {
+                    reset: true,
+                    observable: Y,
+                    readout_noise: 0.0,
+                    negated: true,
+                    qubit: 0,
+                }"#]]);
 }
 
 #[test]
@@ -1249,6 +1305,20 @@ fn mx_lowers() {
 }
 
 #[test]
+fn mx_with_negated_target_lowers() {
+    check("MX !0", &expect![[r#"
+        Circuit [0-5]:
+            items:
+                [0-5] SingleQubitMeasurement {
+                    reset: false,
+                    observable: X,
+                    readout_noise: 0.0,
+                    negated: true,
+                    qubit: 0,
+                }"#]]);
+}
+
+#[test]
 fn my_lowers() {
     check(
         "MY 0",
@@ -1263,6 +1333,20 @@ fn my_lowers() {
                     qubit: 0,
                 }"#]],
     );
+}
+
+#[test]
+fn my_with_negated_target_lowers() {
+    check("MY !0", &expect![[r#"
+        Circuit [0-5]:
+            items:
+                [0-5] SingleQubitMeasurement {
+                    reset: false,
+                    observable: Y,
+                    readout_noise: 0.0,
+                    negated: true,
+                    qubit: 0,
+                }"#]]);
 }
 
 #[test]
@@ -1327,6 +1411,20 @@ fn mxx_lowers() {
 }
 
 #[test]
+fn mxx_with_negated_target_lowers() {
+    check("MXX !0 1", &expect![[r#"
+        Circuit [0-8]:
+            items:
+                [0-8] TwoQubitMeasurement {
+                    readout_noise: 0.0,
+                    observable: XX,
+                    negated: true,
+                    q0: 0,
+                    q1: 1,
+                }"#]]);
+}
+
+#[test]
 fn myy_lowers() {
     check(
         "MYY 0 1",
@@ -1344,6 +1442,20 @@ fn myy_lowers() {
 }
 
 #[test]
+fn myy_with_negated_target_lowers() {
+    check("MYY !0 1", &expect![[r#"
+        Circuit [0-8]:
+            items:
+                [0-8] TwoQubitMeasurement {
+                    readout_noise: 0.0,
+                    observable: YY,
+                    negated: true,
+                    q0: 0,
+                    q1: 1,
+                }"#]]);
+}
+
+#[test]
 fn mzz_lowers() {
     check(
         "MZZ 0 1",
@@ -1358,6 +1470,20 @@ fn mzz_lowers() {
                     q1: 1,
                 }"#]],
     );
+}
+
+#[test]
+fn mzz_with_negated_target_lowers() {
+    check("MZZ !0 1", &expect![[r#"
+        Circuit [0-8]:
+            items:
+                [0-8] TwoQubitMeasurement {
+                    readout_noise: 0.0,
+                    observable: ZZ,
+                    negated: true,
+                    q0: 0,
+                    q1: 1,
+                }"#]]);
 }
 
 // Generalized Pauli product gates
@@ -1389,6 +1515,29 @@ fn mpp_lowers() {
 }
 
 #[test]
+fn mpp_with_negated_target_lowers() {
+    check("MPP !X0*Y1", &expect![[r#"
+        Circuit [0-10]:
+            items:
+                [0-10] PauliProductMeasurement {
+                    readout_noise: 0.0,
+                    product: PauliProduct {
+                        factors: [
+                            PauliFactor {
+                                pauli: X,
+                                qubit: 0,
+                            },
+                            PauliFactor {
+                                pauli: Y,
+                                qubit: 1,
+                            },
+                        ],
+                        negated: true,
+                    },
+                }"#]]);
+}
+
+#[test]
 fn spp_lowers() {
     check(
         "SPP X0*Y1",
@@ -1415,6 +1564,29 @@ fn spp_lowers() {
 }
 
 #[test]
+fn spp_with_negated_target_lowers() {
+    check("SPP X0*!Y1", &expect![[r#"
+        Circuit [0-10]:
+            items:
+                [0-10] PauliProductGate {
+                    product: PauliProduct {
+                        factors: [
+                            PauliFactor {
+                                pauli: X,
+                                qubit: 0,
+                            },
+                            PauliFactor {
+                                pauli: Y,
+                                qubit: 1,
+                            },
+                        ],
+                        negated: true,
+                    },
+                    gate: S,
+                }"#]]);
+}
+
+#[test]
 fn spp_dag_lowers() {
     check(
         "SPP_DAG X0*Y1",
@@ -1438,6 +1610,29 @@ fn spp_dag_lowers() {
                     gate: S_DAG,
                 }"#]],
     );
+}
+
+#[test]
+fn spp_dag_with_negated_target_lowers() {
+    check("SPP_DAG !X0*Y1", &expect![[r#"
+        Circuit [0-14]:
+            items:
+                [0-14] PauliProductGate {
+                    product: PauliProduct {
+                        factors: [
+                            PauliFactor {
+                                pauli: X,
+                                qubit: 0,
+                            },
+                            PauliFactor {
+                                pauli: Y,
+                                qubit: 1,
+                            },
+                        ],
+                        negated: true,
+                    },
+                    gate: S_DAG,
+                }"#]]);
 }
 
 // Control flow
@@ -1479,6 +1674,42 @@ fn require_lowers() {
                             ],
                         }"#]],
     );
+}
+
+#[test]
+fn require_with_negated_record_targets_lowers() {
+    let source = indoc! {"
+        SELECT {
+          M 0
+          REQUIRE !rec[-1]
+        }
+    "};
+    check(source, &expect![[r#"
+        Circuit [0-36]:
+            items:
+                SelectBlock:
+                    body:
+                        [11-14] SingleQubitMeasurement {
+                            reset: false,
+                            observable: Z,
+                            readout_noise: 0.0,
+                            negated: false,
+                            qubit: 0,
+                        }
+                        [17-33] Require {
+                            records: [
+                                NegatableMeasurementRecord {
+                                    record: MeasurementRecord {
+                                        offset: 1,
+                                        span: Span {
+                                            lo: 25,
+                                            hi: 33,
+                                        },
+                                    },
+                                    negated: true,
+                                },
+                            ],
+                        }"#]]);
 }
 
 #[test]
@@ -1736,6 +1967,29 @@ fn tpp_lowers() {
 }
 
 #[test]
+fn tpp_with_negated_target_lowers() {
+    check("TPP !X0*Y1", &expect![[r#"
+        Circuit [0-10]:
+            items:
+                [0-10] PauliProductGate {
+                    product: PauliProduct {
+                        factors: [
+                            PauliFactor {
+                                pauli: X,
+                                qubit: 0,
+                            },
+                            PauliFactor {
+                                pauli: Y,
+                                qubit: 1,
+                            },
+                        ],
+                        negated: true,
+                    },
+                    gate: T,
+                }"#]]);
+}
+
+#[test]
 fn tpp_dag_lowers() {
     check(
         "TPP_DAG X0*Y1",
@@ -1759,6 +2013,29 @@ fn tpp_dag_lowers() {
                     gate: T_DAG,
                 }"#]],
     );
+}
+
+#[test]
+fn tpp_dag_with_negated_target_lowers() {
+    check("TPP_DAG !X0*Y1", &expect![[r#"
+        Circuit [0-14]:
+            items:
+                [0-14] PauliProductGate {
+                    product: PauliProduct {
+                        factors: [
+                            PauliFactor {
+                                pauli: X,
+                                qubit: 0,
+                            },
+                            PauliFactor {
+                                pauli: Y,
+                                qubit: 1,
+                            },
+                        ],
+                        negated: true,
+                    },
+                    gate: T_DAG,
+                }"#]]);
 }
 
 #[test]
@@ -1949,4 +2226,27 @@ fn r_pauli_lowers() {
                     },
                 }"#]],
     );
+}
+
+#[test]
+fn r_pauli_with_negated_target_lowers() {
+    check("R_PAULI(0.25) !X0*Y1", &expect![[r#"
+        Circuit [0-20]:
+            items:
+                [0-20] PauliProductRotation {
+                    angle: 0.7853981633974483,
+                    product: PauliProduct {
+                        factors: [
+                            PauliFactor {
+                                pauli: X,
+                                qubit: 0,
+                            },
+                            PauliFactor {
+                                pauli: Y,
+                                qubit: 1,
+                            },
+                        ],
+                        negated: true,
+                    },
+                }"#]]);
 }

@@ -178,48 +178,6 @@ fn cx_with_rec_on_second_target_yields_error() {
 }
 
 #[test]
-fn cx_with_rec_control_and_invalid_target_labels_invalid_target() {
-    let source = indoc! {"
-        M 0
-        CX rec[-1] X1
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: CX
-               ,-[2:12]
-             1 | M 0
-             2 | CX rec[-1] X1
-               :            ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn cx_with_negated_rec_control_yields_error() {
-    let source = indoc! {"
-        M 0
-        CX !rec[-1] 1
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: CX
-               ,-[2:4]
-             1 | M 0
-             2 | CX !rec[-1] 1
-               :    ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn cx_with_two_rec_targets_yields_error() {
     let source = indoc! {"
         M 0
@@ -294,27 +252,6 @@ fn cy_with_rec_on_second_target_yields_error() {
              1 | M 0
              2 | CY 0 rec[-1]
                :      ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn cy_with_negated_rec_control_yields_error() {
-    let source = indoc! {"
-        M 0
-        CY !rec[-1] 1
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: CY
-               ,-[2:4]
-             1 | M 0
-             2 | CY !rec[-1] 1
-               :    ^^^^^^^^
                `----
         "#]],
     );
@@ -416,48 +353,6 @@ fn cz_with_two_rec_targets_yields_error() {
 }
 
 #[test]
-fn cz_with_negated_rec_on_first_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        CZ !rec[-1] 1
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: CZ
-               ,-[2:4]
-             1 | M 0
-             2 | CZ !rec[-1] 1
-               :    ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn cz_with_negated_rec_on_second_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        CZ 0 !rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: CZ
-               ,-[2:6]
-             1 | M 0
-             2 | CZ 0 !rec[-1]
-               :      ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn xcz_with_rec_on_second_target_yields_expected_qir() {
     let source = indoc! {"
         M 0
@@ -515,27 +410,6 @@ fn xcz_with_rec_on_first_target_yields_error() {
 }
 
 #[test]
-fn xcz_with_negated_rec_on_second_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        XCZ 1 !rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: XCZ
-               ,-[2:7]
-             1 | M 0
-             2 | XCZ 1 !rec[-1]
-               :       ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ycz_with_rec_on_second_target_yields_expected_qir() {
     let source = indoc! {"
         M 0
@@ -587,27 +461,6 @@ fn ycz_with_rec_on_first_target_yields_error() {
              1 | M 0
              2 | YCZ rec[-1] 1
                :     ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ycz_with_negated_rec_on_second_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        YCZ 1 !rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: YCZ
-               ,-[2:7]
-             1 | M 0
-             2 | YCZ 1 !rec[-1]
-               :       ^^^^^^^^
                `----
         "#]],
     );

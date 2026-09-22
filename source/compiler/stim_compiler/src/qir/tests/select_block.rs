@@ -288,87 +288,6 @@ fn select_block_with_tag() {
 }
 
 #[test]
-fn require_with_negated_target() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE !rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                br label %select_0
-              select_0:
-                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
-                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-                %n_0 = xor i1 %r_0, true
-                %restart_0 = or i1 %l_0, %n_0
-                br i1 %restart_0, label %select_0, label %continue_0
-              continue_0:
-
-            [declarations]
-              declare i1 @__quantum__rt__read_loss(ptr)
-              declare i1 @__quantum__rt__read_result(ptr)
-              declare void @__quantum__qis__m__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn require_with_integer_target_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: REQUIRE
-               ,-[3:11]
-             2 |   M 0
-             3 |   REQUIRE 0
-               :           ^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn require_with_pauli_target_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          REQUIRE X0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: REQUIRE
-               ,-[3:11]
-             2 |   M 0
-             3 |   REQUIRE X0
-               :           ^^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn require_no_select_block_yields_error() {
     let source = indoc! {"
     M 0
@@ -1001,30 +920,6 @@ fn multiple_notleakeds_in_block() {
 }
 
 #[test]
-fn notleaked_with_negated_target_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED !rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.NegatedTarget
-
-              x target cannot be negated in instruction: NOTLEAKED
-               ,-[3:13]
-             2 |   M 0
-             3 |   NOTLEAKED !rec[-1]
-               :             ^^^^^^^^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn notleaked_with_at_least_one_record_in_scope() {
     let source = indoc! {"
         M 0
@@ -1054,54 +949,6 @@ fn notleaked_with_at_least_one_record_in_scope() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 2"#]],
-    );
-}
-
-#[test]
-fn notleaked_with_integer_target_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: NOTLEAKED
-               ,-[3:13]
-             2 |   M 0
-             3 |   NOTLEAKED 0
-               :             ^
-             4 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn notleaked_with_pauli_target_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          M 0
-          NOTLEAKED X0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: NOTLEAKED
-               ,-[3:13]
-             2 |   M 0
-             3 |   NOTLEAKED X0
-               :             ^^
-             4 | }
-               `----
-        "#]],
     );
 }
 
