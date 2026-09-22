@@ -6,6 +6,7 @@ mod argument_arity;
 mod argument_values;
 mod block_lowering;
 mod instruction_lowering;
+mod measurement_record_bounds;
 mod pauli_product_canonicalization;
 mod repeated_qubit_targets;
 mod target_arity;

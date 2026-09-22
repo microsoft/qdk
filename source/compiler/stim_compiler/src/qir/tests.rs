@@ -4,7 +4,6 @@
 mod boilerplate;
 mod collapsing_gates;
 mod generalized_pauli_product_gates;
-mod measurement_record_bounds;
 mod measurement_record_targets;
 mod noise_channels;
 mod non_clifford_gates;
