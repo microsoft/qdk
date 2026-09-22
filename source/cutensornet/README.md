@@ -302,6 +302,60 @@ contains that owner plus its unchanged `ExecutionPolicy`. Native contraction
 metadata borrows `&mut SessionResources`, so its parent cannot close or be
 reused while a child is alive. Safe external callers receive no raw pointers.
 
+`SessionResources::new(api, device_ordinal)` takes a retained native
+API/library owner and a device selection, not a contraction or memory request.
+It checks device availability, selects the device, creates a CUDA stream and
+creates a cuTensorNet handle. Each native call can fail; partial construction
+cleans up acquired resources and preserves primary/cleanup errors. The stream
+is an ordered queue for GPU work, not a communication connection. The
+cuTensorNet handle is the library's execution context, not a quantum state.
+The Session groups these resources; it is a QDK abstraction, not a separate
+NVIDIA Session object or an explicitly created CUDA context.
+
+Creating a Session does not allocate the contraction's coefficient, output or
+scratch buffers. Numerical preparation determines their requirements, checks
+the device/host scratch ceilings and allocates the buffers. Actual allocations
+hold memory until cleanup; a planning budget, execution ceiling or free-memory
+observation does not reserve memory. Neither the Session nor these allocations
+reserve exclusive GPU compute capacity or impose a total GPU-memory limit.
+
+The agreed shared execution ownership model retains the existing **exclusive
+Session borrow**: the caller owns both the Session and the returned executable.
+The executable owns its contraction resources and exclusively borrows the
+caller's Session. The Executor constructs the executable and transfers it to
+the caller; it does not become the long-term Session owner.
+
+```text
+Caller
+  |-- owns Session
+  `-- owns ExecutableContraction
+        |-- owns contraction-specific native resources
+        `-- exclusively borrows Session until close
+```
+
+After successful executable cleanup, the caller can reuse the same Session for
+a different contraction, then eventually close the Session itself:
+
+```text
+Session lifetime:  |----------------------------------------------------------|
+Executable A:          prepare -> execute -> close
+Executable B:                                     prepare -> execute -> close
+```
+
+This is sequential reuse, not multiple live executables sharing one Session.
+Session does not store or orchestrate an Executor or Executable. The caller
+invokes their methods; the executable uses the Session's API, device, handle
+and stream. Explicit executable close releases its resources, not the borrowed
+Session. Session close is separate: select the device, synchronize, destroy the
+cuTensorNet handle and destroy the stream, reporting cleanup failure.
+
+Session ownership is settled; the shared adapter's concrete borrow-transfer
+wiring remains under review, not implemented. `ContractionExecutor::prepare`
+must hand the exclusive borrow of the caller-owned Session to the executable
+without making it borrow the method-local mutable executor borrow. This model
+does not introduce per-executable Session ownership or shared-session interior
+mutability.
+
 `MpsExecution` owns one MPS state and its execution/readout resources under a
 live `MpsSession`. `MpsExecutionApi` and `ContractionApi` are private cuTensorNet
 injection boundaries, implemented by `CuTensorNetApi`, not shared Execution

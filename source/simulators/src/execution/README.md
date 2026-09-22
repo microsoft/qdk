@@ -262,6 +262,38 @@ diagnostics. Executors choose their coefficient representation, prepared
 owner (`type Executable: ExecutableContraction`) and error type; no shared
 type depends on a native backend.
 
+The caller invokes `prepare` on the executor and owns the returned executable.
+`resources`, `execute` and executable `close` are methods of that executable,
+not of the executor or a backend Session:
+
+```text
+Caller -> Executor:   prepare(query, plan, coefficients, limits)
+Executor -> Caller:   executable, or preparation failure after partial cleanup
+Caller -> Executable: resources() -> recorded resource report
+Caller -> Executable: execute()   -> completed owned output, or execution error
+Caller -> Executable: close()     -> cleanup result; executable consumed
+```
+
+Resource inspection is optional and synchronous. It reads recorded facts,
+not asynchronous GPU progress, and does not allocate or reserve resources.
+It is available before or after execution, including after execution failure;
+the exclusive `&mut self` execution call prevents concurrent inspection of the
+same owner. Repeated execution is also optional: fixed coefficients mean the
+same contraction is computed again, not a new noise realization. Updating
+coefficients between noise realizations would require a separate rebinding
+contract; it is not provided by repeated execution.
+
+Backend context lifetime and ownership are distinct from the caller's ownership
+of the executable. A borrowed context must outlive its executable, but is not
+closed by executable cleanup. The cuTensorNet-specific
+[Session lifecycle](../../../cutensornet/README.md#private-qualification-session)
+documents the agreed adapter model: the caller owns both the Session and the
+executable, which exclusively borrows that Session. The Executor constructs
+the executable but is not the long-term Session owner. This permits sequential
+Session reuse; the concrete borrow-transfer wiring remains under review.
+Session is not a new shared Execution Framework interface or a required
+ownership model for other backends.
+
 `prepare(&query, &plan, coefficients, limits)` receives the query explicitly
 because a plan does not store input topology. Preparation revalidates the
 plan against that query, validates bindings, rejects unsupported features,
