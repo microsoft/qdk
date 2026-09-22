@@ -249,15 +249,41 @@ fn index_to_qir(
     result_var: &rir::Variable,
     program: &rir::Program,
 ) -> String {
-    // Only need to emit the getelementptr instruction here, as passes are expected to insert the subsequent load instruction.
-    format!(
-        "  {} = getelementptr {}, ptr {}, {} {}",
-        ToQir::<String>::to_qir(&result_var.variable_id, program),
-        ToQir::<String>::to_qir(&result_var.ty, program),
-        get_value_as_str(array_op, program),
-        get_value_ty(index_op),
-        get_value_as_str(index_op, program)
+    let mut qir = String::new();
+    let result_ty = ToQir::<String>::to_qir(&result_var.ty, program);
+    let result_var = ToQir::<String>::to_qir(&result_var.variable_id, program);
+    let index_ty = get_value_ty(index_op);
+    let index_val = get_value_as_str(index_op, program);
+    let array_size = match array_op {
+        rir::Operand::Literal(rir::Literal::Array(id)) => program
+            .array_literals
+            .get(*id)
+            .expect("array should exist")
+            .contents
+            .len(),
+        rir::Operand::Variable(rir::Variable {
+            ty: rir::Ty::Array(size, _),
+            ..
+        }) => *size,
+        _ => panic!("expected array operand to be an array literal or array variable"),
+    };
+    writeln!(
+        qir,
+        "  {result_var}_offset_chk = icmp slt {index_ty} {index_val}, 0"
     )
+    .expect("writing to string should succeed");
+    writeln!(
+        qir,
+        "  {result_var}_offset = select i1 {result_var}_offset_chk, {index_ty} 1, {index_ty} 0"
+    )
+    .expect("writing to string should succeed");
+    write!(
+        qir,
+        "  {result_var} = getelementptr [{array_size} x {result_ty}], ptr {}, {index_ty} {result_var}_offset, {index_ty} {index_val}",
+        get_value_as_str(array_op, program),
+    )
+    .expect("writing to string should succeed");
+    qir
 }
 
 fn convert_to_qir(
@@ -696,13 +722,19 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
         let callable_name = llvm_global_name(&callable.name);
         return format!(
             "declare {output_type} {callable_name}({input_type}){}",
-            match callable.call_type {
-                rir::CallableType::Measurement | rir::CallableType::Reset => {
-                    // These callables are a special case that need the irreversible attribute.
-                    " #1"
+            if callable_name == "@__quantum__rt__read_result" {
+                // Read result gets special attributes that mark it as side-effect free to allow
+                // LLVM to optimize it out when the resulting i1 value is unused.
+                " #2"
+            } else {
+                match callable.call_type {
+                    rir::CallableType::Measurement | rir::CallableType::Reset => {
+                        // These callables are a special case that need the irreversible attribute.
+                        " #1"
+                    }
+                    rir::CallableType::NoiseIntrinsic => " #3",
+                    _ => "",
                 }
-                rir::CallableType::NoiseIntrinsic => " #2",
-                _ => "",
             }
         );
     };
@@ -813,7 +845,7 @@ impl ToQir<String> for rir::Program {
 fn get_additional_module_attributes(program: &rir::Program) -> String {
     let mut attrs = String::new();
     if program.attrs.contains(Attributes::QdkNoise) {
-        attrs.push_str("\nattributes #2 = { \"qdk_noise\" }");
+        attrs.push_str("\nattributes #3 = { \"qdk_noise\" }");
     }
 
     attrs

@@ -1450,14 +1450,24 @@ pub enum Attr {
 pub struct CircuitRenderingOptions {
     /// Whether the callable's group box should be hidden.
     pub hide_box: bool,
+    /// Lengths of qubit-array input parameters, in declaration order.
+    pub input_sizes: Option<Vec<u32>>,
 }
 
 const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
 
-The argument is a string containing comma-separated `key=value` pairs. Keys are case-insensitive. Supported options:
-  * hideBox (true|false) - if true, the operation's group box is omitted and its contents are rendered directly in the containing scope.
+The argument is a comma-separated list of `key=value` expressions. Keys are case-insensitive.
 
-Example: `@CircuitRenderingOptions("hideBox=true")`."#;
+Supported options:
+
+- `hideBox` (`true` or `false`): If `true`, the operation's group box is omitted and its
+    contents are rendered directly in the containing scope.
+- `inputSizes` (array of positive integers): Specifies the lengths of qubit-array arguments 
+   (`Qubit[]`, `Qubit[][]`, etc.) used to render the operation. Values apply to inputs in 
+   declaration order and to each input's dimensions from outermost to innermost. Missing values
+    default to 2, and extra values are ignored.
+
+Example: `@CircuitRenderingOptions(hideBox=true,inputSizes=[3,4])`."#;
 
 impl Attr {
     /// Gets the string description of the attribute.

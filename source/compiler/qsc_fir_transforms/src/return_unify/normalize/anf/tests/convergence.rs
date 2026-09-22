@@ -14,6 +14,7 @@ use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{ExprId, ExprKind, PackageLookup, StmtKind};
 
 use crate::return_unify::Error;
+use qsc_fir::fir::PackageSpan;
 
 #[test]
 fn anf_fixpoint_is_structurally_idempotent_after_nested_ancestor_lift() {
@@ -404,7 +405,7 @@ fn projected_assign_op_place_trips_the_unhandled_shape_assertion() {
         &mut assigner,
         projection.ty,
         projection.kind,
-        qsc_data_structures::span::Span::default(),
+        PackageSpan::default(),
     );
 
     let ExprKind::AssignOp(op, _, rhs) = package.get_expr(assign_op_id).kind.clone() else {

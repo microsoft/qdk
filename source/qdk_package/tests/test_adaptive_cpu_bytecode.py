@@ -474,6 +474,54 @@ def test_read_result_with_dynamic_result_id(sim_type):
     check_result(DYNAMIC_READ_RESULT_QIR, "11", num_results=2, sim_type=sim_type)
 
 
+WRITE_RESULT_DECL = "declare void @__quantum__rt__write_result(i1, %Result*)"
+
+
+WRITE_RESULT_QIR = """
+entry:
+  call void @__quantum__rt__write_result(i1 true, %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+WRITE_RESULT_FROM_REGISTER_QIR = """
+entry:
+  %value = icmp eq i64 1, 1
+  call void @__quantum__rt__write_result(i1 %value, %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+OVERWRITE_RESULT_QIR = """
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__write_result(i1 false, %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_write_result(sim_type):
+  check_result(
+    WRITE_RESULT_QIR, "1", extra_decls=WRITE_RESULT_DECL, sim_type=sim_type
+  )
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_write_result_from_register(sim_type):
+  check_result(
+    WRITE_RESULT_FROM_REGISTER_QIR,
+    "1",
+    extra_decls=WRITE_RESULT_DECL,
+    sim_type=sim_type,
+  )
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_write_result_overwrites_existing_result(sim_type):
+  check_result(
+    OVERWRITE_RESULT_QIR, "0", extra_decls=WRITE_RESULT_DECL, sim_type=sim_type
+  )
+
+
 # =========================================================================
 # OP_RECORD_OUTPUT — output recording
 # =========================================================================

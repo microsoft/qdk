@@ -156,7 +156,7 @@ fn lower_hir_package_store(hir_package_store: &HirPackageStore) -> PackageStore 
     for (id, unit) in hir_package_store {
         fir_store.insert(
             map_hir_package_to_fir(id),
-            Lowerer::new().lower_package(&unit.package, &fir_store),
+            Lowerer::new().lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id)),
         );
     }
     fir_store

@@ -59,6 +59,8 @@ jobs:
       - name: Build and Test
         run: python ./build.py --integration-tests
         if: runner.os != 'Linux'
+      - name: Test course notebooks
+        run: python ./build.py --no-check --no-check-prereqs --course-notebook-tests
       - name: File issue on failure
         if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
         id: create-issue

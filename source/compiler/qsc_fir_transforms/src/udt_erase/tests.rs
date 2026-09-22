@@ -18,16 +18,17 @@ use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 use crate::EMPTY_EXEC_RANGE;
+use qsc_fir::fir::PackageSpan;
 
-fn default_span() -> Span {
-    Span::default()
+fn default_span() -> PackageSpan {
+    PackageSpan::default()
 }
 
 /// Creates a minimal UDT type item (like `newtype Pair = (Int, Double)`).
 fn make_udt_item(item_id: LocalItemId, fields: Vec<(Option<Rc<str>>, Ty)>) -> Item {
     let def = if fields.len() == 1 {
         UdtDef {
-            span: default_span(),
+            span: Span::default(),
             kind: UdtDefKind::Field(UdtField {
                 name_span: None,
                 name: fields[0].0.clone(),
@@ -36,12 +37,12 @@ fn make_udt_item(item_id: LocalItemId, fields: Vec<(Option<Rc<str>>, Ty)>) -> It
         }
     } else {
         UdtDef {
-            span: default_span(),
+            span: Span::default(),
             kind: UdtDefKind::Tuple(
                 fields
                     .into_iter()
                     .map(|(name, ty)| UdtDef {
-                        span: default_span(),
+                        span: Span::default(),
                         kind: UdtDefKind::Field(UdtField {
                             name_span: None,
                             name,
@@ -53,7 +54,7 @@ fn make_udt_item(item_id: LocalItemId, fields: Vec<(Option<Rc<str>>, Ty)>) -> It
         }
     };
     let udt = Udt {
-        span: default_span(),
+        span: Span::default(),
         name: Rc::from("TestUdt"),
         definition: def,
     };
@@ -80,6 +81,7 @@ fn make_store_with_items(items: Vec<Item>) -> (PackageStore, PackageId) {
     let pkg_id = PackageId::from(0usize);
     let mut store = PackageStore::new();
     let mut package = Package {
+        id: qsc_fir::fir::PackageId::default(),
         items: IndexMap::new(),
         entry: None,
         entry_exec_graph: ExecGraph::default(),
@@ -105,6 +107,7 @@ fn make_ident(name: &str) -> Ident {
 
 fn make_empty_package() -> Package {
     Package {
+        id: qsc_fir::fir::PackageId::default(),
         items: IndexMap::new(),
         entry: None,
         entry_exec_graph: ExecGraph::default(),

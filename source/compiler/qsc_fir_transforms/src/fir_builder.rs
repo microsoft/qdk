@@ -30,7 +30,6 @@ mod tests;
 
 use crate::EMPTY_EXEC_RANGE;
 use qsc_data_structures::functors::FunctorApp;
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
@@ -39,6 +38,7 @@ use qsc_fir::fir::{
 };
 use rustc_hash::FxHashSet;
 
+use qsc_fir::fir::PackageSpan;
 use qsc_fir::ty::{Arrow, Prim, Ty};
 use std::rc::Rc;
 
@@ -48,7 +48,7 @@ pub(crate) fn alloc_expr(
     assigner: &mut Assigner,
     ty: Ty,
     kind: ExprKind,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     let id = assigner.next_expr();
     package.exprs.insert(
@@ -70,7 +70,7 @@ pub(crate) fn alloc_local_var_expr(
     assigner: &mut Assigner,
     var_id: LocalVarId,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -88,7 +88,7 @@ pub(crate) fn alloc_field_expr(
     record_id: ExprId,
     index: usize,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -114,7 +114,7 @@ pub(crate) fn alloc_field_path_expr(
     record_id: ExprId,
     indices: Vec<usize>,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -131,7 +131,7 @@ pub(crate) fn alloc_item_var_expr(
     assigner: &mut Assigner,
     item_id: ItemId,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -149,7 +149,7 @@ pub(crate) fn alloc_call_expr(
     callee_id: ExprId,
     args_id: ExprId,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -165,7 +165,7 @@ pub(crate) fn alloc_int_lit(
     package: &mut Package,
     assigner: &mut Assigner,
     value: i64,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -248,7 +248,7 @@ pub(crate) fn wrap_in_functors(
     base_id: ExprId,
     functor: FunctorApp,
     ty: &Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     // `layer_tys[0]` is the outermost type; `layer_tys[controlled]` is the base.
     let layer_tys = controlled_layer_types(ty, functor.controlled);
@@ -293,7 +293,7 @@ pub(crate) fn alloc_functor_wrapped_expr(
     base_kind: ExprKind,
     functor: FunctorApp,
     ty: &Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     let mut base_ty = ty.clone();
     for _ in 0..functor.controlled {
@@ -311,7 +311,7 @@ pub(crate) fn alloc_bin_op_expr(
     lhs: ExprId,
     rhs: ExprId,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(package, assigner, ty, ExprKind::BinOp(op, lhs, rhs), span)
 }
@@ -321,7 +321,7 @@ pub(crate) fn alloc_not_expr(
     package: &mut Package,
     assigner: &mut Assigner,
     operand: ExprId,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -340,7 +340,7 @@ pub(crate) fn alloc_if_expr(
     then_expr: ExprId,
     else_expr: Option<ExprId>,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -357,7 +357,7 @@ pub(crate) fn alloc_block_expr(
     assigner: &mut Assigner,
     block_id: BlockId,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(package, assigner, ty, ExprKind::Block(block_id), span)
 }
@@ -368,7 +368,7 @@ pub(crate) fn alloc_assign_expr(
     assigner: &mut Assigner,
     lhs: ExprId,
     rhs: ExprId,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -384,7 +384,7 @@ pub(crate) fn alloc_bool_lit(
     package: &mut Package,
     assigner: &mut Assigner,
     value: bool,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -399,7 +399,7 @@ pub(crate) fn alloc_bool_lit(
 pub(crate) fn alloc_unit_expr(
     package: &mut Package,
     assigner: &mut Assigner,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(
         package,
@@ -416,7 +416,7 @@ pub(crate) fn alloc_tuple_expr(
     assigner: &mut Assigner,
     exprs: Vec<ExprId>,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     alloc_expr(package, assigner, ty, ExprKind::Tuple(exprs), span)
 }
@@ -426,7 +426,7 @@ pub(crate) fn alloc_stmt(
     package: &mut Package,
     assigner: &mut Assigner,
     kind: StmtKind,
-    span: Span,
+    span: PackageSpan,
 ) -> StmtId {
     let id = assigner.next_stmt();
     package.stmts.insert(
@@ -446,7 +446,7 @@ pub(crate) fn alloc_expr_stmt(
     package: &mut Package,
     assigner: &mut Assigner,
     expr_id: ExprId,
-    span: Span,
+    span: PackageSpan,
 ) -> StmtId {
     alloc_stmt(package, assigner, StmtKind::Expr(expr_id), span)
 }
@@ -456,7 +456,7 @@ pub(crate) fn alloc_semi_stmt(
     package: &mut Package,
     assigner: &mut Assigner,
     expr_id: ExprId,
-    span: Span,
+    span: PackageSpan,
 ) -> StmtId {
     alloc_stmt(package, assigner, StmtKind::Semi(expr_id), span)
 }
@@ -468,7 +468,7 @@ pub(crate) fn alloc_local_stmt(
     mutability: Mutability,
     pat_id: PatId,
     init_expr: ExprId,
-    span: Span,
+    span: PackageSpan,
 ) -> StmtId {
     alloc_stmt(
         package,
@@ -484,7 +484,7 @@ pub(crate) fn alloc_block(
     assigner: &mut Assigner,
     stmts: Vec<StmtId>,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> BlockId {
     let id = assigner.next_block();
     package.blocks.insert(
@@ -505,7 +505,7 @@ pub(crate) fn alloc_bind_pat(
     assigner: &mut Assigner,
     name: &str,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> (LocalVarId, PatId) {
     let local_id = assigner.next_local();
     let pat_id = assigner.next_pat();
@@ -530,7 +530,7 @@ pub(crate) fn alloc_discard_pat(
     package: &mut Package,
     assigner: &mut Assigner,
     ty: Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> PatId {
     let pat_id = assigner.next_pat();
     package.pats.insert(
@@ -556,14 +556,20 @@ pub(crate) fn alloc_local_var(
     init_expr: ExprId,
     mutability: Mutability,
 ) -> (LocalVarId, StmtId) {
-    let (local_id, pat_id) = alloc_bind_pat(package, assigner, name, ty.clone(), Span::default());
+    let (local_id, pat_id) = alloc_bind_pat(
+        package,
+        assigner,
+        name,
+        ty.clone(),
+        package.synthetic_span(),
+    );
     let stmt_id = alloc_local_stmt(
         package,
         assigner,
         mutability,
         pat_id,
         init_expr,
-        Span::default(),
+        package.synthetic_span(),
     );
     (local_id, stmt_id)
 }
@@ -597,11 +603,11 @@ pub(crate) fn decompose_binding(
         let elem_name: Rc<str> = Rc::from(format!("{name}.{i}"));
         let new_pat = Pat {
             id: new_pat_id,
-            span: Span::default(),
+            span: package.synthetic_span(),
             ty: elem_ty.clone(),
             kind: PatKind::Bind(Ident {
                 id: new_local,
-                span: Span::default(),
+                span: package.synthetic_span(),
                 name: elem_name,
             }),
         };
@@ -712,8 +718,13 @@ fn collect_leaf_binds(
                 leaf_name.push('.');
                 leaf_name.push_str(&index.to_string());
             }
-            let (local_id, leaf_pat_id) =
-                alloc_bind_pat(package, assigner, &leaf_name, ty.clone(), Span::default());
+            let (local_id, leaf_pat_id) = alloc_bind_pat(
+                package,
+                assigner,
+                &leaf_name,
+                ty.clone(),
+                package.synthetic_span(),
+            );
             leaves.push((path.clone(), local_id, ty.clone()));
             leaf_pat_ids.push(leaf_pat_id);
         }

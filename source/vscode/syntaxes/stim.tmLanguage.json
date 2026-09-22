@@ -68,7 +68,7 @@
       "name": "keyword.other.measurement.stim"
     },
     "gate": {
-      "match": "\\b(C_NXYZ|C_NZYX|C_XNYZ|C_XYNZ|C_XYZ|C_ZNYX|C_ZYNX|C_ZYX|CXSWAP|CX|CNOT|ZCX|CY|ZCY|CZSWAP|CZ|ZCZ|SWAPCZ|SWAPCX|SWAP|H_XZ|H_NXY|H_NXZ|H_NYZ|H_XY|H_YZ|H|SQRT_X_DAG|SQRT_X|SQRT_Y_DAG|SQRT_Y|SQRT_Z_DAG|SQRT_Z|SQRT_XX_DAG|SQRT_XX|SQRT_YY_DAG|SQRT_YY|SQRT_ZZ_DAG|SQRT_ZZ|S_DAG|S|ISWAP_DAG|ISWAP|II|XCX|XCY|XCZ|YCX|YCY|YCZ|MPP|SPP_DAG|SPP|I|X|Y|Z)\\b",
+      "match": "\\b(C_NXYZ|C_NZYX|C_XNYZ|C_XYNZ|C_XYZ|C_ZNYX|C_ZYNX|C_ZYX|CXSWAP|CX|CNOT|ZCX|CY|ZCY|CZSWAP|CZ|ZCZ|SWAPCZ|SWAPCX|SWAP|H_XZ|H_NXY|H_NXZ|H_NYZ|H_XY|H_YZ|H|SQRT_X_DAG|SQRT_X|SQRT_Y_DAG|SQRT_Y|SQRT_Z_DAG|SQRT_Z|SQRT_XX_DAG|SQRT_XX|SQRT_YY_DAG|SQRT_YY|SQRT_ZZ_DAG|SQRT_ZZ|S_DAG|S|ISWAP_DAG|ISWAP|II|XCX|XCY|XCZ|YCX|YCY|YCZ|MPP|SPP_DAG|SPP|T_DAG|T|TPP_DAG|TPP|CH|CCX|CCZ|R_X|R_Y|R_Z|U3|U|R_XX|R_YY|R_ZZ|R_PAULI|I|X|Y|Z)\\b",
       "name": "keyword.other.gate.stim"
     },
     "tag": {
@@ -129,7 +129,7 @@
       "name": "keyword.operator.combiner.stim"
     },
     "number": {
-      "match": "[+-]?\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b",
+      "match": "[+-]?\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?(rad)?\\b",
       "name": "constant.numeric.stim"
     },
     "bracket": {

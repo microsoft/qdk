@@ -41,7 +41,6 @@
 
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{ExprId, ExprKind, Lit, LocalVarId, Package, PackageLookup, StmtId, StmtKind},
@@ -54,6 +53,7 @@ use crate::fir_builder::{
 };
 use crate::return_unify::simplify::bare_return;
 use crate::return_unify::tests::check_simplify_rule_q;
+use qsc_fir::fir::PackageSpan;
 
 /// Slot identities shared by every test fixture.
 struct Slots {
@@ -84,29 +84,29 @@ fn build_merge_stmt(
         assigner,
         slots.has_returned,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_var = alloc_local_var_expr(
         package,
         assigner,
         slots.ret_val,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let then_stmt = alloc_expr_stmt(package, assigner, then_var, Span::default());
+    let then_stmt = alloc_expr_stmt(package, assigner, then_var, PackageSpan::default());
     let then_bid = alloc_block(
         package,
         assigner,
         vec![then_stmt],
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_expr = alloc_block_expr(
         package,
         assigner,
         then_bid,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge = alloc_if_expr(
         package,
@@ -115,9 +115,9 @@ fn build_merge_stmt(
         then_expr,
         Some(fallthrough),
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    alloc_expr_stmt(package, assigner, merge, Span::default())
+    alloc_expr_stmt(package, assigner, merge, PackageSpan::default())
 }
 
 /// Build a `__ret_val = v;` Semi statement.
@@ -133,10 +133,10 @@ fn build_slot_assign_stmt(
         assigner,
         slots.ret_val,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let assign = alloc_assign_expr(package, assigner, lhs, v_id, Span::default());
-    alloc_semi_stmt(package, assigner, assign, Span::default())
+    let assign = alloc_assign_expr(package, assigner, lhs, v_id, PackageSpan::default());
+    alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
 }
 
 /// Build a `__has_returned = true;` Semi statement.
@@ -147,11 +147,11 @@ fn build_flag_set_stmt(package: &mut Package, assigner: &mut Assigner, slots: &S
         assigner,
         slots.has_returned,
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let rhs = alloc_bool_lit(package, assigner, true, Span::default());
-    let assign = alloc_assign_expr(package, assigner, lhs, rhs, Span::default());
-    alloc_semi_stmt(package, assigner, assign, Span::default())
+    let rhs = alloc_bool_lit(package, assigner, true, PackageSpan::default());
+    let assign = alloc_assign_expr(package, assigner, lhs, rhs, PackageSpan::default());
+    alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
 }
 
 /// Build the nested-block terminal pair
@@ -170,10 +170,16 @@ fn build_nested_pair_stmt(
         assigner,
         vec![slot_stmt, flag_stmt],
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let inner_expr = alloc_block_expr(package, assigner, inner_bid, Ty::UNIT, Span::default());
-    alloc_semi_stmt(package, assigner, inner_expr, Span::default())
+    let inner_expr = alloc_block_expr(
+        package,
+        assigner,
+        inner_bid,
+        Ty::UNIT,
+        PackageSpan::default(),
+    );
+    alloc_semi_stmt(package, assigner, inner_expr, PackageSpan::default())
 }
 
 /// Build an arbitrary `__ret_val` fallthrough expression of the given
@@ -191,7 +197,7 @@ fn build_fallthrough(
         assigner,
         slots.ret_val,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     )
 }
 
@@ -319,7 +325,7 @@ fn flat_two_semi_pair_collapses() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(7)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
     let flag_stmt = build_flag_set_stmt(&mut package, &mut assigner, &slots);
@@ -330,7 +336,7 @@ fn flat_two_semi_pair_collapses() {
         &mut assigner,
         vec![slot_stmt, flag_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
@@ -371,16 +377,21 @@ fn pre_stmt_reads_flag_refuses_to_fold() {
         &mut assigner,
         slots.has_returned,
         bool_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let pre_stmt = alloc_semi_stmt(&mut package, &mut assigner, flag_read, Span::default());
+    let pre_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        flag_read,
+        PackageSpan::default(),
+    );
 
     let v_id = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(1)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let pair_stmt = build_nested_pair_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
     let fallthrough = build_fallthrough(&mut package, &mut assigner, &slots, &int_ty);
@@ -390,7 +401,7 @@ fn pre_stmt_reads_flag_refuses_to_fold() {
         &mut assigner,
         vec![pre_stmt, pair_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();
@@ -426,7 +437,7 @@ fn missing_flag_set_refuses_to_fold() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(1)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
     // Wrap just the slot assign in a Unit block to mimic the
@@ -436,17 +447,21 @@ fn missing_flag_set_refuses_to_fold() {
         &mut assigner,
         vec![slot_stmt],
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         inner_bid,
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let broken_pair_stmt =
-        alloc_semi_stmt(&mut package, &mut assigner, inner_expr, Span::default());
+    let broken_pair_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        inner_expr,
+        PackageSpan::default(),
+    );
     let fallthrough = build_fallthrough(&mut package, &mut assigner, &slots, &int_ty);
     let merge_stmt = build_merge_stmt(&mut package, &mut assigner, &slots, fallthrough, &int_ty);
     let block_id = alloc_block(
@@ -454,7 +469,7 @@ fn missing_flag_set_refuses_to_fold() {
         &mut assigner,
         vec![broken_pair_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();
@@ -515,36 +530,36 @@ fn build_single_body_merge_stmt(
         assigner,
         slots.has_returned,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_var = alloc_local_var_expr(
         package,
         assigner,
         slots.ret_val,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let then_stmt = alloc_expr_stmt(package, assigner, then_var, Span::default());
+    let then_stmt = alloc_expr_stmt(package, assigner, then_var, PackageSpan::default());
     let then_bid = alloc_block(
         package,
         assigner,
         vec![then_stmt],
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_expr = alloc_block_expr(
         package,
         assigner,
         then_bid,
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_default = alloc_expr(
         package,
         assigner,
         return_ty.clone(),
         ExprKind::Lit(Lit::Int(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge = alloc_if_expr(
         package,
@@ -553,9 +568,9 @@ fn build_single_body_merge_stmt(
         then_expr,
         Some(else_default),
         return_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    alloc_expr_stmt(package, assigner, merge, Span::default())
+    alloc_expr_stmt(package, assigner, merge, PackageSpan::default())
 }
 
 #[test]
@@ -679,30 +694,35 @@ fn given_else_arm_writes_slot_with_aliased_lhs_bare_return_does_not_collapse() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(99)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let bad_lhs = alloc_local_var_expr(
         &mut package,
         &mut assigner,
         slots.ret_val,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let bad_assign = alloc_assign_expr(
         &mut package,
         &mut assigner,
         bad_lhs,
         bad_rhs,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let bad_stmt = alloc_semi_stmt(&mut package, &mut assigner, bad_assign, Span::default());
+    let bad_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        bad_assign,
+        PackageSpan::default(),
+    );
 
     let v_id = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(17)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let pair_stmt = build_nested_pair_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
     let merge_stmt = build_single_body_merge_stmt(&mut package, &mut assigner, &slots, &int_ty);
@@ -711,7 +731,7 @@ fn given_else_arm_writes_slot_with_aliased_lhs_bare_return_does_not_collapse() {
         &mut assigner,
         vec![bad_stmt, pair_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();
@@ -749,7 +769,7 @@ fn given_else_arm_lacks_set_pair_bare_return_does_not_collapse() {
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(17)),
-        Span::default(),
+        PackageSpan::default(),
     );
     // Build the slot/flag set pair, then prepend a stray Semi-Unit
     // stmt so the inner block is 3 stmts instead of 2.
@@ -760,25 +780,34 @@ fn given_else_arm_lacks_set_pair_bare_return_does_not_collapse() {
         &mut assigner,
         Ty::UNIT,
         ExprKind::Tuple(Vec::new()),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let stray_stmt = alloc_semi_stmt(&mut package, &mut assigner, stray_unit, Span::default());
+    let stray_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        stray_unit,
+        PackageSpan::default(),
+    );
     let inner_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![stray_stmt, slot_stmt, flag_stmt],
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
     let inner_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         inner_bid,
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
-    let broken_pair_stmt =
-        alloc_semi_stmt(&mut package, &mut assigner, inner_expr, Span::default());
+    let broken_pair_stmt = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        inner_expr,
+        PackageSpan::default(),
+    );
 
     let merge_stmt = build_single_body_merge_stmt(&mut package, &mut assigner, &slots, &int_ty);
     let block_id = alloc_block(
@@ -786,7 +815,7 @@ fn given_else_arm_lacks_set_pair_bare_return_does_not_collapse() {
         &mut assigner,
         vec![broken_pair_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();
@@ -829,36 +858,41 @@ fn given_then_arm_not_var_ret_val_bare_return_does_not_collapse() {
         &mut assigner,
         slots.has_returned,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_var = alloc_local_var_expr(
         &mut package,
         &mut assigner,
         decoy_local,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let then_stmt = alloc_expr_stmt(&mut package, &mut assigner, then_var, Span::default());
+    let then_stmt = alloc_expr_stmt(
+        &mut package,
+        &mut assigner,
+        then_var,
+        PackageSpan::default(),
+    );
     let then_bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![then_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let then_expr = alloc_block_expr(
         &mut package,
         &mut assigner,
         then_bid,
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
     let else_default = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let merge = alloc_if_expr(
         &mut package,
@@ -867,16 +901,16 @@ fn given_then_arm_not_var_ret_val_bare_return_does_not_collapse() {
         then_expr,
         Some(else_default),
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let merge_stmt = alloc_expr_stmt(&mut package, &mut assigner, merge, Span::default());
+    let merge_stmt = alloc_expr_stmt(&mut package, &mut assigner, merge, PackageSpan::default());
 
     let v_id = alloc_expr(
         &mut package,
         &mut assigner,
         int_ty.clone(),
         ExprKind::Lit(Lit::Int(17)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let pair_stmt = build_nested_pair_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
     let block_id = alloc_block(
@@ -884,7 +918,7 @@ fn given_then_arm_not_var_ret_val_bare_return_does_not_collapse() {
         &mut assigner,
         vec![pair_stmt, merge_stmt],
         int_ty.clone(),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let before = package.get_block(block_id).stmts.clone();

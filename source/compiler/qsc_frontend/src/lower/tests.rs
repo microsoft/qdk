@@ -8,7 +8,7 @@ use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
 use qsc_hir::{
-    hir::{ItemKind, SpecBody, StmtKind},
+    hir::{Attr, CircuitRenderingOptions, ItemKind, SpecBody, StmtKind},
     ty::{Prim, Ty},
 };
 
@@ -3392,5 +3392,76 @@ fn parallel_limited_with_block_lowers_into_existing_block() {
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn test_circuit_rendering_options() {
+    let unit = compile_unit(indoc! {r#"
+        namespace input {
+            @CircuitRenderingOptions(hideBox=true, inputSizes=[4, 8, 16])
+            operation Foo(registers : (Qubit[], Qubit[], Qubit[])) : Unit {}
+        }
+    "#});
+
+    let callable = unit
+        .package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(callable) => Some(callable),
+            _ => None,
+        })
+        .expect("expected callable");
+    assert_eq!(
+        callable.attrs,
+        [Attr::CircuitRenderingOptions(CircuitRenderingOptions {
+            hide_box: true,
+            input_sizes: Some(vec![4, 8, 16]),
+        })]
+    );
+}
+
+#[test]
+fn test_circuit_rendering_options_unrecognized_option() {
+    check_errors(
+        indoc! {"
+            namespace input {
+                @CircuitRenderingOptions(foo=true)
+                operation Foo() : Unit {}
+            }
+        "},
+        &expect![[r#"
+            [
+                UnknownOption(
+                    Span {
+                        lo: 47,
+                        hi: 50,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_circuit_rendering_options_duplicate_option() {
+    check_errors(
+        indoc! {"
+            namespace input {
+                @CircuitRenderingOptions(hideBox=true, hideBox=false)
+                operation Foo() : Unit {}
+            }
+        "},
+        &expect![[r#"
+            [
+                DuplicateOption(
+                    Span {
+                        lo: 61,
+                        hi: 68,
+                    },
+                ),
+            ]
+        "#]],
     );
 }

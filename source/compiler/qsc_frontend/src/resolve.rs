@@ -1045,7 +1045,7 @@ impl AstVisitor<'_> for With<'_> {
         // The Config and EntryPoint attributes' arguments do not go through name resolution.
         if !matches!(
             hir::Attr::from_str(attr.name.name.as_ref()),
-            Ok(hir::Attr::Config | hir::Attr::EntryPoint)
+            Ok(hir::Attr::Config | hir::Attr::EntryPoint | hir::Attr::CircuitRenderingOptions(_))
         ) {
             walk_attr(self, attr);
         }

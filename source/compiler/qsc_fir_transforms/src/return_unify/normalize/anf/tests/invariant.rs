@@ -18,7 +18,6 @@
 //! residual-`Return` callable still receives a well-formed, non-empty rebuilt
 //! specialization exec graph.
 
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableImpl, ExecGraphConfig, ExprKind, ItemKind, Mutability, Package, PackageId,
@@ -36,6 +35,7 @@ use crate::test_utils::{assert_panics_with, compile_and_run_pipeline_to};
 
 use super::*;
 use crate::return_unify::symbols;
+use qsc_fir::fir::PackageSpan;
 
 /// Returns the body specialization block of the callable named `Main`.
 fn main_body_block(package: &Package) -> BlockId {
@@ -99,16 +99,16 @@ fn flag_write_in_operand_position_trips_operand_position_invariant() {
         &mut assigner,
         symbols::HAS_RETURNED,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let false_lit = alloc_bool_lit(package, &mut assigner, false, Span::default());
+    let false_lit = alloc_bool_lit(package, &mut assigner, false, PackageSpan::default());
     let decl_stmt = alloc_local_stmt(
         package,
         &mut assigner,
         Mutability::Mutable,
         flag_pat,
         false_lit,
-        Span::default(),
+        PackageSpan::default(),
     );
 
     // Write the flag from an operand position: the assign is the initializer of
@@ -119,16 +119,22 @@ fn flag_write_in_operand_position_trips_operand_position_invariant() {
         &mut assigner,
         flag_id,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let true_lit = alloc_bool_lit(package, &mut assigner, true, Span::default());
-    let assign = alloc_assign_expr(package, &mut assigner, flag_ref, true_lit, Span::default());
+    let true_lit = alloc_bool_lit(package, &mut assigner, true, PackageSpan::default());
+    let assign = alloc_assign_expr(
+        package,
+        &mut assigner,
+        flag_ref,
+        true_lit,
+        PackageSpan::default(),
+    );
     let (_tmp_id, tmp_pat) = alloc_bind_pat(
         package,
         &mut assigner,
         symbols::OPERAND_TEMP,
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
     let violation_stmt = alloc_local_stmt(
         package,
@@ -136,7 +142,7 @@ fn flag_write_in_operand_position_trips_operand_position_invariant() {
         Mutability::Immutable,
         tmp_pat,
         assign,
-        Span::default(),
+        PackageSpan::default(),
     );
 
     package
