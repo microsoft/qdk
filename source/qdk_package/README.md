@@ -123,6 +123,12 @@ relations for supported transversal gates. `strict=False` allows unsupported
 instructions to be omitted and recorded in the build metadata; it does not
 allow inconsistent retained gadgets. A failed final audit raises `ValueError`.
 
+Both strategies attempt `prepare_z_all`, `prepare_x_all`, `syndrome`,
+`measure_z_all`, `measure_x_all`, `h_all`, and `cx_all`. The `_all` suffix means
+all logical qubits in a block; `cx_all` pairs corresponding logical qubits of
+two blocks. `syndrome` measures the stabilizers while preserving the logical
+state. The names describe logical actions, not their circuit implementations.
+
 Audit cleanliness establishes noiseless consistency, not fault tolerance.
 The bare strategy intentionally uses no flag qubits and can lose code distance.
 Evaluate gadget distance separately before choosing an implementation.

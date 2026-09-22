@@ -42,7 +42,7 @@ def test_completion_preserves_named_flag_readouts(prepare_zz_gadget: qc.Gadget) 
 
 
 @pytest.mark.parametrize(
-    "mnemonic", ["measure_x", "measure_z", "transversal_h", "transversal_cx"]
+    "mnemonic", ["measure_x_all", "measure_z_all", "h_all", "cx_all"]
 )
 def test_completion_preserves_verified_frame_equations(mnemonic: str) -> None:
     protocol = build_qodec(
@@ -67,7 +67,7 @@ def test_completion_does_not_preserve_an_invalid_authored_check() -> None:
     protocol = build_qodec(
         as_qodec_code(make_steane_code(), "steane"), strategy="bare-css/v1"
     )
-    gadget = protocol.layers[0].gadgets["idle"]
+    gadget = protocol.layers[0].gadgets["syndrome"]
     expected = tuple(gadget.checks)
     gadget.checks = [*expected, [1]]
 
@@ -86,9 +86,9 @@ def test_filled_restores_missing_readouts_and_output_frame_relations() -> None:
     )
     protocol = build_qodec(code, strategy="bare-css/v1", strict=False)
     layer = protocol.layers[0]
-    layer.gadgets["measure_x"].readouts = []
-    layer.gadgets["measure_z"].readouts = []
-    layer.gadgets["transversal_cx"].checks = []
+    layer.gadgets["measure_x_all"].readouts = []
+    layer.gadgets["measure_z_all"].readouts = []
+    layer.gadgets["cx_all"].checks = []
     before = protocol.dumps()
 
     completed = filled(protocol)

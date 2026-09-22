@@ -13,13 +13,13 @@ physical stim ISA, with a textbook circuit for each logical instruction:
 ==================  ===========================================================
 instruction         built circuit
 ==================  ===========================================================
-``prepare_z``       reset all data to :math:`|0\\rangle`, then one syndrome round
-``prepare_x``       reset all data, Hadamard all, then one syndrome round
-``idle``            one syndrome-extraction round
-``measure_z``       destructive transversal ``M``
-``measure_x``       transversal ``H`` then destructive ``M``
-``transversal_h``   ``H`` on every data qubit of one block
-``transversal_cx``  ``CX`` between corresponding data qubits of two blocks
+``prepare_z_all``   reset all data to :math:`|0\\rangle`, then one syndrome round
+``prepare_x_all``   reset all data, Hadamard all, then one syndrome round
+``syndrome``        one syndrome-extraction round
+``measure_z_all``   destructive transversal ``M``
+``measure_x_all``   transversal ``H`` then destructive ``M``
+``h_all``           ``H`` on every data qubit of one block
+``cx_all``          ``CX`` between corresponding data qubits of two blocks
 ==================  ===========================================================
 
 Logical Pauli operations are frame updates, not circuit candidates. The
@@ -55,21 +55,21 @@ survives only if its circuit provably realizes the action it declares. See
 Instructions that cannot be built
 ---------------------------------------
 Not every logical instruction is available for every code. Some omissions are
-mathematical: ``prepare_z`` prepares :math:`|0\\rangle^{\\otimes n}` and projects
+mathematical: ``prepare_z_all`` prepares :math:`|0\\rangle^{\\otimes n}` and projects
 into the codespace, which pins the logical state only when the code's logical Z
 operators are Z-type. The five-qubit code, as conventionally written, declares a
-logical Z with X components, so no ``prepare_z`` (nor transversal ``measure_z``)
+logical Z with X components, so no ``prepare_z_all`` (nor transversal ``measure_z_all``)
 exists for that basis, even though an equivalent all-Z representative lives in
 the same coset.
 
 Others are limitations of the surrounding tooling rather than of the code. The
 observable-discovery pass that completion relies on is sensitive to the choice
-of logical basis: the [[4,2,2]] code admits ``measure_z`` when its logical Z
+of logical basis: the [[4,2,2]] code admits ``measure_z_all`` when its logical Z
 operators are written ``Z_0 Z_2, Z_0 Z_1`` but not when the same code is written
 ``Z_1 Z_3, Z_2 Z_3``, though the two bases are equally valid.
 
 A separate gap affects codes whose stabilizers are not all X-type or Z-type.
-``measure_z`` reads the logical Z operators out of a transversal Z-basis
+``measure_z_all`` reads the logical Z operators out of a transversal Z-basis
 measurement, and for a CSS code those same outcomes also reconstruct the Z
 stabilizers, so the final measurement is self-checking. A non-CSS code's mixed
 stabilizers cannot be recovered that way, leaving the last layer of the circuit
@@ -360,7 +360,7 @@ def _candidates(
     return [
         _Candidate(
             Instruction(
-                "prepare_z",
+                "prepare_z_all",
                 description=f"Prepare all {logical_count} logical qubit(s) in |0>.",
                 outputs=[operand()],
                 action=[Stabilize(z_tokens)],
@@ -369,7 +369,7 @@ def _candidates(
         ),
         _Candidate(
             Instruction(
-                "prepare_x",
+                "prepare_x_all",
                 description=f"Prepare all {logical_count} logical qubit(s) in |+>.",
                 outputs=[operand()],
                 action=[Stabilize(x_tokens)],
@@ -378,8 +378,8 @@ def _candidates(
         ),
         _Candidate(
             Instruction(
-                "idle",
-                description="Hold the encoded state for one syndrome round.",
+                "syndrome",
+                description="Measure every stabilizer while preserving the encoded state.",
                 inputs=[operand()],
                 outputs=[operand()],
             ),
@@ -387,7 +387,7 @@ def _candidates(
         ),
         _Candidate(
             Instruction(
-                "measure_z",
+                "measure_z_all",
                 description="Destructively measure every logical qubit in Z.",
                 inputs=[operand()],
                 action=[Observe(z_observables)],
@@ -396,7 +396,7 @@ def _candidates(
         ),
         _Candidate(
             Instruction(
-                "measure_x",
+                "measure_x_all",
                 description="Destructively measure every logical qubit in X.",
                 inputs=[operand()],
                 action=[Observe(x_observables)],
@@ -405,7 +405,7 @@ def _candidates(
         ),
         _Candidate(
             Instruction(
-                "transversal_h",
+                "h_all",
                 description="Hadamard on every logical qubit.",
                 inputs=[operand()],
                 outputs=[operand()],
@@ -415,7 +415,7 @@ def _candidates(
         ),
         _Candidate(
             Instruction(
-                "transversal_cx",
+                "cx_all",
                 description="CNOT from the first block to the second, pairing logical qubits.",
                 inputs=[operand(), operand()],
                 outputs=[operand(), operand()],
@@ -672,6 +672,13 @@ def build_qodec(
     tolerant; it also skips the distance computation used to choose the flag
     count. Both strategies attempt the same instructions and verify their
     logical actions. The strategy is named in the default qodec description.
+
+    The seven candidate mnemonics are ``prepare_z_all``, ``prepare_x_all``,
+    ``syndrome``, ``measure_z_all``, ``measure_x_all``, ``h_all``, and ``cx_all``.
+    ``_all`` applies to all logical qubits in a block; ``cx_all`` pairs
+    corresponding logical qubits in two blocks. Names describe logical actions,
+    not circuit implementations. ``syndrome`` measures all stabilizers while
+    preserving the logical state.
     """
     from ._analysis.code_algebra import as_qodec_code
     from ._code_profile import CodeProfile

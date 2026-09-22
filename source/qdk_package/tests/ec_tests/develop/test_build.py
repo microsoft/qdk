@@ -79,16 +79,21 @@ def test_every_declared_instruction_has_a_gadget(steane: qc.Qodec) -> None:
     assert set(layer.instruction_set.instructions) == set(layer.gadgets)
 
 
-def test_the_expected_instruction_menu_is_built(steane: qc.Qodec) -> None:
-    assert set(steane.layers[0].gadgets) == {
-        "prepare_z",
-        "prepare_x",
-        "idle",
-        "measure_z",
-        "measure_x",
-        "transversal_h",
-        "transversal_cx",
+@pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
+def test_the_expected_instruction_menu_is_built(strategy: str) -> None:
+    built = build_qodec(_code("steane", catalog.make_steane_code), strategy=strategy)
+    expected = {
+        "prepare_z_all",
+        "prepare_x_all",
+        "syndrome",
+        "measure_z_all",
+        "measure_x_all",
+        "h_all",
+        "cx_all",
     }
+    assert len(expected) == 7
+    assert set(built.layers[0].gadgets) == expected
+    assert set(built.layers[0].instruction_set.instructions) == expected
 
 
 def test_the_code_is_carried_through(steane: qc.Qodec) -> None:
@@ -148,7 +153,7 @@ def test_build_notes_record_the_code_shape(
     assert notes["code"] == label
     assert notes["physical_qubits"] == physical
     assert notes["logical_qubits"] == logical
-    assert set(notes["omitted"]) == (set() if label == "steane" else {"transversal_h"})
+    assert set(notes["omitted"]) == (set() if label == "steane" else {"h_all"})
 
 
 def test_build_notes_are_empty_for_a_hand_authored_qodec() -> None:
@@ -163,7 +168,7 @@ def test_syndrome_round_allocates_a_syndrome_ancilla_and_a_flag_per_stabilizer(
 ) -> None:
     code = steane.codes["steane"]
     stabilizers = len(list(code.stabilizers))
-    source = steane.layers[0].gadgets["idle"].circuit.source
+    source = steane.layers[0].gadgets["syndrome"].circuit.source
 
     measured = [
         int(target)
@@ -185,7 +190,7 @@ def test_syndrome_records_are_ordered_stabilizers_then_flags(
     steane: qc.Qodec,
 ) -> None:
     """The record layout must not depend on which stabilizers carry flags."""
-    source = steane.layers[0].gadgets["idle"].circuit.source
+    source = steane.layers[0].gadgets["syndrome"].circuit.source
     measurement_lines = [line for line in source.splitlines() if line.startswith("M ")]
 
     assert len(measurement_lines) == 2, "expected one M for syndromes, one for flags"
@@ -198,7 +203,7 @@ def test_flag_outcomes_are_discovered_as_deterministic_checks(
 
     That is what turns a flagged hook error into a detector the decoder sees.
     """
-    idle = steane.layers[0].gadgets["idle"]
+    idle = steane.layers[0].gadgets["syndrome"]
 
     flag_checks = [
         check
@@ -245,7 +250,7 @@ def test_bare_strategy_uses_the_unflagged_circuit() -> None:
         code, flags=0, strict=True, description=built.description
     )
     assert built.description.endswith("Strategy: bare-css/v1.")
-    source = built.layers[0].gadgets["idle"].circuit.source
+    source = built.layers[0].gadgets["syndrome"].circuit.source
     assert build_notes(built)["flags_per_stabilizer"] == 0
     # 7 data qubits + one ancilla per stabilizer, and nothing else.
     assert max(int(t) for line in source.splitlines() for t in line.split()[1:]) == 12
@@ -303,7 +308,7 @@ def test_negative_flag_counts_are_rejected() -> None:
 def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
     steane: qc.Qodec,
 ) -> None:
-    source = steane.layers[0].gadgets["idle"].circuit.source
+    source = steane.layers[0].gadgets["syndrome"].circuit.source
 
     for line in source.splitlines():
         gate, *targets = line.split()
@@ -314,15 +319,15 @@ def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
 def test_measure_gadgets_are_transversal(steane: qc.Qodec) -> None:
     gadgets = steane.layers[0].gadgets
 
-    assert gadgets["measure_z"].circuit.source == "M 0 1 2 3 4 5 6\n"
-    assert gadgets["measure_x"].circuit.source == "H 0 1 2 3 4 5 6\nM 0 1 2 3 4 5 6\n"
+    assert gadgets["measure_z_all"].circuit.source == "M 0 1 2 3 4 5 6\n"
+    assert gadgets["measure_x_all"].circuit.source == "H 0 1 2 3 4 5 6\nM 0 1 2 3 4 5 6\n"
 
 
 def test_transversal_clifford_circuits(steane: qc.Qodec) -> None:
     gadgets = steane.layers[0].gadgets
 
-    assert gadgets["transversal_h"].circuit.source == "H 0 1 2 3 4 5 6\n"
-    assert gadgets["transversal_cx"].circuit.source == (
+    assert gadgets["h_all"].circuit.source == "H 0 1 2 3 4 5 6\n"
+    assert gadgets["cx_all"].circuit.source == (
         "CX 0 7\nCX 1 8\nCX 2 9\nCX 3 10\nCX 4 11\nCX 5 12\nCX 6 13\n"
     )
 
@@ -370,20 +375,20 @@ def test_every_gadget_realizes_the_action_it_declares(label: str, factory) -> No
 def test_gadgets_that_hold_state_discover_checks(label: str, factory) -> None:
     built = qodec_from_code(_code(label, factory))
 
-    for mnemonic in ("prepare_z", "prepare_x", "idle"):
+    for mnemonic in ("prepare_z_all", "prepare_x_all", "syndrome"):
         gadget = built.layers[0].gadgets[mnemonic]
         assert gadget.checks, f"{mnemonic} discovered no checks"
 
 
 def test_measure_gadgets_bind_a_readout_per_logical_qubit(steane: qc.Qodec) -> None:
-    for mnemonic in ("measure_z", "measure_x"):
+    for mnemonic in ("measure_z_all", "measure_x_all"):
         gadget = steane.layers[0].gadgets[mnemonic]
         assert len(gadget.readouts) == 1, mnemonic
 
 
 def test_idle_checks_reference_both_boundaries(steane: qc.Qodec) -> None:
     atoms = {
-        str(atom) for check in steane.layers[0].gadgets["idle"].checks for atom in check
+        str(atom) for check in steane.layers[0].gadgets["syndrome"].checks for atom in check
     }
 
     assert any(atom.startswith("in[0].stabilizers") for atom in atoms)
@@ -423,15 +428,15 @@ def test_build_strategies_return_audit_clean_qodecs(
     report = _audit.audit(built)
     assert not report.diagnostics, str(report)
     expected = {
-        "prepare_z",
-        "prepare_x",
-        "idle",
-        "measure_z",
-        "measure_x",
-        "transversal_cx",
+        "prepare_z_all",
+        "prepare_x_all",
+        "syndrome",
+        "measure_z_all",
+        "measure_x_all",
+        "cx_all",
     }
     if code.name == "steane":
-        expected.add("transversal_h")
+        expected.add("h_all")
     assert set(built.layers[0].gadgets) == expected
     assert set(built.layers[0].instruction_set.instructions) == expected
 
@@ -447,7 +452,7 @@ def test_build_rejects_invalid_final_declarations(
 
     def rebound_without_readouts(gadget, instruction):
         rebound = original(gadget, instruction)
-        if instruction.mnemonic == "measure_z":
+        if instruction.mnemonic == "measure_z_all":
             rebound.readouts = []
         return rebound
 
@@ -521,9 +526,9 @@ def test_a_non_z_logical_basis_omits_the_gadgets_it_cannot_support() -> None:
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
 
     omitted = build_notes(built)["omitted"]
-    assert "prepare_z" in omitted
-    assert "measure_z" in omitted
-    assert "idle" in built.layers[0].gadgets
+    assert "prepare_z_all" in omitted
+    assert "measure_z_all" in omitted
+    assert "syndrome" in built.layers[0].gadgets
     assert set(built.layers[0].instruction_set.instructions) == set(
         built.layers[0].gadgets
     )
@@ -552,7 +557,7 @@ def test_unexpected_completion_failure_propagates(monkeypatch) -> None:
     original = _build.complete_gadget
 
     def complete_or_fail(gadget: qc.Gadget) -> qc.Gadget:
-        if gadget.implements.mnemonic == "idle":
+        if gadget.implements.mnemonic == "syndrome":
             raise RuntimeError("unexpected completion failure")
         return original(gadget)
 
@@ -594,19 +599,19 @@ def test_unsupported_transversal_h_is_omitted_or_raises(strategy: str) -> None:
     code = _code("repetition3", lambda: catalog.make_repetition_code(3))
     built = build_qodec(code, strategy=strategy, strict=False)
 
-    assert "transversal_h" not in built.layers[0].gadgets
-    assert "transversal_cx" in built.layers[0].gadgets
-    assert set(build_notes(built)["omitted"]) == {"transversal_h"}
-    assert build_notes(built)["omitted"]["transversal_h"]["stage"] == "verification"
-    with pytest.raises(ValueError, match="could not build 'transversal_h'"):
+    assert "h_all" not in built.layers[0].gadgets
+    assert "cx_all" in built.layers[0].gadgets
+    assert set(build_notes(built)["omitted"]) == {"h_all"}
+    assert build_notes(built)["omitted"]["h_all"]["stage"] == "verification"
+    with pytest.raises(ValueError, match="could not build 'h_all'"):
         build_qodec(code, strategy=strategy)
 
 
 def test_transversal_h_must_match_the_declared_logical_action() -> None:
     built = qodec_from_code(c4().codes["C4"])
 
-    assert "transversal_h" not in built.layers[0].gadgets
-    failure = build_notes(built)["omitted"]["transversal_h"]
+    assert "h_all" not in built.layers[0].gadgets
+    failure = build_notes(built)["omitted"]["h_all"]
     assert failure["stage"] == "verification"
     assert failure["kind"] == "ActionMismatch"
 
@@ -620,8 +625,8 @@ def test_logical_basis_choice_can_decide_whether_readout_builds() -> None:
     fixture_basis = qodec_from_code(c4().codes["C4"], name="c4_fixture_basis")
     catalog_basis = qodec_from_code(_code("c422", catalog.make_422_code))
 
-    assert set(build_notes(fixture_basis)["omitted"]) == {"transversal_h"}
-    assert "measure_z" in build_notes(catalog_basis)["omitted"]
+    assert set(build_notes(fixture_basis)["omitted"]) == {"h_all"}
+    assert "measure_z_all" in build_notes(catalog_basis)["omitted"]
 
 
 # ── Multi-logical-qubit codes ───────────────────────────────────────────────
@@ -632,14 +637,14 @@ def test_a_k_equals_two_code_gets_a_two_block_cnot() -> None:
     built = qodec_from_code(fixture.codes["C4"], name="c4_build")
 
     assert set(built.layers[0].gadgets) == {
-        "prepare_z",
-        "prepare_x",
-        "idle",
-        "measure_z",
-        "measure_x",
-        "transversal_cx",
+        "prepare_z_all",
+        "prepare_x_all",
+        "syndrome",
+        "measure_z_all",
+        "measure_x_all",
+        "cx_all",
     }
-    gadget = built.layers[0].gadgets["transversal_cx"]
+    gadget = built.layers[0].gadgets["cx_all"]
     assert len(gadget.implements.inputs) == len(gadget.implements.outputs) == 2
     for boundary in (gadget.inputs, gadget.outputs):
         assert [tuple(encoding.support) for encoding in boundary] == [
@@ -657,18 +662,18 @@ def test_transversal_cnot_is_verified_for_a_large_k_code() -> None:
     """Logical coordinates remain authored-order even when k is large."""
     built = qodec_from_code(_code("iceberg8", lambda: catalog.make_iceberg_code(8)))
 
-    gadget = built.layers[0].gadgets["transversal_cx"]
+    gadget = built.layers[0].gadgets["cx_all"]
     assert len(built.codes["iceberg8"].x) == 6
     assert len(gadget.inputs) == len(gadget.outputs) == 2
     assert action.gadget_action_mismatch(gadget) is None
     assert set(built.layers[0].gadgets) | set(build_notes(built)["omitted"]) == {
-        "prepare_z",
-        "prepare_x",
-        "idle",
-        "measure_z",
-        "measure_x",
-        "transversal_h",
-        "transversal_cx",
+        "prepare_z_all",
+        "prepare_x_all",
+        "syndrome",
+        "measure_z_all",
+        "measure_x_all",
+        "h_all",
+        "cx_all",
     }
 
 
@@ -676,7 +681,7 @@ def test_transversal_h_covers_every_logical_qubit() -> None:
     code = qc.Code("pair", stabilizers=[], x=["X_0", "X_1"], z=["Z_0", "Z_1"])
     built = qodec_from_code(code, flags=0, strict=True)
 
-    gadget = built.layers[0].gadgets["transversal_h"]
+    gadget = built.layers[0].gadgets["h_all"]
     assert gadget.circuit.source == "H 0 1\n"
     assert action.gadget_action_mismatch(gadget) is None
 
