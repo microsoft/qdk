@@ -17,13 +17,12 @@ from qdk.ec._analysis.channel_action import (
     gadget_action_mismatch,
     input_qubits_of,
     realized_action_of,
-    realized_codes_of,
 )
-from qdk.ec._analysis.propagation.conditional import conditional_choi_state
-from qdk.ec._analysis.propagation.interpreter import program_of
+from qdk.ec._analysis.propagation.interpreter import program_of, propagate_faults
 from qdk.ec._analysis.propagation.isa_actions import remap_pauli
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
+from qdk.ec._build import _physical_isa
 from qdk.ec._layout import ProgramLayout
 
 
@@ -69,8 +68,27 @@ def test_clifford_channel_keeps_all_logical_generator_images() -> None:
     assert declared.is_equivalent_to(realized)
 
 
+def test_c4_measurement_signs_use_circuit_readout_positions() -> None:
+    code = qc.Code(
+        "C4",
+        stabilizers=["X_0 X_1 X_2 X_3", "Z_0 Z_1 Z_2 Z_3"],
+        x=["X_0 X_1", "X_0 X_2"],
+        z=["Z_0 Z_2", "Z_0 Z_1"],
+    )
+    gadget = (
+        ec.build_qodec(code, strategy="bare-css/v1", strict=False)
+        .layers[0]
+        .gadgets["measure_z_all"]
+    )
+    profile = ec.GadgetProfile(gadget)
+    assert {
+        generator.pauli: generator.frame
+        for generator in profile.action._observables.generators
+    } == {Pauli("Z_0"): frozenset({0, 2}), Pauli("Z_1"): frozenset({0, 1})}
+
+
 @pytest.mark.parametrize("decoded", [False, True])
-def test_action_frames_use_simulator_outcomes(
+def test_action_frames_use_circuit_readouts(
     measure_zz_gadget: qc.Gadget,
     idle_gadget: qc.Gadget,
     prepare_xx_gadget: qc.Gadget,
@@ -79,28 +97,110 @@ def test_action_frames_use_simulator_outcomes(
     for gadget in (measure_zz_gadget, idle_gadget, prepare_xx_gadget):
         program = program_of(gadget)
         if decoded:
-            input_code, _ = realized_codes_of(gadget)
-            input_qubits = sorted(input_code.support)
-            projectors = tuple(input_code.stabilizers)
             action = realized_action_of(gadget)
         else:
-            input_qubits = sorted(input_qubits_of(program))
-            projectors = ()
             action = action_of(program)
-        simulation = conditional_choi_state(
-            program, input_qubits=input_qubits, codespace_projector=projectors
-        ).simulation
-        random_outcomes = simulation.random_outcome_indicator.support
-        rows = list(simulation.outcome_matrix.rows)
-        for random_bit, outcome in enumerate(random_outcomes):
-            assert set(rows[outcome].support) == {random_bit}
-            assert not simulation.outcome_shift[outcome]
         generators = (
             *action._stabilizers.generators,
             *action._observables.generators,
             *action._mapping.values(),
         )
-        assert all(generator.frame <= set(random_outcomes) for generator in generators)
+        readouts = set(range(len(program.readouts)))
+        assert all(generator.frame <= readouts for generator in generators)
+
+
+def _action_from_stim(source: str) -> ChannelAction:
+    return action_of(qc.gadgets.Circuit(_physical_isa(), source, format="stim"))
+
+
+def test_interleaved_resets_do_not_offset_readout_indices() -> None:
+    action = _action_from_stim("R 2\nM 0\nR 2\nM 1\n")
+    assert {
+        generator.pauli: generator.frame
+        for generator in action._observables.generators
+        if generator.pauli.weight
+    } == {Pauli("Z_0"): frozenset({0}), Pauli("Z_1"): frozenset({1})}
+
+
+def test_correlated_readouts_keep_one_shared_sign_variable() -> None:
+    action = _action_from_stim("R 0 1\nH 0\nCX 0 1\nM 0\nM 1\n")
+    assert action._stabilizers.frame_of(Pauli("Z_0")) == frozenset({0})
+    assert action._stabilizers.frame_of(Pauli("Z_1")) == frozenset({0})
+    assert action._stabilizers.frame_of(Pauli("Z_0 Z_1")) == frozenset()
+
+
+def test_unrecorded_reset_outcome_is_averaged_out() -> None:
+    action = _action_from_stim("R 0 1\nH 0\nCX 0 1\nR 0\n")
+    assert (
+        action._stabilizers.unframed == FrameGroup([PauliFrame(Pauli("Z_0"))]).unframed
+    )
+    assert all(not generator.frame for generator in action._stabilizers.generators)
+
+
+def test_hidden_outcomes_cancel_in_retained_joint_relations() -> None:
+    action = _action_from_stim("R 0 1 2\nH 0\nCX 0 1\nCX 0 2\nR 0\n")
+    expected = FrameGroup([PauliFrame(Pauli("Z_0")), PauliFrame(Pauli("Z_1 Z_2"))])
+    assert action._stabilizers.unframed == expected.unframed
+    assert all(not generator.frame for generator in action._stabilizers.generators)
+
+
+def test_readout_can_recover_a_hidden_reset_sign() -> None:
+    action = _action_from_stim("R 0 1\nH 0\nCX 0 1\nR 0\nM 1\n")
+    assert action._stabilizers.frame_of(Pauli("Z_0")) == frozenset()
+    assert action._stabilizers.frame_of(Pauli("Z_1")) == frozenset({0})
+
+
+def test_deterministic_readouts_keep_their_record_positions() -> None:
+    action = _action_from_stim("R 1\nM 1\nM 0\n")
+    assert action._observables.frame_of(Pauli("Z_0")) == frozenset({1})
+    assert action._stabilizers.frame_of(Pauli("Z_1")) == frozenset()
+
+
+def test_flags_keep_their_positions_in_action_readout_indices() -> None:
+    instruction_set = _physical_isa()
+    instruction_set.instructions["flag"] = qc.Instruction("flag", flags=["reject"])
+    program = qc.gadgets.Circuit(instruction_set, "- flag: []\n- M: [0]", format="yaml")
+    assert len(program.readouts) == 2
+    assert action_of(program)._observables.frame_of(Pauli("Z_0")) == frozenset({1})
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "- negative_z: [0]",
+        "- R: [0, 1]\n- H: [0]\n- CX: [0, 1]\n- R: [0]\n- negative_z: [1]",
+    ],
+)
+def test_signed_readout_conversion_preserves_the_eigenvalue(source: str) -> None:
+    instruction_set = _physical_isa()
+    instruction_set.instructions["negative_z"] = qc.Instruction(
+        "negative_z",
+        inputs=[qc.instructions.BlockOperand("qubit")],
+        action=[qc.actions.Observe(["-Z_0"])],
+    )
+    action = action_of(qc.gadgets.Circuit(instruction_set, source, format="yaml"))
+    expected = PauliFrame(Pauli("-Z_1" if "CX" in source else "-Z_0"), frozenset({0}))
+    assert expected in action._stabilizers.generators
+
+
+def test_fault_probe_frames_are_indexed_by_readouts_not_reset_rows() -> None:
+    program = qc.gadgets.Circuit(_physical_isa(), "R 1\nM 0\nR 1\n", format="stim")
+    deltas, hidden, readouts = propagate_faults(
+        program,
+        [ec.FaultEvent.after(1, readout_flips=0)],
+        [Pauli.identity()],
+        residual_frames=[frozenset({0})],
+    )
+    assert hidden == 2 and readouts == 1
+    assert deltas[hidden, 0]
+    assert deltas[hidden + readouts, 0]
+    with pytest.raises(ValueError, match="probe readout index 1 is out of bounds"):
+        propagate_faults(
+            program,
+            [ec.FaultEvent()],
+            [Pauli.identity()],
+            residual_frames=[frozenset({1})],
+        )
 
 
 def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> None:
@@ -256,11 +356,11 @@ def test_preparation_declared_stabilizers_are_deterministic(
     """A ``stabilize`` preparation must fix its stabilisers at a definite +1.
 
     Regression: the interpreter enacted ``stabilize P`` as a bare projective
-    measurement, so an X-basis preparation (``P`` anticommutes with the |0>
+    measurement, so an X-basis preparation (``P`` anticommutes with the |0⟩
     reset) left the prepared sign riding on the random projection outcome — a
     spurious frame on the *declared* action that made every prepare_x gadget mismatch
     its deterministic (reset + H) circuit. Z-basis preparations were
-    unaffected because Z already stabilises |0>. Both must come out frame-free
+    unaffected because Z already stabilises |0⟩. Both must come out frame-free
     and audit-clean.
     """
     for gadget in (prepare_xx_gadget, prepare_zz_gadget):
@@ -279,16 +379,121 @@ def test_idle_declared_and_realized_actions_match_golden_values(
 ) -> None:
     profile = ec.GadgetProfile(idle_gadget)
 
-    assert str(profile.objective) == (
-        "observables: FrameGroup(generators=())\n"
-        "stabilizers: FrameGroup(generators=())\n"
-        "mapping: {X: X, Z: Z, IX: IX, IZ: IZ}"
+    expected = (
+        "mapping:\n" "  X_0 → X_0\n" "  Z_0 → Z_0\n" "  X_1 → X_1\n" "  Z_1 → Z_1"
     )
-    assert str(profile.action) == (
-        "observables: FrameGroup(generators=())\n"
-        "stabilizers: FrameGroup(generators=())\n"
-        "mapping: {X: X, Z: Z, IX: IX, IZ: IZ}"
+    assert str(profile.objective) == expected
+    assert str(profile.action) == expected
+
+
+@pytest.mark.parametrize(
+    "mnemonic, expected",
+    [
+        ("prepare_zz", "stabilizers:\n  Z_0 = +1\n  Z_1 = +1"),
+        (
+            "transversal_cx",
+            "mapping:\n"
+            "  X_0 → X_0 X_2\n"
+            "  Z_0 → Z_0\n"
+            "  X_1 → X_1 X_3\n"
+            "  Z_1 → Z_1\n"
+            "  X_2 → X_2\n"
+            "  Z_2 → Z_0 Z_2\n"
+            "  X_3 → X_3\n"
+            "  Z_3 → Z_1 Z_3",
+        ),
+        (
+            "measure_zz",
+            "observables:\n"
+            "  Z_0 = -1^(circuit.readouts[0] ⊕ circuit.readouts[2])\n"
+            "  Z_1 = -1^(circuit.readouts[0] ⊕ circuit.readouts[1])",
+        ),
+    ],
+)
+def test_action_display_examples(
+    translation: qc.Layer, mnemonic: str, expected: str
+) -> None:
+    from IPython.lib.pretty import pretty
+
+    action = ec.GadgetProfile(translation.gadgets[mnemonic]).action
+    assert str(action) == expected
+    assert repr(action) == expected
+    assert pretty(action) == expected
+
+
+@pytest.mark.parametrize(
+    "operator, readouts, expected",
+    [
+        ("Z_1", (), "+1"),
+        ("-Z_1", (), "-1"),
+        ("Z_1", (0,), "-1^(circuit.readouts[0])"),
+        ("-Z_1", (0,), "-1^(1 ⊕ circuit.readouts[0])"),
+        ("Z_1", (12, 2), "-1^(circuit.readouts[2] ⊕ circuit.readouts[12])"),
+        ("-Z_1", (12, 2), "-1^(1 ⊕ circuit.readouts[2] ⊕ circuit.readouts[12])"),
+    ],
+)
+def test_action_display_preserves_eigenvalue_signs(
+    operator: str, readouts: tuple[int, ...], expected: str
+) -> None:
+    action = ChannelAction._create(
+        FrameGroup([]),
+        FrameGroup([PauliFrame(Pauli(operator), frozenset(readouts))]),
+        {},
     )
+    assert str(action) == f"stabilizers:\n  Z_1 = {expected}"
+
+
+@pytest.mark.parametrize(
+    "operator, readouts, expected",
+    [
+        ("-Z_1", (), "-Z_1"),
+        ("X_1", (1, 0), "-1^(circuit.readouts[0] ⊕ circuit.readouts[1]) X_1"),
+        ("-Z_1", (0,), "-1^(1 ⊕ circuit.readouts[0]) Z_1"),
+        ("iZ_1", (0,), "i -1^(circuit.readouts[0]) Z_1"),
+        ("-iZ_1", (0,), "i -1^(1 ⊕ circuit.readouts[0]) Z_1"),
+    ],
+)
+def test_action_display_preserves_mapping_signs(
+    operator: str, readouts: tuple[int, ...], expected: str
+) -> None:
+    action = ChannelAction._create(
+        FrameGroup([]),
+        FrameGroup([]),
+        {Pauli("X_1"): PauliFrame(Pauli(operator), frozenset(readouts))},
+    )
+    assert str(action) == f"mapping:\n  X_1 → {expected}"
+
+
+def test_action_display_keeps_shared_readout_signs_across_sections() -> None:
+    measured = PauliFrame(Pauli("Z_0"), frozenset({0}))
+    action = ChannelAction._create(FrameGroup([measured]), FrameGroup([measured]), {})
+    assert str(action) == (
+        "observables:\n  Z_0 = -1^(circuit.readouts[0])\n"
+        "stabilizers:\n  Z_0 = -1^(circuit.readouts[0])"
+    )
+    assert str(measured) == "Z^{0}"
+
+
+def test_action_display_order_is_numeric_and_does_not_mutate_generators() -> None:
+    operators = [Pauli("Z_12"), Pauli("-Z_2"), Pauli("X_2")]
+    generators = tuple(PauliFrame(operator) for operator in operators)
+    action = ChannelAction._create(FrameGroup([]), FrameGroup(generators), {})
+    assert str(action) == "stabilizers:\n  X_2 = +1\n  Z_2 = -1\n  Z_12 = +1"
+    assert action._stabilizers.generators == generators
+
+
+def test_action_display_handles_empty_relations_and_pretty_cycles() -> None:
+    from io import StringIO
+    from IPython.lib.pretty import RepresentationPrinter, pretty
+
+    action = ChannelAction._create(FrameGroup([]), FrameGroup([]), {})
+    assert str(action) == "no observable, stabilizer, or mapping relations"
+    assert repr(action) == pretty(action) == str(action)
+    output = StringIO()
+    printer = RepresentationPrinter(output)
+    action._repr_pretty_(printer, cycle=True)
+    printer.flush()
+    assert output.getvalue() == "..."
 
 
 def test_realized_action_is_invariant_under_equivalent_logical_representatives(

@@ -1,5 +1,6 @@
 pytest
 expecttest==0.3.0
+ipython
 pyqir>=0.12.5,<0.13
 cirq-core==1.6.1; platform_system != 'Windows' or platform_machine == 'AMD64'
 pandas>=2.1

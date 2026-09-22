@@ -101,6 +101,24 @@ def test_the_code_is_carried_through(steane: qc.Qodec) -> None:
     assert list(steane.codes["steane"].stabilizers)
 
 
+@pytest.mark.parametrize(
+    ("layer", "mnemonic", "description"),
+    [
+        (0, "prepare_z_all", "Prepare all 1 logical qubit(s) in |0⟩."),
+        (0, "prepare_x_all", "Prepare all 1 logical qubit(s) in |+⟩."),
+        (1, "R", "Reset to |0⟩."),
+    ],
+)
+def test_instruction_descriptions_preserve_unicode_kets(
+    steane: qc.Qodec, layer: int, mnemonic: str, description: str
+) -> None:
+    assert steane.layers[layer].instruction_set.instructions[mnemonic].description == description
+    bundle = steane.dumps()
+    assert description in bundle
+    restored = qc.Qodec.loads(bundle)
+    assert restored.layers[layer].instruction_set.instructions[mnemonic].description == description
+
+
 @pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
 @pytest.mark.parametrize("code_name", ["C4", "steane"])
 def test_built_boundary_types_are_explicit(strategy: str, code_name: str) -> None:

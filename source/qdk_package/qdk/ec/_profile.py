@@ -293,23 +293,18 @@ class GadgetProfile:
 
     @cached_property
     def _fault_probes(self) -> FrameGroup:
-        """Physical action probes with signs indexed by circuit-walk outcomes."""
+        """Physical action probes with signs indexed by circuit readouts."""
         if isinstance(self._target, qc.Gadget):
-            input_code, output_code = realized_codes_of(self._target)
+            _, output_code = realized_codes_of(self._target)
             action = self.action
         else:
             input_code = output_code = _identity_codes_over(self._circuit_outputs)
             action = action_of(self._circuit, with_respect_to=(input_code, output_code))
         observables = _fault_observables(action).generators
-        outcome_offset = 2 * len(input_code.support) + len(input_code.stabilizers)
         return FrameGroup(
             PauliFrame(
                 abs(output_code.representative_of(observable.pauli)),
-                frozenset(
-                    outcome - outcome_offset
-                    for outcome in observable.frame
-                    if outcome >= outcome_offset
-                ),
+                observable.frame,
             )
             for observable in observables
         )
@@ -448,7 +443,7 @@ __all__ = ["GadgetProfile"]
 
 
 def _fault_observables(action: ChannelAction) -> FrameGroup:
-    """Distance indicators with signs indexed by simulation outcomes."""
+    """Distance indicators with signs indexed by circuit readouts."""
     return FrameGroup(
         (
             *action._stabilizers.generators,

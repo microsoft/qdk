@@ -273,7 +273,7 @@ prepare_xx.gadget.yaml:
   circuit:
     instruction_set: ./stim.isa.yaml
     source: |
-      # Fault-tolerant preparation of |++>_L in XX basis
+      # Fault-tolerant preparation of |++⟩_L in XX basis
       R 0 1 2 3
       H 0
       CX 0 4
@@ -303,7 +303,7 @@ prepare_zz.gadget.yaml:
   circuit:
     instruction_set: ./stim.isa.yaml
     source: |
-      # Fault-tolerant preparation of |00>_L in ZZ basis
+      # Fault-tolerant preparation of |00⟩_L in ZZ basis
       R 0 1 2 3
       H 0
       CX 0 4

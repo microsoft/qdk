@@ -27,7 +27,7 @@ repetition3.isa.yaml:
   blocks: {repetition3: 1}
   instructions:
     - mnemonic: prepare_z
-      description: Prepare the logical |0> state.
+      description: Prepare the logical |0⟩ state.
       out: [repetition3]
       action: [stabilize: Z_0]
     - mnemonic: idle
@@ -51,7 +51,7 @@ stim+rz.isa.yaml:
   blocks: {qubit: 1}
   instructions:
     - mnemonic: R
-      description: Reset qubit to |0>.
+      description: Reset qubit to |0⟩.
       out: [qubit]
       action: [stabilize: Z_0]
     - mnemonic: M

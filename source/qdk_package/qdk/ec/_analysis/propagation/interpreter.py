@@ -319,7 +319,7 @@ def propagate_faults(
 
     Readout flips change only Observe rows, not hidden reset outcomes or
     physical residuals. Signed probes use those changed rows when evaluating
-    their circuit-walk outcome frames.
+    their circuit-readout frames.
     """
     calls = program.calls()
     readout_ranges = []
@@ -385,9 +385,10 @@ def propagate_faults(
         for probe, frame in zip(
             range(len(residual_probes)), residual_frames, strict=True
         ):
-            for outcome in frame:
-                if not 0 <= outcome < circuit_rows:
-                    raise ValueError(f"probe outcome index {outcome} is out of bounds")
+            for readout in frame:
+                if not 0 <= readout < len(result.observe_outcomes):
+                    raise ValueError(f"probe readout index {readout} is out of bounds")
+                outcome = result.observe_outcomes[readout]
                 for fault in range(len(fault_basis)):
                     deltas[circuit_rows + probe, fault] ^= deltas[outcome, fault]
     row_order = [

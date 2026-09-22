@@ -156,7 +156,7 @@ def _physical_isa() -> InstructionSet:
         instructions=[
             Instruction(
                 "R",
-                description="Reset to |0>.",
+                description="Reset to |0⟩.",
                 outputs=[operand()],
                 action=[Stabilize(["Z_0"])],
             ),
@@ -361,7 +361,7 @@ def _candidates(
         _Candidate(
             Instruction(
                 "prepare_z_all",
-                description=f"Prepare all {logical_count} logical qubit(s) in |0>.",
+                description=f"Prepare all {logical_count} logical qubit(s) in |0⟩.",
                 outputs=[operand()],
                 action=[Stabilize(z_tokens)],
             ),
@@ -370,7 +370,7 @@ def _candidates(
         _Candidate(
             Instruction(
                 "prepare_x_all",
-                description=f"Prepare all {logical_count} logical qubit(s) in |+>.",
+                description=f"Prepare all {logical_count} logical qubit(s) in |+⟩.",
                 outputs=[operand()],
                 action=[Stabilize(x_tokens)],
             ),

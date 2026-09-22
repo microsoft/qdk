@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Mapping, Sequence, Union
+from typing import Any, Mapping, Sequence, Union
 
 from binar import BitMatrix, BitVector, solve
 import qodec as qc
@@ -14,8 +14,9 @@ from qodec.gadgets import Circuit
 
 from .._layout import ProgramLayout
 from .._frames import FrameMap
-from .propagation.conditional import conditional_choi_state
+from .propagation.conditional import ConditionalChoiResult, conditional_choi_state
 from .propagation.frames import FrameGroup, PauliFrame
+from .propagation.groups import restriction_indicator_basis_of
 from .propagation.interpreter import program_of
 from .propagation.isa_actions import remap_pauli
 from .propagation.pauli import (
@@ -37,8 +38,16 @@ class ChannelAction:
     Compare results with :meth:`is_equivalent_to` or
     :meth:`why_not_equivalent_to`. Direct construction and access to the
     internal stabilizers, observables, and logical mapping are not supported.
-    All internal frames index simulation measurement outcomes, including input
-    preparation, code projection, and resets, not Circuit.readouts positions.
+    Frame indices are positions in the analyzed circuit's readouts, not simulator
+    rows or gadget readout equations. The objective uses the declared operation's
+    readouts. Artificial input preparation and code projection are conditioned
+    away; unrecorded outcomes are averaged over, retaining only readout-conditioned
+    relations. Dependent readouts use an independent subset of readout positions.
+
+    Text displays observables on the input, stabilizers on the output, and Pauli
+    mappings from input to output. Empty sections are omitted. The sign notation
+    ``-1^(...)`` means (-1) raised to the enclosed readout parity; it is display
+    notation, not Python syntax. Text is not a canonical equivalence signature.
     """
 
     _observables: FrameGroup
@@ -125,11 +134,52 @@ class ChannelAction:
         return _sign_difference(self, other)
 
     def __str__(self) -> str:
-        return (
-            f"observables: {self._observables}\n"
-            f"stabilizers: {self._stabilizers}\n"
-            f"mapping: {self._mapping}"
-        )
+        lines = []
+        for name, group in (
+            ("observables", self._observables),
+            ("stabilizers", self._stabilizers),
+        ):
+            if group.generators:
+                lines.append(f"{name}:")
+                for generator in sorted(
+                    group.generators, key=lambda item: _sort_key(item.pauli)
+                ):
+                    sign = _action_sign(1 / generator.pauli.phase, generator.frame)
+                    lines.append(f"  {abs(generator.pauli):sparse,ascii} = {sign}")
+        if self._mapping:
+            lines.append("mapping:")
+            for operator, image in sorted(
+                self._mapping.items(), key=lambda item: _sort_key(item[0])
+            ):
+                lines.append(f"  {operator:sparse,ascii} → {_action_image(image)}")
+        return "\n".join(lines) or "no observable, stabilizer, or mapping relations"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def _repr_pretty_(self, printer: Any, cycle: bool) -> None:
+        printer.text("..." if cycle else str(self))
+
+
+def _action_sign(phase: complex, readouts: frozenset[int]) -> str:
+    """Format an eigenvalue or sign factor using circuit-readout positions.
+
+    The compact text -1^(...) denotes (-1) raised to the enclosed bit parity.
+    """
+    constant = {1: "+1", -1: "-1", 1j: "+i", -1j: "-i"}[phase]
+    if not readouts:
+        return constant
+    terms = [f"circuit.readouts[{index}]" for index in sorted(readouts)]
+    if phase in (-1, -1j):
+        terms.insert(0, "1")
+    factor = f"-1^({' ⊕ '.join(terms)})"
+    return f"i {factor}" if phase in (1j, -1j) else factor
+
+
+def _action_image(image: PauliFrame) -> str:
+    if not image.frame:
+        return f"{image.pauli:sparse,ascii}"
+    return f"{_action_sign(image.pauli.phase, image.frame)} {abs(image.pauli):sparse,ascii}"
 
 
 def input_qubits_of(program: Circuit) -> frozenset[int]:
@@ -238,7 +288,6 @@ def _action_of(
         if output_support is None
         else output_support
     )
-    random_to_outcome = tuple(result.simulation.random_outcome_indicator.support)
     initial_count = 2 * len(input_qubits) + len(codespace_projector)
     matrix = result.simulation.outcome_matrix
     constraints = (
@@ -252,21 +301,7 @@ def _action_of(
     initial = solve(constraints, shifts)
     if initial is None:
         raise ValueError("input encoding has no positive codeword")
-    group = FrameGroup(
-        PauliFrame(
-            (
-                -generator.pauli
-                if sum(bool(initial[index]) for index in generator.frame) % 2
-                else generator.pauli
-            ),
-            frozenset(
-                random_to_outcome[index]
-                for index in generator.frame
-                if random_to_outcome[index] >= initial_count
-            ),
-        )
-        for generator in group.generators
-    )
+    group = _readout_conditioned_group(group, result, program, initial_count, initial)
     stabilizers_out, stabilizers_in, logicals = group.partition(over=physical_support)
     auxiliary_to_input = {
         auxiliary_origin + offset: qubit for offset, qubit in enumerate(input_qubits)
@@ -278,6 +313,87 @@ def _action_of(
         auxiliary=auxiliary,
         auxiliary_to_input=auxiliary_to_input,
         physical_support=physical_support,
+    )
+
+
+def _independent_readout_rows(
+    result: ConditionalChoiResult,
+    program: Circuit,
+    unfixed_random_bits: Sequence[int],
+) -> list[tuple[int, int]]:
+    """Select independent readouts after fixing the artificial input outcomes.
+
+    Each pair gives a circuit-readout position and its simulation outcome row.
+    Constant shifts do not affect independence; sign conversion uses the original rows.
+    """
+    readout_positions = (
+        position
+        for position, readout in enumerate(program.readouts)
+        if not isinstance(readout, qc.gadgets.Flag)
+    )
+    readout_rows = list(
+        zip(readout_positions, result.observe_outcome_rows, strict=True)
+    )
+    if not readout_rows or not unfixed_random_bits:
+        return []
+    outcome_matrix = result.simulation.outcome_matrix
+    coefficients = BitMatrix(
+        [
+            [bool(outcome_matrix[row, bit]) for bit in unfixed_random_bits]
+            for _, row in readout_rows
+        ]
+    )
+    return [readout_rows[index] for index in coefficients.T.echelonize()]
+
+
+def _readout_conditioned_group(
+    group: FrameGroup,
+    result: ConditionalChoiResult,
+    program: Circuit,
+    initial_count: int,
+    initial: BitVector,
+) -> FrameGroup:
+    """Express sign relations in an independent circuit-readout basis.
+
+    Encode each remaining random bit as an auxiliary Z operator. Append the
+    recorded readout relations, then keep products with no auxiliary support.
+    Hidden signs cancel in those products; uncanceled hidden signs are averaged
+    out. Independent readouts keep correlated bits from appearing independent
+    to the action-equivalence check.
+    """
+    random_outcome_rows = result.simulation.random_outcome_indicator.support
+    unfixed_random_bits = tuple(
+        bit for bit, row in enumerate(random_outcome_rows) if row >= initial_count
+    )
+    readout_rows = _independent_readout_rows(result, program, unfixed_random_bits)
+    quantum_support = set(group.unframed.support)
+    auxiliary_start = max(quantum_support, default=-1) + 1
+
+    def sign_operator(random_bits: frozenset[int], phase: complex = 1) -> Pauli:
+        negative = sum(bool(initial[bit]) for bit in random_bits) % 2
+        support = random_bits.intersection(unfixed_random_bits)
+        return Pauli({auxiliary_start + bit: "Z" for bit in support}) * identity(
+            -phase if negative else phase
+        )
+
+    joint_generators = [
+        PauliFrame(generator.pauli * sign_operator(generator.frame))
+        for generator in group.generators
+    ]
+    outcome_rows = list(result.simulation.outcome_matrix.rows)
+    joint_generators.extend(
+        PauliFrame(
+            sign_operator(
+                frozenset(outcome_rows[row].support),
+                -1 if result.simulation.outcome_shift[row] else 1,
+            ),
+            frozenset({position}),
+        )
+        for position, row in readout_rows
+    )
+    joint = FrameGroup(joint_generators)
+    return joint.subgroup(
+        restriction_indicator_basis_of(joint.unframed, supported_by=quantum_support)
     )
 
 
