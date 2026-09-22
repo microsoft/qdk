@@ -23,22 +23,6 @@ fn cx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn cx_gate_with_repeated_qubit_yields_error() {
-    check(
-        "CX 0 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: CX
-               ,----
-             1 | CX 0 0
-               :      ^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn cxswap_gate_yields_expected_qir() {
     let source = "CXSWAP 0 1";
     check(
@@ -149,22 +133,6 @@ fn iswap_gate_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn iswap_gate_with_repeated_qubit_yields_error() {
-    check(
-        "ISWAP 0 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: ISWAP
-               ,----
-             1 | ISWAP 0 0
-               :         ^
-               `----
-        "#]],
     );
 }
 

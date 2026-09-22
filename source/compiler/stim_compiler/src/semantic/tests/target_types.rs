@@ -310,6 +310,48 @@ fn classically_controllable_gates_with_records_in_second_position_reject_negated
 }
 
 #[test]
+fn gates_allowing_records_in_first_position_reject_records_in_second_position() {
+    let source = indoc! {"
+      M 0
+      CX 1 rec[-1]
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Semantic.MisplacedMeasurementRecord
+
+          x measurement record target in an unsupported position in instruction: CX
+           ,-[2:6]
+         1 | M 0
+         2 | CX 1 rec[-1]
+           :      ^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn gates_allowing_records_in_second_position_reject_records_in_first_position() {
+    let source = indoc! {"
+      M 0
+      XCZ rec[-1] 1
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Semantic.MisplacedMeasurementRecord
+
+          x measurement record target in an unsupported position in instruction: XCZ
+           ,-[2:5]
+         1 | M 0
+         2 | XCZ rec[-1] 1
+           :     ^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn three_qubit_gates_reject_non_qubit_targets() {
     check(
         "CCX 0 1 X2 0 1 X3*Y4 0 1 L5 0 1 sweep[6] 0 1 rec[-7]",

@@ -319,58 +319,6 @@ fn ccx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn ccx_gate_with_repeated_qubit_yields_error() {
-    check(
-        "CCX 0 0 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: CCX
-               ,----
-             1 | CCX 0 0 1
-               :       ^
-               `----
-        "#]],
-    );
-    check(
-        "CCX 0 1 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: CCX
-               ,----
-             1 | CCX 0 1 0
-               :         ^
-               `----
-        "#]],
-    );
-    check(
-        "CCX 0 1 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 1 is repeated in instruction: CCX
-               ,----
-             1 | CCX 0 1 1
-               :         ^
-               `----
-        "#]],
-    );
-    check(
-        "CCX 0 0 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: CCX
-               ,----
-             1 | CCX 0 0 0
-               :       ^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn r_x_yields_expected_qir() {
     check(
         "R_X(0.25) 0",

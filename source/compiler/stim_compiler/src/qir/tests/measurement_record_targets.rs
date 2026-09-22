@@ -157,50 +157,6 @@ fn cx_with_multiple_classical_pairs_yields_expected_qir() {
 }
 
 #[test]
-fn cx_with_rec_on_second_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        CX 0 rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MisplacedMeasurementRecord
-
-              x measurement record target in an unsupported position in instruction: CX
-               ,-[2:6]
-             1 | M 0
-             2 | CX 0 rec[-1]
-               :      ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn cx_with_two_rec_targets_yields_error() {
-    let source = indoc! {"
-        M 0
-        M 1
-        CX rec[-1] rec[-2]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.BothTargetsAreMeasurementRecords
-
-              x controlled instruction CX requires a qubit target, but both targets are
-              | measurement records
-               ,-[3:4]
-             2 | M 1
-             3 | CX rec[-1] rec[-2]
-               :    ^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn cy_with_rec_control_yields_expected_qir() {
     let source = indoc! {"
         M 0
@@ -233,27 +189,6 @@ fn cy_with_rec_control_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn cy_with_rec_on_second_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        CY 0 rec[-1]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MisplacedMeasurementRecord
-
-              x measurement record target in an unsupported position in instruction: CY
-               ,-[2:6]
-             1 | M 0
-             2 | CY 0 rec[-1]
-               :      ^^^^^^^
-               `----
-        "#]],
     );
 }
 
@@ -330,29 +265,6 @@ fn cz_with_rec_on_second_target_yields_expected_qir() {
 }
 
 #[test]
-fn cz_with_two_rec_targets_yields_error() {
-    let source = indoc! {"
-        M 0
-        M 1
-        CZ rec[-1] rec[-2]
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.BothTargetsAreMeasurementRecords
-
-              x controlled instruction CZ requires a qubit target, but both targets are
-              | measurement records
-               ,-[3:4]
-             2 | M 1
-             3 | CZ rec[-1] rec[-2]
-               :    ^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn xcz_with_rec_on_second_target_yields_expected_qir() {
     let source = indoc! {"
         M 0
@@ -389,27 +301,6 @@ fn xcz_with_rec_on_second_target_yields_expected_qir() {
 }
 
 #[test]
-fn xcz_with_rec_on_first_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        XCZ rec[-1] 1
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MisplacedMeasurementRecord
-
-              x measurement record target in an unsupported position in instruction: XCZ
-               ,-[2:5]
-             1 | M 0
-             2 | XCZ rec[-1] 1
-               :     ^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn ycz_with_rec_on_second_target_yields_expected_qir() {
     let source = indoc! {"
         M 0
@@ -442,27 +333,6 @@ fn ycz_with_rec_on_second_target_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 1"#]],
-    );
-}
-
-#[test]
-fn ycz_with_rec_on_first_target_yields_error() {
-    let source = indoc! {"
-        M 0
-        YCZ rec[-1] 1
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MisplacedMeasurementRecord
-
-              x measurement record target in an unsupported position in instruction: YCZ
-               ,-[2:5]
-             1 | M 0
-             2 | YCZ rec[-1] 1
-               :     ^^^^^^^
-               `----
-        "#]],
     );
 }
 

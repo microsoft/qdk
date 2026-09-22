@@ -6,6 +6,7 @@ mod argument_arity;
 mod argument_values;
 mod block_lowering;
 mod instruction_lowering;
+mod repeated_qubit_targets;
 mod target_arity;
 mod target_broadcasting;
 mod target_types;
