@@ -288,6 +288,11 @@ export function parseConnectionString(
     return undefined;
   }
 
+  // The endpoint may be prefixed with the workspace name. Remove it if so.
+  const fixedEndpoint = partsMap
+    .get("quantumendpoint")!
+    .replace(`https://${partsMap.get("workspacename")!}.`, "https://");
+
   const workspaceId =
     `/subscriptions/${partsMap.get("subscriptionid")}` +
     `/resourceGroups/${partsMap.get("resourcegroupname")}` +
@@ -296,7 +301,7 @@ export function parseConnectionString(
   return {
     id: workspaceId,
     name: partsMap.get("workspacename")!,
-    endpointUri: partsMap.get("quantumendpoint")!,
+    endpointUri: fixedEndpoint,
     tenantId: partsMap.get("tenantid") || "", // Blank when only an ApiKey is supplied; derived from the subscription id when a portal link is built
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call

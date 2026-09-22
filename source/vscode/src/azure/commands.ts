@@ -521,7 +521,9 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
    * Shows a confirmation modal before saving the workspace.
    */
   const connectWorkspaceUriHandler: UriRouteHandler = async (params) => {
+    log.info("Handling connectWorkspace URI route");
     const connStr = params.get("connectionString");
+    log.debug(`Received connection string: ${connStr}`);
     if (!connStr) {
       vscode.window.showErrorMessage(
         "No connection string provided in the workspace URI.",
@@ -530,6 +532,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     }
 
     const workspace = parseConnectionString(connStr);
+    log.debug(`Parsed workspace connection: ${JSON.stringify(workspace)}`);
 
     if (!workspace) {
       vscode.window.showErrorMessage(
