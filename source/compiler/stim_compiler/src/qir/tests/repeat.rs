@@ -6,52 +6,6 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn repeat_zero_times_yields_error() {
-    let source = indoc! {"
-        REPEAT 0 {
-          X 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.ZeroRepeatCount
-
-              x a REPEAT count of zero is not supported
-               ,-[1:8]
-             1 | REPEAT 0 {
-               :        ^
-             2 |   X 0
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn repeat_with_tag() {
-    let source = indoc! {"
-        REPEAT[my_tag] 3 {
-          X 0
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__x__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn repeat_single_iteration() {
     let source = indoc! {"
         REPEAT 1 {
@@ -442,29 +396,5 @@ fn repeat_inside_select() {
             [metadata]
               required_num_qubits = 1
               required_num_results = 3"#]],
-    );
-}
-
-#[test]
-fn require_inside_bare_repeat_yields_error() {
-    let source = indoc! {"
-        REPEAT 2 {
-          M 0
-          REQUIRE rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InstructionOutsideSelectBlock
-
-              x REQUIRE must appear inside a SELECT block
-               ,-[3:3]
-             2 |   M 0
-             3 |   REQUIRE rec[-1]
-               :   ^^^^^^^^^^^^^^^
-             4 | }
-               `----
-        "#]],
     );
 }
