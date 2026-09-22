@@ -2872,7 +2872,7 @@ def nested_repetition_qodec():
             outputs=gadget.outputs,
             checks=gadget.checks,
             readouts=gadget.readouts,
-            parameter_bindings=gadget.parameter_bindings,
+            parameter_bindings=dict(gadget.parameter_bindings),
         )
     code = logical.codes["repetition3"]
     encodings = [

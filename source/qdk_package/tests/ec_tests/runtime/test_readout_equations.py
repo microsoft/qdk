@@ -3,7 +3,35 @@ from collections.abc import Hashable
 from itertools import product
 
 import pytest
-from qodec.gadgets import Reference
+from qodec import Reference
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("circuit.readouts[2]", ("circuit_readout", None, None, None, 2)),
+        ("readouts[3]", ("readout", None, None, None, 3)),
+        ("in[0].stabilizers[1]", ("encoding", "in", 0, "stabilizers", 1)),
+        ("out[1].stabilizers[2]", ("encoding", "out", 1, "stabilizers", 2)),
+        ("in[1].x[2]", ("encoding", "in", 1, "x", 2)),
+        ("out[2].z[3]", ("encoding", "out", 2, "z", 3)),
+    ],
+)
+def test_reference_keys_preserve_decoder_coordinates(text, expected):
+    from qdk.simulation._qodec.readout_equations import reference_key
+
+    assert reference_key(Reference(text)) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["circuit.readouts[0:2]", "readouts[0,1]", "codes[0]", "out[0].support[0]"],
+)
+def test_reference_keys_require_one_supported_parity_term(text):
+    from qdk.simulation._qodec.readout_equations import reference_key
+
+    with pytest.raises(ValueError, match="one parity term"):
+        reference_key(Reference(text))
 
 
 def test_parity_preserves_constants_and_cancels_duplicate_selectors():

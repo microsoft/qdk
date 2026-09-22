@@ -4,8 +4,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from collections import Counter
 
-from qodec import Instruction
-from qodec.gadgets import Circuit, Reference
+from qodec import Instruction, Reference
+from qodec.gadgets import Circuit
 from qodec.instructions import InstructionCall, Parameter
 
 from .call_binding import bind_operands, validate_arguments
@@ -17,6 +17,7 @@ from .protocols import (
     Requests,
     Resources,
 )
+from .readout_equations import reference_key
 from .selection import Selection, prepare_selection
 
 
@@ -59,11 +60,11 @@ def prepare_call_list(circuit: Circuit) -> PreparedCircuit:
             if name not in parameters:
                 raise ValueError(f"Unknown parameter {name!r} for {call.mnemonic!r}")
             if isinstance(argument, str) and argument.startswith("circuit.readouts["):
-                reference = Reference(argument)
+                references = Reference(argument).expand()
                 if (
                     parameters[name] != Parameter.Kind.BIT
-                    or len(reference.expand()) != 1
-                    or reference.index >= offset
+                    or len(references) != 1
+                    or reference_key(references[0])[-1] >= offset
                 ):
                     raise ValueError(
                         "Readout arguments require a bit parameter and an earlier circuit record"
@@ -142,7 +143,7 @@ def _argument(
     if value in parameters:
         return parameters[value]
     if value.startswith("circuit.readouts["):
-        readout = readouts[Reference(value).index]
+        readout = readouts[reference_key(Reference(value).expand()[0])[-1]]
         if readout is None:
             raise ExecutionUnresolved(
                 "An unresolved readout cannot be an instruction argument"

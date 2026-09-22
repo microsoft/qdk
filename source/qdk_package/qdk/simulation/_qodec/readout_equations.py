@@ -4,8 +4,7 @@ from typing import TypeAlias
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
-from qodec import Gadget
-from qodec.gadgets import Reference
+from qodec import Gadget, Reference
 
 ReferenceKey: TypeAlias = tuple[str, str | None, int | None, str | None, int]
 
@@ -62,13 +61,24 @@ class BinarySystem:
 
 
 def reference_key(reference: Reference) -> ReferenceKey:
-    return (
-        reference.kind,
-        reference.boundary,
-        reference.entry,
-        reference.encoding_property,
-        reference.index,
-    )
+    match reference.segments:
+        case (
+            Reference.Field("circuit"),
+            Reference.Field("readouts"),
+            Reference.Index(index),
+        ):
+            return ("circuit_readout", None, None, None, index)
+        case (Reference.Field("readouts"), Reference.Index(index)):
+            return ("readout", None, None, None, index)
+        case (
+            Reference.Field(("in" | "out") as boundary),
+            Reference.Index(entry),
+            Reference.Field(("stabilizers" | "x" | "z") as basis),
+            Reference.Index(index),
+        ):
+            return ("encoding", boundary, entry, basis, index)
+        case _:
+            raise ValueError(f"Reference {reference!s} must identify one parity term")
 
 
 def expression(terms: Iterable[Reference | int]) -> Parity:
@@ -101,23 +111,20 @@ def validate_equations(gadget: Gadget, record_count: int | None = None) -> None:
                 term = Reference(term)
             if isinstance(term, Reference):
                 for reference in term.expand():
-                    if reference.kind == "readout":
-                        valid = reference.index < len(gadget.readouts)
-                    elif reference.kind == "circuit_readout":
-                        valid = record_count is None or reference.index < record_count
+                    kind, boundary, entry, basis, index = reference_key(reference)
+                    if kind == "readout":
+                        valid = index < len(gadget.readouts)
+                    elif kind == "circuit_readout":
+                        valid = record_count is None or index < record_count
                     else:
                         encodings = (
-                            gadget.inputs
-                            if reference.boundary == "in"
-                            else gadget.outputs
+                            gadget.inputs if boundary == "in" else gadget.outputs
                         )
-                        entry, basis = reference.entry, reference.encoding_property
                         valid = (
                             entry is not None
                             and 0 <= entry < len(encodings)
                             and basis in ("stabilizers", "x", "z")
-                            and reference.index
-                            < len(getattr(encodings[entry].code, basis))
+                            and index < len(getattr(encodings[entry].code, basis))
                         )
                     if not valid:
                         raise ValueError(
@@ -148,10 +155,10 @@ def prepare_frames(gadget: Gadget) -> tuple[FrameDelta, ...]:
                 term = Reference(term)
             if isinstance(term, Reference):
                 for reference in term.expand():
-                    if reference.kind == "circuit_readout":
+                    kind, _, _, _, index = reference_key(reference)
+                    if kind == "circuit_readout":
                         result ^= expression([reference])
-                    elif reference.kind == "readout":
-                        index = reference.index
+                    elif kind == "readout":
                         if index in active or not 0 <= index < len(gadget.readouts):
                             raise ValueError(
                                 "Frame aliases must be acyclic and reference declared readouts"
@@ -180,19 +187,19 @@ def prepare_frames(gadget: Gadget) -> tuple[FrameDelta, ...]:
         if len(references) != 1:
             raise ValueError("Frame keys must identify one output logical sign")
         reference = references[0]
-        entry, basis = reference.entry, reference.encoding_property
+        key = reference_key(reference)
+        _, boundary, entry, basis, index = key
         if (
-            reference.boundary != "out"
+            boundary != "out"
             or entry is None
             or not 0 <= entry < len(gadget.outputs)
             or basis not in ("x", "z")
         ):
             raise ValueError("Frame keys must identify an output logical sign")
-        if not 0 <= reference.index < len(getattr(gadget.outputs[entry].code, basis)):
+        if not 0 <= index < len(getattr(gadget.outputs[entry].code, basis)):
             raise ValueError("Frame logical index is outside the output code")
-        key = reference_key(reference)
         if key in targets:
             raise ValueError("Frame keys must not alias the same output sign")
         targets.add(key)
-        frames.append(FrameDelta(entry, basis, reference.index, expand_frame(terms)))
+        frames.append(FrameDelta(entry, basis, index, expand_frame(terms)))
     return tuple(frames)

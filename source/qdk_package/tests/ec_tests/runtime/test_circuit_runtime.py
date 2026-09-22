@@ -81,10 +81,11 @@ def test_unforwarded_instruction_parameters_are_not_circuit_parameters():
             next(requests)
 
 
-def test_child_flags_occupy_the_same_record_as_outcomes():
+@pytest.mark.parametrize("selector", ["1", "1:2"])
+def test_child_flags_occupy_the_same_record_as_outcomes(selector):
     circuit = Circuit(
         isa(),
-        '- read: [0]\n- conditional: [0, bit: "circuit.readouts[1]"]',
+        f'- read: [0]\n- conditional: [0, bit: "circuit.readouts[{selector}]"]',
         format="yaml",
     )
     with closing(
@@ -113,6 +114,9 @@ def test_child_record_count_is_checked_before_the_next_call(reply):
     [
         '- conditional: [0, bit: "circuit.readouts[0]"]',
         '- read: [0]\n- rotate: [0, theta: "circuit.readouts[0]"]',
+        '- read: [0]\n- conditional: [0, bit: "circuit.readouts[2]"]',
+        '- read: [0]\n- conditional: [0, bit: "circuit.readouts[0:2]"]',
+        '- read: [0]\n- conditional: [0, bit: "circuit.readouts[0:0]"]',
     ],
 )
 def test_record_arguments_require_earlier_records_and_bit_parameters(source):
