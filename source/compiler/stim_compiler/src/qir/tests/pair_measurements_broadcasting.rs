@@ -10,7 +10,7 @@ fn mxx_measurement_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -22,13 +22,14 @@ fn mxx_measurement_yields_correct_qir() {
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -38,7 +39,7 @@ fn mxx_with_negated_target_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
@@ -52,14 +53,15 @@ fn mxx_with_negated_target_yields_correct_qir() {
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -68,7 +70,7 @@ fn mxx_with_readout_noise_yields_correct_qir() {
     check(
         "MXX(0.01) 0 1 2 3",
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -82,15 +84,16 @@ fn mxx_with_readout_noise_yields_correct_qir() {
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
                 call void @__quantum__rt__readout_noise(double 0.01, double 0.01, ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__rt__readout_noise(double, double, ptr) #2
 
-            required_num_qubits: 4
-            required_num_results: 2
-            uses_noise: true"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2
+              uses_noise = true"#]],
     );
 }
 
@@ -100,7 +103,7 @@ fn myy_measurement_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -122,15 +125,16 @@ fn myy_measurement_yields_correct_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 2 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__s__body(ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -140,7 +144,7 @@ fn myy_with_negated_target_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -164,7 +168,7 @@ fn myy_with_negated_target_yields_correct_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 2 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
@@ -172,8 +176,9 @@ fn myy_with_negated_target_yields_correct_qir() {
               declare void @__quantum__qis__x__body(ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -182,7 +187,7 @@ fn myy_with_readout_noise_yields_correct_qir() {
     check(
         "MYY(0.01) 0 1 2 3",
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -206,7 +211,7 @@ fn myy_with_readout_noise_yields_correct_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 3 to ptr))
                 call void @__quantum__rt__readout_noise(double 0.01, double 0.01, ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
@@ -214,9 +219,10 @@ fn myy_with_readout_noise_yields_correct_qir() {
               declare void @__quantum__qis__z__body(ptr)
               declare void @__quantum__rt__readout_noise(double, double, ptr) #2
 
-            required_num_qubits: 4
-            required_num_results: 2
-            uses_noise: true"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2
+              uses_noise = true"#]],
     );
 }
 
@@ -226,7 +232,7 @@ fn mzz_measurement_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -234,12 +240,13 @@ fn mzz_measurement_yields_correct_qir() {
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -249,7 +256,7 @@ fn mzz_with_negated_target_yields_correct_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -259,13 +266,14 @@ fn mzz_with_negated_target_yields_correct_qir() {
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -274,7 +282,7 @@ fn mzz_with_readout_noise_yields_correct_qir() {
     check(
         "MZZ(0.01) 0 1 2 3",
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -284,14 +292,15 @@ fn mzz_with_readout_noise_yields_correct_qir() {
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
                 call void @__quantum__rt__readout_noise(double 0.01, double 0.01, ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__rt__readout_noise(double, double, ptr) #2
 
-            required_num_qubits: 4
-            required_num_results: 2
-            uses_noise: true"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2
+              uses_noise = true"#]],
     );
 }
 

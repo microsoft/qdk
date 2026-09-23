@@ -17,7 +17,7 @@ fn simple_select_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -27,13 +27,14 @@ fn simple_select_block() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -53,7 +54,7 @@ fn long_select_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
@@ -76,15 +77,16 @@ fn long_select_block() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 3
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 3"#]],
     );
 }
 
@@ -101,7 +103,7 @@ fn multiple_requires_in_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -121,13 +123,14 @@ fn multiple_requires_in_block() {
                 br i1 %restart_1, label %select_0, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -145,7 +148,7 @@ fn multiple_targets_in_require() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -170,13 +173,14 @@ fn multiple_targets_in_require() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 4
-            required_num_results: 4"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 4"#]],
     );
 }
 
@@ -193,18 +197,19 @@ fn select_block_no_require() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 3
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 3"#]],
     );
 }
 
@@ -217,12 +222,13 @@ fn empty_select_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
 
-            required_num_qubits: 0
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 0
+              required_num_results = 0"#]],
     );
 }
 
@@ -283,7 +289,7 @@ fn select_block_with_tag() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -293,13 +299,14 @@ fn select_block_with_tag() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -314,7 +321,7 @@ fn require_with_negated_target() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -325,13 +332,14 @@ fn require_with_negated_target() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -510,7 +518,7 @@ fn require_with_at_least_one_record_in_scope() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 br label %select_0
               select_0:
@@ -525,13 +533,14 @@ fn require_with_at_least_one_record_in_scope() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -572,7 +581,7 @@ fn measure_reset_counts_as_measurement() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -582,13 +591,14 @@ fn measure_reset_counts_as_measurement() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__mresetz__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -603,7 +613,7 @@ fn pair_measurement_record_in_select() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -615,14 +625,15 @@ fn pair_measurement_record_in_select() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -667,7 +678,7 @@ fn nested_select_blocks() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 br label %select_1
@@ -685,13 +696,14 @@ fn nested_select_blocks() {
                 br i1 %restart_1, label %select_0, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -714,7 +726,7 @@ fn deeply_nested_select_blocks() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 br label %select_1
@@ -740,13 +752,14 @@ fn deeply_nested_select_blocks() {
                 br i1 %restart_2, label %select_0, label %continue_2
               continue_2:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 3
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 3"#]],
     );
 }
 
@@ -763,7 +776,7 @@ fn outer_select_reaches_into_inner_select() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 br label %select_1
@@ -775,13 +788,14 @@ fn outer_select_reaches_into_inner_select() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -800,7 +814,7 @@ fn outer_select_reaches_into_deeply_nested_inner_select() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 br label %select_1
@@ -814,13 +828,14 @@ fn outer_select_reaches_into_deeply_nested_inner_select() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -865,7 +880,7 @@ fn sibling_select_blocks() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -883,13 +898,14 @@ fn sibling_select_blocks() {
                 br i1 %restart_1, label %select_1, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -1006,7 +1022,7 @@ fn simple_notleaked() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -1014,12 +1030,13 @@ fn simple_notleaked() {
                 br i1 %l_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -1037,7 +1054,7 @@ fn multiple_targets_in_notleaked() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -1054,12 +1071,13 @@ fn multiple_targets_in_notleaked() {
                 br i1 %loss_2, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 4
-            required_num_results: 4"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 4"#]],
     );
 }
 
@@ -1076,7 +1094,7 @@ fn multiple_notleakeds_in_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -1090,12 +1108,13 @@ fn multiple_notleakeds_in_block() {
                 br i1 %loss_0, label %select_0, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -1135,7 +1154,7 @@ fn notleaked_with_at_least_one_record_in_scope() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 br label %select_0
               select_0:
@@ -1146,12 +1165,13 @@ fn notleaked_with_at_least_one_record_in_scope() {
                 br i1 %loss_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -1356,7 +1376,7 @@ fn require_and_notleaked_in_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -1370,13 +1390,14 @@ fn require_and_notleaked_in_block() {
                 br i1 %l_1, label %select_0, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }
 
@@ -1394,7 +1415,7 @@ fn require_and_notleaked_with_multiple_targets() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -1419,12 +1440,13 @@ fn require_and_notleaked_with_multiple_targets() {
                 br i1 %restart_0, label %select_0, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 3
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 3"#]],
     );
 }

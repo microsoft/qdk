@@ -11,15 +11,16 @@ fn e_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -35,15 +36,16 @@ fn correlated_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -121,15 +123,16 @@ fn correlated_error_with_probability_of_exactly_one_is_valid() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -151,15 +154,16 @@ fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() 
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -202,15 +206,16 @@ fn correlated_error_chain_with_common_qubit_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr, ptr, ptr) #2
 
-            required_num_qubits: 3
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -232,15 +237,16 @@ fn correlated_error_chain_with_disjoint_qubits_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 4 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr, ptr, ptr, ptr, ptr) #2
 
-            required_num_qubits: 5
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 5
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -262,15 +268,16 @@ fn else_correlated_error_with_preceding_else_correlated_error_yields_expected_qi
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -353,15 +360,16 @@ fn depolarize1_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -442,15 +450,16 @@ fn depolarize2_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr, ptr) #2
 
-            required_num_qubits: 2
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -540,8 +549,9 @@ fn i_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            required_num_qubits: 0
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 0
+              required_num_results = 0"#]],
     );
 }
 
@@ -563,8 +573,9 @@ fn ii_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            required_num_qubits: 0
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 0
+              required_num_results = 0"#]],
     );
 }
 
@@ -591,15 +602,16 @@ fn pauli_channel_1_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -652,15 +664,16 @@ fn pauli_channel_1_with_probabilities_summing_to_exactly_one_is_valid() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -748,15 +761,16 @@ fn pauli_channel_2_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr, ptr) #2
 
-            required_num_qubits: 2
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -837,15 +851,16 @@ fn x_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -895,15 +910,16 @@ fn y_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -936,15 +952,16 @@ fn z_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -977,15 +994,16 @@ fn loss_error_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -1022,18 +1040,19 @@ X_ERROR(0.01) 2
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
                 call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
                 call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr) #2
               declare void @noise_intrinsic_1(ptr) #2
 
-            required_num_qubits: 3
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:
@@ -1058,16 +1077,17 @@ fn correlated_error_chains_with_same_shape_are_memoized() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @noise_intrinsic_0(ptr, ptr) #2
 
-            required_num_qubits: 4
-            required_num_results: 0
-            uses_noise: true
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 0
+              uses_noise = true
 
             NoiseConfig:
             intrinsics:

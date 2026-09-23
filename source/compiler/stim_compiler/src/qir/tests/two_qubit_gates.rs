@@ -10,14 +10,15 @@ fn cx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -43,14 +44,15 @@ fn cnot_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -60,14 +62,15 @@ fn zcx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -77,15 +80,16 @@ fn cxswap_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -95,14 +99,15 @@ fn cy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cy__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cy__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -112,14 +117,15 @@ fn zcy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cy__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cy__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -129,14 +135,15 @@ fn cz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cz__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -146,14 +153,15 @@ fn zcz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cz__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -163,18 +171,19 @@ fn czswap_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -184,18 +193,19 @@ fn swapcz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -205,8 +215,9 @@ fn ii_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            required_num_qubits: 0
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 0
+              required_num_results = 0"#]],
     );
 }
 
@@ -250,7 +261,7 @@ fn iswap_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -258,13 +269,14 @@ fn iswap_gate_yields_expected_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -290,7 +302,7 @@ fn iswap_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
@@ -298,13 +310,14 @@ fn iswap_dag_gate_yields_expected_qir() {
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -314,7 +327,7 @@ fn sqrt_xx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
@@ -323,13 +336,14 @@ fn sqrt_xx_gate_yields_expected_qir() {
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -339,7 +353,7 @@ fn sqrt_xx_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
@@ -348,13 +362,14 @@ fn sqrt_xx_dag_gate_yields_expected_qir() {
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -364,7 +379,7 @@ fn sqrt_yy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -377,14 +392,15 @@ fn sqrt_yy_gate_yields_expected_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -394,7 +410,7 @@ fn sqrt_yy_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -407,14 +423,15 @@ fn sqrt_yy_dag_gate_yields_expected_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -424,20 +441,21 @@ fn sqrt_zz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -447,20 +465,21 @@ fn sqrt_zz_dag_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -470,14 +489,15 @@ fn swap_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__swap__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__swap__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -487,15 +507,16 @@ fn swapcx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -505,17 +526,18 @@ fn xcx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -525,21 +547,22 @@ fn xcy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -549,14 +572,15 @@ fn xcz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -566,21 +590,22 @@ fn ycx_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -590,7 +615,7 @@ fn ycy_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -599,14 +624,15 @@ fn ycy_gate_yields_expected_qir() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -616,17 +642,18 @@ fn ycz_gate_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__s__adj(ptr)
               declare void @__quantum__qis__s__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }

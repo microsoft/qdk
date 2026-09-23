@@ -37,16 +37,17 @@ fn repeat_with_tag() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -192,14 +193,15 @@ fn repeat_single_iteration() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__h__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -213,16 +215,17 @@ fn repeat_three_iterations() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__h__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -235,8 +238,9 @@ fn repeat_empty_body_yields_no_operations() {
     check(
         source,
         &expect![[r#"
-            required_num_qubits: 0
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 0
+              required_num_results = 0"#]],
     );
 }
 
@@ -252,7 +256,7 @@ fn repeat_multiple_gates() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
@@ -260,13 +264,14 @@ fn repeat_multiple_gates() {
                 call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__s__body(ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -280,7 +285,7 @@ fn repeat_broadcast() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 2 to ptr))
@@ -288,11 +293,12 @@ fn repeat_broadcast() {
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 3
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0"#]],
     );
 }
 
@@ -306,16 +312,17 @@ fn repeat_with_measurement() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 3"#]],
     );
 }
 
@@ -330,7 +337,7 @@ fn repeat_with_classically_controlled_gate() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -338,7 +345,7 @@ fn repeat_with_classically_controlled_gate() {
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -350,13 +357,14 @@ fn repeat_with_classically_controlled_gate() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 3"#]],
     );
 }
 
@@ -374,14 +382,14 @@ fn repeat_with_classically_controlled_gate_after_loop() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -393,14 +401,15 @@ fn repeat_with_classically_controlled_gate_after_loop() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__h__body(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 2"#]],
     );
 }
 
@@ -416,7 +425,7 @@ fn nested_repeat() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
@@ -424,11 +433,12 @@ fn nested_repeat() {
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -444,17 +454,18 @@ fn nested_repeat_with_measurement() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 4"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 4"#]],
     );
 }
 
@@ -471,19 +482,20 @@ fn sequential_repeats() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__z__body(ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__x__body(ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 0"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -500,7 +512,7 @@ fn select_inside_repeat() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -518,13 +530,14 @@ fn select_inside_repeat() {
                 br i1 %restart_1, label %select_1, label %continue_1
               continue_1:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 2"#]],
     );
 }
 
@@ -541,7 +554,7 @@ fn repeat_inside_select() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -553,13 +566,14 @@ fn repeat_inside_select() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 3"#]],
     );
 }
 

@@ -14,11 +14,11 @@ fn cx_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -30,13 +30,14 @@ fn cx_with_rec_control_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -49,11 +50,11 @@ fn cnot_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -65,13 +66,14 @@ fn cnot_with_rec_control_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -84,11 +86,11 @@ fn zcx_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -100,13 +102,14 @@ fn zcx_with_rec_control_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -120,12 +123,12 @@ fn cx_with_older_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -137,13 +140,14 @@ fn cx_with_older_rec_control_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 3
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 2"#]],
     );
 }
 
@@ -156,12 +160,12 @@ fn cx_with_mixed_quantum_and_classical_pairs_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -173,14 +177,15 @@ fn cx_with_mixed_quantum_and_classical_pairs_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__cx__body(ptr, ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 4
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 1"#]],
     );
 }
 
@@ -194,13 +199,13 @@ fn cx_with_multiple_classical_pairs_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -212,13 +217,14 @@ fn cx_with_multiple_classical_pairs_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 4
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 2"#]],
     );
 }
 
@@ -334,11 +340,11 @@ fn cy_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cy(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cy(ptr %result, ptr %qubit) {
               block_cy_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -350,13 +356,14 @@ fn cy_with_rec_control_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__y__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -369,11 +376,11 @@ fn zcy_with_rec_control_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cy(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cy(ptr %result, ptr %qubit) {
               block_cy_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -385,13 +392,14 @@ fn zcy_with_rec_control_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__y__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -446,11 +454,11 @@ fn cz_with_rec_on_first_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cz(ptr %result, ptr %qubit) {
               block_cz_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -462,13 +470,14 @@ fn cz_with_rec_on_first_target_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -481,11 +490,11 @@ fn cz_with_rec_on_second_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cz(ptr %result, ptr %qubit) {
               block_cz_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -497,13 +506,14 @@ fn cz_with_rec_on_second_target_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -516,11 +526,11 @@ fn zcz_with_rec_on_first_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cz(ptr %result, ptr %qubit) {
               block_cz_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -532,13 +542,14 @@ fn zcz_with_rec_on_first_target_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -551,11 +562,11 @@ fn zcz_with_rec_on_second_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cz(ptr %result, ptr %qubit) {
               block_cz_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -567,13 +578,14 @@ fn zcz_with_rec_on_second_target_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__z__body(ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -651,11 +663,11 @@ fn xcz_with_rec_on_second_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -667,13 +679,14 @@ fn xcz_with_rec_on_second_target_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -728,11 +741,11 @@ fn ycz_with_rec_on_second_target_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cy(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cy(ptr %result, ptr %qubit) {
               block_cy_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -744,13 +757,14 @@ fn ycz_with_rec_on_second_target_yields_expected_qir() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__y__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -807,13 +821,13 @@ fn cx_with_rec_control_crossing_select_boundary() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 br label %select_0
               select_0:
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -825,13 +839,14 @@ fn cx_with_rec_control_crossing_select_boundary() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -846,13 +861,13 @@ fn top_level_classical_control_reaches_into_select() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -864,12 +879,13 @@ fn top_level_classical_control_reaches_into_select() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }

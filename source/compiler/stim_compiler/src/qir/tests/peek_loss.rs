@@ -10,14 +10,15 @@ fn peek_loss_single_qubit() {
     check(
         "PEEK_LOSS 0",
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -26,16 +27,17 @@ fn peek_loss_broadcasts_over_multiple_qubits() {
     check(
         "PEEK_LOSS 0 1 2",
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-            required_num_qubits: 3
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 3"#]],
     );
 }
 
@@ -44,17 +46,18 @@ fn peek_loss_with_readout_noise_yields_expected_qir() {
     check(
         "PEEK_LOSS(0.5) 0",
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__rt__readout_noise(double 0.5, double 0.5, ptr inttoptr (i64 0 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
               declare void @__quantum__rt__readout_noise(double, double, ptr) #2
 
-            required_num_qubits: 1
-            required_num_results: 1
-            uses_noise: true"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1
+              uses_noise = true"#]],
     );
 }
 
@@ -151,11 +154,11 @@ fn peek_loss_referenced_by_classical_control() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            definitions:
+            [definitions]
               define void @classical_control_cx(ptr %result, ptr %qubit) {
               block_cx_entry:
                 %result_val = call i1 @__quantum__rt__read_result(ptr %result)
@@ -167,13 +170,14 @@ fn peek_loss_referenced_by_classical_control() {
                 ret void
               }
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
               declare void @__quantum__qis__x__body(ptr)
 
-            required_num_qubits: 2
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 1"#]],
     );
 }
 
@@ -212,7 +216,7 @@ fn peek_loss_referenced_by_require_in_select_block() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -222,13 +226,14 @@ fn peek_loss_referenced_by_require_in_select_block() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-            required_num_qubits: 1
-            required_num_results: 1"#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 1"#]],
     );
 }
 
@@ -242,17 +247,18 @@ fn peek_loss_interleaved_with_measurements() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
                 call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            declarations:
+            [declarations]
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-            required_num_qubits: 3
-            required_num_results: 3"#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 3"#]],
     );
 }
 
@@ -293,7 +299,7 @@ fn require_allows_peek_record_mixed_with_measurement() {
     check(
         source,
         &expect![[r#"
-            body:
+            [entry_point]
                 br label %select_0
               select_0:
                 call void @__quantum__qis__peek_loss__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -308,13 +314,14 @@ fn require_allows_peek_record_mixed_with_measurement() {
                 br i1 %restart_0, label %select_0, label %continue_0
               continue_0:
 
-            declarations:
+            [declarations]
               declare i1 @__quantum__rt__read_loss(ptr)
               declare i1 @__quantum__rt__read_result(ptr)
               declare void @__quantum__qis__m__body(ptr, ptr)
               declare void @__quantum__qis__peek_loss__body(ptr, ptr)
 
-            required_num_qubits: 2
-            required_num_results: 2"#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
     );
 }

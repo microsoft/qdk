@@ -68,7 +68,7 @@ fn format_qir(qir: &str, noise: &NoiseConfig<f64, f64>) -> String {
     let body = if body.is_empty() {
         String::new()
     } else {
-        format!("body:\n{body}\n\n")
+        format!("[entry_point]\n{body}\n\n")
     };
 
     let mut declarations = qir
@@ -81,17 +81,17 @@ fn format_qir(qir: &str, noise: &NoiseConfig<f64, f64>) -> String {
     let declarations = if declarations.is_empty() {
         String::new()
     } else {
-        format!("declarations:\n{declarations}\n\n")
+        format!("[declarations]\n{declarations}\n\n")
     };
 
     let definitions = if definitions.is_empty() {
         String::new()
     } else {
-        format!("definitions:\n{}\n\n", indent_lines(definitions.lines()))
+        format!("[definitions]\n{}\n\n", indent_lines(definitions.lines()))
     };
 
     let uses_noise = if qir.contains("\"qdk_noise\"") {
-        "uses_noise: true\n"
+        "  uses_noise = true\n"
     } else {
         ""
     };
@@ -106,8 +106,9 @@ fn format_qir(qir: &str, noise: &NoiseConfig<f64, f64>) -> String {
         {body}\
         {definitions}\
         {declarations}\
-        required_num_qubits: {required_num_qubits}
-        required_num_results: {required_num_results}
+        [metadata]
+          required_num_qubits = {required_num_qubits}
+          required_num_results = {required_num_results}
         {uses_noise}
         {noise_config}
     "}
