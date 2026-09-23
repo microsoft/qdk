@@ -505,16 +505,42 @@ def test_readout_dependencies_are_solved() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     gadget.readouts = [["readouts[1]"], ["circuit.readouts[0]"]]
     analysis = ParityAnalysis(gadget)
-    values, unresolved, error = analysis.resolved
-    assert error is None and not unresolved
-    assert values[0] == values[1] == analysis.value(("circuit.readouts[0]",))
-    gadget.readouts = [["readouts[0]"]]
-    assert ParityAnalysis(gadget).resolved[1] == {0}
-    gadget.readouts = [["readouts[0]", "circuit.readouts[0]"]]
+    resolution = analysis.resolution
+    assert not resolution.conflicts and not resolution.unresolved
     assert (
-        ParityAnalysis(gadget).resolved[2]
-        == "Inconsistent readout equations at positions [0]."
+        resolution.values[0]
+        == resolution.values[1]
+        == analysis.value(("circuit.readouts[0]",))
     )
+    gadget.readouts = [["readouts[0]"]]
+    assert ParityAnalysis(gadget).resolution.unresolved == {0}
+    gadget.readouts = [["readouts[0]", "circuit.readouts[0]"]]
+    assert ParityAnalysis(gadget).resolution.conflicts == ((0,),)
+
+
+def test_readout_conflict_blocks_only_dependent_equations() -> None:
+    gadget = _c4().layers[0].gadgets["measure_zz"]
+    gadget.implements.flags = ["reject"]
+    gadget.readouts = [
+        ["readouts[0]", "circuit.readouts[0]"],
+        ["circuit.readouts[1]"],
+        ["readouts[0]"],
+    ]
+    analysis = ParityAnalysis(gadget)
+    resolution = analysis.resolution
+    assert resolution.conflicts == ((0,),)
+    assert resolution.blocked == {0, 2}
+    assert resolution.unresolved == set()
+    assert resolution.values == {1: analysis.value(("circuit.readouts[1]",))}
+
+
+def test_readout_cycle_is_reported_as_one_conflict() -> None:
+    gadget = _c4().layers[0].gadgets["measure_zz"]
+    gadget.readouts = [["readouts[1]"], ["readouts[0]", 1]]
+    resolution = ParityAnalysis(gadget).resolution
+    assert resolution.conflicts == ((0, 1),)
+    assert resolution.blocked == {0, 1}
+    assert resolution.values == {}
 
 
 def test_output_frames_require_valid_independent_constraints() -> None:
@@ -552,7 +578,7 @@ def test_readout_sign_mismatch_and_dependency_errors_are_reported() -> None:
             "Verified readout equation:",
         ),
         ([["readouts[0]"]], "not uniquely determined"),
-        ([["readouts[0]", "circuit.readouts[0]"]], "Inconsistent readout equations"),
+        ([["readouts[0]", "circuit.readouts[0]"]], "cannot all hold"),
     ):
         gadget.readouts = [
             *readouts,
@@ -642,10 +668,14 @@ def test_solvable_readout_cycle_is_not_rejected() -> None:
         ["readouts[1]", "circuit.readouts[2]"],
     ]
     analysis = ParityAnalysis(gadget)
-    values, unresolved, error = analysis.resolved
-    assert not unresolved and error is None
-    assert values[0] == analysis.value(("circuit.readouts[0]", "circuit.readouts[2]"))
-    assert values[2] == analysis.value(("circuit.readouts[0]", "circuit.readouts[1]"))
+    resolution = analysis.resolution
+    assert not resolution.unresolved and not resolution.conflicts
+    assert resolution.values[0] == analysis.value(
+        ("circuit.readouts[0]", "circuit.readouts[2]")
+    )
+    assert resolution.values[2] == analysis.value(
+        ("circuit.readouts[0]", "circuit.readouts[1]")
+    )
 
 
 def test_output_logical_frame_tracks_the_declared_operation() -> None:

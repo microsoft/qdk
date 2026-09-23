@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import cached_property
 import json
 
@@ -74,6 +75,14 @@ def _unresolved_signs(
         )
         is None
     )
+
+
+@dataclass(frozen=True)
+class _ReadoutResolution:
+    values: dict[int, BitVector]
+    unresolved: frozenset[int]
+    conflicts: tuple[tuple[int, ...], ...]
+    blocked: frozenset[int]
 
 
 class ParityAnalysis:
@@ -406,7 +415,7 @@ class ParityAnalysis:
         return self.values[path]
 
     @cached_property
-    def resolved(self) -> tuple[tuple[BitVector, ...], frozenset[int], str | None]:
+    def resolution(self) -> _ReadoutResolution:
         count = len(self.readouts)
         matrix = BitMatrix.identity(count)
         right = []
@@ -424,30 +433,61 @@ class ParityAnalysis:
                 else:
                     value = value ^ self.external(path)
             right.append(value)
+        conflicts: list[set[int]] = []
         for dependency in matrix.T.kernel().rows:
             value = self.values["0"].copy()
             for index in dependency.support:
                 value = value ^ right[index]
             if not value.is_zero:
-                return (
-                    (),
-                    frozenset(),
-                    f"Inconsistent readout equations at positions {dependency.support}.",
-                )
+                conflicts.append(set(dependency.support))
+        merged: list[set[int]] = []
+        for conflict in conflicts:
+            overlapping = [group for group in merged if group & conflict]
+            merged = [group for group in merged if not group & conflict]
+            merged.append(conflict.union(*overlapping))
+        blocked = set().union(*merged)
+        while True:
+            dependent = {
+                position
+                for position, equation in enumerate(self.readouts)
+                if any(f"readouts[{index}]" in equation for index in blocked)
+            }
+            if dependent <= blocked:
+                break
+            blocked.update(dependent)
+        retained = [position for position in range(count) if position not in blocked]
+        reduced = matrix
+        if blocked:
+            reduced = _rows(
+                (
+                    BitVector(matrix[row, column] for column in retained)
+                    for row in retained
+                ),
+                len(retained),
+            )
         unresolved = frozenset(
-            index for vector in matrix.kernel().rows for index in vector.support
+            retained[index]
+            for vector in reduced.kernel().rows
+            for index in vector.support
         )
         columns = [
-            solve(matrix, BitVector(value[column] for value in right))
+            solve(reduced, BitVector(right[position][column] for position in retained))
             for column in range(len(self.values["0"]))
         ]
         if any(column is None for column in columns):
             raise ValueError("readout equations have no solution")
-        values = [
-            BitVector(column[position] for column in columns if column is not None)
-            for position in range(count)
-        ]
-        return tuple(values), unresolved, None
+        values = {
+            position: BitVector(
+                column[index] for column in columns if column is not None
+            )
+            for index, position in enumerate(retained)
+        }
+        return _ReadoutResolution(
+            values,
+            unresolved,
+            tuple(sorted(tuple(sorted(group)) for group in merged)),
+            frozenset(blocked),
+        )
 
     def value(self, equation: Iterable[str]) -> BitVector:
         result = self.values["0"].copy()
@@ -457,12 +497,14 @@ class ParityAnalysis:
                 continue
             reference = reference_term(path)
             if isinstance(reference, ReadoutSign):
-                values, unresolved, error = self.resolved
-                if error or reference.index in unresolved:
+                resolution = self.resolution
+                if reference.index in resolution.blocked:
                     raise ValueError(
-                        error or f"readouts[{reference.index}] is undetermined"
+                        f"readouts[{reference.index}] depends on inconsistent readout equations"
                     )
-                result = result ^ values[reference.index]
+                if reference.index in resolution.unresolved:
+                    raise ValueError(f"readouts[{reference.index}] is undetermined")
+                result = result ^ resolution.values[reference.index]
             else:
                 result = result ^ self.external(path)
         return result
@@ -480,6 +522,13 @@ class ParityAnalysis:
             if solution is None
             else tuple(paths[index] for index in solution.support)
         )
+
+    def readout_candidate(self, position: int) -> tuple[str, ...] | None:
+        """A verified observable equation, if analysis can derive one."""
+        try:
+            return self.candidate(self.expected[position])
+        except (KeyError, ValueError, TypeError, NotImplementedError):
+            return None
 
     def missing_checks(self) -> tuple[tuple[str, ...], ...]:
         """Independent measurement checks absent from the declared relation span.
@@ -510,23 +559,19 @@ class ParityAnalysis:
             except (KeyError, ValueError, TypeError, NotImplementedError):
                 continue
         if self.readouts:
-            values, unresolved, error = self.resolved
-            if error is None:
-                for position, equation in enumerate(self.readouts):
-                    if position in unresolved:
-                        continue
-                    path = f"readouts[{position}]"
-                    known.append(
-                        terms_of(
-                            1 if term == "1" else Reference(term)
-                            for term in (path, *equation)
-                        )
+            resolution = self.resolution
+            for position, value in resolution.values.items():
+                if position in resolution.unresolved:
+                    continue
+                path = f"readouts[{position}]"
+                known.append(
+                    terms_of(
+                        1 if term == "1" else Reference(term)
+                        for term in (path, *self.readouts[position])
                     )
-                    if (
-                        self.gadget.readouts[position].is_flag
-                        and values[position].is_zero
-                    ):
-                        known.append((path,))
+                )
+                if self.gadget.readouts[position].is_flag and value.is_zero:
+                    known.append((path,))
         known.extend(
             equation
             for equation in candidates
@@ -565,19 +610,18 @@ class ParityAnalysis:
                 continue
         if not _unresolved_signs(output_signs, equations):
             return ()
-        values, unresolved, error = self.resolved
-        if error is None:
-            for position, equation in enumerate(self.readouts):
-                if position in unresolved:
-                    continue
-                expected = self.expected.get(position, self.values["0"])
-                if values[position] == expected:
-                    equations.append(
-                        terms_of(
-                            1 if path == "1" else Reference(path)
-                            for path in (f"readouts[{position}]", *equation)
-                        )
+        resolution = self.resolution
+        for position, value in resolution.values.items():
+            if position in resolution.unresolved:
+                continue
+            expected = self.expected.get(position, self.values["0"])
+            if value == expected:
+                equations.append(
+                    terms_of(
+                        1 if path == "1" else Reference(path)
+                        for path in (f"readouts[{position}]", *self.readouts[position])
                     )
+                )
         return _unresolved_signs(output_signs, equations)
 
     def witness(self, equation: Iterable[str], difference: BitVector) -> str:

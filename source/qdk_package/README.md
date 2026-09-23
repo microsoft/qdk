@@ -116,8 +116,8 @@ It requires Python 3.11 or newer and `qodec>=0.2.0.dev0,<0.3`. Install the local
 qodec Python bindings first while that version is unpublished, then install
 `qdk[ec]`.
 
-`ec.build_qodec(code)` returns a qodec that passes the default audit without
-diagnostics. Both `strategy="flagged-css/v1"` and `strategy="bare-css/v1"`
+The default audit reports no errors or warnings for a qodec returned by
+`ec.build_qodec(code)`. Both `strategy="flagged-css/v1"` and `strategy="bare-css/v1"`
 include incoming-frame corrections in logical readouts and stabilizer transport
 relations for supported transversal gates. `strict=False` allows unsupported
 instructions to be omitted and recorded in the build metadata; it does not
@@ -150,7 +150,7 @@ are immutable tuple snapshots; assign new collections to change the gadget.
 Bundle fixtures use schema version 7;
 `Qodec.load` takes an explicit manifest or bundle file path, not a directory.
 
-Diagnostics add one optional keyword-only field, `source_location`. It contains
+`Diagnostic` has an optional keyword-only field, `source_location`. It contains
 the actual source file and 1-based line when qodec retained a reliable location.
 Reports print `filename:line` on the line after the severity and rule, before
 the existing layer and artifact context. Printed paths under the current user's
@@ -400,10 +400,10 @@ because the inputs include circuit locations. The existing `fault_effects` prope
 uses a compact X/Z and readout-flip propagation basis, not the full unit-cost
 circuit fault set.
 
-`ec.audit` checks code algebra, complete Clifford maps (including implicit
-identities), gadget actions, and check, flag, and readout equations. It also
-owns protocol completeness, code-list shapes and capacities, reference bounds,
-parameter uses, and circuit-call validity. These declaration findings use
+`ec.audit` evaluates audit rules for code algebra, complete Clifford maps
+(including implicit identities), gadget actions, and check, flag, and readout
+equations. It also owns protocol completeness, code-list shapes and capacities,
+reference bounds, parameter uses, and circuit-call validity. These declaration findings use
 `qodec/invalid-structure`; qodec itself enforces only preservation preconditions
 such as unambiguous resolution and bindings that can survive a round trip.
 This replaces `gadget/reference-out-of-bounds` and
@@ -414,6 +414,13 @@ avoids confusion with physical atoms. The registry has 17 rule IDs.
 Invalid prerequisites block dependent gadget analyses, including shared
 definitions, while unrelated gadgets remain analyzable. Direct analysis calls
 still check their mathematical preconditions.
+
+The returned `Report` contains errors, warnings, and informational notes as
+`Diagnostic` objects. An empty report prints `audit: ok`; otherwise, the report
+prints errors and warnings followed by counts for all three severities.
+`report.ok` means there are no errors; warnings do not make it false. Reports
+do not record successful rule evaluations, so an empty report is not a record
+that every audit rule ran and passed.
 
 Repeated circuit labels within an encoding, or shared by two encodings on the
 same boundary, are `qodec/invalid-structure` errors. The message identifies both
@@ -434,20 +441,24 @@ Three informational rules describe declaration redundancy:
     earlier independent generators, or is +I. The finding shows the dependency and
     the rank of the full stabilizer list. Inconsistent signs remain algebra errors.
 
-These notices preserve authored declarations and positions, remain INFO under
-`promote_warnings=True`, and can be disabled by rule ID. They add no top-level
-Python exports. The names use the existing check and stabilizer terms:
+These informational notes preserve authored declarations and positions, remain
+INFO under `promote_warnings=True`, and can be disabled by rule ID. They add no
+top-level Python exports. The names use the existing check and stabilizer terms:
 `duplicate-*` would miss combinations of earlier declarations, while `invalid-*`
-would wrongly label harmless redundancy. Fault-model-dependent diagnostics remain
-deferred until an explicit fault set and detection requirement are supplied.
+would wrongly label harmless redundancy. Audit rules that depend on a fault
+model remain deferred until an explicit fault set and detection requirement
+are supplied.
 
 Algebraically incorrect drafts can be constructed, loaded, and saved by
 qodec, as can unequal code lists, incomplete protocols, and malformed circuit
 text. Parsed accessors can fail on a loadable draft. Entirely omitted readout
 lists are allowed for later derivation, but audit reports missing observable
-and flag equations as errors. Partially supplied
-lists also persist but are audit errors. An omitted flag equation is undefined;
-an explicit `[]` equation declares zero.
+and flag equations as errors. Each error identifies the missing readout, whether
+the list is empty or partially supplied. Missing observable errors include a
+verified readout equation when the analysis can derive one. Extra readouts are
+structural errors. An omitted flag equation is undefined; an explicit `[]`
+equation declares zero. The audit does not invent flag equations: noiseless
+consistency alone does not determine which faults a flag should detect.
 
 Parity verification assumes valid noiseless input
 codewords with arbitrary incoming Pauli frames. A measurement readout that
@@ -455,7 +466,7 @@ omits a required logical-frame correction is an error even if it works for a
 zero-frame input. The authored C4 example currently has such omissions; the
 audit reports them without changing the protocol.
 
-Readout diagnostics distinguish an incorrect equation from a result the circuit
+Readout messages distinguish an incorrect equation from a result the circuit
 does not provide. A recoverable mismatch shows only the declared and verified
 equations. Otherwise, a short explanation identifies missing information,
 a required constant inversion, or contradictory/undetermined definitions.
@@ -464,10 +475,14 @@ term values when needed to demonstrate firing without a fault, and label the
 required noiseless value as zero.
 
 Readout references are solved as binary linear equations, including cycles
-with unique consistent solutions. Output stabilizer signs must be determined
+with unique consistent solutions. A group of contradictory equations is reported
+once, with verified observable equations where available. Readouts that depend
+on the conflict are reported as unverified; independent readouts remain
+analyzable. Undetermined observables also include verified equations when
+available. Output stabilizer signs must be determined
 by valid declared constraints, not merely mentioned in them. Empty equations
 are zero but provide no constraint. Unsupported parity analysis produces
-warnings rather than claiming a result. These checks do not establish fault
+warnings rather than claiming a result. These audit rules do not establish fault
 tolerance or verify a particular fault model.
 
 `gadget/missing-check` is informational. It reports an independent noiseless

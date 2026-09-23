@@ -84,7 +84,7 @@ def test_str_summary_includes_counts() -> None:
 
 
 def test_str_empty_is_ok_message() -> None:
-    assert "ok" in str(Report()).lower()
+    assert str(Report()) == "audit: ok"
 
 
 def test_str_includes_diagnostic_detail_indented() -> None:

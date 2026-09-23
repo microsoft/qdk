@@ -45,7 +45,7 @@ class Report:
 
     def __str__(self) -> str:
         if not self.diagnostics:
-            return "audit: ok (no diagnostics)"
+            return "audit: ok"
         lines = []
         for diagnostic in (*self.errors, *self.warnings):
             lines.append(str(diagnostic))

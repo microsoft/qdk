@@ -233,7 +233,7 @@ def _gadget_issues(
                         continue
                     if invalid:
                         yield f"{side}[{entry}].{property_name}[{index}]: code indices {invalid} are out of bounds for {capacity} support qubits"
-    if declared is not None and gadget.readouts and len(gadget.readouts) != declared:
+    if declared is not None and len(gadget.readouts) > declared:
         yield f"readouts: {len(gadget.readouts)} entries supplied; expected {declared}"
     parameters = {parameter.name for parameter in gadget.implements.parameters}
     for name in gadget.parameter_bindings:

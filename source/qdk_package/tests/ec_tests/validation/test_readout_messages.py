@@ -11,11 +11,113 @@ import qodec as qc
 
 from qdk.ec._audit import Auditor
 from qdk.ec._audit._parity import ParityAnalysis
-from qdk.ec._audit.rules.gadget import ReadoutMismatchRule
+from qdk.ec._audit.rules.gadget import (
+    ActionMismatchRule,
+    MissingFlagRule,
+    MissingObservableRule,
+    FlagMismatchRule,
+    ReadoutMismatchRule,
+)
+from qdk.ec._audit.rules.qodec import StructuralValidationRule
 
 
 def _c4() -> qc.Qodec:
     return qc.Qodec.load(Path(__file__).parents[1] / "testing/qodecs/c4.qodec.yaml")
+
+
+@pytest.mark.parametrize("retained", [0, 1])
+def test_missing_observables_supply_verified_equations(retained: int) -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts = [list(readout.equation) for readout in gadget.readouts[:retained]]
+    report = Auditor(
+        rules=[StructuralValidationRule(), MissingObservableRule()]
+    ).audit_gadget(gadget, qodec=protocol)
+    assert len(report.errors) == 2 - retained
+    analysis = ParityAnalysis(gadget)
+    for position, diagnostic in enumerate(report.errors, start=retained):
+        assert diagnostic.rule == "gadget/missing-observable"
+        assert diagnostic.summary == (
+            f"readouts[{position}] has no equation for the required logical X_{position} measurement"
+        )
+        assert diagnostic.detail.startswith("Verified readout equation: ")
+        candidate = json.loads(
+            diagnostic.detail.removeprefix("Verified readout equation: ")
+        )
+        assert analysis.value(candidate) == analysis.expected[position]
+
+
+@pytest.mark.parametrize("format,source", [("stim", "M 0 1 2 3"), ("opaque", "")])
+def test_missing_observables_remain_errors_without_candidates(
+    format: str, source: str
+) -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts.clear()
+    gadget.circuit = qc.gadgets.Circuit(
+        gadget.circuit.instruction_set, source, format=format
+    )
+    report = Auditor(rules=[MissingObservableRule()]).audit_gadget(
+        gadget, qodec=protocol
+    )
+    assert len(report.errors) == 2
+    assert all(diagnostic.detail == "" for diagnostic in report.errors)
+
+
+@pytest.mark.parametrize("retained", [0, 1])
+def test_missing_flags_report_only_the_missing_equation(retained: int) -> None:
+    instruction = qc.Instruction("flag_pair", flags=["reject_x", "reject_z"])
+    gadget = qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(qc.InstructionSet("physical"), "", format="stim"),
+        readouts=[[] for _ in range(retained)],
+    )
+    report = Auditor(
+        rules=[StructuralValidationRule(), MissingFlagRule()]
+    ).audit_gadget(gadget, qodec=qc.Qodec([]))
+    assert len(report.errors) == 2 - retained
+    for position, diagnostic in enumerate(report.errors, start=retained):
+        assert diagnostic.rule == "gadget/missing-flag"
+        assert diagnostic.summary == (
+            f"readouts[{position}] has no equation for flag {instruction.flags[position]!r}"
+        )
+        assert diagnostic.detail == ""
+
+
+@pytest.mark.parametrize("format", ["stim", "opaque"])
+def test_preparation_without_inputs_reports_only_actual_analysis_failures(
+    format: str,
+) -> None:
+    physical = _c4().layers[1].instruction_set
+    instruction = qc.Instruction(
+        "prepare_z",
+        outputs=[qc.instructions.BlockOperand("qubit")],
+        action=[qc.actions.Stabilize(["Z_0"])],
+    )
+    gadget = qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(physical, "R 0", format=format),
+        outputs=[
+            qc.gadgets.Encoding(
+                qc.Code("qubit", stabilizers=[], x=["X_0"], z=["Z_0"]), support=["0"]
+            )
+        ],
+    )
+    report = Auditor(rules=[ActionMismatchRule()]).audit_gadget(
+        gadget, qodec=qc.Qodec([])
+    )
+    if format == "stim":
+        assert not report.diagnostics
+    else:
+        assert not report.errors and not report.informational
+        assert len(report.warnings) == 1
+        assert (
+            report.warnings[0].summary == "Logical action not checked: analysis failed"
+        )
+        assert (
+            report.warnings[0].detail
+            == "ValueError: No source parser registered for '.opaque'"
+        )
 
 
 def test_wrong_observable_explains_unavailable_result_without_counterexamples() -> None:
@@ -110,7 +212,7 @@ def test_constant_inversion_is_not_reported_as_a_missing_observable() -> None:
         (["readouts[0]"], "an undetermined readout", "allow both 0 and 1"),
         (
             ["readouts[0]", "circuit.readouts[0]"],
-            "inconsistent readout equations",
+            "equation is inconsistent",
             "cannot all hold",
         ),
     ],
@@ -130,7 +232,81 @@ def test_dependency_failures_explain_why_no_bit_is_defined(
     assert summary in diagnostic.summary
     assert explanation in diagnostic.detail
     assert "Declared equation produces:" not in diagnostic.detail
-    assert "Verified readout equation:" not in diagnostic.detail
+    assert "Verified readout equation:" in diagnostic.detail
+
+
+def test_contradiction_does_not_blame_an_independent_readout() -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts = [
+        ["readouts[0]", 1],
+        ["circuit.readouts[0]", "circuit.readouts[2]", "in[0].x[1]"],
+    ]
+    diagnostics = list(ReadoutMismatchRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert diagnostics[0].summary == "readouts[0].equation is inconsistent"
+    assert diagnostics[0]._path == "readouts[0].equation"
+    candidate = json.loads(
+        diagnostics[0]
+        .detail.splitlines()[1]
+        .removeprefix("Verified readout equation: ")
+    )
+    analysis = ParityAnalysis(gadget)
+    assert analysis.value(candidate) == analysis.expected[0]
+
+
+def test_conflicting_observables_report_one_error_with_both_candidates() -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    gadget.readouts = [["readouts[1]"], ["readouts[0]", 1]]
+    diagnostics = list(ReadoutMismatchRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert diagnostics[0].summary == (
+        "readouts[0].equation, readouts[1].equation are inconsistent"
+    )
+    assert "Verified readout equation for readouts[0]:" in diagnostics[0].detail
+    assert "Verified readout equation for readouts[1]:" in diagnostics[0].detail
+
+
+@pytest.mark.parametrize("dependent_flag", [False, True])
+def test_conflict_dependents_are_unverified_not_mismatches(
+    dependent_flag: bool,
+) -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_xx"]
+    if dependent_flag:
+        gadget.implements.flags = ["reject"]
+    gadget.readouts = [
+        ["readouts[0]", 1],
+        (
+            ["circuit.readouts[0]", "circuit.readouts[2]", "in[0].x[1]"]
+            if dependent_flag
+            else ["readouts[0]"]
+        ),
+        *([["readouts[0]"]] if dependent_flag else []),
+    ]
+    report = Auditor(rules=[ReadoutMismatchRule(), FlagMismatchRule()]).audit_gadget(
+        gadget, qodec=protocol
+    )
+    assert len(report.errors) == 1
+    assert len(report.warnings) == 1
+    assert "depends on inconsistent readout equations" in report.warnings[0].detail
+
+
+def test_flag_conflict_is_reported_once_without_inventing_flag_equations() -> None:
+    instruction = qc.Instruction("flag_pair", flags=["reject_x", "reject_z"])
+    gadget = qc.Gadget(
+        instruction,
+        qc.gadgets.Circuit(qc.InstructionSet("physical"), "", format="stim"),
+        readouts=[["readouts[1]"], ["readouts[0]", 1]],
+    )
+    report = Auditor(rules=[ReadoutMismatchRule(), FlagMismatchRule()]).audit_gadget(
+        gadget, qodec=qc.Qodec([])
+    )
+    assert len(report.errors) == 1
+    assert report.errors[0].rule == "gadget/flag-mismatch"
+    assert "readouts[0].equation, readouts[1].equation" in report.errors[0].summary
+    assert "Verified readout equation" not in report.errors[0].detail
 
 
 def test_constant_offset_can_still_have_a_verified_readout_equation() -> None:

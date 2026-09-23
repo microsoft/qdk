@@ -341,7 +341,8 @@ def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
     report = Auditor().audit_gadget(gadget, qodec=rep3_qodec)
     assert not report.ok
     diagnostic = next(d for d in report.errors if d.rule == "gadget/missing-flag")
-    assert "omitted equation is undefined" in diagnostic.detail
+    assert diagnostic.summary == "readouts[0] has no equation for flag 'reject'"
+    assert diagnostic.detail == ""
     strict_report = Auditor(strict=True).audit_gadget(gadget, qodec=rep3_qodec)
     assert not strict_report.ok
     assert "gadget/missing-flag" in {d.rule for d in strict_report.errors}

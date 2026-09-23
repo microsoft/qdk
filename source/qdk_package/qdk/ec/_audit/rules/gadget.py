@@ -9,7 +9,7 @@ import json
 from binar import BitVector
 import qodec as qc
 
-from ..._readouts import flag_slots, observable_slots, observe_count_of
+from ..._readouts import flag_slots, observe_count_of
 from ..._references import StabilizerSign, reference_term
 from ..._analysis.channel_action import (
     declared_action_of,
@@ -19,7 +19,7 @@ from ..._analysis.declaration_issues import declaration_issues
 from .._dependencies import row_dependencies
 from .._diagnostic import Diagnostic, Phase, Severity
 from .._parity import ParityAnalysis, terms_of
-from .._readout_check import readout_disagreements
+from .._readout_check import ReadoutMismatch, readout_conflicts, readout_disagreements
 from .._rule import Rule
 
 
@@ -142,14 +142,19 @@ class MissingObservableRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
+        analysis = ParityAnalysis(gadget)
         for missing in declaration_issues(gadget).missing_observables:
+            candidate = analysis.readout_candidate(int(missing))
             yield Diagnostic(
                 self.name,
                 self.severity,
                 f"readouts[{missing}] has no equation for the required logical {_observable(gadget, int(missing))} measurement",
                 _where(gadget),
-                f"Expected: {observe_count_of(gadget.implements)} observable bindings; "
-                f"declared: {len(observable_slots(gadget))}.",
+                (
+                    f"Verified readout equation: {_equation(candidate)}"
+                    if candidate is not None
+                    else ""
+                ),
             )
 
 
@@ -171,9 +176,6 @@ class MissingFlagRule:
                 self.severity,
                 f"readouts[{position}] has no equation for flag {missing!r}",
                 _where(gadget),
-                f"Expected: {len(gadget.implements.flags)} flag bindings; "
-                f"declared: {len(flag_slots(gadget))}.\n"
-                "An omitted equation is undefined; an explicit [] equation is zero.",
             )
 
 
@@ -291,7 +293,8 @@ class FlagMismatchRule:
         if not slots:
             return
         try:
-            values, unresolved, error = analysis.resolved
+            resolution = analysis.resolution
+            conflicts = readout_conflicts(analysis)
         except (KeyError, ValueError, TypeError, NotImplementedError) as error:
             yield Diagnostic(
                 self.name,
@@ -301,25 +304,32 @@ class FlagMismatchRule:
                 f"{type(error).__name__}: {error}",
             )
             return
-        del values
+        observable_count = observe_count_of(gadget.implements)
+        for conflict in conflicts:
+            if all(position >= observable_count for position in conflict.positions):
+                yield _readout_diagnostic(self.name, gadget, conflict)
+        conflicting = {position for group in resolution.conflicts for position in group}
         for slot in slots:
+            if slot.position in conflicting:
+                continue
             label = f"readouts[{slot.position}] (flag {slot.name!r})"
-            if error or slot.position in unresolved:
-                problem = (
-                    "contradictory readout equations"
-                    if error
-                    else "equations allow either bit value"
+            if slot.position in resolution.blocked:
+                yield Diagnostic(
+                    self.name,
+                    Severity.WARNING,
+                    f"{label}: value not verified",
+                    _where(gadget),
+                    "This flag depends on inconsistent readout equations.",
+                    _path=f"readouts[{slot.position}].equation",
                 )
+            elif slot.position in resolution.unresolved:
                 yield Diagnostic(
                     self.name,
                     Severity.ERROR,
-                    f"{label} has no well-defined value: {problem}",
+                    f"{label} has no well-defined value: equations allow either bit value",
                     _where(gadget),
                     f"Declared equation: {_equation(gadget.readouts[slot.position].equation)}\n"
-                    + (
-                        error
-                        or f"readouts[{slot.position}] is not uniquely determined by the defining equations."
-                    ),
+                    f"readouts[{slot.position}] is not uniquely determined by the defining equations.",
                     _path=f"readouts[{slot.position}].equation",
                 )
             else:
@@ -349,15 +359,6 @@ class ActionMismatchRule:
             expected = declared_action_of(gadget)
             actual = realized_action_of(gadget)
         except (KeyError, ValueError, TypeError, NotImplementedError) as error:
-            if not gadget.inputs and gadget.outputs:
-                yield Diagnostic(
-                    self.name,
-                    Severity.INFO,
-                    "Logical action not checked: preparation has no input encoding",
-                    _where(gadget),
-                    f"{type(error).__name__}: {error}",
-                )
-                return
             yield Diagnostic(
                 self.name,
                 Severity.WARNING,
@@ -388,7 +389,7 @@ class ReadoutMismatchRule:
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         try:
-            mismatches = readout_disagreements(gadget)
+            mismatches = readout_disagreements(ParityAnalysis(gadget))
         except (KeyError, ValueError, TypeError, NotImplementedError) as error:
             yield Diagnostic(
                 self.name,
@@ -399,23 +400,30 @@ class ReadoutMismatchRule:
             )
             return
         for mismatch in mismatches:
-            position = mismatch.position
-            declared = _equation(gadget.readouts[position].equation)
-            detail = [f"Declared equation: {declared}"]
-            if mismatch.expected_equation is not None:
-                detail.append(
-                    f"Verified readout equation: {_equation(mismatch.expected_equation)}"
-                )
-            if mismatch.reason:
-                detail.append(mismatch.reason)
-            yield Diagnostic(
-                self.name,
-                self.severity,
-                mismatch.summary,
-                _where(gadget),
-                "\n".join(detail),
-                _path=f"readouts[{position}].equation",
-            )
+            yield _readout_diagnostic(self.name, gadget, mismatch)
+
+
+def _readout_diagnostic(
+    rule: str, gadget: qc.Gadget, mismatch: ReadoutMismatch
+) -> Diagnostic:
+    multiple = len(mismatch.positions) > 1
+    detail = []
+    for position in mismatch.positions:
+        label = f"readouts[{position}] equation" if multiple else "Declared equation"
+        detail.append(f"{label}: {_equation(gadget.readouts[position].equation)}")
+    for position, equation in mismatch.expected_equations.items():
+        suffix = f" for readouts[{position}]" if multiple else ""
+        detail.append(f"Verified readout equation{suffix}: {_equation(equation)}")
+    if mismatch.reason:
+        detail.append(mismatch.reason)
+    return Diagnostic(
+        rule,
+        mismatch.severity,
+        mismatch.summary,
+        _where(gadget),
+        "\n".join(detail),
+        _path=f"readouts[{mismatch.positions[0]}].equation",
+    )
 
 
 @dataclass(frozen=True)

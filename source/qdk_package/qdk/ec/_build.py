@@ -662,10 +662,10 @@ def build_qodec(
 
     ``strict`` defaults to ``True``: an instruction whose gadget does not
     complete and verify raises rather than being silently omitted.
-    Every returned qodec passes the default audit without diagnostics, including
-    with ``strict=False``. A failed final audit raises ValueError rather than
-    returning inconsistent declarations. Audit cleanliness does not establish
-    fault tolerance; evaluate circuit fault distance separately.
+    The default audit reports no errors or warnings for any returned qodec,
+    even with ``strict=False``. A failed final audit raises ValueError rather
+    than returning inconsistent declarations. Passing this audit does not
+    establish fault tolerance; evaluate circuit fault distance separately.
 
     ``strategy="flagged-css/v1"`` (the default) uses flag qubits during syndrome
     extraction. ``strategy="bare-css/v1"`` omits those flags and is not fault
