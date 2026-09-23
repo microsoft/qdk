@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Literal, TypeAlias, TypeVar
+from typing import cast, Literal, TypeAlias, TypeVar
 
 from pyqir import Module
 from qodec import Qodec
@@ -13,7 +13,7 @@ from .._simulation import OutputRecordingPass, preprocess_simulation_input
 from .adaptive_runtime import AdaptiveRuntime, OutputRecordValue
 from .bytecode import compile
 from .decoding import prepare_syndrome_decoder
-from .execution_pipeline import Executor
+from .executor import Executor
 from .protocols import (
     ExecutionRejected,
     ExecutionUnresolved,
@@ -40,25 +40,30 @@ def run_qir_with_qodec(
     on_shot_failure: ShotFailurePolicy = "raise",
     max_retries: int = 3,
 ) -> list[object]:
-    if type == "gpu":
-        raise NotImplementedError("Qodec execution does not support the GPU simulator")
-    if type not in (None, "clifford", "cpu"):
-        raise ValueError(f"Invalid simulator type: {type}")
-    if type == "cpu":
-        quantum_backend_factory = full_state_backend
+    match type:
+        case "cpu":
+            quantum_backend_factory = full_state_backend
+        case "clifford":
+            quantum_backend_factory = stabilizer_backend
+        case "gpu":
+            raise NotImplementedError("Qodec execution does not support GPU simulation")
+        case None:
+            pass
+        case _:
+            raise ValueError(f"Invalid simulator type: {type}")
     module, shots, noise, seed = preprocess_simulation_input(qir, shots, noise, seed)
     executor = Executor[AdaptiveProgram, list[OutputRecordValue]](
         qodec, decoder, noise, AdaptiveRuntime, quantum_backend_factory
     )
+    executor.set_seed(seed)
     recorder = OutputRecordingPass()
     recorder.run(module)
     return [
-        recorder.process_output(list(records))
+        recorder.process_output(cast(list[object], records))
         for records in run_qir_raw_records(
             module,
             executor,
             shots,
-            seed,
             on_shot_failure=on_shot_failure,
             max_retries=max_retries,
         )
@@ -69,7 +74,6 @@ def run_qir_raw_records(
     module: Module,
     executor: Executor[AdaptiveProgram, ResultT],
     shots: int,
-    seed: int | None,
     *,
     on_shot_failure: ShotFailurePolicy = "raise",
     max_retries: int = 3,
@@ -79,8 +83,6 @@ def run_qir_raw_records(
     if type(max_retries) is not int or max_retries < 0:
         raise ValueError("max_retries must be a non-negative integer")
     bytecode = compile(module)
-    if seed is not None:
-        executor.set_seed(seed)
     records: list[ResultT] = []
     for shot_index in range(shots):
         for attempt in range(max_retries + 1):

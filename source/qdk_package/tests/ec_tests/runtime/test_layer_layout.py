@@ -99,13 +99,14 @@ def test_encoded_support_addresses_logical_slots_of_lower_blocks():
             InstructionCall("P", operands=[1]),
             Operation("x", (LogicalSlot(1, 1, "pair"),)),
         ]
-        assert runtime.blocks["data"].support == (0, 1)
+        assert runtime.layout.blocks["data"].support == (0, 1)
     finally:
         runtime.close()
 
 
-def test_split_preserves_lower_support_and_changes_block_lifetimes():
+def test_split_preserves_lifetimes_and_execution_boundaries():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
+    from qdk.simulation._qodec.quantum_operations import Operation
 
     pair = qodec.Code("pair", [], ["X_0", "X_1"], ["Z_0", "Z_1"])
     single = qodec.Code("single", [], ["X_0"], ["Z_0"])
@@ -146,28 +147,77 @@ def test_split_preserves_lower_support_and_changes_block_lifetimes():
             ),
         ],
     )
-    decoder = RecordingDecoder()
+    events = []
+
+    class Decoder(RecordingDecoder):
+        def before(self, invocation: Invocation) -> Corrections[None]:
+            events.append("before decoder")
+            yield from ()
+
+    decoder = Decoder()
     runtime = LayerRuntime(LayerPlan(layer), decoder)
-    runtime.start(
-        runtime.required_resources(Resources(blocks={"pair": 1, "single": 2}))
-    )
+    resources = runtime.required_resources(Resources(blocks={"pair": 2, "single": 2}))
+    runtime.start(resources)
+
+    def respond(request):
+        if isinstance(request, Operation) and request.name == "discard":
+            events.append("discard lower block")
+        return ()
+
     try:
         drive(
             runtime.handle(InstructionCall("prepare", operands=["data"])),
-            lambda request: (),
+            respond,
         )
-        original = runtime.blocks["data"].reference
+        drive(
+            runtime.handle(InstructionCall("prepare", operands=["other"])),
+            respond,
+        )
+        original_data = runtime.layout.blocks["data"].reference
+        replaced_other = runtime.layout.blocks["other"].reference
+        events.clear()
         drive(
             runtime.handle(InstructionCall("split", operands=["data", "other"])),
-            lambda request: (),
+            respond,
         )
-        assert runtime.blocks["data"].support == (0,)
-        assert runtime.blocks["other"].support == (1,)
-        assert runtime.blocks["data"].reference.block_type == "single"
-        assert runtime.blocks["data"].reference != original
-        assert decoder.discarded_blocks == [original]
-        assert decoder.invocations[-1].inputs == (original,)
+        assert runtime.layout.blocks["data"].support == (0,)
+        assert runtime.layout.blocks["other"].support == (1,)
+        assert runtime.layout.blocks["data"].reference.block_type == "single"
+        assert runtime.layout.blocks["data"].reference != original_data
+        assert events == [
+            "discard lower block",
+            "discard lower block",
+            "before decoder",
+        ]
+        assert decoder.discarded_blocks == [replaced_other, original_data]
+        assert decoder.invocations[-1].inputs == (original_data,)
         assert len(decoder.invocations[-1].outputs) == 2
+
+        runtime.start(resources)
+        drive(
+            runtime.handle(InstructionCall("prepare", operands=["data"])),
+            respond,
+        )
+        drive(
+            runtime.handle(InstructionCall("prepare", operands=["other"])),
+            respond,
+        )
+        failure = RuntimeError("Lower-block discard failed")
+        discarded = []
+
+        def fail_second_discard(request):
+            discarded.append(request)
+            if len(discarded) == 2:
+                raise failure
+            return ()
+
+        with pytest.raises(RuntimeError, match="Lower-block discard failed") as raised:
+            drive(runtime.execute("split", ("data", "other"), {}), fail_second_discard)
+        assert raised.value is failure
+        assert runtime._failed
+        with pytest.raises(RuntimeError, match="failed invocation"):
+            drive(runtime.execute("split", ("data", "other"), {}), fail_second_discard)
+        assert discarded == [Operation("discard", (2,)), Operation("discard", (3,))]
     finally:
         runtime.close()
 
@@ -220,8 +270,8 @@ def test_code_change_can_expand_the_encoding_support():
             runtime.handle(InstructionCall("prepare", operands=[0])), lambda request: ()
         )
         drive(runtime.handle(InstructionCall("grow", operands=[0])), lambda request: ())
-        assert runtime.blocks[0].support == (0, 1, 2)
-        assert runtime.blocks[0].reference.block_type == "large"
+        assert runtime.layout.blocks[0].support == (0, 1, 2)
+        assert runtime.layout.blocks[0].reference.block_type == "large"
     finally:
         runtime.close()
 
@@ -294,7 +344,7 @@ def test_missing_encoded_input_is_not_implicitly_initialized():
     decoder = RecordingDecoder()
     runtime = LayerRuntime(LayerPlan(layer), decoder)
     runtime.start(runtime.required_resources(Resources(qubits=1)))
-    free = list(runtime.free)
+    free = list(runtime.layout.free)
     emitted = []
     try:
         with pytest.raises(ValueError, match="not been prepared"):
@@ -303,8 +353,8 @@ def test_missing_encoded_input_is_not_implicitly_initialized():
                 lambda request: emitted.append(request) or (),
             )
         assert emitted == []
-        assert runtime.blocks == {}
-        assert runtime.free == free
+        assert runtime.layout.blocks == {}
+        assert runtime.layout.free == free
         assert decoder.invocations == []
     finally:
         runtime.close()
@@ -323,9 +373,9 @@ def test_capacity_failure_preserves_live_blocks_and_invocation_identity():
             lambda request: (),
         )
         before = (
-            dict(runtime.blocks),
-            list(runtime.free),
-            dict(runtime._generations),
+            dict(runtime.layout.blocks),
+            list(runtime.layout.free),
+            dict(runtime.layout.generation_by_label),
             runtime._next_invocation,
         )
         with pytest.raises(ValueError, match="capacity"):
@@ -334,9 +384,9 @@ def test_capacity_failure_preserves_live_blocks_and_invocation_identity():
                 lambda request: (),
             )
         assert (
-            runtime.blocks,
-            runtime.free,
-            runtime._generations,
+            runtime.layout.blocks,
+            runtime.layout.free,
+            runtime.layout.generation_by_label,
             runtime._next_invocation,
         ) == before
         assert len(decoder.invocations) == 1
@@ -387,7 +437,7 @@ def test_mixed_lower_types_require_their_own_capacity():
                 runtime.handle(InstructionCall("prepare", operands=[0])),
                 lambda request: (),
             )
-        assert runtime.blocks == {}
+        assert runtime.layout.blocks == {}
     finally:
         runtime.close()
 
@@ -444,6 +494,6 @@ def test_discard_preserves_the_type_of_a_lower_block():
         )
         drive(runtime.discard(0), lambda request: emitted.append(request) or ())
         assert emitted == [Operation("discard", (LogicalSlot(0, 0, "pair"),))]
-        assert runtime.blocks == {}
+        assert runtime.layout.blocks == {}
     finally:
         runtime.close()

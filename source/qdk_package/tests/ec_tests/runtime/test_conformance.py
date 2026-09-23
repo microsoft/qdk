@@ -7,7 +7,7 @@ import qodec
 from qodec.instructions import InstructionCall
 
 from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-from qdk.simulation._qodec.execution_pipeline import Executor
+from qdk.simulation._qodec.executor import Executor
 from qdk.simulation._qodec.protocols import Readouts, Requests, Resources
 from qdk.simulation._qodec.quantum_backend import (
     QuantumBackend,

@@ -9,7 +9,7 @@ import qodec
 import pytest
 
 from qdk.simulation._qodec.bytecode import compile
-from qdk.simulation._qodec._pipeline import ExecutionPipeline
+from qdk.simulation._qodec.execution_pipeline import ExecutionPipeline
 from qdk.simulation._qodec.protocols import Closable, Startable
 from qdk.simulation._qodec.protocols import Resources
 from qdk.simulation._qodec._run import run_qir_with_qodec
@@ -31,7 +31,7 @@ def test_raw_shot_failure_policy_raises_by_default(monkeypatch, error_name):
     executor = Mock()
     executor.run.side_effect = failure
     with pytest.raises(type(failure)) as raised:
-        _run.run_qir_raw_records(Mock(), executor, 2, None)
+        _run.run_qir_raw_records(Mock(), executor, 2)
     assert raised.value is failure
     assert executor.run.call_count == 1
     executor.set_seed.assert_not_called()
@@ -56,7 +56,6 @@ def test_raw_shot_failure_policy_limits_retries(
             Mock(),
             executor,
             2,
-            7,
             on_shot_failure="retry",
             max_retries=max_retries,
         )
@@ -66,7 +65,7 @@ def test_raw_shot_failure_policy_limits_retries(
         f"Shot 1 failed after {max_retries + 1} attempts" in str(note)
         for note in getattr(raised.value, "__notes__", raised.value.args)
     )
-    executor.set_seed.assert_called_once_with(7)
+    executor.set_seed.assert_not_called()
 
 
 def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
@@ -88,14 +87,13 @@ def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
         module,
         executor,
         2,
-        7,
         on_shot_failure="retry",
         max_retries=1,
     ) == ["first", "second"]
     assert executor.run.call_count == 4
     assert all(call.args == (program,) for call in executor.run.call_args_list)
     compile_program.assert_called_once_with(module)
-    executor.set_seed.assert_called_once_with(7)
+    executor.set_seed.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -116,7 +114,7 @@ def test_raw_shot_policy_rejects_invalid_configuration_before_execution(
     monkeypatch.setattr(_run, "compile", compile_program)
     executor = Mock()
     with pytest.raises(ValueError):
-        _run.run_qir_raw_records(Mock(), executor, 1, 7, **options)
+        _run.run_qir_raw_records(Mock(), executor, 1, **options)
     compile_program.assert_not_called()
     executor.run.assert_not_called()
     executor.set_seed.assert_not_called()
@@ -250,7 +248,7 @@ def test_shot_policy_does_not_retry_preparation_failures(monkeypatch, policy):
     monkeypatch.setattr(_run, "compile", compile_program)
     executor = Mock()
     with pytest.raises(InconsistentParity) as raised:
-        _run.run_qir_raw_records(Mock(), executor, 2, 7, on_shot_failure=policy)
+        _run.run_qir_raw_records(Mock(), executor, 2, on_shot_failure=policy)
     assert raised.value is failure
     assert compile_program.call_count == 1
     executor.run.assert_not_called()
@@ -515,7 +513,7 @@ def test_native_instruction_program_preserves_flags_and_rejection(flag, reject_f
     from qodec.instructions import InstructionCall
 
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import Executor
+    from qdk.simulation._qodec.executor import Executor
     from qdk.simulation._qodec.protocols import ExecutionRejected, Readouts, Requests
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
@@ -618,7 +616,7 @@ def compile_qasm(source):
 def test_factory_creates_and_closes_injected_quantum_backends(fails):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.protocols import Readouts
     from qdk.simulation._qodec.quantum_operations import Operation
 
@@ -879,7 +877,7 @@ def test_quantum_engines_preserve_coherent_rotations_and_entanglement(backend_fa
 
 def test_backend_closes_if_decoder_construction_fails():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
 
     backend = Mock(execute=Mock(return_value=()), close=Mock())
 
@@ -957,7 +955,7 @@ def test_executor_preserves_custom_program_and_result_types(keyword_factories):
     from typing_extensions import assert_type
 
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import (
+    from qdk.simulation._qodec.executor import (
         Executor,
         ExecutionPipelineFactory,
     )
@@ -1046,7 +1044,7 @@ def test_decoder_preparation_is_only_required_for_encoded_layers():
     from typing import cast
 
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.protocols import PrepareDecoder
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
@@ -1083,7 +1081,7 @@ def test_executor_creates_and_closes_non_adaptive_runtimes_per_shot(fail):
     from types import SimpleNamespace
 
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import Executor
+    from qdk.simulation._qodec.executor import Executor
     from qdk.simulation._qodec.quantum_operations import Operation
 
     class ClassicalRuntime:
@@ -1212,7 +1210,7 @@ def test_resource_counts_are_inspectable_without_starting_stages(
 ):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
     from qdk.simulation._qodec.quantum_backend import QuantumBackend
 
@@ -1238,8 +1236,8 @@ def test_resource_counts_are_inspectable_without_starting_stages(
         backend = pipeline.quantum_backend
         assert isinstance(encoded, LayerRuntime)
         assert isinstance(backend, QuantumBackend)
-        assert encoded.blocks == {}
-        assert encoded.free == []
+        assert encoded.layout.blocks == {}
+        assert encoded.layout.free == []
         assert not pipeline.closed
         with pytest.raises(RuntimeError, match="has not been started"):
             _ = backend.engine
@@ -1250,7 +1248,7 @@ def test_resource_counts_are_inspectable_without_starting_stages(
 def test_sizing_failure_does_not_start_any_stage(monkeypatch):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
 
     pipeline = ExecutionPipelineFactory(
@@ -2068,12 +2066,20 @@ def test_executor_does_not_complete_missing_pauli_gadgets(declared):
         drive_requests(
             runtime.handle(InstructionCall("prepare_z", operands=[0])), respond
         )
-        before = (dict(runtime.blocks), list(runtime.free), runtime._next_invocation)
+        before = (
+            dict(runtime.layout.blocks),
+            list(runtime.layout.free),
+            runtime._next_invocation,
+        )
         respond.reset_mock()
         with pytest.raises(NotImplementedError, match="implement"):
             drive_requests(runtime.handle(Operation("x", (0,))), respond)
         respond.assert_not_called()
-        assert (runtime.blocks, runtime.free, runtime._next_invocation) == before
+        assert (
+            runtime.layout.blocks,
+            runtime.layout.free,
+            runtime._next_invocation,
+        ) == before
         assert codec.dumps() == authored
     finally:
         runtime.close()
@@ -2110,7 +2116,11 @@ def test_native_call_arguments_fail_before_side_effects(arguments, message):
         drive_requests(
             runtime.handle(InstructionCall("prepare_z", operands=[0])), respond
         )
-        before = (dict(runtime.blocks), list(runtime.free), runtime._next_invocation)
+        before = (
+            dict(runtime.layout.blocks),
+            list(runtime.layout.free),
+            runtime._next_invocation,
+        )
         respond.reset_mock()
         with pytest.raises((TypeError, ValueError), match=message):
             drive_requests(
@@ -2120,7 +2130,11 @@ def test_native_call_arguments_fail_before_side_effects(arguments, message):
                 respond,
             )
         respond.assert_not_called()
-        assert (runtime.blocks, runtime.free, runtime._next_invocation) == before
+        assert (
+            runtime.layout.blocks,
+            runtime.layout.free,
+            runtime._next_invocation,
+        ) == before
     finally:
         runtime.close()
         backend.close()
@@ -2178,7 +2192,7 @@ def test_supplied_gadgets_ignore_unrelated_instruction_actions(unrelated):
             for request in emitted
             if isinstance(request, InstructionCall)
         ] == ["R"] * 3 + ["M"] * 3
-        assert runtime.blocks == {}
+        assert runtime.layout.blocks == {}
     finally:
         runtime.close()
 
@@ -2313,12 +2327,12 @@ def test_layer_can_lower_and_decode_without_a_downstream_runtime():
     lower_qubits = runtime.required_resources(Resources(qubits=1))
     assert lower_qubits == Resources(qubits=5)
     assert runtime.start(lower_qubits) is None
-    assert runtime.free == list(range(lower_qubits.qubits))
+    assert runtime.layout.free == list(range(lower_qubits.qubits))
     try:
         drive_requests(runtime.prepare(0), respond)
-        assert runtime.blocks[0].support == (0, 1, 2)
+        assert runtime.layout.blocks[0].support == (0, 1, 2)
         assert drive_requests(runtime.measure(0), respond) is False
-        assert runtime.blocks == {}
+        assert runtime.layout.blocks == {}
         assert [
             request.mnemonic
             for request in emitted
@@ -2464,7 +2478,7 @@ def test_decoder_hooks_track_lifetimes_and_correct_other_live_blocks():
         assert replacement.generation == original.generation + 1
         assert discarded == [original]
         assert [invocation.id for invocation in invocations] == list(range(4))
-        assert runtime.blocks[0].support == (0, 1, 2)
+        assert runtime.layout.blocks[0].support == (0, 1, 2)
     finally:
         runtime.close()
 
@@ -2548,7 +2562,7 @@ def test_unknown_selection_flags_are_rejected_before_execution():
                 respond,
             )
         respond.assert_not_called()
-        assert runtime.blocks == {}
+        assert runtime.layout.blocks == {}
     finally:
         runtime.close()
         backend.close()
@@ -2601,7 +2615,7 @@ def test_layer_uses_its_prepared_resolver_for_phase_gates():
         assert emitted == [
             InstructionCall("rotate_z", operands=[0], arguments={"theta": pi / 4})
         ]
-        assert runtime.blocks["data"].support == (0, 1, 2)
+        assert runtime.layout.blocks["data"].support == (0, 1, 2)
     finally:
         runtime.close()
         backend.close()
@@ -2649,7 +2663,7 @@ def test_layer_resolves_the_entire_decomposition_before_execution(supported):
             with pytest.raises(UnboundOperation, match="does not implement 'h'"):
                 drive_requests(runtime.apply("phase_pair", (0,)), respond)
             assert emitted == []
-        assert runtime.blocks[0].support == (0, 1, 2)
+        assert runtime.layout.blocks[0].support == (0, 1, 2)
     finally:
         runtime.close()
         backend.close()
@@ -2720,7 +2734,7 @@ def test_layer_lowers_logical_paulis_and_lifts_measurements():
 
         assert drive_requests(runtime.measure(0), execute_lower) is True
         assert drive_requests(runtime.measure(1), execute_lower) is False
-        assert runtime.blocks == {}
+        assert runtime.layout.blocks == {}
     finally:
         runtime.close()
         backend.close()
@@ -2738,7 +2752,7 @@ def test_idle_materializes_correction_before_continuing():
 
     try:
         drive_requests(runtime.prepare(0), execute_lower)
-        data = runtime.blocks[0].support
+        data = runtime.layout.blocks[0].support
         backend.apply("x", (data[1],))
 
         drive_requests(runtime.execute("idle", (0,), {}), execute_lower)
@@ -2899,7 +2913,7 @@ def test_factory_prepares_physical_operations_once_with_separate_translators(
     from qdk.simulation._qodec import instruction_set
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.instruction_set import InstructionRuntime
 
     lower = Mock(wraps=instruction_set.action_operations)
@@ -2945,7 +2959,7 @@ def test_factory_prepares_physical_operations_once_with_separate_translators(
 def test_factory_replays_seeds_with_layers_in_execution_order():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
     from qdk.simulation._qodec.quantum_backend import QuantumBackend
 
@@ -3004,7 +3018,7 @@ def test_factory_replays_seeds_with_layers_in_execution_order():
 def test_nested_resource_counts_expand_at_each_encoding_layer():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
 
     pipeline = ExecutionPipelineFactory(
         nested_repetition_qodec(),
@@ -3291,7 +3305,7 @@ def test_erased_readouts_remain_explicitly_unavailable():
 def test_empty_qodec_is_rejected():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
 
     with pytest.raises(ValueError, match="physical instruction set"):
         ExecutionPipelineFactory(
@@ -3306,7 +3320,7 @@ def test_empty_qodec_is_rejected():
 def test_nondestructive_measurement_does_not_trigger_repreparation():
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
@@ -3401,7 +3415,7 @@ def test_partial_syndromes_do_not_invent_unobserved_boundary_signs():
 def test_factory_exposes_independent_stages_for_request_and_readout_probes(monkeypatch):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.instruction_set import InstructionRuntime
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
     from qdk.simulation._qodec.logical_qubits import LogicalQubits
@@ -3452,7 +3466,7 @@ def test_factory_exposes_independent_stages_for_request_and_readout_probes(monke
 def test_pipeline_closes_every_resource_on_failure(monkeypatch, failure):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
 
     pipeline = ExecutionPipelineFactory(
@@ -3491,14 +3505,14 @@ def test_pipeline_closes_every_resource_on_failure(monkeypatch, failure):
     assert isinstance(runtime, AdaptiveRuntime)
     assert isinstance(encoded.decoder, SyndromeSession)
     assert encoded.decoder.closed
-    assert encoded.blocks == {}
+    assert encoded.layout.blocks == {}
     assert runtime._pending == []
 
 
 def test_classical_runtime_cleanup_failure_does_not_skip_other_resources(monkeypatch):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
-    from qdk.simulation._qodec.execution_pipeline import ExecutionPipelineFactory
+    from qdk.simulation._qodec.executor import ExecutionPipelineFactory
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
 
     class FailingCleanupRuntime(AdaptiveRuntime):

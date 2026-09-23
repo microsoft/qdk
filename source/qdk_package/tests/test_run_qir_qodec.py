@@ -78,7 +78,7 @@ def test_shot_failure_options_require_a_qodec(options):
 @pytest.mark.parametrize("failure", [None, "start", "execute"])
 def test_pipeline_routes_readouts_and_closes_each_component(failure):
     pytest.importorskip("qodec")
-    from qdk.simulation._qodec._pipeline import ExecutionPipeline
+    from qdk.simulation._qodec.execution_pipeline import ExecutionPipeline
     from qdk.simulation._qodec.protocols import Readouts, Requests, Resources
     from qdk.simulation._qodec.quantum_operations import Operation
 
@@ -140,7 +140,7 @@ def test_adaptive_runtime_branches_on_returned_readouts(measurement):
     from qdk import Result
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.bytecode import compile
-    from qdk.simulation._qodec._pipeline import ExecutionPipeline
+    from qdk.simulation._qodec.execution_pipeline import ExecutionPipeline
     from qdk.simulation._simulation import preprocess_simulation_input
     from test_adaptive_cpu_quantum_ops import MEASURE_AND_CORRECT_QIR
 
@@ -245,8 +245,8 @@ def test_shot_failure_policy_preserves_order_and_attempt_count(policy, failure_t
     attempts = []
 
     class Executor:
-        def set_seed(self, seed):
-            assert seed == 7
+        def set_seed(self, _seed):
+            pass
 
         def run(self, program):
             attempts.append(program)
@@ -261,12 +261,12 @@ def test_shot_failure_policy_preserves_order_and_attempt_count(policy, failure_t
     """)
     if policy == "raise":
         with pytest.raises(type(failure)) as raised:
-            _run.run_qir_raw_records(module, Executor(), 3, 7, on_shot_failure=policy)
+            _run.run_qir_raw_records(module, Executor(), 3, on_shot_failure=policy)
         assert raised.value is failure
         assert len(attempts) == 2
     else:
         records = _run.run_qir_raw_records(
-            module, Executor(), 3, 7, on_shot_failure=policy
+            module, Executor(), 3, on_shot_failure=policy
         )
         assert records == (
             ["first", "second"] if policy == "discard" else ["first", "second", "third"]
@@ -294,5 +294,5 @@ def test_shot_failure_policy_does_not_catch_execution_errors(policy, error_type)
         attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
     """)
     with pytest.raises(error_type) as raised:
-        run_qir_raw_records(module, Executor(), 1, None, on_shot_failure=policy)
+        run_qir_raw_records(module, Executor(), 1, on_shot_failure=policy)
     assert raised.value is failure

@@ -1,103 +1,90 @@
 from __future__ import annotations
 
-from contextlib import ExitStack
-from random import Random
-from typing import Generic, TypeVar
+from collections.abc import Iterable
+from contextlib import ExitStack, closing
+from typing import Generic, TypeVar, cast
 
-from qodec import Qodec
-
-from .. import NoiseConfig
-from ._pipeline import ExecutionPipeline
-from .instruction_set import InstructionRuntime, InstructionSet, prepare_operations
-from .layer_runtime import LayerPlan, LayerRuntime
-from .logical_qubits import LogicalQubits
 from .protocols import (
-    ClassicalRuntimeFactory,
+    ClassicalRuntime,
     Closable,
-    DecoderFactory,
     ExecutionLayer,
-    PrepareDecoder,
-    QuantumBackendFactory,
+    OperationExecutor,
+    Readouts,
+    Requests,
+    Resources,
+    Startable,
 )
+from .quantum_operations import Operation
 
 ProgramT = TypeVar("ProgramT")
 ResultT = TypeVar("ResultT")
+ValueT = TypeVar("ValueT")
 
 
-class Executor(Generic[ProgramT, ResultT]):
+class ExecutionPipeline(Generic[ProgramT, ResultT]):
     def __init__(
         self,
-        qodec: Qodec,
-        decoder: PrepareDecoder,
-        noise: NoiseConfig | None,
-        classical_runtime_factory: ClassicalRuntimeFactory[ProgramT, ResultT],
-        quantum_backend_factory: QuantumBackendFactory,
+        classical_runtime: ClassicalRuntime[ProgramT, ResultT],
+        layers: Iterable[ExecutionLayer],
+        quantum_backend: OperationExecutor,
     ) -> None:
-        self.pipeline_factory = ExecutionPipelineFactory(
-            qodec, decoder, noise, classical_runtime_factory, quantum_backend_factory
-        )
-
-    def set_seed(self, seed: int | None) -> None:
-        self.pipeline_factory.set_seed(seed)
+        self.classical_runtime = classical_runtime
+        self.layers = tuple(layers)
+        self.quantum_backend = quantum_backend
+        self.closed = False
 
     def run(self, bytecode: ProgramT) -> ResultT:
-        return self.pipeline_factory.build_pipeline().run(bytecode)
+        self._check_pipeline_is_open()
+        try:
+            self._start(self.classical_runtime.required_resources(bytecode))
+            # Python executes the `finally` block after the return value is evaluated
+            # but before it is actually returned.
+            return self._drive(self.classical_runtime.run(bytecode), 0)
+        finally:
+            self._close()
 
+    def resource_counts(self, upper: Resources) -> tuple[Resources, ...]:
+        counts = [upper]
+        for layer in self.layers:
+            counts.append(layer.required_resources(counts[-1]))
+        return tuple(counts)
 
-class ExecutionPipelineFactory(Generic[ProgramT, ResultT]):
-    def __init__(
-        self,
-        qodec: Qodec,
-        decoder: PrepareDecoder,
-        noise: NoiseConfig | None,
-        classical_runtime_factory: ClassicalRuntimeFactory[ProgramT, ResultT],
-        quantum_backend_factory: QuantumBackendFactory,
-    ) -> None:
-        self.noise = noise
-        self.classical_runtime_factory = classical_runtime_factory
-        self.quantum_backend_factory = quantum_backend_factory
-        self.rng = Random()
-        qodec.validate()
-        if not qodec.layers:
-            raise ValueError("A Qodec must contain a physical instruction set")
-        self.physical = InstructionSet(qodec.layers[-1].instruction_set)
-        self.physical_operations = prepare_operations(self.physical)
-        self.prepared: tuple[tuple[LayerPlan, DecoderFactory], ...] = ()
-        if len(qodec.layers) > 1:
-            if not callable(decoder):
-                raise TypeError("decoder must be a callable that prepares a layer")
-            self.prepared = tuple(
-                (LayerPlan(layer), decoder(layer)) for layer in qodec.layers[:-1]
-            )
+    def _check_pipeline_is_open(self) -> None:
+        if self.closed:
+            raise RuntimeError("Execution pipeline is closed")
 
-    def set_seed(self, seed: int | None) -> None:
-        self.rng.seed(seed)
+    def _drive(self, requests: Requests[ValueT], depth: int) -> ValueT:
+        with closing(requests):
+            reply: Readouts | None = None
+            while True:
+                try:
+                    request = requests.send(reply)
+                except StopIteration as completed:
+                    return cast(ValueT, completed.value)
+                if depth == len(self.layers):
+                    if not isinstance(request, Operation):
+                        raise TypeError(
+                            "The quantum backend requires a lowered Operation"
+                        )
+                    reply = self.quantum_backend.execute(request)
+                else:
+                    reply = self._drive(self.layers[depth].handle(request), depth + 1)
 
-    def build_pipeline(self) -> ExecutionPipeline[ProgramT, ResultT]:
-        seeds = Random(self.rng.getrandbits(64))
-        backend_seed = seeds.getrandbits(64)
-        decoder_seeds = [seeds.getrandbits(64) for _ in self.prepared]
+    def _start(self, upper: Resources) -> None:
+        self._check_pipeline_is_open()
+        counts = self.resource_counts(upper)
+        for layer, lower in zip(self.layers, counts[1:]):
+            if isinstance(layer, Startable):
+                layer.start(lower)
+        if isinstance(self.quantum_backend, Startable):
+            self.quantum_backend.start(counts[-1])
+
+    def _close(self) -> None:
+        self._check_pipeline_is_open()
+        self.closed = True
         with ExitStack() as resources:
-            backend = self.quantum_backend_factory(self.noise, backend_seed)
-            if isinstance(backend, Closable):
-                resources.callback(backend.close)
-            layers: list[ExecutionLayer] = []
-            for (plan, decoder_factory), decoder_seed in zip(
-                self.prepared, decoder_seeds
+            for component in reversed(
+                (self.classical_runtime, *self.layers, self.quantum_backend)
             ):
-                session = decoder_factory(decoder_seed)
-                resources.callback(session.close)
-                layers.append(LayerRuntime(plan, session))
-            pipeline = ExecutionPipeline(
-                self.classical_runtime_factory(),
-                [
-                    LogicalQubits(),
-                    *layers,
-                    InstructionRuntime(
-                        self.physical, operations=self.physical_operations
-                    ),
-                ],
-                backend,
-            )
-            resources.pop_all()
-            return pipeline
+                if isinstance(component, Closable):
+                    resources.callback(component.close)
