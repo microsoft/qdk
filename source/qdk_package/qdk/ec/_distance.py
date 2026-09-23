@@ -82,12 +82,8 @@ def _fault_product(factors: tuple[FaultEvent, ...]) -> FaultEvent:
 
 
 def _copy_fault(fault: FaultEvent) -> FaultEvent:
-    return FaultEvent._from_locations(
-        {
-            call: (error.copy(), flips)
-            for call, (error, flips) in fault._locations.items()
-        }
-    )
+    """Retain an immutable event snapshot without copying its locations."""
+    return fault
 
 
 @dataclass

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from types import MappingProxyType
 
 from binar import BitMatrix, BitVector
 import qodec as qc
@@ -36,37 +35,38 @@ class FaultEvent:
 
     ``FaultEvent()`` is the identity event. The optional ``locations`` mapping
     constructs post-call Pauli errors, with the same call indexes as ``after``.
+    Input Paulis are copied. The ``locations`` property returns an ordered tuple
+    of ``FaultEvent.Location`` values describing the combined change at each
+    affected call, not the history of fault occurrences. Locations are stored
+    in call-index order; multiplication merges them without sorting again.
     """
 
-    _locations: Mapping[int, tuple[Pauli, frozenset[int]]]
+    _locations: tuple[FaultEvent.Location, ...]
 
     def __init__(
         self,
         locations: Mapping[int, Pauli] | None = None,
     ) -> None:
         normalized = {
-            int(location): (error, frozenset())
+            int(location): error
             for location, error in (locations or {}).items()
             if error.weight
         }
-        object.__setattr__(self, "_locations", MappingProxyType(normalized))
-
-    @classmethod
-    def _from_locations(
-        cls, locations: Mapping[int, tuple[Pauli, frozenset[int]]]
-    ) -> "FaultEvent":
-        event = cls()
         object.__setattr__(
-            event,
+            self,
             "_locations",
-            MappingProxyType(
-                {
-                    call: (error, flips)
-                    for call, (error, flips) in locations.items()
-                    if error.weight or flips
-                }
+            tuple(
+                self.Location._create(call, error, frozenset())
+                for call, error in sorted(normalized.items())
             ),
         )
+
+    @classmethod
+    def _from_sorted_locations(
+        cls, locations: tuple[FaultEvent.Location, ...]
+    ) -> "FaultEvent":
+        event = cls()
+        object.__setattr__(event, "_locations", locations)
         return event
 
     @classmethod
@@ -94,47 +94,74 @@ class FaultEvent:
             not isinstance(index, int) or isinstance(index, bool) for index in flips
         ):
             raise TypeError("readout indexes must be integers")
-        return cls._from_locations(
-            {
-                instruction: (
-                    Pauli.identity() if error is None else error,
-                    frozenset(flips),
-                )
-            }
+        pauli = Pauli.identity() if error is None else error
+        if not pauli.weight and not flips:
+            return cls()
+        return cls._from_sorted_locations(
+            (cls.Location._create(instruction, pauli, frozenset(flips)),)
         )
+
+    @property
+    def locations(self) -> tuple[FaultEvent.Location, ...]:
+        """Combined changes ordered by zero-based ``Circuit.calls()`` index.
+
+        Each affected call appears once. Canceled changes are omitted; the
+        identity event returns an empty tuple. Locations are immutable snapshots
+        and their ``error`` properties return copies.
+        """
+        return self._locations
 
     @property
     def weight(self) -> int:
         """Sum of Pauli weights and recorded-bit flips, not distance-search cost."""
         return sum(
-            error.weight + len(flips) for error, flips in self._locations.values()
+            location._error.weight + len(location.readout_flips)
+            for location in self._locations
         )
 
     def __mul__(self, other: "FaultEvent") -> "FaultEvent":
-        combined = dict(self._locations)
-        for location, (error, flips) in other._locations.items():
-            previous_error, previous_flips = combined.get(
-                location, (Pauli.identity(), frozenset())
-            )
-            combined[location] = (previous_error * error, previous_flips ^ flips)
-        return type(self)._from_locations(combined)
+        if not isinstance(other, FaultEvent):
+            return NotImplemented
+        combined = []
+        left_index = right_index = 0
+        while left_index < len(self._locations) and right_index < len(other._locations):
+            left = self._locations[left_index]
+            right = other._locations[right_index]
+            if left.after_call < right.after_call:
+                combined.append(left)
+                left_index += 1
+            elif right.after_call < left.after_call:
+                combined.append(right)
+                right_index += 1
+            else:
+                error = left._error * right._error
+                flips = left.readout_flips ^ right.readout_flips
+                if error.weight or flips:
+                    combined.append(
+                        self.Location._create(left.after_call, error, flips)
+                    )
+                left_index += 1
+                right_index += 1
+        combined.extend(self._locations[left_index:])
+        combined.extend(other._locations[right_index:])
+        return type(self)._from_sorted_locations(tuple(combined))
 
     def __hash__(self) -> int:
-        return hash(
-            tuple(
-                (location, str(error), flips)
-                for location, (error, flips) in sorted(self._locations.items())
-            )
-        )
+        return hash(self._locations)
 
     def __str__(self) -> str:
         parts = []
-        for location, (error, flips) in sorted(self._locations.items()):
-            changes = [f"{error:sparse,ascii} after call {location}"] if error.weight else []
+        for location in self._locations:
+            error, flips = location._error, location.readout_flips
+            changes = (
+                [f"{error:sparse,ascii} after call {location.after_call}"]
+                if error.weight
+                else []
+            )
             if flips:
                 label = "readout" if len(flips) == 1 else "readouts"
                 changes.append(
-                    f"flip call {location} {label} {', '.join(map(str, sorted(flips)))}"
+                    f"flip call {location.after_call} {label} {', '.join(map(str, sorted(flips)))}"
                 )
             description = "; ".join(changes)
             if len(changes) > 1:
@@ -148,8 +175,9 @@ class FaultEvent:
     def __repr__(self) -> str:
         name = type(self).__name__
         parts = []
-        for location, (error, flips) in sorted(self._locations.items()):
-            arguments = [str(location)]
+        for location in self._locations:
+            error, flips = location._error, location.readout_flips
+            arguments = [str(location.after_call)]
             if error.weight:
                 arguments.append(f"Pauli({str(error)!r})")
             if flips:
@@ -159,6 +187,54 @@ class FaultEvent:
                 )
             parts.append(f"{name}.after({', '.join(arguments)})")
         return " * ".join(parts) if parts else f"{name}()"
+
+    @dataclass(frozen=True, init=False, repr=False, slots=True)
+    class Location:
+        """The combined Pauli error and readout flips after one circuit call.
+
+        Obtain locations from ``FaultEvent.locations``. Equality and hashing
+        compare the call index, Pauli error, and readout flips, not circuit
+        ownership. Mutating a returned Pauli does not change this location.
+        """
+
+        _after_call: int
+        _error: Pauli
+        _readout_flips: frozenset[int]
+
+        def __new__(cls) -> FaultEvent.Location:
+            raise TypeError("FaultEvent.Location is returned by FaultEvent.locations")
+
+        @classmethod
+        def _create(
+            cls, after_call: int, error: Pauli, readout_flips: frozenset[int]
+        ) -> FaultEvent.Location:
+            location = object.__new__(cls)
+            object.__setattr__(location, "_after_call", after_call)
+            object.__setattr__(location, "_error", error.copy())
+            object.__setattr__(location, "_readout_flips", readout_flips)
+            return location
+
+        @property
+        def after_call(self) -> int:
+            """Zero-based ``Circuit.calls()`` index after which this fault is applied."""
+            return self._after_call
+
+        @property
+        def error(self) -> Pauli:
+            """Copy of the post-call Pauli on circuit qubits; identity for readout-only faults."""
+            return self._error.copy()
+
+        @property
+        def readout_flips(self) -> frozenset[int]:
+            """Flipped indexes within this call's own readouts, starting at zero."""
+            return self._readout_flips
+
+        def __repr__(self) -> str:
+            return (
+                f"FaultEvent.Location(after_call={self.after_call}, "
+                f"error=Pauli({str(self._error)!r}), "
+                f"readout_flips={self.readout_flips!r})"
+            )
 
 
 @dataclass(frozen=True, init=False, repr=False, slots=True)

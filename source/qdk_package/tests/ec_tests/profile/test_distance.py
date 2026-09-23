@@ -235,8 +235,10 @@ def test_fault_witness_keeps_readout_cancellation_and_phase() -> None:
         factors, product=_fault_product, copy=_copy_fault
     )
     assert witness.product == factors[0] * factors[1]
-    assert witness.product._locations[3][1] == frozenset({1})
-    assert witness.product._locations[3][0].phase == (Pauli("X") * Pauli("Z")).phase
+    (location,) = witness.product.locations
+    assert location.after_call == 3
+    assert location.readout_flips == frozenset({1})
+    assert location.error.phase == (Pauli("X") * Pauli("Z")).phase
     assert hash(witness) == hash(
         Distance.Witness._create(factors, product=_fault_product, copy=_copy_fault)
     )

@@ -347,7 +347,9 @@ def propagate_faults(
     injections: dict[int, list[tuple[int, Pauli]]] = {}
     readout_injections: list[tuple[int, int]] = []
     for fault_index, fault in enumerate(fault_basis):
-        for instruction_index, (pauli, readouts) in fault._locations.items():
+        for location in fault.locations:
+            instruction_index = location.after_call
+            pauli, readouts = location.error, location.readout_flips
             if not 0 <= instruction_index < len(calls):
                 raise ValueError(
                     f"fault call index {instruction_index} is out of bounds for {len(calls)} calls"

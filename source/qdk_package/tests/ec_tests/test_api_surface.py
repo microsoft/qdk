@@ -125,7 +125,9 @@ def test_readout_faults_are_immutable_and_compose_by_parity() -> None:
         3, ec.Pauli("X_0"), readout_flips=0
     )
     assert {name for name in dir(readout_fault) if not name.startswith("_")} == {
+        "Location",
         "after",
+        "locations",
         "weight",
     }
     assert (
@@ -134,6 +136,115 @@ def test_readout_faults_are_immutable_and_compose_by_parity() -> None:
     )
     with pytest.raises(TypeError, match="integers"):
         ec.FaultEvent.after(3, readout_flips=[True])
+
+
+def test_fault_event_locations_are_ordered_combined_changes() -> None:
+    event = (
+        ec.FaultEvent.after(7, readout_flips=[2, 0])
+        * ec.FaultEvent.after(3, ec.Pauli("X_4"))
+        * ec.FaultEvent.after(3, readout_flips=1)
+    )
+    locations = event.locations
+    assert isinstance(locations, tuple)
+    assert [location.after_call for location in locations] == [3, 7]
+    assert locations[0].error == ec.Pauli("X_4")
+    assert locations[0].readout_flips == frozenset({1})
+    assert locations[1].error == ec.Pauli.identity()
+    assert locations[1].readout_flips == frozenset({0, 2})
+    assert all(isinstance(location, ec.FaultEvent.Location) for location in locations)
+    assert locations == event.locations
+    assert hash(locations) == hash(event.locations)
+
+
+def test_fault_event_mapping_order_does_not_affect_identity() -> None:
+    first = ec.FaultEvent({7: ec.Pauli("X_0"), 2: ec.Pauli("Z_1")})
+    second = ec.FaultEvent({2: ec.Pauli("Z_1"), 7: ec.Pauli("X_0")})
+    assert [location.after_call for location in first.locations] == [2, 7]
+    assert first == second
+    assert hash(first) == hash(second)
+    assert str(first) == str(second)
+    assert repr(first) == repr(second)
+    assert first.locations is first.locations
+
+
+def test_fault_event_product_merges_locations_preserving_pauli_order() -> None:
+    left = ec.FaultEvent({9: ec.Pauli("X_0"), 5: ec.Pauli("X_2"), 1: ec.Pauli("Z_3")})
+    left *= ec.FaultEvent.after(5, readout_flips=[0, 1])
+    right = ec.FaultEvent({8: ec.Pauli("Z_0"), 5: ec.Pauli("Z_2"), 4: ec.Pauli("X_1")})
+    right *= ec.FaultEvent.after(5, readout_flips=[1, 2])
+    product = left * right
+    assert [location.after_call for location in product.locations] == [1, 4, 5, 8, 9]
+    assert product.locations[2].error == ec.Pauli("X_2") * ec.Pauli("Z_2")
+    assert product.locations[2].readout_flips == frozenset({0, 2})
+    assert product != right * left
+    assert product.locations[0] is left.locations[0]
+    assert product.locations[1] is right.locations[0]
+    assert left * ec.FaultEvent() == ec.FaultEvent() * left == left
+
+
+def test_fault_event_locations_omit_canceled_changes() -> None:
+    event = ec.FaultEvent.after(3, ec.Pauli("X_4"), readout_flips=0)
+    remaining = event * ec.FaultEvent.after(3, ec.Pauli("X_4"))
+    assert len(remaining.locations) == 1
+    assert remaining.locations[0].error == ec.Pauli.identity()
+    assert remaining.locations[0].readout_flips == frozenset({0})
+    assert (event * event).locations == ()
+    assert ec.FaultEvent().locations == ()
+    assert ec.FaultEvent({3: ec.Pauli.identity()}).locations == ()
+
+
+@pytest.mark.parametrize("constructor", ["after", "mapping"])
+def test_fault_event_copies_input_paulis(constructor: str) -> None:
+    error = ec.Pauli("X_4")
+    event = (
+        ec.FaultEvent.after(3, error)
+        if constructor == "after"
+        else ec.FaultEvent({3: error})
+    )
+    expected = ec.FaultEvent.after(3, ec.Pauli("X_4"))
+    original_hash = hash(event)
+    original_locations = event.locations
+    error *= ec.Pauli("Z_4")
+    assert event == expected
+    assert hash(event) == original_hash
+    assert event.locations == original_locations
+
+
+def test_fault_event_location_errors_are_defensive_copies() -> None:
+    event = ec.FaultEvent.after(3, ec.Pauli("X_4"), readout_flips=0)
+    (location,) = event.locations
+    original_event_hash = hash(event)
+    original_location_hash = hash(location)
+    error = location.error
+    error *= ec.Pauli("Z_4")
+    assert location.error == ec.Pauli("X_4")
+    assert event.locations == (location,)
+    assert hash(event) == original_event_hash
+    assert hash(location) == original_location_hash
+    assert event * event == ec.FaultEvent()
+
+
+def test_fault_event_location_contract() -> None:
+    assert {name for name in dir(ec.FaultEvent) if not name.startswith("_")} == {
+        "Location",
+        "after",
+        "locations",
+        "weight",
+    }
+    assert {
+        name for name in dir(ec.FaultEvent.Location) if not name.startswith("_")
+    } == {"after_call", "error", "readout_flips"}
+    with pytest.raises(TypeError, match="returned by FaultEvent.locations"):
+        ec.FaultEvent.Location()
+    (location,) = ec.FaultEvent.after(3, readout_flips=0).locations
+    for name, value in (
+        ("after_call", 4),
+        ("error", ec.Pauli("X_0")),
+        ("readout_flips", frozenset()),
+    ):
+        with pytest.raises((AttributeError, TypeError)):
+            setattr(location, name, value)
+    assert "after_call=3" in repr(location)
 
 
 def test_fault_event_after_accepts_single_or_multiple_local_readouts() -> None:

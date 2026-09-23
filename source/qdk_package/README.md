@@ -268,11 +268,33 @@ Pass `faults=...` to replace the default set; `faults=[]` means no allowed fault
 An explicit event may span several call positions and still counts as one allowed
 factor. The reported distance counts witness factors, not `FaultEvent.weight`,
 which sums Pauli support weights and the number of flipped readout bits.
-`FaultEvent` is immutable and opaque; its `repr` shows equivalent `after(...)`
+`FaultEvent` is immutable; its `repr` shows equivalent `after(...)`
 expressions with call-local indexes. Witness products combine Pauli errors and
 XOR readout flips at each call for replay with `effects_of`. `FaultEvent()` is
 the identity; the mapping constructor remains available for post-call Pauli
 errors.
+
+Inspect an event through `event.locations`, a tuple of `FaultEvent.Location`
+values stored in increasing call-index order. Each location provides
+`after_call`, `error`, and `readout_flips`. `after_call` is the zero-based index
+in `Circuit.calls()` after which the fault is applied. The Pauli acts on circuit
+qubits, and readout flips use that call's local indexes. Each affected call
+appears once, with its combined
+changes; canceled changes are omitted. The identity event has no locations.
+Products merge the ordered locations without sorting again.
+
+```python
+calls = gadget.circuit.calls()
+for location in fault.locations:
+    call = calls[location.after_call]
+    print(call, location.error, location.readout_flips)
+```
+
+Locations are immutable values returned by events, not separately constructed
+faults. Equality and hashing compare their fields, not circuit ownership.
+`error` returns a defensive Pauli copy, and `readout_flips` is a `frozenset`;
+readout-only faults have an identity Pauli. Event construction also copies
+input Paulis, so later mutations do not change the event or its hash.
 
 `FaultEffect` is an immutable set of changed gadget quantities, expressed as
 qodec references:
@@ -314,8 +336,11 @@ prepared by the circuit but including unused slots. Each encoding represents
 one qubit, so its logical index is zero. Effects describe the profile's snapshot,
 not later edits to its source.
 
-`FaultEvent` has two named members, `after` and `weight`; there are no public
-`locations` or `readout_flips` fields.
+`FaultEvent` has four named members: `after`, `weight`, `locations`, and the nested
+`Location` type. `Location` has three properties: `after_call`, `error`, and
+`readout_flips`. `Location` names a self-contained change after one call;
+`Change` alone would not identify its position in the circuit. There is no new
+top-level export.
 `after` keeps the existing call-location convention, and the `readout_flips`
 keyword describes recorded-bit changes. A separate `flip_readout`
 method would duplicate this constructor; a boolean shortcut would need an
