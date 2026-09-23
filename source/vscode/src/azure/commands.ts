@@ -541,6 +541,26 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       return;
     }
 
+    // For security, verify the workspace endpoint URI is valid and points to Azure Quantum.
+    // Parse the URL before validating it; string checks can be bypassed by placing
+    // the expected suffix in credentials or the path of a URL for another host.
+    try {
+      const endpointUrl = new URL(workspace.endpointUri);
+      if (
+        endpointUrl.protocol !== "https:" ||
+        !endpointUrl.hostname.endsWith(".quantum.azure.com") ||
+        endpointUrl.username !== "" ||
+        endpointUrl.password !== ""
+      ) {
+        throw new Error("Invalid workspace endpoint URI");
+      }
+    } catch {
+      vscode.window.showErrorMessage(
+        "The workspace endpoint URI is not valid. It must be an HTTPS URL pointing to azure.com.",
+      );
+      return;
+    }
+
     const confirmed = await vscode.window.showInformationMessage(
       `Add quantum workspace "${workspace.name}" to your connections?`,
       { modal: true },
