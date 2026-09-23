@@ -6,17 +6,25 @@ import pytest
 from qdk.simulation import NoiseConfig, run_qir
 
 if TYPE_CHECKING:
-    from qodec import Qodec
+    from qodec import Layer, Qodec
 
 
 @pytest.mark.parametrize("simulator_type", [None, "clifford", "cpu"])
+@pytest.mark.parametrize("custom_decoder", [False, True])
 @pytest.mark.parametrize(
     "policy, max_retries", [("raise", 3), ("discard", 0), ("retry", 2)]
 )
-def test_qodec_selects_encoded_runner(monkeypatch, simulator_type, policy, max_retries):
+def test_qodec_selects_encoded_runner(
+    monkeypatch, simulator_type, custom_decoder, policy, max_retries
+):
     qodec = cast("Qodec", object())
     noise = NoiseConfig()
     expected = [True, False, True]
+
+    def prepare_decoder(layer):
+        pytest.fail("Decoder preparation belongs to the encoded runner")
+
+    selected_decoder = prepare_decoder if custom_decoder else None
 
     def run_encoded(
         qir,
@@ -28,6 +36,7 @@ def test_qodec_selects_encoded_runner(monkeypatch, simulator_type, policy, max_r
         type,
         on_shot_failure,
         max_retries: int,
+        decoder=None,
     ):
         assert (qir, selected_qodec, selected_noise, shots, seed, type) == (
             "qir",
@@ -39,6 +48,7 @@ def test_qodec_selects_encoded_runner(monkeypatch, simulator_type, policy, max_r
         )
         assert on_shot_failure == policy
         assert max_retries == expected_retries
+        assert decoder is selected_decoder
         return expected
 
     expected_retries = max_retries
@@ -60,6 +70,7 @@ def test_qodec_selects_encoded_runner(monkeypatch, simulator_type, policy, max_r
             42,
             simulator_type,
             qodec=qodec,
+            decoder=selected_decoder,
             on_shot_failure=policy,
             max_retries=max_retries,
         )
@@ -73,6 +84,32 @@ def test_qodec_selects_encoded_runner(monkeypatch, simulator_type, policy, max_r
 def test_shot_failure_options_require_a_qodec(options):
     with pytest.raises(ValueError, match="require a Qodec"):
         run_qir("", **options)
+
+
+def test_decoder_requires_a_qodec():
+    def prepare_decoder(layer):
+        pytest.fail("Decoder must not be prepared without a Qodec")
+
+    with pytest.raises(ValueError, match="decoder requires a Qodec"):
+        run_qir("", decoder=prepare_decoder)
+
+
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+def test_deq_missing_dependency_has_install_instructions(
+    monkeypatch, missing_dependency
+):
+    pytest.importorskip("qodec")
+    from qdk.simulation.decoders import prepare_deq_decoder
+
+    monkeypatch.delitem(
+        sys.modules, "qdk.simulation._qodec.deq_decoding", raising=False
+    )
+    for name in tuple(sys.modules):
+        if name == "deq" or name.startswith("deq."):
+            monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, missing_dependency, None)
+    with pytest.raises(ImportError, match="pip install deq deq-runtime"):
+        prepare_deq_decoder(cast("Layer", object()))
 
 
 @pytest.mark.parametrize("failure", [None, "start", "execute"])
@@ -160,11 +197,23 @@ def test_adaptive_runtime_branches_on_returned_readouts(measurement):
 
 
 @pytest.mark.parametrize("simulator_type", [None, "clifford", "cpu"])
-def test_public_qodec_runner_matches_adaptive_physical_results(simulator_type):
+@pytest.mark.parametrize("decoder_name", [None, "syndrome", "frame", "deq"])
+def test_public_qodec_runner_matches_adaptive_physical_results(
+    simulator_type, decoder_name
+):
     qodec = pytest.importorskip("qodec")
     import qdk
     import qdk.openqasm
     from ec_tests.runtime import FIXTURES
+
+    decoder = None
+    if decoder_name is not None:
+        from qdk.simulation import decoders
+
+        if decoder_name == "deq":
+            pytest.importorskip("deq")
+            pytest.importorskip("deq_runtime")
+        decoder = getattr(decoders, f"prepare_{decoder_name}_decoder")
 
     qir = qdk.openqasm.compile(
         """
@@ -179,7 +228,80 @@ def test_public_qodec_runner_matches_adaptive_physical_results(simulator_type):
     )
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
     expected = run_qir(qir, shots=3, seed=7, type="cpu")
-    assert run_qir(qir, shots=3, seed=7, type=simulator_type, qodec=codec) == expected
+    assert (
+        run_qir(qir, shots=3, seed=7, type=simulator_type, qodec=codec, decoder=decoder)
+        == expected
+    )
+
+
+def test_custom_decoder_changes_public_results_and_closes_each_shot():
+    qodec = pytest.importorskip("qodec")
+    import qdk
+    import qdk.openqasm
+    from ec_tests.runtime import FIXTURES
+    from qdk.simulation.decoders import Decoded, prepare_syndrome_decoder
+
+    prepared = []
+    seeds = []
+    closed = []
+
+    def prepare_decoder(layer):
+        prepared.append(layer)
+        create = prepare_syndrome_decoder(layer)
+
+        class Decoder:
+            def __init__(self, seed):
+                seeds.append(seed)
+                self.inner = create(seed)
+
+            def decode(self, invocation, readouts):
+                decoded = yield from self.inner.decode(invocation, readouts)
+                return Decoded(
+                    tuple(None if bit is None else not bit for bit in decoded.outcomes),
+                    decoded.flags,
+                )
+
+            def close(self):
+                self.inner.close()
+                closed.append(self)
+
+        return Decoder
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit target; bit result = measure target;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+    assert (
+        run_qir(qir, shots=3, seed=7, qodec=codec, decoder=prepare_decoder)
+        == [qdk.Result.One] * 3
+    )
+    assert prepared == [codec.layers[0]]
+    assert len(set(seeds)) == 3
+    assert len({id(session) for session in closed}) == 3
+
+
+def test_deq_decoder_works_inside_an_asyncio_loop():
+    import asyncio
+
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("deq")
+    pytest.importorskip("deq_runtime")
+    import qdk
+    import qdk.openqasm
+    from ec_tests.runtime import FIXTURES
+    from qdk.simulation.decoders import prepare_deq_decoder
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit target; x target; bit result = measure target;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+
+    async def simulate():
+        return run_qir(qir, shots=2, seed=7, qodec=codec, decoder=prepare_deq_decoder)
+
+    assert asyncio.run(simulate()) == [qdk.Result.One] * 2
 
 
 def test_qir_return_value_does_not_replace_recorded_outputs():
@@ -215,7 +337,7 @@ def test_physical_execution_does_not_import_ec_dependencies():
 
     code = dedent('''
         import sys
-        for name in ("qodec", "paulimer", "numpy", "scipy", "stim"):
+        for name in ("qodec", "paulimer", "numpy", "scipy", "stim", "deq", "deq_runtime"):
             sys.modules[name] = None
         from qdk.simulation import run_qir
         qir = """
@@ -227,6 +349,49 @@ def test_physical_execution_does_not_import_ec_dependencies():
     ''')
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+def test_deq_dependency_is_only_required_when_selected(missing_dependency):
+    import subprocess
+    from textwrap import dedent
+
+    pytest.importorskip("qodec")
+    from ec_tests.runtime import FIXTURES
+
+    code = dedent('''
+        import sys
+        sys.modules[sys.argv[1]] = None
+        from qodec import Qodec
+        from qdk.simulation import run_qir
+        from qdk.simulation.decoders import prepare_deq_decoder, prepare_syndrome_decoder
+        codec = Qodec.load(sys.argv[2])
+        qir = """
+        define void @main() #0 { ret void }
+        attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        """
+        assert run_qir(qir, qodec=codec, decoder=prepare_syndrome_decoder) == [""]
+        assert "qdk.simulation._qodec.deq_decoding" not in sys.modules
+        try:
+            run_qir(qir, qodec=codec, decoder=prepare_deq_decoder)
+        except ImportError as error:
+            assert 'pip install deq deq-runtime' in str(error), str(error)
+        else:
+            raise AssertionError("Missing deq dependency was not reported")
+    ''')
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            code,
+            missing_dependency,
+            str(FIXTURES / "repetition3.qodec.yaml"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

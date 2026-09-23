@@ -1,0 +1,66 @@
+"""Decoder factories and contracts for :func:`qdk.simulation.run_qir`.
+
+These utilities require ``qdk[ec]``. Pass a preparation callable as
+``run_qir(..., qodec=codec, decoder=prepare_deq_decoder)``. Preparation runs
+once per encoded layer and returns a factory for fresh, seeded shot sessions.
+
+``prepare_syndrome_decoder`` is the default minimum-weight Pauli decoder.
+``prepare_frame_decoder`` tracks noiseless frames without inferring faults.
+``prepare_deq_decoder`` uses deq relay-BP for per-boundary syndrome decoding.
+
+To configure deq's independent Pauli prior::
+
+    from functools import partial
+    from qdk.simulation import run_qir
+    from qdk.simulation.decoders import PrepareDecoder, prepare_deq_decoder
+
+    decoder: PrepareDecoder = partial(prepare_deq_decoder, error_probability=0.002)
+    results = run_qir(qir, shots=100, qodec=codec, decoder=decoder)
+
+Install deq separately with ``pip install deq deq-runtime``. It is not
+required by ``qdk[ec]`` or ``qdk[all]``; missing dependencies are reported
+only when this decoder is selected.
+deq 0.5.2 requires a released QDK 1.32.x; when testing a development wheel
+versioned 0.0.0, install dependencies first, then reinstall the local QDK
+wheel with ``--no-deps`` to avoid replacing it with a released QDK.
+"""
+
+from ._qodec.decoding import prepare_deq_decoder as prepare_deq_decoder
+from ._qodec.decoding import prepare_syndrome_decoder as prepare_syndrome_decoder
+from ._qodec.frame_runtime import prepare_frame_decoder as prepare_frame_decoder
+from ._qodec.protocols import (
+    BlockReference as BlockReference,
+    Correction as Correction,
+    Corrections as Corrections,
+    Decoded as Decoded,
+    DecoderFactory as DecoderFactory,
+    DecoderSession as DecoderSession,
+    ExecutionRejected as ExecutionRejected,
+    ExecutionUnresolved as ExecutionUnresolved,
+    Invocation as Invocation,
+    PrepareDecoder as PrepareDecoder,
+    Readouts as Readouts,
+)
+from ._qodec.quantum_operations import (
+    LogicalSlot as LogicalSlot,
+    Operation as Operation,
+)
+
+__all__ = [
+    "BlockReference",
+    "Correction",
+    "Corrections",
+    "Decoded",
+    "DecoderFactory",
+    "DecoderSession",
+    "ExecutionRejected",
+    "ExecutionUnresolved",
+    "Invocation",
+    "LogicalSlot",
+    "Operation",
+    "PrepareDecoder",
+    "Readouts",
+    "prepare_syndrome_decoder",
+    "prepare_frame_decoder",
+    "prepare_deq_decoder",
+]

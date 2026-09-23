@@ -2,6 +2,8 @@
 azure-quantum>=3.8.0
 binar>=0.1.2
 cirq-core>=1.6.1,<1.7
+deq>=0.5.2,<0.6
+deq-runtime>=0.5.2,<0.6
 highspy>=1.11,<2
 matplotlib
 more-itertools>=10.0

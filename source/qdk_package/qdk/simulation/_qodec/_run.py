@@ -34,7 +34,7 @@ def run_qir_with_qodec(
     shots: int | None = 1,
     seed: int | None = None,
     *,
-    decoder: PrepareDecoder = prepare_syndrome_decoder,
+    decoder: PrepareDecoder | None = None,
     quantum_backend_factory: QuantumBackendFactory = stabilizer_backend,
     type: Literal["clifford", "cpu", "gpu"] | None = None,
     on_shot_failure: ShotFailurePolicy = "raise",
@@ -53,7 +53,11 @@ def run_qir_with_qodec(
             raise ValueError(f"Invalid simulator type: {type}")
     module, shots, noise, seed = preprocess_simulation_input(qir, shots, noise, seed)
     executor = Executor[AdaptiveProgram, list[OutputRecordValue]](
-        qodec, decoder, noise, AdaptiveRuntime, quantum_backend_factory
+        qodec,
+        prepare_syndrome_decoder if decoder is None else decoder,
+        noise,
+        AdaptiveRuntime,
+        quantum_backend_factory,
     )
     executor.set_seed(seed)
     recorder = OutputRecordingPass()

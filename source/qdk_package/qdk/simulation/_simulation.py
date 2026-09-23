@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from qodec import Qodec
 
     from .._native import GpuShotResults  # This is in the pyi file only
+    from .decoders import PrepareDecoder
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -799,6 +800,7 @@ def run_qir(
     type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
     *,
     qodec: Optional["Qodec"] = None,
+    decoder: Optional["PrepareDecoder"] = None,
     on_shot_failure: Literal["raise", "discard", "retry"] = "raise",
     max_retries: int = 3,
 ) -> List:
@@ -818,6 +820,11 @@ def run_qir(
     :param qodec: The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
         With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
         ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
+    :param decoder: A ``PrepareDecoder`` callable that prepares a decoder factory for
+        each Qodec layer. ``None`` selects the built-in syndrome decoder.
+        Requires ``qodec``; each shot receives a fresh decoder session.
+        See :mod:`qdk.simulation.decoders` for built-in preparation functions and
+        the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
     :param on_shot_failure: Qodec shot policy: ``"raise"`` stops on the first failure,
         ``"discard"`` returns only successes, and ``"retry"`` restarts failed shots.
         Discard and retry select accepted shots and can change the result distribution.
@@ -835,10 +842,14 @@ def run_qir(
             noise,
             shots,
             seed,
+            decoder=decoder,
             type=type,
             on_shot_failure=on_shot_failure,
             max_retries=max_retries,
         )
+
+    if decoder is not None:
+        raise ValueError("A decoder requires a Qodec")
 
     if on_shot_failure != "raise" or max_retries != 3:
         raise ValueError("Shot failure options require a Qodec")

@@ -105,6 +105,36 @@ def prepare_syndrome_decoder(layer: Layer) -> DecoderFactory:
     return SyndromeModel(layer).new_session
 
 
+def prepare_deq_decoder(
+    layer: Layer, *, error_probability: float = 0.001
+) -> DecoderFactory:
+    """Prepare a deq relay-BP decoder for a Qodec layer.
+
+    Requires ``pip install deq deq-runtime``. The model assigns independent
+    X, Y, and Z faults to each code qubit with the given probability, which
+    must be between zero and one half. This is a per-boundary syndrome model,
+    not a circuit-level or temporal noise model. Simulator noise is not
+    inferred. Unknown syndrome entries are omitted rather than treated as zero.
+
+    QDK handles readout equations, frames, and physical corrections. The deq
+    runtime uses a private worker so synchronous simulation also works inside
+    a running asyncio event loop, including notebooks.
+    """
+    try:
+        from .deq_decoding import DeqSession
+    except ModuleNotFoundError as error:
+        if error.name and error.name.split(".")[0] in ("deq", "deq_runtime"):
+            raise ImportError(
+                "The deq decoder requires deq and deq-runtime. "
+                "Install them with: pip install deq deq-runtime"
+            ) from error
+        raise
+    if not 0 < error_probability < 0.5:
+        raise ValueError("error_probability must be between zero and one half")
+    prepared = SyndromeModel(layer)
+    return lambda seed: DeqSession(prepared, error_probability, seed)
+
+
 class SyndromeModel:
     def __init__(self, layer: Layer) -> None:
         self.gadgets = {}
@@ -135,6 +165,9 @@ class SyndromeSession:
         self.model = model
         self.closed = False
         self.boundaries: dict[BlockReference, dict[tuple[str, int], bool]] = {}
+
+    def correct(self, decoder: CodeDecoder, syndrome: Readouts) -> DensePauli:
+        return decoder.correct(syndrome)
 
     def decode(
         self, invocation: Invocation, readouts: Readouts
@@ -181,7 +214,7 @@ class SyndromeSession:
             )
             if syndrome and all(value is None for value in syndrome):
                 continue
-            correction = decoder.correct(syndrome)
+            correction = self.correct(decoder, syndrome)
             for basis in ("x", "z"):
                 for index, operator in enumerate(decoder.operators[basis]):
                     known = system.value(_sign(boundary, entry, basis, index))
