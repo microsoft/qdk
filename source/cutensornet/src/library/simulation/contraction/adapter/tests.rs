@@ -147,6 +147,7 @@ fn selected_plan_and_report_outlive_optimizer_session_and_query() {
             .state
             .lock()
             .expect("state")
+            .history
             .settings
             .contains(&(OptimizerSetting::DisableSlicing, 1))
     );
@@ -211,7 +212,10 @@ fn reversed_pairs_and_ordered_output_do_not_depend_on_native_mode_order() {
     assert_eq!(imported.export().expect("owned metadata"), selected);
     imported.close().expect("close import");
     session.close().expect("close session");
-    assert_eq!(api.state.lock().expect("state").output, Some(vec![71, 11]));
+    assert_eq!(
+        api.state.lock().expect("state").history.output,
+        Some(vec![71, 11])
+    );
     assert_eq!(
         api.events()
             .iter()
@@ -315,7 +319,11 @@ fn automatic_budget_is_half_of_current_free_memory_each_time() {
     }
     session.close().expect("close session");
     assert_eq!(
-        api.state.lock().expect("state").workspace_constraints,
+        api.state
+            .lock()
+            .expect("state")
+            .history
+            .workspace_constraints,
         [512, 129, 1]
     );
     let events = api.events();
@@ -335,7 +343,11 @@ fn explicit_budget_is_forwarded_without_a_memory_probe() {
         let (_, report) = optimize(api.clone(), constraints(bytes)).expect("explicit budget");
         assert_eq!(report.effective_workspace_bytes, bytes);
         assert_eq!(
-            api.state.lock().expect("state").workspace_constraints,
+            api.state
+                .lock()
+                .expect("state")
+                .history
+                .workspace_constraints,
             [bytes]
         );
         assert!(!api.events().contains(&"memory_info"));

@@ -85,17 +85,107 @@ enum Corruption {
     Estimate,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ResourceKind {
+    Stream,
+    Handle,
+    Network,
+    Config,
+    Info,
+    Workspace,
+    Allocation,
+    SliceGroup,
+}
+
+struct Resource {
+    kind: ResourceKind,
+    parent: Option<usize>,
+}
+
+#[derive(Default)]
+struct NetworkState {
+    tensors: Vec<NativeTensor>,
+    tensor_ids: Vec<i64>,
+    output: Option<Vec<i32>>,
+    info: Option<usize>,
+    numerical: execution::NetworkNumericalState,
+}
+
+#[derive(Default)]
+struct InfoState {
+    path: Vec<[i32; 2]>,
+    slicing: Vec<SlicedMode>,
+}
+
+#[derive(Default)]
+struct CallHistory {
+    tensors: Vec<NativeTensor>,
+    output: Option<Vec<i32>>,
+    settings: Vec<(OptimizerSetting, i32)>,
+    workspace_constraints: Vec<u64>,
+    numerical: execution::NumericalHistory,
+}
+
 #[derive(Default)]
 struct State {
     events: Vec<&'static str>,
-    live: BTreeSet<usize>,
-    tensors: Vec<NativeTensor>,
-    output: Option<Vec<i32>>,
-    path: Vec<[i32; 2]>,
-    slicing: Vec<SlicedMode>,
-    settings: Vec<(OptimizerSetting, i32)>,
-    workspace_constraints: Vec<u64>,
+    next_handle: usize,
+    live: BTreeMap<usize, Resource>,
+    networks: BTreeMap<usize, NetworkState>,
+    infos: BTreeMap<usize, InfoState>,
+    configs: BTreeMap<usize, Vec<(OptimizerSetting, i32)>>,
     numerical: execution::NumericalState,
+    history: CallHistory,
+}
+
+impl State {
+    fn check(&self, object: OpaqueHandle, kind: ResourceKind) -> usize {
+        let id = object.as_ptr() as usize;
+        assert_eq!(self.live[&id].kind, kind, "resource {id}");
+        id
+    }
+
+    fn child(&self, parent: OpaqueHandle, object: OpaqueHandle, kind: ResourceKind) -> usize {
+        let id = self.check(object, kind);
+        assert_eq!(self.live[&id].parent, Some(parent.as_ptr() as usize));
+        assert!(self.live.contains_key(&(parent.as_ptr() as usize)));
+        id
+    }
+
+    fn network(&self, parent: OpaqueHandle, network: OpaqueHandle) -> &NetworkState {
+        &self.networks[&self.child(parent, network, ResourceKind::Network)]
+    }
+
+    fn network_mut(&mut self, parent: OpaqueHandle, network: OpaqueHandle) -> &mut NetworkState {
+        let id = self.child(parent, network, ResourceKind::Network);
+        self.networks.get_mut(&id).expect("live network state")
+    }
+
+    fn info_id(&self, parent: OpaqueHandle, info: OpaqueHandle) -> usize {
+        let id = self.check(info, ResourceKind::Info);
+        let network = self.live[&id].parent.expect("info's network");
+        self.child(parent, handle(network), ResourceKind::Network);
+        id
+    }
+
+    fn info(&self, parent: OpaqueHandle, info: OpaqueHandle) -> &InfoState {
+        &self.infos[&self.info_id(parent, info)]
+    }
+
+    fn info_mut(&mut self, parent: OpaqueHandle, info: OpaqueHandle) -> &mut InfoState {
+        let id = self.info_id(parent, info);
+        self.infos.get_mut(&id).expect("live optimizer info")
+    }
+
+    fn assert_idle(&self, network: usize) {
+        assert!(
+            self.numerical
+                .pending
+                .values()
+                .all(|pending| !pending.contains(&network)),
+            "synchronize before releasing network resources"
+        );
+    }
 }
 
 struct NativeObservations {
@@ -158,50 +248,111 @@ impl TestDoubleContractionApi {
         Ok(())
     }
 
-    fn create(&self, event: &'static str, id: usize) -> Result<OpaqueHandle, SimulationError> {
+    fn create(
+        &self,
+        event: &'static str,
+        kind: ResourceKind,
+        parent: Option<OpaqueHandle>,
+    ) -> Result<OpaqueHandle, SimulationError> {
         self.event(event)?;
-        assert!(
-            self.state
-                .lock()
-                .expect("test state lock should succeed")
-                .live
-                .insert(id)
-        );
+        let mut state = self.state.lock().expect("test state lock should succeed");
+        let parent = parent.map(|parent| {
+            let id = parent.as_ptr() as usize;
+            assert!(state.live.contains_key(&id));
+            id
+        });
+        state.next_handle = state.next_handle.checked_add(1).expect("test handle space");
+        let id = state.next_handle;
+        assert!(state.live.insert(id, Resource { kind, parent }).is_none());
         Ok(handle(id))
     }
 
     fn destroy(&self, event: &'static str, object: OpaqueHandle) -> Result<(), SimulationError> {
         let id = object.as_ptr() as usize;
         let mut state = self.state.lock().expect("test state lock should succeed");
-        assert!(state.live.remove(&id), "double destruction of {id}");
-        if id == 3 || id == 8 || id >= 1000 {
-            assert!(
-                !state.numerical.pending,
-                "synchronize before releasing resources"
-            );
+        let kind = state.live.get(&id).expect("no double destruction").kind;
+        let expected = match event {
+            "destroy_stream" => ResourceKind::Stream,
+            "destroy_handle" => ResourceKind::Handle,
+            "destroy_network" => ResourceKind::Network,
+            "destroy_optimizer_config" => ResourceKind::Config,
+            "destroy_optimizer_info" => ResourceKind::Info,
+            "destroy_workspace" => ResourceKind::Workspace,
+            "free" => ResourceKind::Allocation,
+            "destroy_slice_group" => ResourceKind::SliceGroup,
+            _ => panic!("unknown destruction operation {event}"),
+        };
+        assert_eq!(kind, expected, "destructor must match its resource");
+        assert!(
+            state.live.values().all(|child| child.parent != Some(id)),
+            "children must close before parent {id}"
+        );
+        match kind {
+            ResourceKind::Network => {
+                state.assert_idle(id);
+                assert!(
+                    state
+                        .numerical
+                        .workspaces
+                        .values()
+                        .all(|workspace| workspace.network != Some(id)),
+                    "workspace must close before network"
+                );
+                state.networks.remove(&id).expect("live network");
+            }
+            ResourceKind::Config => {
+                state.configs.remove(&id).expect("live config");
+            }
+            ResourceKind::Info => {
+                state.infos.remove(&id).expect("live info");
+            }
+            ResourceKind::Workspace => {
+                if let Some(network) = state.numerical.workspaces[&id].network {
+                    state.assert_idle(network);
+                }
+                state
+                    .numerical
+                    .workspaces
+                    .remove(&id)
+                    .expect("live workspace");
+            }
+            ResourceKind::Allocation => {
+                assert!(
+                    state.networks.values().all(|network| {
+                        network.numerical.output != Some(id)
+                            && !network.numerical.inputs.values().any(|&input| input == id)
+                    }),
+                    "network must close before its buffers"
+                );
+                assert!(
+                    state.numerical.workspaces.values().all(|workspace| {
+                        !workspace.bindings.iter().any(|(space, _, allocation, _)| {
+                            *space == crate::simulation::memory_workspace::MemorySpace::Device
+                                && *allocation == Some(id)
+                        })
+                    }),
+                    "workspace must close before its buffers"
+                );
+                state
+                    .numerical
+                    .allocations
+                    .remove(&id)
+                    .expect("live allocation");
+            }
+            ResourceKind::Stream => {
+                assert!(state.numerical.pending[&id].is_empty());
+                assert!(
+                    state
+                        .networks
+                        .values()
+                        .all(|network| network.numerical.stream != Some(id)),
+                    "network must close before its stream"
+                );
+                state.numerical.pending.remove(&id).expect("live stream");
+            }
+            ResourceKind::Handle | ResourceKind::SliceGroup => {}
         }
-        if id >= 1000 {
-            assert!(
-                !state.live.contains(&3),
-                "network must close before buffers"
-            );
-            assert!(
-                !state.live.contains(&8),
-                "workspace must close before buffers"
-            );
-        }
-        if id == 3 {
-            assert!(!state.live.contains(&5), "info must close before network");
-        }
-        if id == 2 {
-            assert!(
-                state.live.is_subset(&BTreeSet::from([1])),
-                "children must close before handle"
-            );
-        }
-        if id == 1 {
-            assert!(state.live.is_empty(), "stream must close last");
-        }
+        state.live.remove(&id).expect("live resource");
         drop(state);
         self.event(event)
     }
@@ -215,13 +366,14 @@ impl TestDoubleContractionApi {
     }
 
     fn assert_released(&self) {
-        assert!(
-            self.state
-                .lock()
-                .expect("test state lock should succeed")
-                .live
-                .is_empty()
-        );
+        let state = self.state.lock().expect("test state lock should succeed");
+        assert!(state.live.is_empty());
+        assert!(state.networks.is_empty());
+        assert!(state.infos.is_empty());
+        assert!(state.configs.is_empty());
+        assert!(state.numerical.allocations.is_empty());
+        assert!(state.numerical.workspaces.is_empty());
+        assert!(state.numerical.pending.is_empty());
     }
 }
 
@@ -235,19 +387,33 @@ impl SessionApi for TestDoubleContractionApi {
         self.event("set_device")
     }
     fn create_stream(&self) -> Result<Stream, SimulationError> {
-        self.create("create_stream", 1)
+        let stream = self.create("create_stream", ResourceKind::Stream, None)?;
+        self.state
+            .lock()
+            .expect("state")
+            .numerical
+            .pending
+            .insert(stream.as_ptr() as usize, BTreeSet::new());
+        Ok(stream)
     }
-    fn synchronize_stream(&self, _stream: Stream) -> Result<(), SimulationError> {
+    fn synchronize_stream(&self, stream: Stream) -> Result<(), SimulationError> {
         let result = self.event("synchronize_stream");
         // Model a reported asynchronous error after the stream has drained.
-        self.state.lock().expect("test state").numerical.pending = false;
+        let mut state = self.state.lock().expect("test state");
+        let id = state.check(stream, ResourceKind::Stream);
+        state
+            .numerical
+            .pending
+            .get_mut(&id)
+            .expect("live stream")
+            .clear();
         result
     }
     fn destroy_stream(&self, stream: Stream) -> Result<(), SimulationError> {
         self.destroy("destroy_stream", stream)
     }
     fn create_handle(&self) -> Result<OpaqueHandle, SimulationError> {
-        self.create("create_handle", 2)
+        self.create("create_handle", ResourceKind::Handle, None)
     }
     fn destroy_handle(&self, object: OpaqueHandle) -> Result<(), SimulationError> {
         self.destroy("destroy_handle", object)
@@ -256,13 +422,16 @@ impl SessionApi for TestDoubleContractionApi {
 
 impl ContractionApi for TestDoubleContractionApi {
     fn create_network(&self, parent: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
-        assert_eq!(parent, handle(2));
-        let network = self.create("create_network", 3)?;
-        let mut state = self.state.lock().expect("test state lock should succeed");
-        state.tensors.clear();
-        state.output = None;
-        state.path.clear();
-        state.slicing.clear();
+        self.state
+            .lock()
+            .expect("state")
+            .check(parent, ResourceKind::Handle);
+        let network = self.create("create_network", ResourceKind::Network, Some(parent))?;
+        self.state
+            .lock()
+            .expect("state")
+            .networks
+            .insert(network.as_ptr() as usize, NetworkState::default());
         Ok(network)
     }
     fn destroy_network(&self, object: OpaqueHandle) -> Result<(), SimulationError> {
@@ -270,8 +439,8 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn append_tensor(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
         tensor: &NativeTensor,
     ) -> Result<i64, SimulationError> {
         self.event("append_tensor")?;
@@ -279,129 +448,171 @@ impl ContractionApi for TestDoubleContractionApi {
         let id = if matches!(self.corruption, Corruption::DuplicateId) {
             90
         } else {
-            [90, 7, 400, 12][state.tensors.len()]
+            [90, 7, 400, 12][state.network(parent, network).tensors.len()]
         };
-        state.tensors.push(tensor.clone());
+        state
+            .network_mut(parent, network)
+            .tensors
+            .push(tensor.clone());
+        state.network_mut(parent, network).tensor_ids.push(id);
+        state.history.tensors.push(tensor.clone());
         Ok(id)
     }
     fn set_output(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
         modes: &[i32],
     ) -> Result<(), SimulationError> {
         self.event("set_output")?;
-        self.state
-            .lock()
-            .expect("test state lock should succeed")
-            .output = Some(modes.to_vec());
+        let mut state = self.state.lock().expect("state");
+        state.network_mut(parent, network).output = Some(modes.to_vec());
+        state.history.output = Some(modes.to_vec());
         Ok(())
     }
     fn set_compute_f64(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
     ) -> Result<(), SimulationError> {
+        self.state.lock().expect("state").network(parent, network);
         self.event("set_compute_f64")
     }
     fn create_optimizer_config(
         &self,
-        _handle: OpaqueHandle,
+        parent: OpaqueHandle,
     ) -> Result<OpaqueHandle, SimulationError> {
-        self.create("create_optimizer_config", 4)
+        self.state
+            .lock()
+            .expect("state")
+            .check(parent, ResourceKind::Handle);
+        let config = self.create(
+            "create_optimizer_config",
+            ResourceKind::Config,
+            Some(parent),
+        )?;
+        self.state
+            .lock()
+            .expect("state")
+            .configs
+            .insert(config.as_ptr() as usize, Vec::new());
+        Ok(config)
     }
     fn destroy_optimizer_config(&self, object: OpaqueHandle) -> Result<(), SimulationError> {
         self.destroy("destroy_optimizer_config", object)
     }
     fn configure_optimizer(
         &self,
-        _handle: OpaqueHandle,
-        _config: OpaqueHandle,
+        parent: OpaqueHandle,
+        config: OpaqueHandle,
         setting: OptimizerSetting,
         value: i32,
     ) -> Result<(), SimulationError> {
         self.event("configure_optimizer")?;
-        self.state
-            .lock()
-            .expect("valid fixture and successful test operation")
-            .settings
+        let mut state = self.state.lock().expect("state");
+        let id = state.child(parent, config, ResourceKind::Config);
+        state
+            .configs
+            .get_mut(&id)
+            .expect("live config")
             .push((setting, value));
+        state.history.settings.push((setting, value));
         Ok(())
     }
     fn create_optimizer_info(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
     ) -> Result<OpaqueHandle, SimulationError> {
         {
             let state = self.state.lock().expect("test state lock should succeed");
+            let network = state.network(parent, network);
             assert_eq!(
-                state.tensors.len(),
+                network.tensors.len(),
                 self.observations.selected.path.len() + 1,
                 "topology precedes optimizer info"
             );
-            assert!(state.output.is_some(), "output precedes optimizer info");
+            assert!(network.output.is_some(), "output precedes optimizer info");
         }
-        self.create("create_optimizer_info", 5)
+        let info = self.create("create_optimizer_info", ResourceKind::Info, Some(network))?;
+        self.state
+            .lock()
+            .expect("state")
+            .infos
+            .insert(info.as_ptr() as usize, InfoState::default());
+        Ok(info)
     }
     fn destroy_optimizer_info(&self, object: OpaqueHandle) -> Result<(), SimulationError> {
         self.destroy("destroy_optimizer_info", object)
     }
     fn optimize(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
-        _config: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
+        config: OpaqueHandle,
         workspace_constraint: u64,
-        _info: OpaqueHandle,
+        info: OpaqueHandle,
     ) -> Result<(), SimulationError> {
         self.event("optimize")?;
         let mut state = self.state.lock().expect("test state lock should succeed");
-        state.workspace_constraints.push(workspace_constraint);
-        state.path.clone_from(&self.observations.selected.path);
-        state
+        state.child(parent, config, ResourceKind::Config);
+        state.child(network, info, ResourceKind::Info);
+        let selected = state.info_mut(parent, info);
+        selected.path.clone_from(&self.observations.selected.path);
+        selected
             .slicing
             .clone_from(&self.observations.selected.slicing);
+        state.network_mut(parent, network).info = Some(info.as_ptr() as usize);
+        state
+            .history
+            .workspace_constraints
+            .push(workspace_constraint);
         Ok(())
     }
     fn set_path(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         path: &[[i32; 2]],
     ) -> Result<(), SimulationError> {
         self.event("set_path")?;
         self.state
             .lock()
             .expect("test state lock should succeed")
+            .info_mut(parent, info)
             .path = path.to_vec();
         Ok(())
     }
     fn set_slicing(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         slicing: &[SlicedMode],
     ) -> Result<(), SimulationError> {
         self.event("set_slicing")?;
         self.state
             .lock()
             .expect("test state lock should succeed")
+            .info_mut(parent, info)
             .slicing = slicing.to_vec();
         Ok(())
     }
     fn attach_optimizer_info(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
+        info: OpaqueHandle,
     ) -> Result<(), SimulationError> {
-        self.event("attach_optimizer_info")
+        self.event("attach_optimizer_info")?;
+        let mut state = self.state.lock().expect("state");
+        state.child(network, info, ResourceKind::Info);
+        state.network_mut(parent, network).info = Some(info.as_ptr() as usize);
+        Ok(())
     }
     fn read_path(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         path: &mut [[i32; 2]],
     ) -> Result<i32, SimulationError> {
         self.event("read_path")?;
@@ -410,6 +621,7 @@ impl ContractionApi for TestDoubleContractionApi {
                 .state
                 .lock()
                 .expect("test state lock should succeed")
+                .info(parent, info)
                 .path,
         );
         if matches!(self.corruption, Corruption::PathOperand) {
@@ -426,8 +638,8 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn num_sliced_modes(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
     ) -> Result<i32, SimulationError> {
         self.event("num_sliced_modes")?;
         Ok(match self.corruption {
@@ -437,6 +649,7 @@ impl ContractionApi for TestDoubleContractionApi {
                 self.state
                     .lock()
                     .expect("test state lock should succeed")
+                    .info(parent, info)
                     .slicing
                     .len(),
             )
@@ -445,8 +658,8 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn read_slicing(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         slicing: &mut [SlicedMode],
     ) -> Result<u32, SimulationError> {
         self.event("read_slicing")?;
@@ -455,6 +668,7 @@ impl ContractionApi for TestDoubleContractionApi {
                 .state
                 .lock()
                 .expect("test state lock should succeed")
+                .info(parent, info)
                 .slicing,
         );
         Ok(
@@ -465,11 +679,7 @@ impl ContractionApi for TestDoubleContractionApi {
             },
         )
     }
-    fn num_slices(
-        &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
-    ) -> Result<i64, SimulationError> {
+    fn num_slices(&self, parent: OpaqueHandle, info: OpaqueHandle) -> Result<i64, SimulationError> {
         self.event("num_slices")?;
         if matches!(self.corruption, Corruption::SliceCount) {
             return Ok(0);
@@ -479,6 +689,7 @@ impl ContractionApi for TestDoubleContractionApi {
                 .state
                 .lock()
                 .expect("test state lock should succeed")
+                .info(parent, info)
                 .slicing
                 .is_empty()
             {
@@ -490,11 +701,12 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn intermediate_mode_counts(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         counts: &mut [i32],
     ) -> Result<(), SimulationError> {
         self.event("intermediate_mode_counts")?;
+        self.state.lock().expect("state").info(parent, info);
         for (count, modes) in counts.iter_mut().zip(&self.observations.modes) {
             *count = i32::try_from(modes.len()).expect("fixture rank");
         }
@@ -507,11 +719,12 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn intermediate_modes(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         modes: &mut [i32],
     ) -> Result<(), SimulationError> {
         self.event("intermediate_modes")?;
+        self.state.lock().expect("state").info(parent, info);
         modes.copy_from_slice(
             &self
                 .observations
@@ -530,11 +743,12 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn estimate(
         &self,
-        _handle: OpaqueHandle,
-        _info: OpaqueHandle,
+        parent: OpaqueHandle,
+        info: OpaqueHandle,
         estimate: OptimizerEstimate,
     ) -> Result<f64, SimulationError> {
         self.event("estimate")?;
+        self.state.lock().expect("state").info(parent, info);
         Ok(if matches!(self.corruption, Corruption::Estimate) {
             f64::NAN
         } else {
@@ -546,13 +760,13 @@ impl ContractionApi for TestDoubleContractionApi {
     }
     fn create_slice_group_from_id_range(
         &self,
-        _handle: OpaqueHandle,
+        parent: OpaqueHandle,
         start: i64,
         stop: i64,
         increment: i64,
     ) -> Result<OpaqueHandle, SimulationError> {
         assert_eq!((start, stop, increment), (0, 8, 2));
-        self.create("create_slice_group", 6)
+        self.create("create_slice_group", ResourceKind::SliceGroup, Some(parent))
     }
     fn destroy_slice_group(&self, object: OpaqueHandle) -> Result<(), SimulationError> {
         self.destroy("destroy_slice_group", object)
@@ -587,9 +801,9 @@ fn topology_precedes_info_and_retains_native_ids_separately_from_path_positions(
     assert_eq!(exported, metadata());
     assert_eq!(modes, [vec![23, 53], vec![11, 53], vec![11, 71]]);
     let state = api.state.lock().expect("test state lock should succeed");
-    assert_eq!(state.output.as_deref(), Some([11, 71].as_slice()));
+    assert_eq!(state.history.output.as_deref(), Some([11, 71].as_slice()));
     assert_eq!(
-        state.tensors,
+        state.history.tensors,
         [
             NativeTensor {
                 modes: vec![11, 23],
@@ -629,6 +843,7 @@ fn optimize_export_close_and_import_into_fresh_owners_preserves_owned_metadata()
             .state
             .lock()
             .expect("test state")
+            .history
             .workspace_constraints,
         [67_108_864]
     );
@@ -637,6 +852,7 @@ fn optimize_export_close_and_import_into_fresh_owners_preserves_owned_metadata()
             .state
             .lock()
             .expect("test state lock should succeed")
+            .history
             .settings,
         [
             (OptimizerSetting::HyperSamples, 1),
@@ -1042,7 +1258,10 @@ fn slice_group_borrows_parent_and_rejects_zero_step_before_native_creation() {
     assert!(!api.events().contains(&"create_slice_group"));
     let group = SliceGroup::from_id_range(&mut session, 0, 8, 2)
         .expect("valid fixture and successful test operation");
-    assert_eq!(group.as_handle(), handle(6));
+    api.state
+        .lock()
+        .expect("state")
+        .check(group.as_handle(), ResourceKind::SliceGroup);
     drop(group);
     session
         .close()

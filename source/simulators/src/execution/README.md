@@ -232,84 +232,169 @@ checks. See [I2 reproduction and evidence](../../../../samples/python_interop/is
 
 ### Shared contraction contracts (I3)
 
+**Approved ownership, implementation pending:** preparation moves from the
+separate `ContractionExecutor` abstraction onto `ContractionContext`. The
+current Rust exports and contract tests still use `ContractionExecutor`;
+the slice 3b implementation will migrate them together with the native adapter.
+This is a shared-contract revision, not an additional Context wrapper around
+an Executor.
+
+**Input semantics clarified during design review:** the intended executable
+is reusable with different tensor values and bindings, not tied to the first
+coefficient set. The existing Rust contract and private native owner still
+implement fixed-input preparation. The diagrams below describe the intended
+separation; `prepare(query, plan, limits)` and `execute(inputs)` are conceptual,
+not finalized Rust signatures. Executable-owned resident input storage,
+explicit registration/replacement, and complete per-run binding selection are
+approved, together with the retention, failure, report and injection-seam
+decisions below. Exact Rust spellings remain implementation details of those
+reviewed contracts.
+See [Tensor data reuse, noise, and loss](#tensor-data-reuse-noise-and-loss-design)
+for the data lifecycle and the limits of this reuse.
+
 `tensornet::ContractionPlan` is a portable schedule, not an optimizer report or
-a native resource owner. The shared traits keep those responsibilities
-separate:
+a native resource owner. The approved responsibilities are:
 
-```text
-query + constraints + optimizer-specific settings
-                     |
-          ContractionOptimizer::optimize
-                     |
-               plan + report
-                     |
-supplied plan -------+
-                     |
-query + plan + coefficients + execution limits
-                     |
-          ContractionExecutor::prepare   (never searches)
-                     |
-           ExecutableContraction
-             | resources()
-             | execute() -> independently owned output (repeatable)
-             + close()   -> fallible, consuming cleanup
-```
+| Abstraction             | Responsibility                                                                                                                                                                  | Does not own or do                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Caller                  | Own the Context and returned executables; retain execution and cleanup outcomes; close children before their environment.                                                       | Delegate program or shot orchestration to the numerical backend.                        |
+| `ContractionOptimizer`  | Select a portable plan from an explicit query, constraints and optimizer-specific settings; return a planning report.                                                           | Prepare or own the later executable.                                                    |
+| `ContractionPlan`       | Describe the selected contractions and logical result axes independently of native resources.                                                                                   | Store input topology, coefficients, backend resources or measured allocation evidence.  |
+| `ContractionContext`    | Provide the backend environment and `prepare` an already-selected plan; return ownership of the executable to the caller.                                                       | Search for a path, store a current executable, or orchestrate its execution.            |
+| `ExecutableContraction` | Own contraction-specific resources and resident input storage; retain the required Context borrow; execute supplied tensor inputs and expose `resources` and consuming `close`. | Close the borrowed Context, sample noise implicitly or own previously returned outputs. |
 
-All shared types are exported through `qdk_simulators::execution`. Optimizers
-choose their own `Settings`, `Report: AsRef<PlanningReport>` and `Error`.
+The Context is a backend-agnostic capability, not a prescribed GPU Session.
+For cuTensorNet, the existing caller-owned `SessionResources<Api>` implements
+it directly. There is no additional Context allocation or separate Executor.
+A stateless backend can use a lightweight Context of its own. Backend-specific
+construction and environment cleanup remain outside the shared preparation
+trait; other backends need not imitate the CUDA Session lifecycle.
+
+Shared contracts are exposed through `qdk_simulators::execution`. Optimizers
+choose their own `Settings`, `Report: AsRef<PlanningReport>` and `Error`;
 `PlanningReport` implements `AsRef` itself for providers without additional
-diagnostics. Executors choose their coefficient representation, prepared
-owner (`type Executable: ExecutableContraction`) and error type; no shared
-type depends on a native backend.
+diagnostics. The revised execution contract must allow backend-defined tensor
+input/storage representations, prepared owners and errors. The approved
+operation and report contracts below guide the Rust associated types.
+No shared type depends on a native backend.
 
-The caller invokes `prepare` on the executor and owns the returned executable.
+#### Planning, preparation and execution
+
+The caller invokes `prepare` on the Context and owns the returned executable.
 `resources`, `execute` and executable `close` are methods of that executable,
-not of the executor or a backend Session:
+not of the Context. In this successful lifecycle, every execution returns a
+new owned output; the Context remains available after executable cleanup.
 
-```text
-Caller -> Executor:   prepare(query, plan, coefficients, limits)
-Executor -> Caller:   executable, or preparation failure after partial cleanup
-Caller -> Executable: resources() -> recorded resource report
-Caller -> Executable: execute()   -> completed owned output, or execution error
-Caller -> Executable: close()     -> cleanup result; executable consumed
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Optimizer as ContractionOptimizer
+    participant Context as ContractionContext
+    participant Executable as ExecutableContraction
+
+    Note over Caller,Context: Caller owns Context<br/>Construction is backend-specific
+    alt Optimizer-selected plan
+        Caller->>Optimizer: optimize(query, constraints, settings)
+        Optimizer-->>Caller: portable plan + planning report
+    else Caller-supplied plan
+        Note over Caller: Use supplied plan<br/>No optimizer or planning report
+    end
+    Caller->>Context: prepare(query, plan, limits)
+    Context->>Context: Revalidate and lower structure<br/>Prepare kernels and workspace<br/>Never search
+    Context-->>Caller: Caller-owned executable
+    Note over Context,Executable: Executable borrows Context<br/>It owns contraction resources
+    Caller->>Executable: resources()
+    Executable-->>Caller: Recorded ResourceReport
+    loop Same query and plan, possibly different tensor inputs
+        Caller->>Executable: execute(inputs)
+        Executable->>Executable: Validate inputs, establish bindings<br/>Contract and synchronize
+        Executable-->>Caller: Synchronized, independently owned output
+    end
+    Caller->>Executable: close()
+    Executable-->>Caller: Cleanup result<br/>Executable consumed
+    Note over Caller,Context: After successful cleanup<br/>Context can prepare another contraction
+    Note over Caller: Previously returned outputs<br/>remain owned and usable
 ```
 
 Resource inspection is optional and synchronous. It reads recorded facts,
 not asynchronous GPU progress, and does not allocate or reserve resources.
 It is available before or after execution, including after execution failure;
 the exclusive `&mut self` execution call prevents concurrent inspection of the
-same owner. Repeated execution is also optional: fixed coefficients mean the
-same contraction is computed again, not a new noise realization. Updating
-coefficients between noise realizations would require a separate rebinding
-contract; it is not provided by repeated execution.
+same owner. Repeated execution with identical inputs recomputes the same
+contraction; different inputs can describe a different noise realization.
+The caller makes that choice. The numerical executable does not silently
+sample noise or infer a new shot. The current implementation still accepts
+only the fixed-input form; input rebinding is an intended contract revision,
+not implemented behavior.
 
-Backend context lifetime and ownership are distinct from the caller's ownership
-of the executable. A borrowed context must outlive its executable, but is not
-closed by executable cleanup. The cuTensorNet-specific
+#### Context borrow and sequential reuse
+
+Preparation is a factory operation on the actual lifetime owner, not on a
+temporary helper that must transfer and later recover a Session binding.
+The approved Context-borrow direction is:
+
+```rust
+type Executable<'context>: ExecutableContraction<Error = Self::Error>
+where
+    Self: 'context;
+```
+
+This permits the returned executable to borrow the caller-owned Context for
+`'context`, independently of the method-local query and plan. It does not
+return a reference to an executable stored inside the Context. This is not a
+way to extend a short-lived borrow: the caller must keep the actual
+Context alive while its executable borrows it. A backend whose executable
+needs no Context borrow can return an independently owned implementation.
+The complete signature must also express the reviewed tensor-storage model.
+The earlier sketch accepting `Self::Coefficients` at preparation is superseded
+as an input-semantics proposal. Per-call host upload views need not live as
+long as the executable; retained device storage must live through native use.
+Executable-owned resident storage is approved separately; the abbreviated GAT
+does not settle the remaining input-lifetime API.
+
+The cuTensorNet executable holds an exclusive Context borrow, preventing
+another preparation or Context cleanup until that executable closes or drops.
+Explicit executable close consumes it even on cleanup error and ends the Rust
+borrow; it does not close the Context. Sequential reuse is the normal
+successful-cleanup lifecycle, not a promise of native health after arbitrary
+cleanup failure. Separate caller-owned contexts support independently closable
+live executables prepared from reusable plan and coefficient storage.
+
+The cuTensorNet-specific
 [Session lifecycle](../../../cutensornet/README.md#private-qualification-session)
-documents the agreed adapter model: the caller owns both the Session and the
-executable, which exclusively borrows that Session. The Executor constructs
-the executable but is not the long-term Session owner. This permits sequential
-Session reuse; the concrete borrow-transfer wiring remains under review.
-Session is not a new shared Execution Framework interface or a required
-ownership model for other backends.
+documents the concrete mapping and parent cleanup. Session does not become a
+shared concrete type, and this design adds neither executable-owned Sessions
+nor shared-session interior mutability.
 
-`prepare(&query, &plan, coefficients, limits)` receives the query explicitly
+The separate Executor could have supported independently replaceable
+preparation strategies on the same Context. No such requirement is established;
+path selection remains independently replaceable through the optimizer.
+Keeping preparation on Context avoids an otherwise empty object and binding
+state machine. The lifetime-indexed associated type is intended for generic
+callers and is not directly `dyn`-compatible; runtime-erased backend selection
+would require a separately reviewed interface.
+
+#### Preparation and failure contracts
+
+Structural preparation receives the query explicitly
 because a plan does not store input topology. Preparation revalidates the
-plan against that query, validates bindings, rejects unsupported features,
-and respects allocation ceilings. It must not search, complete or binarize a
+plan against that query, rejects unsupported features and respects allocation
+ceilings. Each submitted input set must also be validated against the prepared
+structure before native use. Preparation must not search, complete or binarize a
 plan. A supplied-plan flow uses no optimizer and fabricates no planning report.
 The model supports arbitrary step arity and zero-step single-input plans;
-the initial native execution subset remains unsliced, pairwise contraction
-with fixed coefficient bindings. Capability rejection is a backend error,
-not a new model restriction.
+the initial native execution subset remains unsliced, pairwise contraction.
+Its current private implementation binds fixed coefficients during preparation;
+the reusable-input revision is not implemented yet. Capability rejection is a
+backend error, not a new model restriction.
 
 Intermediate `result_axes` specify a logical representation, not a mandate on
 backend-private storage order. Layout lowering must preserve axis identities,
 dimensions and selected contractions, as well as the interpretation of input
 buffers and the ordered final output. It is not path search and does not permit
-approximation or coefficient rebinding. Native path metadata may omit logical
-intermediate order, so retain the portable plan when exact re-export is needed.
+approximation or implicit changes to the caller's bindings. Native path metadata
+may omit logical intermediate order, so retain the portable plan when exact
+re-export is needed.
 
 | Type                            | Meaning                                                                                                                            |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -325,6 +410,9 @@ compare that echo with their request. Missing estimates are absent from the
 estimate vector. Every resource observation is optional: `None` is unknown
 and `Some(0)` is known zero. Coefficient storage counts distinct bound buffers,
 not nodes; owned device bytes exclude other owners and process-level sampling.
+These are the current report fields. The approved reusable-storage revision
+adds distinct selected-input and resident-allocation evidence, including
+retained, unselected candidates; see the implementation boundary below.
 Failure retains facts already discovered, even if cleanup frees allocations.
 `PreparationFailure` displays both errors and exposes the primary error as
 its standard error source; the cleanup error remains separately accessible.
@@ -333,16 +421,52 @@ no additional heap allocation, although the backend error type may itself
 own allocations. The preparation signature has a localized large-error lint
 exception for this tradeoff.
 
-The prepared owner does not borrow the query, plan or temporary mutable
-executor borrow; backend session lifetimes remain possible. Bindings and
-coefficient values stay fixed. Execution synchronizes required work and
-returns independently owned output that survives another execution and
-`close`. An execution failure prohibits retries, returning a distinguishable
-unusable-state error on subsequent attempts, but leaves resource evidence
-and explicit cleanup available. `close(self)` reports cleanup errors and
-consumes the owner even on failure. Callers must retain the execution result
-and call `close` on both success and failure, rather than early-returning
-with `execute()?` when cleanup errors matter.
+Record each successful measurement before the next fallible operation, and
+each successful allocation before upload, binding or later preparation can
+fail. Requirements and recommendations are not allocations. Cleanup must not
+erase the failed attempt's recorded evidence.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Context as ContractionContext
+    participant Executable as ExecutableContraction
+
+    Caller->>Context: prepare(query, plan, limits)
+    alt Preparation fails
+        Context->>Context: Retain partial observations and actual allocations
+        Context->>Context: Attempt cleanup of every acquired child
+        Context-->>Caller: PreparationFailure<br/>partial, primary error, optional cleanup error
+        Note over Caller,Context: No executable or retained borrow<br/>Context remains caller-owned
+    else Preparation succeeds but execution fails
+        Context-->>Caller: Caller-owned executable borrowing Context
+        Caller->>Executable: execute(inputs)
+        Executable-->>Caller: Execution error<br/>Executable is now unusable
+        Caller->>Executable: resources()
+        Executable-->>Caller: Retained ResourceReport
+        opt Caller attempts execution again
+            Caller->>Executable: execute(inputs)
+            Executable-->>Caller: Distinct unusable-state error<br/>No native execution
+        end
+        Caller->>Executable: close()
+        Executable-->>Caller: Separate cleanup result<br/>Executable consumed
+        Note over Caller: Retain both execution<br/>and cleanup outcomes
+    end
+    Note over Caller,Context: Cleanup failure does not establish<br/>Context health for reuse
+```
+
+The prepared owner does not borrow the query or plan. Tensor values and bindings
+must not change during an execution, but the intended revised interface accepts
+different inputs on a later call. Execution synchronizes required work and returns
+independently owned output that survives another execution and `close`.
+An execution failure prohibits retries, returning a distinguishable
+unusable-state error on subsequent attempts, but leaves resource evidence and
+explicit cleanup available. `close(self)` reports cleanup errors and consumes
+the owner even on failure. Callers must retain the execution result and call
+`close` on both success and failure, rather than early-returning with
+`execute(inputs)?` when cleanup errors matter. The diagram retains the
+conservative poison-on-execution-failure rule; it does not promise recovery
+from a partially completed upload or binding update.
 
 `ExecutableContraction` is backend-specific, unlike the portable plan. It
 retains or borrows the context required by its live resources, and execution
@@ -351,11 +475,1056 @@ backends. It is not a transferable description for another host. Preparing
 the portable plan on a different host/backend creates a new executable owner.
 The shared trait does not currently expose a runtime backend-identity field.
 
-`tests/contraction.rs` exercises these public contracts through injected
-fake optimizers and executors, without a numerical backend dependency. These
+`tests/contraction.rs` currently exercises the committed contracts through
+fake optimizers and executors, without a numerical backend dependency. The
+Context migration must preserve those behavioral cases, update their lifetime
+witnesses, and retain the by-value failure's localized lint exception. These
 tests establish interface usability and reporting semantics, not native
-conformance. Implementing the native adapters and verifying their behavior is
-a separate slice.
+conformance. Slice 3b must additionally exercise the real Context/executable
+adapters with native APIs injected underneath. The approved input lifecycle,
+native/shared reports and host-allocation seam are recorded below. Their
+production implementation remains pending.
+
+### Tensor data reuse, noise, and loss (design)
+
+**Purpose:** define what is reused and what changes before finalizing the
+input/storage API. This section records the prepare-once, execute-with-new-inputs
+intent. It is not a claim that rebinding, noise integration, loss continuation,
+or a resident-bank API has been implemented or qualified.
+
+| Established today                                                         | Intended revision                                                                                 | Pending implementation or separate design work                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Portable query/plan; immutable I2 host bank; native fixed-input execution | Executable-owned resident inputs; explicit registration/replacement and complete per-run bindings | Implementation and behavioral evidence for the approved input contract             |
+| Caller-owned Session; executable's exclusive Session borrow               | Reuse topology, kernels, scratch and output allocation across runs                                | How input-time allocations/errors extend resource reports                          |
+| Synchronous contraction and independently owned outputs                   | Borrow host upload data only for the required call                                                | Loss-aware probability queries/continuation; native stochastic-channel integration |
+
+#### Declare noise independently of its realization
+
+**Design boundary:** declaring "apply noise" specifies semantics, not a tensor
+representation or native API call. A declaration identifies the operation
+boundary or idle interval, affected qubits and noise model, including channel
+probabilities, joint correlations, instrument outcomes or loss policies as
+applicable. It does not require a separate noise tensor, a particular device
+buffer or caller-side sampling.
+
+```text
+Circuit + noise declarations
+              |
+              v
+Execution strategy / representation lowering
+              |
+              +-- Absorb errors into compatible gate tensors --+
+              |                                                |
+              +-- Represent errors with explicit noise slots --+
+              |                                                |
+              |                                  Selected-plan contraction
+              |                                  Caller selects trajectory
+              |                                  Execute numerical inputs
+              |
+              +-- Register native stochastic channels
+                               |
+                         Native State sampling
+                         Backend selects trajectory
+```
+
+These are candidate realizations of the same channel semantics, not three
+implemented options or a finalized strategy-selection API. The selected-plan
+route keeps stochastic orchestration outside `ExecutableContraction`; the
+native State route is a different execution capability, not a hidden mode
+inside its deterministic numerical `execute`.
+
+For Pauli noise after a gate stored as a full operator tensor, absorption is:
+
+$$
+U_g^{(r)} = \left(\bigotimes_{q\in\operatorname{outputs}(g)}
+P_{g,q}^{(r)}\right)U_g,\qquad P_{g,q}^{(r)}\in\{I,X,Y,Z\}.
+$$
+
+If this preserves the existing tensor axes/dimensions, the query and plan
+remain valid without extra noise nodes. Identity selections reuse the
+original gate payload; other selections use compatible variants. Constructing
+Pauli variants involves permutations and phase changes, but storage, uploads
+and binding updates are still real costs. Our compact diagonal Rzz factors
+are not full operator tensors: arbitrary errors cannot be absorbed into them
+by value replacement alone. Preserving that compact representation requires
+further investigation, not an assumed expansion or a claim of cost neutrality.
+
+Provisioning one noise slot after every gate output is therefore one lowering
+policy, not part of the noise declaration contract. A reusable selected-plan
+representation must cover the intended realizations before planning; within
+that representation, changing compatible inputs requires neither a new path
+search nor a new executable. Choosing a different representation can require
+a different query/plan. CUDA-Q's native channel registration is evidence for
+the semantic separation, not evidence of how cuTensorNet internally fuses
+noise or of which realization is fastest.
+
+#### Attach noise declarations to existing execution work
+
+**Approved attachment boundary, implementation pending:** keep
+`QuantumEvolutionRegion` as the ideal unitary sequence and attach ordered
+declarative noise data alongside it in `AdaptiveCommand::ExecuteRegion`.
+The shared shot driver forwards both to the existing `RegionConsumer`
+preparation/execution boundary. Requests remain data; consumers provide
+behavior. This does not introduce a new top-level `SimulationRequest`, strategy
+trait, or backend-owned program/shot runtime.
+
+The combined work need not be unitary. Internal stochastic realization is
+allowed without returning to adaptive control, provided no outcome must be
+returned to that control or recorded as a program output. "Internal" describes
+the protocol boundary, not the processor: a host-side trajectory algorithm can
+make such choices too. This deliberately extends the admitted work of
+`ExecuteRegion` and `RegionConsumer`; merely adding metadata would not leave
+their current unitary-only payload contract unchanged.
+
+```text
+Prepared program + noise declarations
+                  |
+      AdaptiveExecution / shared shot driver
+                  |
+      ExecuteRegion { ideal operations, declarations }
+                  |
+      RegionConsumer: inspect and lower the whole batch
+             /                         \
+   numerical queries + inputs      native state/channel work
+             \                         /
+                    RegionComplete
+                          |
+           measurement / selective instrument
+                          |
+                  observable outcome
+                          |
+                resume shared control
+```
+
+The instrument boundary above is intended, not an existing command.
+[`protocol.rs`](protocol.rs) currently exposes only region execution,
+measurement and completion, and [`drive_prepared_shot`](immediate.rs) dispatches
+those commands through [`RegionConsumer`](region.rs).
+
+**Rust-shaped illustration, not finalized API:** the added `noise` field and
+`declare_*` names below illustrate the attachment. These expressions construct
+data, not eager execution callbacks. Collection types, model payloads,
+ownership and borrowing are not selected by this example.
+
+```rust
+AdaptiveCommand::ExecuteRegion {
+    region_id,
+    region: QuantumEvolutionRegion::new([
+        UnitaryOperation::Rx { angle: theta, target: q0 },
+        UnitaryOperation::Rzz { angle: phi, q1: q0, q2: q1 },
+    ]),
+    noise: [
+        declare_idle_before(0, q0, idle_interval, idle_params),
+        declare_gate_noise(0, [q0], rx_noise_table),
+        declare_gate_noise(1, [q0, q1], rzz_noise_table),
+    ],
+}
+```
+
+Operation indices here refer to the ideal sequence. A gate attachment preserves
+the model's application phases and gate policy, not a universal "apply this
+channel after an already-executed ideal gate" interpretation. In particular,
+[`NoiseTable::on_loss`](../noise_config.rs) can change the gate itself, as the
+[`rzz` implementation](../cpu_full_state_simulator.rs) demonstrates. Explicit
+boundary declarations also require defined ordering when several share a
+location. Lowering must preserve these associations when transforming work.
+
+| Semantics                        | Requirement at this boundary                                                                                                                                                                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pauli and correlated faults      | Preserve ordered target tuples and joint distributions. A joint declaration is not a set of independent per-wire draws. Whole-batch visibility leaves absorption, explicit tensors and native channels available without selecting any of them.                 |
+| Idle noise                       | Preserve the relevant per-qubit logical interval at its application site. Region length, wall-clock time and a static `RegionId` do not determine elapsed idle steps. History across regions and repeated visits must not yield stale intervals.                |
+| Loss                             | Internal loss/reset choices require conditional quantum state, retained loss flags and subsequent gate policies. One batch does not promise one numerical contraction, pre-samplable reset branches or implemented continuation.                                |
+| General channels and instruments | Unobserved channel branches may remain internal with required state/trace bookkeeping. A selective instrument returning an outcome ends the batch and requires a measurement-like request/response before continuation; summing its outcomes changes semantics. |
+
+Noise on a measurement/reset belongs to that boundary request, not arbitrarily
+to the preceding region. The current
+[`mz` and `mresetz` implementations](../cpu_full_state_simulator.rs) order idle
+noise, measurement/reset and subsequent faults explicitly. That ordering must
+survive even when there is no preceding unitary region. The current binary
+`MeasurementResult` is not a general instrument outcome representation.
+
+Noise semantics and lowering remain above numerical execution, using shared
+program/shot orchestration. `ContractionContext` and its executable still
+receive numerical queries/plans/inputs, with no hidden stochastic runtime.
+Consumers must honor declarations exactly once or reject unsupported semantics
+explicitly; they must neither ignore annotations nor apply the same noise again
+through a legacy simulator's implicit configuration. This attachment does not
+select or expand the compact Rzz representation.
+
+**Still open:** exact declaration/site/model types, declaration storage and
+lifetimes, validation and extensibility, timing source/representation, instrument result
+types and protocol extensions, and capability-selection APIs. The current
+shared protocol has no timing payload. The example does not settle these
+questions or authorize production noise integration. The approved Context
+ownership and reusable numerical-input semantics are unchanged. Numerical
+storage/report/seam decisions are approved below; full loss continuation still
+requires its own review.
+
+#### QDK noise-model coverage and interface requirements
+
+The interface must leave room for QDK's different noise semantics, not
+reinterpret all models as independent, pre-sampled Pauli errors. This is
+architectural coverage, not a claim that the current contraction adapter
+implements every model or that every backend must support the same subset.
+Concrete declaration types and capability-selection APIs remain a design gate.
+
+| Existing QDK model / surface                                                                                                            | Semantics that must survive lowering                                                                                                             | Consequence for execution                                                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| [`PauliNoise`](../../../compiler/qsc_eval/src/noise.rs) and [`NoiseTable`](../noise_config.rs)                                          | Configured Pauli probabilities, ordered targets and joint fault distributions; tables also appear on measurements, resets and custom intrinsics  | Preserve application order and correlations, rather than replacing joint draws with independent per-wire draws               |
+| [`IdleNoiseParams`](../noise_config.rs), applied by [`apply_idle_noise`](../cpu_full_state_simulator.rs)                                | An `S` fault probability derived from elapsed idle steps, with lost-qubit handling                                                               | A gate-output-only declaration and an I/X/Y/Z-only payload API are insufficient                                              |
+| [`FaultTerm::Loss` / `LossPolicy`](../noise_config.rs) and [GPU loss commits](../gpu_full_state_simulator/gpu_statevector_shaders.wgsl) | Categorical loss selection, conditional measurement/reset, normalization, retained loss flags and subsequent gate policy                         | Trajectory history and state-dependent queries are required; selecting a reset matrix alone is not a complete implementation |
+| [`Operation`, `Instrument` and `NoisySimulator`](../../../noisy_simulator/src/lib.rs)                                                   | General Kraus operations, selective instrument outcomes and normalization/trace bookkeeping; state-vector and density-matrix realizations differ | Do not require every operation to be unitary or every branch probability to be known before numerical evaluation             |
+
+Keep two responsibilities distinct:
+
+```text
+Noise semantics / trajectory orchestration
+  placement and timing, correlations, classical history, outcomes
+                         |
+       representation-specific numerical requests
+                         |
+                         v
+Numerical execution capability
+  selected-plan contractions OR an appropriate stateful/native route
+```
+
+For the shared contraction interface, the required flexibility is concrete:
+
+- Preparation depends on the explicit query and selected plan, not the first
+  realization's tensor values. Repeated execution accepts compatible values
+  and bindings, including nonunitary tensors, without a hidden new search.
+- Inputs are not restricted to a Pauli enum, a four-matrix bank, one tensor
+  per noise location or a full-bank re-upload. Absorbed variants, explicit
+  operators and other compatible numerical payloads must remain expressible;
+  registration/replacement and complete per-run binding selection are approved.
+  Implementation remains pending; the executable owns resident input storage.
+- A higher-level strategy may evaluate different queries for branch
+  probabilities and final outputs. Reuse applies within each compatible
+  query/plan, not across arbitrary changes of shape or output meaning.
+  This does not add state evolution or stochastic sampling to `execute`.
+- Model support must be explicit at the appropriate strategy/backend
+  boundary. Unsupported semantics must be reported, not silently omitted,
+  replaced by a different noise model or approximated without agreement.
+  Architectural extensibility is not a promise of equal cost across models.
+
+Future behavioral coverage should use the public execution/model contracts:
+correlated Pauli outcomes remain correlated; idle faults honor elapsed steps;
+loss on an entangled state preserves conditional branches and subsequent loss
+policies; and a general channel such as amplitude damping uses the correct
+state-dependent probabilities (or equivalent density evolution). Different
+strategies need equivalent physical results, not identical RNG draws or
+internal tensor graphs. Deterministic small examples should separately
+establish that compatible input updates change results without new preparation
+and without changing previously returned outputs.
+
+Those model-level cases belong to their respective future integration work.
+Slice 3b must preserve the numerical extension points and demonstrate reusable
+input behavior; it does not acquire a full noise runtime, loss continuation
+or native stochastic-channel support through this design requirement.
+See [cuTensorNet realization examples](#cutensornet-realization-examples)
+for possible mappings of these semantics to different native capabilities.
+
+#### Memory view: what stays and what changes
+
+**Approved ownership layout, implementation pending:** the executable owns
+its prepared resources and resident input storage. The caller still owns
+Session, which the executable exclusively borrows. "Retained" below means
+until executable cleanup, not forever. These boxes represent owned resources,
+not one contiguous allocation or the literal fields of a Rust struct.
+
+The Pauli example below uses explicit noise slots. It illustrates one
+representation, not a requirement imposed by a noise declaration.
+
+```text
+                  SAME ExecutableContraction across runs
++----------------------------------------------------------------------+
+| RETAINED STRUCTURE AND NATIVE PREPARATION                            |
+| [input/output shapes] [selected-path lowering] [prepared kernels]    |
+|                      No changes between these runs                   |
+|                                                                      |
+| INPUT BINDINGS / NATIVE POINTER ASSOCIATIONS                         |
+| [slot N1 -> D0] [slot N2 -> D0] [slot N3 -> M0]                      |
+|        ^                                                             |
+|        +-- (1) New selections update these associations              |
+|                Example: N1 -> D1; N2 still -> D0                     |
+|                                                                      |
+| RETAINED GPU TENSOR MEMORY                                           |
+| +--------+ +--------+ +--------+ +--------+ +-----------------------+|
+| | D0: I  | | D1: X  | | D2: Y  | | D3: Z  | | M0: variable tensor   ||
+| | fixed  | | fixed  | | fixed  | | fixed  | | same shape/capacity   ||
+| +--------+ +--------+ +--------+ +--------+ +-----------------------+|
+|   Uploaded once; shared by any matching slots          ^             |
+|                                                       |              |
+|               (2) New host values -- upload/copy ------+             |
+|                   only when the numerical payload changes            |
+|                                                                      |
+| RETAINED WORKSPACE AND OUTPUT ALLOCATIONS                            |
+| [device scratch] [host scratch, if needed] [GPU output tensor]       |
+|   temporary contents overwritten           result overwritten        |
+|   as needed by native execution            on every execution        |
++-----------------------------------------------------|----------------+
+                                                      | synchronize
+                                                      | copy/readback
+                                                      v
+Caller-owned results:  [result A]  [result B]  [result C]
+                       Separate host memory; later runs do not overwrite it
+```
+
+**How to read the two input updates:**
+
+- **(1) Rebinding:** the caller selects another resident payload; the adapter
+  updates the native input-pointer association. Changing N1 from D0 to D1
+  copies no tensor values. N2 can continue reading D0, or also select D1.
+- **(2) Replacing values:** the caller supplies new same-shape values for M0;
+  the adapter copies them into its retained allocation after previous use has
+  completed. M0 represents a deliberately mutable destination, not an immutable
+  shared candidate. If multiple slots reference M0, replacing it changes all
+  of them; changing only one slot requires a different destination and binding.
+
+For the Pauli-noise example, **only (1) is needed after the initial uploads**.
+M0 illustrates the separate case of genuinely new values, such as a varying
+rotation angle. A new payload that does not fit retained storage can require
+another allocation; this diagram does not promise allocation-free arbitrary
+updates. Exact registration/update methods and capacity policy remain open.
+
+The structure, kernel preparation and reusable allocations are **not rebuilt**
+for these compatible updates. Numerical contraction still runs, scratch is
+working memory rather than a retained answer, and the internal output is
+replaced. Successful `close()` releases the executable-owned resources; caller
+outputs and the caller-owned Session remain.
+
+Loss has the same storage distinction for fixed reset candidates $R_0,R_1$,
+but choosing between them and normalizing requires current state-dependent
+probabilities. Those probabilities are **not** permanent prepared data.
+The [loss section](#what-can-be-reused-while-handling-loss) explains the
+additional work; the memory boxes alone are not a complete loss simulator.
+
+Read in order: [vocabulary](#structure-values-and-bindings-are-different),
+[ordinary noise](#ordinary-pauli-noise-reuse-values-change-bindings),
+[updates](#updating-data-without-breaking-sharing),
+[loss](#loss-a-classical-event-followed-by-a-state-dependent-update),
+and [native precedent](#what-cuda-q-and-cutensornet-actually-reuse).
+
+#### Structure, values, and bindings are different
+
+Here **coefficients** means the numerical entries of a tensor, not its axes,
+not its contraction path, and not the probabilities used to choose a noise
+operator. Use "tensor values" where that is clearer.
+
+| Symbol / concept            | Meaning                                                                         | Lifetime / change                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| $Q$: query                  | Input slots with ordered axes/dimensions; connectivity; ordered output axes     | Reusable across preparations; the executable retains required structure, not a borrow of the Query object  |
+| $P$: plan                   | Selected contractions and logical intermediate axes                             | Reusable description; contains no values or native resources                                               |
+| $E$: executable             | Backend preparation of $Q,P$, including kernel/layout decisions and workspaces  | Prepared for a particular query/plan; reused with different compatible inputs; borrows Session exclusively |
+| $D_j$: stored tensor values | One host or resident-device payload, interpreted with the required dtype/layout | Immutable candidate or explicitly updated storage                                                          |
+| $\beta_r(v)$: binding       | Which stored payload supplies input slot $v$ in run $r$                         | May change independently at each slot                                                                      |
+| $Y_r$: output               | Result of this run, in query output order                                       | Caller-owned; survives later runs and close                                                                |
+
+For each legal output coordinate $\mathbf{o}$:
+
+$$
+T_v^{(r)} = \operatorname{view}_{Q_v}(D_{\beta_r(v)}), \qquad
+(Y_r)_{\mathbf{o}}
+= \sum_{\mathbf{s}}\ \prod_v
+(T_v^{(r)})_{\left.(\mathbf{o},\mathbf{s})\right|_{\operatorname{axes}(v)}} .
+$$
+
+$\mathbf{s}$ ranges over contracted axes. $P$ chooses how to evaluate
+this expression, not its values. Floating-point roundoff aside, changing a
+valid pairwise schedule does not change the mathematical contraction.
+
+```mermaid
+flowchart LR
+    Q["Query Q<br/>slots, axes, dimensions, output"]
+    P["Selected plan P<br/>no numerical values"]
+    E["Executable E<br/>prepared structure and workspaces"]
+    D["Resident values D<br/>owned by executable E"]
+    B["Bindings for run r<br/>slot v selects payload j"]
+    Y["Owned output Y_r"]
+    Q --> E
+    P --> E
+    D --> B
+    B -->|"execute current inputs"| E
+    E --> Y
+```
+
+The bank and arrows above are **dataflow**, not a separately owned device bank.
+The executable owns resident device storage; retained native pointers cannot
+outlive that storage. This design does not add a Session-global mutable cache
+or transfer Session ownership to the executable.
+
+Each binding must match the slot's element count, dtype and ordered layout.
+The current native layout is column-major, first axis fastest. Axis labels
+can differ between slots sharing a payload: that is how the same gate matrix
+is reused on different wires. Equal byte lengths alone do not establish
+correct mathematical interpretation; e.g., the I2 Rx matrix and diagonal Rzz
+factor both have four entries but different meanings. The caller supplies
+values appropriate to the query, and lowering preserves their interpretation.
+
+#### Ordinary Pauli noise: reuse values, change bindings
+
+For a unitary-mixture channel:
+
+$$
+\mathcal{N}(\rho)=\sum_a p_a U_a\rho U_a^\dagger,\qquad
+p_a\geq 0,\quad \sum_a p_a=1 .
+$$
+
+One trajectory samples $a\sim p$ and applies $U_a$. It does **not** apply
+$\sqrt{p_a}U_a$ as an additional trajectory weight: the probability was
+already used in sampling. Pauli noise uses $U_a\in\{I,X,Y,Z\}$.
+For a fixed reached circuit with state-independent channel tables, these
+choices can be made before its contraction. Adaptive program control still
+belongs to the caller and may determine which circuit is reached.
+
+**For this explicit-slot representation, topology includes noise slots from
+the start.** An identity outcome fills its slot with $I$; it does not remove
+a node. On one wire:
+
+```mermaid
+flowchart LR
+    Z["Initial boundary"] --> U1["Gate U1"] --> N1["Noise slot N1<br/>I, X, Y or Z"]
+    N1 --> U2["Gate U2"] --> N2["Noise slot N2<br/>I, X, Y or Z"] --> O["Output"]
+```
+
+For this illustration, the four $2\times2$ matrices are uploaded once:
+
+```mermaid
+flowchart TB
+    subgraph Bank["Immutable resident matrix bank"]
+        I["D0 = I"]
+        X["D1 = X"]
+        Y["D2 = Y"]
+        Z["D3 = Z"]
+    end
+    subgraph A["Run A"]
+        A1["N1"] --> I
+        A2["N2"] --> I
+    end
+    subgraph B["Run B"]
+        B1["N1"] --> X
+        B2["N2"] --> I
+    end
+    subgraph C["Run C"]
+        C1["N1"] --> X
+        C2["N2"] --> X
+    end
+```
+
+| Transition                       | Payload writes / uploads         | Binding updates            | Structural preparation                 |
+| -------------------------------- | -------------------------------- | -------------------------- | -------------------------------------- |
+| Initial resident bank            | Upload each distinct matrix once | Establish first selections | Once for $Q,P$                         |
+| A to B                           | None                             | N1: I to X                 | None                                   |
+| B to C                           | None                             | N2: I to X                 | None                                   |
+| C to another identical input set | None                             | None required              | None; numerical contraction still runs |
+
+There is no need to make one Pauli matrix copy per noise location or per
+trajectory. The raw complex-f64 payload of this four-matrix bank is
+$4\cdot4\cdot16=256$ bytes, regardless of the number of locations.
+This excludes gates, bindings, allocator overhead, scratch and outputs.
+All resident candidates count toward retained memory, even on a run that
+selects only $I$.
+
+Correlated Pauli noise uses a **joint** draw:
+
+$$
+(a,b)\sim p_{ab},\qquad U_{ab}=P_a\otimes P_b .
+$$
+
+It can select a shared $4\times4$ joint matrix in a two-qubit slot, or two
+local matrices in an already-chosen factorized topology. The choices must
+remain correlated: $p_{II}=p_{XX}=1/2$ is not equivalent to two independent
+coin flips, which also generate $IX$ and $XI$. The representation is
+chosen before planning, not switched by rebinding.
+
+The current I2 builder does not yet insert these noise slots. In particular,
+its Rzz tensor is a diagonal factor; an arbitrary noisy two-qubit operator
+cannot simply replace it because both fit in "a gate buffer." Extra noise
+slots or a more general operator representation must first make the query
+capable of expressing every intended alternative.
+
+#### Updating data without breaking sharing
+
+Two operations must remain distinct:
+
+$$
+\text{rebind: }\beta_r(v)\leftarrow j,\quad D_j\ \text{unchanged};
+\qquad
+\text{replace values: }D_j\leftarrow D'_j .
+$$
+
+The first is enough for a finite, already-resident noise alphabet. The second
+is needed for genuinely new values, e.g., a continuously varying rotation.
+
+| Situation                                                       | Required action                                                                                     | What must not happen                                                  |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Select an existing resident candidate                           | Change the affected slot's native binding; retain both candidate buffers                            | Re-upload the whole bank or rebuild the plan                          |
+| Introduce a new same-shape candidate                            | Validate and upload it once, then bind it; allocation may be needed                                 | Pretend new storage costs zero                                        |
+| Change one of several slots sharing a payload                   | Bind that slot to another payload; other slots keep the original                                    | Overwrite the shared allocation and accidentally change all consumers |
+| Explicitly replace mutable storage                              | Order writes after its last use; update all intended users and invalidate affected numerical caches | Treat a stable host/device address as proof of unchanged contents     |
+| Change axes, dimensions, dtype, or supported layout assumptions | Revalidate and prepare the appropriate structure                                                    | Reuse an incompatible executable                                      |
+
+The efficient warm-bank path is:
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant E as Same executable
+    participant D as Retained device storage
+    participant N as Native contraction API
+    Note over E,N: Query, plan, kernels, scratch and output allocation already prepared
+    Note over D: Candidate values have already been uploaded
+    loop Each realization
+        Caller->>Caller: Sample current input selections
+        opt Genuinely new or explicitly replaced values
+            Caller->>E: Register input or replace mutable input
+            E->>E: Validate shape, layout, values and mutability
+            E->>D: Acquire or safely update compatible storage
+            Note over E,D: Record successful allocation/upload before later failure
+        end
+        Caller->>E: execute(complete binding selection)
+        E->>E: Validate complete bindings
+        E->>N: Bind selected resident inputs<br/>Unchanged bindings may be skipped
+        Note over E,N: No path search or kernel preparation
+        E->>N: Contract into reusable output allocation
+        E->>N: Synchronize and copy output to owned host result
+        E-->>Caller: Independent result
+    end
+    Caller->>E: close()
+    Note over E,D: Release executable-owned data only after native use ends
+```
+
+**Approved input-operation separation, implementation pending:** registration
+validates and stores a tensor, returning an opaque identity local to the
+executable. Registration distinguishes immutable candidates from mutable
+storage. Immutable candidates cannot be overwritten; explicit same-shape
+replacement updates mutable storage and all slots intentionally selecting it.
+To change only one of several sharing slots, select another payload for that
+slot instead of overwriting the shared candidate.
+
+Each execution supplies a complete binding selection, one identity per input
+slot. The adapter validates it before contracting and can skip native binding
+calls for unchanged selections. These operations use explicit identities and
+updates, not host-pointer equality or implicit content hashing. The native
+implementation uploads at registration/replacement and does not retain the
+host view after the synchronous call.
+
+The following spells out the approved operations, but method/type names and
+the concrete tensor-view representation are illustrative:
+
+```rust
+let mut exec = context.prepare(&query, &plan, limits)?;
+let i = exec.register_input(identity, Immutable)?;
+let x = exec.register_input(pauli_x, Immutable)?;
+let v = exec.register_input(values_a, Mutable)?;
+
+let a = exec.execute(&[i, i, v])?;
+let b = exec.execute(&[x, i, v])?;
+exec.replace_input(v, values_b)?;
+let c = exec.execute(&[x, i, v])?;
+```
+
+Registration/replacement preserves the separation between ordered tensor
+interpretation and wire labels. Payloads remain general, including nonunitary
+values. This API does not require explicit noise nodes or constrain absorption,
+native-channel selection, or the number of candidates.
+
+For a synchronous upload/execute interface, the caller's host slices only need
+to survive the call that consumes them. Uploaded device data may remain until
+executable cleanup. If instead a backend borrows externally owned device
+storage, the types must enforce that longer lifetime. No asynchronous work may
+retain a pointer into an expired host view.
+
+```text
+time --------------------------------------------------------------->
+Session              [-----------------------------------------close]
+Executable E             [prepare------------------------close]
+Resident device values       [upload----reuse----reuse----release]
+Host upload view             [call]
+Per-run bindings                       [A]     [B]     [C]
+Owned result A                          [--------------------------->]
+
+Device release is after the last native use, including descriptor cleanup.
+Independently owned external device storage is outside this approved lifecycle.
+```
+
+**Approved retention policy:** inputs are registered explicitly and retained
+until executable close. Registration adds an allocation; same-shape replacement
+reuses its allocation; execution adds no input allocations. There is no implicit
+cache of every new realization, automatic eviction, individual input release or
+new resident-byte quota in slice 3b. Existing execution limits remain scratch
+ceilings. This is not a hard total-memory cap: callers can explicitly register
+more inputs. Mutable replacement provides the fixed-capacity path for
+continuously changing values. All retained candidates count toward reported
+storage, whether selected or not.
+
+**Approved input-failure policy:** every failed registration, replacement or
+execution makes the executable unusable, including validation errors rejected
+before native work. Validation still precedes upload/binding side effects.
+Subsequent attempts return a distinct unusable-state error without native
+execution. Recorded resources and consuming close remain available, acquired
+allocations remain owned until cleanup, and previously returned outputs remain
+valid. This deliberately retains the conservative execution failure contract
+rather than promising rollback or recoverable preflight errors.
+
+#### Reusing preparation is not reusing stale numerical results
+
+```mermaid
+flowchart LR
+    A["Fixed Q and P"] --> K["Reuse topology, kernels<br/>and scratch capacity"]
+    B["Changed values or bindings"] --> C["Recompute dependent numerical results"]
+    C --> O["Overwrite internal output<br/>return a new owned copy"]
+    K --> C
+```
+
+| Reusable across compatible inputs                               | Must be recomputed or explicitly invalidated                 |
+| --------------------------------------------------------------- | ------------------------------------------------------------ |
+| Selected pairwise schedule; logical-axis lowering               | Numerical intermediates that depend on changed input values  |
+| Prepared kernels and workspace sizes                            | Any value-dependent cache containing such intermediates      |
+| Compatible input storage capacity; immutable candidate matrices | Changed payload bytes and changed per-slot bindings          |
+| Internal output allocation                                      | Output contents; earlier returned results remain independent |
+
+The native contraction owner currently disables cuTensorNet **workspace
+caches**. That is distinct from retaining input matrices. Keeping a resident
+Pauli bank does not require enabling intermediate-result caching.
+Future cache use must honor native invalidation rules, including constant
+tensor qualifiers: a slot whose selected values can vary is not constant
+merely because each candidate buffer is immutable.
+
+For $R$ realizations, the intended cost decomposition is:
+
+$$
+C_{\mathrm{total}} =
+C_{\mathrm{search}} + C_{\mathrm{prepare}} + C_{\mathrm{initial\ upload}}
++ \sum_{r=1}^{R}
+\left(
+C_{\mathrm{selection},r}+C_{\mathrm{validation},r}
++C_{\mathrm{new\ data},r}+C_{\mathrm{binding},r}
++C_{\mathrm{contract},r}+C_{\mathrm{sync},r}+C_{\mathrm{readback},r}
+\right).
+$$
+
+A supplied plan makes $C_{\mathrm{search}}=0$; a warm finite bank makes
+$C_{\mathrm{new\ data},r}=0$. Neither eliminates contraction, synchronization
+or the current owned-output readback. There is no general claim that adding
+noise slots has zero cost, or that rank simplification produces the same plan
+as a clean network. Reuse is across realizations of an already-fixed query.
+
+Resource reports must distinguish selected input bytes, retained candidate
+bytes, scratch requirements/recommendations, and actual allocations.
+Reusing an allocation is not a new allocation; leaving an unused candidate
+resident is not freeing it. The current report's fixed-input meanings must
+be reviewed before extending them to this lifecycle. Keep partial evidence,
+primary errors and cleanup errors separate; do not hide update failures by
+silently running with a mixture of old and new bindings.
+
+#### Loss: a classical event followed by a state-dependent update
+
+QDK's current GPU loss behavior has **two random decisions**, not one:
+
+```mermaid
+flowchart TD
+    Table["Gate or correlated noise table"] --> Event{"Sample loss event?"}
+    Event -->|"No"| Continue["Continue with selected non-loss operation"]
+    Event -->|"Yes"| Pending["Record pending loss on qubit q"]
+    State["Actual state immediately before loss<br/>includes all earlier choices"] --> Prob["Compute p0 and p1"]
+    Pending --> Prob
+    Prob --> Branch["Sample hidden measurement outcome b"]
+    Branch --> Reset["Apply reset branch R_b<br/>normalize by sqrt(p_b)"]
+    Reset --> Flag["Retain updated state and lost-qubit flag"]
+    Flag --> Policy["Later gates use the configured loss policy"]
+```
+
+For a normalized state $\lvert\psi_h\rangle$ conditioned on the previous
+history $h$, the loss event can have a classical configured probability,
+but the reset branch has:
+
+$$
+R_0=\lvert0\rangle\langle0\rvert,\qquad
+R_1=\lvert0\rangle\langle1\rvert,\qquad
+p_b=\langle\psi_h|
+(R_b^\dagger R_b)_q\otimes I_{\mathrm{rest}}
+|\psi_h\rangle .
+$$
+
+$$
+b\sim(p_0,p_1),\qquad
+|\psi_{h,b}\rangle =
+\frac{(R_b)_q\otimes I_{\mathrm{rest}}|\psi_h\rangle}{\sqrt{p_b}},
+\qquad \mathrm{lost}[q]\leftarrow\mathrm{true}.
+$$
+
+A zero-probability branch must not be selected or normalized. For an
+unnormalized prefix, branch weights must first be divided by its norm squared.
+If several entangled qubits are lost, subsequent probabilities are conditional
+on previous resets; independently sampling their original marginals is wrong.
+
+**Why setting a loss flag or substituting X is insufficient:** losing the
+first qubit of a Bell pair gives
+
+$$
+|\Phi^+\rangle=\frac{|00\rangle+|11\rangle}{\sqrt2}
+\quad\longrightarrow\quad
+\begin{cases}
+|00\rangle & \text{with probability }1/2,\\
+|01\rangle & \text{with probability }1/2.
+\end{cases}
+$$
+
+The survivor is correlated with the hidden branch. Discarding the lost
+wire without tracing or conditioning would lose that physics.
+The bit labels here are logical qubit labels, not a change to QDK's dense
+buffer-index convention.
+
+The source implements this split in
+[`get_noise_ops` / `expand_correlated_loss_commits`](../gpu_full_state_simulator/noise_mapping.rs),
+[`prep_loss_commit`, `prep_measure_reset_instrument`, and `propagate_loss_to_qubit`](../gpu_full_state_simulator/gpu_statevector_shaders.wgsl).
+The reset chooses from live qubit probabilities, applies a projector/reset
+matrix, and renormalizes. Loss is therefore not wholly covered by pre-sampling
+a Pauli-like matrix from the configured event table.
+
+#### What can be reused while handling loss
+
+The raw matrices $R_0,R_1$ are fixed and can be resident/shared, just like
+Paulis. The changing information is **which branch**, its **normalization**,
+the **conditioned quantum history**, and the **classical loss flags**.
+
+| Data                             | Retained / updated at a loss                               | Reuse boundary                                                            |
+| -------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Raw $I,R_0,R_1$ matrices         | Retain immutable candidates; select one                    | No matrix upload is needed if already resident                            |
+| Conditional $p_b$                | Recompute from the actual prefix state                     | Not reusable across different quantum histories                           |
+| Normalization $1/\sqrt{p_b}$     | New scalar per selected branch                             | Requires a reviewed scalar-factor representation or updated scaled tensor |
+| Quantum state/history            | Retain the selected reset and all previous evolution       | Never restart from a fresh zero state                                     |
+| Loss flags / later gate choices  | Update in the caller's trajectory state                    | Not stored inside a portable plan                                         |
+| Structural query/plan/executable | Reuse only for the same query and supported representation | A final-ket query is not also a prefix-marginal query                     |
+
+For a prefix represented by an unnormalized ket tensor network
+$|\phi_h\rangle$, the necessary weights are ordinary contractions:
+
+$$
+w_b=\langle\phi_h|
+(|b\rangle\langle b|)_q\otimes I_{\mathrm{rest}}
+|\phi_h\rangle,\qquad
+p_b=\frac{w_b}{w_0+w_1}.
+$$
+
+Those are **ket/bra probability queries**, not the same output query as
+returning a final ket. A future loss-aware caller could use reusable
+preparations for fixed prefix-probability queries, and another reusable
+preparation for a full trajectory with reserved reset slots:
+
+```mermaid
+sequenceDiagram
+    participant Caller as Loss-aware caller
+    participant Prob as Prefix probability contraction
+    participant Final as Final trajectory contraction
+    Note over Caller,Final: Conceptual future orchestration, not current API support
+    loop Loss events in causal order
+        Caller->>Prob: Evaluate current prefix with previous selected branches
+        Prob-->>Caller: Conditional branch weights
+        Caller->>Caller: Sample b<br/>Retain normalization and loss flags
+        Caller->>Caller: Record R_b in this trajectory's bindings
+    end
+    Caller->>Final: Execute complete selected history
+    Final-->>Caller: Owned result for this trajectory
+```
+
+This does **not** promise one executable for all those different queries, or
+free marginal calculations. Prefixes/output requests can need different
+plans and substantial additional contraction work. The same prepared query
+can be reused across histories when its slots/dimensions remain fixed.
+Retaining multiple live preparations would require separate Sessions under
+the approved exclusive-borrow policy; storing them together in one Session
+is not an implicit extension of that policy.
+
+Likewise, replaying a complete retained trajectory from its original boundary
+is not the same as restarting an already-evolved region from zero.
+The current builder does not implement either loss-aware replay or
+continuation; the [I4 guard](#required-i4-consumer-guard) still forbids the
+incorrect restart. An incremental/MPS route instead retains the evolving
+state and updates it at each event; it has a different numerical lifecycle.
+
+One possible way to preserve immutable $R_b$ matrices is to represent
+branch scales as separate scalar factors. Another is to upload scaled values
+$R_b/\sqrt{p_b}$ into suitable non-aliased storage. Neither representation
+is selected here. Shared matrix retention alone does not solve normalization
+or conditional-probability evaluation.
+
+#### Gates after loss: values and classical policy both matter
+
+For the current supported policies, see
+[`LossPolicy`](../noise_config.rs) and the GPU shader's
+`handle_lost_operand_policy`. In a representation with suitable fixed slots:
+
+| Policy / situation                                     | Numerical action                                                               | Additional trajectory data                          |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `Skip`                                                 | Identity instead of the affected gate                                          | Keep loss flags                                     |
+| `Degrade` on supported two-qubit rotations             | Corresponding one-qubit rotation on the survivor, identity on the lost operand | Select according to which operand survives          |
+| `ResidualSDagger` on a non-SWAP pair with one survivor | $S^\dagger$ on the survivor                                                    | Keep loss flags; SWAP has separate ordered behavior |
+| `Propagate` with a survivor                            | Another state-dependent reset/loss on that survivor                            | New branch probability, normalization and loss flag |
+| `ApplyAnyway` for SWAP                                 | SWAP the retained quantum slots                                                | Exchange loss flags too                             |
+
+This is not a new policy definition or a promise that every policy is valid
+for every gate. SWAP-specific rules and later noise on surviving operands
+must preserve the existing implementation's ordering.
+
+For example, a degraded one-qubit operation can occupy a full two-qubit gate
+slot as $I_{\mathrm{lost}}\otimes U_{\mathrm{survivor}}$, with the appropriate
+axis ordering. That preserves dimensions. It does not mean every compressed
+diagonal-factor representation can hold every reset or policy alternative.
+The future builder must choose sufficient slots before planning.
+
+#### An alternative loss representation: trace rather than sample
+
+If the hidden measurement result is not exposed, the quantum reset channel
+can instead be represented directly on a density matrix:
+
+$$
+\mathcal{R}_q(\rho)=\sum_{b=0}^{1}
+(R_b)_q\rho(R_b^\dagger)_q
+=|0\rangle\langle0|_q\otimes\operatorname{Tr}_q(\rho).
+$$
+
+No branch is sampled within this reset channel. A static doubled ket/bra
+network represents the sum using a local channel tensor
+
+$$
+S_{aa',cc'}=\sum_b (R_b)_{ac}\,\overline{(R_b)_{a'c'}} .
+$$
+
+```mermaid
+flowchart LR
+    Rho["Density operator<br/>paired ket and bra legs"] --> S["Fixed reset channel tensor S<br/>sum over hidden b"]
+    S --> Reset["Reset qubit plus survivor density operator"]
+    Reset --> Later["Later evolution"]
+    Flags["Classical sampled loss history"] --> Policy["Choose later policy tensors"]
+    Policy --> Later
+```
+
+For a fixed classical event history and compatible circuit topology, such
+a density-network query can have its own reusable plan/executable. Quantum
+reset branches are summed, but classical loss flags still control later gate
+policies. Summing over classical histories as well requires representing
+those dependencies, not discarding them.
+
+This is an **alternative future representation**, not a drop-in replacement
+for the current pure-ket builder, not an individual pure-state trajectory,
+and not a claim that amplitudes can be averaged to obtain a mixed state:
+
+$$
+\rho_{\mathrm{ensemble}}=\mathbb{E}_r[|\psi_r\rangle\langle\psi_r|],
+\qquad
+\rho_{\mathrm{ensemble}}\ne
+|\mathbb{E}_r[\psi_r]\rangle\langle\mathbb{E}_r[\psi_r]|
+\quad\text{in general}.
+$$
+
+The numerical payload, query and cost change; paired legs can greatly
+increase contraction cost. The abstract pairwise `ContractionPlan` can
+describe ordinary doubled networks already, but the circuit lowering,
+input interpretation, output semantics and consumer would need new work.
+This is not a fundamental inability of exact tensor contraction to represent
+loss or general Kraus channels.
+
+#### What CUDA-Q and cuTensorNet actually reuse
+
+The verified CUDA-Q reference is pinned to
+[`411f157aaa57125dc4edf17cb81395f97fce6a90`](https://github.com/NVIDIA/cuda-quantum/tree/411f157aaa57125dc4edf17cb81395f97fce6a90/runtime/nvqir/cutensornet):
+
+| Mechanism                                                                | Evidence                                                                                                                                                                                      | Lesson for this design                                                                    |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Cache device gate/channel matrices, reuse pointers                       | [`getOrCacheMat` and `applyKrausChannel`](https://github.com/NVIDIA/cuda-quantum/blob/411f157aaa57125dc4edf17cb81395f97fce6a90/runtime/nvqir/cutensornet/simulator_cutensornet.inc#L181-L243) | Separate immutable numerical storage from operator locations                              |
+| Register candidate unitaries and probabilities                           | [`applyUnitaryChannel`](https://github.com/NVIDIA/cuda-quantum/blob/411f157aaa57125dc4edf17cb81395f97fce6a90/runtime/nvqir/cutensornet/tensornet_state.inc#L119-L132)                         | Native State API can represent a stochastic channel without a host upload per realization |
+| Prepare sampler once, execute repeatedly; one sample per call when noisy | [`prepareSample` / `executeSample`](https://github.com/NVIDIA/cuda-quantum/blob/411f157aaa57125dc4edf17cb81395f97fce6a90/runtime/nvqir/cutensornet/tensornet_state.inc#L259-L422)             | Reuse preparation while obtaining independent trajectories                                |
+| Recompute MPS factorization per noisy trajectory                         | [`SimulatorMPS::observe`](https://github.com/NVIDIA/cuda-quantum/blob/411f157aaa57125dc4edf17cb81395f97fce6a90/runtime/nvqir/cutensornet/simulator_mps.h#L318-L345)                           | Reused preparation does not mean an unchanged numerical state                             |
+
+```mermaid
+flowchart LR
+    subgraph Native["CUDA-Q high-level State route"]
+        direction TB
+        Mat["Resident channel matrices plus probabilities"] --> State["Register native State channels"]
+        State --> Sampler["Prepare sampler"]
+        Sampler --> Traj["Repeated native trajectory sampling"]
+    end
+    subgraph Shared["Intended shared selected-plan route"]
+        direction TB
+        Table["Caller samples classical unitary choices"] --> Bind["Per-run input bindings"]
+        Plan["Explicit Q and selected P"] --> Prep["Prepare reusable executable"]
+        Prep --> Exec["Execute current bindings<br/>reuse preparation"]
+        Bind --> Exec
+        Exec --> Result["Deterministic contraction for these inputs"]
+    end
+```
+
+These are different API layers. `cutensornetStateApplyUnitaryChannel` and the
+sampler operate on a state; the current adapter uses a network descriptor,
+explicit path import and `cutensornetNetworkContract`. Native State sampling
+is not a drop-in implementation of an arbitrary supplied-plan contraction.
+Do not silently add path search, stochastic sampling or state evolution to
+the shared numerical method to imitate that route.
+
+The pinned [cuTensorNet API reference](https://docs.nvidia.com/cuda/cuquantum/26.06.0/cutensornet/api/functions.html)
+documents `cutensornetNetworkPrepareContraction` as kernel/intermediate-layout
+preparation and `cutensornetNetworkSetInputTensorMemory` as input pointer/stride
+binding. The checked-in [2.13 qualifiers](../../../cutensornet/src/bindings/v2_13.rs)
+distinguish tensors declared constant across contractions. These support the
+structure/data distinction, but QDK still needs injected and later native
+evidence for its actual update sequence.
+
+That reference restricts `cutensornetStateApplyGeneralChannel` to MPS with
+the supported gauge/mode conditions; CUDA-Q's exact State backend also
+[rejects general channels](https://github.com/NVIDIA/cuda-quantum/blob/411f157aaa57125dc4edf17cb81395f97fce6a90/runtime/nvqir/cutensornet/simulator_tensornet.h#L195-L199).
+This is a restriction of that native trajectory API, not a prohibition on
+the doubled-network representation above. The existing QDK MPS route remains
+unchanged by this design discussion.
+
+#### cuTensorNet realization examples
+
+**Illustrative future implementations, not implemented QDK noise support or
+a selected strategy.** The two cuTensorNet routes below have different
+contracts: the Network API executes an explicit contraction, whereas the
+State API represents quantum evolution and provides higher-level operations
+such as sampling. A noise declaration should not force either route.
+
+| Declared QDK behavior            | Possible selected-plan Network realization                                                                                                                                                                           | Possible native State realization                                                                                                                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Pauli error after a gate         | Caller samples the Pauli; absorb it into a compatible gate tensor or bind an explicit noise tensor. Execute the prepared query with the resulting inputs                                                             | Register resident candidate unitaries and probabilities with `cutensornetStateApplyUnitaryChannel`; native sampling selects the trajectory                                                                         |
+| Correlated two-qubit Pauli error | Sample the joint distribution; absorb the selected product into a compatible full gate tensor, or select correlated inputs in a prepared factorized representation                                                   | Register the joint candidates, e.g. $I\otimes I$ and $X\otimes X$, as one two-mode unitary channel with their joint probabilities, not two independent channels                                                    |
+| Idle-time `S` fault              | Determine the idle interval and effective event probability using QDK's timing/loss semantics; choose `I` or `S` and absorb/bind it at the correct boundary                                                          | After determining the same interval and valid distribution, register the `{I, S}` unitary mixture with probabilities `{1-p, p}`. cuTensorNet does not infer QDK's idle timing                                      |
+| Loss with QDK gate policies      | After selecting a loss event, evaluate conditional reset probabilities and bind the selected normalized reset, or use the doubled-network reset channel. Retain loss flags and choose later gate tensors accordingly | In the supported MPS mode, the reset channel `{R_0, R_1}` can be registered through `cutensornetStateApplyGeneralChannel`. QDK still selects the loss event, retains loss flags and implements later gate policies |
+| General Kraus operation          | Use a doubled ket/bra channel tensor, or orchestrate state-dependent trajectory branches with explicit probability queries and compatible branch tensors                                                             | Register a trace-preserving Kraus set through `cutensornetStateApplyGeneralChannel` where its MPS restrictions are satisfied. This is not native exact-State support for general channels                          |
+
+Here the loss reset candidates are
+$R_0=|0\rangle\langle0|$ and $R_1=|0\rangle\langle1|$.
+The native reset channel handles the quantum reset, not QDK's classical
+`LossPolicy` semantics. The selected-plan loss route can need several
+queries/plans; see [what can be reused while handling loss](#what-can-be-reused-while-handling-loss).
+
+For a general Kraus set, a doubled-network channel tensor is
+
+$$
+S_{aa',bb'}=\sum_j (K_j)_{ab}\,\overline{(K_j)_{a'b'}} .
+$$
+
+This sums the channel's unobserved branches. It does not automatically return
+an `Instrument` outcome. A selective instrument needs its outcome
+probabilities, selected conditional state and normalization/trace bookkeeping
+preserved explicitly; replacing it with the channel that sums all outcomes
+would change the semantics. Density-network outputs also differ from
+pure-state amplitudes and can require much larger contractions.
+
+**Example: the same bit-flip declaration, two possible realizations.**
+For a declared error after gate $U$, with $0\leq p\leq1$:
+
+$$
+\rho'= (1-p)\,U\rho U^\dagger
+       +p\,XU\rho U^\dagger X^\dagger .
+$$
+
+```text
+Declaration: apply U, then bit-flip noise with probability p
+                              |
+               +--------------+--------------+
+               |                             |
+     Selected-plan Network route       Native State route
+     (compatible full gate tensor)
+               |                             |
+     Caller samples b ~ Bernoulli(p)    Register U
+               |                       Register channel:
+     Select gate payload U or XU       {I, X} with {1-p, p}
+               |                             |
+     NetworkSetInputTensorMemory       Prepare sampler
+               |                             |
+     NetworkContract                   Repeated SamplerSample calls
+     (reuse query/plan/preparation)     (native error selection)
+```
+
+The Network route can reuse resident `U`/`XU` payloads and does not need a
+separate noise node in this example. It returns the query's numerical tensor;
+any final shot sampling remains caller-level work. The State sampler returns
+samples, not that same contraction output type. Reuse of the native sampler
+within a sampling operation has CUDA-Q precedent above; it is not a promise
+that arbitrary channel, circuit or probability changes preserve preparation.
+Neither the source nor this example establishes whether native execution
+internally performs the same absorption.
+
+**Native capability limits matter.** In the pinned
+[cuTensorNet API reference](https://docs.nvidia.com/cuda/cuquantum/26.06.0/cutensornet/api/functions.html),
+`cutensornetStateApplyGeneralChannel` requires a trace-preserving channel,
+supports channels acting on one or two state modes in MPS simulation with
+`CUTENSORNET_STATE_MPS_GAUGE_FREE`, and does not support the exact-contraction
+State route or the simple MPS gauge. Its channel ID cannot be updated through
+`cutensornetStateUpdateTensorOperator`. An individual trace-decreasing
+instrument outcome must not be passed as though it were a complete
+trace-preserving channel. Unitary-channel probabilities must sum to one.
+These examples do not imply that all named native APIs are exposed by the
+current QDK adapter, or authorize changes to the existing MPS implementation.
+
+#### Implementation boundary and required evidence
+
+Resident input ownership, operation separation, retention and failure behavior
+are approved as described above. The executable owns resident inputs together
+with its prepared resources, registers/replaces values explicitly, and executes
+complete binding selections. The earlier fixed-input coefficient GAT proposal
+is superseded.
+
+**Approved reporting representation, implementation pending:** Context and
+executable expose a backend-defined `Report: AsRef<ResourceReport>`, with
+`PreparationFailure<E, R = ResourceReport>` retaining the report, primary error
+and optional cleanup error by value. Native reporting embeds the common report
+and two optional native cache recommendations; it replaces zero-defaulted
+`ExecutionMemory`, rather than wrapping it. Common evidence distinguishes the
+most recent fully validated input selection from all acquired resident input
+allocations. Selected bytes/count do not assert that every native binding
+succeeded; resident bytes/count include unselected candidates and allocations
+acquired before a failed upload. Owned device bytes count actual acquisitions.
+Input-time errors leave the report on the unusable executable. Preparation
+errors retain separate primary/cleanup errors even during early topology
+construction/import. Record each successful observation/acquisition before the
+next fallible operation.
+
+**Approved host allocation seam, implementation pending:** add a narrow
+`allocate_host_scratch` operation to the existing private
+`ContractionExecutionApi`. It returns the existing aligned RAII `HostScratch`
+owner, or a construction-configured injected allocation error. Use the real
+owner in both production and injected paths; add neither fake pointers nor a
+new allocator object on Session, and leave MPS unchanged.
+
+**Resource-keyed double checkpoint completed:** the existing native API double
+now keeps live resources separate from call history and uses unique handles,
+per-network metadata/bindings, per-workspace state and per-stream pending work.
+All 46 baseline host contraction tests still pass. Three added behavioral cases
+exercise sequential numerical preparation on one Session, independently
+closable live owners (including cleanup errors), and a failed contraction that
+does not block another stream. The 49-case suite and strict crate Clippy pass.
+Faults/observations remain construction-configured, and the real native owners
+remain under exercise.
+
+This isolated refactor does not change production execution or supply a
+numerical input-reuse oracle: the existing sentinel output remains for these
+lifecycle cases. Changed-input numerical behavior must be added before claiming
+reusable-input evidence. Native/A100 qualification uses the real library API,
+not this double; its independent fixtures and tolerances remain unchanged.
+
+The reusable-input contract must demonstrate, through the real native adapter
+with injected APIs:
+
+- Prepare once; run A, B and C above without new search or kernel preparation.
+- Changed bindings change numerical results while earlier outputs survive.
+  A test double returning a constant output cannot establish this property.
+- Equal-valued slots can diverge and later share again without corrupting
+  other users; resident candidates are not uploaded again merely to rebind.
+- New payloads are validated/uploaded through the real path; retained storage,
+  successful allocations and failures are reported honestly.
+- No stale constant/intermediate cache, expired host view, cross-owner release,
+  or partially updated input set is silently used.
+
+These are implementation acceptance requirements, not completed tests or an
+authorization to integrate noise now. Loss additionally needs independently
+reviewed state/probability and continuation semantics; a successful Pauli
+rebinding test does not qualify it. Preserve the later representative-settings
+3c native gate, finalize it from implementation evidence, and require separate
+authorization for VM delivery, GPU execution and public integration.
 
 ### Required I4 consumer guard
 
@@ -401,7 +1570,7 @@ Three placement facts worth knowing before moving anything:
   `ContractionQuery` — what to compute. In `cutensornet/` it is
   `ContractionResources` — borrowed native topology/optimizer metadata ownership.
   Its owned positional metadata is not the planned portable plan or shared
-  optimizer/executor interface. The numerical child owner consumes its selected
+  contraction contracts. The numerical child owner consumes its selected
   metadata and I2 bindings without a new search. The bounded numerical experiment
   precedes shared-interface work; diagnostic/2x2/4x4 native numerical results
   now qualify this bounded lifecycle, not the future common interfaces.
@@ -493,8 +1662,12 @@ AdaptiveExecution::new
 
 A `QuantumEvolutionRegion` is uninterrupted target-local state evolution
 between host-visible semantic boundaries. The current payload contains only
-resolved unitary operations. Measurements, stochastic decisions, queries,
+resolved unitary operations. Measurements, host-visible decisions and queries,
 ordered output, and classical branch selection remain outside a region.
+The [approved noise attachment](#attach-noise-declarations-to-existing-execution-work)
+extends region work with declarations alongside that ideal sequence, allowing
+internal stochastic realization while preserving observable outcome boundaries.
+That extension is not implemented in the current command/response protocol.
 
 `drive_prepared_shot` provides synchronous orchestration for any
 `RegionConsumer`. `run_prepared_shot` retains the existing simulator-facing

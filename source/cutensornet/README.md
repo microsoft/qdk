@@ -313,48 +313,138 @@ The Session groups these resources; it is a QDK abstraction, not a separate
 NVIDIA Session object or an explicitly created CUDA context.
 
 Creating a Session does not allocate the contraction's coefficient, output or
-scratch buffers. Numerical preparation determines their requirements, checks
-the device/host scratch ceilings and allocates the buffers. Actual allocations
+scratch buffers. The current private numerical preparation determines their
+requirements, checks the device/host scratch ceilings and allocates the buffers.
+The intended reusable-input interface separates structural preparation from
+per-run tensor bindings. Executable-owned resident input storage and explicit
+registration/replacement with complete per-run bindings are approved. Explicitly
+registered inputs remain until executable close; same-shape replacement reuses
+capacity, and execution adds no input allocations. Any registration, replacement
+or execution error makes the executable unusable, with reports and close still
+available. Actual allocations
 hold memory until cleanup; a planning budget, execution ceiling or free-memory
 observation does not reserve memory. Neither the Session nor these allocations
 reserve exclusive GPU compute capacity or impose a total GPU-memory limit.
 
-The agreed shared execution ownership model retains the existing **exclusive
-Session borrow**: the caller owns both the Session and the returned executable.
-The executable owns its contraction resources and exclusively borrows the
-caller's Session. The Executor constructs the executable and transfers it to
-the caller; it does not become the long-term Session owner.
+**Approved ownership, implementation pending:** the shared preparation abstraction
+changes from a separate `ContractionExecutor` to `ContractionContext`.
+`SessionResources<Api>` will implement this capability directly: the caller
+prepares a query and selected plan on Session and receives an owned
+`ContractionExecution<'session, Api>` implementing `ExecutableContraction`.
+There is no additional Context object or separate Executor to bind and unbind.
+The current Rust shared trait still has the old name/signature until slice 3b
+migrates it; the native Context/executable adapters are not implemented yet.
+
+**Clarified input semantics:** the intended executable accepts different
+tensor values/bindings on successive executions without rebuilding its
+structure. The current private owner still fixes inputs at preparation.
+The [shared data-reuse, noise and loss design](../simulators/src/execution/README.md#tensor-data-reuse-noise-and-loss-design)
+defines the distinction, including resident matrix sharing, update lifetimes,
+and why loss needs more than a pre-sampled Pauli-like binding. Subsequent review
+approved executable-owned resident input storage and separate
+registration/replacement from complete per-run binding selection. The sequence
+below uses conceptual calls, not finalized Rust signatures.
+
+The approved ownership model retains the existing **exclusive Session borrow**:
+the caller owns both the Session and the returned executable. The executable
+owns its contraction resources and exclusively borrows the caller's Session.
+Preparation is a factory method on Session through the shared Context trait,
+not a transfer of Session ownership to the executable.
 
 ```text
 Caller
   |-- owns Session
   `-- owns ExecutableContraction
-        |-- owns contraction-specific native resources
+        |-- owns contraction-specific native resources and resident inputs
         `-- exclusively borrows Session until close
 ```
 
-After successful executable cleanup, the caller can reuse the same Session for
-a different contraction, then eventually close the Session itself:
+Responsibilities remain separate:
 
-```text
-Session lifetime:  |----------------------------------------------------------|
-Executable A:          prepare -> execute -> close
-Executable B:                                     prepare -> execute -> close
+| Owner or capability                                             | Responsibility                                                                                                                                             |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SessionResources<Api>` / `ContractionContext`                  | Own the selected device information, CUDA stream and cuTensorNet handle; prepare a supplied plan without search.                                           |
+| `CuTensorNetOptimizer`                                          | Temporarily borrow Session for explicit path search; return an owned portable plan and planning report; close its temporary children.                      |
+| `ContractionExecution<'session, Api>` / `ExecutableContraction` | Own topology, prepared resources and resident input storage; exclusively borrow Session; execute supplied inputs, report resources and close its children. |
+| Caller                                                          | Own Session and each returned executable; retain outputs and error outcomes; close Session separately after its children are gone.                         |
+
+The Context lifetime is explicit in the approved lifetime direction
+`prepare<'session>(&'session mut self, ...) -> Result<Self::Executable<'session>, ...>`.
+It is the actual Session borrow, not a borrow of a temporary Executor or of the
+local query/plan. Implementing the capability on Session does not make Session
+store an executable that borrows its own fields.
+
+After successful executable cleanup, the caller can prepare a different
+contraction on the same Session, then eventually close Session itself. The
+following diagram shows the successful sequential lifecycle; each loop
+iteration creates a fresh executable. Inside each iteration, compatible
+input changes reuse that executable; they do not require the outer loop.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Session as SessionResources<br/>ContractionContext
+    participant Native as Injected native API
+    participant Executable as ContractionExecution<br/>ExecutableContraction
+
+    Caller->>Session: new(api, device_ordinal)
+    Session->>Native: Select device<br/>Create stream and handle
+    Session-->>Caller: Caller-owned Session
+    loop Contraction A, then B, after successful cleanup
+        Caller->>Session: prepare(query, selected plan, limits)
+        Session->>Native: Create topology<br/>Import and verify selected plan
+        Note over Session,Native: No optimizer config or hidden path search
+        Session->>Native: Measure workspace and enforce ceilings<br/>Prepare structural resources and kernels
+        Note over Session,Native: Record each observation and allocation<br/>before later fallible work
+        Session-->>Caller: Caller-owned executable<br/>Exclusively borrows Session
+        Caller->>Executable: resources()
+        Executable-->>Caller: Recorded resource evidence
+        loop Compatible tensor input sets
+            Caller->>Executable: execute(inputs)
+            Executable->>Native: Establish current inputs and device<br/>Contract, synchronize and read back
+            Executable-->>Caller: Independently owned host output
+        end
+        Caller->>Executable: close()
+        Executable->>Native: Synchronize<br/>Release owned descriptors and buffers
+        Executable-->>Caller: Cleanup result<br/>Consumed - Session borrow ends
+    end
+    Caller->>Session: close()
+    Session->>Native: Bind device and synchronize<br/>Destroy handle and stream
+    Session-->>Caller: Session cleanup result<br/>Session consumed
 ```
 
 This is sequential reuse, not multiple live executables sharing one Session.
-Session does not store or orchestrate an Executor or Executable. The caller
-invokes their methods; the executable uses the Session's API, device, handle
-and stream. Explicit executable close releases its resources, not the borrowed
-Session. Session close is separate: select the device, synchronize, destroy the
-cuTensorNet handle and destroy the stream, reporting cleanup failure.
+Session does not store or orchestrate an executable. `resources`, `execute`
+and executable `close` belong to the returned owner, not Session. The
+executable uses Session's API, device, handle and stream; closing it does not
+close Session. Separate Sessions support independently closable live owners
+created from reusable plan/coefficient storage. This model introduces neither
+per-executable Session ownership nor shared-session interior mutability.
 
-Session ownership is settled; the shared adapter's concrete borrow-transfer
-wiring remains under review, not implemented. `ContractionExecutor::prepare`
-must hand the exclusive borrow of the caller-owned Session to the executable
-without making it borrow the method-local mutable executor borrow. This model
-does not introduce per-executable Session ownership or shared-session interior
-mutability.
+Failed preparation cleans up acquired children and returns a by-value
+`PreparationFailure` with partial resource evidence, the primary error and a
+separate optional cleanup error. It leaves no executable retaining the Session
+borrow. Executable close consumes its owner and ends its borrow even on cleanup
+error; neither outcome promises native/device health after failed cleanup.
+Record successful measurements and allocations incrementally, preserving
+unknown versus known-zero observations and requirements versus actual
+allocations. Session construction and final Session cleanup have their own
+results, outside preparation's failure envelope.
+
+The [shared contraction contracts](../simulators/src/execution/README.md#shared-contraction-contracts-i3)
+define the lifetime-indexed prepared owner, synchronous methods and failure
+sequence. The ownership/wiring direction, resident-input operations and policies,
+native/shared report representation and host-allocation seam are approved.
+The [shared implementation boundary](../simulators/src/execution/README.md#implementation-boundary-and-required-evidence)
+records these decisions and the regression-preserving, resource-keyed migration
+of the existing native API double. Native shared-route qualification
+remains a later gate; private-route results do not qualify these new adapters.
+That later VM/A100 gate must cover representative automatic/explicit planning
+budgets, execution scratch ceilings, search effort, thread counts, seeds, rank
+simplification settings and supplied plans with no search. Use broad tiny-case
+coverage and a few representative frozen 4x4 cases, not a Cartesian sweep.
+Finalize its settings from slice 3b evidence; VM delivery and GPU execution
+still require separate authorization.
 
 `MpsExecution` owns one MPS state and its execution/readout resources under a
 live `MpsSession`. `MpsExecutionApi` and `ContractionApi` are private cuTensorNet
@@ -407,7 +497,7 @@ SessionResources (device / stream / handle; no MPS policy)
 
 `NativeMetadata` is a private copy of NVIDIA's positional path, sliced
 mode/extent pairs and slice count. It is **not** the portable contraction
-plan or shared optimizer/executor interface. This layer qualifies
+plan or shared contraction contracts. This layer qualifies
 complete binary paths over at least two inputs and full internal slicing
 with sliced extent one. It rejects unsupported slicing rather than dropping
 it, completing a path or silently optimizing a replacement. It binds no
@@ -453,7 +543,7 @@ Path echo alone does not establish interpretation. A missing or inconsistent
 native structural result fails the structural qualification with an explicit
 acceptance gap; it must not be replaced by host-computed metadata. Even these
 metadata checks do not establish numerical contraction or execution order.
-Those require a later executor qualification through the production interface.
+Those require later Context/executable qualification through the shared interface.
 
 The optimization case explicitly requests a **64 MiB workspace constraint**,
 one hyper-sample, one thread, seed 17, zero reconfiguration iterations,
@@ -532,8 +622,8 @@ checks path/slicing/intermediate readback without creating a search config or
 invoking optimization. It produces no planning report and performs no numerical
 preparation. Native metadata is a lowering, not lossless serialization of all
 portable axis-order choices; retain the original portable plan for exact
-re-export. Fixed-coefficient execution adapters, rebinding, noise, and GPU
-qualification are separate later work.
+re-export. Shared execution adapters and their reusable-input revision remain
+unimplemented; noise integration and GPU qualification are separate later work.
 
 The [native validator](scripts/README.md#validating-the-ffi-surface-and-gpu-behavior)
 selects these ignored tests with `--metadata-qualification`, independently of

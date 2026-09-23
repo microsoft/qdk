@@ -9,13 +9,36 @@ use std::collections::BTreeMap;
 
 #[derive(Default)]
 pub(super) struct NumericalState {
-    allocations: BTreeMap<usize, usize>,
+    pub(super) allocations: BTreeMap<usize, AllocationState>,
+    pub(super) workspaces: BTreeMap<usize, WorkspaceState>,
+    pub(super) pending: BTreeMap<usize, BTreeSet<usize>>,
+}
+
+pub(super) struct AllocationState {
+    bytes: usize,
+    input: Option<Vec<Complex64Abi>>,
+    output: Option<(usize, Vec<Complex64Abi>)>,
+}
+
+#[derive(Default)]
+pub(super) struct WorkspaceState {
+    pub(super) network: Option<usize>,
+    pub(super) bindings: Vec<(MemorySpace, WorkspaceKind, Option<usize>, i64)>,
+}
+
+#[derive(Default)]
+pub(super) struct NetworkNumericalState {
+    pub(super) inputs: BTreeMap<i64, usize>,
+    pub(super) output: Option<usize>,
+    prepared: bool,
+    pub(super) stream: Option<usize>,
+}
+
+#[derive(Default)]
+pub(super) struct NumericalHistory {
     uploads: BTreeMap<usize, Vec<Complex64Abi>>,
     inputs: Vec<(i64, usize)>,
-    output: Option<usize>,
     workspace: Vec<(MemorySpace, WorkspaceKind, Option<usize>, i64)>,
-    prepared: bool,
-    pub(super) pending: bool,
 }
 
 pub(super) struct NumericalSettings {
@@ -59,21 +82,20 @@ impl MemoryWorkspaceApi for TestDoubleContractionApi {
     }
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, SimulationError> {
         assert!(bytes > 0);
-        let id = 1000
-            + self
-                .state
-                .lock()
-                .expect("state")
-                .numerical
-                .allocations
-                .len();
-        let allocation = self.create("allocate", id)?;
+        let allocation = self.create("allocate", ResourceKind::Allocation, None)?;
         self.state
             .lock()
             .expect("state")
             .numerical
             .allocations
-            .insert(id, bytes);
+            .insert(
+                allocation.as_ptr() as usize,
+                AllocationState {
+                    bytes,
+                    input: None,
+                    output: None,
+                },
+            );
         Ok(allocation)
     }
     fn free(&self, allocation: OpaqueHandle) -> Result<(), SimulationError> {
@@ -85,11 +107,21 @@ impl MemoryWorkspaceApi for TestDoubleContractionApi {
         source: &[Complex64Abi],
     ) -> Result<(), SimulationError> {
         self.event("copy_to_device")?;
-        let id = destination.as_ptr() as usize;
         let mut state = self.state.lock().expect("state");
-        assert_eq!(state.numerical.allocations[&id], size_of_val(source));
+        let id = state.check(destination, ResourceKind::Allocation);
+        let allocation = state
+            .numerical
+            .allocations
+            .get_mut(&id)
+            .expect("live allocation");
+        assert_eq!(allocation.bytes, size_of_val(source));
+        assert!(
+            allocation.input.replace(source.to_vec()).is_none(),
+            "upload unique buffer once"
+        );
         assert!(
             state
+                .history
                 .numerical
                 .uploads
                 .insert(id, source.to_vec())
@@ -105,37 +137,40 @@ impl MemoryWorkspaceApi for TestDoubleContractionApi {
     ) -> Result<(), SimulationError> {
         self.event("copy_from_device")?;
         let state = self.state.lock().expect("state");
-        assert!(!state.numerical.pending);
-        assert_eq!(state.numerical.output, Some(source.as_ptr() as usize));
-        assert_eq!(
-            state.numerical.allocations[&(source.as_ptr() as usize)],
-            size_of_val(destination)
-        );
-        destination.fill(Complex64Abi::new(
-            if self.numerical.nonfinite_output {
-                f64::NAN
-            } else {
-                0.25
-            },
-            -0.125,
-        ));
+        let id = state.check(source, ResourceKind::Allocation);
+        let allocation = &state.numerical.allocations[&id];
+        let (stream, result) = allocation.output.as_ref().expect("contracted output");
+        assert!(state.numerical.pending[stream].is_empty());
+        assert_eq!(allocation.bytes, size_of_val(destination));
+        destination.copy_from_slice(result);
         Ok(())
     }
-    fn create_workspace(&self, _handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
-        self.create("create_workspace", 8)
+    fn create_workspace(&self, parent: OpaqueHandle) -> Result<OpaqueHandle, SimulationError> {
+        let workspace = self.create("create_workspace", ResourceKind::Workspace, Some(parent))?;
+        self.state
+            .lock()
+            .expect("state")
+            .numerical
+            .workspaces
+            .insert(workspace.as_ptr() as usize, WorkspaceState::default());
+        Ok(workspace)
     }
     fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError> {
         self.destroy("destroy_workspace", workspace)
     }
     fn workspace_memory_size(
         &self,
-        _handle: OpaqueHandle,
-        _workspace: OpaqueHandle,
+        parent: OpaqueHandle,
+        workspace: OpaqueHandle,
         preference: WorkspacePreference,
         space: MemorySpace,
         kind: WorkspaceKind,
     ) -> Result<i64, SimulationError> {
         self.event("workspace_memory_size")?;
+        self.state
+            .lock()
+            .expect("state")
+            .child(parent, workspace, ResourceKind::Workspace);
         let value = match (space, kind) {
             (_, WorkspaceKind::Cache) => 4096,
             (MemorySpace::Device, _) => self.numerical.device_minimum,
@@ -154,8 +189,8 @@ impl MemoryWorkspaceApi for TestDoubleContractionApi {
     }
     fn set_workspace_memory(
         &self,
-        _handle: OpaqueHandle,
-        _workspace: OpaqueHandle,
+        parent: OpaqueHandle,
+        workspace: OpaqueHandle,
         space: MemorySpace,
         kind: WorkspaceKind,
         allocation: Option<OpaqueHandle>,
@@ -172,12 +207,26 @@ impl MemoryWorkspaceApi for TestDoubleContractionApi {
             }
             WorkspaceKind::Cache => assert!(allocation.is_none() && bytes == 0),
         }
-        self.state
-            .lock()
-            .expect("state")
+        let mut state = self.state.lock().expect("state");
+        let id = state.child(parent, workspace, ResourceKind::Workspace);
+        if space == MemorySpace::Device
+            && let Some(allocation) = allocation
+        {
+            let allocation_id = state.check(allocation, ResourceKind::Allocation);
+            assert_eq!(
+                state.numerical.allocations[&allocation_id].bytes,
+                usize::try_from(bytes).expect("size")
+            );
+        }
+        let binding = (space, kind, address, bytes);
+        state
             .numerical
-            .workspace
-            .push((space, kind, address, bytes));
+            .workspaces
+            .get_mut(&id)
+            .expect("live workspace")
+            .bindings
+            .push(binding);
+        state.history.numerical.workspace.push(binding);
         Ok(())
     }
 }
@@ -185,72 +234,139 @@ impl MemoryWorkspaceApi for TestDoubleContractionApi {
 impl ContractionExecutionApi for TestDoubleContractionApi {
     fn compute_contraction_workspace(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
-        _info: OpaqueHandle,
-        _workspace: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
+        info: OpaqueHandle,
+        workspace: OpaqueHandle,
     ) -> Result<(), SimulationError> {
-        self.event("compute_contraction_workspace")
+        self.event("compute_contraction_workspace")?;
+        let mut state = self.state.lock().expect("state");
+        state.child(network, info, ResourceKind::Info);
+        assert_eq!(
+            state.network(parent, network).info,
+            Some(info.as_ptr() as usize)
+        );
+        let id = state.child(parent, workspace, ResourceKind::Workspace);
+        state
+            .numerical
+            .workspaces
+            .get_mut(&id)
+            .expect("live workspace")
+            .network = Some(network.as_ptr() as usize);
+        Ok(())
     }
     fn bind_input(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
         tensor_id: i64,
         allocation: OpaqueHandle,
     ) -> Result<(), SimulationError> {
         self.event("bind_input")?;
         let mut state = self.state.lock().expect("state");
-        assert!([90, 7, 400, 12].contains(&tensor_id));
         assert!(
             state
-                .numerical
-                .uploads
-                .contains_key(&(allocation.as_ptr() as usize))
+                .network(parent, network)
+                .tensor_ids
+                .contains(&tensor_id)
         );
+        let allocation = state.check(allocation, ResourceKind::Allocation);
+        assert!(state.numerical.allocations[&allocation].input.is_some());
         state
+            .network_mut(parent, network)
             .numerical
             .inputs
-            .push((tensor_id, allocation.as_ptr() as usize));
+            .insert(tensor_id, allocation);
+        state.history.numerical.inputs.push((tensor_id, allocation));
         Ok(())
     }
     fn bind_output(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
         allocation: OpaqueHandle,
     ) -> Result<(), SimulationError> {
         self.event("bind_output")?;
-        self.state.lock().expect("state").numerical.output = Some(allocation.as_ptr() as usize);
+        let mut state = self.state.lock().expect("state");
+        let allocation = state.check(allocation, ResourceKind::Allocation);
+        state.network_mut(parent, network).numerical.output = Some(allocation);
         Ok(())
     }
     fn prepare_contraction(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
-        _workspace: OpaqueHandle,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
+        workspace: OpaqueHandle,
     ) -> Result<(), SimulationError> {
         self.event("prepare_contraction")?;
         let mut state = self.state.lock().expect("state");
-        assert_eq!(state.numerical.inputs.len(), 4);
-        assert!(state.numerical.output.is_some());
-        assert!(!state.path.is_empty());
-        state.numerical.prepared = true;
+        let selected = state.network(parent, network);
+        assert_eq!(selected.numerical.inputs.len(), selected.tensors.len());
+        assert!(selected.numerical.output.is_some());
+        assert!(
+            !state.infos[&selected.info.expect("attached info")]
+                .path
+                .is_empty()
+        );
+        let workspace_id = state.child(parent, workspace, ResourceKind::Workspace);
+        assert_eq!(
+            state.numerical.workspaces[&workspace_id].network,
+            Some(network.as_ptr() as usize)
+        );
+        state.network_mut(parent, network).numerical.prepared = true;
         Ok(())
     }
     fn contract(
         &self,
-        _handle: OpaqueHandle,
-        _network: OpaqueHandle,
-        _workspace: OpaqueHandle,
-        _stream: Stream,
+        parent: OpaqueHandle,
+        network: OpaqueHandle,
+        workspace: OpaqueHandle,
+        stream: Stream,
     ) -> Result<(), SimulationError> {
         let mut state = self.state.lock().expect("state");
-        assert!(state.numerical.prepared);
-        assert!(!state.numerical.pending);
-        state.numerical.pending = true;
+        let stream_id = state.check(stream, ResourceKind::Stream);
+        assert!(state.network(parent, network).numerical.prepared);
+        let workspace_id = state.child(parent, workspace, ResourceKind::Workspace);
+        assert_eq!(
+            state.numerical.workspaces[&workspace_id].network,
+            Some(network.as_ptr() as usize)
+        );
+        let pending = state
+            .numerical
+            .pending
+            .get_mut(&stream_id)
+            .expect("live stream");
+        assert!(pending.is_empty());
+        pending.insert(network.as_ptr() as usize);
+        state.network_mut(parent, network).numerical.stream = Some(stream_id);
+        let output = state
+            .network(parent, network)
+            .numerical
+            .output
+            .expect("bound output");
         drop(state);
-        self.event("contract")
+        self.event("contract")?;
+        let mut state = self.state.lock().expect("state");
+        let allocation = state
+            .numerical
+            .allocations
+            .get_mut(&output)
+            .expect("live output");
+        allocation.output = Some((
+            stream_id,
+            vec![
+                Complex64Abi::new(
+                    if self.numerical.nonfinite_output {
+                        f64::NAN
+                    } else {
+                        0.25
+                    },
+                    -0.125,
+                );
+                allocation.bytes / size_of::<Complex64Abi>()
+            ],
+        ));
+        Ok(())
     }
 }
 
@@ -290,6 +406,20 @@ fn coefficients() -> Vec<Box<[Complex64]>> {
     vec![vec![Complex64::new(0.5, -0.25); 4].into_boxed_slice()]
 }
 
+fn prepare_numerical<'session>(
+    session: &'session mut SessionResources<TestDoubleContractionApi>,
+    query: &ContractionQuery<'_>,
+    buffers: &[Box<[Complex64]>],
+    bindings: &[usize],
+    limits: WorkspaceLimits,
+) -> Result<ContractionExecution<'session, TestDoubleContractionApi>, SimulationError> {
+    let mut resources = ContractionResources::new(session, query)?;
+    if let Err(error) = resources.import(&metadata()) {
+        return combine_execution_and_cleanup(Err(error), resources.close());
+    }
+    ContractionExecution::prepare(resources, buffers, bindings, limits)
+}
+
 fn run_numerical<T>(
     api: Arc<TestDoubleContractionApi>,
     buffers: &[Box<[Complex64]>],
@@ -302,15 +432,120 @@ fn run_numerical<T>(
     let mut session = SessionResources::new(api, 0)?;
     let network = shared_chain();
     let result = (|| {
-        let mut resources = ContractionResources::new(&mut session, &shared_query(&network))?;
-        if let Err(error) = resources.import(&metadata()) {
-            return combine_execution_and_cleanup(Err(error), resources.close());
-        }
-        let mut execution = ContractionExecution::prepare(resources, buffers, bindings, limits)?;
+        let mut execution = prepare_numerical(
+            &mut session,
+            &shared_query(&network),
+            buffers,
+            bindings,
+            limits,
+        )?;
         let result = operation(&mut execution);
         combine_execution_and_cleanup(result, execution.close())
     })();
     combine_execution_and_cleanup(result, session.close())
+}
+
+#[test]
+fn successful_cleanup_allows_sequential_numerical_preparations() {
+    let api = api(vec![], NumericalSettings::default());
+    let mut session = SessionResources::new(api.clone(), 0).expect("session");
+    let network = shared_chain();
+    let scalar = ContractionQuery::new(&network, Indices::new(vec![]).expect("scalar axes"))
+        .expect("scalar query");
+    for (query, output_count) in [
+        (shared_query(&network), 4),
+        (scalar, 1),
+        (shared_query(&network), 4),
+    ] {
+        let mut execution =
+            prepare_numerical(&mut session, &query, &coefficients(), &[0; 4], limits())
+                .expect("fresh preparation");
+        assert_eq!(execution.contract().expect("output").len(), output_count);
+        execution.close().expect("successful executable cleanup");
+    }
+    session.close().expect("session cleanup");
+    api.assert_released();
+    assert_eq!(
+        api.events()
+            .iter()
+            .filter(|&&event| event == "prepare_contraction")
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn independent_live_owners_keep_their_outputs_and_cleanup_separate() {
+    for cleanup_failures in [vec![], vec![("destroy_workspace", 1), ("free", 1)]] {
+        let expect_cleanup_error = !cleanup_failures.is_empty();
+        let api = api(cleanup_failures, NumericalSettings::default());
+        let mut first_session = SessionResources::new(api.clone(), 0).expect("first session");
+        let mut second_session = SessionResources::new(api.clone(), 0).expect("second session");
+        let network = shared_chain();
+        let scalar_query =
+            ContractionQuery::new(&network, Indices::new(vec![]).expect("scalar axes"))
+                .expect("scalar query");
+        let mut first = prepare_numerical(
+            &mut first_session,
+            &shared_query(&network),
+            &coefficients(),
+            &[0; 4],
+            limits(),
+        )
+        .expect("first executable");
+        let mut second = prepare_numerical(
+            &mut second_session,
+            &scalar_query,
+            &coefficients(),
+            &[0; 4],
+            limits(),
+        )
+        .expect("second executable");
+        assert_eq!(first.contract().expect("first output").len(), 4);
+        let second_output = second.contract().expect("second output");
+        assert_eq!(second_output, vec![Complex64::new(0.25, -0.125)]);
+        assert_eq!(first.close().is_err(), expect_cleanup_error);
+        first_session.close().expect("first session cleanup");
+        assert_eq!(
+            second.contract().expect("surviving executable"),
+            second_output
+        );
+        second.close().expect("second executable cleanup");
+        second_session.close().expect("second session cleanup");
+        api.assert_released();
+    }
+}
+
+#[test]
+fn a_failed_contraction_does_not_block_an_independent_stream() {
+    let api = api(vec![("contract", 1)], NumericalSettings::default());
+    let mut first_session = SessionResources::new(api.clone(), 0).expect("first session");
+    let mut second_session = SessionResources::new(api.clone(), 0).expect("second session");
+    let network = shared_chain();
+    let query = shared_query(&network);
+    let mut first = prepare_numerical(
+        &mut first_session,
+        &query,
+        &coefficients(),
+        &[0; 4],
+        limits(),
+    )
+    .expect("first executable");
+    let mut second = prepare_numerical(
+        &mut second_session,
+        &query,
+        &coefficients(),
+        &[0; 4],
+        limits(),
+    )
+    .expect("second executable");
+    assert!(first.contract().is_err());
+    assert_eq!(second.contract().expect("independent stream").len(), 4);
+    second.close().expect("independent cleanup");
+    second_session.close().expect("second session cleanup");
+    first.close().expect("drain and close failed executable");
+    first_session.close().expect("first session cleanup");
+    api.assert_released();
 }
 
 #[test]
@@ -336,9 +571,10 @@ fn shared_buffers_native_ids_repeated_readback_and_owned_results() {
     api.assert_released();
     assert_eq!(output, vec![Complex64::new(0.25, -0.125); 4]);
     let state = api.state.lock().expect("state");
-    assert_eq!(state.numerical.uploads.len(), 1);
+    assert_eq!(state.history.numerical.uploads.len(), 1);
     assert_eq!(
         state
+            .history
             .numerical
             .inputs
             .iter()
@@ -346,7 +582,14 @@ fn shared_buffers_native_ids_repeated_readback_and_owned_results() {
             .collect::<Vec<_>>(),
         [90, 7, 400, 12]
     );
-    assert!(state.numerical.inputs.windows(2).all(|w| w[0].1 == w[1].1));
+    assert!(
+        state
+            .history
+            .numerical
+            .inputs
+            .windows(2)
+            .all(|w| w[0].1 == w[1].1)
+    );
     assert!(!state.events.contains(&"optimize"));
     assert!(!state.events.contains(&"create_optimizer_config"));
     assert_eq!(
@@ -438,8 +681,8 @@ fn uploads_referenced_buffers_only_and_keeps_distinct_bindings() {
     .expect("bound buffers only");
     api.assert_released();
     let state = api.state.lock().expect("state");
-    assert_eq!(state.numerical.uploads.len(), 2);
-    let inputs = &state.numerical.inputs;
+    assert_eq!(state.history.numerical.uploads.len(), 2);
+    let inputs = &state.history.numerical.inputs;
     assert_eq!(inputs[0].1, inputs[2].1);
     assert_eq!(inputs[1].1, inputs[3].1);
     assert_ne!(inputs[0].1, inputs[1].1);
@@ -477,6 +720,7 @@ fn honors_exact_workspace_limits_and_distinguishes_zero_scratch_from_disabled_ca
         let state = api.state.lock().expect("state");
         assert_eq!(
             state
+                .history
                 .numerical
                 .workspace
                 .iter()
@@ -486,6 +730,7 @@ fn honors_exact_workspace_limits_and_distinguishes_zero_scratch_from_disabled_ca
         );
         assert_eq!(
             state
+                .history
                 .numerical
                 .workspace
                 .iter()
