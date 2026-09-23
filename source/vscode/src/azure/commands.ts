@@ -528,6 +528,9 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(
         "No connection string provided in the workspace URI.",
       );
+      log.error(
+        `VS Code deep link has missing or empty connection string: ${params.toString()}`,
+      );
       return;
     }
 
@@ -538,6 +541,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(
         "The workspace URI contained an invalid connection string.",
       );
+      log.error(`Received invalid connection string: ${connStr}`);
       return;
     }
 
@@ -558,6 +562,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       vscode.window.showErrorMessage(
         "The workspace endpoint URI is not valid. It must be an HTTPS URL pointing to azure.com.",
       );
+      log.error(`Invalid endpoint URI in connection string: ${connStr}`);
       return;
     }
 
