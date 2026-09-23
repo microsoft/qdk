@@ -39,6 +39,44 @@ fn simple_select_block() {
 }
 
 #[test]
+fn require_with_negated_record_yields_expected_qir() {
+    let source = indoc! {"
+      SELECT {
+        M 0 1
+        REQUIRE !rec[-1] rec[-2]
+      }
+    "};
+    check(
+        source,
+        &expect![[r#"
+            [entry_point]
+                br label %select_0
+              select_0:
+                call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+                %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
+                %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+                %n_0 = xor i1 %r_0, true
+                %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+                %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                %loss_0 = or i1 %l_0, %l_1
+                %parity_0 = xor i1 %n_0, %r_1
+                %restart_0 = or i1 %loss_0, %parity_0
+                br i1 %restart_0, label %select_0, label %continue_0
+              continue_0:
+
+            [declarations]
+              declare i1 @__quantum__rt__read_loss(ptr)
+              declare i1 @__quantum__rt__read_result(ptr)
+              declare void @__quantum__qis__m__body(ptr, ptr)
+
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 2"#]],
+    );
+}
+
+#[test]
 fn long_select_block() {
     let source = indoc! {"
         SELECT {
