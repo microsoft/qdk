@@ -1,11 +1,13 @@
 """The API checker must distinguish unavailable exports from a clean scan."""
 
 import json
+from pathlib import Path
 import sys
 import types
 
 import pytest
 
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 import check_api_surface as checker
 
 

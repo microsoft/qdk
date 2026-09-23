@@ -8,11 +8,13 @@ pub mod operation;
 
 use crate::{
     MeasurementResult, NearlyZero, QubitID, ResultID, Simulator,
-    noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID, LossPolicy},
+    noise_config::{
+        CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
+    },
 };
 use branching_state::BranchingState;
 use operation::Operation;
-use paulimer::{PauliObservable, UnitaryOp};
+use paulimer::{PauliObservable, UnitaryOp, core::PositionedPauliObservable, pauli::SparsePauli};
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
@@ -25,6 +27,10 @@ fn seeded_randomness(seed: u64) -> (StdRng, StdRng) {
         StdRng::from_rng(&mut seed_rng),
         StdRng::from_rng(&mut seed_rng),
     )
+}
+
+fn unsupported_apply_anyway(gate: &str) -> ! {
+    unreachable!("the `{gate}` gate does not support the ApplyAnyway loss policy")
 }
 
 /// A stabilizer simulator with the ability to simulate atom loss.
@@ -45,67 +51,6 @@ pub struct StabilizerSimulator {
     last_operation_time: Vec<u32>,
     /// Current simulation time.
     time: u32,
-}
-
-/// Design decision: Why is this a macro?
-///   Rust doesn't allow taking a mutable reference and an inmutable
-///   reference to `self` at the same time. So, the obvious way express
-///   this,
-///   ```ignore
-///   fn apply_noise(&mut self, noise_table: &CumulativeNoiseTable, targets: &[QubitID]) {
-///       for target in targets {
-///           if matches!(noise_table.sample_noise(&mut self.rng), Fault::Loss) {
-///               ...
-///           }
-///       }
-///   }
-///   ```
-///   and then doing,
-///   ```ignore
-///   self.apply_noise(&self.noise_config.rxx, targets)
-///   ```
-///   is not valid rust.
-///
-///   There are two alternatives. The first one is cloning the Arc
-///   containing the noise config before each call to `apply_loss`. In,
-///   that way rust doesn't see the cloned Arc as attached to self anymore.
-///   ```ignore
-///   let noise_config = Arc::clone(&self.noise_config);
-///   self.apply_noise(&noise_config.rxx, targets);
-///   ```
-///   However, this is not ideal. We don't want to be increasing and decreasing
-///   the reference count of an Arc in the hot-loop of the simulation.
-///
-///   The other alternative is creating a function that takes all the necessary
-///   members of self as inputs independently,
-///   ```ignore
-///   fn apply_noise(
-///     state: &mut StateType,
-///     noise_table: &CumulativeNoiseTable,
-///     targets: &[QubitID],
-///     rng: &mut Rng,
-///     loss: &mut Vec<bool>
-///   ) {
-///       for target in targets {
-///           if matches!(noise_table.sample_loss(rng), Fault::Loss) {
-///               // Since we don't have access to `self`
-///               // we would need a re-implemplementation of
-///               // self.mresetz(...) impl here.
-///               loss[*target] = true;
-///           }
-///       }
-///   }
-///   ```
-///   However, this is not very elegant. We would even need to re-implement mresetz.
-///
-///   The remaining alternative is using a macro.
-macro_rules! apply_noise {
-    ($slf:expr, $noise_table:ident, $targets:expr) => {{
-        let fault = $slf.noise_config.$noise_table.sample_noise(&mut $slf.rng);
-        if let Some(fault) = fault {
-            $slf.apply_fault(&fault, $targets);
-        }
-    }};
 }
 
 impl StabilizerSimulator {
@@ -213,6 +158,138 @@ impl StabilizerSimulator {
         self.state.pauli(&observable.into());
     }
 
+    fn apply_noise(
+        &mut self,
+        select_table: impl for<'a> FnOnce(&'a CumulativeNoiseConfig) -> &'a CumulativeNoiseTable,
+        targets: &[QubitID],
+    ) {
+        let fault = select_table(self.noise_config.as_ref()).sample_noise(&mut self.rng);
+        if let Some(fault) = fault {
+            self.apply_fault(&fault, targets);
+        }
+    }
+
+    fn apply_single_qubit_operation(
+        &mut self,
+        operation: UnitaryOp,
+        select_table: impl for<'a> FnOnce(&'a CumulativeNoiseConfig) -> &'a CumulativeNoiseTable,
+        target: QubitID,
+    ) {
+        if !self.loss[target] {
+            self.apply_idle_noise(target);
+            self.state.unitary_op(operation, &[target]);
+            self.apply_noise(select_table, &[target]);
+        }
+    }
+
+    fn apply_single_qubit_rotation(
+        &mut self,
+        angle: f64,
+        clifford_rotations: (UnitaryOp, UnitaryOp, UnitaryOp),
+        observable: impl FnOnce(QubitID) -> PositionedPauliObservable,
+        select_table: impl for<'a> FnOnce(&'a CumulativeNoiseConfig) -> &'a CumulativeNoiseTable,
+        target: QubitID,
+    ) {
+        if !self.loss[target] {
+            self.apply_idle_noise(target);
+            apply_clifford_or_general_rotation(
+                &mut self.state,
+                angle,
+                clifford_rotations,
+                |state, unitary| state.unitary_op(unitary, &[target]),
+                || [observable(target)].into(),
+            );
+            self.apply_noise(select_table, &[target]);
+        }
+    }
+
+    /// Applies a controlled operation under its configured loss policy.
+    ///
+    /// Operation faults are still sampled for non-lost qubits when loss prevents the gate itself.
+    fn apply_controlled_operation(
+        &mut self,
+        apply_operation: impl FnOnce(&mut BranchingState, QubitID, QubitID),
+        select_table: impl for<'a> Fn(&'a CumulativeNoiseConfig) -> &'a CumulativeNoiseTable,
+        control: QubitID,
+        target: QubitID,
+    ) {
+        let targets = [control, target];
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match select_table(self.noise_config.as_ref()).on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "controlled gates do not support the Degrade or ApplyAnyway loss policies"
+                    ),
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                apply_operation(&mut self.state, control, target);
+            }
+        }
+        self.apply_noise(select_table, &targets);
+    }
+
+    /// Applies a two-qubit rotation under its configured loss policy.
+    ///
+    /// `select_gate` keeps the noise table, diagnostic name, and one-qubit degradation
+    /// operation together. Degradation delegates to the one-qubit path and returns before
+    /// sampling two-qubit operation faults.
+    fn apply_two_qubit_rotation<Observable, ApplyClifford, Degrade>(
+        &mut self,
+        angle: f64,
+        observable: Observable,
+        apply_clifford_rotation: ApplyClifford,
+        select_gate: impl for<'a> Fn(
+            &'a CumulativeNoiseConfig,
+        ) -> (&'a CumulativeNoiseTable, &'static str, Degrade),
+        q1: QubitID,
+        q2: QubitID,
+    ) where
+        Observable: Fn(QubitID) -> PositionedPauliObservable,
+        ApplyClifford: FnOnce(&mut BranchingState, UnitaryOp, QubitID, QubitID),
+        Degrade: FnOnce(&mut Self, f64, QubitID),
+    {
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                let (noise_table, gate, degrade_operation) =
+                    select_gate(self.noise_config.as_ref());
+                match noise_table.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => {
+                        degrade_operation(self, angle, remaining_qubit);
+                        return;
+                    }
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => unsupported_apply_anyway(gate),
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                apply_clifford_or_general_rotation(
+                    &mut self.state,
+                    angle,
+                    (UnitaryOp::Z, UnitaryOp::SqrtZ, UnitaryOp::SqrtZInv),
+                    |state, unitary| apply_clifford_rotation(state, unitary, q1, q2),
+                    || [observable(q1), observable(q2)].into(),
+                );
+            }
+        }
+        self.apply_noise(|config| select_gate(config).0, &[q1, q2]);
+    }
+
     /// Applies an `S` adjoint to the given target
     /// Used by the [`LossPolicy::ResidualSDagger`] behavior.
     fn residual_s_dagger(&mut self, target: QubitID) {
@@ -308,355 +385,153 @@ impl Simulator for StabilizerSimulator {
     }
 
     fn x(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::X, &[target]);
-            apply_noise!(self, x, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::X, |config| &config.x, target);
     }
 
     fn y(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::Y, &[target]);
-            apply_noise!(self, y, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::Y, |config| &config.y, target);
     }
 
     fn z(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::Z, &[target]);
-            apply_noise!(self, z, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::Z, |config| &config.z, target);
     }
 
     fn h(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::Hadamard, &[target]);
-            apply_noise!(self, h, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::Hadamard, |config| &config.h, target);
     }
 
     fn s(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::SqrtZ, &[target]);
-            apply_noise!(self, s, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::SqrtZ, |config| &config.s, target);
     }
 
     fn s_adj(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
-            apply_noise!(self, s_adj, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::SqrtZInv, |config| &config.s_adj, target);
     }
 
     fn sx(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::SqrtX, &[target]);
-            apply_noise!(self, sx, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::SqrtX, |config| &config.sx, target);
     }
 
     fn sx_adj(&mut self, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-            self.state.unitary_op(UnitaryOp::SqrtXInv, &[target]);
-            apply_noise!(self, sx_adj, &[target]);
-        }
+        self.apply_single_qubit_operation(UnitaryOp::SqrtXInv, |config| &config.sx_adj, target);
     }
 
     fn cx(&mut self, control: QubitID, target: QubitID) {
-        match (self.loss[control], self.loss[target]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[control] { target } else { control };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.cx.on_loss {
-                    LossPolicy::Skip => (),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
-                        "the `cx` gate does not support the Degrade or ApplyAnyway loss policies"
-                    ),
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(control);
-                self.apply_idle_noise(target);
-                self.state
-                    .unitary_op(UnitaryOp::ControlledX, &[control, target]);
-            }
-        }
-        // We still apply operation faults to non-lost qubits.
-        apply_noise!(self, cx, &[control, target]);
+        self.apply_controlled_operation(
+            |state, control, target| {
+                state.unitary_op(UnitaryOp::ControlledX, &[control, target]);
+            },
+            |config| &config.cx,
+            control,
+            target,
+        );
     }
 
     fn cy(&mut self, control: QubitID, target: QubitID) {
-        match (self.loss[control], self.loss[target]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[control] { target } else { control };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.cy.on_loss {
-                    LossPolicy::Skip => (),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
-                        "the `cy` gate does not support the Degrade or ApplyAnyway loss policies"
-                    ),
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(control);
-                self.apply_idle_noise(target);
-                self.state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
-                self.state
-                    .unitary_op(UnitaryOp::ControlledX, &[control, target]);
-                self.state.unitary_op(UnitaryOp::SqrtZ, &[target]);
-            }
-        }
-        // We still apply operation faults to non-lost qubits.
-        apply_noise!(self, cy, &[control, target]);
+        self.apply_controlled_operation(
+            |state, control, target| {
+                state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
+                state.unitary_op(UnitaryOp::ControlledX, &[control, target]);
+                state.unitary_op(UnitaryOp::SqrtZ, &[target]);
+            },
+            |config| &config.cy,
+            control,
+            target,
+        );
     }
 
     fn cz(&mut self, control: QubitID, target: QubitID) {
-        match (self.loss[control], self.loss[target]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[control] { target } else { control };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.cz.on_loss {
-                    LossPolicy::Skip => (),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
-                        "the `cz` gate does not support the Degrade or ApplyAnyway loss policies"
-                    ),
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(control);
-                self.apply_idle_noise(target);
-                self.state
-                    .unitary_op(UnitaryOp::ControlledZ, &[control, target]);
-            }
-        }
-        // We still apply operation faults to non-lost qubits.
-        apply_noise!(self, cz, &[control, target]);
+        self.apply_controlled_operation(
+            |state, control, target| {
+                state.unitary_op(UnitaryOp::ControlledZ, &[control, target]);
+            },
+            |config| &config.cz,
+            control,
+            target,
+        );
     }
 
     fn rx(&mut self, angle: f64, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-
-            // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-            // and check to see if it is supported.
-            let unitary = unitary_from_normalized_angle(
-                angle,
-                UnitaryOp::X,
-                UnitaryOp::SqrtX,
-                UnitaryOp::SqrtXInv,
-            );
-            if let Some(unitary) = unitary {
-                self.state.unitary_op(unitary, &[target]);
-            } else {
-                self.state
-                    .rotate(angle, &[paulimer::core::x(target)].into());
-            }
-
-            apply_noise!(self, rx, &[target]);
-        }
+        self.apply_single_qubit_rotation(
+            angle,
+            (UnitaryOp::X, UnitaryOp::SqrtX, UnitaryOp::SqrtXInv),
+            paulimer::core::x,
+            |config| &config.rx,
+            target,
+        );
     }
 
     fn ry(&mut self, angle: f64, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-
-            // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-            // and check to see if it is supported.
-            let unitary = unitary_from_normalized_angle(
-                angle,
-                UnitaryOp::Y,
-                UnitaryOp::SqrtY,
-                UnitaryOp::SqrtYInv,
-            );
-            if let Some(unitary) = unitary {
-                self.state.unitary_op(unitary, &[target]);
-            } else {
-                self.state
-                    .rotate(angle, &[paulimer::core::y(target)].into());
-            }
-
-            apply_noise!(self, ry, &[target]);
-        }
+        self.apply_single_qubit_rotation(
+            angle,
+            (UnitaryOp::Y, UnitaryOp::SqrtY, UnitaryOp::SqrtYInv),
+            paulimer::core::y,
+            |config| &config.ry,
+            target,
+        );
     }
 
     fn rz(&mut self, angle: f64, target: QubitID) {
-        if !self.loss[target] {
-            self.apply_idle_noise(target);
-
-            // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-            // and check to see if it is supported.
-            let unitary = unitary_from_normalized_angle(
-                angle,
-                UnitaryOp::Z,
-                UnitaryOp::SqrtZ,
-                UnitaryOp::SqrtZInv,
-            );
-            if let Some(unitary) = unitary {
-                self.state.unitary_op(unitary, &[target]);
-            } else {
-                self.state
-                    .rotate(angle, &[paulimer::core::z(target)].into());
-            }
-
-            apply_noise!(self, rz, &[target]);
-        }
+        self.apply_single_qubit_rotation(
+            angle,
+            (UnitaryOp::Z, UnitaryOp::SqrtZ, UnitaryOp::SqrtZInv),
+            paulimer::core::z,
+            |config| &config.rz,
+            target,
+        );
     }
 
     fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        match (self.loss[q1], self.loss[q2]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.rxx.on_loss {
-                    LossPolicy::Skip => (),
-                    LossPolicy::Degrade => return self.rx(angle, remaining_qubit),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => {
-                        unreachable!("the `rxx` gate does not support the ApplyAnyway loss policy")
-                    }
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(q1);
-                self.apply_idle_noise(q2);
-
-                // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-                // and check to see if it is supported.
-                let unitary = unitary_from_normalized_angle(
-                    angle,
-                    UnitaryOp::Z,
-                    UnitaryOp::SqrtZ,
-                    UnitaryOp::SqrtZInv,
-                );
-                if let Some(unitary) = unitary {
-                    // Perform Rxx by changing basis to Z and using the Rzz decomposition.
-                    self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
-                    self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
-                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                    self.state.unitary_op(unitary, &[q1]);
-                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                    self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
-                    self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
-                } else {
-                    self.state.rotate(
-                        angle,
-                        &[paulimer::core::x(q1), paulimer::core::x(q2)].into(),
-                    );
-                }
-            }
-        }
-        apply_noise!(self, rxx, &[q1, q2]);
+        self.apply_two_qubit_rotation(
+            angle,
+            paulimer::core::x,
+            |state: &mut BranchingState, unitary, q1, q2| {
+                state.unitary_op(UnitaryOp::Hadamard, &[q1]);
+                state.unitary_op(UnitaryOp::Hadamard, &[q2]);
+                state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                state.unitary_op(unitary, &[q1]);
+                state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                state.unitary_op(UnitaryOp::Hadamard, &[q1]);
+                state.unitary_op(UnitaryOp::Hadamard, &[q2]);
+            },
+            |config| (&config.rxx, "rxx", Self::rx),
+            q1,
+            q2,
+        );
     }
 
     fn ryy(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        match (self.loss[q1], self.loss[q2]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.ryy.on_loss {
-                    LossPolicy::Skip => (),
-                    LossPolicy::Degrade => return self.ry(angle, remaining_qubit),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => {
-                        unreachable!("the `ryy` gate does not support the ApplyAnyway loss policy")
-                    }
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(q1);
-                self.apply_idle_noise(q2);
-
-                // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-                // and check to see if it is supported.
-                let unitary = unitary_from_normalized_angle(
-                    angle,
-                    UnitaryOp::Z,
-                    UnitaryOp::SqrtZ,
-                    UnitaryOp::SqrtZInv,
-                );
-                if let Some(unitary) = unitary {
-                    // Perform Ryy by changing basis to Z and using the Rzz decomposition.
-                    self.state.unitary_op(UnitaryOp::SqrtX, &[q1]);
-                    self.state.unitary_op(UnitaryOp::SqrtX, &[q2]);
-                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                    self.state.unitary_op(unitary, &[q1]);
-                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                    self.state.unitary_op(UnitaryOp::SqrtXInv, &[q1]);
-                    self.state.unitary_op(UnitaryOp::SqrtXInv, &[q2]);
-                } else {
-                    self.state.rotate(
-                        angle,
-                        &[paulimer::core::y(q1), paulimer::core::y(q2)].into(),
-                    );
-                }
-            }
-        }
-        apply_noise!(self, ryy, &[q1, q2]);
+        self.apply_two_qubit_rotation(
+            angle,
+            paulimer::core::y,
+            |state: &mut BranchingState, unitary, q1, q2| {
+                state.unitary_op(UnitaryOp::SqrtX, &[q1]);
+                state.unitary_op(UnitaryOp::SqrtX, &[q2]);
+                state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                state.unitary_op(unitary, &[q1]);
+                state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                state.unitary_op(UnitaryOp::SqrtXInv, &[q1]);
+                state.unitary_op(UnitaryOp::SqrtXInv, &[q2]);
+            },
+            |config| (&config.ryy, "ryy", Self::ry),
+            q1,
+            q2,
+        );
     }
 
     fn rzz(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        match (self.loss[q1], self.loss[q2]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.rzz.on_loss {
-                    LossPolicy::Skip => (),
-                    LossPolicy::Degrade => return self.rz(angle, remaining_qubit),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => {
-                        unreachable!("the `rzz` gate does not support the ApplyAnyway loss policy")
-                    }
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(q1);
-                self.apply_idle_noise(q2);
-
-                // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-                // and check to see if it is supported.
-                let unitary = unitary_from_normalized_angle(
-                    angle,
-                    UnitaryOp::Z,
-                    UnitaryOp::SqrtZ,
-                    UnitaryOp::SqrtZInv,
-                );
-                if let Some(unitary) = unitary {
-                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                    self.state.unitary_op(unitary, &[q1]);
-                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                } else {
-                    self.state.rotate(
-                        angle,
-                        &[paulimer::core::z(q1), paulimer::core::z(q2)].into(),
-                    );
-                }
-            }
-        }
-        apply_noise!(self, rzz, &[q1, q2]);
+        self.apply_two_qubit_rotation(
+            angle,
+            paulimer::core::z,
+            |state: &mut BranchingState, unitary, q1, q2| {
+                state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                state.unitary_op(unitary, &[q1]);
+                state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+            },
+            |config| (&config.rzz, "rzz", Self::rz),
+            q1,
+            q2,
+        );
     }
 
     fn swap(&mut self, q1: QubitID, q2: QubitID) {
@@ -702,31 +577,31 @@ impl Simulator for StabilizerSimulator {
 
         // Is up to the user if swap is a virtual operation or not.
         // If they don't specify noise/loss probability for swap, then it is virtual.
-        apply_noise!(self, swap, &[q1, q2]);
+        self.apply_noise(|config| &config.swap, &[q1, q2]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
-        apply_noise!(self, mz, &[target]);
+        self.apply_noise(|config| &config.mz, &[target]);
     }
 
     fn mresetz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
-        apply_noise!(self, mresetz, &[target]);
+        self.apply_noise(|config| &config.mresetz, &[target]);
     }
 
     fn resetz(&mut self, target: QubitID) {
         self.apply_idle_noise(target);
         self.mresetz_impl(target);
-        apply_noise!(self, mresetz, &[target]);
+        self.apply_noise(|config| &config.mresetz, &[target]);
     }
 
     fn mov(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            apply_noise!(self, mov, &[target]);
+            self.apply_noise(|config| &config.mov, &[target]);
         }
     }
 
@@ -755,7 +630,7 @@ impl Simulator for StabilizerSimulator {
                 std::f64::consts::FRAC_PI_4,
                 &[paulimer::core::z(target)].into(),
             );
-            apply_noise!(self, t, &[target]);
+            self.apply_noise(|config| &config.t, &[target]);
         }
     }
 
@@ -766,7 +641,7 @@ impl Simulator for StabilizerSimulator {
                 -std::f64::consts::FRAC_PI_4,
                 &[paulimer::core::z(target)].into(),
             );
-            apply_noise!(self, t_adj, &[target]);
+            self.apply_noise(|config| &config.t_adj, &[target]);
         }
     }
 
@@ -783,6 +658,12 @@ impl Simulator for StabilizerSimulator {
         };
     }
 
+    fn apply_loss_noise(&mut self, p_loss: f64, target: QubitID) {
+        if self.rng.random_bool(p_loss) {
+            self.loss_impl(target);
+        }
+    }
+
     fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: ResultID) {
         let measurement = self.measurements[result_id];
         let sample = self.rng.random_range(0.0..1.0);
@@ -793,8 +674,40 @@ impl Simulator for StabilizerSimulator {
         };
         self.measurements[result_id] = new_measurement;
     }
+
+    fn write_result(&mut self, value: bool, result_id: ResultID) {
+        self.measurements[result_id] = if value {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
+    }
 }
 
+/// Uses an exact Clifford realization when available, or applies the general Pauli rotation.
+///
+/// `clifford_rotations` contains the operations for `PI`, `PI / 2`, and `-PI / 2`, respectively.
+/// `make_pauli` is evaluated only when the angle requires the general rotation path.
+fn apply_clifford_or_general_rotation(
+    state: &mut BranchingState,
+    angle: f64,
+    clifford_rotations: (UnitaryOp, UnitaryOp, UnitaryOp),
+    apply_clifford: impl FnOnce(&mut BranchingState, UnitaryOp),
+    make_pauli: impl FnOnce() -> SparsePauli,
+) {
+    let (full_rotation, half_rotation, half_rotation_adjoint) = clifford_rotations;
+    if let Some(unitary) =
+        unitary_from_normalized_angle(angle, full_rotation, half_rotation, half_rotation_adjoint)
+    {
+        apply_clifford(state, unitary);
+    } else {
+        state.rotate(angle, &make_pauli());
+    }
+}
+
+/// Returns the exact Clifford unitary for a rotation by an integer multiple of `PI / 2`.
+///
+/// Returns `None` for angles that require the general Pauli rotation path.
 fn unitary_from_normalized_angle(
     angle: f64,
     pauli: UnitaryOp,

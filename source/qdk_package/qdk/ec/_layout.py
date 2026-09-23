@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import qodec as qc
@@ -84,7 +85,7 @@ class ProgramLayout:
 
     @staticmethod
     def _bound_operands(
-        operands: list[qc.instructions.BlockOperand], values: list[int | str]
+        operands: Sequence[qc.instructions.BlockOperand], values: Sequence[int | str]
     ) -> list[tuple[qc.instructions.BlockOperand, int | str]]:
         variadic_count = sum(operand.is_variadic for operand in operands)
         if variadic_count > 1:

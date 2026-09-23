@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections import UserList
+from collections.abc import MutableSequence
+
 import pytest
 
 import qodec as qc
@@ -62,6 +65,23 @@ def test_variadic_operands_bind_every_block() -> None:
     assert layout.call_qubit_map(circuit.calls()[0]) == {
         index: index for index in range(6)
     }
+
+
+def test_bound_operands_accept_non_list_mutable_sequences() -> None:
+    fixed = qc.instructions.BlockOperand("single")
+    variadic = qc.instructions.BlockOperand("pair", is_variadic=True)
+    operands: MutableSequence[qc.instructions.BlockOperand] = UserList(
+        [fixed, variadic]
+    )
+    values: MutableSequence[int | str] = UserList([0, "left", "right"])
+
+    assert ProgramLayout._bound_operands(operands, values) == [
+        (fixed, 0),
+        (variadic, "left"),
+        (variadic, "right"),
+    ]
+    assert operands == [fixed, variadic]
+    assert values == [0, "left", "right"]
 
 
 def test_string_operand_is_one_label(c4_isa: qc.InstructionSet) -> None:

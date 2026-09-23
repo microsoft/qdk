@@ -15,7 +15,7 @@ source_dir = os.path.join(root_dir, "source")
 
 
 def update_file(
-    file: str, old_text: str, new_text: str, is_regex: bool = False, count=1
+    file: str, old_text: str, new_text: str, is_regex: bool = False, count: int = 1
 ):
     # Open the file and replace the first string matching the old text with the new text
     with open(file, "r+", newline="") as f:
@@ -82,8 +82,8 @@ BUILD_NUMBER = os.environ.get("BUILD_NUMBER")
 if not BUILD_NUMBER:
     raise Exception("BUILD_NUMBER environment variable must be set")
 
-if BUILD_TYPE not in ["dev", "rc", "stable"]:
-    print("BUILD_TYPE environment variable must be 'dev', 'rc', or 'stable'")
+if BUILD_TYPE not in ["dev", "stable"]:
+    print("BUILD_TYPE environment variable must be 'dev' or 'stable'")
     exit(1)
 
 try:
@@ -96,8 +96,8 @@ print("Build type: {}".format(BUILD_TYPE))
 
 version_triple = "{}.{}".format(major_minor, build_ver)
 
-pip_suffix = {"stable": "", "rc": "rc0", "dev": ".dev0"}
-npm_suffix = {"stable": "", "rc": "-rc", "dev": "-dev"}
+pip_suffix = {"stable": "", "dev": ".dev0"}
+npm_suffix = {"stable": "", "dev": "-dev"}
 
 pip_version = "{}{}".format(version_triple, pip_suffix.get(BUILD_TYPE))
 npm_version = "{}{}".format(version_triple, npm_suffix.get(BUILD_TYPE))
@@ -159,25 +159,3 @@ update_file(
     r'"version": "0.0.0",',
     r'"version": "{}",'.format(version_triple),
 )
-
-# If not a 'dev' build, update the VS Code extension identifier to be the non-dev version
-if BUILD_TYPE != "dev":
-    update_file(
-        os.path.join(source_dir, "vscode/package.json"),
-        r'"name": "qsharp-lang-vscode-dev",',
-        r'"name": "qsharp-lang-vscode",',
-    )
-    update_file(
-        os.path.join(source_dir, "vscode/package.json"),
-        r"[DEV BUILD] Microsoft Quantum Development Kit",
-        r"Microsoft Quantum Development Kit",
-    )
-
-else:
-    # Update the README to contain the dev version contents
-    with open(
-        os.path.join(source_dir, "vscode/README-DEV.md"), "r", newline=""
-    ) as dev_readme:
-        contents = dev_readme.read()
-    with open(os.path.join(source_dir, "vscode/README.md"), "w", newline="") as readme:
-        readme.write(contents)

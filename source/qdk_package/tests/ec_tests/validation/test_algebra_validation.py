@@ -1,5 +1,8 @@
 """Algebra is checked by analysis, not by qodec persistence."""
 
+from collections.abc import Mapping
+from types import MappingProxyType
+
 import pytest
 import qodec as qc
 
@@ -16,6 +19,17 @@ def test_clifford_images_validate_implicit_identity_before_native_constructor() 
     with pytest.raises(ValueError, match="must anticommute"):
         build_clifford_images({"X_0": "Z_0"}, {0: 0}, {0: 0}, 1)
     images = build_clifford_images({"X_0": "Z_0", "Z_0": "X_0"}, {0: 0}, {0: 0}, 1)
+    assert [str(image) for image in images] == ["Z", "X"]
+
+
+def test_clifford_images_accept_read_only_mapping_with_string_subclass_keys() -> None:
+    class PauliText(str):
+        pass
+
+    generators: Mapping[PauliText, PauliText] = MappingProxyType(
+        {PauliText("X_0"): PauliText("Z_0"), PauliText("Z_0"): PauliText("X_0")}
+    )
+    images = build_clifford_images(generators, {0: 0}, {0: 0}, 1)
     assert [str(image) for image in images] == ["Z", "X"]
 
 
