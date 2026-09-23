@@ -3,7 +3,17 @@
 
 from ..._native import GlobalCallable, Closure
 from ...qsharp import run
-from typing import Tuple, Union, Callable, Any, Optional, Literal, List, Generator
+from typing import (
+    Tuple,
+    Union,
+    Callable,
+    Any,
+    Optional,
+    Literal,
+    List,
+    Generator,
+    Union,
+)
 
 
 class MajoranaDevice:
@@ -50,15 +60,24 @@ class MajoranaDevice:
                     self.layout,
                     eval(result["trace"]),
                 )
-            display(Majorana(self.layout, trace))
+            display(Majorana(self.layout, trace, enable_virtual_view=use_virtual))
         return result["result"]
 
 
 def schedule_tetrons(
-    layout: Tuple[int, int], trace: List[Tuple[str, List[int]]]
+    layout: Tuple[int, int],
+    trace: Union[
+        List[Tuple[str, List[int]]],
+        List[Tuple[str, List[int], Optional[Tuple[str, List[int], int]]]],
+    ],
 ) -> List[List[Tuple[str, List[int]]]]:
     scheduled_trace = []
     for event in trace:
+        virtual_event = None
+        if len(event) == 3:
+            virtual_event = event[2]
+            event = event[:2]
+
         event = convert(event)
         match event[0]:
             case "X" | "Y" | "Z":
@@ -72,7 +91,7 @@ def schedule_tetrons(
         while step_idx >= 0 and not any(
             qubit in step_qubits
             for qubit in event[1]
-            for _, step_qubits in scheduled_trace[step_idx]
+            for _, step_qubits, _ in scheduled_trace[step_idx]
         ):
             step_idx -= 1
 
@@ -84,7 +103,7 @@ def schedule_tetrons(
                 neighbor = event[1][0] + 2
                 while any(
                     neighbor in step_qubits and op.endswith("-up")
-                    for op, step_qubits in scheduled_trace[step_idx]
+                    for op, step_qubits, _ in scheduled_trace[step_idx]
                 ):
                     step_idx += 1
                     if step_idx >= len(scheduled_trace):
@@ -95,7 +114,7 @@ def schedule_tetrons(
                             upper_step = step_idx
                             while any(
                                 neighbor in step_qubits and op.endswith("-lw")
-                                for op, step_qubits in scheduled_trace[upper_step]
+                                for op, step_qubits, _ in scheduled_trace[upper_step]
                             ):
                                 upper_step += 1
                                 if upper_step >= len(scheduled_trace):
@@ -119,15 +138,15 @@ def schedule_tetrons(
                 neighbor = event[1][0] - 2
                 while any(
                     neighbor in step_qubits and op.endswith("-lw")
-                    for op, step_qubits in scheduled_trace[step_idx]
+                    for op, step_qubits, _ in scheduled_trace[step_idx]
                 ):
                     step_idx += 1
                     if step_idx >= len(scheduled_trace):
                         scheduled_trace.append([])
                         break
-            scheduled_trace[step_idx].append(event)
+            scheduled_trace[step_idx].append(((event[0], event[1], virtual_event)))
         else:
-            scheduled_trace.append([event])
+            scheduled_trace.append([(event[0], event[1], virtual_event)])
 
     return scheduled_trace
 
@@ -211,25 +230,29 @@ def schedule_virtual(
 
 def decompose(
     layout: Tuple[int, int], event: Tuple[str, List[int]]
-) -> List[Tuple[str, List[int]]]:
+) -> List[Tuple[str, List[int], Tuple[str, List[int], int]]]:
     name, targets = event
     tetron_targets = [physical_and_ancilla_from_virtual(t) for t in targets]
     match name:
         case "X" | "Y" | "Z" | "T" | "M" | "Mx" | "My" | "MResetZ" | "Reset":
-            return [(name, [t[0] for t in tetron_targets])]
+            virtual_name = name
+            match name:
+                case "M" | "MResetZ" | "Reset":
+                    virtual_name = "Mz"
+            return [(name, [t[0] for t in tetron_targets], (virtual_name, targets, 0))]
         case "H":
             tetron_target, tetron_ancilla = tetron_targets[0][0], tetron_targets[0][1]
             return [
-                ("Mx", [tetron_ancilla]),
-                ("Mzy", [tetron_ancilla, tetron_target]),
-                ("My", [tetron_ancilla]),
+                ("Mx", [tetron_ancilla], ("H", targets, 2)),
+                ("Mzy", [tetron_ancilla, tetron_target], ("H", targets, 1)),
+                ("My", [tetron_ancilla], ("H", targets, 2)),
             ]
         case "S":
             tetron_target, tetron_ancilla = tetron_targets[0][0], tetron_targets[0][1]
             return [
-                ("Mx", [tetron_ancilla]),
-                ("Mzz", [tetron_ancilla, tetron_target]),
-                ("My", [tetron_ancilla]),
+                ("Mx", [tetron_ancilla], ("S", targets, 2)),
+                ("Mzz", [tetron_ancilla, tetron_target], ("S", targets, 1)),
+                ("My", [tetron_ancilla], ("S", targets, 2)),
             ]
         case "CX":
             control, target = targets[0], targets[1]
@@ -242,10 +265,10 @@ def decompose(
                 tetron_targets[1][0],
             )
             return [
-                ("Mx", [tetron_ancilla]),
-                ("Mzz", [tetron_ancilla, tetron_control]),
-                ("Mxx", [tetron_ancilla, tetron_target]),
-                ("M", [tetron_ancilla]),
+                ("Mx", [tetron_ancilla], ("CX", targets, 2)),
+                ("Mzz", [tetron_ancilla, tetron_control], ("CX", targets, 1)),
+                ("Mxx", [tetron_ancilla, tetron_target], ("CX", targets, 1)),
+                ("M", [tetron_ancilla], ("CX", targets, 2)),
             ]
         case "CZ":
             if targets[0] % 2 == 0:
@@ -262,10 +285,10 @@ def decompose(
             tetron_control, tetron_ancilla = physical_and_ancilla_from_virtual(control)
             tetron_target, _ = physical_and_ancilla_from_virtual(target)
             return [
-                ("M", [tetron_ancilla]),
-                ("Mzy", [tetron_control, tetron_ancilla]),
-                ("Mzz", [tetron_ancilla, tetron_target]),
-                ("My", [tetron_ancilla]),
+                ("M", [tetron_ancilla], ("CZ", targets, 2)),
+                ("Mzy", [tetron_control, tetron_ancilla], ("CZ", targets, 1)),
+                ("Mzz", [tetron_ancilla, tetron_target], ("CZ", targets, 1)),
+                ("My", [tetron_ancilla], ("CZ", targets, 2)),
             ]
         case _:
             raise ValueError(f"Unsupported gate: {name}")
