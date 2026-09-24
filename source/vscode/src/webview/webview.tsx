@@ -32,7 +32,7 @@ md.use(mk, {
 });
 // Allow only the protocols used in doc/kata/estimator content
 // Borrowed from DOMPurify and filtered to our protocols
-const ALLOWED_URI = /^(?:(?:https|xref):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+const ALLOWED_URI = /^(?:(?:https|xref):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i; // eslint-disable-line no-useless-escape
 setRenderer((input: string) =>
   DOMPurify.sanitize(md.render(input), { ALLOWED_URI_REGEXP: ALLOWED_URI }),
 );
