@@ -1123,7 +1123,7 @@ impl TracerConfig {
     /// "limit exceeded" state up to the UI somehow.
     pub const DEFAULT_MAX_OPERATIONS: usize = 10001;
     /// Default maximum number of loop iterations rendered in full.
-    pub const DEFAULT_MAX_LOOP_ITERATIONS: usize = 1000;
+    pub const DEFAULT_MAX_LOOP_ITERATIONS: usize = 100;
 }
 
 /// Maps qubit IDs to their corresponding wire IDs and tracks measurement results

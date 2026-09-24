@@ -474,7 +474,7 @@ class CircuitConfig:
         self,
         *,
         max_operations: Optional[int] = None,
-        max_loop_iterations: int = 1000,
+        max_loop_iterations: int = 100,
         generation_method: Optional["CircuitGenerationMethod"] = None,
         source_locations: bool = False,
         group_by_scope: bool = False,

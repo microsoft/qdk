@@ -44,7 +44,7 @@ def circuit(
     :kwtype max_operations: int
 
     :keyword max_loop_iterations: The maximum number of loop iterations to render in
-        full. Defaults to ``1000``.
+        full. Defaults to ``100``.
     :kwtype max_loop_iterations: int
 
     :keyword source_locations: If ``True``, annotates each gate with its source location.
@@ -78,7 +78,7 @@ def circuit(
     telemetry_events.on_circuit_qasm()
 
     max_operations = kwargs.pop("max_operations", None)
-    max_loop_iterations = kwargs.pop("max_loop_iterations", 1000)
+    max_loop_iterations = kwargs.pop("max_loop_iterations", 100)
     generation_method = kwargs.pop("generation_method", None)
     source_locations = kwargs.pop("source_locations", False)
     group_by_scope = kwargs.pop("group_by_scope", True)

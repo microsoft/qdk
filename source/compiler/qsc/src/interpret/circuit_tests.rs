@@ -642,7 +642,6 @@ fn classical_for_loop_is_grouped() {
 
 #[test]
 fn long_loop_omits_middle_iterations() {
-    assert_eq!(TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS, 1000);
     let circuit = circuit_with_options_success(
         r"
             namespace Test {
