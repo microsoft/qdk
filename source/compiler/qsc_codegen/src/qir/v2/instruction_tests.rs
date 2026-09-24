@@ -3,6 +3,7 @@
 
 mod alloca;
 mod bool;
+mod concat_arrays;
 mod copy_array;
 mod double;
 mod index;

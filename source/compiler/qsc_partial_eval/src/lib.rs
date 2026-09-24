@@ -793,7 +793,75 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
         let Value::Array(rhs_array) = rhs_value else {
-            panic!("expected array value from RHS expression");
+            // If the rhs expression is not an array, it must be a variable referring to an array.
+            let Value::Var(Var {
+                id: rhs_var_id,
+                ty: VarTy::Array(rhs_size),
+            }) = rhs_value
+            else {
+                panic!("expected array variable from RHS expression");
+            };
+
+            if rhs_size == 0 {
+                // The result of concatenating with an empty array is just the LHS array.
+                return Ok(EvalControlFlow::Continue(Value::Array(Rc::clone(
+                    lhs_array,
+                ))));
+            }
+
+            let ty = &self.get_expr(rhs_expr_id).ty;
+            let Ty::Array(inner) = ty else {
+                panic!("expected array type for mutable array variable, found: {ty}");
+            };
+            let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).map_err(|e| {
+                Error::Unexpected(
+                    format!("array element type `{e}` in concatenation"),
+                    bin_op_expr_span,
+                )
+            })?
+            else {
+                panic!("expected primitive type for array element type, found: {inner:?}")
+            };
+
+            let rhs_var = rir::Variable {
+                variable_id: rhs_var_id.into(),
+                ty: rir::Ty::Array(rhs_size, elem_ty),
+            };
+
+            if lhs_array.is_empty() {
+                // The result of concatenating with an empty array is just the RHS array, so emit a copy array instruction.
+                let result = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(rhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(rhs_var, result));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: result.variable_id.into(),
+                    ty: VarTy::Array(rhs_size),
+                })));
+            }
+
+            // Otherwise, the lhs array should be stored into a variable so it can be used in a concatenate instruction.
+            let lhs_var = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(lhs_array.len(), elem_ty),
+            };
+            self.store_array(lhs_var.variable_id, elem_ty, lhs_array);
+            let result = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(lhs_array.len() + rhs_size, elem_ty),
+            };
+
+            self.get_current_rir_block_mut()
+                .0
+                .push(Instruction::ConcatArrays(lhs_var, rhs_var, result));
+
+            return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                id: result.variable_id.into(),
+                ty: VarTy::Array(lhs_array.len() + rhs_size),
+            })));
         };
 
         // Concatenate the arrays.
@@ -1296,7 +1364,10 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
-            VarTy::Qubit | VarTy::Result | VarTy::Array(..) => Err(Error::Unexpected(
+            VarTy::Array(size) => {
+                self.eval_bin_op_array_concat(lhs_eval_var, size, rhs_expr_id, bin_op_expr_span)
+            }
+            VarTy::Qubit | VarTy::Result => Err(Error::Unexpected(
                 format!(
                     "unsupported LHS variable type {} in binary operation",
                     lhs_eval_var.ty
@@ -2947,6 +3018,11 @@ impl<'a> PartialEvaluator<'a> {
                 range_step,
                 range_end.unwrap_or(if range_step > 0 { last_index } else { 0 }),
             );
+            if step == 0 {
+                return Err(
+                    EvalError::RangeStepZero(self.get_expr_package_span(index_expr_id)).into(),
+                );
+            }
             let slice_size = ((end - start + step) / step)
                 .max(0)
                 .try_into()
@@ -3920,6 +3996,12 @@ impl<'a> PartialEvaluator<'a> {
                 _ => panic!("expected array value for mutable array variable, found: {value:?}"),
             };
             VarTy::Array(size)
+        } else if let Value::Var(Var {
+            ty: VarTy::Array(size),
+            ..
+        }) = value
+        {
+            VarTy::Array(*size)
         } else {
             try_get_eval_var_type(value)?
         };
@@ -3935,38 +4017,20 @@ impl<'a> PartialEvaluator<'a> {
             .insert_hybrid_local_value(local_var_id, Value::Var(eval_var));
 
         if let VarTy::Array(size) = var_ty {
+            // Use the passed Ty to determine the element type of the array variable.
+            let Ty::Array(inner) = ty else {
+                panic!("expected array type for mutable array variable, found: {ty}");
+            };
+            let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).ok()? else {
+                panic!("expected primitive type for array element type, found: {inner:?}")
+            };
+
             match value {
                 Value::Array(array) => {
                     // Insert a store array instruction to initialize the array variable with the given value.
-                    let operands = array
-                        .iter()
-                        .map(|value| self.map_eval_value_to_rir_operand(value))
-                        .collect::<Vec<_>>();
-                    let rir::Ty::Prim(elem_ty) = operands
-                        .first()
-                        .expect("array should have at least one element")
-                        .get_type()
-                    else {
-                        panic!("array element type should be a primitive type");
-                    };
-                    self.get_current_rir_block_mut()
-                        .0
-                        .push(Instruction::StoreArray(
-                            operands,
-                            rir::Variable {
-                                variable_id: var_id,
-                                ty: rir::Ty::Array(array.len(), elem_ty),
-                            },
-                        ));
+                    self.store_array(var_id, elem_ty, array);
                 }
                 Value::Var(var) => {
-                    // Use the passed Ty to determine the element type of the array variable.
-                    let Ty::Array(inner) = ty else {
-                        panic!("expected array type for mutable array variable, found: {ty}");
-                    };
-                    let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).ok()? else {
-                        panic!("expected primitive type for array element type, found: {inner:?}")
-                    };
                     self.get_current_rir_block_mut()
                         .0
                         .push(Instruction::CopyArray(
@@ -4001,6 +4065,22 @@ impl<'a> PartialEvaluator<'a> {
 
             Some((var_id, static_value))
         }
+    }
+
+    fn store_array(&mut self, var_id: VariableId, elem_ty: rir::Prim, array: &Rc<Vec<Value>>) {
+        let operands = array
+            .iter()
+            .map(|value| self.map_eval_value_to_rir_operand(value))
+            .collect::<Vec<_>>();
+        self.get_current_rir_block_mut()
+            .0
+            .push(Instruction::StoreArray(
+                operands,
+                rir::Variable {
+                    variable_id: var_id,
+                    ty: rir::Ty::Array(array.len(), elem_ty),
+                },
+            ));
     }
 
     fn get_or_insert_callable(&mut self, callable: Callable) -> CallableId {
@@ -4491,14 +4571,58 @@ impl<'a> PartialEvaluator<'a> {
         if let Value::Var(var) = bound_value {
             if let Value::Var(rhs_var) = &value
                 && let VarTy::Array(lhs_size) = &var.ty
-                && let VarTy::Array(rhs_size) = &rhs_var.ty
-                && lhs_size != rhs_size
             {
-                // This is a size update of a variable, which we can't emit a store instruction for.
-                // Instead, overwrite the variable in the hybrid maps.
-                self.eval_context
-                    .get_current_scope_mut()
-                    .insert_hybrid_local_value(local_var_id, value);
+                if let VarTy::Array(rhs_size) = &rhs_var.ty
+                    && lhs_size != rhs_size
+                {
+                    // This is a size update of a variable, which we can't emit a store instruction for.
+                    // Instead, overwrite the variable in the hybrid maps.
+                    self.eval_context
+                        .get_current_scope_mut()
+                        .insert_hybrid_local_value(local_var_id, value);
+                    return Ok(());
+                }
+
+                // This is an update of an array variable, so we need to emit it as a copy of the whole array.
+                // Use the passed Ty to determine the element type of the array variable.
+                let Ty::Array(inner) = &local_expr.ty else {
+                    panic!(
+                        "expected array type for mutable array variable, found: {}",
+                        &local_expr.ty
+                    );
+                };
+                let Ok(rir::Ty::Prim(elem_ty)) = map_fir_type_to_rir_type(inner) else {
+                    return Err(Error::Unexpected(
+                        "array with non-primitive RIR type".to_string(),
+                        map_fir_package_span_to_hir(local_expr.span),
+                    ));
+                };
+                let src_var = rir::Variable {
+                    variable_id: rhs_var.id.into(),
+                    ty: rir::Ty::Array(*lhs_size, elem_ty),
+                };
+                let dst_var = rir::Variable {
+                    variable_id: var.id.into(),
+                    ty: rir::Ty::Array(*lhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(src_var, dst_var));
+            } else if let Value::Array(rhs_array) = &value {
+                // If the right-hand side is an array, we need to emit a store array instruction.
+                let Ty::Array(inner) = &local_expr.ty else {
+                    panic!(
+                        "expected array type for mutable array variable, found: {}",
+                        &local_expr.ty
+                    );
+                };
+                let Ok(rir::Ty::Prim(elem_ty)) = map_fir_type_to_rir_type(inner) else {
+                    return Err(Error::Unexpected(
+                        "array with non-primitive RIR type".to_string(),
+                        map_fir_package_span_to_hir(local_expr.span),
+                    ));
+                };
+                self.store_array(var.id.into(), elem_ty, rhs_array);
             } else {
                 // Insert a store instruction when the value of a variable is updated.
                 let rhs_operand = self.map_eval_value_to_rir_operand(&value);
@@ -5487,6 +5611,131 @@ impl<'a> PartialEvaluator<'a> {
                     ));
             }
         }
+    }
+
+    fn eval_bin_op_array_concat(
+        &mut self,
+        lhs_eval_var: Var,
+        lhs_size: usize,
+        rhs_expr_id: ExprId,
+        bin_op_expr_span: PackageSpan,
+    ) -> Result<EvalControlFlow, Error> {
+        let ty = &self.get_expr(rhs_expr_id).ty;
+        let Ty::Array(inner) = ty else {
+            panic!("expected array type for mutable array variable, found: {ty}");
+        };
+        let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).map_err(|e| {
+            Error::Unexpected(
+                format!("array element type `{e}` in concatenation"),
+                bin_op_expr_span,
+            )
+        })?
+        else {
+            panic!("expected primitive type for array element type, found: {inner:?}")
+        };
+
+        let EvalControlFlow::Continue(rhs_value) = self.try_eval_expr(rhs_expr_id)? else {
+            return Err(Error::Unexpected(
+                "embedded return in array concatenation expression".to_string(),
+                self.get_expr_package_span(rhs_expr_id),
+            ));
+        };
+
+        let lhs_var = rir::Variable {
+            variable_id: lhs_eval_var.id.into(),
+            ty: rir::Ty::Array(lhs_size, elem_ty),
+        };
+
+        let (rhs_var, rhs_size) = if let Value::Array(rhs_array) = rhs_value {
+            if rhs_array.is_empty() {
+                // The result of the concatenation is just the lhs, so emit a copy array instruction.
+                let new_var = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(lhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(lhs_var, new_var));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: new_var.variable_id.into(),
+                    ty: VarTy::Array(lhs_size),
+                })));
+            } else if lhs_size == 0 {
+                // The result of the concatenation is just the rhs, so directly return it.
+                return Ok(EvalControlFlow::Continue(Value::Array(rhs_array)));
+            }
+
+            // Otherwise, the rhs array should be stored into a variable so it can be used in a concatenate instruction.
+            let rhs_var = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(rhs_array.len(), elem_ty),
+            };
+            self.store_array(rhs_var.variable_id, elem_ty, &rhs_array);
+            (rhs_var, rhs_array.len())
+        } else {
+            // We expect the rhs value to be an array variable.
+            let Value::Var(Var {
+                id: rhs_var_id,
+                ty: VarTy::Array(rhs_size),
+            }) = rhs_value
+            else {
+                return Err(Error::Unexpected(
+                    "expected rhs value to be an array variable".to_string(),
+                    self.get_expr_package_span(rhs_expr_id),
+                ));
+            };
+
+            if rhs_size == 0 {
+                // The result of concatenation is just the lhs, so emit a copy instruction and return it.
+                let result = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(lhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(lhs_var, result));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: result.variable_id.into(),
+                    ty: VarTy::Array(lhs_size),
+                })));
+            }
+
+            let rhs_var = rir::Variable {
+                variable_id: rhs_var_id.into(),
+                ty: rir::Ty::Array(rhs_size, elem_ty),
+            };
+
+            if lhs_size == 0 {
+                // The result of concatenation is just the rhs, so emit a copy instruction and return it.
+                let result = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(rhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(rhs_var, result));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: result.variable_id.into(),
+                    ty: VarTy::Array(rhs_size),
+                })));
+            }
+
+            (rhs_var, rhs_size)
+        };
+
+        // Emit a concatenate instruction using the lhs and rhs array variables.
+        let result_size = lhs_size + rhs_size;
+        let result = rir::Variable {
+            variable_id: self.resource_manager.next_var(),
+            ty: rir::Ty::Array(result_size, elem_ty),
+        };
+        self.get_current_rir_block_mut()
+            .0
+            .push(Instruction::ConcatArrays(lhs_var, rhs_var, result));
+        Ok(EvalControlFlow::Continue(Value::Var(Var {
+            id: result.variable_id.into(),
+            ty: VarTy::Array(result_size),
+        })))
     }
 }
 

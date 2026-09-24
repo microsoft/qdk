@@ -1123,3 +1123,42 @@ fn test_dynamic_expr_including_bigint_binop() {
                 Return Integer(0)"#]],
     );
 }
+
+#[test]
+fn test_maximum_step_singleton_slice_emits_valid_program() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            values[1..9223372036854775807..1]
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Array(2, Integer)) = StoreArray [Integer(1), Integer(2)]
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
+            Branch Variable(2, Boolean), 2, 3
+        Block 1:Block:
+            StoreIndex Variable(3, Integer), Integer(0), Variable(0, Array(2, Integer))
+            Variable(4, Array(1, Integer)) = SliceArray Variable(0, Array(2, Integer)), 1, 9223372036854775807, 1
+            Variable(5, Array(1, Integer)) = CopyArray Variable(4, Array(1, Integer))
+            Variable(6, Integer) = Index Variable(5, Array(1, Integer)), Integer(0)
+            Call id(4), args( Integer(1), Tag(0, 3), )
+            Call id(5), args( Variable(6, Integer), Tag(1, 5), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(9)
+            Jump(1)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(10)
+            Jump(1)"#]],
+    );
+}

@@ -139,6 +139,13 @@ fn check_var_usage(
                 must_keep_vars.insert(src.variable_id);
                 stored_vars.insert(dest.variable_id);
             }
+            Instruction::ConcatArrays(lhs, rhs, dest) => {
+                used_vars.insert(lhs.variable_id);
+                must_keep_vars.insert(lhs.variable_id);
+                used_vars.insert(rhs.variable_id);
+                must_keep_vars.insert(rhs.variable_id);
+                stored_vars.insert(dest.variable_id);
+            }
 
             Instruction::Call(_, operands, variable, _) => {
                 if let Some(var) = variable

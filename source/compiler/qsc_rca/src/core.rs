@@ -189,6 +189,12 @@ impl<'a> Analyzer<'a> {
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
 
+        let array_var_expr = self.get_expr(array_var_expr_id);
+        let ExprKind::Var(Res::Local(local_var_id), _) = &array_var_expr.kind else {
+            panic!("LHS expression should be a local");
+        };
+        let local_var_id = *local_var_id;
+
         // Since this is an assignment, the compute kind of the local variable (array var expression) needs to be updated.
         // The compute kind of the update is determined by the runtime features of the replacement value expression.
         let application_instance = self.get_current_application_instance();
@@ -196,15 +202,22 @@ impl<'a> Analyzer<'a> {
         let mut default_value_kind = ValueKind::Constant;
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
         // runtime feature is used to mark the array itself as dynamic.
+        let mutable_fixed_size_array_key = self.get_item_specialization_key();
+        let already_tracked_as_mutable_fixed_size_array = application_instance
+            .mutable_fixed_size_arrays
+            .contains(&(mutable_fixed_size_array_key, local_var_id));
         let mutable_fixed_size_array_key = if application_instance.active_dynamic_scopes.is_empty()
+            && !index_compute_kind.is_variable_value_kind()
+            && !already_tracked_as_mutable_fixed_size_array
         {
-            if replacement_value_compute_kind.is_variable_value_kind()
+            if (replacement_value_compute_kind.is_variable_value_kind())
                 && self
                     .target_capabilities
                     .contains(TargetCapabilityFlags::StaticSizedArrays)
+                && is_supported_array_content(&self.get_expr(replacement_value_expr_id).ty)
             {
                 // Static sized arrays are supported, so generate a key to store this use of the variable as a mutable fixed-size array.
-                Some(self.get_item_specialization_key())
+                Some(mutable_fixed_size_array_key)
             } else {
                 None
             }
@@ -225,7 +238,7 @@ impl<'a> Analyzer<'a> {
                 value_kind: ValueKind::Constant,
             });
             // This update requires a dynamic array, so generate a key to store this as a mutable dynamic array.
-            Some(self.get_item_specialization_key())
+            Some(mutable_fixed_size_array_key)
         };
 
         let mut updated_compute_kind = ComputeKind::Static;
@@ -239,18 +252,14 @@ impl<'a> Analyzer<'a> {
         }
 
         // Update the compute kind of the local variable in the locals map.
-        let array_var_expr = self.get_expr(array_var_expr_id);
-        let ExprKind::Var(Res::Local(local_var_id), _) = &array_var_expr.kind else {
-            panic!("LHS expression should be a local");
-        };
         let application_instance = self.get_current_application_instance_mut();
         application_instance
             .locals_map
-            .aggregate_compute_kind(*local_var_id, updated_compute_kind);
+            .aggregate_compute_kind(local_var_id, updated_compute_kind);
         if let Some(key) = mutable_fixed_size_array_key {
             application_instance
                 .mutable_fixed_size_arrays
-                .push((key, *local_var_id));
+                .push((key, local_var_id));
         }
 
         // The compute kind of this expression is determined by aggregating the runtime features of the index and
@@ -275,7 +284,7 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
-    fn get_item_specialization_key(&mut self) -> StoreItemSpecializationKey {
+    fn get_item_specialization_key(&self) -> StoreItemSpecializationKey {
         match self.get_current_context() {
             AnalysisContext::TopLevel(_) => StoreItemSpecializationKey::TopLevel,
             AnalysisContext::Item(item_context) => (
@@ -2050,6 +2059,13 @@ impl<'a> Analyzer<'a> {
         self.target_capabilities
             .contains(TargetCapabilityFlags::BackwardsBranching)
     }
+}
+
+fn is_supported_array_content(replacement_ty: &Ty) -> bool {
+    matches!(
+        replacement_ty,
+        Ty::Prim(Prim::Bool | Prim::Int | Prim::Double | Prim::Qubit)
+    )
 }
 
 fn update_features_for_type(

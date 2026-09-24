@@ -7,10 +7,11 @@
     clippy::too_many_lines
 )]
 
+use crate::tests::get_partial_evaluation_error_with_capabilities;
+
 use super::{
     assert_block_instructions, assert_blocks, assert_callable, assert_error,
-    get_partial_evaluation_error, get_partial_evaluation_error_with_capabilities, get_rir_program,
-    get_rir_program_with_adaptive_profile,
+    get_partial_evaluation_error, get_rir_program, get_rir_program_with_adaptive_profile,
 };
 use expect_test::expect;
 use indoc::indoc;
@@ -1177,8 +1178,7 @@ fn mutable_fixed_size_array_dynamic_index_update() {
 
 #[test]
 fn mutable_fixed_size_array_dynamic_range_update() {
-    let error = get_partial_evaluation_error_with_capabilities(
-        indoc! {r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
         @EntryPoint()
         operation Main() : Bool[] {
             use qs = Qubit[2];
@@ -1186,24 +1186,37 @@ fn mutable_fixed_size_array_dynamic_range_update() {
             arr[...2...] = Std.Convert.ResultArrayAsBoolArray(MResetEachZ(qs));
             arr
         }
-    "#},
-        Profile::Adaptive.into(),
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(1, Integer) = Store Integer(0)
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Integer) = Store Integer(1)
+            Call id(2), args( Qubit(1), Result(1), )
+            Variable(1, Integer) = Store Integer(2)
+            Variable(2, Integer) = Store Integer(0)
+            Variable(3, Boolean) = Call id(3), args( Result(0), )
+            Variable(4, Boolean) = Store Variable(3, Boolean)
+            Variable(2, Integer) = Store Integer(1)
+            Variable(5, Boolean) = Call id(3), args( Result(1), )
+            Variable(6, Boolean) = Store Variable(5, Boolean)
+            Variable(2, Integer) = Store Integer(2)
+            Variable(7, Array(4, Boolean)) = StoreArray [Variable(4, Boolean), Bool(false), Variable(6, Boolean), Bool(false)]
+            Call id(4), args( Integer(4), Tag(0, 3), )
+            Call id(5), args( Variable(4, Boolean), Tag(1, 5), )
+            Call id(5), args( Bool(false), Tag(2, 5), )
+            Call id(5), args( Variable(6, Boolean), Tag(3, 5), )
+            Call id(5), args( Bool(false), Tag(4, 5), )
+            Return Integer(0)"#]],
     );
-    expect![[r#"
-        Unimplemented(
-            "range indexing for mutation of fixed size array",
-            PackageSpan {
-                package: PackageId(
-                    2,
-                ),
-                span: Span {
-                    lo: 111,
-                    hi: 118,
-                },
-            },
-        )
-    "#]]
-    .assert_debug_eq(&error);
 }
 
 #[test]
@@ -1463,6 +1476,275 @@ fn mutable_fixed_size_array_reverse_slicing() {
         Block 7:Block:
             StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
             Jump(6)"#]],
+    );
+}
+
+#[test]
+fn mutable_array_concatenated_to_constant_array() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            values + [3]
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Array(2, Integer)) = StoreArray [Integer(1), Integer(2)]
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
+            Branch Variable(2, Boolean), 2, 3
+        Block 1:Block:
+            StoreIndex Variable(3, Integer), Integer(0), Variable(0, Array(2, Integer))
+            Variable(4, Array(1, Integer)) = StoreArray [Integer(3)]
+            Variable(5, Array(3, Integer)) = ConcatArrays Variable(0, Array(2, Integer)), Variable(4, Array(1, Integer))
+            Variable(6, Array(3, Integer)) = CopyArray Variable(5, Array(3, Integer))
+            Variable(7, Integer) = Index Variable(6, Array(3, Integer)), Integer(0)
+            Variable(8, Integer) = Index Variable(6, Array(3, Integer)), Integer(1)
+            Variable(9, Integer) = Index Variable(6, Array(3, Integer)), Integer(2)
+            Call id(4), args( Integer(3), Tag(0, 3), )
+            Call id(5), args( Variable(7, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(8, Integer), Tag(2, 5), )
+            Call id(5), args( Variable(9, Integer), Tag(3, 5), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(9)
+            Jump(1)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(10)
+            Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_array_concatenated_to_constant_array_lhs() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            [3] + values
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Array(2, Integer)) = StoreArray [Integer(1), Integer(2)]
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
+                Branch Variable(2, Boolean), 2, 3
+            Block 1:Block:
+                StoreIndex Variable(3, Integer), Integer(0), Variable(0, Array(2, Integer))
+                Variable(4, Array(1, Integer)) = StoreArray [Integer(3)]
+                Variable(5, Array(3, Integer)) = ConcatArrays Variable(4, Array(1, Integer)), Variable(0, Array(2, Integer))
+                Variable(6, Array(3, Integer)) = CopyArray Variable(5, Array(3, Integer))
+                Variable(7, Integer) = Index Variable(6, Array(3, Integer)), Integer(0)
+                Variable(8, Integer) = Index Variable(6, Array(3, Integer)), Integer(1)
+                Variable(9, Integer) = Index Variable(6, Array(3, Integer)), Integer(2)
+                Call id(4), args( Integer(3), Tag(0, 3), )
+                Call id(5), args( Variable(7, Integer), Tag(1, 5), )
+                Call id(5), args( Variable(8, Integer), Tag(2, 5), )
+                Call id(5), args( Variable(9, Integer), Tag(3, 5), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(3, Integer) = Store Integer(9)
+                Jump(1)
+            Block 3:Block:
+                Variable(3, Integer) = Store Integer(10)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_array_concatenated_to_mutable_array() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            values + values
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Array(2, Integer)) = StoreArray [Integer(1), Integer(2)]
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
+            Branch Variable(2, Boolean), 2, 3
+        Block 1:Block:
+            StoreIndex Variable(3, Integer), Integer(0), Variable(0, Array(2, Integer))
+            Variable(4, Array(4, Integer)) = ConcatArrays Variable(0, Array(2, Integer)), Variable(0, Array(2, Integer))
+            Variable(5, Array(4, Integer)) = CopyArray Variable(4, Array(4, Integer))
+            Variable(6, Integer) = Index Variable(5, Array(4, Integer)), Integer(0)
+            Variable(7, Integer) = Index Variable(5, Array(4, Integer)), Integer(1)
+            Variable(8, Integer) = Index Variable(5, Array(4, Integer)), Integer(2)
+            Variable(9, Integer) = Index Variable(5, Array(4, Integer)), Integer(3)
+            Call id(4), args( Integer(4), Tag(0, 3), )
+            Call id(5), args( Variable(6, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(7, Integer), Tag(2, 5), )
+            Call id(5), args( Variable(8, Integer), Tag(3, 5), )
+            Call id(5), args( Variable(9, Integer), Tag(4, 5), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(9)
+            Jump(1)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(10)
+            Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_array_concatenated_to_zero_size_array() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            values + []
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Array(2, Integer)) = StoreArray [Integer(1), Integer(2)]
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
+            Branch Variable(2, Boolean), 2, 3
+        Block 1:Block:
+            StoreIndex Variable(3, Integer), Integer(0), Variable(0, Array(2, Integer))
+            Variable(4, Array(2, Integer)) = CopyArray Variable(0, Array(2, Integer))
+            Variable(5, Array(2, Integer)) = CopyArray Variable(4, Array(2, Integer))
+            Variable(6, Integer) = Index Variable(5, Array(2, Integer)), Integer(0)
+            Variable(7, Integer) = Index Variable(5, Array(2, Integer)), Integer(1)
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Variable(6, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(7, Integer), Tag(2, 5), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(9)
+            Jump(1)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(10)
+            Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_array_concatenated_to_zero_size_array_on_lhs() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            [] + values
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Array(2, Integer)) = StoreArray [Integer(1), Integer(2)]
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Icmp Eq, Variable(1, Boolean), Bool(false)
+            Branch Variable(2, Boolean), 2, 3
+        Block 1:Block:
+            StoreIndex Variable(3, Integer), Integer(0), Variable(0, Array(2, Integer))
+            Variable(4, Array(2, Integer)) = CopyArray Variable(0, Array(2, Integer))
+            Variable(5, Array(2, Integer)) = CopyArray Variable(4, Array(2, Integer))
+            Variable(6, Integer) = Index Variable(5, Array(2, Integer)), Integer(0)
+            Variable(7, Integer) = Index Variable(5, Array(2, Integer)), Integer(1)
+            Call id(4), args( Integer(2), Tag(0, 3), )
+            Call id(5), args( Variable(6, Integer), Tag(1, 5), )
+            Call id(5), args( Variable(7, Integer), Tag(2, 5), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(9)
+            Jump(1)
+        Block 3:Block:
+            Variable(3, Integer) = Store Integer(10)
+            Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_matrix_avoids_using_mutable_arrays() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int[][] {
+            use qubit = Qubit();
+            mutable values = [[1, 2], [3, 4]];
+            values[0] = [MResetZ(qubit) == Zero ? 9 | 10, 2];
+            values
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Call id(4), args( Integer(2), Tag(1, 5), )
+                Call id(5), args( Variable(2, Integer), Tag(2, 7), )
+                Call id(5), args( Integer(2), Tag(3, 7), )
+                Call id(4), args( Integer(2), Tag(4, 5), )
+                Call id(5), args( Integer(3), Tag(5, 7), )
+                Call id(5), args( Integer(4), Tag(6, 7), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(9)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(10)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_array_with_zero_step_slice_triggers_error() {
+    let error = get_partial_evaluation_error_with_capabilities(
+        indoc! {r#"
+        operation Main() : Int[] {
+            use qubit = Qubit();
+            mutable values = [1, 2];
+            values[0] = MResetZ(qubit) == Zero ? 9 | 10;
+            values[0..0..1]
+        }
+        "#},
+        Profile::Adaptive.into(),
+    );
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("range with step size of zero", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 149 } })"#
+        ]],
     );
 }
 

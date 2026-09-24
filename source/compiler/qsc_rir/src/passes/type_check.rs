@@ -128,6 +128,24 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
                     .expect("computed slice size should fit into i64")
             );
         }
+        Instruction::ConcatArrays(lhs, rhs, var) => {
+            let Ty::Array(result_size, elem_ty) = &var.ty else {
+                panic!("expected variable to be of array type");
+            };
+            let Ty::Array(lhs_size, lhs_elem_ty) = &lhs.ty else {
+                panic!("expected lhs to be of array type");
+            };
+            let Ty::Array(rhs_size, rhs_elem_ty) = &rhs.ty else {
+                panic!("expected rhs to be of array type");
+            };
+            assert_eq!(lhs_elem_ty, elem_ty);
+            assert_eq!(rhs_elem_ty, elem_ty);
+            assert_eq!(
+                *result_size,
+                *lhs_size + *rhs_size,
+                "expected result size to match the sum of lhs and rhs sizes"
+            );
+        }
 
         Instruction::Convert(_, _)
         | Instruction::Jump(_)

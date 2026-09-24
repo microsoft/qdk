@@ -419,6 +419,7 @@ pub enum Instruction {
     Index(Operand, Operand, Variable),
     CopyArray(Variable, Variable),
     SliceArray(Variable, i64, i64, i64, Variable),
+    ConcatArrays(Variable, Variable, Variable),
     Return(Option<Operand>),
 }
 
@@ -542,6 +543,10 @@ impl Display for Instruction {
                     indent,
                     "{result_var} = SliceArray {array_var}, {start}, {step}, {end}"
                 )?;
+            }
+            Self::ConcatArrays(lhs, rhs, result) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{result} = ConcatArrays {lhs}, {rhs}")?;
             }
             Self::Return(None) => write!(f, "Return")?,
             Self::Return(Some(operand)) => write!(f, "Return {operand}")?,

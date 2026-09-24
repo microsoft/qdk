@@ -558,7 +558,8 @@ fn process_variables(
         | Instruction::Load(..)
         | Instruction::Index(..)
         | Instruction::CopyArray(..)
-        | Instruction::SliceArray(..)) => {
+        | Instruction::SliceArray(..)
+        | Instruction::ConcatArrays(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));

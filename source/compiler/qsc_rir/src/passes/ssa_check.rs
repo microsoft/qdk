@@ -258,7 +258,8 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::Load(..)
                 | Instruction::Index(..)
                 | Instruction::CopyArray(..)
-                | Instruction::SliceArray(..) => {
+                | Instruction::SliceArray(..)
+                | Instruction::ConcatArrays(..) => {
                     panic!("Unexpected advanced instruction at {block_id:?}, instruction {idx}")
                 }
             }
