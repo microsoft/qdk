@@ -686,51 +686,24 @@ fn long_loop_omits_middle_iterations() {
     );
 }
 
-#[test]
-fn long_vertical_loop_is_not_collapsed_after_truncation() {
-    let circuit = circuit_with_options_success(
-        r"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use qs = Qubit[6];
-                    for i in 0..5 {
-                        H(qs[i]);
-                    }
-                }
-            }
-        ",
-        Profile::AdaptiveRIF,
-        CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::Static,
-        TracerConfig {
-            max_loop_iterations: 3,
-            ..default_test_tracer_config()
-        },
-    );
-
-    let loop_children = first_loop_children(&circuit);
-    assert_eq!(loop_children.len(), 4);
-
-    let Operation::Unitary(omitted) = loop_children[2] else {
-        panic!("omitted iterations should be represented by a unitary");
-    };
-    assert_eq!(omitted.gate, OMITTED_LOOP_ITERATIONS_GATE);
-    assert_eq!(omitted.args, ["3"]);
-    assert_eq!(omitted.targets.len(), 3);
-}
-
-fn first_loop_children(circuit: &Circuit) -> Vec<&Operation> {
+/// Returns the operations directly contained in the circuit's `Main` group.
+fn main_children(circuit: &Circuit) -> Vec<&Operation> {
     let [main_column] = circuit.component_grid.as_slice() else {
         panic!("circuit should contain one top-level column");
     };
     let [Operation::Unitary(main)] = main_column.components.as_slice() else {
         panic!("circuit should contain the Main group");
     };
-    let [main_children] = main.children.as_slice() else {
-        panic!("Main should contain one child column");
-    };
-    let [Operation::Unitary(loop_group)] = main_children.components.as_slice() else {
+    main.children
+        .iter()
+        .flat_map(|column| &column.components)
+        .collect()
+}
+
+/// Returns the iteration operations contained in the first loop under `Main`.
+fn first_loop_children(circuit: &Circuit) -> Vec<&Operation> {
+    let main_children = main_children(circuit);
+    let [Operation::Unitary(loop_group)] = main_children.as_slice() else {
         panic!("Main should contain one loop group");
     };
     loop_group

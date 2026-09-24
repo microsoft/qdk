@@ -627,17 +627,6 @@ fn collapse_if_unnecessary(
     } = &mut op.kind
     {
         if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
-            // A truncated loop contains a marker operation alongside its iteration groups.
-            if children.iter().any(|child| {
-                matches!(
-                    &child.op,
-                    Operation::Unitary(unitary)
-                        if unitary.gate == OMITTED_LOOP_ITERATIONS_GATE
-                )
-            }) {
-                return None;
-            }
-
             if children.len() == 1 {
                 // remove the loop scope
                 let mut only_child = children.remove(0);
@@ -658,10 +647,14 @@ fn collapse_if_unnecessary(
             }
             let mut all_children = vec![];
             for mut child_op in children.drain(..) {
-                let OperationOrGroupKind::Group { children, .. } = &mut child_op.kind else {
-                    panic!("only child of an outer loop scope should be a group");
-                };
-                all_children.extend(take(children));
+                match &mut child_op.kind {
+                    OperationOrGroupKind::Group { children, .. } => {
+                        all_children.extend(take(children));
+                    }
+                    OperationOrGroupKind::Single => {
+                        all_children.push(child_op);
+                    }
+                }
             }
             return Some(all_children);
         } else if let Scope::Callable(callable_id) = scope_stack.current_lexical_scope() {
