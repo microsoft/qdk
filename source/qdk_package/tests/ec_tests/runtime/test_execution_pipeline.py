@@ -18,6 +18,7 @@ from qdk.simulation._qodec.quantum_backend import (
     stabilizer_backend,
     tableau_backend,
 )
+from ec_tests.testing.optional import requires_stim
 
 
 @pytest.fixture(params=["syndrome", "deq"])
@@ -200,6 +201,7 @@ def test_qir_shot_failure_policy_restarts_and_closes_lost_shots(
     assert seeds[0] == seeds[1]
 
 
+@requires_stim
 @pytest.mark.parametrize("policy", ["raise", "discard", "retry"])
 @pytest.mark.parametrize("failure_kind", ["loss", "parity"])
 @pytest.mark.parametrize("simulator_type", ["cpu", "clifford"])
@@ -516,6 +518,7 @@ def test_circuit_preparation_contract_is_independent_of_source_format():
     assert calls[0].select == [{"reject": 0}]
 
 
+@requires_stim
 @pytest.mark.parametrize("flag", [False, True])
 @pytest.mark.parametrize("reject_flagged", [False, True])
 def test_native_instruction_program_preserves_flags_and_rejection(flag, reject_flagged):
@@ -734,7 +737,12 @@ def test_quantum_backend_uses_an_injected_engine():
 
 
 @pytest.mark.parametrize(
-    "factory_name", ["full_state_backend", "stabilizer_backend", "tableau_backend"]
+    "factory_name",
+    [
+        "full_state_backend",
+        "stabilizer_backend",
+        pytest.param("tableau_backend", marks=requires_stim),
+    ],
 )
 def test_engine_factories_preserve_noise_and_noiseless_discard(factory_name):
     from qdk.simulation._qodec import quantum_backend
@@ -752,6 +760,7 @@ def test_engine_factories_preserve_noise_and_noiseless_discard(factory_name):
         backend.close()
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "operation, targets",
     [
@@ -791,6 +800,7 @@ def test_tableau_clifford_gates_match_full_state(operation, targets):
         full_state.close()
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "operation, targets, angle, error",
     [
@@ -818,6 +828,7 @@ def test_tableau_engine_rejects_invalid_operations(operation, targets, angle, er
         engine.close()
 
 
+@requires_stim
 @pytest.mark.parametrize("operation", ["x", "measure", "reset"])
 def test_tableau_engine_enforces_capacity_and_closed_state(operation):
     from qdk.simulation._qodec.tableau_engine import TableauEngine
@@ -840,6 +851,7 @@ def test_tableau_engine_enforces_capacity_and_closed_state(operation):
         apply(0)
 
 
+@requires_stim
 def test_tableau_measurements_replay_seed_and_preserve_entanglement():
     def sample(seed):
         backend = tableau_backend(None, seed)
@@ -884,6 +896,7 @@ def test_quantum_engines_preserve_coherent_rotations_and_entanglement(backend_fa
         backend.close()
 
 
+@requires_stim
 def test_backend_closes_if_decoder_construction_fails():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.executor import ExecutionPipelineFactory
@@ -906,6 +919,7 @@ def test_backend_closes_if_decoder_construction_fails():
     backend.close.assert_called_once()
 
 
+@requires_stim
 def test_runner_defaults_to_stabilizer_backend():
     from inspect import signature
 
@@ -1206,6 +1220,7 @@ def test_decoder_preparation_is_only_required_for_encoded_layers():
         pipeline._close()
 
 
+@requires_stim
 @pytest.mark.parametrize("fail", [False, True])
 def test_executor_creates_and_closes_non_adaptive_runtimes_per_shot(fail):
     from types import SimpleNamespace
@@ -1332,6 +1347,7 @@ def test_pipeline_accepts_a_backend_without_lifecycle_methods():
     assert pipeline.closed
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "num_qubits, expected", [(1, (1, 1, 5, 5)), (5, (5, 5, 17, 17))]
 )
@@ -1375,6 +1391,7 @@ def test_resource_counts_are_inspectable_without_starting_stages(
         pipeline._close()
 
 
+@requires_stim
 def test_sizing_failure_does_not_start_any_stage(monkeypatch):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
@@ -2166,6 +2183,7 @@ def test_syndrome_decoder_corrects_single_data_faults(
     assert corrections == []
 
 
+@requires_stim
 @pytest.mark.parametrize("declared", [False, True])
 def test_executor_does_not_complete_missing_pauli_gadgets(declared):
     from qodec.actions import Pauli
@@ -2227,6 +2245,7 @@ def repetition_runtime(prepare_decoder=None):
     return LayerRuntime(LayerPlan(codec.layers[0]), decoder), physical, backend
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "arguments, message",
     [
@@ -2270,6 +2289,7 @@ def test_native_call_arguments_fail_before_side_effects(arguments, message):
         backend.close()
 
 
+@requires_stim
 @pytest.mark.parametrize("unrelated", ["x_preparation", "conditional_action"])
 def test_supplied_gadgets_ignore_unrelated_instruction_actions(unrelated):
     from qodec.actions import Condition, Pauli, Stabilize
@@ -2436,6 +2456,7 @@ def test_layer_executes_prepared_bodies_without_parsing_source(fails):
         runtime.close()
 
 
+@requires_stim
 def test_layer_can_lower_and_decode_without_a_downstream_runtime():
     from qodec.instructions import InstructionCall
 
@@ -2474,6 +2495,7 @@ def test_layer_can_lower_and_decode_without_a_downstream_runtime():
     assert decoder.closed
 
 
+@requires_stim
 def test_layer_accepts_a_protocol_only_decoder_without_a_classical_runtime():
     from typing_extensions import assert_type
 
@@ -2527,6 +2549,7 @@ def test_layer_accepts_a_protocol_only_decoder_without_a_classical_runtime():
     assert decoder.close_count == 1
 
 
+@requires_stim
 def test_decoder_hooks_track_lifetimes_and_correct_other_live_blocks():
     from qodec.instructions import InstructionCall
 
@@ -2613,6 +2636,7 @@ def test_decoder_hooks_track_lifetimes_and_correct_other_live_blocks():
         runtime.close()
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "failure, error_type, message",
     [
@@ -2677,6 +2701,7 @@ def test_failed_corrections_are_closed_without_acknowledgement(
         runtime.close()
 
 
+@requires_stim
 def test_unknown_selection_flags_are_rejected_before_execution():
     from qodec.instructions import InstructionCall
 
@@ -2698,6 +2723,7 @@ def test_unknown_selection_flags_are_rejected_before_execution():
         backend.close()
 
 
+@requires_stim
 def test_layer_rejects_a_missing_instruction_reply():
     runtime, _, backend = repetition_runtime()
     runtime.start(runtime.required_resources(Resources(qubits=1)))
@@ -2723,6 +2749,7 @@ def test_call_list_requires_resolved_readout_arguments(readout):
         assert _argument("circuit.readouts[0]", {}, (readout,)) is readout
 
 
+@requires_stim
 def test_layer_uses_its_prepared_resolver_for_phase_gates():
     from math import pi
 
@@ -2751,6 +2778,7 @@ def test_layer_uses_its_prepared_resolver_for_phase_gates():
         backend.close()
 
 
+@requires_stim
 @pytest.mark.parametrize("supported", [False, True])
 def test_layer_resolves_the_entire_decomposition_before_execution(supported):
     from qdk.simulation._qodec.instruction_set import InstructionSet, UnboundOperation
@@ -2799,6 +2827,7 @@ def test_layer_resolves_the_entire_decomposition_before_execution(supported):
         backend.close()
 
 
+@requires_stim
 def test_declared_pauli_gadgets_reuse_prepared_calls_without_mutation(monkeypatch):
     from qdk.simulation._qodec import instruction_set
     from qodec.instructions import InstructionCall
@@ -2846,6 +2875,7 @@ def test_declared_pauli_gadgets_reuse_prepared_calls_without_mutation(monkeypatc
             runtime.close()
 
 
+@requires_stim
 def test_layer_lowers_logical_paulis_and_lifts_measurements():
     runtime, physical, backend = repetition_runtime()
     lower_qubits = runtime.required_resources(Resources(qubits=2))
@@ -2870,6 +2900,7 @@ def test_layer_lowers_logical_paulis_and_lifts_measurements():
         backend.close()
 
 
+@requires_stim
 def test_idle_materializes_correction_before_continuing(prepare_code_decoder):
     runtime, physical, backend = repetition_runtime(prepare_code_decoder)
     lower_qubits = runtime.required_resources(Resources(qubits=1))
@@ -2893,6 +2924,7 @@ def test_idle_materializes_correction_before_continuing(prepare_code_decoder):
         backend.close()
 
 
+@requires_stim
 @pytest.mark.parametrize("backend_factory", [full_state_backend, stabilizer_backend])
 def test_run_qir_formats_encoded_adaptive_results_for_each_shot(backend_factory):
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
@@ -2937,6 +2969,7 @@ def test_discard_does_not_apply_reset_noise():
         backend.close()
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "backend_factory", [full_state_backend, stabilizer_backend, tableau_backend]
 )
@@ -3035,6 +3068,7 @@ def nested_repetition_qodec():
     return qodec.Qodec([logical, middle, physical])
 
 
+@requires_stim
 def test_factory_prepares_physical_operations_once_with_separate_translators(
     monkeypatch,
 ):
@@ -3086,6 +3120,7 @@ def test_factory_prepares_physical_operations_once_with_separate_translators(
                 pipeline._close()
 
 
+@requires_stim
 def test_factory_replays_seeds_with_layers_in_execution_order():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
@@ -3145,6 +3180,7 @@ def test_factory_replays_seeds_with_layers_in_execution_order():
     assert runs[0][0] != runs[0][1]
 
 
+@requires_stim
 def test_nested_resource_counts_expand_at_each_encoding_layer():
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
@@ -3165,6 +3201,7 @@ def test_nested_resource_counts_expand_at_each_encoding_layer():
         pipeline._close()
 
 
+@requires_stim
 @pytest.mark.parametrize("backend_factory", [full_state_backend, stabilizer_backend])
 def test_nested_layers_run_without_flattening_the_qodec(backend_factory):
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
@@ -3192,6 +3229,7 @@ def test_nested_layers_run_without_flattening_the_qodec(backend_factory):
     assert results == [[qdk.Result.One]] * 2
 
 
+@requires_stim
 def test_decoding_reduces_logical_errors_under_the_same_noise():
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
     from qdk.simulation._qodec.protocols import Decoded
@@ -3303,6 +3341,7 @@ def test_returned_correction_cannot_mutate_shared_decoder_state():
         second.close()
 
 
+@requires_stim
 def test_decoder_models_are_prepared_once_and_sessions_close():
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
 
@@ -3349,6 +3388,7 @@ def test_decoder_models_are_prepared_once_and_sessions_close():
     assert all(session.closed for seed, session in sessions)
 
 
+@requires_stim
 def test_decoder_closes_when_a_logical_gate_is_unsupported():
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
 
@@ -3379,6 +3419,7 @@ def test_decoder_closes_when_a_logical_gate_is_unsupported():
     assert session.closed
 
 
+@requires_stim
 def test_adaptive_branch_uses_decoded_not_raw_measurement(monkeypatch):
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
     from qdk.simulation._qodec.quantum_backend import QuantumBackend
@@ -3447,6 +3488,7 @@ def test_empty_qodec_is_rejected():
         )
 
 
+@requires_stim
 def test_nondestructive_measurement_does_not_trigger_repreparation():
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
     from qdk.simulation._qodec.layer_runtime import LayerRuntime
@@ -3497,6 +3539,7 @@ def test_nondestructive_measurement_does_not_trigger_repreparation():
     assert executions == ["prepare_z", "measure_z", "x", "measure_z"]
 
 
+@requires_stim
 def test_repeated_measurements_execute_fresh_gadgets():
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
 
@@ -3544,6 +3587,7 @@ def test_partial_syndromes_do_not_invent_unobserved_boundary_signs(
         session.close()
 
 
+@requires_stim
 def test_factory_exposes_independent_stages_for_request_and_readout_probes(monkeypatch):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
@@ -3594,6 +3638,7 @@ def test_factory_exposes_independent_stages_for_request_and_readout_probes(monke
     assert encoded.decoder.closed
 
 
+@requires_stim
 @pytest.mark.parametrize("failure", ["start", "execute", "close"])
 def test_pipeline_closes_every_resource_on_failure(monkeypatch, failure):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
@@ -3641,6 +3686,7 @@ def test_pipeline_closes_every_resource_on_failure(monkeypatch, failure):
     assert runtime._pending == []
 
 
+@requires_stim
 def test_classical_runtime_cleanup_failure_does_not_skip_other_resources(monkeypatch):
     from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder

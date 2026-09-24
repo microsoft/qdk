@@ -202,6 +202,7 @@ def test_public_qodec_runner_matches_adaptive_physical_results(
     simulator_type, decoder_name
 ):
     qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     import qdk
     import qdk.openqasm
     from ec_tests.runtime import FIXTURES
@@ -236,6 +237,7 @@ def test_public_qodec_runner_matches_adaptive_physical_results(
 
 def test_custom_decoder_changes_public_results_and_closes_each_shot():
     qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     import qdk
     import qdk.openqasm
     from ec_tests.runtime import FIXTURES
@@ -306,6 +308,7 @@ def test_deq_decoder_works_inside_an_asyncio_loop():
 
 def test_qir_return_value_does_not_replace_recorded_outputs():
     qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from ec_tests.runtime import FIXTURES
 
     qir = """

@@ -10,6 +10,7 @@ from qdk.simulation._qodec.executor import ExecutionPipelineFactory
 from qdk.simulation._qodec.quantum_backend import stabilizer_backend
 from . import FIXTURES
 from .test_execution_pipeline import compile_qasm
+from ec_tests.testing.optional import requires_stim
 
 
 def make_factory(noise=None, decoder=prepare_syndrome_decoder, codec=None):
@@ -20,6 +21,7 @@ def make_factory(noise=None, decoder=prepare_syndrome_decoder, codec=None):
     )
 
 
+@requires_stim
 def test_native_batch_prepares_static_noisy_qodec_shots():
     from qdk.simulation._qodec.native_batch import prepare_batch
 
@@ -117,6 +119,7 @@ def test_deq_batch_reuses_transport_for_independent_seeded_records(monkeypatch):
     assert all(not thread.is_alive() for thread in workers[0]._threads)
 
 
+@requires_stim
 def test_native_batch_declines_measurement_dependent_control():
     from qdk.simulation._qodec.native_batch import prepare_batch
 
@@ -130,6 +133,7 @@ def test_native_batch_declines_measurement_dependent_control():
     assert prepare_batch(program, make_factory()) is None
 
 
+@requires_stim
 def test_public_runner_uses_native_batch_for_static_qodec(monkeypatch):
     from qdk.simulation._qodec._run import run_qir_with_qodec
     from qdk.simulation._qodec.executor import Executor
@@ -149,6 +153,7 @@ def test_public_runner_uses_native_batch_for_static_qodec(monkeypatch):
     )
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "control,target", [(False, False), (False, True), (True, False), (True, True)]
 )
@@ -223,6 +228,7 @@ def test_native_batch_matches_interpreter_for_logical_cnot_and_correlated_noise(
     assert batch.run(2, noise, seed=7) == expected
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "gates",
     [
@@ -246,6 +252,7 @@ def test_native_batch_declines_unsupported_logical_programs(gates):
         assert prepare_batch(program, make_factory()) is None
 
 
+@requires_stim
 @pytest.mark.parametrize("noise_kind", ["reset", "loss"])
 def test_native_batch_declines_unsupported_noise(noise_kind):
     from qdk.simulation._qodec.native_batch import prepare_batch
@@ -261,6 +268,7 @@ def test_native_batch_declines_unsupported_noise(noise_kind):
     assert prepare_batch(program, make_factory(noise)) is None
 
 
+@requires_stim
 def test_native_batch_preserves_custom_decoder_and_seed_state():
     from qdk.simulation._qodec.native_batch import prepare_batch
 
@@ -276,6 +284,7 @@ def test_native_batch_preserves_custom_decoder_and_seed_state():
     assert prepare_batch(program, custom) is not None
 
 
+@requires_stim
 def test_native_batch_preserves_custom_decoder_outputs_hooks_and_seeds():
     from qdk.simulation._qodec.native_batch import prepare_batch
     from qdk.simulation._qodec.protocols import Decoded
@@ -343,6 +352,7 @@ def test_native_batch_preserves_custom_decoder_outputs_hooks_and_seeds():
     assert batch_seeds == scalar_seeds
 
 
+@requires_stim
 def test_native_batch_frame_decoder_preserves_readouts_and_rejections():
     from contextlib import closing
 
@@ -379,6 +389,7 @@ def test_native_batch_frame_decoder_preserves_readouts_and_rejections():
     assert batch.run(5, None, seed=7) == [[Result.Zero]] * 5
 
 
+@requires_stim
 @pytest.mark.parametrize("policy", ["raise", "discard"])
 @pytest.mark.parametrize(
     "failure_name",
@@ -418,6 +429,7 @@ def test_batch_decoder_failure_policy_preserves_order(policy, failure_name):
         assert raised.value is failure
 
 
+@requires_stim
 @pytest.mark.parametrize("rows", [[(False,)], [(), (), ()], [(None,)] * 3])
 def test_native_batch_validates_decoder_output_shape(rows):
     from dataclasses import replace
@@ -436,6 +448,7 @@ def test_native_batch_validates_decoder_output_shape(rows):
         batch.run(3, None, seed=7)
 
 
+@requires_stim
 def test_native_batch_does_not_probe_non_batch_decoder_sessions():
     from qdk.simulation._qodec.native_batch import prepare_batch
 
@@ -451,7 +464,10 @@ def test_native_batch_does_not_probe_non_batch_decoder_sessions():
     assert prepare_batch(program, make_factory(decoder=decoder)) is None
 
 
-@pytest.mark.parametrize("decoder_name", ["syndrome", "frame", "deq"])
+@pytest.mark.parametrize(
+    "decoder_name",
+    ["syndrome", pytest.param("frame", marks=requires_stim), "deq"],
+)
 def test_prepared_decoder_rejects_unknown_or_mismatched_inputs(decoder_name):
     from contextlib import closing
 
@@ -478,6 +494,7 @@ def test_prepared_decoder_rejects_unknown_or_mismatched_inputs(decoder_name):
         prepared.decode_batch([(False,)], [7])
 
 
+@requires_stim
 def test_retry_policy_keeps_the_interpreted_attempt_sequence(monkeypatch):
     from qdk.simulation._qodec import native_batch
     from qdk.simulation._qodec._run import run_qir_with_qodec
@@ -527,6 +544,7 @@ def test_deq_batch_matches_individual_seeded_decoder_sessions(fixture, width):
     assert prepared.decode_batch(rows, seeds) == expected
 
 
+@requires_stim
 def test_prepared_batch_is_isolated_from_later_qodec_mutation():
     from qdk.simulation._qodec.native_batch import prepare_batch
 
@@ -542,6 +560,7 @@ def test_prepared_batch_is_isolated_from_later_qodec_mutation():
     assert factory.build_pipeline().run(program) == [Result.One]
 
 
+@requires_stim
 def test_native_batch_declines_intermediate_syndrome_measurements():
     from qodec.gadgets import Circuit
     from qdk.simulation._qodec.native_batch import prepare_batch
@@ -560,6 +579,7 @@ def test_native_batch_declines_intermediate_syndrome_measurements():
     assert prepare_batch(program, make_factory(codec=codec)) is None
 
 
+@requires_stim
 def test_native_batch_observes_expected_repetition_noise_distribution():
     import math
 
@@ -581,6 +601,7 @@ def test_native_batch_observes_expected_repetition_noise_distribution():
     assert abs(failures - shots * expected_rate) < 5 * deviation
 
 
+@requires_stim
 def test_native_batch_preserves_mixed_reordered_and_repeated_output_records():
     from qdk.simulation._simulation import preprocess_simulation_input
     from qdk.simulation._qodec.bytecode import compile
@@ -617,6 +638,7 @@ def test_native_batch_preserves_mixed_reordered_and_repeated_output_records():
     assert batch.run(2, None, seed=7) == [expected] * 2
 
 
+@requires_stim
 def test_native_batch_preserves_entangled_measurements():
     from qodec.actions import Clifford, Observe, Stabilize
     from qodec.gadgets import Circuit, Encoding
@@ -692,6 +714,7 @@ def test_native_batch_preserves_entangled_measurements():
     }
 
 
+@requires_stim
 def test_warm_thousand_shot_demo_stays_under_100_ms():
     import statistics
     import time

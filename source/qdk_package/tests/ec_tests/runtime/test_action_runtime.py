@@ -5,6 +5,7 @@ import pytest
 import qodec
 from qodec.actions import Clifford, Condition, Observe, Pauli, Rotate, Stabilize
 from qodec.instructions import BlockOperand, Parameter
+from ec_tests.testing.optional import requires_stim
 
 
 def test_action_runtime_preserves_sequential_outcomes_and_xor_guards():
@@ -150,6 +151,7 @@ def test_clifford_includes_previously_introduced_temporary_indices():
         assert gate.operator.image_z(1).characters == "IX"
 
 
+@requires_stim
 def test_physical_action_execution_supports_temporaries_guards_and_typed_blocks():
     from qodec.instructions import Block, InstructionCall
 

@@ -30,7 +30,9 @@ To configure deq's independent Pauli prior::
 
 Install deq separately with ``pip install deq deq-runtime``. It is not
 required by ``qdk[ec]`` or ``qdk[all]``; missing dependencies are reported
-only when this decoder is selected.
+only when this decoder is selected. deq-runtime publishes no Windows ARM64
+wheels, and deq requires Stim, which has no Linux aarch64 or Windows ARM64
+wheels.
 deq 0.5.2 requires a released QDK 1.32.x; when testing a development wheel
 versioned 0.0.0, install dependencies first, then reinstall the local QDK
 wheel with ``--no-deps`` to avoid replacing it with a released QDK.

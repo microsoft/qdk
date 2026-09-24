@@ -9,6 +9,7 @@ from qodec.instructions import Block, BlockOperand, InstructionCall, Parameter
 
 from qdk.simulation._qodec.circuit_runtime import prepare_call_list
 from qdk.simulation._qodec.protocols import Invocation
+from ec_tests.testing.optional import requires_stim
 
 
 def instruction_call(request) -> InstructionCall:
@@ -244,6 +245,7 @@ def test_adaptive_qir_gadget_preserves_inputs_and_uses_returned_readouts(measure
             assert stopped.value.value == (measured, True)
 
 
+@requires_stim
 def test_qir_gadget_invokes_lower_layer_without_resetting_live_inputs():
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime

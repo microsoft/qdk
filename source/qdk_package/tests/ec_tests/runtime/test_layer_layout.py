@@ -14,6 +14,7 @@ from qdk.simulation._qodec.protocols import (
     Readouts,
     Resources,
 )
+from ec_tests.testing.optional import requires_stim
 
 
 def drive(requests, respond):
@@ -104,6 +105,7 @@ def test_encoded_support_addresses_logical_slots_of_lower_blocks():
         runtime.close()
 
 
+@requires_stim
 def test_split_preserves_lifetimes_and_execution_boundaries():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
     from qdk.simulation._qodec.quantum_operations import Operation
@@ -222,6 +224,7 @@ def test_split_preserves_lifetimes_and_execution_boundaries():
         runtime.close()
 
 
+@requires_stim
 def test_code_change_can_expand_the_encoding_support():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
 
@@ -276,6 +279,7 @@ def test_code_change_can_expand_the_encoding_support():
         runtime.close()
 
 
+@requires_stim
 def test_layer_resolves_operations_on_the_second_logical_slot():
     from qodec.actions import Pauli
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
@@ -337,6 +341,7 @@ def test_layer_resolves_operations_on_the_second_logical_slot():
         runtime.close()
 
 
+@requires_stim
 def test_missing_encoded_input_is_not_implicitly_initialized():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
 
@@ -360,6 +365,7 @@ def test_missing_encoded_input_is_not_implicitly_initialized():
         runtime.close()
 
 
+@requires_stim
 def test_capacity_failure_preserves_live_blocks_and_invocation_identity():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
 
@@ -442,6 +448,7 @@ def test_mixed_lower_types_require_their_own_capacity():
         runtime.close()
 
 
+@requires_stim
 def test_failed_body_invalidates_the_layer_until_closed():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
 

@@ -8,10 +8,15 @@ from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 import numpy as np
-from deq.proto import coordinator_pb2 as coordinator
-from deq.proto import deq_bin_pb2 as model
-from deq.proto import util_pb2 as util
-from deq.runtime import Runtime
+
+# deq is not installable on Linux aarch64 or Windows ARM64, where static checks
+# run without it; this module is only imported lazily by prepare_deq_decoder.
+from deq.proto import (  # pyright: ignore[reportMissingImports]
+    coordinator_pb2 as coordinator,
+    deq_bin_pb2 as model,
+    util_pb2 as util,
+)
+from deq.runtime import Runtime  # pyright: ignore[reportMissingImports]
 from paulimer import DensePauli
 from qodec import Gadget, Layer
 

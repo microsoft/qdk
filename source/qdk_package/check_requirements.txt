@@ -2,8 +2,10 @@
 azure-quantum>=3.8.0
 binar>=0.1.2
 cirq-core>=1.6.1,<1.7
-deq>=0.5.2,<0.6
-deq-runtime>=0.5.2,<0.6
+# `deq` requires `stim`, which has no wheels for Linux aarch64 or Windows ARM64,
+# so, we skip type-checking on those platforms.
+deq>=0.5.2,<0.6; platform_machine != 'aarch64' and platform_machine != 'ARM64'
+deq-runtime>=0.5.2,<0.6; platform_machine != 'aarch64' and platform_machine != 'ARM64'
 highspy>=1.11,<2
 matplotlib
 more-itertools>=10.0

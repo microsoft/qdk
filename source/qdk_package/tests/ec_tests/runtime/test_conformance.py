@@ -14,6 +14,7 @@ from qdk.simulation._qodec.quantum_backend import (
     stabilizer_backend,
     tableau_backend,
 )
+from ec_tests.testing.optional import requires_stim
 
 
 def run_calls(
@@ -42,6 +43,7 @@ def run_calls(
     return executor.run(calls)
 
 
+@requires_stim
 @pytest.mark.parametrize("basis", ["x", "z"])
 def test_published_steane_preparation_and_measurement(basis):
     codec = qodec.Qodec.load(Path(__file__).parent / "fixtures/steane/qodec.yaml")
@@ -58,6 +60,7 @@ def test_published_steane_preparation_and_measurement(basis):
         assert records == ((), (False,))
 
 
+@requires_stim
 def test_published_steane_flagged_round_and_basis_transport():
     codec = qodec.Qodec.load(Path(__file__).parent / "fixtures/steane/qodec.yaml")
     records = run_calls(
@@ -73,6 +76,7 @@ def test_published_steane_flagged_round_and_basis_transport():
     assert records == ((), (False,) * 6, (), (False,))
 
 
+@requires_stim
 @pytest.mark.parametrize("basis", ["x", "z"])
 def test_published_c4_preparation_with_explicit_frame(basis):
     codec = qodec.Qodec.load(Path(__file__).parent / "fixtures/c4c6/qodec.yaml").slice(
@@ -91,6 +95,7 @@ def test_published_c4_preparation_with_explicit_frame(basis):
         assert records == ((False,), (False, False))
 
 
+@requires_stim
 @pytest.mark.parametrize("basis", ["x", "z"])
 def test_published_c4c6_preparation_and_readout(basis):
     from qdk.simulation._qodec.frame_runtime import prepare_frame_decoder
@@ -109,6 +114,7 @@ def test_published_c4c6_preparation_and_readout(basis):
     assert records == ((False,), (False, False))
 
 
+@requires_stim
 @pytest.mark.parametrize("gate", ["mul_u", "mul_u_sq"])
 def test_c4_clifford_frame_transport_includes_stabilizer_signs(gate):
     from qdk.simulation._qodec.frame_runtime import prepare_frame_decoder
@@ -130,6 +136,7 @@ def test_c4_clifford_frame_transport_includes_stabilizer_signs(gate):
     assert records == ((False,), (), (False, False))
 
 
+@requires_stim
 def test_published_c4c6_teleportation_preserves_the_prepared_state():
     from qdk.simulation._qodec.frame_runtime import prepare_frame_decoder
 
@@ -148,6 +155,7 @@ def test_published_c4c6_teleportation_preserves_the_prepared_state():
     assert records == ((False,), (), (False, False))
 
 
+@requires_stim
 def test_supplied_code_switch_preserves_a_logical_superposition():
     from qodec.actions import Clifford, Observe, Stabilize
     from qodec.gadgets import Circuit, Encoding

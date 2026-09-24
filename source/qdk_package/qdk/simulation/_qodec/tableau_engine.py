@@ -31,7 +31,13 @@ class TableauEngine:
                 "The tableau backend requires the optional Stim package"
             ) from error
 
-        self.simulator = stim.TableauSimulator(seed=seed)
+        # Without stim installed (Linux aarch64, Windows ARM64), pyright resolves
+        # `import stim` to the local `qdk.stim` package and flags this attribute.
+        self.simulator = (
+            stim.TableauSimulator(  # pyright: ignore[reportAttributeAccessIssue]
+                seed=seed
+            )
+        )
         self.simulator.set_num_qubits(num_qubits)
         self._num_qubits = num_qubits
         self._closed = False
