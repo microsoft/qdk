@@ -1050,7 +1050,9 @@ impl<'noise> Compiler<'noise> {
         target: StimQubitId,
         pauli: Pauli,
     ) {
-        let result_id = self.resolve_record(control);
+        let Some(result_id) = self.resolve_record(control) else {
+            return;
+        };
         let qubit = self.id_map.allocate_qubit(target);
         self.writer
             .write_classical_control(&pauli.as_str().to_ascii_lowercase(), result_id, qubit);
@@ -1252,10 +1254,13 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_require(&mut self, records: &[semantic::NegatableMeasurementRecord]) {
         let scope_id = self.id_map.current_select_scope_id();
-        let result_ids = records
+        let Some(result_ids) = records
             .iter()
             .map(|negatable_record| self.resolve_record(negatable_record.record))
-            .collect::<Vec<_>>();
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
 
         let mut loss_registers = Vec::new();
         let mut result_registers = Vec::new();
@@ -1279,10 +1284,13 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_not_leaked(&mut self, records: &[semantic::MeasurementRecord]) {
         let scope_id = self.id_map.current_select_scope_id();
-        let result_ids = records
+        let Some(result_ids) = records
             .iter()
             .map(|record| self.resolve_record(*record))
-            .collect::<Vec<_>>();
+            .collect::<Option<Vec<_>>>()
+        else {
+            return;
+        };
 
         let mut has_error = false;
         for (&result_id, record) in result_ids.iter().zip(records) {
@@ -1362,8 +1370,8 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn resolve_record(&self, record: semantic::MeasurementRecord) -> ResultId {
-        self.id_map.record_count - record.offset
+    fn resolve_record(&self, record: semantic::MeasurementRecord) -> Option<ResultId> {
+        self.id_map.record_count.checked_sub(record.offset)
     }
 
     fn unsupported(&mut self, instruction_name: &str, instruction_span: Span) {
