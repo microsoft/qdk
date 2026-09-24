@@ -165,8 +165,8 @@ query it is built from.
 Arity is not restricted to two; a step may consume any number of operands, and
 `is_pairwise` reports whether a particular plan happens to use only binary
 steps. That distinction matters because the currently supported execution
-subset is unsliced, pairwise contraction plans with fixed coefficient
-bindings — a capability of today's executor, not a limit of the model. A
+subset is unsliced, pairwise contraction plans with fixed topology and reusable
+tensor bindings — a capability of today's executor, not a limit of the model. A
 single-node network needs no steps only when that node's axes already equal
 the query's kept axes as a set; anything else, including a one-node diagonal,
 needs a (possibly unary) step to say so.
@@ -392,6 +392,29 @@ Because `keep` is an `Indices` like any other, `query.keep().strides()` is
 exactly the layout of the result buffer a caller must allocate — and a `None`
 from it is the first sign that the result will not fit in memory at all. One
 type serves both a node's axes and the result's.
+
+## From a network description to reusable execution
+
+```text
+tensornet         network + query --> portable contraction plan
+execution         optimize --> prepare --> register inputs --> execute --> close
+                                             reuse selections / replace values
+backend adapter   native planning, tensor storage, contraction and cleanup
+```
+
+The [worked optimization and reuse example](../simulators/src/execution/README.md#example-optimize-once-contract-with-reusable-inputs)
+shows how the shared execution contracts connect these layers: optimize a
+three-matrix query once, prepare its plan once, then select resident tensors or
+replace same-shape values and check the resulting contractions. The example
+also covers independently owned outputs, explicit cleanup and how caller-level
+noise orchestration could reuse candidates without re-uploading them.
+
+`tensornet` owns the descriptions, not the optimizer, numerical storage or
+execution lifecycle. Changing compatible tensor values does not change the
+query's topology or plan. See the
+[cuTensorNet qualification record](../cutensornet/README.md#tiny-supplied-plan-reusable-input-qualification)
+for the supplied-plan GPU reuse evidence; shared-optimizer GPU qualification
+and noise integration remain separate.
 
 ## Chains are a second description
 

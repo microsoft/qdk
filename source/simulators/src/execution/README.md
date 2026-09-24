@@ -232,10 +232,12 @@ checks. See [I2 reproduction and evidence](../../../../samples/python_interop/is
 
 ### Shared contraction contracts (I3)
 
-**Implemented in slice 3b; native qualification remains separate:** preparation
+**Implemented in slice 3b; tiny supplied-plan reuse is GPU-qualified:** preparation
 uses `ContractionContext`, replacing the separate `ContractionExecutor`.
 `SessionResources<Api>` implements it directly; no additional Context wrapper
 or executable-owned Session is introduced.
+The shared optimizer's native qualification remains separate; see the
+[worked example and evidence boundary](#example-optimize-once-contract-with-reusable-inputs).
 
 Structural `prepare(query, plan, limits)` is independent of coefficients.
 `ExecutableContraction` provides synchronous `register_input`, `replace_input`,
@@ -322,6 +324,148 @@ contraction; different inputs can describe a different noise realization.
 The caller makes that choice. The numerical executable does not silently
 sample noise or infer a new shot. Native registration and replacement upload
 synchronously; selecting unchanged resident candidates does not upload again.
+
+#### Example: optimize once, contract with reusable inputs
+
+```text
+Fixed query (topology, dimensions, ordered output axes)
+    |
+    +--> optimize once --> portable plan + planning report
+                              |
+                              v
+                         prepare once
+                              |
+                         register bank once
+                              |
+                +-------------+----------------+
+                |                              |
+       select resident candidates     replace mutable values
+       (no new input upload)          (same shape, one upload)
+                |                              |
+                +------------> execute <-------+
+                                  |
+                       new independently owned output
+                                  |
+                       repeat, then explicit close
+```
+
+Use the three-matrix query from the native reuse case:
+
+$$
+T_{da}=\sum_{b,c} A_{ab}B_{bc}C_{cd},
+\qquad
+\mathrm{inputs}=[(a,b),(b,c),(c,d)],\quad
+\mathrm{output\ axes}=[d,a].
+$$
+
+Every axis has dimension two. For example, use axis IDs `11, 23, 37, 53`
+for `a, b, c, d`. A `ContractionQuery` pairs that ordered input topology
+with the kept axes `[53, 11]`; coefficients are not part of path search.
+The resident bank contains the identity and these general complex matrices:
+
+$$
+\alpha=\begin{pmatrix}1&i\\0&2\end{pmatrix},\qquad
+\beta=\begin{pmatrix}2&0\\1&-i\end{pmatrix},\qquad
+R=\begin{pmatrix}-1&2i\\3&1/2\end{pmatrix}.
+$$
+
+**Adapter-internal Rust excerpt, not a public cuTensorNet package API.**
+The caller has constructed `session`, the validated `query` above, and
+`TensorInput` views named `identity`, `alpha`, `beta` and `replacement`.
+Each view has dimensions `[2, 2]` and **column-major** values: respectively
+`[1, 0, 0, 1]`, `[1, 0, i, 2]`, `[2, 1, 0, -i]` and `[-1, 3, 2i, 0.5]`.
+The traits come from `qdk_simulators::execution`; the concrete optimizer and
+input types currently live inside the private cuTensorNet adapter.
+
+```rust
+let run = (|| {
+    let (plan, planning) = {
+        let mut optimizer = CuTensorNetContractionOptimizer::new(&mut session);
+        optimizer.optimize(
+            &query,
+            PlanningConstraints { workspace_bytes: Some(64 * 1024 * 1024) },
+            CuTensorNetContractionOptimizerSettings {
+                hyper_samples: 1,
+                threads: 1,
+                seed: 17,
+                reconfiguration_iterations: 0,
+                disable_rank_simplification: true,
+            },
+        )?
+    }; // End the optimizer's Session borrow before preparation.
+    println!("planning={planning:?}");
+
+    let mut exec = session.prepare(
+        &query,
+        &plan,
+        ExecutionLimits {
+            device_scratch_bytes: Some(64 * 1024 * 1024),
+            host_scratch_bytes: Some(1024 * 1024),
+        },
+    ).map_err(preparation_error)?;
+
+    let outputs = (|| {
+        let i = exec.register_input(identity, InputMutability::Immutable)?;
+        let a = exec.register_input(alpha, InputMutability::Immutable)?;
+        let b = exec.register_input(beta, InputMutability::Mutable)?;
+
+        let shared = exec.execute(&[a, a, i])?;      // alpha * alpha
+        let diverged = exec.execute(&[a, b, i])?;    // alpha * beta
+        exec.replace_input(b, replacement)?;
+        let updated = exec.execute(&[a, b, i])?;     // alpha * R
+        let rejoined = exec.execute(&[b, b, i])?;    // R * R
+        let warm = exec.execute(&[b, b, i])?;        // R * R again
+        Ok::<_, SimulationError>([shared, diverged, updated, rejoined, warm])
+    })();
+    println!("resources={:?}", exec.resources());
+    combine_execution_and_cleanup(outputs, exec.close())
+})();
+let outputs = combine_execution_and_cleanup(run, session.close())?;
+// Every returned output remains usable after both owners close.
+```
+
+The error helpers are the existing qualification
+[`preparation_error`](../../../cutensornet/src/library/simulation/contraction/execution/qualification.rs)
+and [`combine_execution_and_cleanup`](../../../cutensornet/src/library/simulation/error.rs):
+record preparation's partial report and retain primary and cleanup errors.
+The nested closures keep `?` from bypassing explicit executable or Session
+cleanup after registration, replacement or execution fails. Such a failure
+poisons the executable; close it rather than retrying it.
+
+The planning budget is a search request, while `ExecutionLimits` independently
+caps preparation's scratch allocations; neither is a total-memory cap.
+Changing only compatible values or selections does not search or prepare again.
+Changing topology, dimensions or output axes requires a new query and compatible
+plan/preparation. To reuse the Session for another executable, close this
+executable successfully and defer `session.close()` until the last one.
+
+The updated result is **not merely different**: in output-axis order `[d,a]`,
+`outputs[2]` must be `[-1+3i, 2.5i, 6, 1]`, and `outputs[3]` must be
+`[1+6i, -i, -1.5, 0.25+6i]`. Earlier outputs must still describe their earlier
+inputs. These are unnormalized tensor results, with squared norms `53.25` and
+`76.3125`; no phase alignment or normalization is used to hide a mismatch.
+
+**How noise could leverage this:** for a fixed compatible representation, a
+caller can sample a fault and select already-resident `U` or `E U` gate tensors,
+or candidates for explicit noise slots. A finite candidate bank needs no
+re-upload when switching selections. Continuously varying coefficients can use
+same-shape mutable replacement instead of growing the bank. These are realization
+choices, not requirements imposed by a noise declaration. The contractor neither
+samples faults nor owns trajectory/shot history; general nonunitary branches
+still need caller-level probability, normalization and loss semantics.
+
+**Evidence boundary:** the
+[native tiny cases](../../../cutensornet/README.md#tiny-supplied-plan-reusable-input-qualification)
+exercise this reuse through **supplied plans**, not native shared-optimizer
+search. Their A100 run returned 32 readbacks with exact analytical amplitude
+agreement and squared-norm error at most `1.78e-15`, including replacement,
+sharing, retained outputs and sequential Session reuse. Run those cases with
+`source/cutensornet/scripts/validate-on-cuda-host.sh --reusable-input-qualification`
+on an audited CUDA host. The
+[host optimizer/context test](../../../cutensornet/src/library/simulation/contraction/execution/tests.rs)
+covers optimizer-selected plans through the same Context path using the native
+API double. Shared-optimizer GPU qualification and actual noise integration
+remain open; the example does not claim either.
 
 #### Context borrow and sequential reuse
 
@@ -1005,20 +1149,9 @@ updates, not host-pointer equality or implicit content hashing. The native
 implementation uploads at registration/replacement and does not retain the
 host view after the synchronous call.
 
-The following spells out the approved operations, but method/type names and
-the concrete tensor-view representation are illustrative:
-
-```rust
-let mut exec = context.prepare(&query, &plan, limits)?;
-let i = exec.register_input(identity, Immutable)?;
-let x = exec.register_input(pauli_x, Immutable)?;
-let v = exec.register_input(values_a, Mutable)?;
-
-let a = exec.execute(&[i, i, v])?;
-let b = exec.execute(&[x, i, v])?;
-exec.replace_input(v, values_b)?;
-let c = exec.execute(&[x, i, v])?;
-```
+The [worked optimization/reuse example](#example-optimize-once-contract-with-reusable-inputs)
+shows these implemented operations together, including complete selections,
+same-shape replacement, expected changed outputs and explicit cleanup.
 
 Registration/replacement preserves the separation between ordered tensor
 interpretation and wire labels. Payloads remain general, including nonunitary
