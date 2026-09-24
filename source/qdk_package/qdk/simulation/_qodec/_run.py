@@ -36,7 +36,7 @@ def run_qir_with_qodec(
     *,
     decoder: PrepareDecoder | None = None,
     quantum_backend_factory: QuantumBackendFactory = stabilizer_backend,
-    type: Literal["clifford", "cpu", "gpu"] | None = None,
+    type: Literal["stabilizer", "cpu", "gpu", "clifford"] | None = None,
     on_shot_failure: ShotFailurePolicy = "raise",
     max_retries: int = 3,
 ) -> list[object]:
