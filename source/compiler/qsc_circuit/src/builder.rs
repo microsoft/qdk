@@ -38,6 +38,9 @@ use std::{
     rc::Rc,
 };
 
+/// Reserved gate name for a placeholder representing omitted loop iterations.
+pub const OMITTED_LOOP_ITERATIONS_GATE: &str = "__qsharp_loop_iterations_omitted__";
+
 /// Circuit builder that implements the `Tracer` trait to build a circuit
 /// while tracing execution.
 pub struct CircuitTracer {
@@ -271,6 +274,7 @@ impl CircuitTracer {
             operations,
             qubits,
             self.config.group_by_scope,
+            self.config.max_loop_iterations,
         )
     }
 
@@ -515,8 +519,10 @@ pub(crate) fn finish_circuit(
     mut operations: Vec<OperationOrGroup>,
     qubits: Vec<Qubit>,
     collapse_trivial_groups: bool,
+    max_loop_iterations: usize,
 ) -> Circuit {
     if collapse_trivial_groups {
+        truncate_loop_iterations(&mut operations, max_loop_iterations);
         collapse_unnecessary_scopes(&mut operations, source_lookup);
     }
     let mut loop_id_cache = Default::default();
@@ -529,6 +535,46 @@ pub(crate) fn finish_circuit(
     Circuit {
         qubits,
         component_grid,
+    }
+}
+
+/// Replaces middle iterations of oversized loop groups with an omission marker.
+fn truncate_loop_iterations(operations: &mut Vec<OperationOrGroup>, max_loop_iterations: usize) {
+    for op in operations {
+        let OperationOrGroupKind::Group {
+            scope_stack,
+            children,
+        } = &mut op.kind
+        else {
+            continue;
+        };
+
+        if matches!(scope_stack.current_lexical_scope(), Scope::Loop(..))
+            && children.len() > max_loop_iterations
+        {
+            let last_iteration = children
+                .pop()
+                .expect("a truncated loop should have a last iteration");
+            let mut omitted_count = 0;
+            let mut omitted_qubits = FxHashSet::default();
+            for iteration in children.drain(max_loop_iterations.saturating_sub(1)..) {
+                omitted_count += 1;
+                omitted_qubits.extend(iteration.all_qubits());
+            }
+            let mut omitted_qubits = omitted_qubits.into_iter().collect::<Vec<_>>();
+            omitted_qubits.sort_unstable();
+
+            children.push(OperationOrGroup::new_unitary(
+                OMITTED_LOOP_ITERATIONS_GATE,
+                false,
+                &omitted_qubits,
+                vec![],
+                vec![omitted_count.to_string()],
+            ));
+            children.push(last_iteration);
+        }
+
+        truncate_loop_iterations(children, max_loop_iterations);
     }
 }
 
@@ -581,6 +627,17 @@ fn collapse_if_unnecessary(
     } = &mut op.kind
     {
         if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
+            // A truncated loop contains a marker operation alongside its iteration groups.
+            if children.iter().any(|child| {
+                matches!(
+                    &child.op,
+                    Operation::Unitary(unitary)
+                        if unitary.gate == OMITTED_LOOP_ITERATIONS_GATE
+                )
+            }) {
+                return None;
+            }
+
             if children.len() == 1 {
                 // remove the loop scope
                 let mut only_child = children.remove(0);
@@ -1046,6 +1103,8 @@ fn get_loop_by_expr_id(
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
+    /// Maximum number of loop iterations rendered in full.
+    pub max_loop_iterations: usize,
     /// Capture the source code locations of operations and qubit declarations
     /// in the circuit diagram
     pub source_locations: bool,
@@ -1063,6 +1122,8 @@ impl TracerConfig {
     /// A more refined way to do this might be to communicate the
     /// "limit exceeded" state up to the UI somehow.
     pub const DEFAULT_MAX_OPERATIONS: usize = 10001;
+    /// Default maximum number of loop iterations rendered in full.
+    pub const DEFAULT_MAX_LOOP_ITERATIONS: usize = 1000;
 }
 
 /// Maps qubit IDs to their corresponding wire IDs and tracks measurement results

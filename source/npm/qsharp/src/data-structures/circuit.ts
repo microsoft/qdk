@@ -8,6 +8,12 @@ import { isRegister, Register } from "./register.js";
  */
 export const CURRENT_VERSION = 2;
 
+/**
+ * Reserved gate name used for a placeholder representing loop iterations omitted from a circuit.
+ */
+export const OMITTED_LOOP_ITERATIONS_GATE =
+  "__qsharp_loop_iterations_omitted__";
+
 export interface CircuitGroup {
   circuits: Circuit[];
   version: number;

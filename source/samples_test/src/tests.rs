@@ -66,6 +66,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
                 group_by_scope: false,
                 source_locations: false,
                 max_operations: 0,
+                max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
                 prune_classical_qubits: false,
             },
             Default::default(),
@@ -296,6 +297,7 @@ fn circuit(sources: SourceMap) -> String {
         CircuitGenerationMethod::Static,
         TracerConfig {
             max_operations: 1000,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -379,6 +381,7 @@ fn circuit_qasm(source: &str) -> String {
         CircuitGenerationMethod::Static,
         TracerConfig {
             max_operations: 1000,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,

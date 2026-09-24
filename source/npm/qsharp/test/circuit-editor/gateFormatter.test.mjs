@@ -23,10 +23,14 @@ import {
   _createGate,
   _zoomButton,
   _classicalControls,
+  _ellipsis,
   _getQuantumControlYs,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
 import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
+import { _opToRenderData } from "../../dist/ux/circuit-vis/renderer/process.js";
+import { RegisterType } from "../../dist/ux/circuit-vis/data/register.js";
+import { OMITTED_LOOP_ITERATIONS_GATE } from "../../dist/ux/circuit-vis/data/circuit.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;
@@ -68,6 +72,35 @@ function makeRenderData(overrides = {}) {
     ...overrides,
   };
 }
+
+test("omitted loop iterations map to an ellipsis with an accessible count", () => {
+  const renderData = _opToRenderData(
+    {
+      kind: "unitary",
+      gate: OMITTED_LOOP_ITERATIONS_GATE,
+      args: ["7"],
+      targets: [{ qubit: 0 }],
+    },
+    { 0: { type: RegisterType.Qubit, y: 40 } },
+  );
+
+  assert.equal(renderData.type, GateType.Ellipsis);
+  assert.equal(renderData.label, "...");
+  assert.equal(renderData.displayArgs, "7");
+
+  const elem = _ellipsis(renderData);
+  assert.equal(elem.querySelector("text")?.textContent, "...");
+  assert.equal(
+    elem.querySelector("title")?.textContent,
+    "7 loop iterations omitted",
+  );
+
+  renderData.displayArgs = "1";
+  assert.equal(
+    _ellipsis(renderData).querySelector("title")?.textContent,
+    "1 loop iteration omitted",
+  );
+});
 
 // ---------------------------------------------------------------------------
 // _getQuantumControlYs — pure-data filter (no JSDOM needed, but the `beforeEach` setup is harmless)

@@ -352,6 +352,7 @@ fn exceed_max_operations() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 2,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -381,6 +382,7 @@ fn source_locations_enabled() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -419,6 +421,7 @@ fn source_locations_disabled() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -451,6 +454,7 @@ fn source_locations_multiple_user_frames() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -490,6 +494,7 @@ fn source_locations_library_frames_excluded() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -523,6 +528,7 @@ fn source_locations_only_library_frames() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -556,6 +562,7 @@ fn source_locations_enabled_no_stack() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -582,6 +589,7 @@ fn qubit_source_locations_via_stack() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -607,6 +615,7 @@ fn qubit_labels_for_preallocated_qubits() {
     let mut builder = CircuitTracer::with_qubit_input_params(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,
@@ -648,6 +657,7 @@ fn measurement_target_propagated_to_group() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: usize::MAX,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -949,6 +959,7 @@ fn source_locations_for_groups() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 10,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,

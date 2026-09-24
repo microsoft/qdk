@@ -100,9 +100,29 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
       return _controlledGate(renderData);
     case GateType.Group:
       return _groupedOperations(renderData);
+    case GateType.Ellipsis:
+      return _createGate([_ellipsis(renderData)], renderData);
     default:
       throw new Error(`ERROR: unknown gate (${label}) of type ${type}.`);
   }
+};
+
+const _ellipsis = (renderData: GateRenderData): SVGElement => {
+  const targetYs = (renderData.targetsY as number[][]).flat();
+  const y = (Math.min(...targetYs) + Math.max(...targetYs)) / 2;
+  const ellipsis = text(renderData.label, renderData.x, y + labelFontSize / 3);
+  ellipsis.classList.add("qs-maintext");
+  const elements: SVGElement[] = [ellipsis];
+
+  if (renderData.displayArgs !== undefined) {
+    const title = createSvgElement("title");
+    const iterationLabel =
+      renderData.displayArgs === "1" ? "iteration" : "iterations";
+    title.textContent = `${renderData.displayArgs} loop ${iterationLabel} omitted`;
+    elements.unshift(title);
+  }
+
+  return group(elements);
 };
 
 /**
@@ -913,4 +933,5 @@ export {
   _zoomButton,
   _classicalControls,
   _getQuantumControlYs,
+  _ellipsis,
 };

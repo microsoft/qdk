@@ -10,7 +10,7 @@ use crate::{
 };
 use expect_test::expect;
 use miette::Diagnostic;
-use qsc_circuit::{Circuit, Operation, TracerConfig};
+use qsc_circuit::{Circuit, OMITTED_LOOP_ITERATIONS_GATE, Operation, TracerConfig};
 use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
 use qsc_eval::val::Value;
@@ -288,6 +288,7 @@ fn circuit_with_options(
 pub(crate) fn default_test_tracer_config() -> TracerConfig {
     TracerConfig {
         max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+        max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
         source_locations: true,
         group_by_scope: true,
         prune_classical_qubits: false,
@@ -640,6 +641,107 @@ fn classical_for_loop_is_grouped() {
 }
 
 #[test]
+fn long_loop_omits_middle_iterations() {
+    assert_eq!(TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS, 1000);
+    let circuit = circuit_with_options_success(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for _ in 1..13 {
+                        H(q);
+                    }
+                }
+            }
+        ",
+        Profile::AdaptiveRIF,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_loop_iterations: 4,
+            ..default_test_tracer_config()
+        },
+    );
+
+    let loop_children = first_loop_children(&circuit);
+
+    assert_eq!(loop_children.len(), 5);
+    for (index, iteration) in loop_children[..3].iter().enumerate() {
+        assert_eq!(iteration.gate(), format!("({})", index + 1));
+    }
+
+    let Operation::Unitary(omitted) = loop_children[3] else {
+        panic!("omitted iterations should be represented by a unitary");
+    };
+    assert_eq!(omitted.gate, OMITTED_LOOP_ITERATIONS_GATE);
+    assert_eq!(omitted.args, ["9"]);
+    assert_eq!(omitted.targets.len(), 1);
+
+    assert_eq!(
+        loop_children
+            .last()
+            .expect("loop should retain its last iteration")
+            .gate(),
+        "(13)"
+    );
+}
+
+#[test]
+fn long_vertical_loop_is_not_collapsed_after_truncation() {
+    let circuit = circuit_with_options_success(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use qs = Qubit[6];
+                    for i in 0..5 {
+                        H(qs[i]);
+                    }
+                }
+            }
+        ",
+        Profile::AdaptiveRIF,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_loop_iterations: 3,
+            ..default_test_tracer_config()
+        },
+    );
+
+    let loop_children = first_loop_children(&circuit);
+    assert_eq!(loop_children.len(), 4);
+
+    let Operation::Unitary(omitted) = loop_children[2] else {
+        panic!("omitted iterations should be represented by a unitary");
+    };
+    assert_eq!(omitted.gate, OMITTED_LOOP_ITERATIONS_GATE);
+    assert_eq!(omitted.args, ["3"]);
+    assert_eq!(omitted.targets.len(), 3);
+}
+
+fn first_loop_children(circuit: &Circuit) -> Vec<&Operation> {
+    let [main_column] = circuit.component_grid.as_slice() else {
+        panic!("circuit should contain one top-level column");
+    };
+    let [Operation::Unitary(main)] = main_column.components.as_slice() else {
+        panic!("circuit should contain the Main group");
+    };
+    let [main_children] = main.children.as_slice() else {
+        panic!("Main should contain one child column");
+    };
+    let [Operation::Unitary(loop_group)] = main_children.components.as_slice() else {
+        panic!("Main should contain one loop group");
+    };
+    loop_group
+        .children
+        .iter()
+        .flat_map(|column| &column.components)
+        .collect()
+}
+
+#[test]
 fn dynamic_for_loop_is_grouped() {
     let circ = circuit_with_options_success(
         r"
@@ -658,6 +760,7 @@ fn dynamic_for_loop_is_grouped() {
         CircuitGenerationMethod::Simulate,
         TracerConfig {
             max_operations: 1000,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -878,6 +981,7 @@ fn for_loop_nested() {
         CircuitGenerationMethod::ClassicalEval,
         TracerConfig {
             max_operations: 1000,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -1847,6 +1951,7 @@ fn operation_declared_in_eval() {
             CircuitGenerationMethod::ClassicalEval,
             TracerConfig {
                 max_operations: usize::MAX,
+                max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
                 source_locations: false,
                 group_by_scope: true,
                 ..default_test_tracer_config()
