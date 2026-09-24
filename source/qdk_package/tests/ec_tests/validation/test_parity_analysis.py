@@ -10,6 +10,7 @@ import qdk.ec as ec
 from qdk.ec._audit._parity import ParityAnalysis
 from qdk.ec._analysis.propagation.interpreter import _FramePropagator, walk_program
 from qdk.ec._analysis.propagation.pauli import Pauli
+from ec_tests.testing.optional import requires_stim
 
 
 def _feedforward_instruction_set(
@@ -118,12 +119,14 @@ def _framed_preparation() -> qc.Gadget:
     )
 
 
+@requires_stim
 def test_declared_frame_makes_measurement_based_preparation_match() -> None:
     profile = ec.GadgetProfile(_framed_preparation())
     assert profile.objective is not None
     assert profile.action.is_equivalent_to(profile.objective)
 
 
+@requires_stim
 def test_missing_or_wrong_frame_does_not_fix_preparation() -> None:
     gadget = _framed_preparation()
     for frames in ({}, {"out[0].z[0]": []}, {"out[0].x[0]": ["circuit.readouts[0]"]}):
@@ -133,6 +136,7 @@ def test_missing_or_wrong_frame_does_not_fix_preparation() -> None:
         assert not profile.action.is_equivalent_to(profile.objective)
 
 
+@requires_stim
 def test_recorded_frame_bit_fault_changes_logical_output() -> None:
     profile = ec.GadgetProfile(_framed_preparation())
     fault = ec.FaultEvent.after(4, readout_flips=0)
@@ -141,6 +145,7 @@ def test_recorded_frame_bit_fault_changes_logical_output() -> None:
     assert profile.distance(faults=[fault]).value == 1
 
 
+@requires_stim
 def test_constant_frame_flips_action_without_creating_faults() -> None:
     gadget = _framed_preparation()
     gadget.circuit.source = "R 0\nX 0"
@@ -160,7 +165,11 @@ def test_constant_frame_flips_action_without_creating_faults() -> None:
         ({"out[1].z[0]": []}, "out of bounds"),
         ({"out[0].z[1]": []}, "out of bounds"),
         ({"out[0].z[0]": ["out[0].z[0]"]}, "not available"),
-        ({"out[0].z[0]": ["circuit.readouts[1]"]}, "out of bounds"),
+        pytest.param(
+            {"out[0].z[0]": ["circuit.readouts[1]"]},
+            "out of bounds",
+            marks=requires_stim,
+        ),
     ],
 )
 def test_invalid_frames_are_rejected(
@@ -219,6 +228,7 @@ def test_local_frame_delta_tracks_measurements_flipped_by_incoming_signs() -> No
     assert ParityAnalysis(gadget).value(relation[:2]).is_zero
 
 
+@requires_stim
 def test_frame_snapshot_and_readout_dependencies_preserve_constants() -> None:
     gadget = _framed_preparation()
     gadget.readouts = [["circuit.readouts[0]", 1]]
@@ -229,6 +239,7 @@ def test_frame_snapshot_and_readout_dependencies_preserve_constants() -> None:
     assert profile.action.is_equivalent_to(profile.objective)
 
 
+@requires_stim
 def test_physical_and_recorded_frame_faults_can_cancel() -> None:
     profile = ec.GadgetProfile(_framed_preparation())
     fault = ec.FaultEvent.after(4, Pauli("X_0"), readout_flips=0)
@@ -245,6 +256,7 @@ def test_physical_and_recorded_frame_faults_can_cancel() -> None:
     assert profile.distance(faults=[fault]).lower_bound is None
 
 
+@requires_stim
 def test_completion_preserves_explicit_frames() -> None:
     gadget = _framed_preparation()
     completed = ec.filled(gadget)
@@ -255,6 +267,7 @@ def test_completion_preserves_explicit_frames() -> None:
     )
 
 
+@requires_stim
 def test_literal_parities_retain_affine_signs_and_cancel_pairs() -> None:
     gadget = _framed_preparation()
     gadget.checks = [[1], [1, 1], [0], ["circuit.readouts[0]", 1]]
@@ -268,6 +281,7 @@ def test_literal_parities_retain_affine_signs_and_cancel_pairs() -> None:
     )
 
 
+@requires_stim
 def test_logical_preparation_is_independent_of_random_code_syndrome() -> None:
     gadget = _framed_preparation()
     gadget.frames = {}
@@ -338,18 +352,21 @@ def _measure_then_hadamard(*, measurement_first: bool) -> qc.Gadget:
     )
 
 
+@requires_stim
 def test_leading_observation_can_precede_other_logical_actions() -> None:
     analysis = ParityAnalysis(_measure_then_hadamard(measurement_first=True))
     assert analysis.value(analysis.readouts[0]) == analysis.expected[0]
     assert analysis.value(("circuit.readouts[0]",)) != analysis.expected[0]
 
 
+@requires_stim
 def test_observation_after_a_logical_transform_remains_unverified() -> None:
     analysis = ParityAnalysis(_measure_then_hadamard(measurement_first=False))
     with pytest.raises(NotImplementedError, match="interleaved logical actions"):
         _ = analysis.expected
 
 
+@requires_stim
 def test_output_checks_do_not_require_logical_readout_verification() -> None:
     gadget = _measure_then_hadamard(measurement_first=False)
     assert ParityAnalysis(gadget).unresolved_outputs() == ()
@@ -480,6 +497,7 @@ def test_missing_output_relations_do_not_claim_unsupported_analysis_succeeded() 
     assert "Verified relation" not in diagnostics[0].detail
 
 
+@requires_stim
 def test_readout_requires_incoming_logical_frame() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     analysis = ParityAnalysis(gadget)
@@ -490,6 +508,7 @@ def test_readout_requires_incoming_logical_frame() -> None:
     assert (analysis.value(candidate) ^ analysis.expected[0]).is_zero
 
 
+@requires_stim
 def test_check_validity_and_tautological_cancellation() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     analysis = ParityAnalysis(gadget)
@@ -501,6 +520,7 @@ def test_check_validity_and_tautological_cancellation() -> None:
     assert ParityAnalysis(gadget).checks == ((),)
 
 
+@requires_stim
 def test_readout_dependencies_are_solved() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     gadget.readouts = [["readouts[1]"], ["circuit.readouts[0]"]]
@@ -518,6 +538,7 @@ def test_readout_dependencies_are_solved() -> None:
     assert ParityAnalysis(gadget).resolution.conflicts == ((0,),)
 
 
+@requires_stim
 def test_readout_conflict_blocks_only_dependent_equations() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     gadget.implements.flags = ["reject"]
@@ -534,6 +555,7 @@ def test_readout_conflict_blocks_only_dependent_equations() -> None:
     assert resolution.values == {1: analysis.value(("circuit.readouts[1]",))}
 
 
+@requires_stim
 def test_readout_cycle_is_reported_as_one_conflict() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     gadget.readouts = [["readouts[1]"], ["readouts[0]", 1]]
@@ -543,6 +565,7 @@ def test_readout_cycle_is_reported_as_one_conflict() -> None:
     assert resolution.values == {}
 
 
+@requires_stim
 def test_output_frames_require_valid_independent_constraints() -> None:
     gadget = _c4().layers[0].gadgets["transversal_cx"]
     signs = [
@@ -569,6 +592,7 @@ def test_output_frames_require_valid_independent_constraints() -> None:
     assert ParityAnalysis(gadget).unresolved_outputs() == tuple(signs)
 
 
+@requires_stim
 def test_readout_sign_mismatch_and_dependency_errors_are_reported() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["measure_zz"]
@@ -594,6 +618,7 @@ def test_readout_sign_mismatch_and_dependency_errors_are_reported() -> None:
         assert expected in errors[0].detail
 
 
+@requires_stim
 def test_invalid_check_has_concrete_witness() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["measure_zz"]
@@ -612,6 +637,7 @@ def test_invalid_check_has_concrete_witness() -> None:
     )
 
 
+@requires_stim
 def test_always_one_flag_fails_and_zero_flag_passes() -> None:
     operand = qc.instructions.BlockOperand("qubit")
     physical = qc.InstructionSet(
@@ -660,6 +686,7 @@ def test_always_one_flag_fails_and_zero_flag_passes() -> None:
             )
 
 
+@requires_stim
 def test_solvable_readout_cycle_is_not_rejected() -> None:
     gadget = _c4().layers[0].gadgets["measure_zz"]
     gadget.readouts = [
@@ -678,6 +705,7 @@ def test_solvable_readout_cycle_is_not_rejected() -> None:
     )
 
 
+@requires_stim
 def test_output_logical_frame_tracks_the_declared_operation() -> None:
     gadget = _c4().layers[0].gadgets["x0"]
     gadget.checks = [
@@ -692,6 +720,7 @@ def test_output_logical_frame_tracks_the_declared_operation() -> None:
     assert not changed.value(changed.checks[0]).is_zero
 
 
+@requires_stim
 def test_reset_between_measurements_erases_the_previous_outcome() -> None:
     physical = _c4().layers[1].instruction_set
     instruction = qc.Instruction("reset_then_flag", flags=["reject"])
@@ -705,6 +734,7 @@ def test_reset_between_measurements_erases_the_previous_outcome() -> None:
     assert not analysis.value(("circuit.readouts[0]",)).is_zero
 
 
+@requires_stim
 def test_reset_of_known_input_stabilizer_removes_incoming_frame() -> None:
     physical = _c4().layers[1].instruction_set
     operand = qc.instructions.BlockOperand("data")
@@ -722,6 +752,7 @@ def test_reset_of_known_input_stabilizer_removes_incoming_frame() -> None:
     assert analysis.value(analysis.checks[0]).is_zero
 
 
+@requires_stim
 def test_random_flag_and_constant_one_check_are_errors() -> None:
     physical = _c4().layers[1].instruction_set
     instruction = qc.Instruction("flag", flags=["reject"])
@@ -751,6 +782,7 @@ def test_random_flag_and_constant_one_check_are_errors() -> None:
         assert "Required noiseless value: 0" in diagnostic.detail
 
 
+@requires_stim
 def test_logical_readout_reference_in_check_is_not_dropped() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["measure_zz"]
@@ -859,6 +891,7 @@ def test_composite_logical_observable_retains_product_phase() -> None:
     assert difference[len(difference) - 1]
 
 
+@requires_stim
 def test_constant_one_check_with_incoming_frames() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["x0"]

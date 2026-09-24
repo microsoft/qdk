@@ -1,4 +1,4 @@
-"""Develop and test quantum error-correction schemes described by qodecs.
+"""EXPERIMENTAL: Develop and test quantum error-correction schemes described by qodecs.
 
 The ``qodec`` package owns the data model and persistence. This module derives
 facts by exact simulation, builds a qodec from a code, and audits complete

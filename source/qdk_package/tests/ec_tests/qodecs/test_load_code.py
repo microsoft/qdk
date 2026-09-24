@@ -1,6 +1,7 @@
 """Tests for the algebraic profile view of qodec code artifacts."""
 
 import pytest
+from paulimer import PauliGroup
 
 from ec_tests.testing import code_catalog
 from ec_tests.testing.qodecs import c4
@@ -34,7 +35,7 @@ def test_load_c4_matches_iceberg() -> None:
 
 
 def _assert_same_stabilizer_group(actual: CodeProfile, expected: SubsystemCode) -> None:
-    actual_group = actual.stabilizer
+    actual_group = PauliGroup(actual.stabilizers)
     expected_group = expected.stabilizer
     for generator in expected_group.generators:
         assert (
@@ -55,7 +56,7 @@ def _assert_logicals_are_well_formed(
     logical operator on the expected code.
     """
     expected_stabilizers = expected.stabilizers
-    for generator in actual.logical_basis:
+    for generator in actual.x + actual.z:
         for stabilizer in expected_stabilizers:
             assert generator.commutes_with(stabilizer), (
                 f"loaded logical {generator} does not commute with "

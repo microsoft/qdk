@@ -20,6 +20,7 @@ from qdk.ec._audit import (
     Severity,
     audit,
 )
+from ec_tests.testing.optional import requires_stim
 
 # ----------------------------------------------------------------------------
 # Helpers: rebuild a gadget with the current API, optionally corrupting it.
@@ -88,6 +89,7 @@ def test_c4_measure_xx_readouts_are_consistent() -> None:
     ], str(report)
 
 
+@requires_stim
 def test_readout_message_has_layer_observable_and_verified_parity() -> None:
     protocol = qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
@@ -180,6 +182,7 @@ def test_c4_readout_equivalent_modulo_check_is_accepted() -> None:
     ]
 
 
+@requires_stim
 def test_output_frame_message_contains_verified_relation() -> None:
     protocol = qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
@@ -201,6 +204,7 @@ def test_output_frame_message_contains_verified_relation() -> None:
     assert "Include" not in diagnostic.detail
 
 
+@requires_stim
 def test_output_frame_relation_preserves_constant_sign() -> None:
     protocol = qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing" / "qodecs" / "c4.qodec.yaml")
@@ -253,6 +257,7 @@ def test_dropped_readouts_triggers_missing_observable(
 # ----------------------------------------------------------------------------
 
 
+@requires_stim
 def test_truncated_readout_triggers_readout_mismatch(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -301,6 +306,7 @@ def test_out_of_range_stabilizer_index_is_flagged(
     assert "qodec/invalid-structure" in {d.rule for d in report.errors}
 
 
+@requires_stim
 def test_all_reference_targets_are_bounds_checked(rep3_qodec: qc.Qodec) -> None:
     gadget = rep3_qodec.layers[0].gadgets["measure_z"]
     for reference, valid_range in (
@@ -352,6 +358,7 @@ def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
     }
 
 
+@requires_stim
 def test_reset_of_declared_input_is_checked_against_instruction() -> None:
     block = qc.instructions.Block("qubit", encodes=1)
     operand = qc.instructions.BlockOperand("qubit")
@@ -455,6 +462,7 @@ def test_structural_error_only_skips_semantics_for_its_target(
 # ----------------------------------------------------------------------------
 
 
+@requires_stim
 def test_incomplete_output_frame_quiet_for_complete_gadget(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -467,6 +475,7 @@ def test_incomplete_output_frame_quiet_for_complete_gadget(
     assert not fired, str(report)
 
 
+@requires_stim
 def test_incomplete_output_frame_fires_when_out_frames_dropped(
     rep3_qodec: qc.Qodec,
 ) -> None:

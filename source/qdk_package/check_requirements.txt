@@ -14,5 +14,7 @@ paulimer>=0.2.2
 pyqir>=0.12.5,<0.13
 pyright==1.1.411
 qiskit>=1.2.2,<3.0.0
-qodec[parsers]>=0.2.0.dev0,<0.3
+# `stim` (via `qodec[parsers]`) has no wheels for Linux aarch64 or Windows ARM64.
+qodec[parsers]>=0.2.0.dev0,<0.3; platform_machine != 'aarch64' and platform_machine != 'ARM64'
+qodec>=0.2.0.dev0,<0.3; platform_machine == 'aarch64' or platform_machine == 'ARM64'
 scipy>=1.9

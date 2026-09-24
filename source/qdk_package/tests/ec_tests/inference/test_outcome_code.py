@@ -3,6 +3,9 @@
 from qdk.ec._checks import OutcomeCode, outcome_code_of
 from qdk.ec._analysis.propagation.interpreter import program_of
 import qodec as qc
+from ec_tests.testing.optional import requires_stim
+
+pytestmark = requires_stim
 
 
 def test_outcome_code_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> None:

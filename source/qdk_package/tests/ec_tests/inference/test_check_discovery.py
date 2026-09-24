@@ -10,6 +10,9 @@ from __future__ import annotations
 from qdk.ec._checks import Profile, profile_of
 from qdk.ec._analysis.check_discovery import simulate_channel
 from ec_tests.testing.qodecs import c4
+from ec_tests.testing.optional import requires_stim
+
+pytestmark = requires_stim
 
 
 def test_profile_of_returns_profile_with_checks_and_readouts() -> None:

@@ -19,12 +19,14 @@ from qdk.ec._audit.rules.gadget import (
     ReadoutMismatchRule,
 )
 from qdk.ec._audit.rules.qodec import StructuralValidationRule
+from ec_tests.testing.optional import requires_stim
 
 
 def _c4() -> qc.Qodec:
     return qc.Qodec.load(Path(__file__).parents[1] / "testing/qodecs/c4.qodec.yaml")
 
 
+@requires_stim
 @pytest.mark.parametrize("retained", [0, 1])
 def test_missing_observables_supply_verified_equations(retained: int) -> None:
     protocol = _c4()
@@ -84,7 +86,9 @@ def test_missing_flags_report_only_the_missing_equation(retained: int) -> None:
         assert diagnostic.detail == ""
 
 
-@pytest.mark.parametrize("format", ["stim", "opaque"])
+@pytest.mark.parametrize(
+    "format", [pytest.param("stim", marks=requires_stim), "opaque"]
+)
 def test_preparation_without_inputs_reports_only_actual_analysis_failures(
     format: str,
 ) -> None:
@@ -120,6 +124,7 @@ def test_preparation_without_inputs_reports_only_actual_analysis_failures(
         )
 
 
+@requires_stim
 def test_wrong_observable_explains_unavailable_result_without_counterexamples() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["measure_xx"]
@@ -144,6 +149,7 @@ def test_wrong_observable_explains_unavailable_result_without_counterexamples() 
     assert analysis.candidate(analysis.expected[0] ^ constant) is None
 
 
+@requires_stim
 def test_frame_correction_shows_only_declared_and_verified_equations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -167,6 +173,7 @@ def test_frame_correction_shows_only_declared_and_verified_equations(
     assert analysis.value(required) == analysis.expected[0]
 
 
+@requires_stim
 def test_constant_inversion_is_not_reported_as_a_missing_observable() -> None:
     physical = _c4().layers[1].instruction_set
     operand = qc.instructions.BlockOperand("qubit")
@@ -206,6 +213,7 @@ def test_constant_inversion_is_not_reported_as_a_missing_observable() -> None:
     assert len(diagnostic.detail.splitlines()) == 2
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "equation,summary,explanation",
     [
@@ -235,6 +243,7 @@ def test_dependency_failures_explain_why_no_bit_is_defined(
     assert "Verified readout equation:" in diagnostic.detail
 
 
+@requires_stim
 def test_contradiction_does_not_blame_an_independent_readout() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["measure_xx"]
@@ -255,6 +264,7 @@ def test_contradiction_does_not_blame_an_independent_readout() -> None:
     assert analysis.value(candidate) == analysis.expected[0]
 
 
+@requires_stim
 def test_conflicting_observables_report_one_error_with_both_candidates() -> None:
     protocol = _c4()
     gadget = protocol.layers[0].gadgets["measure_xx"]
@@ -268,6 +278,7 @@ def test_conflicting_observables_report_one_error_with_both_candidates() -> None
     assert "Verified readout equation for readouts[1]:" in diagnostics[0].detail
 
 
+@requires_stim
 @pytest.mark.parametrize("dependent_flag", [False, True])
 def test_conflict_dependents_are_unverified_not_mismatches(
     dependent_flag: bool,
@@ -293,6 +304,7 @@ def test_conflict_dependents_are_unverified_not_mismatches(
     assert "depends on inconsistent readout equations" in report.warnings[0].detail
 
 
+@requires_stim
 def test_flag_conflict_is_reported_once_without_inventing_flag_equations() -> None:
     instruction = qc.Instruction("flag_pair", flags=["reject_x", "reject_z"])
     gadget = qc.Gadget(
@@ -309,6 +321,7 @@ def test_flag_conflict_is_reported_once_without_inventing_flag_equations() -> No
     assert "Verified readout equation" not in report.errors[0].detail
 
 
+@requires_stim
 def test_constant_offset_can_still_have_a_verified_readout_equation() -> None:
     physical = _c4().layers[1].instruction_set
     operand = qc.instructions.BlockOperand("qubit")

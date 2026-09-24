@@ -9,6 +9,7 @@ import sys
 import pytest
 
 import qdk.ec as ec
+from ec_tests.testing.optional import requires_stim
 
 _SURFACE = {
     "ChannelAction",
@@ -323,14 +324,11 @@ def test_code_profile_contract() -> None:
 
     assert str(inspect.signature(ec.CodeProfile)) == "(code: 'qc.Code') -> 'None'"
     assert {name for name in dir(ec.CodeProfile) if not name.startswith("_")} == {
-        "stabilizer",
         "stabilizers",
-        "anti_stabilizer",
-        "anti_stabilizers",
-        "gauge",
-        "gauge_basis",
-        "logical",
-        "logical_basis",
+        "x",
+        "z",
+        "gauge_x",
+        "gauge_z",
         "support",
         "length",
         "logical_qubit_count",
@@ -339,19 +337,45 @@ def test_code_profile_contract() -> None:
         "distance",
         "distance_bounds",
         "encoding_clifford",
-        "is_trivial_error",
-        "is_trivial_logical_error",
-        "is_logical_error",
-        "is_non_trivial_logical_error",
-        "logical_action_of",
+        "is_logical",
         "representative_of",
-        "unsigned_logical_action_of",
         "is_equivalent_to",
         "why_not_equivalent_to",
     }
     assert isinstance(view.syndrome_of(ec.Pauli.identity()), frozenset)
     assert view.logical_effect_of(ec.Pauli.identity()) == ec.Pauli.identity()
     assert view.why_not_equivalent_to(view) == ""
+    for name in ("x", "z", "gauge_x", "gauge_z"):
+        descriptor = getattr(ec.CodeProfile, name)
+        assert isinstance(descriptor, property)
+        assert descriptor.fset is None
+
+
+def test_code_profile_options_are_explicit_and_keyword_only() -> None:
+    for method in (ec.CodeProfile.distance, ec.CodeProfile.distance_bounds):
+        parameters = inspect.signature(method).parameters
+        assert set(parameters) == {
+            "self",
+            "errors",
+            "logical_observable",
+            "upper_bound",
+            "solver",
+        }
+        assert all(
+            parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            for name, parameter in parameters.items()
+            if name != "self"
+        )
+    parameters = inspect.signature(ec.CodeProfile.logical_effect_of).parameters
+    assert set(parameters) == {"self", "error", "including_phase"}
+    assert parameters["including_phase"].default is True
+    assert parameters["including_phase"].kind is inspect.Parameter.KEYWORD_ONLY
+    predicate = inspect.signature(ec.CodeProfile.is_equivalent_to)
+    explanation = inspect.signature(ec.CodeProfile.why_not_equivalent_to)
+    assert predicate.parameters == explanation.parameters
+    for name in ("including_signs", "strict_basis"):
+        assert predicate.parameters[name].default is True
+        assert predicate.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 def test_fault_effect_display_uses_the_reference_set() -> None:
@@ -512,6 +536,7 @@ def test_fault_effect_filtered_views_partition_the_effect(
     assert effect == original
 
 
+@requires_stim
 def test_gadget_profile_contract(idle_gadget) -> None:
     profile = ec.GadgetProfile(idle_gadget)
 
@@ -538,6 +563,7 @@ def test_gadget_profile_contract(idle_gadget) -> None:
     }
 
 
+@requires_stim
 def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
     """A circuit is a gadget with trivial encodings, so nothing is silently empty."""
     profile = ec.GadgetProfile(idle_gadget.circuit)
@@ -580,6 +606,7 @@ def test_profile_distance_signatures() -> None:
     )
 
 
+@requires_stim
 def test_channel_action_is_opaque(idle_gadget) -> None:
     action = ec.GadgetProfile(idle_gadget).action
     assert {name for name in dir(action) if not name.startswith("_")} == {

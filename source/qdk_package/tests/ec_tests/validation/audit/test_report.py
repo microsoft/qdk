@@ -10,6 +10,7 @@ import qodec as qc
 from qdk.ec._audit import Diagnostic, Phase, Report, Severity
 from qdk.ec._audit._auditor import Auditor
 from qdk.ec._audit.rules.gadget import CheckMismatchRule
+from ec_tests.testing.optional import requires_stim
 
 
 def _make(rule: str, severity: Severity, where: str = "x") -> Diagnostic:
@@ -185,6 +186,7 @@ def test_report_abbreviates_home_only_for_display(
     assert location.path == file and location.path.is_absolute()
 
 
+@requires_stim
 def test_report_points_to_loaded_check_equation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

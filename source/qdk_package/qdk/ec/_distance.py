@@ -13,7 +13,8 @@ import qodec as qc
 
 from ._analysis.code_algebra import (
     SubsystemCode,
-    logical_effect_indicators_of,
+    _validate_error_support,
+    anti_commutation_indicator_of,
     one_qubit_errors_on_support,
     subsystem_code_of,
     syndrome_indicators_of,
@@ -150,16 +151,38 @@ class CodeDistanceData:
 
     @staticmethod
     def of(
-        code: qc.Code | CodeProfile | SubsystemCode, errors: Errors = "XYZ"
+        code: qc.Code | CodeProfile | SubsystemCode,
+        errors: Errors = "XYZ",
+        *,
+        logical_observable: Pauli | None = None,
     ) -> "CodeDistanceData":
         view = _code_view(code)
         error_paulis = _errors_of(view, errors)
+        for error in error_paulis:
+            _validate_error_support(error, view.support)
+        observables = view.logical_basis
+        if logical_observable is not None:
+            if not isinstance(logical_observable, Pauli):
+                raise TypeError(
+                    f"expected Pauli, got {type(logical_observable).__name__}"
+                )
+            if (
+                not logical_observable.weight
+                or logical_observable.phase not in (1, -1)
+            ):
+                raise ValueError(
+                    "logical_observable must be nonidentity and Hermitian"
+                )
+            observables = (view.representative_of(logical_observable),)
         return CodeDistanceData(
             view,
             error_paulis,
             OddCycles(
                 syndrome_indicators_of(view, error_paulis),
-                logical_effect_indicators_of(view, error_paulis),
+                [
+                    anti_commutation_indicator_of(error, observables)
+                    for error in error_paulis
+                ],
             ),
         )
 

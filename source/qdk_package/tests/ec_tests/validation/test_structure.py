@@ -11,6 +11,7 @@ import qodec as qc
 from qdk.ec._audit import audit
 from qdk.ec._audit._structure import _instruction_issues
 from qdk.ec._audit._structure import structural_issues
+from ec_tests.testing.optional import requires_stim
 
 
 @pytest.mark.parametrize(
@@ -63,6 +64,7 @@ def test_valid_temporary_and_pauli_parameter() -> None:
     assert list(_instruction_issues(instruction, {"q": 1})) == []
 
 
+@requires_stim
 def test_invalid_source_and_reference_are_audit_findings(rep3_qodec: qc.Qodec) -> None:
     gadget = rep3_qodec.layers[0].gadgets["idle"]
     gadget.circuit.source = "NOT_A_GATE 0"
@@ -136,7 +138,7 @@ def test_unequal_code_lists_round_trip_but_analysis_rejects(
 @pytest.mark.parametrize(
     "format,source",
     [
-        ("stim", "NOT_A_GATE 0\n"),
+        pytest.param("stim", "NOT_A_GATE 0\n", marks=requires_stim),
         ("yaml", "[not valid yaml"),
         ("custom", "arbitrary text"),
     ],

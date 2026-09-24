@@ -19,6 +19,7 @@ from qdk.ec._analysis import channel_action as action
 from qdk.ec._fill import complete_qodec
 from qdk.ec._build import _METADATA_KEY, _build as qodec_from_code
 from qdk.ec._analysis.code_algebra import as_qodec_code
+from ec_tests.testing.optional import requires_stim
 
 #: CSS codes with and without a valid transversal H candidate. Each entry is
 #: (label, factory, physical qubits, logical qubits).
@@ -59,6 +60,7 @@ def steane() -> qc.Qodec:
 # ── Structure ───────────────────────────────────────────────────────────────
 
 
+@requires_stim
 def test_result_is_a_two_layer_qodec(steane: qc.Qodec) -> None:
     assert len(steane.layers) == 2
     assert steane.layers[0].instruction_set.name == "steane"
@@ -66,6 +68,7 @@ def test_result_is_a_two_layer_qodec(steane: qc.Qodec) -> None:
     assert steane.layers[1].gadgets == {}
 
 
+@requires_stim
 def test_logical_block_encodes_the_logical_qubits(steane: qc.Qodec) -> None:
     (block,) = steane.layers[0].instruction_set.blocks
 
@@ -73,12 +76,14 @@ def test_logical_block_encodes_the_logical_qubits(steane: qc.Qodec) -> None:
     assert block.encodes == 1
 
 
+@requires_stim
 def test_every_declared_instruction_has_a_gadget(steane: qc.Qodec) -> None:
     layer = steane.layers[0]
 
     assert set(layer.instruction_set.instructions) == set(layer.gadgets)
 
 
+@requires_stim
 @pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
 def test_the_expected_instruction_menu_is_built(strategy: str) -> None:
     built = build_qodec(_code("steane", catalog.make_steane_code), strategy=strategy)
@@ -96,11 +101,13 @@ def test_the_expected_instruction_menu_is_built(strategy: str) -> None:
     assert set(built.layers[0].instruction_set.instructions) == expected
 
 
+@requires_stim
 def test_the_code_is_carried_through(steane: qc.Qodec) -> None:
     assert "steane" in steane.codes
     assert list(steane.codes["steane"].stabilizers)
 
 
+@requires_stim
 @pytest.mark.parametrize(
     ("layer", "mnemonic", "description"),
     [
@@ -119,6 +126,7 @@ def test_instruction_descriptions_preserve_unicode_kets(
     assert restored.layers[layer].instruction_set.instructions[mnemonic].description == description
 
 
+@requires_stim
 @pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
 @pytest.mark.parametrize("code_name", ["C4", "steane"])
 def test_built_boundary_types_are_explicit(strategy: str, code_name: str) -> None:
@@ -135,6 +143,7 @@ def test_built_boundary_types_are_explicit(strategy: str, code_name: str) -> Non
     assert qc.Qodec.loads(built.dumps()) == built
 
 
+@requires_stim
 def test_name_and_description_default_from_the_code() -> None:
     built = qodec_from_code(_code("steane", catalog.make_steane_code))
 
@@ -143,6 +152,7 @@ def test_name_and_description_default_from_the_code() -> None:
     assert "[[7, 1]]" in built.description
 
 
+@requires_stim
 def test_name_and_description_can_be_overridden() -> None:
     built = qodec_from_code(
         _code("steane", catalog.make_steane_code),
@@ -155,6 +165,7 @@ def test_name_and_description_can_be_overridden() -> None:
     assert built.layers[0].instruction_set.name == "my_qodec"
 
 
+@requires_stim
 @pytest.mark.parametrize(
     ("label", "factory", "physical", "logical"),
     CSS_CODES,
@@ -181,6 +192,7 @@ def test_build_notes_are_empty_for_a_hand_authored_qodec() -> None:
 # ── Circuits ────────────────────────────────────────────────────────────────
 
 
+@requires_stim
 def test_syndrome_round_allocates_a_syndrome_ancilla_and_a_flag_per_stabilizer(
     steane: qc.Qodec,
 ) -> None:
@@ -204,6 +216,7 @@ def test_syndrome_round_allocates_a_syndrome_ancilla_and_a_flag_per_stabilizer(
     assert min(measured) >= 7, "ancillas must not collide with the 7 data qubits"
 
 
+@requires_stim
 def test_syndrome_records_are_ordered_stabilizers_then_flags(
     steane: qc.Qodec,
 ) -> None:
@@ -214,6 +227,7 @@ def test_syndrome_records_are_ordered_stabilizers_then_flags(
     assert len(measurement_lines) == 2, "expected one M for syndromes, one for flags"
 
 
+@requires_stim
 def test_flag_outcomes_are_discovered_as_deterministic_checks(
     steane: qc.Qodec,
 ) -> None:
@@ -241,6 +255,7 @@ def test_a_weight_two_stabilizer_carries_no_flag() -> None:
     assert _flag_capacity(6) == 2
 
 
+@requires_stim
 def test_flag_count_defaults_to_the_codes_error_correcting_radius() -> None:
     """Chamberland-Beverland call for t = (d-1)//2 flags for a distance-d code."""
     steane_code = _code("steane", catalog.make_steane_code)
@@ -250,6 +265,7 @@ def test_flag_count_defaults_to_the_codes_error_correcting_radius() -> None:
     assert notes["flags_per_stabilizer"] == 1
 
 
+@requires_stim
 def test_default_strategy_is_flagged() -> None:
     code = _code("steane", catalog.make_steane_code)
 
@@ -259,6 +275,7 @@ def test_default_strategy_is_flagged() -> None:
     assert build_notes(built)["flags_per_stabilizer"] == 1
 
 
+@requires_stim
 def test_bare_strategy_uses_the_unflagged_circuit() -> None:
     code = _code("steane", catalog.make_steane_code)
 
@@ -274,6 +291,7 @@ def test_bare_strategy_uses_the_unflagged_circuit() -> None:
     assert max(int(t) for line in source.splitlines() for t in line.split()[1:]) == 12
 
 
+@requires_stim
 @pytest.mark.parametrize("use_analysis", [False, True])
 def test_bare_strategy_skips_distance_computation(
     monkeypatch: pytest.MonkeyPatch, use_analysis: bool
@@ -299,6 +317,7 @@ def test_bare_strategy_skips_distance_computation(
     assert build_notes(built)["flags_per_stabilizer"] == 0
 
 
+@requires_stim
 def test_build_from_profile_uses_its_operator_snapshot() -> None:
     code = _code("steane", catalog.make_steane_code)
     profile = CodeProfile(code)
@@ -323,6 +342,7 @@ def test_negative_flag_counts_are_rejected() -> None:
         qodec_from_code(_code("steane", catalog.make_steane_code), flags=-1)
 
 
+@requires_stim
 def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
     steane: qc.Qodec,
 ) -> None:
@@ -334,6 +354,7 @@ def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
             assert all(int(target) >= 7 for target in targets), line
 
 
+@requires_stim
 def test_measure_gadgets_are_transversal(steane: qc.Qodec) -> None:
     gadgets = steane.layers[0].gadgets
 
@@ -341,6 +362,7 @@ def test_measure_gadgets_are_transversal(steane: qc.Qodec) -> None:
     assert gadgets["measure_x_all"].circuit.source == "H 0 1 2 3 4 5 6\nM 0 1 2 3 4 5 6\n"
 
 
+@requires_stim
 def test_transversal_clifford_circuits(steane: qc.Qodec) -> None:
     gadgets = steane.layers[0].gadgets
 
@@ -350,6 +372,7 @@ def test_transversal_clifford_circuits(steane: qc.Qodec) -> None:
     )
 
 
+@requires_stim
 def test_physical_instruction_set_has_no_unused_pauli_gates(steane: qc.Qodec) -> None:
     assert set(steane.layers[1].instruction_set.instructions) == {
         "R",
@@ -360,6 +383,7 @@ def test_physical_instruction_set_has_no_unused_pauli_gates(steane: qc.Qodec) ->
     }
 
 
+@requires_stim
 def test_circuits_are_tagged_as_stim(steane: qc.Qodec) -> None:
     assert all(
         gadget.circuit.format == "stim" for gadget in steane.layers[0].gadgets.values()
@@ -369,6 +393,7 @@ def test_circuits_are_tagged_as_stim(steane: qc.Qodec) -> None:
 # ── Semantics ───────────────────────────────────────────────────────────────
 
 
+@requires_stim
 @pytest.mark.parametrize(
     ("label", "factory"),
     [(case[0], case[1]) for case in CSS_CODES],
@@ -385,6 +410,7 @@ def test_every_gadget_realizes_the_action_it_declares(label: str, factory) -> No
     assert mismatched == {}
 
 
+@requires_stim
 @pytest.mark.parametrize(
     ("label", "factory"),
     [(case[0], case[1]) for case in CSS_CODES],
@@ -398,12 +424,14 @@ def test_gadgets_that_hold_state_discover_checks(label: str, factory) -> None:
         assert gadget.checks, f"{mnemonic} discovered no checks"
 
 
+@requires_stim
 def test_measure_gadgets_bind_a_readout_per_logical_qubit(steane: qc.Qodec) -> None:
     for mnemonic in ("measure_z_all", "measure_x_all"):
         gadget = steane.layers[0].gadgets[mnemonic]
         assert len(gadget.readouts) == 1, mnemonic
 
 
+@requires_stim
 def test_idle_checks_reference_both_boundaries(steane: qc.Qodec) -> None:
     atoms = {
         str(atom) for check in steane.layers[0].gadgets["syndrome"].checks for atom in check
@@ -413,6 +441,7 @@ def test_idle_checks_reference_both_boundaries(steane: qc.Qodec) -> None:
     assert any(atom.startswith("out[0].stabilizers") for atom in atoms)
 
 
+@requires_stim
 def test_built_code_keeps_its_distance() -> None:
     built = qodec_from_code(_code("steane", catalog.make_steane_code))
 
@@ -424,6 +453,7 @@ def test_built_code_keeps_its_distance() -> None:
 # ── Audit ───────────────────────────────────────────────────────────────────
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "code",
     [_code(case[0], case[1]) for case in CSS_CODES]
@@ -459,6 +489,7 @@ def test_build_strategies_return_audit_clean_qodecs(
     assert set(built.layers[0].instruction_set.instructions) == expected
 
 
+@requires_stim
 @pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
 @pytest.mark.parametrize("strict", [False, True])
 def test_build_rejects_invalid_final_declarations(
@@ -481,6 +512,7 @@ def test_build_rejects_invalid_final_declarations(
         )
 
 
+@requires_stim
 def test_hand_authored_readouts_need_incoming_frame_corrections() -> None:
     fixture = c4()
     report = _audit.audit(fixture)
@@ -499,12 +531,14 @@ def test_hand_authored_readouts_need_incoming_frame_corrections() -> None:
 # ── Round-tripping ──────────────────────────────────────────────────────────
 
 
+@requires_stim
 def test_built_qodec_round_trips_through_yaml(steane: qc.Qodec, tmp_path: Path) -> None:
     restored = _round_tripped(steane, tmp_path / "bundle")
 
     assert restored == steane
 
 
+@requires_stim
 def test_structured_omissions_round_trip_through_yaml(tmp_path: Path) -> None:
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
 
@@ -513,6 +547,7 @@ def test_structured_omissions_round_trip_through_yaml(tmp_path: Path) -> None:
     assert build_notes(restored)["omitted"] == build_notes(built)["omitted"]
 
 
+@requires_stim
 def test_built_qodec_round_trips_through_disk(steane: qc.Qodec, tmp_path: Path) -> None:
     steane.save(str(tmp_path / "bundle"))
     restored = qc.Qodec.load(str(tmp_path / "bundle" / steane.manifest_filename))
@@ -520,6 +555,7 @@ def test_built_qodec_round_trips_through_disk(steane: qc.Qodec, tmp_path: Path) 
     assert restored == steane
 
 
+@requires_stim
 def test_completion_is_idempotent_on_a_built_qodec(
     steane: qc.Qodec,
 ) -> None:
@@ -539,6 +575,7 @@ def test_completion_is_idempotent_on_a_built_qodec(
 # ── Partial build ───────────────────────────────────────────────────────
 
 
+@requires_stim
 def test_a_non_z_logical_basis_omits_the_gadgets_it_cannot_support() -> None:
     """The five-qubit code's conventional basis has X components in logical Z."""
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
@@ -552,6 +589,7 @@ def test_a_non_z_logical_basis_omits_the_gadgets_it_cannot_support() -> None:
     )
 
 
+@requires_stim
 def test_omissions_carry_structured_reasons() -> None:
     from collections.abc import Mapping
 
@@ -569,6 +607,7 @@ def test_omissions_carry_structured_reasons() -> None:
     )
 
 
+@requires_stim
 def test_unexpected_completion_failure_propagates(monkeypatch) -> None:
     from qdk.ec import _build
 
@@ -604,6 +643,7 @@ def test_strict_mode_raises_instead_of_omitting() -> None:
         qodec_from_code(code, strict=True)
 
 
+@requires_stim
 def test_strict_mode_is_a_no_op_when_everything_builds() -> None:
     code = _code("steane", catalog.make_steane_code)
 
@@ -612,6 +652,7 @@ def test_strict_mode_is_a_no_op_when_everything_builds() -> None:
     )
 
 
+@requires_stim
 @pytest.mark.parametrize("strategy", ["flagged-css/v1", "bare-css/v1"])
 def test_unsupported_transversal_h_is_omitted_or_raises(strategy: str) -> None:
     code = _code("repetition3", lambda: catalog.make_repetition_code(3))
@@ -625,6 +666,7 @@ def test_unsupported_transversal_h_is_omitted_or_raises(strategy: str) -> None:
         build_qodec(code, strategy=strategy)
 
 
+@requires_stim
 def test_transversal_h_must_match_the_declared_logical_action() -> None:
     built = qodec_from_code(c4().codes["C4"])
 
@@ -634,6 +676,7 @@ def test_transversal_h_must_match_the_declared_logical_action() -> None:
     assert failure["kind"] == "ActionMismatch"
 
 
+@requires_stim
 def test_logical_basis_choice_can_decide_whether_readout_builds() -> None:
     """Two valid logical bases for [[4,2,2]] behave differently.
 
@@ -650,6 +693,7 @@ def test_logical_basis_choice_can_decide_whether_readout_builds() -> None:
 # ── Multi-logical-qubit codes ───────────────────────────────────────────────
 
 
+@requires_stim
 def test_a_k_equals_two_code_gets_a_two_block_cnot() -> None:
     fixture = c4()
     built = qodec_from_code(fixture.codes["C4"], name="c4_build")
@@ -676,6 +720,7 @@ def test_a_k_equals_two_code_gets_a_two_block_cnot() -> None:
     assert action.gadget_action_mismatch(gadget) is None
 
 
+@requires_stim
 def test_transversal_cnot_is_verified_for_a_large_k_code() -> None:
     """Logical coordinates remain authored-order even when k is large."""
     built = qodec_from_code(_code("iceberg8", lambda: catalog.make_iceberg_code(8)))
@@ -695,6 +740,7 @@ def test_transversal_cnot_is_verified_for_a_large_k_code() -> None:
     }
 
 
+@requires_stim
 def test_transversal_h_covers_every_logical_qubit() -> None:
     code = qc.Code("pair", stabilizers=[], x=["X_0", "X_1"], z=["Z_0", "Z_1"])
     built = qodec_from_code(code, flags=0, strict=True)

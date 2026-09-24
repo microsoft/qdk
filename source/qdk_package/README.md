@@ -116,6 +116,11 @@ It requires Python 3.11 or newer and `qodec>=0.2.0.dev0,<0.3`. Install the local
 qodec Python bindings first while that version is unpublished, then install
 `qdk[ec]`.
 
+On Linux aarch64 and Windows ARM64, `qdk[ec]` installs `qodec` without its
+`parsers` extra because `stim` publishes no wheels for those platforms. Features
+that parse `format="stim"` circuits, including `ec.build_qodec`, raise
+`ValueError` there unless you build and install `stim` from source.
+
 The default audit reports no errors or warnings for a qodec returned by
 `ec.build_qodec(code)`. Both `strategy="flagged-css/v1"` and `strategy="bare-css/v1"`
 include incoming-frame corrections in logical readouts and stabilizer transport
@@ -166,10 +171,49 @@ Use `ec.CodeProfile(code)` to analyze a `qodec.Code`, just as
 at construction; later edits to the original do not change the profile.
 Code names, descriptions, and persistence remain with qodec.
 
-`CodeProfile` exposes groups and bases, code dimensions, error queries,
-representatives, encoding Cliffords, distance, and equivalence. It does not
-construct or relocate codes; operator transformations remain internal to the
-analysis algorithms.
+`CodeProfile` has 17 named public members:
+
+- `stabilizers`: a tuple of independent Pauli copies in declaration order.
+  Use `paulimer.PauliGroup(profile.stabilizers)` when a group is needed.
+- `x` and `z`: read-only tuples of physical logical-X and logical-Z
+  representatives, indexed by logical qubit in the order of `qodec.Code.x`
+  and `qodec.Code.z`.
+- `gauge_x` and `gauge_z`: read-only tuples of physical gauge-X and gauge-Z
+  generators, with matching indexes identifying gauge pairs. The derived gauge
+  basis is fixed within the snapshot but is not canonical.
+- `support`, `length`, and `logical_qubit_count`: physical labels, their count,
+  and the number of logical X/Z pairs. `length` is not the largest physical
+  label plus one.
+- `syndrome_of(error)`: zero-based positions in `stabilizers` that anticommute
+  with the physical error.
+- `logical_effect_of(error, *, including_phase=True)`: a Pauli on zero-based
+  logical-qubit indexes. By default, a nonzero syndrome or a gauge component
+  raises `ValueError` rather than dropping phase. Use `including_phase=False`
+  for the phase-free logical-basis component of any supported physical error.
+- `is_logical(error)`: true only for zero syndrome and a nonidentity logical
+  effect. Identity, stabilizers, gauge-only changes, and detectable errors are
+  false, regardless of global phase. The name describes a nontrivial logical
+  error, not every operator that preserves the code space.
+- `representative_of(pauli)`: expand a logical Pauli to physical labels,
+  preserving phase.
+- `encoding_clifford(*, supported_by=None)`: compute an encoding with every
+  physical support label appearing once in the requested order.
+- `distance` and `distance_bounds`: exact and bounded distance searches.
+- `is_equivalent_to` and `why_not_equivalent_to`: the same comparison policy
+  with `including_signs=True` and `strict_basis=True` by default. Set
+  `strict_basis=False` to compare logical groups instead of ordered bases.
+  The explanation is empty exactly when the predicate is true.
+
+All five operator collections return independent Pauli copies. X and Z name
+the logical or gauge role, not the physical factors: `profile.x[0]` can contain
+physical Y or Z factors. Logical and gauge indexes start at zero; neither is a
+physical qubit label.
+
+All physical-error entry points reject labels outside `support`. Logical
+Pauli inputs reject indexes outside `range(logical_qubit_count)`. Profiles
+are unhashable; `==` compares the ordered operator snapshot rather than
+algebraic equivalence. Code construction and relocation remain with qodec
+and the internal analysis algorithms.
 
 `CodeProfile.distance()` and `distance_bounds()` default to single-qubit
 `"XYZ"` errors, each with unit cost. Supplying `errors` restricts those Pauli
@@ -177,6 +221,34 @@ kinds or replaces them with an explicit sequence of allowed Pauli errors,
 including correlated errors. Both methods return `Distance[Pauli]` rather than
 tuples. `result.witness.product` is the combined Pauli; `result.witness.factors`
 is the tuple of selected unit-cost errors.
+
+Both searches accept `logical_observable=Pauli("Z_0")` to restrict failure to
+flipping logical Z on logical qubit zero; logical X and Y errors qualify.
+The observable must be nonidentity and Hermitian. `None` permits any logical
+failure. This is an observable-flip constraint, not an exact error-class query.
+
+The former `coset_representative` argument is replaced, not just renamed.
+To translate a physical representative from that parity query, obtain its
+phase-free logical effect, then exchange X and Z on each logical qubit
+(leaving Y unchanged) to form `logical_observable`. For two unencoded qubits,
+the old `coset_representative=Pauli("X_1")` becomes
+`logical_observable=Pauli("Z_1")`.
+
+`is_logical` replaces `is_non_trivial_logical_error`; the three other overlapping
+error predicates are removed. `logical_effect_of` replaces `logical_action_of`;
+`including_phase=False` replaces `unsigned_logical_action_of`. The existing
+`logical_effect_of` name follows the walkthrough's error queries rather than
+adding another spelling of “action.” `including_phase` follows `Pauli.phase`;
+the positive option avoids the ambiguous “unsigned” method name. Public group
+views and anti-stabilizer accessors are removed; internal encoding machinery
+is unchanged. `length` retains the existing code-length terminology rather
+than adding a synonymous `physical_qubit_count`.
+
+The public `logical_basis` and `gauge_basis` properties are replaced, not
+retained as aliases. `x` and `z` borrow qodec's names rather than introducing
+`logical_x` and `logical_z`. `gauge_x` and `gauge_z` extend those axis names with
+the existing gauge prefix, rather than reversing it to `x_gauge` and `z_gauge`.
+The interleaved bases remain internal to the analysis algorithms.
 
 `Distance` has read-only `lower_bound`, `upper_bound`, `is_exact`, `value`,
 `witness`, and `witnesses` properties. `None` means positive infinity in both
