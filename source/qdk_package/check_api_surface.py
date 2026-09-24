@@ -18,7 +18,10 @@ are **not** flagged — they are considered public.
 
 Exit code 0  - no violations found.
 Exit code 1  - one or more violations found (details printed to stderr).
-Exit code 2  - scan incomplete because a required module or export is unavailable.
+Exit code 2  - scan incomplete because the qdk package or a declared export is unavailable.
+
+Public submodules that fail to import (for example, because an optional extra
+is not installed) are skipped with a warning.
 
 Usage::
 
@@ -373,11 +376,8 @@ def _iter_qdk_modules() -> list[tuple[str, types.ModuleType]]:
         raise ScanIncomplete(f"could not import {ROOT_PACKAGE}: {error}") from error
     result: list[tuple[str, types.ModuleType]] = [(ROOT_PACKAGE, root)]
 
-    def import_failed(name: str) -> typing.NoReturn:
-        raise ScanIncomplete(f"could not discover modules below {name}")
-
     for importer, modname, ispkg in pkgutil.walk_packages(
-        root.__path__, prefix=ROOT_PACKAGE + ".", onerror=import_failed
+        root.__path__, prefix=ROOT_PACKAGE + "."
     ):
         # Skip private modules entirely
         if any(_is_private_name(part) for part in modname.split(".")):
@@ -387,8 +387,8 @@ def _iter_qdk_modules() -> list[tuple[str, types.ModuleType]]:
         try:
             mod = importlib.import_module(modname)
             result.append((modname, mod))
-        except ImportError as error:
-            raise ScanIncomplete(f"could not import {modname}: {error}") from error
+        except Exception as exc:
+            print(f"WARNING: could not import {modname}: {exc}", file=sys.stderr)
     return result
 
 
