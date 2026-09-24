@@ -752,6 +752,61 @@ not prerequisites for numerical results. No kernel trace is claimed from these
 runs; no profiler installation or privileged configuration is implied.
 The experiment informs later common interfaces; it does not implement them.
 
+#### Tiny supplied-plan reusable-input qualification
+
+`scripts/validate-on-cuda-host.sh --reusable-input-qualification` selects two
+additional ignored native cases. These are separate from the unchanged frozen
+diagnostic/2x2/4x4 cases and **passed native qualification on an A100** with
+cuTensorNet 2.13 / CUDA Runtime 12.9.
+
+| Case                              | Analytical workload                                                                    | Input-reuse coverage                                                                                                                                                     |
+| --------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `a_supplied_plan_candidate_reuse` | Three 2x2 matrices, `A[a,b] B[b,c] C[c,d] -> [d,a]`                                    | Complex/nonunitary alternatives, sharing divergence/rejoining, same-shape mutable replacement, S and fixed reset-branch factors, and an always-unselected resident input |
+| `b_supplied_plan_joint_operators` | A rank-four two-qubit operator times a rank-two state, with reversed output-axis order | Complex/nonunitary joint operators, candidate restoration, mutable state replacement, an unselected duplicate candidate, and unchanged warm execution                    |
+
+Each case prepares a caller-supplied portable plan through the actual Session
+Context, registers its input bank once, then executes its selection/replacement
+sequence. The executable is explicitly closed before repeating on the same
+Session, with a fresh resident bank. Earlier returned outputs remain alive and
+are checked after subsequent executions, replacement, executable close and
+Session close. Resource snapshots distinguish selected inputs from all resident
+inputs after preparation, each registration, replacement and execution.
+
+The independent expected amplitudes and squared norms are small analytical
+constants, cross-checked by host matrix arithmetic. Both maximum complex-amplitude
+error and error against the **expected squared norm** must be at most `1e-12`;
+there is no normalization or global-phase alignment. This comparator permits
+nonunitary outputs and does not change the frozen fixtures' unit-norm comparator.
+Execution retains the existing tiny-case ceilings: 64 MiB device scratch and
+1 MiB host scratch. No ceiling increase or optimizer fallback is attempted.
+
+Set `QDK_CONTRACTION_EVIDENCE_DIR` to a fresh directory to retain the synchronized
+readbacks: `reusable_chain-0.complex64le` through `reusable_chain-19.complex64le`
+and `reusable_joint-0.complex64le` through `reusable_joint-11.complex64le`.
+The cases stop on errors and report explicit cleanup. No optimizer is called by
+these tests, and native allocation/upload call counts are **not measured**.
+Shared-optimizer settings and expanded frozen-4x4 coverage remain separate work;
+these cases alone do not close that qualification gate or provide a public demo.
+
+The 2026-09-24 source-built run produced all 32 readbacks: 20 for the matrix
+chain and 12 for the joint-operator case. Every complex amplitude matched its
+analytical expectation exactly, including after replacement and when the updated
+input occupied two slots. Independent readback recomputation gave maximum
+squared-norm errors of zero and `1.78e-15` or less, respectively, within the
+unchanged `1e-12` limit. Corresponding outputs from both executable lifecycles
+were byte-identical. Retained-output checks and all explicit cleanup succeeded.
+
+Device scratch was 768 bytes for the chain and 512 bytes for the joint case,
+with no host scratch. Resident banks occupied 448 and 832 bytes; including
+scratch and each 64-byte output, owned device storage was 1,280 and 1,408 bytes.
+The qualification snapshot was base `e9b3e58011fedb6c25704bb774fb94083db97ea7`
+plus patch SHA256
+`424b0e9d4c1abed09f0e2a2c57f9e3da3e0fe0bc6efccb90c57704b8899a22fc`.
+The returned `qdk-i3a-slice3c-reusable-input-v1-evidence.tar.gz` has SHA256
+`9bfde6c437a9b72fdd928090208f2d36f1e1eb87d31238421355b2f9514eae92`;
+source/binary/library provenance and preservation of both existing VM checkouts
+were verified before acceptance.
+
 ### Overnight contraction-plan experiments
 
 `scripts/contraction-experiments.py` explores the **same frozen 4x4 Case A**

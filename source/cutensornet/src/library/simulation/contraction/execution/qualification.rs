@@ -7,6 +7,9 @@ use std::{fs, path::PathBuf};
 #[path = "experiment.rs"]
 mod experiment;
 
+#[path = "qualification/reusable.rs"]
+mod reusable;
+
 struct Fixture {
     circuit: CircuitTensorNetwork,
     expected: Vec<Complex64>,

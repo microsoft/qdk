@@ -26,6 +26,9 @@
 #     --contraction-qualification
 #                        also run the three fixed numerical contraction cases,
 #                        smallest first, stopping that sequence on failure
+#     --reusable-input-qualification
+#                        also run the two tiny supplied-plan input-reuse cases,
+#                        stopping that sequence on failure; no optimizer search
 #     --skip-hardware    skip everything that needs the native libraries
 #
 # Run it from anywhere; it validates the checkout it lives in and touches no
@@ -52,6 +55,7 @@ skip_hardware=0
 qualification=0
 metadata_qualification=0
 contraction_qualification=0
+reusable_input_qualification=0
 failed=0
 
 usage() {
@@ -68,6 +72,20 @@ fail() {
 
 step() {
     printf '\n=== %s ===\n' "$*"
+}
+
+run_exact_contraction_case() {
+    local selector="$1"
+    cargo test --locked -p "$PACKAGE" --lib "$selector" \
+        -- --exact --ignored --nocapture --test-threads=1 2>&1 | tee "$test_log"
+    if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
+        fail "native contraction case failed: $selector; no later case in this sequence will run"
+        return 1
+    elif ! grep -qF "test $selector ... " "$test_log" ||
+         ! grep -qF "test result: ok. 1 passed; 0 failed; 0 ignored;" "$test_log"; then
+        fail "native contraction case did not execute: $selector"
+        return 1
+    fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -93,6 +111,10 @@ while [[ $# -gt 0 ]]; do
             contraction_qualification=1
             shift
             ;;
+        --reusable-input-qualification)
+            reusable_input_qualification=1
+            shift
+            ;;
         -h | --help)
             usage
             exit 0
@@ -105,7 +127,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ "$skip_hardware" -eq 1 && ( "$qualification" -eq 1 || "$metadata_qualification" -eq 1 || "$contraction_qualification" -eq 1 ) ]]; then
+if [[ "$skip_hardware" -eq 1 && ( "$qualification" -eq 1 || "$metadata_qualification" -eq 1 || "$contraction_qualification" -eq 1 || "$reusable_input_qualification" -eq 1 ) ]]; then
     printf 'qualification cannot be combined with --skip-hardware\n' >&2
     exit 2
 fi
@@ -264,19 +286,22 @@ else
         printf -- '-- native numerical contraction (not MPS or metadata-only qualification) --\n'
         for case_name in a_asymmetric_diagnostic b_case_a_2x2 c_case_a_4x4; do
             selector="simulation::contraction::execution::qualification::native::$case_name"
-            cargo test --locked -p "$PACKAGE" --lib "$selector" \
-                -- --exact --ignored --nocapture --test-threads=1 2>&1 | tee "$test_log"
-            if [[ "${PIPESTATUS[0]}" -ne 0 ]]; then
-                fail "native contraction case failed: $case_name; no larger case will run"
-                break
-            elif ! grep -qF "test $selector ... " "$test_log" ||
-                 ! grep -qF "test result: ok. 1 passed; 0 failed; 0 ignored;" "$test_log"; then
-                fail "native contraction case did not execute: $case_name"
-                break
-            fi
+            run_exact_contraction_case "$selector" || break
         done
     else
         printf -- '-- native numerical contraction: SKIPPED (pass --contraction-qualification) --\n'
+    fi
+
+    if [[ "$reusable_input_qualification" -eq 0 ]]; then
+        printf -- '-- native reusable inputs: SKIPPED (pass --reusable-input-qualification) --\n'
+    elif [[ "$failed" -ne 0 ]]; then
+        printf -- '-- native reusable inputs: SKIPPED because an earlier check failed --\n'
+    else
+        printf -- '-- native reusable inputs (tiny supplied plans; no optimizer search) --\n'
+        for case_name in a_supplied_plan_candidate_reuse b_supplied_plan_joint_operators; do
+            selector="simulation::contraction::execution::qualification::reusable::native::$case_name"
+            run_exact_contraction_case "$selector" || break
+        done
     fi
 fi
 
