@@ -96,7 +96,7 @@ def test_complete_empty_scan_succeeds(monkeypatch, capsys) -> None:
     assert "No private API leakage" in capsys.readouterr().err
 
 
-def test_module_discovery_does_not_skip_import_failures(monkeypatch) -> None:
+def test_module_import_failures_warn_and_are_skipped(monkeypatch, capsys) -> None:
     root = types.ModuleType("qdk")
     root.__path__ = []
     monkeypatch.setattr(checker, "_import_root_package", lambda: root)
@@ -110,5 +110,8 @@ def test_module_discovery_does_not_skip_import_failures(monkeypatch) -> None:
         raise ImportError("missing dependency")
 
     monkeypatch.setattr(checker.importlib, "import_module", unavailable)
-    with pytest.raises(checker.ScanIncomplete, match="qdk.example"):
-        checker.scan()
+    assert checker.scan() == []
+    assert (
+        "WARNING: could not import qdk.example: missing dependency"
+        in capsys.readouterr().err
+    )

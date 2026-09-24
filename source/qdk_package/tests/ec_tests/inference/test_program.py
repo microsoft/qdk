@@ -6,6 +6,7 @@ from qdk.ec._analysis.propagation.interpreter import program_of, walk_program
 from qdk.ec._layout import ProgramLayout
 from qodec.gadgets import Circuit
 import qodec as qc
+from ec_tests.testing.optional import requires_stim
 
 
 def test_program_rejects_unknown_mnemonic() -> None:
@@ -14,6 +15,7 @@ def test_program_rejects_unknown_mnemonic() -> None:
         _ = circuit.calls()
 
 
+@requires_stim
 def test_program_lookup_returns_instruction(idle_gadget: qc.Gadget) -> None:
     program = program_of(idle_gadget)
     first = program.calls()[0]
@@ -43,6 +45,7 @@ def _padding_instruction_set() -> qc.InstructionSet:
     )
 
 
+@requires_stim
 @pytest.mark.parametrize(
     ("source", "expected", "qubit_count"),
     [

@@ -9,6 +9,7 @@ from ec_tests.testing.qodecs import c4
 from qdk.ec._analysis.declaration_issues import declaration_issues
 from qdk.ec._audit import Auditor, Severity
 from qdk.ec._audit.rules.gadget import UnsupportedActionStepRule
+from ec_tests.testing.optional import requires_stim
 
 
 def test_complete_measurement_declaration_has_no_issues() -> None:
@@ -101,6 +102,7 @@ def test_unsupported_action_step_rule_name_and_filter() -> None:
     )
 
 
+@requires_stim
 @pytest.mark.parametrize("side", ["inputs", "outputs"])
 @pytest.mark.parametrize("same_entry", [False, True])
 def test_overlapping_supports_are_errors_before_analysis(

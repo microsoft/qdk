@@ -116,6 +116,11 @@ It requires Python 3.11 or newer and `qodec>=0.2.0.dev0,<0.3`. Install the local
 qodec Python bindings first while that version is unpublished, then install
 `qdk[ec]`.
 
+On Linux aarch64 and Windows ARM64, `qdk[ec]` installs `qodec` without its
+`parsers` extra because `stim` publishes no wheels for those platforms. Features
+that parse `format="stim"` circuits, including `ec.build_qodec`, raise
+`ValueError` there unless you build and install `stim` from source.
+
 The default audit reports no errors or warnings for a qodec returned by
 `ec.build_qodec(code)`. Both `strategy="flagged-css/v1"` and `strategy="bare-css/v1"`
 include incoming-frame corrections in logical readouts and stabilizer transport

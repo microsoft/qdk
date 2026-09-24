@@ -9,6 +9,7 @@ import sys
 import pytest
 
 import qdk.ec as ec
+from ec_tests.testing.optional import requires_stim
 
 _SURFACE = {
     "ChannelAction",
@@ -535,6 +536,7 @@ def test_fault_effect_filtered_views_partition_the_effect(
     assert effect == original
 
 
+@requires_stim
 def test_gadget_profile_contract(idle_gadget) -> None:
     profile = ec.GadgetProfile(idle_gadget)
 
@@ -561,6 +563,7 @@ def test_gadget_profile_contract(idle_gadget) -> None:
     }
 
 
+@requires_stim
 def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
     """A circuit is a gadget with trivial encodings, so nothing is silently empty."""
     profile = ec.GadgetProfile(idle_gadget.circuit)
@@ -603,6 +606,7 @@ def test_profile_distance_signatures() -> None:
     )
 
 
+@requires_stim
 def test_channel_action_is_opaque(idle_gadget) -> None:
     action = ec.GadgetProfile(idle_gadget).action
     assert {name for name in dir(action) if not name.startswith("_")} == {
