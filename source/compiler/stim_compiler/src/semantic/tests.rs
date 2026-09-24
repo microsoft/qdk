@@ -18,7 +18,6 @@ mod target_types;
 use expect_test::Expect;
 use miette::Report;
 
-#[allow(dead_code)]
 fn check(source: &str, expect: &Expect) {
     let (parser_ast, parser_errors) = crate::parser::parse(source);
     assert!(
