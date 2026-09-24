@@ -43,7 +43,7 @@ def run_qir_with_qodec(
     match type:
         case "cpu":
             quantum_backend_factory = full_state_backend
-        case "clifford":
+        case "clifford" | "stabilizer":
             quantum_backend_factory = stabilizer_backend
         case "gpu":
             raise NotImplementedError("Qodec execution does not support GPU simulation")
