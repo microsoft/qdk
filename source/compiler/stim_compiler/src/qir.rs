@@ -247,14 +247,16 @@ block_c{pauli}_exit:
 
     fn write_declarations(&mut self) {
         writeln!(self);
-        let decls: Vec<String> = self.used_intrinsics.values().cloned().collect();
+        let mut decls: Vec<String> = self.used_intrinsics.values().cloned().collect();
+        decls.sort_unstable();
         for decl in decls {
             writeln!(self, "{decl}");
         }
     }
 
     fn write_definitions(&mut self) {
-        let definitions: Vec<String> = self.defined_functions.values().cloned().collect();
+        let mut definitions: Vec<String> = self.defined_functions.values().cloned().collect();
+        definitions.sort_unstable();
         for definition in definitions {
             writeln!(self);
             writeln!(self, "{definition}");
@@ -274,13 +276,11 @@ block_c{pauli}_exit:
             "attributes #0 = {{ \"entry_point\" \"output_labeling_schema\" \"qir_profiles\"=\"adaptive_profile\" \"required_num_qubits\"=\"{num_qubits}\" \"required_num_results\"=\"{num_results}\" }}"
         );
         writeln!(self, "attributes #1 = {{ \"irreversible\" }}");
-        writeln!(self);
-        writeln!(self, "; module flags");
-        writeln!(self);
         if self.has_noise_intrinsic {
             writeln!(self, "attributes #2 = {{ \"qdk_noise\" }}");
-            writeln!(self);
         }
+        writeln!(self);
+        writeln!(self, "; module flags");
         writeln!(
             self,
             "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}"

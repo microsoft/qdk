@@ -29,7 +29,7 @@ from typing import Literal
 # Deterministic programs need a single shot but we run multiple shots
 # to verify that multiple shots yield the same result.
 SHOTS = 100
-SIM_TYPES = ["cpu", "clifford"]
+SIM_TYPES = ["cpu", "stabilizer", "clifford"]
 
 
 def map_result_list_to_str(results):
@@ -52,7 +52,7 @@ def _run(
     qir: str,
     shots: int = SHOTS,
     seed: int = 42,
-    sim_type: Literal["clifford", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu", "clifford"] = "cpu",
 ):
     """Run *qir* on the given simulator and return shot results as a list of strings."""
     results = run_qir(qir, shots, seed=seed, type=sim_type)
@@ -67,7 +67,7 @@ def check_result(
     num_qubits: int = 1,
     num_results: int = 1,
     record=None,
-    sim_type: Literal["clifford", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu", "clifford"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     qir = format_qir(
@@ -85,7 +85,9 @@ def check_result(
 
 
 def check_arith_result(
-    qir_fragment: str, expected: str, sim_type: Literal["clifford", "cpu"] = "cpu"
+    qir_fragment: str,
+    expected: str,
+    sim_type: Literal["stabilizer", "cpu", "clifford"] = "cpu",
 ):
     body = build_arith_body(qir_fragment)
     check_result(body, expected, sim_type=sim_type)
@@ -500,26 +502,26 @@ entry:
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_write_result(sim_type):
-  check_result(
-    WRITE_RESULT_QIR, "1", extra_decls=WRITE_RESULT_DECL, sim_type=sim_type
-  )
+    check_result(
+        WRITE_RESULT_QIR, "1", extra_decls=WRITE_RESULT_DECL, sim_type=sim_type
+    )
 
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_write_result_from_register(sim_type):
-  check_result(
-    WRITE_RESULT_FROM_REGISTER_QIR,
-    "1",
-    extra_decls=WRITE_RESULT_DECL,
-    sim_type=sim_type,
-  )
+    check_result(
+        WRITE_RESULT_FROM_REGISTER_QIR,
+        "1",
+        extra_decls=WRITE_RESULT_DECL,
+        sim_type=sim_type,
+    )
 
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_write_result_overwrites_existing_result(sim_type):
-  check_result(
-    OVERWRITE_RESULT_QIR, "0", extra_decls=WRITE_RESULT_DECL, sim_type=sim_type
-  )
+    check_result(
+        OVERWRITE_RESULT_QIR, "0", extra_decls=WRITE_RESULT_DECL, sim_type=sim_type
+    )
 
 
 # =========================================================================
@@ -2335,7 +2337,7 @@ def _run_openqasm(
     qasm_src: str,
     shots: int = SHOTS,
     seed: int = 42,
-    sim_type: Literal["clifford", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu"] = "cpu",
 ):
     """Compile OpenQASM source via the adaptive pass and run on the given simulator."""
     qir = qdk.openqasm.compile(
