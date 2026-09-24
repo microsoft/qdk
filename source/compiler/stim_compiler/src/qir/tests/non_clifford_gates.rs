@@ -10,34 +10,15 @@ fn t_gate_yields_expected_qir() {
     check(
         "T 0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -46,34 +27,15 @@ fn t_dag_gate_yields_expected_qir() {
     check(
         "T_DAG 0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__t__adj(ptr)
+            [declarations]
+              declare void @__quantum__qis__t__adj(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -152,34 +114,15 @@ fn tpp_single_z_yields_expected_qir() {
     check(
         "TPP Z0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -188,37 +131,18 @@ fn tpp_single_x_yields_expected_qir() {
     check(
         "TPP X0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -227,41 +151,22 @@ fn tpp_single_y_yields_expected_qir() {
     check(
         "TPP Y0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__s__body(ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__qis__s__adj(ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__s__adj(ptr)
+              declare void @__quantum__qis__s__body(ptr)
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -271,34 +176,15 @@ fn tpp_dag_single_z_yields_expected_qir() {
     check(
         "TPP_DAG Z0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__t__adj(ptr)
+            [declarations]
+              declare void @__quantum__qis__t__adj(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -307,48 +193,29 @@ fn tpp_three_factor_product_yields_expected_qir() {
     check(
         "TPP X0*Y1*Z2",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__cx__body(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__s__body(ptr)
-            declare void @__quantum__qis__s__adj(ptr)
-            declare void @__quantum__qis__h__body(ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__cx__body(ptr, ptr)
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__s__adj(ptr)
+              declare void @__quantum__qis__s__body(ptr)
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0"#]],
     );
 }
 
@@ -357,34 +224,15 @@ fn tpp_negated_product_applies_inverse() {
     check(
         "TPP !Z0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__t__adj(ptr)
+            [declarations]
+              declare void @__quantum__qis__t__adj(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -393,34 +241,15 @@ fn tpp_dag_negated_product_applies_inverse() {
     check(
         "TPP_DAG !Z0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -429,40 +258,21 @@ fn tpp_negation_on_later_factor_negates_whole_product() {
     check(
         "TPP X0*!Z1",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__t__adj(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__cx__body(ptr, ptr)
-            declare void @__quantum__qis__t__adj(ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__cx__body(ptr, ptr)
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__t__adj(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -471,40 +281,21 @@ fn tpp_double_negation_cancels() {
     check(
         "TPP !X0*!Z1",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__t__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__cx__body(ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__t__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__cx__body(ptr, ptr)
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__t__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -517,32 +308,9 @@ fn tpp_identity_products_are_noops() {
     check(
         source,
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
-
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 0
+              required_num_results = 0"#]],
     );
 }
 
@@ -599,37 +367,18 @@ fn ch_gate_yields_expected_qir() {
     check(
         "CH 0 1",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__ry__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__ry__body(double -0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__ry__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__ry__body(double -0.7853981633974483, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__cx__body(ptr, ptr)
-            declare void @__quantum__qis__ry__body(double, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__cx__body(ptr, ptr)
+              declare void @__quantum__qis__ry__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -638,37 +387,18 @@ fn ccz_gate_yields_expected_qir() {
     check(
         "CCZ 0 1 2",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
+              declare void @__quantum__qis__h__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0"#]],
     );
 }
 
@@ -677,34 +407,15 @@ fn ccx_gate_yields_expected_qir() {
     check(
         "CCX 0 1 2",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__ccx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__ccx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
 
-            declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0"#]],
     );
 }
 
@@ -713,40 +424,21 @@ fn ccz_gate_broadcasts_over_triples() {
     check(
         "CCZ 0 1 2 3 4 5",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
-              call void @__quantum__qis__ccx__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 5 to ptr), ptr inttoptr (i64 3 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__ccx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+                call void @__quantum__qis__ccx__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 5 to ptr), ptr inttoptr (i64 3 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
 
-            declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
+              declare void @__quantum__qis__h__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="6" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 6
+              required_num_results = 0"#]],
     );
 }
 
@@ -908,34 +600,15 @@ fn r_x_yields_expected_qir() {
     check(
         "R_X(0.25) 0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rx__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rx__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__rx__body(double, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__rx__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -944,34 +617,15 @@ fn r_x_with_angle_in_radians_yields_expected_qir() {
     check(
         "R_X(1rad) 0",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__rx__body(double 1.0, ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            [entry_point]
+                call void @__quantum__qis__rx__body(double 1.0, ptr inttoptr (i64 0 to ptr))
 
-        declare void @__quantum__qis__rx__body(double, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__rx__body(double, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -980,34 +634,15 @@ fn r_y_yields_expected_qir() {
     check(
         "R_Y(-0.375) 0",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__ry__body(double -1.1780972450961724, ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            [entry_point]
+                call void @__quantum__qis__ry__body(double -1.1780972450961724, ptr inttoptr (i64 0 to ptr))
 
-        declare void @__quantum__qis__ry__body(double, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__ry__body(double, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1016,34 +651,15 @@ fn r_z_yields_expected_qir() {
     check(
         "R_Z(123.432) 0",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__rz__body(double 387.77306441789534, ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            [entry_point]
+                call void @__quantum__qis__rz__body(double 387.77306441789534, ptr inttoptr (i64 0 to ptr))
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__rz__body(double, ptr)
+            [declarations]
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1052,36 +668,17 @@ fn r_x_broadcasts_over_targets() {
     check(
         "R_X(0.125) 0 1 2",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 2 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__rx__body(double 0.39269908169872414, ptr inttoptr (i64 2 to ptr))
 
-            declare void @__quantum__qis__rx__body(double, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__rx__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0"#]],
     );
 }
 
@@ -1138,37 +735,18 @@ fn u3_yields_expected_qir() {
     check(
         "U3(0.1, 0.2, 0.3) 0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rz__body(double 0.9424777960769379, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__rz__body(double 0.6283185307179586, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rz__body(double 0.9424777960769379, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rz__body(double 0.6283185307179586, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__ry__body(double, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__rz__body(double, ptr)
+            [declarations]
+              declare void @__quantum__qis__ry__body(double, ptr)
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1177,37 +755,18 @@ fn u_alias_yields_expected_qir() {
     check(
         "U(0.1, 0.2, 0.3) 0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rz__body(double 0.9424777960769379, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__rz__body(double 0.6283185307179586, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rz__body(double 0.9424777960769379, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rz__body(double 0.6283185307179586, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__ry__body(double, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__rz__body(double, ptr)
+            [declarations]
+              declare void @__quantum__qis__ry__body(double, ptr)
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1216,37 +775,18 @@ fn u3_with_mixed_angle_units_yields_expected_qir() {
     check(
         "U3(0.1, -0.2rad, 3e-1rad) 0",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__rz__body(double 0.3, ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__qis__rz__body(double -0.2, ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            [entry_point]
+                call void @__quantum__qis__rz__body(double 0.3, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__ry__body(double 0.3141592653589793, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rz__body(double -0.2, ptr inttoptr (i64 0 to ptr))
 
-        declare void @__quantum__qis__ry__body(double, ptr)
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__rz__body(double, ptr)
+            [declarations]
+              declare void @__quantum__qis__ry__body(double, ptr)
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1343,34 +883,15 @@ fn r_xx_yields_expected_qir() {
     check(
         "R_XX(0.25) 0 1",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rxx__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rxx__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__rxx__body(double, ptr, ptr)
+            [declarations]
+              declare void @__quantum__qis__rxx__body(double, ptr, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -1379,34 +900,15 @@ fn r_yy_yields_expected_qir() {
     check(
         "R_YY(-0.6) 0 1",
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__qis__ryy__body(double -1.8849555921538759, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            [entry_point]
+                call void @__quantum__qis__ryy__body(double -1.8849555921538759, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__qis__ryy__body(double, ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__ryy__body(double, ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
-
-        ; module flags
-
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -1415,34 +917,15 @@ fn r_zz_yields_expected_qir() {
     check(
         "R_ZZ(0.25) 0 1",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
 
-            declare void @__quantum__qis__rzz__body(double, ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__rzz__body(double, ptr, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 2
+              required_num_results = 0"#]],
     );
 }
 
@@ -1451,35 +934,16 @@ fn r_zz_broadcasts_over_pairs() {
     check(
         "R_ZZ(0.25) 0 1 2 3",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__rzz__body(double 0.7853981633974483, ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
 
-            declare void @__quantum__qis__rzz__body(double, ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__rzz__body(double, ptr, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 4
+              required_num_results = 0"#]],
     );
 }
 
@@ -1537,34 +1001,15 @@ fn r_pauli_single_z_yields_expected_qir() {
     check(
         "R_PAULI(0.25) Z0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__rz__body(double, ptr)
+            [declarations]
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1573,37 +1018,18 @@ fn r_pauli_single_x_yields_expected_qir() {
     check(
         "R_PAULI(0.25) X0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__h__body(ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__rz__body(double, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1612,41 +1038,22 @@ fn r_pauli_single_y_yields_expected_qir() {
     check(
         "R_PAULI(0.25) Y0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__rz__body(double, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__qis__s__adj(ptr)
-            declare void @__quantum__qis__s__body(ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__h__body(ptr)
+            [declarations]
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__rz__body(double, ptr)
+              declare void @__quantum__qis__s__adj(ptr)
+              declare void @__quantum__qis__s__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 
@@ -1655,48 +1062,29 @@ fn r_pauli_mixed_basis_product_yields_expected_qir() {
     check(
         "R_PAULI(0.25) X0*Y1*Z2",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
-              call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
+                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__qis__cx__body(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__qis__s__adj(ptr)
-            declare void @__quantum__qis__rz__body(double, ptr)
-            declare void @__quantum__qis__s__body(ptr)
-            declare void @__quantum__qis__h__body(ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+            [declarations]
+              declare void @__quantum__qis__cx__body(ptr, ptr)
+              declare void @__quantum__qis__h__body(ptr)
+              declare void @__quantum__qis__rz__body(double, ptr)
+              declare void @__quantum__qis__s__adj(ptr)
+              declare void @__quantum__qis__s__body(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0"#]],
     );
 }
 
@@ -1705,34 +1093,15 @@ fn r_pauli_negated_product_negates_angle() {
     check(
         "R_PAULI(0.25) !Z0",
         &expect![[r#"
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rz__body(double -0.7853981633974483, ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+            [entry_point]
+                call void @__quantum__qis__rz__body(double -0.7853981633974483, ptr inttoptr (i64 0 to ptr))
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
-            declare void @__quantum__qis__rz__body(double, ptr)
+            [declarations]
+              declare void @__quantum__qis__rz__body(double, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
-
-            ; module flags
-
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0"#]],
     );
 }
 

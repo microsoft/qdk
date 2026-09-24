@@ -242,10 +242,12 @@ export class QuantumUris {
     isV2Workspace: boolean;
   } {
     const match = endpointUri.match(QuantumUris._endpointRegExp);
-    return {
+    const returnVal = {
       location: match?.groups?.location,
       isV2Workspace: match?.groups?.versionSuffix === "-v2",
     };
+    log.debug(`Parsed endpoint URI: ${JSON.stringify(returnVal)}`);
+    return returnVal;
   }
 
   constructor(

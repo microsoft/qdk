@@ -62,7 +62,7 @@ class NeutralAtomSampler(cirq.Sampler):
         ``None`` (noiseless).
     :kwtype noise: NoiseConfig
     :keyword simulator_type: Force a particular simulator backend.
-        ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
+        ``"stabilizer"`` — Clifford with limited number of T gates, fast.
         ``"cpu"`` — Full state-vector on CPU.
         ``"gpu"`` — Full state-vector on GPU.
         ``None`` (default) — GPU if available, CPU otherwise.
@@ -79,14 +79,16 @@ class NeutralAtomSampler(cirq.Sampler):
         self,
         *,
         noise: Optional["NoiseConfig"] = None,
-        simulator_type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+        simulator_type: Optional[
+            Literal["stabilizer", "cpu", "gpu", "clifford"]
+        ] = None,
         seed: Optional[int] = None,
         device: Optional["NeutralAtomDevice"] = None,
     ) -> None:
         self._noise = noise
-        self._simulator_type: Optional[Literal["clifford", "cpu", "gpu"]] = (
-            simulator_type
-        )
+        self._simulator_type: Optional[
+            Literal["stabilizer", "cpu", "gpu", "clifford"]
+        ] = simulator_type
         self._seed = seed
         self._device = device
 
