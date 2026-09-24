@@ -1,0 +1,864 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CodeProfile API design</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #202832;
+        --muted: #526171;
+        --line: #dce2e8;
+        --accent: #075ea8;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f5f7f9;
+        color: var(--ink);
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1080px;
+        margin: auto;
+        padding: 32px 24px 64px;
+      }
+      header,
+      section {
+        background: white;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 2rem;
+        line-height: 1.25;
+      }
+      h2 {
+        margin: 0 0 14px;
+        font-size: 1.4rem;
+      }
+      h3 {
+        margin: 22px 0 8px;
+        font-size: 1.1rem;
+      }
+      p {
+        margin: 8px 0 12px;
+      }
+      .meta,
+      .note {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .lead {
+        font-size: 1.15rem;
+      }
+      a {
+        color: var(--accent);
+        overflow-wrap: anywhere;
+      }
+      code,
+      pre {
+        font:
+          0.9rem/1.6 ui-monospace,
+          monospace;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      pre {
+        background: #f1f4f7;
+        padding: 16px;
+        border-radius: 5px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      ul,
+      ol {
+        padding-left: 24px;
+      }
+      li + li {
+        margin-top: 7px;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        table-layout: fixed;
+        font-size: 0.92rem;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--line);
+        overflow-wrap: anywhere;
+      }
+      th {
+        color: var(--muted);
+      }
+      th:first-child {
+        width: 29%;
+      }
+      .badge {
+        display: inline-block;
+        font-weight: 600;
+        color: #185b36;
+        background: #edf7f0;
+        padding: 3px 9px;
+        border-radius: 4px;
+      }
+      @media (max-width: 700px) {
+        main {
+          padding: 16px 10px 32px;
+        }
+        header,
+        section {
+          padding: 18px 14px;
+        }
+        h1 {
+          font-size: 1.6rem;
+        }
+        table,
+        tbody,
+        tr,
+        td {
+          display: block;
+          width: 100%;
+        }
+        thead {
+          display: none;
+        }
+        tr {
+          padding: 8px 0;
+          border-bottom: 1px solid var(--line);
+        }
+        td {
+          border: 0;
+          padding: 4px 0;
+        }
+        td:first-child {
+          font-weight: 600;
+        }
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        main {
+          max-width: none;
+        }
+        section {
+          break-inside: auto;
+        }
+        tr {
+          break-inside: avoid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="meta">API design and migration reference.</p>
+        <h1>
+          Make <code>CodeProfile</code> an analysis API, not a copy of its
+          internal algebra
+        </h1>
+        <p class="lead">
+          Keep the snapshot, error analysis, encoding, and distance searches.
+          Remove duplicate group views and overlapping error predicates.
+        </p>
+        <p><span class="badge">17 public members, including length</span></p>
+        <p class="meta">
+          Counts cover named public class members, excluding the constructor and
+          Python special methods. Twelve names remain, thirteen are removed, and
+          five are added. The 12 module-level <code>qdk.ec</code> exports do not
+          change.
+        </p>
+        <p class="meta">
+          Migration baseline:
+          <code>407bf27cfa58bf587c2aee305db3f75a14728e4d</code>. The contracts
+          below describe the updated working tree.
+        </p>
+      </header>
+
+      <section id="problem">
+        <h2>The problem is meaning, not just length</h2>
+        <p>
+          For the two-qubit repetition code with stabilizer
+          <code>Z_0 Z_1</code>, the error <code>X_1</code> triggers a check but
+          has an identity logical-basis component. Calling that error “trivial”
+          hides the nonzero syndrome. <code>is_logical</code> checks both
+          conditions and returns false.
+        </p>
+        <p>
+          The internal algebra retains its specialized predicates for
+          propagation. The public profile exposes one predicate whose
+          preconditions and result are explicit.
+          <a href="source/qdk_package/qdk/ec/_code_profile.py">Implementation</a
+          >.
+        </p>
+        <ul>
+          <li>
+            One <code>logical_effect_of</code> method covers signed and
+            phase-free conversion without separate aliases.
+          </li>
+          <li>
+            Generator tuples are the public representation. Callers needing
+            groups can construct <code>paulimer.PauliGroup</code> directly.
+          </li>
+          <li>
+            <code>logical_observable</code> describes which logical value
+            changes, rather than implying exact error-class targeting.
+          </li>
+          <li>
+            The equivalence predicate and explanation use the same options and
+            comparison implementation.
+          </li>
+        </ul>
+      </section>
+
+      <section id="surface">
+        <h2>Public surface</h2>
+        <p>
+          Keep <code>CodeProfile(code: qodec.Code)</code>. Do not add another
+          code type, a profile factory, or an error-result wrapper.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Public member</th>
+              <th>Contract and reason to keep it</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr data-proposed="stabilizers">
+              <td><code>stabilizers</code></td>
+              <td>
+                <code>tuple[Pauli, ...]</code>. Physical generators in the
+                snapshotted <code>qodec.Code.stabilizers</code> order. This
+                order defines syndrome indexes.
+              </td>
+            </tr>
+            <tr data-proposed="x">
+              <td><code>x</code></td>
+              <td>
+                <code>tuple[Pauli, ...]</code>. Physical logical-X
+                representatives indexed by logical qubit, in
+                <code>qodec.Code.x</code> order.
+              </td>
+            </tr>
+            <tr data-proposed="z">
+              <td><code>z</code></td>
+              <td>
+                <code>tuple[Pauli, ...]</code>. Physical logical-Z
+                representatives indexed by logical qubit, in
+                <code>qodec.Code.z</code> order.
+              </td>
+            </tr>
+            <tr data-proposed="gauge_x">
+              <td><code>gauge_x</code></td>
+              <td>
+                <code>tuple[Pauli, ...]</code>. Physical gauge-X generators
+                paired with <code>gauge_z</code> at the same index. The derived
+                gauge basis is fixed within the snapshot, not canonical.
+              </td>
+            </tr>
+            <tr data-proposed="gauge_z">
+              <td><code>gauge_z</code></td>
+              <td>
+                <code>tuple[Pauli, ...]</code>. Physical gauge-Z generators
+                paired with <code>gauge_x</code> at the same index. Indexes
+                identify gauge qubits, not physical labels.
+              </td>
+            </tr>
+            <tr data-proposed="support">
+              <td><code>support</code></td>
+              <td>
+                <code>frozenset[int]</code>. Physical qubit labels in the
+                analyzed operators, not a dense array extent. Retain labels; do
+                not renumber them.
+              </td>
+            </tr>
+            <tr data-proposed="length">
+              <td><code>length</code></td>
+              <td>
+                <code>int</code>. Number of physical qubits in support, not the
+                largest label plus one.
+              </td>
+            </tr>
+            <tr data-proposed="logical_qubit_count">
+              <td><code>logical_qubit_count</code></td>
+              <td>
+                <code>int</code>. Number of logical X/Z pairs. This earns a
+                named accessor because counting generators instead of pairs is a
+                plausible error.
+              </td>
+            </tr>
+            <tr data-proposed="syndrome_of">
+              <td><code>syndrome_of(error)</code></td>
+              <td>
+                <code>frozenset[int]</code>. Zero-based positions in
+                <code>stabilizers</code> that anticommute with the physical
+                error. Reject out-of-support errors.
+              </td>
+            </tr>
+            <tr data-proposed="logical_effect_of">
+              <td>
+                <code>logical_effect_of(error, *, including_phase=True)</code>
+              </td>
+              <td>
+                <code>Pauli</code> on logical qubits. One conversion method,
+                with explicit phase semantics described below.
+              </td>
+            </tr>
+            <tr data-proposed="representative_of">
+              <td><code>representative_of(pauli)</code></td>
+              <td>
+                <code>Pauli</code> on physical qubits. Input indexes logical
+                pairs from zero. Expand using the chosen logical basis and
+                preserve phase.
+              </td>
+            </tr>
+            <tr data-proposed="is_logical">
+              <td><code>is_logical(error)</code></td>
+              <td>
+                <code>bool</code>. True exactly when the physical error has zero
+                syndrome and a nonidentity logical component, ignoring global
+                phase. Identity and gauge-only changes return false.
+              </td>
+            </tr>
+            <tr data-proposed="encoding_clifford">
+              <td><code>encoding_clifford(*, supported_by=None)</code></td>
+              <td>
+                <code>paulimer.CliffordUnitary</code>. Keep custom
+                physical-label ordering; validate that it lists every support
+                label exactly once. Default to increasing label order.
+              </td>
+            </tr>
+            <tr data-proposed="distance">
+              <td><code>distance(...)</code></td>
+              <td>
+                <code>Distance[Pauli]</code>. Require a proven exact answer.
+                Preserve explicit correlated errors, witnesses, backend
+                selection, and cutoffs.
+              </td>
+            </tr>
+            <tr data-proposed="distance_bounds">
+              <td><code>distance_bounds(...)</code></td>
+              <td>
+                <code>Distance[Pauli]</code>. Return certified bounds, which may
+                differ. Keep separate from the exact operation: these are
+                different promises.
+              </td>
+            </tr>
+            <tr data-proposed="is_equivalent_to">
+              <td>
+                <code
+                  >is_equivalent_to(other, *, including_signs=True,
+                  strict_basis=True)</code
+                >
+              </td>
+              <td>
+                <code>bool</code>. Compare with one stated policy. Default to
+                retaining signs and the chosen logical basis.
+              </td>
+            </tr>
+            <tr data-proposed="why_not_equivalent_to">
+              <td>
+                <code
+                  >why_not_equivalent_to(other, *, including_signs=True,
+                  strict_basis=True)</code
+                >
+              </td>
+              <td>
+                <code>str</code>. Use exactly the predicate's options and
+                comparison policy; empty if and only if it considers the
+                profiles equivalent.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          All five operator collections are read-only properties returning
+          tuples of independent Pauli copies. X and Z describe logical or gauge
+          roles, not which physical factors occur. For example, a logical-X
+          representative can contain physical Z factors.
+        </p>
+        <p>
+          <code>logical_qubit_count</code> distinguishes pairs from generators.
+          <code>length</code> retains the established code-length name for the
+          physical support count.
+        </p>
+      </section>
+
+      <section id="contracts">
+        <h2>Contracts to tighten, not merely rename</h2>
+        <h3>1. Separate a logical component from a logical failure</h3>
+        <pre><code>profile.syndrome_of(error)
+profile.logical_effect_of(error, including_phase=False)
+profile.is_logical(error)</code></pre>
+        <p>
+          These answer three distinct questions: which checks change, which
+          logical-basis component the error has, and whether it is an undetected
+          logical failure. The last method earns its place because testing only
+          the logical component gives the wrong answer for an error with a
+          nonzero syndrome.
+        </p>
+        <p>
+          With <code>including_phase=True</code>, require a genuine signed
+          logical action: the error must preserve the code space and differ from
+          its logical representative only by a stabilizer and global phase.
+          Otherwise raise <code>ValueError</code>, including for a nontrivial
+          gauge action with no unique scalar phase.
+        </p>
+        <p>
+          With <code>including_phase=False</code>, return the phase-free
+          component determined by commutation with the logical basis, even for
+          an error with a syndrome or gauge component. This does not claim that
+          a recovery was performed.
+        </p>
+        <p>
+          Phase-free conversion is an explicit option. Signed conversion never
+          silently drops phase when the remainder is not a stabilizer.
+        </p>
+        <p>
+          All physical-error entry points must reject labels outside
+          <code>support</code>. All logical-Pauli inputs must reject labels
+          outside <code>range(logical_qubit_count)</code>. Their docstrings must
+          state the direction of conversion. Keep the existing Pauli type; do
+          not add wrapper types solely to rename it.
+        </p>
+
+        <h3>2. Give the distance filter a user-visible meaning</h3>
+        <pre><code>profile.distance(
+    *,
+    errors: str | Sequence[Pauli] = "XYZ",
+    logical_observable: Pauli | None = None,
+    upper_bound: int | None = None,
+    solver=None,
+) -&gt; Distance[Pauli]
+
+profile.distance_bounds(
+    *,
+    errors: str | Sequence[Pauli] = "XYZ",
+    logical_observable: Pauli | None = None,
+    upper_bound: int | None = None,
+    solver=None,
+) -&gt; Distance[Pauli]</code></pre>
+        <p>
+          With no observable, find any nontrivial logical failure. With
+          <code>logical_observable=Pauli("Z_0")</code>, find an undetected error
+          that flips logical Z₀. The observable uses logical indexes, must be
+          nonidentity and Hermitian, and is not a physical representative.
+        </p>
+        <p>
+          Replace <code>coset_representative</code> with this option. Do not
+          just rename the existing argument: translate the desired parity into
+          the proper logical-observable commutation test. For two unencoded
+          qubits, the old <code>coset_representative=X_1</code> query
+          corresponds to the new <code>logical_observable=Z_1</code> query. It
+          permits X₁ and Y₁ failures, not just the X₁ class.
+        </p>
+        <p>
+          Preserve all meaningful parity-filtered searches through an explicit
+          migration. Exact logical-coset targeting is a different feature and
+          remains deferred; do not imply that it exists.
+        </p>
+        <p>
+          Keep the current solver capabilities, including option objects, custom
+          callbacks, and limits. <code>solver</code> is unannotated above only
+          to avoid inventing a replacement public solver type. Its public
+          configuration needs a shared decision with <code>GadgetProfile</code>,
+          not a CodeProfile-only redesign.
+        </p>
+        <p>
+          Keep <code>upper_bound</code> aligned with
+          <code>GadgetProfile</code> in this pass. Document it as a search
+          cutoff, not a certified result bound, including the existing MWPF
+          limitation. A shared cutoff redesign is deferred.
+        </p>
+        <p>
+          Every supplied Pauli remains one allowed factor, even if it affects
+          several physical qubits. Preserve <code>errors=[]</code>, infinite
+          distance, lazy alternative witnesses, and the distinction between
+          <code>witness.factors</code> and <code>witness.product</code>.
+        </p>
+
+        <h3>3. Use one equivalence policy</h3>
+        <p>
+          Give the predicate and explanation the same keyword-only options and
+          one comparison implementation. Both must compare the same stabilizer
+          and gauge spaces. <code>strict_basis=True</code> retains the chosen
+          logical basis; <code>False</code> allows a different basis for the
+          same logical group. Do not compare arbitrary gauge generators in the
+          explanation while omitting gauges from the predicate.
+        </p>
+        <p>
+          Change <code>including_signs</code> to default to <code>True</code>.
+          Signs can differ between generated groups even though qodec rejects
+          explicitly signed input generators. For example, the groups generated
+          by {XX, ZZ} and {XX, YY} differ in signs.
+        </p>
+        <p>
+          <code>==</code> is structural equality of the operator snapshot,
+          separate from equivalence. Profiles are unhashable. Add hashability
+          only for a demonstrated use.
+        </p>
+      </section>
+
+      <section id="migration">
+        <h2>Migration of every baseline member</h2>
+        <p>
+          Updated implementation:
+          <a href="source/qdk_package/qdk/ec/_code_profile.py">CodeProfile</a>.
+          Underlying group and error contracts come from
+          <a href="source/qdk_package/qdk/ec/_analysis/code_algebra.py#L30"
+            >the internal algebra</a
+          >.
+        </p>
+        <p class="note">
+          For retained names, the last column records the naming source and a
+          rejected alternative. For removed names, it records the replacement
+          rather than introducing a new synonym.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Baseline name</th>
+              <th>Decision and naming rationale</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr data-current="stabilizer">
+              <td><code>stabilizer</code></td>
+              <td>
+                Remove. Use
+                <code>paulimer.PauliGroup(profile.stabilizers)</code> when a
+                group is needed. Reject keeping a second view of the same
+                generators.
+              </td>
+            </tr>
+            <tr data-current="stabilizers">
+              <td><code>stabilizers</code></td>
+              <td>
+                Keep. Source: <code>qodec.Code.stabilizers</code>. Reject
+                <code>checks</code>: gadget checks are readout parities, not
+                these Pauli generators.
+              </td>
+            </tr>
+            <tr data-current="anti_stabilizer">
+              <td><code>anti_stabilizer</code></td>
+              <td>
+                Remove from the public surface. Keep the encoding machinery
+                private rather than offering another group view.
+              </td>
+            </tr>
+            <tr data-current="anti_stabilizers">
+              <td><code>anti_stabilizers</code></td>
+              <td>
+                Remove from the public surface. Retain internal encoding
+                completion. Reject a public rename to
+                <code>destabilizers</code> without a concrete caller needing
+                them.
+              </td>
+            </tr>
+            <tr data-current="gauge">
+              <td><code>gauge</code></td>
+              <td>
+                Remove. Use
+                <code
+                  >paulimer.PauliGroup(profile.gauge_x + profile.gauge_z)</code
+                >. Keep computation of the basis, not a second public
+                representation.
+              </td>
+            </tr>
+            <tr data-current="gauge_basis">
+              <td><code>gauge_basis</code></td>
+              <td>
+                Replace with <code>gauge_x</code> and <code>gauge_z</code>.
+                Matching indexes expose pairs without requiring an interleaving
+                convention. Keep the interleaved basis internal.
+              </td>
+            </tr>
+            <tr data-current="logical">
+              <td><code>logical</code></td>
+              <td>
+                Remove. Use
+                <code>paulimer.PauliGroup(profile.x + profile.z)</code>.
+              </td>
+            </tr>
+            <tr data-current="logical_basis">
+              <td><code>logical_basis</code></td>
+              <td>
+                Replace with <code>x</code> and <code>z</code>, following qodec.
+                The paired logical-qubit order is unchanged; the interleaved
+                basis remains internal.
+              </td>
+            </tr>
+            <tr data-current="support">
+              <td><code>support</code></td>
+              <td>
+                Keep. Source: Pauli and PauliGroup support. Reject
+                <code>qubits</code>: this is a set of physical labels, not qubit
+                objects.
+              </td>
+            </tr>
+            <tr data-current="length">
+              <td><code>length</code></td>
+              <td>
+                Keep. Source: the existing code-length terminology. Reject
+                <code>physical_qubit_count</code> as an unnecessary rename.
+              </td>
+            </tr>
+            <tr data-current="logical_qubit_count">
+              <td><code>logical_qubit_count</code></td>
+              <td>
+                Keep. Source: the existing logical-pair count. Reject
+                <code>dimension</code>: Hilbert-space dimension is a different
+                quantity.
+              </td>
+            </tr>
+            <tr data-current="syndrome_of">
+              <td><code>syndrome_of</code></td>
+              <td>
+                Keep. Source: the existing error-query terminology. Reject
+                <code>syndrome</code>: this is a query of a supplied error, not
+                a profile property.
+              </td>
+            </tr>
+            <tr data-current="logical_effect_of">
+              <td><code>logical_effect_of</code></td>
+              <td>
+                Keep and consolidate. Source: the current public name and
+                walkthrough. Reject <code>logical_action_of</code> as a second
+                spelling for the same query.
+              </td>
+            </tr>
+            <tr data-current="distance">
+              <td><code>distance</code></td>
+              <td>
+                Keep. Source: code distance and the matching GadgetProfile
+                method. Reject <code>minimum_weight</code>: correlated factors
+                make event count differ from Pauli weight.
+              </td>
+            </tr>
+            <tr data-current="distance_bounds">
+              <td><code>distance_bounds</code></td>
+              <td>
+                Keep. Source: the existing certified-bounds result. Reject
+                <code>distance(exact=False)</code>: separate method names make
+                the different guarantees visible.
+              </td>
+            </tr>
+            <tr data-current="encoding_clifford">
+              <td><code>encoding_clifford</code></td>
+              <td>
+                Keep. Source: the computed encoding Clifford. Reject
+                <code>to_clifford</code>: the code is not being cast to a
+                Clifford.
+              </td>
+            </tr>
+            <tr data-current="is_trivial_error">
+              <td><code>is_trivial_error</code></td>
+              <td>
+                Remove. Compose zero syndrome and an identity phase-free logical
+                component when that specific question is needed.
+              </td>
+            </tr>
+            <tr data-current="is_trivial_logical_error">
+              <td><code>is_trivial_logical_error</code></td>
+              <td>
+                Remove. For its current meaning, test
+                <code
+                  >logical_effect_of(error, including_phase=False).weight ==
+                  0</code
+                >. That does not imply zero syndrome.
+              </td>
+            </tr>
+            <tr data-current="is_logical_error">
+              <td><code>is_logical_error</code></td>
+              <td>
+                Remove. Its current test is
+                <code>not profile.syndrome_of(error)</code>, not logical
+                failure. Do not silently reuse this name with a narrower
+                meaning.
+              </td>
+            </tr>
+            <tr data-current="is_non_trivial_logical_error">
+              <td><code>is_non_trivial_logical_error</code></td>
+              <td>
+                Replace with <code>is_logical</code>. Keep the conjunction of
+                zero syndrome and nonidentity logical component.
+              </td>
+            </tr>
+            <tr data-current="logical_action_of">
+              <td><code>logical_action_of</code></td>
+              <td>
+                Remove the alias. Use <code>logical_effect_of</code>; callers
+                that need only the component for arbitrary errors must
+                explicitly omit phase.
+              </td>
+            </tr>
+            <tr data-current="representative_of">
+              <td><code>representative_of</code></td>
+              <td>
+                Keep. Source: the existing logical-to-physical representative
+                operation. Reject <code>decode</code>: this constructs a
+                representative; it is not error correction.
+              </td>
+            </tr>
+            <tr data-current="unsigned_logical_action_of">
+              <td><code>unsigned_logical_action_of</code></td>
+              <td>
+                Remove. Use
+                <code>logical_effect_of(error, including_phase=False)</code>.
+                Preserve the capability with one keyword rather than another
+                method.
+              </td>
+            </tr>
+            <tr data-current="is_equivalent_to">
+              <td><code>is_equivalent_to</code></td>
+              <td>
+                Keep. Source: the same relation name on GadgetProfile and
+                ChannelAction. Reject <code>equals</code>: structural equality
+                already has <code>==</code>.
+              </td>
+            </tr>
+            <tr data-current="why_not_equivalent_to">
+              <td><code>why_not_equivalent_to</code></td>
+              <td>
+                Keep. Source: the existing explanatory counterpart. Reject a
+                generic <code>diff</code> that obscures the equivalence policy.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <h3>New names</h3>
+        <ul>
+          <li>
+            <strong><code>x</code></strong
+            >: source is <code>qodec.Code.x</code>. Reject
+            <code>logical_x</code> as a needless departure from the data model.
+          </li>
+          <li>
+            <strong><code>z</code></strong
+            >: source is <code>qodec.Code.z</code>. Reject
+            <code>logical_z</code> for the same reason; matching indexes
+            preserve logical pairs.
+          </li>
+          <li>
+            <strong><code>gauge_x</code></strong
+            >: extend the X axis with the existing gauge prefix. Reject
+            <code>x_gauge</code>, which reverses the established naming order.
+          </li>
+          <li>
+            <strong><code>gauge_z</code></strong
+            >: extend the Z axis in parallel with <code>gauge_x</code>. Reject
+            <code>z_gauge</code>; matching indexes preserve gauge pairs.
+          </li>
+          <li>
+            <strong><code>is_logical</code></strong
+            >: source is the package's logical-error terminology. Reject
+            <code>is_logical_failure</code> as unnecessarily tied to an
+            execution outcome and do not reuse <code>is_logical_error</code>,
+            which had the broader zero-syndrome meaning. The docstring
+            explicitly excludes identity and gauge-only changes.
+          </li>
+          <li>
+            <strong><code>including_phase</code></strong
+            >: source is <code>Pauli.phase</code>, with the positive form of the
+            existing <code>including_signs</code> option. Reject
+            <code>unsigned</code>, which describes the omitted result rather
+            than the requested capability.
+          </li>
+          <li>
+            <strong><code>logical_observable</code></strong
+            >: source is the logical-observable terminology already used by
+            channel analysis. Reject <code>coset_representative</code>: the
+            search asks which observable changes, not which exact error class to
+            produce.
+          </li>
+        </ul>
+      </section>
+
+      <section id="delivery">
+        <h2>Implementation boundary and acceptance checks</h2>
+        <p>
+          This is a breaking API update. Obsolete public aliases are removed;
+          repository consumers use the new contracts. Internal algebra methods
+          used by propagation and encoding remain available to those algorithms.
+        </p>
+        <ol>
+          <li>
+            Pin
+            <code
+              >set(name for name in dir(CodeProfile) if not
+              name.startswith("_"))</code
+            >
+            to the 17-name set, in both directions. Keep the 12-name module
+            surface pin.
+          </li>
+          <li>
+            Test identity, detectable errors, undetected logical errors,
+            gauge-only changes, and out-of-support labels. Check that a
+            detectable error with a logical component is not called a logical
+            failure.
+          </li>
+          <li>
+            Test phase-preserving conversion and explicit phase-free conversion,
+            including signed stabilizers, nontrivial gauge components, and
+            physical/logical round trips.
+          </li>
+          <li>
+            Test tuple/copy behavior and stable syndrome indexes. Preserve
+            custom encoding order; reject duplicate or missing physical labels
+            at the boundary.
+          </li>
+          <li>
+            Test that equivalence agrees exactly with an empty explanation for
+            every option combination, including stabilizer signs, logical-basis
+            changes, and gauge-space differences.
+          </li>
+          <li>
+            Preserve correlated unit-cost errors, impossible failure, open
+            bounds, witness replay, and all supported solvers. Test the
+            observable filter on multiple logical qubits and prove the old
+            parity queries have an explicit translation.
+          </li>
+          <li>
+            Migrate the public-surface tests, profile tests, distance consumers,
+            and notebooks. Replace forwarding-equivalence tests with observable
+            contracts where behavior is being clarified.
+          </li>
+        </ol>
+        <h3>Executable contract</h3>
+        <p>
+          The exact public surface is pinned by
+          <a href="source/qdk_package/tests/ec_tests/test_api_surface.py"
+            >surface tests</a
+          >. Error, phase, gauge, and equivalence behavior is covered by
+          <a href="source/qdk_package/tests/ec_tests/profile/test_code.py"
+            >profile tests</a
+          >; observable constraints and parity migration are covered by
+          <a href="source/qdk_package/tests/ec_tests/profile/test_distance.py"
+            >distance tests</a
+          >.
+        </p>
+        <p class="note">
+          Consumer discovery covered the checkout's tests, implementations, and
+          sample notebooks. It does not establish that external callers do not
+          use any removed member.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -261,15 +261,98 @@ def test_pauli_witness_preserves_phase_order_and_snapshot() -> None:
     assert witness.factors == (Pauli("X"), Pauli("Z"))
 
 
-def test_coset_alternatives_respect_the_requested_logical_parity() -> None:
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_alternative_errors_flip_the_requested_logical_observable(
+    method: str,
+) -> None:
     profile = CodeProfile(qc.Code("pair", [], ["X_0", "X_1"], ["Z_0", "Z_1"]))
     errors = [Pauli("X_0"), Pauli("X_1"), Pauli("Y_0"), Pauli("Y_1")]
-    distance = profile.distance(errors=errors, coset_representative=Pauli("X_1"))
+    distance = getattr(profile, method)(
+        errors=errors, logical_observable=Pauli("Z_1")
+    )
     assert distance == 1
     assert {witness.product for witness in distance.witnesses} == {
         Pauli("X_1"),
         Pauli("Y_1"),
     }
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+@pytest.mark.parametrize("observable", ["X", "Y", "Z", "-X", "-Y", "-Z"])
+def test_observable_filter_uses_logical_indexes_and_pauli_commutation(
+    method: str, observable: str
+) -> None:
+    profile = CodeProfile(qc.Code("sparse", [], ["Z_5"], ["X_5"]))
+    allowed = [Pauli({5: char}) for char in "XYZ"]
+    target = Pauli(observable)
+    distance = getattr(profile, method)(errors=allowed, logical_observable=target)
+    witnesses = {witness.product for witness in distance.witnesses}
+    assert distance == 1
+    assert witnesses == {
+        error
+        for error in allowed
+        if not profile.logical_effect_of(error).commutes_with(target)
+    }
+    assert len(witnesses) == 2
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+@pytest.mark.parametrize("observable", ["I", "-I", "iX", "X_1"])
+def test_invalid_logical_observables_raise_even_without_allowed_errors(
+    method: str, observable: str
+) -> None:
+    profile = CodeProfile(qc.Code("one", [], ["X_5"], ["Z_5"]))
+    with pytest.raises(ValueError):
+        getattr(profile, method)(errors=[], logical_observable=Pauli(observable))
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_distance_rejects_out_of_support_errors(method: str) -> None:
+    profile = CodeProfile(qc.Code("one", [], ["X_5"], ["Z_5"]))
+    with pytest.raises(ValueError, match="not supported"):
+        getattr(profile, method)(errors=[Pauli("X_9")])
+
+
+@pytest.mark.parametrize("method", ["distance", "distance_bounds"])
+def test_no_allowed_error_flips_the_observable_means_infinite_distance(
+    method: str,
+) -> None:
+    profile = CodeProfile(qc.Code("one", [], ["X_5"], ["Z_5"]))
+    result = getattr(profile, method)(
+        errors=[Pauli("Z_5")], logical_observable=Pauli("Z")
+    )
+    assert result.is_exact
+    assert result.value is None
+    assert list(result.witnesses) == []
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        (left, right)
+        for left, right in product("IXYZ", repeat=2)
+        if (left, right) != ("I", "I")
+    ],
+)
+def test_old_parity_filters_translate_to_logical_observables(
+    left: str, right: str
+) -> None:
+    from qdk.ec._distance import CodeDistanceData
+
+    profile = CodeProfile(qc.Code("pair", [], ["Z_5", "X_9"], ["X_5", "Z_9"]))
+    old_representative = Pauli({5: left, 9: right})
+    errors = [Pauli({5: x, 9: y}) for x, y in product("IXYZ", repeat=2)]
+    old_problem = CodeDistanceData.of(profile, errors)
+    old_parity = old_problem.parity_indicator(old_representative)
+    old_selections = old_problem.odd_cycles.witnesses(1, old_parity)
+    expected = {errors[selection[0]] for selection in old_selections}
+
+    effect = profile.logical_effect_of(old_representative, including_phase=False)
+    swap_axes = {"X": "Z", "Y": "Y", "Z": "X"}
+    observable = Pauli({index: swap_axes[effect[index]] for index in effect.support})
+    distance = profile.distance(errors=errors, logical_observable=observable)
+    assert distance == 1
+    assert {witness.product for witness in distance.witnesses} == expected
 
 
 def test_gadget_alternatives_replay_without_simulation_during_iteration(

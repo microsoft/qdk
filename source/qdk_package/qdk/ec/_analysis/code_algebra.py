@@ -144,16 +144,23 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def is_non_trivial_logical_error(self, error: Pauli) -> bool:
         return self.is_logical_error(error) and not self.is_trivial_logical_error(error)
 
-    def logical_action_of(self, error: Pauli) -> Pauli:
+    def logical_action_of(self, error: Pauli, *, require_phase: bool = False) -> Pauli:
         logical = self.unsigned_logical_action_of(error)
         representative = self.representative_of(logical)
         stabilizer = abs(error) * representative
         reduced = (PauliGroup([stabilizer]) % self._stabilizer).generators[0]
         if reduced.weight:
+            if require_phase:
+                raise ValueError(
+                    "error has a nonzero syndrome or a gauge component; "
+                    "no logical action with a scalar phase exists"
+                )
             return logical
         return logical * reduced * identity(error.phase)
 
     def representative_of(self, pauli: Pauli) -> Pauli:
+        if not isinstance(pauli, Pauli):
+            raise TypeError(f"expected Pauli, got {type(pauli).__name__}")
         if not set(pauli.support) <= frozenset(range(self.logical_qubit_count)):
             raise ValueError(f"Pauli {pauli} has no logical representative.")
         representative = Pauli.identity()
@@ -171,8 +178,7 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         return representative * identity(pauli.phase)
 
     def unsigned_logical_action_of(self, error: Pauli) -> Pauli:
-        if not set(error.support) <= self.support:
-            raise ValueError(f"Error {error} is not supported by {self.support}.")
+        _validate_error_support(error, self.support)
         character_of = ("Y", "Z", "X", "I")
         commutations = map(error.commutes_with, self.logical_basis)
         indexes = [2 * x + z for x, z in chunked(commutations, 2)]
@@ -334,6 +340,13 @@ def _are_equivalent(
     return list(map(canonical, left.standard_generators)) == list(
         map(canonical, right.standard_generators)
     )
+
+
+def _validate_error_support(error: Pauli, support: frozenset[int]) -> None:
+    if not isinstance(error, Pauli):
+        raise TypeError(f"expected Pauli, got {type(error).__name__}")
+    if not set(error.support) <= support:
+        raise ValueError(f"Error {error} is not supported by {support}.")
 
 
 def _validate_stabilizers(stabilizers: Sequence[Pauli]) -> None:

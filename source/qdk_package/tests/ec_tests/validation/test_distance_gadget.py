@@ -881,7 +881,7 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
         (Pauli({faults.index(fault): "X"}) for fault in witness),
         Pauli.identity(),
     )
-    assert CodeProfile(code).is_non_trivial_logical_error(residual)
+    assert CodeProfile(code).is_logical(residual)
     logical_fault = FaultEvent.after(0, Pauli("X_0 X_1"))
     distance = profile.distance(faults=[logical_fault])
     assert distance == 1

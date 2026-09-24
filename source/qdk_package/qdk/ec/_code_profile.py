@@ -5,9 +5,13 @@ from __future__ import annotations
 from typing import Sequence, TYPE_CHECKING
 
 import qodec as qc
-from paulimer import CliffordUnitary, PauliGroup
+from paulimer import CliffordUnitary
 
-from ._analysis.code_algebra import subsystem_code_of
+from ._analysis.code_algebra import (
+    _are_equivalent,
+    _validate_error_support,
+    subsystem_code_of,
+)
 from ._analysis.propagation.pauli import Pauli
 from ._distance_result import Distance
 
@@ -23,70 +27,105 @@ class CodeProfile:
     do not affect this profile. Derived groups are computed on first access
     and cached; distance searches run when requested. The code's name,
     description, and persistence remain with qodec.
+
+    Operator collections are tuples of independent Pauli copies. Equality
+    compares the ordered operator snapshot, not code names or metadata.
+    Profiles are not hashable; use is_equivalent_to for algebraic equivalence.
+    X and Z name logical or gauge axes, not the physical Pauli factors.
     """
 
     def __init__(self, code: qc.Code) -> None:
         self._algebra = subsystem_code_of(code)
 
     @property
-    def stabilizer(self) -> PauliGroup:
-        return self._algebra.stabilizer
+    def stabilizers(self) -> tuple[Pauli, ...]:
+        """Physical generators in the snapshotted code.stabilizers order."""
+        return tuple(pauli.copy() for pauli in self._algebra.stabilizers)
 
     @property
-    def stabilizers(self) -> Sequence[Pauli]:
-        return self._algebra.stabilizers
+    def x(self) -> tuple[Pauli, ...]:
+        """Physical logical-X representatives, indexed by logical qubit as in code.x."""
+        return tuple(pauli.copy() for pauli in self._algebra.logical_basis[0::2])
 
     @property
-    def anti_stabilizer(self) -> PauliGroup:
-        return self._algebra.anti_stabilizer
+    def z(self) -> tuple[Pauli, ...]:
+        """Physical logical-Z representatives, indexed by logical qubit as in code.z."""
+        return tuple(pauli.copy() for pauli in self._algebra.logical_basis[1::2])
 
     @property
-    def anti_stabilizers(self) -> Sequence[Pauli]:
-        return self._algebra.anti_stabilizers
+    def gauge_x(self) -> tuple[Pauli, ...]:
+        """Physical gauge-X generators, paired with gauge_z at the same index.
+
+        Indexes identify gauge qubits, not physical labels. The derived basis
+        is fixed within the snapshot but is not canonical.
+        """
+        return tuple(pauli.copy() for pauli in self._algebra.gauge_basis[0::2])
 
     @property
-    def gauge(self) -> PauliGroup:
-        """The gauge group as declared, or derived when none was declared."""
-        return self._algebra.gauge
+    def gauge_z(self) -> tuple[Pauli, ...]:
+        """Physical gauge-Z generators, paired with gauge_x at the same index.
 
-    @property
-    def gauge_basis(self) -> tuple[Pauli, ...]:
-        return self._algebra.gauge_basis
-
-    @property
-    def logical(self) -> PauliGroup:
-        return self._algebra.logical
-
-    @property
-    def logical_basis(self) -> Sequence[Pauli]:
-        return self._algebra.logical_basis
+        Indexes identify gauge qubits, not physical labels. The derived basis
+        is fixed within the snapshot but is not canonical.
+        """
+        return tuple(pauli.copy() for pauli in self._algebra.gauge_basis[1::2])
 
     @property
     def support(self) -> frozenset[int]:
+        """Physical qubit labels in the analyzed operators, not a dense array extent."""
         return self._algebra.support
 
     @property
     def length(self) -> int:
+        """Number of physical qubits in support, not the largest label plus one."""
         return self._algebra.length
 
     @property
     def logical_qubit_count(self) -> int:
+        """Number of logical X/Z pairs, not the number of basis generators."""
         return self._algebra.logical_qubit_count
 
     def syndrome_of(self, error: Pauli) -> frozenset[int]:
-        """Zero-based positions in ``stabilizers`` that anticommute with ``error``."""
+        """Zero-based positions in ``stabilizers`` that anticommute with a physical error.
 
+        Raise ValueError when the error acts outside support.
+        """
+        _validate_error_support(error, self.support)
         return self._algebra.syndrome_of(error)
 
-    def logical_effect_of(self, error: Pauli) -> Pauli:
-        """Return the logical Pauli induced by ``error``."""
-        return self._algebra.logical_effect_of(error)
+    def logical_effect_of(
+        self, error: Pauli, *, including_phase: bool = True
+    ) -> Pauli:
+        """Map a physical error to a Pauli on zero-based logical-qubit indexes.
+
+        By default, require a signed logical action: the error must differ from
+        its logical representative only by a stabilizer and scalar phase.
+        Nonzero syndrome or a nontrivial gauge component raises ValueError.
+
+        With including_phase=False, return the phase-free component defined by
+        commutation with the logical basis, even for detectable or gauge errors.
+        This does not imply a logical failure or assume any recovery.
+        Errors outside support always raise ValueError.
+        """
+        if including_phase:
+            return self._algebra.logical_action_of(error, require_phase=True)
+        return self._algebra.unsigned_logical_action_of(error)
+
+    def is_logical(self, error: Pauli) -> bool:
+        """Whether a physical error has zero syndrome and a nonidentity logical effect.
+
+        Identity, stabilizers, gauge-only changes, and detectable errors return
+        False. Global phase is ignored. This is stricter than merely preserving
+        the code space. Errors outside support raise ValueError.
+        """
+        _validate_error_support(error, self.support)
+        return self._algebra.is_non_trivial_logical_error(error)
 
     def distance(
         self,
         *,
         errors: "str | Sequence[Pauli]" = "XYZ",
-        coset_representative: Pauli | None = None,
+        logical_observable: Pauli | None = None,
         upper_bound: int | None = None,
         solver: "_ExactSolver | None" = None,
     ) -> Distance[Pauli]:
@@ -102,17 +141,24 @@ class CodeProfile:
         MWPF requires a separate pip install mwpf.
         A cutoff or an unresolved bound gap raises RuntimeError. A
         result with both bounds None means no allowed logical error exists.
+
+        logical_observable restricts failure to flipping that nonidentity,
+        Hermitian Pauli on zero-based logical-qubit indexes; for example Z_0
+        selects logical X_0 or Y_0 errors. None permits any logical failure.
+        Out-of-support errors and invalid observables raise ValueError.
+        upper_bound is a search cutoff, not a certified bound; MWPF ignores it.
         """
         from ._analysis.distance_solvers import HighsSolverOptions
         from ._distance import CodeDistanceData, _pauli_product, distance_result_of
 
-        data = CodeDistanceData.of(self._algebra, errors)
+        data = CodeDistanceData.of(
+            self._algebra, errors, logical_observable=logical_observable
+        )
         return distance_result_of(
             data.odd_cycles,
             data.errors,
             solver=HighsSolverOptions() if solver is None else solver,
             upper_bound=upper_bound,
-            coset_indicator=data.parity_indicator(coset_representative),
             exact=True,
             product=_pauli_product,
             copy=Pauli.copy,
@@ -122,7 +168,7 @@ class CodeProfile:
         self,
         *,
         errors: "str | Sequence[Pauli]" = "XYZ",
-        coset_representative: Pauli | None = None,
+        logical_observable: Pauli | None = None,
         upper_bound: int | None = None,
         solver: "_BoundsSolver | None" = None,
     ) -> Distance[Pauli]:
@@ -140,17 +186,20 @@ class CodeProfile:
         upper_bound as a search cutoff; MWPF ignores it. Backend failures,
         invalid witnesses, or unavailable bound certificates
         raise RuntimeError rather than returning a partial or uncertified bound.
+        logical_observable has the same logical-qubit indexes, validation, and
+        failure meaning as in distance. Errors outside support raise ValueError.
         """
         from ._analysis.distance_solvers import HighsSolverOptions
         from ._distance import CodeDistanceData, _pauli_product, distance_result_of
 
-        data = CodeDistanceData.of(self._algebra, errors)
+        data = CodeDistanceData.of(
+            self._algebra, errors, logical_observable=logical_observable
+        )
         return distance_result_of(
             data.odd_cycles,
             data.errors,
             solver=HighsSolverOptions() if solver is None else solver,
             upper_bound=upper_bound,
-            coset_indicator=data.parity_indicator(coset_representative),
             product=_pauli_product,
             copy=Pauli.copy,
         )
@@ -162,53 +211,78 @@ class CodeProfile:
 
         ``supported_by`` lists every physical qubit label in ``support`` once;
         its order assigns positions 0, 1, ... in the returned Clifford. The
-        default is increasing label order. Incomplete or different support
-        raises ``ValueError``.
+        default is increasing label order. Repeated, incomplete, or different
+        support raises ``ValueError``.
         """
+        if supported_by is not None and (
+            len(supported_by) != len(self.support)
+            or frozenset(supported_by) != self.support
+        ):
+            raise ValueError("supported_by must list every physical support label once")
         return self._algebra.encoding_clifford(supported_by=supported_by)
 
-    def is_trivial_error(self, error: Pauli) -> bool:
-        return self._algebra.is_trivial_error(error)
-
-    def is_trivial_logical_error(self, error: Pauli) -> bool:
-        return self._algebra.is_trivial_logical_error(error)
-
-    def is_logical_error(self, error: Pauli) -> bool:
-        return self._algebra.is_logical_error(error)
-
-    def is_non_trivial_logical_error(self, error: Pauli) -> bool:
-        return self._algebra.is_non_trivial_logical_error(error)
-
-    def logical_action_of(self, error: Pauli) -> Pauli:
-        return self._algebra.logical_action_of(error)
-
     def representative_of(self, pauli: Pauli) -> Pauli:
-        return self._algebra.representative_of(pauli)
+        """Expand a Pauli on zero-based logical-qubit indexes to physical support.
 
-    def unsigned_logical_action_of(self, error: Pauli) -> Pauli:
-        return self._algebra.unsigned_logical_action_of(error)
+        Use the chosen logical basis and preserve phase. Invalid logical-qubit
+        indexes raise ValueError.
+        """
+        return self._algebra.representative_of(pauli)
 
     def is_equivalent_to(
         self,
         other: "CodeProfile",
         *,
-        including_signs: bool = False,
+        including_signs: bool = True,
         strict_basis: bool = True,
     ) -> bool:
-        return self._algebra.is_equivalent_to(
-            other._algebra,
+        """Compare stabilizer and gauge groups and the chosen logical basis.
+
+        By default signs and logical-basis order matter. Set strict_basis=False
+        to compare logical groups instead, allowing another basis.
+        """
+        return not self.why_not_equivalent_to(
+            other,
             including_signs=including_signs,
             strict_basis=strict_basis,
         )
 
-    def why_not_equivalent_to(self, other: "CodeProfile") -> str:
-        return self._algebra.why_not_equivalent_to(other._algebra)
+    def why_not_equivalent_to(
+        self,
+        other: "CodeProfile",
+        *,
+        including_signs: bool = True,
+        strict_basis: bool = True,
+    ) -> str:
+        """Return the first difference, or "" exactly when is_equivalent_to is True."""
+        if self.support != other.support:
+            return f"Code supports differ: {self.support!r} vs {other.support!r}."
+        for name, left_group, right_group in (
+            ("Stabilizer", self._algebra.stabilizer, other._algebra.stabilizer),
+            ("Gauge", self._algebra.gauge, other._algebra.gauge),
+        ):
+            if not _are_equivalent(
+                left_group,
+                right_group,
+                including_signs=including_signs,
+            ):
+                return f"{name} groups differ."
+        if strict_basis:
+            left, right = self._algebra.logical_basis, other._algebra.logical_basis
+            if not including_signs:
+                left, right = tuple(map(abs, left)), tuple(map(abs, right))
+            if left != right:
+                return "Logical bases differ."
+        elif not _are_equivalent(
+            self._algebra.logical,
+            other._algebra.logical,
+            including_signs=including_signs,
+        ):
+            return "Logical groups differ."
+        return ""
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, CodeProfile) and self._algebra == other._algebra
-
-    def __hash__(self) -> int:
-        return hash(self._algebra)
 
 
 __all__ = ["CodeProfile"]

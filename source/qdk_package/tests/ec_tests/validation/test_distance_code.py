@@ -105,7 +105,7 @@ def test_code_profile_defaults_to_highs(method: str) -> None:
     ) as backend:
         distance = getattr(profile, method)(errors="X")
     assert distance == 3
-    assert profile.is_non_trivial_logical_error(distance.witness.product)
+    assert profile.is_logical(distance.witness.product)
     backend.assert_called_once_with("highspy")
 
 
@@ -129,7 +129,7 @@ def test_distance_and_bounds_default_to_unit_cost_y_errors() -> None:
         assert distance == 1
         assert len(distance.witness.factors) == 1
         assert distance.witness.product in (Pauli("Y_0"), Pauli("Y_1"))
-        assert code.is_non_trivial_logical_error(distance.witness.product)
+        assert code.is_logical(distance.witness.product)
     distance, witness = code_distance_of(code)
     assert distance == len(witness) == 1
     lower, upper, witness = code_distance_bounds_of(code)
