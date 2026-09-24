@@ -22,7 +22,7 @@ from .clifford_semantics import (
 from .quantum_operations import LogicalSlot, Operation, RestoreMeasured, local_indices
 from .protocols import Readouts, Request, Requests, Resources
 from .action_runtime import ActionProgram, prepare_actions, temporary_count
-from .call_binding import BoundCall, bind_call
+from .call_binding import BoundCall, InstructionBinding
 from .physical_layout import PhysicalLayout
 from .quantum_lowering import lower_program
 from .selection import prepare_selection
@@ -117,7 +117,11 @@ class InstructionSet:
         blocks = instruction_set.blocks
         self.name = instruction_set.name
         self.capacities = {block.name: block.encodes for block in blocks}
-        self.declarations = instruction_set.instructions
+        self.declarations = dict(instruction_set.instructions)
+        self.bindings = {
+            name: InstructionBinding(instruction, self.capacities)
+            for name, instruction in self.declarations.items()
+        }
         self.semantics: dict[str, tuple[Operation | CliffordUnitary, ...]] = {}
         self.cliffords: dict[str, CliffordUnitary | None] = {}
         for name, instruction in self.declarations.items():
@@ -194,9 +198,9 @@ class InstructionSet:
         candidates: list[tuple[str, dict[str, InstructionCall.Argument]]] = []
         parameterized: list[tuple[str, dict[str, InstructionCall.Argument]]] = []
         for name, operations in self.semantics.items():
-            declaration = self.declarations[name]
-            inputs = tuple(operand.block for operand in declaration.inputs)
-            outputs = tuple(operand.block for operand in declaration.outputs)
+            binding = self.bindings[name]
+            inputs = binding.input_types
+            outputs = binding.output_types
             if operation == "prepare":
                 compatible = outputs == blocks and inputs in ((), blocks)
             elif operation == "measure":
@@ -207,7 +211,7 @@ class InstructionSet:
                 continue
             if inputs != outputs and set(range(width)) - set(positions):
                 continue
-            if declaration.flags:
+            if binding.flags:
                 continue
             if requested_clifford is not None:
                 if self.cliffords[name] == requested_clifford:
@@ -398,12 +402,12 @@ class InstructionRuntime:
             if readouts is None:
                 raise TypeError("Instruction execution must return a readout tuple")
             return readouts
-        declaration = self.instructions.declarations[request.mnemonic]
-        selection = prepare_selection(declaration.flags, request.select)
+        prepared = self.instructions.bindings[request.mnemonic]
+        selection = prepare_selection(prepared.flags, request.select)
         readouts = yield from self.execute(
             request.mnemonic, request.operands, request.arguments
         )
-        selection.require(readouts[declaration.observe_count :])
+        selection.require(readouts[prepared.observe_count :])
         return readouts
 
     def execute(
@@ -414,13 +418,9 @@ class InstructionRuntime:
     ) -> Requests[Readouts]:
         if self.failed:
             raise RuntimeError("Physical instruction runtime has failed")
-        declaration = self.instructions.declarations[mnemonic]
-        binding = bind_call(
-            self.instructions.instruction_set,
-            InstructionCall(
-                mnemonic, operands=list(targets), arguments=dict(arguments)
-            ),
-        )
+        prepared = self.instructions.bindings[mnemonic]
+        binding = prepared.bind(targets)
+        prepared.validate(arguments)
         operations = self.operations[mnemonic]
         program = (
             operations.bind(binding, arguments)
@@ -472,13 +472,13 @@ class InstructionRuntime:
                 if program is None:
                     raise RuntimeError("Physical action program was not prepared")
                 records = list((yield from lower_program(program, qubits)))
-            if len(records) != declaration.observe_count:
+            if len(records) != prepared.observe_count:
                 raise ValueError(
                     f"Instruction {mnemonic!r} returned the wrong number of observable results"
                 )
             if self.layout is not None:
                 self.layout.commit(binding, qubits)
-            return tuple(records) + (False,) * len(declaration.flags)
+            return tuple(records) + (False,) * len(prepared.flags)
         except BaseException:
             self.failed = True
             raise

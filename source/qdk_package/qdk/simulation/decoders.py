@@ -8,6 +8,17 @@ once per encoded layer and returns a factory for fresh, seeded shot sessions.
 ``prepare_frame_decoder`` tracks noiseless frames without inferring faults.
 ``prepare_deq_decoder`` uses deq relay-BP for per-boundary syndrome decoding.
 
+Native shot batching is selected by the prepared factory's optional
+``BatchDecoderFactory`` capability, not the name of the preparation function.
+The supplied syndrome, frame, and deq factories implement it; wrappers that
+return these factories retain it. A custom factory can implement
+``prepare_batch()`` and return a ``BatchDecoderSession`` whose
+``prepare_readouts()`` provides independent terminal ``ReadoutBatch`` evaluators.
+``ReadoutTable`` implements this evaluator for deterministic finite tables.
+Factories without this capability, adaptive circuits, and retry policies retain
+the interpreter. Batched deq inference preserves the per-shot decoder seeds;
+only clean-syndrome results are shared, never stochastic solver answers.
+
 To configure deq's independent Pauli prior::
 
     from functools import partial
@@ -29,6 +40,9 @@ from ._qodec.decoding import prepare_deq_decoder as prepare_deq_decoder
 from ._qodec.decoding import prepare_syndrome_decoder as prepare_syndrome_decoder
 from ._qodec.frame_runtime import prepare_frame_decoder as prepare_frame_decoder
 from ._qodec.protocols import (
+    BatchDecoderFactory as BatchDecoderFactory,
+    BatchDecoderSession as BatchDecoderSession,
+    BatchUnsupported as BatchUnsupported,
     BlockReference as BlockReference,
     Correction as Correction,
     Corrections as Corrections,
@@ -39,6 +53,8 @@ from ._qodec.protocols import (
     ExecutionUnresolved as ExecutionUnresolved,
     Invocation as Invocation,
     PrepareDecoder as PrepareDecoder,
+    ReadoutBatch as ReadoutBatch,
+    ReadoutTable as ReadoutTable,
     Readouts as Readouts,
 )
 from ._qodec.quantum_operations import (
@@ -47,6 +63,9 @@ from ._qodec.quantum_operations import (
 )
 
 __all__ = [
+    "BatchDecoderFactory",
+    "BatchDecoderSession",
+    "BatchUnsupported",
     "BlockReference",
     "Correction",
     "Corrections",
@@ -59,6 +78,8 @@ __all__ = [
     "LogicalSlot",
     "Operation",
     "PrepareDecoder",
+    "ReadoutBatch",
+    "ReadoutTable",
     "Readouts",
     "prepare_syndrome_decoder",
     "prepare_frame_decoder",

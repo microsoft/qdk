@@ -4,11 +4,13 @@ from collections.abc import Sequence
 
 import numpy as np
 from paulimer import DensePauli
-from qodec import Code, Layer
+from qodec import Code, Gadget, Layer
+from qodec.instructions import InstructionCall
 from scipy.optimize import Bounds, LinearConstraint, milp
 
 from .instruction_set import pauli
 from .protocols import (
+    BatchDecoderSession,
     BlockReference,
     Correction,
     Corrections,
@@ -17,10 +19,13 @@ from .protocols import (
     ExecutionUnresolved,
     Invocation,
     Readouts,
+    ReadoutBatch,
+    ReadoutTable,
 )
 from .quantum_operations import Operation
 from .readout_equations import (
     BinarySystem,
+    InconsistentParity,
     Parity,
     expression,
     prepare_frames,
@@ -102,7 +107,7 @@ def _sign(boundary: str, entry: int, property_name: str, index: int) -> Parity:
 
 
 def prepare_syndrome_decoder(layer: Layer) -> DecoderFactory:
-    return SyndromeModel(layer).new_session
+    return SyndromeModel(layer)
 
 
 def prepare_deq_decoder(
@@ -121,7 +126,7 @@ def prepare_deq_decoder(
     a running asyncio event loop, including notebooks.
     """
     try:
-        from .deq_decoding import DeqSession
+        from .deq_decoding import DeqModel
     except ModuleNotFoundError as error:
         if error.name and error.name.split(".")[0] in ("deq", "deq_runtime"):
             raise ImportError(
@@ -131,14 +136,16 @@ def prepare_deq_decoder(
         raise
     if not 0 < error_probability < 0.5:
         raise ValueError("error_probability must be between zero and one half")
-    prepared = SyndromeModel(layer)
-    return lambda seed: DeqSession(prepared, error_probability, seed)
+    return DeqModel(layer, error_probability)
 
 
 class SyndromeModel:
     def __init__(self, layer: Layer) -> None:
         self.gadgets = {}
         self.frames = {}
+        self.systems: dict[str, BinarySystem] = {}
+        self.readout_keys: dict[str, tuple[Parity, ...]] = {}
+        self._readout_tables: dict[tuple[str, int], tuple[Readouts, ...] | None] = {}
         for name, gadget in layer.gadgets.items():
             validate_equations(gadget)
             self.frames[name] = prepare_frames(gadget)
@@ -155,9 +162,104 @@ class SyndromeModel:
                 expression(readout.equation) for readout in gadget.readouts
             )
             self.gadgets[name] = (codes, checks, readouts)
+            keys = tuple(
+                Parity(frozenset({("readout", None, None, None, index)}))
+                for index in range(len(readouts))
+            )
+            self.readout_keys[name] = keys
+            self.systems[name] = BinarySystem(
+                (*checks, *(key ^ equation for key, equation in zip(keys, readouts)))
+            )
 
     def new_session(self, seed: int | None = None) -> SyndromeSession:
         return SyndromeSession(self)
+
+    def __call__(self, seed: int | None = None) -> SyndromeSession:
+        return self.new_session(seed)
+
+    def prepare_batch(self) -> BatchDecoderSession:
+        return _SyndromeBatchSession(self)
+
+    def readout_table(
+        self, gadget: Gadget, record_count: int
+    ) -> tuple[Readouts, ...] | None:
+        name = gadget.implements.mnemonic
+        key = (name, record_count)
+        if key not in self._readout_tables:
+            self._readout_tables[key] = self._prepare_readout_table(
+                gadget, record_count
+            )
+        return self._readout_tables[key]
+
+    def terminal_invocation(
+        self, gadget: Gadget, record_count: int
+    ) -> Invocation | None:
+        if gadget.outputs or not 0 <= record_count <= 10:
+            return None
+        name = gadget.implements.mnemonic
+        codes, checks, equations = self.gadgets[name]
+        system = self.systems[name].copy()
+        try:
+            for index in range(record_count):
+                system.add(
+                    Parity(frozenset({("circuit_readout", None, None, None, index)}))
+                )
+        except InconsistentParity:
+            return None
+        referenced = set().union(
+            *(parity.variables for parity in (*checks, *equations))
+        )
+        for entry in range(len(gadget.inputs)):
+            observed = any(
+                system.value(_sign("in", entry, "stabilizers", index)) is not None
+                for index in range(len(codes[("in", entry)].stabilizers))
+            )
+            if not observed and any(
+                isinstance(variable, tuple)
+                and variable[:3] == ("encoding", "in", entry)
+                for variable in referenced
+            ):
+                return None
+        return Invocation(
+            0,
+            gadget,
+            InstructionCall(name, operands=list(range(len(gadget.inputs)))),
+            tuple(
+                BlockReference(entry, 0, operand.block)
+                for entry, operand in enumerate(gadget.implements.inputs)
+            ),
+            (),
+        )
+
+    def _prepare_readout_table(
+        self, gadget: Gadget, record_count: int
+    ) -> tuple[Readouts, ...] | None:
+        invocation = self.terminal_invocation(gadget, record_count)
+        if invocation is None:
+            return None
+        table = []
+        session = self.new_session()
+        try:
+            for pattern in range(1 << record_count):
+                records = tuple(
+                    bool(pattern & (1 << index)) for index in range(record_count)
+                )
+                corrections = session.decode(invocation, records)
+                try:
+                    next(corrections)
+                    return None
+                except StopIteration as completed:
+                    decoded: Decoded = completed.value
+                    if any(value is None for value in decoded.readouts):
+                        return None
+                    table.append(decoded.readouts)
+                except (InconsistentParity, ExecutionUnresolved):
+                    return None
+                finally:
+                    corrections.close()
+        finally:
+            session.close()
+        return tuple(table)
 
 
 class SyndromeSession:
@@ -176,20 +278,15 @@ class SyndromeSession:
             raise RuntimeError("Decoder session is closed")
         gadget = invocation.gadget
         validate_equations(gadget, len(readouts))
-        codes, checks, equations = self.model.gadgets[gadget.implements.mnemonic]
+        name = gadget.implements.mnemonic
+        codes, _, _ = self.model.gadgets[name]
         values: dict[tuple[str, str | None, int | None, str | None, int], bool] = {
             ("circuit_readout", None, None, None, index): bool(value)
             for index, value in enumerate(readouts)
             if value is not None
         }
-        readout_keys = tuple(
-            Parity(frozenset({("readout", None, None, None, index)}))
-            for index in range(len(equations))
-        )
-        definitions = tuple(
-            key ^ equation for key, equation in zip(readout_keys, equations)
-        )
-        system = BinarySystem((*checks, *definitions))
+        readout_keys = self.model.readout_keys[name]
+        system = self.model.systems[name].copy()
         for key, value in values.items():
             system.add(Parity(frozenset({key}), value))
         for entry, block in enumerate(invocation.inputs):
@@ -248,7 +345,7 @@ class SyndromeSession:
                         Operation(correction[target].lower(), (target,)),
                     )
 
-        system = BinarySystem((*checks, *definitions))
+        system = self.model.systems[name].copy()
         for key, value in values.items():
             system.add(Parity(frozenset({key}), value))
         decoded = tuple(system.value(key) for key in readout_keys)
@@ -277,3 +374,11 @@ class SyndromeSession:
     def close(self) -> None:
         self.closed = True
         self.boundaries.clear()
+
+
+class _SyndromeBatchSession(SyndromeSession):
+    def prepare_readouts(
+        self, invocation: Invocation, record_count: int, /
+    ) -> ReadoutBatch | None:
+        table = self.model.readout_table(invocation.gadget, record_count)
+        return None if table is None else ReadoutTable(table)

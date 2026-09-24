@@ -28,6 +28,11 @@ class BinarySystem:
         for equation in equations:
             self.add(equation)
 
+    def copy(self) -> BinarySystem:
+        result = BinarySystem()
+        result._rows = self._rows.copy()
+        return result
+
     def add(self, equation: Parity) -> None:
         reduced = self.reduce(equation)
         if reduced.variables:

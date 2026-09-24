@@ -24,7 +24,7 @@ from .quantum_backend import full_state_backend, stabilizer_backend
 from .readout_equations import InconsistentParity
 
 ResultT = TypeVar("ResultT")
-ShotFailurePolicy: TypeAlias = Literal["raise", "discard", "retry"]
+ShotFailurePolicy: TypeAlias = Literal["discard", "raise", "retry"]
 
 
 def run_qir_with_qodec(
@@ -62,16 +62,35 @@ def run_qir_with_qodec(
     executor.set_seed(seed)
     recorder = OutputRecordingPass()
     recorder.run(module)
-    return [
-        recorder.process_output(cast(list[object], records))
-        for records in run_qir_raw_records(
+    _validate_shot_policy(on_shot_failure, max_retries)
+    records = None
+    if shots > 0 and on_shot_failure != "retry":
+        from .native_batch import prepare_batch
+
+        batch = prepare_batch(compile(module), executor.pipeline_factory)
+        if batch is not None:
+            records = batch.run(
+                shots, noise, seed=seed, on_shot_failure=on_shot_failure
+            )
+    if records is None:
+        records = run_qir_raw_records(
             module,
             executor,
             shots,
             on_shot_failure=on_shot_failure,
             max_retries=max_retries,
         )
+    return [
+        recorder.process_output(cast(list[object], shot_records))
+        for shot_records in records
     ]
+
+
+def _validate_shot_policy(on_shot_failure: ShotFailurePolicy, max_retries: int) -> None:
+    if on_shot_failure not in ("raise", "discard", "retry"):
+        raise ValueError("on_shot_failure must be 'raise', 'discard', or 'retry'")
+    if type(max_retries) is not int or max_retries < 0:
+        raise ValueError("max_retries must be a non-negative integer")
 
 
 def run_qir_raw_records(
@@ -82,10 +101,7 @@ def run_qir_raw_records(
     on_shot_failure: ShotFailurePolicy = "raise",
     max_retries: int = 3,
 ) -> list[ResultT]:
-    if on_shot_failure not in ("raise", "discard", "retry"):
-        raise ValueError("on_shot_failure must be 'raise', 'discard', or 'retry'")
-    if type(max_retries) is not int or max_retries < 0:
-        raise ValueError("max_retries must be a non-negative integer")
+    _validate_shot_policy(on_shot_failure, max_retries)
     bytecode = compile(module)
     records: list[ResultT] = []
     for shot_index in range(shots):

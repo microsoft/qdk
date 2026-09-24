@@ -10,7 +10,7 @@ from typing import TypeVar, cast
 from qodec import Gadget, Layer
 from qodec.instructions import InstructionCall
 
-from .call_binding import BoundCall, bind_call
+from .call_binding import BoundCall, InstructionBinding
 from .circuit_runtime import prepare_circuit as prepare_body
 from .encoding_layout import EncodingLayout, layout_boundary
 from .instruction_set import InstructionSet
@@ -70,6 +70,10 @@ class LayerPlan:
         self.instruction_set = layer.instruction_set
         self.capacities = {
             block.name: block.encodes for block in self.instruction_set.blocks
+        }
+        self.bindings = {
+            name: InstructionBinding(instruction, self.capacities)
+            for name, instruction in self.instruction_set.instructions.items()
         }
         self.codes = layer.codes
         self.gadgets: dict[str, GadgetPlan] = {}
@@ -322,14 +326,15 @@ class LayerRuntime:
             select=[dict(pattern) for pattern in select],
         )
         selection = prepare_selection(gadget.implements.flags, select)
-        binding = bind_call(
-            self.plan.instruction_set,
-            call,
+        prepared = self.plan.bindings[mnemonic]
+        binding = prepared.bind(
+            targets,
             input_types={
                 label: block.reference.block_type
                 for label, block in self.layout.blocks.items()
             },
         )
+        prepared.validate(arguments)
         if len(binding.inputs) != len(gadget.inputs) or len(binding.outputs) != len(
             gadget.outputs
         ):

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from contextlib import closing
 from dataclasses import dataclass
+from typing import cast
 
 from qodec import Gadget, Layer
 
@@ -14,6 +16,8 @@ from .protocols import (
     DecoderFactory,
     ExecutionUnresolved,
     Invocation,
+    ReadoutBatch,
+    ReadoutTable,
     Readouts,
 )
 from .quantum_instruments import (
@@ -28,6 +32,7 @@ from .quantum_instruments import (
 from .readout_equations import (
     BinarySystem,
     FrameDelta,
+    InconsistentParity,
     Parity,
     expression,
     prepare_frames,
@@ -59,7 +64,18 @@ def prepare_frame_decoder(layer: Layer) -> DecoderFactory:
             prepare_frames(gadget),
             circuit_transport(gadget),
         )
-    return lambda seed: FrameSession(plans)
+    return FrameModel(plans)
+
+
+@dataclass(frozen=True)
+class FrameModel:
+    plans: dict[str, FramePlan]
+
+    def __call__(self, seed: int | None = None) -> FrameSession:
+        return FrameSession(self.plans)
+
+    def prepare_batch(self) -> _FrameBatchSession:
+        return _FrameBatchSession(self.plans)
 
 
 class FrameSession:
@@ -130,6 +146,40 @@ class FrameSession:
     def close(self) -> None:
         self.closed = True
         self.boundaries.clear()
+
+
+class _FrameBatchSession(FrameSession):
+    def prepare_readouts(
+        self, invocation: Invocation, record_count: int, /
+    ) -> ReadoutBatch | None:
+        if invocation.gadget.outputs or not 0 <= record_count <= 10:
+            return None
+        values: list[Readouts | Exception] = []
+        with closing(FrameSession(self.plans)) as session:
+            session.boundaries = {
+                block: dict(signs) for block, signs in self.boundaries.items()
+            }
+            for pattern in range(1 << record_count):
+                records = tuple(
+                    bool(pattern & (1 << index)) for index in range(record_count)
+                )
+                with closing(session.decode(invocation, records)) as corrections:
+                    try:
+                        next(corrections)
+                        return None
+                    except StopIteration as completed:
+                        result = cast(Decoded, completed.value).readouts
+                        if any(value is None for value in result):
+                            values.append(
+                                ExecutionUnresolved(
+                                    "Terminal decoding requires unavailable readouts"
+                                )
+                            )
+                        else:
+                            values.append(result)
+                    except (InconsistentParity, ExecutionUnresolved) as error:
+                        values.append(error.with_traceback(None))
+        return ReadoutTable(tuple(values))
 
 
 def _logical_transport(

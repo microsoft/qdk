@@ -817,18 +817,22 @@ def run_qir(
     :param shots: The number of shots to run.
     :param noise: A noise model to use in the simulation.
     :param seed: A seed for reproducibility.
-    :param qodec: The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
+    :param qodec: EXPERIMENTAL
+        The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
         With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
         ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
-    :param decoder: A ``PrepareDecoder`` callable that prepares a decoder factory for
+    :param decoder: EXPERIMENTAL
+        A ``PrepareDecoder`` callable that prepares a decoder factory for
         each Qodec layer. ``None`` selects the built-in syndrome decoder.
         Requires ``qodec``; each shot receives a fresh decoder session.
         See :mod:`qdk.simulation.decoders` for built-in preparation functions and
         the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
-    :param on_shot_failure: Qodec shot policy: ``"raise"`` stops on the first failure,
+    :param on_shot_failure: EXPERIMENTAL
+        Qodec shot policy: ``"raise"`` stops on the first failure,
         ``"discard"`` returns only successes, and ``"retry"`` restarts failed shots.
         Discard and retry select accepted shots and can change the result distribution.
-    :param max_retries: Additional attempts per Qodec shot under ``"retry"`` (default 3).
+    :param max_retries: EXPERIMENTAL
+        Additional attempts per Qodec shot under ``"retry"`` (default 3).
         Exhaustion re-raises the last failure without returning partial results.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List

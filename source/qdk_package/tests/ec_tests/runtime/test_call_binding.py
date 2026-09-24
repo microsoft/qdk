@@ -3,6 +3,30 @@ import qodec
 from qodec.instructions import Block, BlockOperand, InstructionCall, Parameter
 
 
+def test_prepared_binding_snapshots_metadata_and_validates_each_call():
+    from qdk.simulation._qodec.call_binding import InstructionBinding
+
+    operand = BlockOperand("pair")
+    instruction = qodec.Instruction(
+        "rotate",
+        inputs=[operand],
+        outputs=[operand],
+        parameters=[Parameter("angle", "number")],
+    )
+    capacities = {"pair": 2}
+    prepared = InstructionBinding(instruction, capacities)
+    capacities["pair"] = 7
+    instruction.parameters = [Parameter("replacement", "bit")]
+    assert prepared.bind(["data"]).input_capacity == 2
+    prepared.validate({"angle": 0.5})
+    with pytest.raises(ValueError, match="Missing parameter"):
+        prepared.validate({})
+    with pytest.raises(TypeError, match="expects number"):
+        prepared.validate({"angle": True})
+    with pytest.raises(ValueError, match="operand types"):
+        prepared.bind(["data"], input_types={"data": "single"})
+
+
 def test_binding_expands_variadic_blocks_and_logical_offsets():
     from qdk.simulation._qodec.call_binding import bind_call
 

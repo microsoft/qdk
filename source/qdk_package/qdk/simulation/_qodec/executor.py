@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from copy import deepcopy
 from random import Random
 from typing import Generic, TypeVar
 
@@ -57,6 +58,7 @@ class ExecutionPipelineFactory(Generic[ProgramT, ResultT]):
         self.classical_runtime_factory = classical_runtime_factory
         self.quantum_backend_factory = quantum_backend_factory
         self.rng = Random()
+        qodec = deepcopy(qodec)
         qodec.validate()
         if not qodec.layers:
             raise ValueError("A Qodec must contain a physical instruction set")

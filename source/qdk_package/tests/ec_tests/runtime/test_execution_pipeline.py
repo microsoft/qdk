@@ -1099,18 +1099,43 @@ def test_deq_decoder_releases_worker_after_failure(monkeypatch, failure):
     if failure == "start":
         monkeypatch.setattr(deq_decoding, "Runtime", failed_runtime)
         with pytest.raises(RuntimeError) as raised:
-            factory(7)
+            with closing(factory(7)) as session:
+                decode_gadget(session, layer.gadgets["measure_z"], (True, False, False))
     else:
         session = factory(7)
         assert isinstance(session, deq_decoding.DeqSession)
+        decode_gadget(session, layer.gadgets["measure_z"], (True, False, False))
         assert session._runtime is not None
         monkeypatch.setattr(session._runtime, "shutdown", failed_shutdown)
         with pytest.raises(RuntimeError) as raised:
             session.close()
         session.close()
-        assert session._loop.is_closed()
+        assert session._transport is not None
+        assert session._transport.loop.is_closed()
     assert raised.value is original
     assert workers and all(not worker.is_alive() for worker in workers)
+
+
+def test_deq_clean_syndromes_do_not_start_solver_resources(monkeypatch):
+    pytest.importorskip("deq")
+    pytest.importorskip("deq_runtime")
+    from qdk.simulation._qodec import deq_decoding
+    from qdk.simulation.decoders import prepare_deq_decoder
+
+    monkeypatch.setattr(
+        deq_decoding, "Runtime", Mock(side_effect=AssertionError("No solver needed"))
+    )
+    monkeypatch.setattr(
+        deq_decoding,
+        "ThreadPoolExecutor",
+        Mock(side_effect=AssertionError("No worker needed")),
+    )
+    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
+    with closing(prepare_deq_decoder(layer)(7)) as session:
+        for logical in (False, True):
+            assert decode_gadget(
+                session, layer.gadgets["measure_z"], (logical,) * 3
+            ).readouts == (logical,)
 
 
 @pytest.mark.parametrize("probability", [-1, 0, 0.5, 1, float("nan"), float("inf")])

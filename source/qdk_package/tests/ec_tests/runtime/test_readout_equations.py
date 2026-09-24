@@ -6,6 +6,29 @@ import pytest
 from qodec import Reference
 
 
+def test_prepared_terminal_readout_table_matches_all_repetition_measurements():
+    from qodec import Qodec
+    from qdk.simulation._qodec.decoding import SyndromeModel
+
+    layer = Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
+    model = SyndromeModel(layer)
+    table = model.readout_table(layer.gadgets["measure_z"], 3)
+    assert table == tuple((pattern.bit_count() >= 2,) for pattern in range(8))
+    assert model.readout_table(layer.gadgets["measure_z"], 3) is table
+    assert model.readout_table(layer.gadgets["idle"], 2) is None
+    assert model.readout_table(layer.gadgets["measure_z"], 11) is None
+
+
+def test_readout_table_rejects_dependence_on_an_incoming_boundary():
+    from qodec import Qodec
+    from qdk.simulation._qodec.decoding import SyndromeModel
+
+    layer = Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
+    gadget = layer.gadgets["measure_z"]
+    gadget.checks = []
+    assert SyndromeModel(layer).readout_table(gadget, 3) is None
+
+
 @pytest.mark.parametrize(
     "text, expected",
     [
