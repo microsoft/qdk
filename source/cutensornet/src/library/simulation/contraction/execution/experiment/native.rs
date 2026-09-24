@@ -3,13 +3,15 @@ use crate::simulation::{
     SimulationError,
     contraction::{
         ContractionResources, NativeMetadata, OptimizerEstimate,
-        execution::{ContractionExecution, ExecutionMemory, WorkspaceLimits},
+        adapter::from_native_metadata,
+        execution::{CuTensorNetExecutableContraction, CuTensorNetResourceReport, InputId},
         unexpected,
     },
     error::combine_execution_and_cleanup,
     memory_workspace::MemoryWorkspaceApi,
     resources::SessionResources,
 };
+use qdk_simulators::execution::{ContractionContext, ExecutableContraction, ExecutionLimits};
 use serde_json::{Value, json};
 use std::{
     fs::{self, File},
@@ -21,7 +23,7 @@ use std::{
 
 use super::super::{
     Fixture, compare, fixture,
-    native::{assert_mode_sets, save_output},
+    native::{assert_mode_sets, preparation_error, register_fixture, save_output},
 };
 
 struct Journal {
@@ -137,11 +139,14 @@ fn select(
     combine_execution_and_cleanup(result, cleanup)
 }
 
-fn memory_report(memory: &ExecutionMemory) -> Value {
+fn memory_report(report: &CuTensorNetResourceReport) -> Value {
+    let memory = &report.common;
     json!({
         "event": "memory",
-        "coefficient_bytes": memory.coefficient_bytes,
-        "unique_buffers": memory.unique_buffers,
+        "selected_input_bytes": memory.selected_input_bytes,
+        "selected_input_count": memory.selected_input_count,
+        "resident_input_bytes": memory.resident_input_bytes,
+        "resident_input_count": memory.resident_input_count,
         "output_bytes": memory.output_bytes,
         "device_scratch_minimum": memory.device_scratch_minimum,
         "device_scratch_recommended": memory.device_scratch_recommended,
@@ -149,8 +154,8 @@ fn memory_report(memory: &ExecutionMemory) -> Value {
         "host_scratch_minimum": memory.host_scratch_minimum,
         "host_scratch_recommended": memory.host_scratch_recommended,
         "host_scratch_allocated": memory.host_scratch_allocated,
-        "device_cache_recommended": memory.device_cache_recommended,
-        "host_cache_recommended": memory.host_cache_recommended,
+        "device_cache_recommended": report.device_cache_recommended,
+        "host_cache_recommended": report.host_cache_recommended,
         "owned_device_bytes": memory.owned_device_bytes,
     })
 }
@@ -166,31 +171,27 @@ fn execute(
     let mut session = SessionResources::new(Arc::clone(&availability.libraries), 0)?;
     let result = (|| {
         let query = fixture.circuit.query().expect("qualified query");
-        let mut resources = ContractionResources::new(&mut session, &query)?;
-        if let Err(error) = journal.timed("import", || resources.import(metadata)) {
-            return combine_execution_and_cleanup(
-                Err(error),
-                journal.cleanup("fresh_topology", resources.close()),
-            );
-        }
+        let plan = from_native_metadata(&query, metadata, modes)?;
         let start = Instant::now();
-        let prepared = ContractionExecution::prepare(
-            resources,
-            fixture.circuit.buffers(),
-            fixture.circuit.node_buffer_ids(),
-            WorkspaceLimits {
-                device_scratch: Some(usize::try_from(WORKSPACE_BYTES).expect("64-bit host")),
-                host_scratch: None,
+        let prepared = session.prepare(
+            &query,
+            &plan,
+            ExecutionLimits {
+                device_scratch_bytes: Some(usize::try_from(WORKSPACE_BYTES).expect("64-bit host")),
+                host_scratch_bytes: None,
             },
         );
         let elapsed = start.elapsed().as_secs_f64();
         let mut execution = match prepared {
             Ok(execution) => execution,
-            Err(error) => {
+            Err(failure) => {
+                let resource_report = journal.record(&memory_report(&failure.partial));
+                let error = preparation_error(failure);
+                let result = combine_execution_and_cleanup(Err(error), resource_report);
                 let report = journal.record(&json!({
                     "event": "timing", "phase": "prepare_host_call", "seconds": elapsed
                 }));
-                return journal.operation_result(combine_execution_and_cleanup(Err(error), report));
+                return journal.operation_result(combine_execution_and_cleanup(result, report));
             }
         };
         let result = (|| {
@@ -198,18 +199,23 @@ fn execute(
             journal.record(&json!({
                 "event": "timing", "phase": "prepare_host_call", "seconds": elapsed
             }))?;
-            journal.record(&memory_report(execution.memory()))?;
+            let inputs = register_fixture(&mut execution, fixture)?;
+            journal.record(&memory_report(execution.resources()))?;
             if execution.metadata()? != *metadata {
                 return Err(unexpected("metadata changed during preparation"));
             }
             assert_mode_sets(modes, &execution.intermediate_modes()?)?;
-            contract(&mut execution, fixture, trial.repeats, journal)?;
+            contract(&mut execution, &inputs, fixture, trial.repeats, journal)?;
             if execution.metadata()? != *metadata {
                 return Err(unexpected("metadata changed during execution"));
             }
             assert_mode_sets(modes, &execution.intermediate_modes()?)?;
             Ok(())
         })();
+        let result = combine_execution_and_cleanup(
+            result,
+            journal.record(&memory_report(execution.resources())),
+        );
         let result = journal.operation_result(result);
         let cleanup = journal.cleanup("execution", execution.close());
         combine_execution_and_cleanup(result, cleanup)
@@ -219,7 +225,8 @@ fn execute(
 }
 
 fn contract<Api: super::super::super::ContractionExecutionApi>(
-    execution: &mut ContractionExecution<'_, Api>,
+    execution: &mut CuTensorNetExecutableContraction<'_, Api>,
+    inputs: &[InputId],
     fixture: &Fixture,
     repeats: usize,
     journal: &mut Journal,
@@ -227,7 +234,7 @@ fn contract<Api: super::super::super::ContractionExecutionApi>(
     let mut first = Vec::new();
     for iteration in 0..=repeats {
         let output = journal.timed(&format!("contract_readback_{iteration}"), || {
-            execution.contract()
+            execution.execute(inputs)
         })?;
         let comparison = compare(&output, &fixture.expected, fixture.limit);
         if iteration == 0 || comparison.is_err() {

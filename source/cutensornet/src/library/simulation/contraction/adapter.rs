@@ -1,19 +1,23 @@
-//! Shared planning over native resources; no numerical preparation or execution.
+//! Shared planning and Context preparation over the real native resource owners.
 
+use super::execution::{
+    ContractionExecutionApi, CuTensorNetExecutableContraction, CuTensorNetResourceReport,
+};
 use super::{
-    ContractionApi, ContractionResources, NativeMetadata, OptimizerEstimate, OptimizerSettings,
-    SessionApi, SessionResources, SimulationError, Topology, combine_execution_and_cleanup,
-    invalid, native_count, unexpected,
+    ContractionApi, ContractionResources, NativeMetadata, NativeOptimizerSettings,
+    OptimizerEstimate, SessionApi, SessionResources, SimulationError, Topology,
+    combine_execution_and_cleanup, invalid, native_count, unexpected,
 };
 use crate::simulation::memory_workspace::MemoryWorkspaceApi;
 use qdk_simulators::execution::{
-    ContractionOptimizer, CostEstimate, EstimateKind, PlanningConstraints, PlanningReport,
+    ContractionContext, ContractionOptimizer, CostEstimate, EstimateKind, ExecutionLimits,
+    PlanningConstraints, PlanningReport, PreparationFailure,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use tensornet::{ContractionPlan, ContractionQuery, ContractionStep, Index, Indices, Operand};
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CuTensorNetOptimizerSettings {
+pub(crate) struct CuTensorNetContractionOptimizerSettings {
     pub(crate) hyper_samples: i32,
     pub(crate) threads: i32,
     pub(crate) seed: i32,
@@ -41,20 +45,20 @@ impl AsRef<PlanningReport> for CuTensorNetPlanningReport {
 }
 
 /// Borrows a thread-confined session, but owns no native children between calls.
-pub(crate) struct CuTensorNetOptimizer<'session, Api: SessionApi + ContractionApi> {
+pub(crate) struct CuTensorNetContractionOptimizer<'session, Api: SessionApi + ContractionApi> {
     session: &'session mut SessionResources<Api>,
 }
 
-impl<'session, Api: SessionApi + ContractionApi> CuTensorNetOptimizer<'session, Api> {
+impl<'session, Api: SessionApi + ContractionApi> CuTensorNetContractionOptimizer<'session, Api> {
     pub(crate) fn new(session: &'session mut SessionResources<Api>) -> Self {
         Self { session }
     }
 }
 
 impl<Api: SessionApi + ContractionApi + MemoryWorkspaceApi> ContractionOptimizer
-    for CuTensorNetOptimizer<'_, Api>
+    for CuTensorNetContractionOptimizer<'_, Api>
 {
-    type Settings = CuTensorNetOptimizerSettings;
+    type Settings = CuTensorNetContractionOptimizerSettings;
     type Report = CuTensorNetPlanningReport;
     type Error = SimulationError;
 
@@ -67,7 +71,7 @@ impl<Api: SessionApi + ContractionApi + MemoryWorkspaceApi> ContractionOptimizer
         supported_topology(query)?;
         let (workspace_constraint, workspace_source) =
             resolve_workspace(self.session, constraints)?;
-        let native_settings = OptimizerSettings {
+        let native_settings = NativeOptimizerSettings {
             workspace_constraint,
             hyper_samples: settings.hyper_samples,
             threads: settings.threads,
@@ -193,7 +197,7 @@ fn to_native_metadata(
     })
 }
 
-fn from_native_metadata(
+pub(super) fn from_native_metadata(
     query: &ContractionQuery<'_>,
     metadata: &NativeMetadata,
     intermediate_modes: &[Vec<i32>],
@@ -293,13 +297,21 @@ fn replace_pair<T>(available: &mut Vec<T>, first: usize, second: usize, result: 
 ///
 /// Native metadata omits logical intermediate ordering. Keep the supplied
 /// portable plan separately if its exact representation must be re-exported.
+#[allow(
+    clippy::result_large_err,
+    reason = "preparation evidence is returned by value"
+)]
 pub(crate) fn import_plan<'session, Api: SessionApi + ContractionApi>(
     session: &'session mut SessionResources<Api>,
     query: &ContractionQuery<'_>,
     plan: &ContractionPlan,
-) -> Result<ContractionResources<'session, Api>, SimulationError> {
-    let metadata = to_native_metadata(query, plan)?;
-    let mut resources = ContractionResources::new(session, query)?;
+) -> Result<ContractionResources<'session, Api>, PreparationFailure<SimulationError>> {
+    let metadata = to_native_metadata(query, plan).map_err(|error| PreparationFailure {
+        partial: CuTensorNetResourceReport::default().common,
+        error,
+        cleanup: None,
+    })?;
+    let mut resources = ContractionResources::new_for_preparation(session, query)?;
     let result = (|| {
         resources.import(&metadata)?;
         let observed = resources.export()?;
@@ -312,7 +324,42 @@ pub(crate) fn import_plan<'session, Api: SessionApi + ContractionApi>(
         Ok(())
     })();
     if let Err(error) = result {
-        return combine_execution_and_cleanup(Err(error), resources.close());
+        return Err(PreparationFailure {
+            partial: CuTensorNetResourceReport::default().common,
+            error,
+            cleanup: resources.close().err(),
+        });
     }
+
     Ok(resources)
+}
+
+impl<Api: ContractionExecutionApi> ContractionContext for SessionResources<Api> {
+    type Executable<'context>
+        = CuTensorNetExecutableContraction<'context, Api>
+    where
+        Self: 'context;
+    type Report = CuTensorNetResourceReport;
+    type Error = SimulationError;
+
+    #[allow(
+        clippy::result_large_err,
+        reason = "preparation evidence is returned by value"
+    )]
+    fn prepare(
+        &mut self,
+        query: &ContractionQuery<'_>,
+        plan: &ContractionPlan,
+        limits: ExecutionLimits,
+    ) -> Result<Self::Executable<'_>, PreparationFailure<Self::Error, Self::Report>> {
+        let resources = import_plan(self, query, plan).map_err(|failure| PreparationFailure {
+            partial: CuTensorNetResourceReport {
+                common: failure.partial,
+                ..CuTensorNetResourceReport::default()
+            },
+            error: failure.error,
+            cleanup: failure.cleanup,
+        })?;
+        CuTensorNetExecutableContraction::prepare(resources, plan.clone(), limits)
+    }
 }

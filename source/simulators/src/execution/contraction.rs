@@ -94,10 +94,14 @@ pub struct ExecutionLimits {
 /// optimizer estimates belong in [`PlanningReport`] instead.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ResourceReport {
-    /// Total coefficient storage needed by the distinct bound buffers.
-    /// Shared buffers are counted once, not once per input node.
-    pub coefficient_bytes: Option<usize>,
-    pub unique_buffers: Option<usize>,
+    /// Bytes in the most recent fully validated selection, counting shared
+    /// inputs once. This does not imply that every native binding succeeded.
+    pub selected_input_bytes: Option<usize>,
+    pub selected_input_count: Option<usize>,
+    /// All acquired resident input storage, including unselected candidates
+    /// and allocations whose subsequent upload failed.
+    pub resident_input_bytes: Option<usize>,
+    pub resident_input_count: Option<usize>,
     /// Storage needed for the ordered output tensor.
     pub output_bytes: Option<usize>,
     pub device_scratch_minimum: Option<usize>,
@@ -111,6 +115,12 @@ pub struct ResourceReport {
     pub owned_device_bytes: Option<usize>,
 }
 
+impl AsRef<ResourceReport> for ResourceReport {
+    fn as_ref(&self) -> &ResourceReport {
+        self
+    }
+}
+
 /// Preparation's primary error, any cleanup error, and the facts discovered
 /// before failure. Cleanup must not erase that evidence or replace the cause.
 ///
@@ -120,13 +130,13 @@ pub struct ResourceReport {
 /// The report and errors are stored by value so packaging this failure needs
 /// no heap allocation. The backend-defined `E` may itself own allocations.
 #[derive(Debug)]
-pub struct PreparationFailure<E> {
-    pub partial: ResourceReport,
+pub struct PreparationFailure<E, R = ResourceReport> {
+    pub partial: R,
     pub error: E,
     pub cleanup: Option<E>,
 }
 
-impl<E: fmt::Display> fmt::Display for PreparationFailure<E> {
+impl<E: fmt::Display, R> fmt::Display for PreparationFailure<E, R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "contraction preparation failed: {}", self.error)?;
         if let Some(cleanup) = &self.cleanup {
@@ -136,15 +146,22 @@ impl<E: fmt::Display> fmt::Display for PreparationFailure<E> {
     }
 }
 
-impl<E: std::error::Error + 'static> std::error::Error for PreparationFailure<E> {
+impl<E: std::error::Error + 'static, R: fmt::Debug> std::error::Error for PreparationFailure<E, R> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.error)
     }
 }
 
-/// Prepares an already-selected plan with fixed coefficient bindings.
+/// Whether explicitly registered input storage can be replaced.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InputMutability {
+    Immutable,
+    Mutable,
+}
+
+/// Prepares an already-selected plan independently of numerical inputs.
 ///
-/// Preparation must revalidate the plan against `query`, validate bindings,
+/// Preparation must revalidate the plan against `query`,
 /// check backend capabilities and respect `limits`. It must not search for a
 /// path, complete or binarize a plan, or silently change its semantics.
 /// Input topology and ordered output axes come from `query`, not the plan.
@@ -152,7 +169,7 @@ impl<E: std::error::Error + 'static> std::error::Error for PreparationFailure<E>
 /// Backends may choose private intermediate layouts without changing the
 /// selected contractions or the logical tensor axes. This is layout lowering,
 /// not path search; input-buffer interpretation and output ordering must remain
-/// as specified. It does not authorize approximation or coefficient rebinding.
+/// as specified. It does not authorize approximation.
 ///
 /// Model validity and executor capabilities are distinct: the initial native
 /// executable subset is unsliced, pairwise contraction, but a model-valid
@@ -160,16 +177,36 @@ impl<E: std::error::Error + 'static> std::error::Error for PreparationFailure<E>
 /// Plan validation errors, unsupported features and resource-limit rejections
 /// must remain distinguishable in the backend-defined error type.
 ///
-/// The prepared owner does not borrow the method-local query, plan or mutable
-/// executor borrow. An implementation may reference an external session via
-/// its implementing type's lifetime. Executable owners must be independently
-/// closable, even when created from the same plan and coefficient storage.
-pub trait ContractionExecutor {
-    /// Backend-defined storage and bindings, with no universal buffer format.
-    /// Bindings and coefficient values must remain fixed for the prepared
-    /// owner's lifetime.
-    type Coefficients;
-    type Executable: ExecutableContraction<Error = Self::Error>;
+/// The prepared owner may exclusively borrow this Context, but must not borrow
+/// the method-local query or plan. Closing it does not close the Context.
+///
+/// A Context borrow cannot overlap another preparation:
+/// ```compile_fail
+/// use qdk_simulators::execution::{ContractionContext, ExecutableContraction, ExecutionLimits};
+/// use tensornet::{ContractionQuery, ContractionPlan};
+/// fn overlapping<C: ContractionContext>(c: &mut C, q: &ContractionQuery<'_>, p: &ContractionPlan) {
+///     let first = c.prepare(q, p, ExecutionLimits::default()).ok().unwrap();
+///     let second = c.prepare(q, p, ExecutionLimits::default()).ok().unwrap();
+///     first.close();
+///     second.close();
+/// }
+/// ```
+///
+/// Nor can the Context be consumed while its executable is live:
+/// ```compile_fail
+/// use qdk_simulators::execution::{ContractionContext, ExecutableContraction, ExecutionLimits};
+/// use tensornet::{ContractionQuery, ContractionPlan};
+/// fn early_close<C: ContractionContext>(mut c: C, q: &ContractionQuery<'_>, p: &ContractionPlan) {
+///     let executable = c.prepare(q, p, ExecutionLimits::default()).ok().unwrap();
+///     drop(c);
+///     executable.close();
+/// }
+/// ```
+pub trait ContractionContext {
+    type Executable<'context>: ExecutableContraction<Error = Self::Error, Report = Self::Report>
+    where
+        Self: 'context;
+    type Report: AsRef<ResourceReport>;
     type Error;
 
     #[allow(
@@ -180,21 +217,43 @@ pub trait ContractionExecutor {
         &mut self,
         query: &ContractionQuery<'_>,
         plan: &ContractionPlan,
-        coefficients: Self::Coefficients,
         limits: ExecutionLimits,
-    ) -> Result<Self::Executable, PreparationFailure<Self::Error>>;
+    ) -> Result<Self::Executable<'_>, PreparationFailure<Self::Error, Self::Report>>;
 }
 
-/// Owns backend-specific prepared resources for one plan and fixed bindings.
+/// Owns prepared resources and explicitly registered inputs for one plan.
 ///
 /// Unlike a portable [`ContractionPlan`], this is a live executable owner.
 /// Its implementation retains or borrows the backend context needed by its
 /// resources; it is not a transferable description for another host/backend.
 pub trait ExecutableContraction {
+    /// Synchronous input view; implementations must not retain it after the call.
+    type Input<'input>;
+    /// Opaque identity local to this executable, not a slot or a wire label.
+    type InputId: Clone;
+    type Report: AsRef<ResourceReport>;
     /// Independently owned output that remains usable after subsequent
     /// executions and after closing the prepared owner.
     type Output;
     type Error;
+
+    /// Validates shape, ordered layout and finite values before storing input.
+    /// Storage is retained until close, even when no execution selects it.
+    /// Any failure poisons the executable, including preflight validation.
+    fn register_input(
+        &mut self,
+        input: Self::Input<'_>,
+        mutability: InputMutability,
+    ) -> Result<Self::InputId, Self::Error>;
+
+    /// Replaces same-shape mutable storage without growing its allocation.
+    /// Every slot selecting this identity sees the new values. Immutable or
+    /// foreign identities fail explicitly. Any failure poisons the executable.
+    fn replace_input(
+        &mut self,
+        id: Self::InputId,
+        input: Self::Input<'_>,
+    ) -> Result<(), Self::Error>;
 
     /// Executes and synchronizes required work before returning. Repeated
     /// success replaces internal output, never previously returned values.
@@ -202,15 +261,19 @@ pub trait ExecutableContraction {
     /// context and report backend failures rather than selecting a different
     /// backend or silently falling back.
     ///
-    /// Failure makes this owner unusable for further execution: subsequent
+    /// The complete selection contains one identity per input slot and is
+    /// validated before binding or contracting. Selecting retained candidates
+    /// does not allocate or upload input data. No noise sampling occurs here.
+    ///
+    /// Failure makes this owner unusable for further input operations: subsequent
     /// calls must return a distinct unusable-state error without retrying.
     /// Resource evidence remains inspectable and explicit close remains
     /// available.
-    fn execute(&mut self) -> Result<Self::Output, Self::Error>;
+    fn execute(&mut self, inputs: &[Self::InputId]) -> Result<Self::Output, Self::Error>;
 
     /// Discovered facts, available before the first execution and retained
     /// after an execution failure.
-    fn resources(&self) -> &ResourceReport;
+    fn resources(&self) -> &Self::Report;
 
     /// Consumes the owner and reports cleanup failure. This result does not
     /// replace or combine with any earlier execution error; callers retain

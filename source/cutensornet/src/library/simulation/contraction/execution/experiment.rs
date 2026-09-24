@@ -2,7 +2,7 @@
 
 use crate::simulation::{
     SimulationError,
-    contraction::{NativeMetadata, OptimizerSettings, invalid},
+    contraction::{NativeMetadata, NativeOptimizerSettings, invalid},
 };
 use serde_json::Value;
 
@@ -28,7 +28,7 @@ fn error_status(error: &SimulationError) -> &'static str {
 }
 
 struct Trial {
-    optimizer: Option<OptimizerSettings>,
+    optimizer: Option<NativeOptimizerSettings>,
     repeats: usize,
 }
 
@@ -51,7 +51,7 @@ impl Trial {
         let (optimizer, keys): (_, &[&str]) = match value["plan_source"].as_str() {
             Some("chronological") => (None, &["plan_source", "repeats"]),
             Some("optimizer") => {
-                let settings = OptimizerSettings {
+                let settings = NativeOptimizerSettings {
                     workspace_constraint: WORKSPACE_BYTES,
                     hyper_samples: integer("hyper_samples")?,
                     reconfiguration_iterations: integer("reconfiguration_iterations")?,

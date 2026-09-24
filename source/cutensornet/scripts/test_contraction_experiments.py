@@ -40,7 +40,7 @@ def sample(_pid):
 
 def successful_events(configuration):
     optimizer = configuration["plan_source"] == "optimizer"
-    phases = ["optimize" if optimizer else "construct_control", "export", "import", "prepare_host_call"]
+    phases = ["optimize" if optimizer else "construct_control", "export", "prepare_host_call"]
     events = [
         {
             "event": "environment", "pid": os.getpid(),
@@ -64,7 +64,8 @@ def successful_events(configuration):
             "largest_intermediate_elements": 65536 if optimizer else None,
         },
         {
-            "event": "memory", "coefficient_bytes": 352, "unique_buffers": 6,
+            "event": "memory", "selected_input_bytes": None, "selected_input_count": None,
+            "resident_input_bytes": 352, "resident_input_count": 6,
             "output_bytes": 65536 * 16, "device_scratch_minimum": 256,
             "device_scratch_recommended": 512, "device_scratch_allocated": 256,
             "host_scratch_minimum": 0, "host_scratch_recommended": 0,
@@ -82,6 +83,9 @@ def successful_events(configuration):
                 "bitwise_equal_to_first": True,
             },
         ])
+    final_memory = next(event for event in events if event["event"] == "memory").copy()
+    final_memory.update(selected_input_bytes=352, selected_input_count=6)
+    events.append(final_memory)
     events.extend(
         {"event": "cleanup", "owner": owner, "error": None}
         for owner in ("source_topology", "source_session", "execution", "fresh_session")
@@ -139,7 +143,7 @@ def child(scenario):
     elif scenario == "missing_comparison":
         events = [e for e in events if not (e["event"] == "comparison" and e["iteration"] == 5)]
     elif scenario == "missing_timing":
-        events = [e for e in events if not (e["event"] == "timing" and e["phase"] == "import")]
+        events = [e for e in events if not (e["event"] == "timing" and e["phase"] == "prepare_host_call")]
     elif scenario == "duplicate_timing":
         events.insert(-1, next(e for e in events if e["event"] == "timing"))
     elif scenario == "duplicate_result":
@@ -259,6 +263,63 @@ class DriverTests(unittest.TestCase):
                 self.assertEqual(len(result["native_libraries_sha256"]), 2)
                 self.assertEqual(result["environment"]["host_scratch_ceiling"], None)
                 self.assertEqual(result["memory"]["device_scratch_allocated"], 256)
+                self.assertEqual(result["memory"]["selected_input_bytes"], 352)
+                self.assertEqual(result["memory"]["selected_input_count"], 6)
+                self.assertEqual(result["memory"]["resident_input_bytes"], 352)
+                self.assertEqual(result["memory"]["resident_input_count"], 6)
+                self.assertNotIn("import", result["timings_seconds"])
+
+    def test_resource_snapshots_follow_registration_and_complete_selection(self):
+        for source in ("chronological", "optimizer"):
+            configuration = config(source)
+            events = successful_events(configuration)
+            snapshots = [event for event in events if event["event"] == "memory"]
+            self.assertIsNone(snapshots[0]["selected_input_bytes"])
+            self.assertIsNone(snapshots[0]["selected_input_count"])
+            self.assertEqual(snapshots[0]["resident_input_count"], 6)
+            result = driver.summarize(events, configuration, 0, False)
+            self.assertEqual(result["status"], "passed", result)
+            self.assertEqual(result["memory"], snapshots[-1])
+
+    def test_missing_or_inconsistent_resource_snapshots_are_fatal(self):
+        for corruption in (
+            "missing_initial", "missing_final", "duplicate", "early_selection",
+            "unknown_final_selection", "wrong_selected_count", "wrong_selected_bytes",
+            "noninteger_selected_count", "noninteger_selected_bytes",
+            "wrong_resident_count", "wrong_resident_bytes", "unknown_requirement",
+            "changed_requirement",
+        ):
+            with self.subTest(corruption=corruption):
+                events = successful_events(config())
+                initial, final = [event for event in events if event["event"] == "memory"]
+                if corruption == "missing_initial":
+                    events.remove(initial)
+                elif corruption == "missing_final":
+                    events.remove(final)
+                elif corruption == "duplicate":
+                    events.insert(-1, final.copy())
+                elif corruption == "early_selection":
+                    initial.update(selected_input_bytes=352, selected_input_count=6)
+                elif corruption == "unknown_final_selection":
+                    final.update(selected_input_bytes=None, selected_input_count=None)
+                elif corruption == "wrong_selected_count":
+                    final["selected_input_count"] = 448
+                elif corruption == "wrong_selected_bytes":
+                    final["selected_input_bytes"] = 0
+                elif corruption == "noninteger_selected_count":
+                    final["selected_input_count"] = 6.0
+                elif corruption == "noninteger_selected_bytes":
+                    final["selected_input_bytes"] = 352.0
+                elif corruption == "wrong_resident_count":
+                    final["resident_input_count"] = 0
+                elif corruption == "wrong_resident_bytes":
+                    final["resident_input_bytes"] = 0
+                elif corruption == "unknown_requirement":
+                    initial["device_scratch_minimum"] = None
+                elif corruption == "changed_requirement":
+                    final["device_cache_recommended"] = 1
+                result = driver.summarize(events, config(), 0, False)
+                self.assertEqual(result["status"], "failed", result)
 
     def test_inclusive_numerical_thresholds(self):
         self.assertEqual(self.trial("boundary")["status"], "passed")
@@ -286,7 +347,9 @@ class DriverTests(unittest.TestCase):
         self.assertIsNone(rows[0]["memory"])
         self.assertNotIn("repeated_readback_median_seconds", rows[0])
         self.assertEqual(rows[0]["workspace_rejection"]["required"], 32 * 1024**3 + 1)
-        self.assertIn("import_seconds", (self.root / "results.csv").read_text())
+        csv = (self.root / "results.csv").read_text()
+        self.assertIn("prepare_host_call_seconds", csv)
+        self.assertNotIn("import_seconds", csv)
 
     def test_fatal_trial_stops_campaign(self):
         outcome = driver.campaign(command("cleanup"), self.root, [config()] * 2, 5, 30, sample)

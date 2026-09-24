@@ -16,8 +16,9 @@ pub use adaptive::{
     PreparedAdaptiveProgram, RegionPartitionError, RegionSite, partition_unitary_regions,
 };
 pub use contraction::{
-    ContractionExecutor, ContractionOptimizer, CostEstimate, EstimateKind, ExecutableContraction,
-    ExecutionLimits, PlanningConstraints, PlanningReport, PreparationFailure, ResourceReport,
+    ContractionContext, ContractionOptimizer, CostEstimate, EstimateKind, ExecutableContraction,
+    ExecutionLimits, InputMutability, PlanningConstraints, PlanningReport, PreparationFailure,
+    ResourceReport,
 };
 pub use immediate::{
     ImmediateExecutionReport, ImmediatePreparedRegion, ImmediateRegionReport,

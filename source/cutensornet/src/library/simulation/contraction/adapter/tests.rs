@@ -1,16 +1,16 @@
 use super::*;
 use crate::simulation::contraction::adapter::{
-    CuTensorNetOptimizer, CuTensorNetOptimizerSettings, CuTensorNetPlanningReport,
-    WorkspaceBudgetSource, import_plan,
+    CuTensorNetContractionOptimizer, CuTensorNetContractionOptimizerSettings,
+    CuTensorNetPlanningReport, WorkspaceBudgetSource, import_plan,
 };
 use qdk_simulators::execution::{
     ContractionOptimizer, CostEstimate, EstimateKind, PlanningConstraints,
 };
 use tensornet::{ContractionPlan, ContractionStep, Operand, PlanError};
 
-fn optimizer_settings() -> CuTensorNetOptimizerSettings {
+fn optimizer_settings() -> CuTensorNetContractionOptimizerSettings {
     let native = settings();
-    CuTensorNetOptimizerSettings {
+    CuTensorNetContractionOptimizerSettings {
         hyper_samples: native.hyper_samples,
         threads: native.threads,
         seed: native.seed,
@@ -42,7 +42,7 @@ fn axes(ids: &[u32]) -> Indices {
     .expect("consistent fixture axes")
 }
 
-fn supplied_plan(query: &ContractionQuery<'_>) -> ContractionPlan {
+pub(super) fn supplied_plan(query: &ContractionQuery<'_>) -> ContractionPlan {
     ContractionPlan::new(
         query,
         vec![
@@ -63,7 +63,7 @@ fn optimize(
 ) -> Result<(ContractionPlan, CuTensorNetPlanningReport), SimulationError> {
     let mut session = SessionResources::new(api, 0)?;
     let network = chain();
-    let result = CuTensorNetOptimizer::new(&mut session).optimize(
+    let result = CuTensorNetContractionOptimizer::new(&mut session).optimize(
         &query(&network),
         constraints,
         optimizer_settings(),
@@ -76,6 +76,7 @@ fn import(api: Arc<TestDoubleContractionApi>) -> Result<(), SimulationError> {
     let network = chain();
     let query = query(&network);
     let result = import_plan(&mut session, &query, &supplied_plan(&query))
+        .map_err(super::execution::collapse_failure)
         .and_then(ContractionResources::close);
     combine_execution_and_cleanup(result, session.close())
 }
@@ -190,7 +191,7 @@ fn reversed_pairs_and_ordered_output_do_not_depend_on_native_mode_order() {
     let network = chain();
     let query = ContractionQuery::new(&network, axes(&[71, 11])).expect("reordered output");
     let mut session = SessionResources::new(api.clone(), 0).expect("session");
-    let (plan, _) = CuTensorNetOptimizer::new(&mut session)
+    let (plan, _) = CuTensorNetContractionOptimizer::new(&mut session)
         .optimize(&query, constraints(17), optimizer_settings())
         .expect("optimize reversed pairs");
     assert_eq!(
@@ -275,7 +276,7 @@ fn scalar_results_diagonals_and_hyperedges_keep_query_semantics() {
         );
         let query = ContractionQuery::new(&network, keep).expect("query");
         let mut session = SessionResources::new(api.clone(), 0).expect("session");
-        let (plan, _) = CuTensorNetOptimizer::new(&mut session)
+        let (plan, _) = CuTensorNetContractionOptimizer::new(&mut session)
             .optimize(&query, constraints(1024), optimizer_settings())
             .expect("native plan satisfies shared semantics");
         assert_eq!(
@@ -303,7 +304,7 @@ fn automatic_budget_is_half_of_current_free_memory_each_time() {
     let network = chain();
     let mut session = SessionResources::new(api.clone(), 0).expect("session");
     {
-        let mut optimizer = CuTensorNetOptimizer::new(&mut session);
+        let mut optimizer = CuTensorNetContractionOptimizer::new(&mut session);
         for expected in [512, 129, 1] {
             let (_, report) = optimizer
                 .optimize(
@@ -398,19 +399,19 @@ fn invalid_or_unavailable_budgets_fail_without_native_topology() {
 #[test]
 fn invalid_settings_fail_without_native_topology() {
     for settings in [
-        CuTensorNetOptimizerSettings {
+        CuTensorNetContractionOptimizerSettings {
             hyper_samples: -1,
             ..optimizer_settings()
         },
-        CuTensorNetOptimizerSettings {
+        CuTensorNetContractionOptimizerSettings {
             threads: 0,
             ..optimizer_settings()
         },
-        CuTensorNetOptimizerSettings {
+        CuTensorNetContractionOptimizerSettings {
             seed: -1,
             ..optimizer_settings()
         },
-        CuTensorNetOptimizerSettings {
+        CuTensorNetContractionOptimizerSettings {
             reconfiguration_iterations: -1,
             ..optimizer_settings()
         },
@@ -419,7 +420,7 @@ fn invalid_settings_fail_without_native_topology() {
         let mut session = SessionResources::new(api.clone(), 0).expect("session");
         let network = chain();
         assert!(matches!(
-            CuTensorNetOptimizer::new(&mut session).optimize(
+            CuTensorNetContractionOptimizer::new(&mut session).optimize(
                 &query(&network),
                 constraints(1),
                 settings
@@ -441,7 +442,7 @@ fn invalid_plan_and_unsupported_capabilities_are_distinct() {
     let api = TestDoubleContractionApi::new(Vec::new(), Corruption::None);
     let mut session = SessionResources::new(api.clone(), 0).expect("session");
     assert!(matches!(
-        import_plan(&mut session, &reordered_query, &plan),
+        import_plan(&mut session, &reordered_query, &plan).map_err(|failure| failure.error),
         Err(SimulationError::InvalidContractionPlan {
             error: PlanError::WrongOutputAxes { .. }
         })
@@ -455,7 +456,7 @@ fn invalid_plan_and_unsupported_capabilities_are_distinct() {
     )
     .expect("model permits nonpairwise steps");
     assert!(matches!(
-        import_plan(&mut session, &original_query, &nary),
+        import_plan(&mut session, &original_query, &nary).map_err(|failure| failure.error),
         Err(SimulationError::UnsupportedContraction { .. })
     ));
     let single = TensorNetwork::new(vec![axes(&[11, 71])]).expect("single input");
@@ -463,11 +464,11 @@ fn invalid_plan_and_unsupported_capabilities_are_distinct() {
     let trivial =
         ContractionPlan::new(&single_query, Vec::new()).expect("model permits trivial plan");
     assert!(matches!(
-        import_plan(&mut session, &single_query, &trivial),
+        import_plan(&mut session, &single_query, &trivial).map_err(|failure| failure.error),
         Err(SimulationError::UnsupportedContraction { .. })
     ));
     assert!(matches!(
-        CuTensorNetOptimizer::new(&mut session).optimize(
+        CuTensorNetContractionOptimizer::new(&mut session).optimize(
             &single_query,
             constraints(1),
             optimizer_settings(),
@@ -501,11 +502,11 @@ fn native_width_capabilities_are_checked_before_creating_resources() {
         let api = TestDoubleContractionApi::new(Vec::new(), Corruption::None);
         let mut session = SessionResources::new(api.clone(), 0).expect("session");
         assert!(matches!(
-            import_plan(&mut session, &query, &plan),
+            import_plan(&mut session, &query, &plan).map_err(|failure| failure.error),
             Err(SimulationError::UnsupportedContraction { .. })
         ));
         assert!(matches!(
-            CuTensorNetOptimizer::new(&mut session).optimize(
+            CuTensorNetContractionOptimizer::new(&mut session).optimize(
                 &query,
                 constraints(1),
                 optimizer_settings()

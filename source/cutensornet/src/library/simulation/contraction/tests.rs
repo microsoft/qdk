@@ -50,8 +50,8 @@ fn metadata() -> NativeMetadata {
     }
 }
 
-fn settings() -> OptimizerSettings {
-    OptimizerSettings {
+fn settings() -> NativeOptimizerSettings {
+    NativeOptimizerSettings {
         workspace_constraint: 67_108_864,
         hyper_samples: 1,
         threads: 1,
@@ -193,6 +193,7 @@ struct NativeObservations {
     modes: Vec<Vec<i32>>,
     estimates: [f64; 2],
     memory: Vec<(usize, usize)>,
+    use_query_output: bool,
 }
 
 impl Default for NativeObservations {
@@ -202,6 +203,7 @@ impl Default for NativeObservations {
             modes: vec![vec![23, 53], vec![11, 53], vec![11, 71]],
             estimates: [42.0, 42.0],
             memory: vec![(1024 * 1024, 2 * 1024 * 1024)],
+            use_query_output: false,
         }
     }
 }
@@ -215,6 +217,37 @@ struct TestDoubleContractionApi {
 }
 
 impl TestDoubleContractionApi {
+    fn observed_modes(&self, parent: OpaqueHandle, info: OpaqueHandle) -> Vec<Vec<i32>> {
+        let state = self.state.lock().expect("state");
+        let id = state.info_id(parent, info);
+        if self.observations.use_query_output {
+            let network = &state.networks[&state.live[&id].parent.expect("network")];
+            let mut live: Vec<BTreeSet<i32>> = network
+                .tensors
+                .iter()
+                .map(|tensor| tensor.modes.iter().copied().collect())
+                .collect();
+            let mut modes = Vec::new();
+            for &[first, second] in &state.infos[&id].path {
+                let first = usize::try_from(first).expect("position");
+                let second = usize::try_from(second).expect("position");
+                let mut pair = live.remove(first.max(second));
+                pair.extend(live.remove(first.min(second)));
+                let retained: BTreeSet<_> = live
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .chain(network.output.as_ref().expect("output").iter().copied())
+                    .collect();
+                pair.retain(|mode| retained.contains(mode));
+                modes.push(pair.iter().copied().collect());
+                live.push(pair);
+            }
+            return modes;
+        }
+        self.observations.modes.clone()
+    }
+
     fn new(failures: Vec<(&'static str, usize)>, corruption: Corruption) -> Arc<Self> {
         Self::with_observations(failures, corruption, NativeObservations::default())
     }
@@ -706,8 +739,7 @@ impl ContractionApi for TestDoubleContractionApi {
         counts: &mut [i32],
     ) -> Result<(), SimulationError> {
         self.event("intermediate_mode_counts")?;
-        self.state.lock().expect("state").info(parent, info);
-        for (count, modes) in counts.iter_mut().zip(&self.observations.modes) {
+        for (count, modes) in counts.iter_mut().zip(self.observed_modes(parent, info)) {
             *count = i32::try_from(modes.len()).expect("fixture rank");
         }
         match self.corruption {
@@ -724,11 +756,9 @@ impl ContractionApi for TestDoubleContractionApi {
         modes: &mut [i32],
     ) -> Result<(), SimulationError> {
         self.event("intermediate_modes")?;
-        self.state.lock().expect("state").info(parent, info);
         modes.copy_from_slice(
             &self
-                .observations
-                .modes
+                .observed_modes(parent, info)
                 .iter()
                 .flatten()
                 .copied()
@@ -1046,23 +1076,23 @@ fn unpopulated_or_failed_import_metadata_cannot_be_read() {
 #[test]
 fn invalid_optimizer_settings_do_not_create_config_or_search() {
     for invalid in [
-        OptimizerSettings {
+        NativeOptimizerSettings {
             workspace_constraint: 0,
             ..settings()
         },
-        OptimizerSettings {
+        NativeOptimizerSettings {
             hyper_samples: -1,
             ..settings()
         },
-        OptimizerSettings {
+        NativeOptimizerSettings {
             threads: 0,
             ..settings()
         },
-        OptimizerSettings {
+        NativeOptimizerSettings {
             seed: -1,
             ..settings()
         },
-        OptimizerSettings {
+        NativeOptimizerSettings {
             reconfiguration_iterations: -1,
             ..settings()
         },

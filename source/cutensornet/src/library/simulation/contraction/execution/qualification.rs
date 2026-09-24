@@ -214,12 +214,19 @@ mod native {
     use crate::simulation::{
         SimulationError,
         contraction::{
-            ContractionResources, NativeMetadata, OptimizerEstimate, OptimizerSettings,
-            execution::{ContractionExecution, WorkspaceLimits},
+            ContractionResources, NativeMetadata, NativeOptimizerSettings, OptimizerEstimate,
+            adapter::from_native_metadata,
+            execution::{
+                CuTensorNetExecutableContraction, CuTensorNetResourceReport, InputId, TensorInput,
+            },
         },
         error::combine_execution_and_cleanup,
         memory_workspace::MemoryWorkspaceApi,
         resources::SessionResources,
+    };
+    use qdk_simulators::execution::{
+        ContractionContext, ExecutableContraction, ExecutionLimits, InputMutability,
+        PreparationFailure,
     };
     use std::{io::Write, sync::Arc};
 
@@ -230,7 +237,7 @@ mod native {
             "{name}: versions={:?}; CUDA_C_64F/COMPUTE_64F",
             availability.report()
         );
-        let settings = OptimizerSettings {
+        let settings = NativeOptimizerSettings {
             workspace_constraint: 67_108_864,
             hyper_samples: 1,
             threads: 1,
@@ -239,13 +246,13 @@ mod native {
             disable_rank_simplification: true,
             disable_slicing: true,
         };
-        let limits = WorkspaceLimits {
-            device_scratch: Some(if name == "case_a_4x4" {
+        let limits = ExecutionLimits {
+            device_scratch_bytes: Some(if name == "case_a_4x4" {
                 3 * 1024 * 1024 * 1024
             } else {
                 67_108_864
             }),
-            host_scratch: Some(1_048_576),
+            host_scratch_bytes: Some(1_048_576),
         };
         println!(
             "{name}: settings={settings:?}; limits={limits:?}; remaining SDK defaults unchanged; cache disabled; no autotuning"
@@ -260,33 +267,24 @@ mod native {
             session.stream().as_ptr()
         );
         let result = (|| {
-            let mut resources = ContractionResources::new(&mut session, &query)?;
-            if let Err(error) = resources.import(&metadata) {
-                return combine_execution_and_cleanup(Err(error), resources.close());
-            }
-            println!(
-                "{name}: fresh import, source owners closed, no search; IDs={:?}",
-                resources.tensor_ids()
-            );
-            let mut execution = ContractionExecution::prepare(
-                resources,
-                fixture.circuit.buffers(),
-                fixture.circuit.node_buffer_ids(),
-                limits,
-            )?;
+            let plan = from_native_metadata(&query, &metadata, &modes)?;
+            let mut execution = session
+                .prepare(&query, &plan, limits)
+                .map_err(preparation_error)?;
             let result = (|| {
+                let inputs = register_fixture(&mut execution, &fixture)?;
                 if execution.metadata()? != metadata {
                     return Err(super::super::unexpected("metadata changed at preparation"));
                 }
                 let prepared_modes = execution.intermediate_modes()?;
                 println!(
                     "{name}: prepared_intermediate_modes={prepared_modes:?}; memory={:?}",
-                    execution.memory()
+                    execution.resources()
                 );
                 assert_mode_sets(&modes, &prepared_modes)?;
                 for iteration in 0..2 {
                     println!("{name}: contract_begin iteration={iteration}");
-                    let output = execution.contract()?;
+                    let output = execution.execute(&inputs)?;
                     println!("{name}: contract_synchronized_readback iteration={iteration}");
                     save_output(name, iteration, &output)?;
                     let report = compare(&output, &fixture.expected, fixture.limit)
@@ -302,6 +300,7 @@ mod native {
                 assert_mode_sets(&prepared_modes, &execution.intermediate_modes()?)?;
                 Ok(())
             })();
+            println!("{name}: execution_resources={:?}", execution.resources());
             let cleanup = execution.close();
             println!("{name}: execution_cleanup={cleanup:?}");
             combine_execution_and_cleanup(result, cleanup)
@@ -316,11 +315,53 @@ mod native {
         combine_execution_and_cleanup(result, cleanup)
     }
 
+    pub(super) fn preparation_error(
+        failure: PreparationFailure<SimulationError, CuTensorNetResourceReport>,
+    ) -> SimulationError {
+        println!("failed preparation resources={:?}", failure.partial);
+        combine_execution_and_cleanup::<()>(Err(failure.error), failure.cleanup.map_or(Ok(()), Err))
+            .expect_err("primary error")
+    }
+
+    pub(super) fn register_fixture<Api: super::super::ContractionExecutionApi>(
+        execution: &mut CuTensorNetExecutableContraction<'_, Api>,
+        fixture: &Fixture,
+    ) -> Result<Vec<InputId>, SimulationError> {
+        let circuit = &fixture.circuit;
+        let mut ids = Vec::new();
+        for (buffer, values) in circuit.buffers().iter().enumerate() {
+            let slot = circuit
+                .node_buffer_ids()
+                .iter()
+                .position(|&id| id == buffer)
+                .ok_or_else(|| {
+                    super::super::invalid("fixture bank contains an untyped unused input")
+                })?;
+            let dimensions: Vec<_> = circuit.network().nodes()[slot]
+                .as_slice()
+                .iter()
+                .map(|axis| axis.dim())
+                .collect();
+            ids.push(execution.register_input(
+                TensorInput {
+                    dimensions: &dimensions,
+                    values,
+                },
+                InputMutability::Immutable,
+            )?);
+        }
+        Ok(circuit
+            .node_buffer_ids()
+            .iter()
+            .map(|&id| ids[id])
+            .collect())
+    }
+
     fn select_metadata(
         name: &str,
         availability: &crate::Availability,
         query: &tensornet::ContractionQuery<'_>,
-        settings: OptimizerSettings,
+        settings: NativeOptimizerSettings,
     ) -> Result<(NativeMetadata, Vec<Vec<i32>>), SimulationError> {
         let mut source = SessionResources::new(Arc::clone(&availability.libraries), 0)?;
         let selected = (|| {

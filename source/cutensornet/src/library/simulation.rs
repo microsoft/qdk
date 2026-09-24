@@ -279,8 +279,13 @@ impl ContractionApi for CuTensorNetApi {
             });
         }
         let mut id = 0;
+        let qualifiers = v2_13::cutensornetTensorQualifiers_t {
+            isConjugate: 0,
+            isConstant: 0,
+            requiresGradient: 0,
+        };
         // SAFETY: topology conversion checked rank and extents; both arrays
-        // contain rank entries. NULL qualifiers select the SDK defaults.
+        // contain rank entries. Slots may change values between contractions.
         let status = unsafe {
             (self.cutensornet_functions.network_append_tensor)(
                 handle.as_ptr(),
@@ -288,7 +293,7 @@ impl ContractionApi for CuTensorNetApi {
                 rank,
                 tensor.extents.as_ptr(),
                 tensor.modes.as_ptr(),
-                std::ptr::null(),
+                &raw const qualifiers,
                 v2_13::cudaDataType_t_CUDA_C_64F,
                 &raw mut id,
             )
@@ -860,6 +865,13 @@ impl SessionApi for CuTensorNetApi {
 }
 
 impl ContractionExecutionApi for CuTensorNetApi {
+    fn allocate_host_scratch(
+        &self,
+        bytes: usize,
+    ) -> Result<crate::simulation::contraction::execution::HostScratch, SimulationError> {
+        crate::simulation::contraction::execution::HostScratch::new(bytes)
+    }
+
     fn compute_contraction_workspace(
         &self,
         handle: OpaqueHandle,

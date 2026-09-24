@@ -18,6 +18,7 @@ use super::{
     error::combine_execution_and_cleanup,
     resources::{SessionApi, SessionResources},
 };
+use qdk_simulators::execution::PreparationFailure;
 use std::collections::{BTreeMap, BTreeSet};
 use tensornet::{ContractionQuery, Indices};
 
@@ -91,7 +92,7 @@ pub(crate) enum OptimizerSetting {
 
 /// Explicit search controls; unlisted options retain the pinned SDK defaults.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct OptimizerSettings {
+pub(crate) struct NativeOptimizerSettings {
     /// Optimizer workspace budget in bytes; neither an allocation nor total GPU memory.
     pub(crate) workspace_constraint: u64,
     pub(crate) hyper_samples: i32,
@@ -102,7 +103,7 @@ pub(crate) struct OptimizerSettings {
     pub(crate) disable_slicing: bool,
 }
 
-impl OptimizerSettings {
+impl NativeOptimizerSettings {
     fn attributes(self) -> Result<[(OptimizerSetting, i32); 6], SimulationError> {
         if self.workspace_constraint == 0
             || self.hyper_samples < 0
@@ -375,9 +376,34 @@ impl<'session, Api: SessionApi + ContractionApi> ContractionResources<'session, 
         session: &'session mut SessionResources<Api>,
         query: &ContractionQuery<'_>,
     ) -> Result<Self, SimulationError> {
-        let topology = Topology::new(query)?;
-        session.bind_device()?;
-        let network = session.api().create_network(session.handle())?;
+        Self::new_for_preparation(session, query).map_err(|failure| {
+            combine_execution_and_cleanup::<()>(
+                Err(failure.error),
+                failure.cleanup.map_or(Ok(()), Err),
+            )
+            .expect_err("primary construction error")
+        })
+    }
+
+    #[allow(
+        clippy::result_large_err,
+        reason = "preparation evidence is returned by value"
+    )]
+    fn new_for_preparation(
+        session: &'session mut SessionResources<Api>,
+        query: &ContractionQuery<'_>,
+    ) -> Result<Self, PreparationFailure<SimulationError>> {
+        let failure = |error| PreparationFailure {
+            partial: execution::CuTensorNetResourceReport::default().common,
+            error,
+            cleanup: None,
+        };
+        let topology = Topology::new(query).map_err(failure)?;
+        session.bind_device().map_err(failure)?;
+        let network = session
+            .api()
+            .create_network(session.handle())
+            .map_err(failure)?;
         let mut resources = Self {
             session,
             topology,
@@ -388,7 +414,11 @@ impl<'session, Api: SessionApi + ContractionApi> ContractionResources<'session, 
             metadata_ready: false,
         };
         if let Err(error) = resources.initialize() {
-            return combine_execution_and_cleanup(Err(error), resources.release());
+            return Err(PreparationFailure {
+                partial: execution::CuTensorNetResourceReport::default().common,
+                error,
+                cleanup: resources.release().err(),
+            });
         }
         Ok(resources)
     }
@@ -426,7 +456,10 @@ impl<'session, Api: SessionApi + ContractionApi> ContractionResources<'session, 
     }
 
     /// Performs native search with explicit settings; allocates no device workspace.
-    pub(crate) fn optimize(&mut self, settings: OptimizerSettings) -> Result<(), SimulationError> {
+    pub(crate) fn optimize(
+        &mut self,
+        settings: NativeOptimizerSettings,
+    ) -> Result<(), SimulationError> {
         let attributes = settings.attributes()?;
         self.session.bind_device()?;
         self.metadata_ready = false;

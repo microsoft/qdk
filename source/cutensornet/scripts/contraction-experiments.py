@@ -130,26 +130,45 @@ def validate_success(by_type, config, timings):
             and pair[0] != pair[1],
             "invalid positional path",
         )
-    memory = single("memory")
+    snapshots = by_type.get("memory", [])
+    require(len(snapshots) == 2, "expected registration and final memory snapshots")
+    registered, final = snapshots
     fields = (
-        "coefficient_bytes", "unique_buffers", "output_bytes",
+        "resident_input_bytes", "resident_input_count", "output_bytes",
         "device_scratch_minimum", "device_scratch_recommended", "device_scratch_allocated",
         "host_scratch_minimum", "host_scratch_recommended", "host_scratch_allocated",
         "device_cache_recommended", "host_cache_recommended", "owned_device_bytes",
     )
     require(
-        all(type(memory[key]) is int and memory[key] >= 0 for key in fields),
+        all(
+            type(memory[key]) is int and memory[key] >= 0
+            for memory in snapshots for key in fields
+        ),
         "invalid memory measurements",
     )
     require(
-        memory["coefficient_bytes"] == 352
-        and memory["unique_buffers"] == 6
+        registered["selected_input_bytes"] is None
+        and registered["selected_input_count"] is None
+        and type(final["selected_input_bytes"]) is int
+        and type(final["selected_input_count"]) is int
+        and final["selected_input_bytes"] == 352
+        and final["selected_input_count"] == 6,
+        "inconsistent selected-input evidence",
+    )
+    require(
+        all(registered[key] == final[key] for key in fields),
+        "resident resources changed during fixed-input execution",
+    )
+    memory = final
+    require(
+        memory["resident_input_bytes"] == 352
+        and memory["resident_input_count"] == 6
         and memory["output_bytes"] == 65536 * 16
         and memory["device_scratch_allocated"] == max(256, memory["device_scratch_minimum"])
         and memory["device_scratch_allocated"] <= WORKSPACE_BYTES
         and memory["host_scratch_allocated"] == memory["host_scratch_minimum"]
         and memory["owned_device_bytes"]
-        == memory["coefficient_bytes"] + memory["output_bytes"] + memory["device_scratch_allocated"]
+        == memory["resident_input_bytes"] + memory["output_bytes"] + memory["device_scratch_allocated"]
         and all(
             memory[f"{space}_scratch_recommended"] >= memory[f"{space}_scratch_minimum"]
             for space in ("host", "device")
@@ -177,7 +196,7 @@ def validate_success(by_type, config, timings):
         ),
         "incomplete or invalid numerical evidence",
     )
-    phases = {"export", "import", "prepare_host_call"} | {
+    phases = {"export", "prepare_host_call"} | {
         f"contract_readback_{i}" for i in expected
     }
     phases.add("optimize" if config["plan_source"] == "optimizer" else "construct_control")
@@ -246,7 +265,8 @@ def summarize(events, config, returncode, timed_out):
     except (KeyError, TypeError, ValueError) as error:
         summary.update(status="failed", evidence_error=str(error))
     summary["timings_seconds"] = timings
-    summary["memory"] = next(iter(by_type.get("memory", [])), None)
+    snapshots = by_type.get("memory", [])
+    summary["memory"] = snapshots[-1] if snapshots else None
     summary["estimates"] = next(iter(by_type.get("estimates", [])), None)
     summary["environment"] = next(iter(by_type.get("environment", [])), None)
     summary["comparisons"] = comparisons
@@ -417,7 +437,7 @@ def campaign(command, output, configs, trial_seconds, campaign_seconds, sampler=
         fields = [
             "trial", "plan_source", "hyper_samples", "reconfiguration_iterations",
             "disable_rank_simplification", "seed", "status", "optimize_seconds",
-            "construct_control_seconds", "export_seconds", "import_seconds",
+            "construct_control_seconds", "export_seconds",
             "prepare_host_call_seconds", "first_readback_seconds", "repeated_median_seconds",
             "flops_estimate", "largest_intermediate_elements", "scratch_minimum_bytes",
             "scratch_recommended_bytes", "scratch_allocated_bytes", "host_scratch_allocated_bytes",
@@ -456,7 +476,6 @@ def campaign(command, output, configs, trial_seconds, campaign_seconds, sampler=
                 "optimize_seconds": timings.get("optimize"),
                 "construct_control_seconds": timings.get("construct_control"),
                 "export_seconds": timings.get("export"),
-                "import_seconds": timings.get("import"),
                 "prepare_host_call_seconds": timings.get("prepare_host_call"),
                 "first_readback_seconds": timings.get("contract_readback_0"),
                 "repeated_median_seconds": result.get("repeated_readback_median_seconds"),

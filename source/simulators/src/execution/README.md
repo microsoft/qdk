@@ -232,23 +232,20 @@ checks. See [I2 reproduction and evidence](../../../../samples/python_interop/is
 
 ### Shared contraction contracts (I3)
 
-**Approved ownership, implementation pending:** preparation moves from the
-separate `ContractionExecutor` abstraction onto `ContractionContext`. The
-current Rust exports and contract tests still use `ContractionExecutor`;
-the slice 3b implementation will migrate them together with the native adapter.
-This is a shared-contract revision, not an additional Context wrapper around
-an Executor.
+**Implemented in slice 3b; native qualification remains separate:** preparation
+uses `ContractionContext`, replacing the separate `ContractionExecutor`.
+`SessionResources<Api>` implements it directly; no additional Context wrapper
+or executable-owned Session is introduced.
 
-**Input semantics clarified during design review:** the intended executable
-is reusable with different tensor values and bindings, not tied to the first
-coefficient set. The existing Rust contract and private native owner still
-implement fixed-input preparation. The diagrams below describe the intended
-separation; `prepare(query, plan, limits)` and `execute(inputs)` are conceptual,
-not finalized Rust signatures. Executable-owned resident input storage,
-explicit registration/replacement, and complete per-run binding selection are
-approved, together with the retention, failure, report and injection-seam
-decisions below. Exact Rust spellings remain implementation details of those
-reviewed contracts.
+Structural `prepare(query, plan, limits)` is independent of coefficients.
+`ExecutableContraction` provides synchronous `register_input`, `replace_input`,
+and `execute(inputs)` operations, retaining explicitly registered inputs until
+close. `InputMutability` distinguishes immutable candidates and mutable storage;
+`Input<'input>` and `InputId` leave the input representation backend-defined.
+The private native adapter accepts contiguous column-major `TensorInput` views
+with ordered dimensions and general complex values. Its opaque, copyable
+`InputId` belongs to one executable, not a tensor slot or wire label.
+These are implemented numerical extension points, not noise-runtime integration.
 See [Tensor data reuse, noise, and loss](#tensor-data-reuse-noise-and-loss-design)
 for the data lifecycle and the limits of this reuse.
 
@@ -273,7 +270,7 @@ trait; other backends need not imitate the CUDA Session lifecycle.
 Shared contracts are exposed through `qdk_simulators::execution`. Optimizers
 choose their own `Settings`, `Report: AsRef<PlanningReport>` and `Error`;
 `PlanningReport` implements `AsRef` itself for providers without additional
-diagnostics. The revised execution contract must allow backend-defined tensor
+diagnostics. The execution contract allows backend-defined tensor
 input/storage representations, prepared owners and errors. The approved
 operation and report contracts below guide the Rust associated types.
 No shared type depends on a native backend.
@@ -323,9 +320,8 @@ the exclusive `&mut self` execution call prevents concurrent inspection of the
 same owner. Repeated execution with identical inputs recomputes the same
 contraction; different inputs can describe a different noise realization.
 The caller makes that choice. The numerical executable does not silently
-sample noise or infer a new shot. The current implementation still accepts
-only the fixed-input form; input rebinding is an intended contract revision,
-not implemented behavior.
+sample noise or infer a new shot. Native registration and replacement upload
+synchronously; selecting unchanged resident candidates does not upload again.
 
 #### Context borrow and sequential reuse
 
@@ -384,8 +380,8 @@ structure before native use. Preparation must not search, complete or binarize a
 plan. A supplied-plan flow uses no optimizer and fabricates no planning report.
 The model supports arbitrary step arity and zero-step single-input plans;
 the initial native execution subset remains unsliced, pairwise contraction.
-Its current private implementation binds fixed coefficients during preparation;
-the reusable-input revision is not implemented yet. Capability rejection is a
+Its private implementation prepares structure before registering inputs.
+Capability rejection is a
 backend error, not a new model restriction.
 
 Intermediate `result_axes` specify a logical representation, not a mandate on
@@ -402,17 +398,20 @@ re-export is needed.
 | `PlanningReport`                | Optimizer identity, optional elapsed search seconds, honored constraints, and provider-labelled estimates.                         |
 | `CostEstimate` / `EstimateKind` | Provider-defined FLOP counts or largest-intermediate element counts, not measured resource bytes.                                  |
 | `ExecutionLimits`               | Device/host scratch allocation ceilings; not total memory limits. `None` omits a ceiling; `Some(0)` imposes zero.                  |
-| `ResourceReport`                | Discovered coefficient/output sizes, unique bound buffers, minimum/recommended/allocated scratch, and actually owned device bytes. |
-| `PreparationFailure<E>`         | Partial resource evidence, primary error and optional cleanup error, retained separately.                                          |
+| `ResourceReport`                | Selected and resident input storage, required output size, minimum/recommended/allocated scratch, and actually owned device bytes. |
+| `PreparationFailure<E, R>`      | Backend-defined partial resource report, primary error and optional cleanup error, retained separately by value.                   |
 
 Only honored planning constraints appear in `accepted_constraints`; callers
 compare that echo with their request. Missing estimates are absent from the
 estimate vector. Every resource observation is optional: `None` is unknown
-and `Some(0)` is known zero. Coefficient storage counts distinct bound buffers,
-not nodes; owned device bytes exclude other owners and process-level sampling.
-These are the current report fields. The approved reusable-storage revision
-adds distinct selected-input and resident-allocation evidence, including
-retained, unselected candidates; see the implementation boundary below.
+and `Some(0)` is known zero. `selected_input_bytes` and `selected_input_count` describe
+distinct inputs in the most recent fully validated selection, not successful
+native bindings. Before any validated selection, both are unknown.
+`resident_input_bytes` and `resident_input_count` count acquired storage, including
+unselected candidates and failed uploads. `output_bytes` is a requirement;
+`owned_device_bytes` counts actual acquisitions, excluding other owners and
+process-level sampling. Native preparation begins with known-zero allocations,
+not invented zero requirements.
 Failure retains facts already discovered, even if cleanup frees allocations.
 `PreparationFailure` displays both errors and exposes the primary error as
 its standard error source; the cleanup error remains separately accessible.
@@ -475,28 +474,25 @@ backends. It is not a transferable description for another host. Preparing
 the portable plan on a different host/backend creates a new executable owner.
 The shared trait does not currently expose a runtime backend-identity field.
 
-`tests/contraction.rs` currently exercises the committed contracts through
-fake optimizers and executors, without a numerical backend dependency. The
-Context migration must preserve those behavioral cases, update their lifetime
-witnesses, and retain the by-value failure's localized lint exception. These
-tests establish interface usability and reporting semantics, not native
-conformance. Slice 3b must additionally exercise the real Context/executable
-adapters with native APIs injected underneath. The approved input lifecycle,
-native/shared reports and host-allocation seam are recorded below. Their
-production implementation remains pending.
+`tests/contraction.rs` provides portable type/report witnesses without a
+numerical backend dependency. Compile-fail examples reject overlapping Context
+borrows and early Context destruction. Behavioral preparation, execution,
+failure and cleanup cases run through the actual native Context/executable
+owners with the resource-keyed native API double underneath, rather than a
+parallel shared fake executor. That host evidence is not GPU qualification.
 
 ### Tensor data reuse, noise, and loss (design)
 
-**Purpose:** define what is reused and what changes before finalizing the
-input/storage API. This section records the prepare-once, execute-with-new-inputs
-intent. It is not a claim that rebinding, noise integration, loss continuation,
-or a resident-bank API has been implemented or qualified.
+**Purpose:** explain reusable numerical storage and the future noise semantics
+it must support. Slice 3b implements and host-tests resident registration,
+replacement and rebinding. Noise integration, loss continuation and native
+qualification remain separate.
 
-| Established today                                                         | Intended revision                                                                                 | Pending implementation or separate design work                                     |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Portable query/plan; immutable I2 host bank; native fixed-input execution | Executable-owned resident inputs; explicit registration/replacement and complete per-run bindings | Implementation and behavioral evidence for the approved input contract             |
-| Caller-owned Session; executable's exclusive Session borrow               | Reuse topology, kernels, scratch and output allocation across runs                                | How input-time allocations/errors extend resource reports                          |
-| Synchronous contraction and independently owned outputs                   | Borrow host upload data only for the required call                                                | Loss-aware probability queries/continuation; native stochastic-channel integration |
+| Established today                                                     | Intended revision                                                  | Pending implementation or separate design work                                     |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Portable query/plan; immutable I2 host bank; reusable resident inputs | Explicit registration/replacement and complete per-run bindings    | Native qualification of the shared input lifecycle                                 |
+| Caller-owned Session; executable's exclusive Session borrow           | Reuse topology, kernels, scratch and output allocation across runs | Representative native settings and performance evidence                            |
+| Synchronous contraction and independently owned outputs               | Borrow host upload data only for the required call                 | Loss-aware probability queries/continuation; native stochastic-channel integration |
 
 #### Declare noise independently of its realization
 
@@ -696,8 +692,8 @@ For the shared contraction interface, the required flexibility is concrete:
 - Inputs are not restricted to a Pauli enum, a four-matrix bank, one tensor
   per noise location or a full-bank re-upload. Absorbed variants, explicit
   operators and other compatible numerical payloads must remain expressible;
-  registration/replacement and complete per-run binding selection are approved.
-  Implementation remains pending; the executable owns resident input storage.
+  registration/replacement and complete per-run binding selection are implemented.
+  The executable owns resident input storage.
 - A higher-level strategy may evaluate different queries for branch
   probabilities and final outputs. Reuse applies within each compatible
   query/plan, not across arbitrary changes of shape or output meaning.
@@ -726,7 +722,7 @@ for possible mappings of these semantics to different native capabilities.
 
 #### Memory view: what stays and what changes
 
-**Approved ownership layout, implementation pending:** the executable owns
+**Implemented ownership layout:** the executable owns
 its prepared resources and resident input storage. The caller still owns
 Session, which the executable exclusively borrows. "Retained" below means
 until executable cleanup, not forever. These boxes represent owned resources,
@@ -994,7 +990,7 @@ sequenceDiagram
     Note over E,D: Release executable-owned data only after native use ends
 ```
 
-**Approved input-operation separation, implementation pending:** registration
+**Implemented input-operation separation:** registration
 validates and stores a tensor, returning an opaque identity local to the
 executable. Registration distinguishes immutable candidates from mutable
 storage. Immutable candidates cannot be overwritten; explicit same-shape
@@ -1113,8 +1109,8 @@ as a clean network. Reuse is across realizations of an already-fixed query.
 Resource reports must distinguish selected input bytes, retained candidate
 bytes, scratch requirements/recommendations, and actual allocations.
 Reusing an allocation is not a new allocation; leaving an unused candidate
-resident is not freeing it. The current report's fixed-input meanings must
-be reviewed before extending them to this lifecycle. Keep partial evidence,
+resident is not freeing it. The implemented report separates selected inputs
+from all acquired resident storage. Keep partial evidence,
 primary errors and cleanup errors separate; do not hide update failures by
 silently running with a mixture of old and new bindings.
 
@@ -1368,8 +1364,8 @@ documents `cutensornetNetworkPrepareContraction` as kernel/intermediate-layout
 preparation and `cutensornetNetworkSetInputTensorMemory` as input pointer/stride
 binding. The checked-in [2.13 qualifiers](../../../cutensornet/src/bindings/v2_13.rs)
 distinguish tensors declared constant across contractions. These support the
-structure/data distinction, but QDK still needs injected and later native
-evidence for its actual update sequence.
+structure/data distinction. QDK now has injected, input-dependent evidence
+for its actual update sequence; native qualification remains pending.
 
 That reference restricts `cutensornetStateApplyGeneralChannel` to MPS with
 the supported gauge/mode conditions; CUDA-Q's exact State backend also
@@ -1468,12 +1464,12 @@ with its prepared resources, registers/replaces values explicitly, and executes
 complete binding selections. The earlier fixed-input coefficient GAT proposal
 is superseded.
 
-**Approved reporting representation, implementation pending:** Context and
+**Implemented reporting representation:** Context and
 executable expose a backend-defined `Report: AsRef<ResourceReport>`, with
 `PreparationFailure<E, R = ResourceReport>` retaining the report, primary error
 and optional cleanup error by value. Native reporting embeds the common report
-and two optional native cache recommendations; it replaces zero-defaulted
-`ExecutionMemory`, rather than wrapping it. Common evidence distinguishes the
+and two optional native cache recommendations in `CuTensorNetResourceReport`; it
+replaces zero-defaulted `ExecutionMemory`. Common evidence distinguishes the
 most recent fully validated input selection from all acquired resident input
 allocations. Selected bytes/count do not assert that every native binding
 succeeded; resident bytes/count include unselected candidates and allocations
@@ -1483,31 +1479,21 @@ errors retain separate primary/cleanup errors even during early topology
 construction/import. Record each successful observation/acquisition before the
 next fallible operation.
 
-**Approved host allocation seam, implementation pending:** add a narrow
-`allocate_host_scratch` operation to the existing private
-`ContractionExecutionApi`. It returns the existing aligned RAII `HostScratch`
-owner, or a construction-configured injected allocation error. Use the real
-owner in both production and injected paths; add neither fake pointers nor a
-new allocator object on Session, and leave MPS unchanged.
+**Implemented host allocation seam:** the narrow
+`allocate_host_scratch` operation on the existing private
+`ContractionExecutionApi` returns the aligned RAII `HostScratch`
+owner, or a construction-configured injected allocation error. Production and
+injected paths use the same real owner; there are no fake host pointers or new
+Session allocator, and MPS remains unchanged.
 
-**Resource-keyed double checkpoint completed:** the existing native API double
-now keeps live resources separate from call history and uses unique handles,
-per-network metadata/bindings, per-workspace state and per-stream pending work.
-All 46 baseline host contraction tests still pass. Three added behavioral cases
-exercise sequential numerical preparation on one Session, independently
-closable live owners (including cleanup errors), and a failed contraction that
-does not block another stream. The 49-case suite and strict crate Clippy pass.
-Faults/observations remain construction-configured, and the real native owners
-remain under exercise.
+**Host behavioral evidence:** the existing resource-keyed double retains
+unique handles, separate live state/history, per-network bindings and
+per-stream pending work. Constructor-selected small analytical fixtures now
+contract the actual uploaded/bound inputs with a bounded direct-sum oracle,
+independent of the selected schedule. Lifecycle-only cases retain their sentinel
+mode; that mode is not used as numerical reuse evidence.
 
-This isolated refactor does not change production execution or supply a
-numerical input-reuse oracle: the existing sentinel output remains for these
-lifecycle cases. Changed-input numerical behavior must be added before claiming
-reusable-input evidence. Native/A100 qualification uses the real library API,
-not this double; its independent fixtures and tolerances remain unchanged.
-
-The reusable-input contract must demonstrate, through the real native adapter
-with injected APIs:
+Cases exercise the real Session Context and native executable:
 
 - Prepare once; run A, B and C above without new search or kernel preparation.
 - Changed bindings change numerical results while earlier outputs survive.
@@ -1519,8 +1505,11 @@ with injected APIs:
 - No stale constant/intermediate cache, expired host view, cross-owner release,
   or partially updated input set is silently used.
 
-These are implementation acceptance requirements, not completed tests or an
-authorization to integrate noise now. Loss additionally needs independently
+These host cases include immutable/mutable inputs, nonunitary and complex
+values, noncanonical logical intermediate axes, output reordering, early
+primary/cleanup failures, incremental reports and real host-scratch allocation
+failure injection. They are not an authorization to integrate noise now or
+evidence of native performance. Loss additionally needs independently
 reviewed state/probability and continuation semantics; a successful Pauli
 rebinding test does not qualify it. Preserve the later representative-settings
 3c native gate, finalize it from implementation evidence, and require separate

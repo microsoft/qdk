@@ -26,11 +26,13 @@ pub(crate) trait MemoryWorkspaceApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError>;
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, SimulationError>;
     fn free(&self, allocation: OpaqueHandle) -> Result<(), SimulationError>;
+    /// Synchronous upload; no host pointer is retained after return.
     fn copy_to_device(
         &self,
         destination: OpaqueHandle,
         source: &[Complex64Abi],
     ) -> Result<(), SimulationError>;
+    /// Completes the host copy before returning; callers synchronize device work first.
     fn copy_from_device(
         &self,
         source: OpaqueHandle,

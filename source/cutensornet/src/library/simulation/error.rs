@@ -14,6 +14,9 @@ pub enum SimulationError {
     #[error("invalid contraction configuration: {reason}")]
     InvalidContractionConfiguration { reason: &'static str },
 
+    #[error("contraction executable is unusable after an input or execution failure")]
+    UnusableContraction,
+
     #[error("invalid portable contraction plan: {error}")]
     InvalidContractionPlan {
         #[source]

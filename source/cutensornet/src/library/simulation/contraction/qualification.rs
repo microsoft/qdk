@@ -23,8 +23,8 @@ fn fixture() -> TensorNetwork {
     .expect("consistent network")
 }
 
-fn settings() -> OptimizerSettings {
-    OptimizerSettings {
+fn settings() -> NativeOptimizerSettings {
+    NativeOptimizerSettings {
         workspace_constraint: 67_108_864,
         hyper_samples: 1,
         threads: 1,

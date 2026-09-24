@@ -48,19 +48,19 @@ stream APIs. NVIDIA cuTensorNet (`libcutensornet.so.2`) provides the tensor
 network API. Discovery loads and validates both libraries, although it invokes
 only their approved version and error probes and performs no GPU work.
 
-| Layer                     | Location                                          | Status                                             | Responsibility                                                                                                                                      |
-| ------------------------- | ------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Generated cuTensorNet ABI | `src/bindings/v2_13.rs`                           | Implemented                                        | Reduced declarations generated from the audited cuTensorNet 2.13 header.                                                                            |
-| Audited CUDA Runtime ABI  | `src/bindings/cudart_12.rs`                       | Implemented                                        | Hand-audited declarations for the 12 CUDA Runtime calls required by the spike.                                                                      |
-| ABI assertions            | `src/bindings/mod.rs`                             | Implemented                                        | Compile-time size, alignment, offset, and selected constant checks.                                                                                 |
-| Version policy            | `src/version.rs`                                  | Implemented                                        | Accepts only the audited cuTensorNet and CUDA Runtime versions.                                                                                     |
-| Dynamic loader            | `src/library.rs`                                  | Implemented                                        | Opens `libcudart.so.12` and `libcutensornet.so.2`, resolves typed function tables, probes versions, and retains library guards.                     |
-| Availability API          | `src/lib.rs`, `src/error.rs`                      | Implemented                                        | Exposes explicit discovery, a report, and structured failures without exposing raw FFI.                                                             |
-| Native qualification      | `src/library/simulation*`                         | Private B0-B5 gate-1 qualified                     | Owns thread-confined native resources and validates Base execution, terminal product-term Queries, cap convergence, and forced-branch continuation. |
-| Native path metadata      | `src/library/simulation/contraction*`             | Private implementation; native acceptance separate | Builds topology, optimizes or imports a binary path, and copies path/slicing/structural metadata into owned Rust storage. No numerical contractor.  |
-| Shared planning adapter   | `src/library/simulation/contraction/adapter.rs`   | Private; native qualification pending              | Implements the shared optimizer and checked portable-plan import without numerical preparation or execution.                                        |
-| Native contraction        | `src/library/simulation/contraction/execution.rs` | Private diagnostic/2x2/4x4 native-qualified        | Consumes selected metadata, owns shared-buffer uploads and bounded workspace, prepares without search, contracts and reads back.                    |
-| QDK provider integration  | Future phase                                      | Not implemented                                    | Will translate QDK simulation requests without exposing native details to callers.                                                                  |
+| Layer                      | Location                                          | Status                                                                                     | Responsibility                                                                                                                                      |
+| -------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generated cuTensorNet ABI  | `src/bindings/v2_13.rs`                           | Implemented                                                                                | Reduced declarations generated from the audited cuTensorNet 2.13 header.                                                                            |
+| Audited CUDA Runtime ABI   | `src/bindings/cudart_12.rs`                       | Implemented                                                                                | Hand-audited declarations for the 12 CUDA Runtime calls required by the spike.                                                                      |
+| ABI assertions             | `src/bindings/mod.rs`                             | Implemented                                                                                | Compile-time size, alignment, offset, and selected constant checks.                                                                                 |
+| Version policy             | `src/version.rs`                                  | Implemented                                                                                | Accepts only the audited cuTensorNet and CUDA Runtime versions.                                                                                     |
+| Dynamic loader             | `src/library.rs`                                  | Implemented                                                                                | Opens `libcudart.so.12` and `libcutensornet.so.2`, resolves typed function tables, probes versions, and retains library guards.                     |
+| Availability API           | `src/lib.rs`, `src/error.rs`                      | Implemented                                                                                | Exposes explicit discovery, a report, and structured failures without exposing raw FFI.                                                             |
+| Native qualification       | `src/library/simulation*`                         | Private B0-B5 gate-1 qualified                                                             | Owns thread-confined native resources and validates Base execution, terminal product-term Queries, cap convergence, and forced-branch continuation. |
+| Native path metadata       | `src/library/simulation/contraction*`             | Private implementation; native acceptance separate                                         | Builds topology, optimizes or imports a binary path, and copies path/slicing/structural metadata into owned Rust storage. No numerical contractor.  |
+| Shared contraction adapter | `src/library/simulation/contraction/adapter.rs`   | Private; shared-route native qualification pending                                         | Implements the optimizer, checked portable-plan import and `ContractionContext` directly on Session.                                                |
+| Native contraction         | `src/library/simulation/contraction/execution.rs` | Reusable inputs host-tested; earlier fixed-input diagnostic/2x2/4x4 route native-qualified | Prepares structure without search, owns resident inputs and scratch, replaces/rebinds inputs and returns owned outputs.                             |
+| QDK provider integration   | Future phase                                      | Not implemented                                                                            | Will translate QDK simulation requests without exposing native details to callers.                                                                  |
 
 The raw bindings, function tables, library guards, resolver seam, and native
 status mapping are private. The only public Phase 2 capability is
@@ -313,11 +313,10 @@ The Session groups these resources; it is a QDK abstraction, not a separate
 NVIDIA Session object or an explicitly created CUDA context.
 
 Creating a Session does not allocate the contraction's coefficient, output or
-scratch buffers. The current private numerical preparation determines their
-requirements, checks the device/host scratch ceilings and allocates the buffers.
-The intended reusable-input interface separates structural preparation from
-per-run tensor bindings. Executable-owned resident input storage and explicit
-registration/replacement with complete per-run bindings are approved. Explicitly
+scratch buffers. Structural preparation determines output/workspace
+requirements, checks the device/host scratch ceilings and allocates those buffers,
+without initial coefficients. The reusable-input interface separates this from
+explicit registration/replacement and complete per-run bindings. Explicitly
 registered inputs remain until executable close; same-shape replacement reuses
 capacity, and execution adds no input allocations. Any registration, replacement
 or execution error makes the executable unusable, with reports and close still
@@ -326,24 +325,25 @@ hold memory until cleanup; a planning budget, execution ceiling or free-memory
 observation does not reserve memory. Neither the Session nor these allocations
 reserve exclusive GPU compute capacity or impose a total GPU-memory limit.
 
-**Approved ownership, implementation pending:** the shared preparation abstraction
-changes from a separate `ContractionExecutor` to `ContractionContext`.
-`SessionResources<Api>` will implement this capability directly: the caller
+**Implemented ownership:** `ContractionContext` replaces the separate
+`ContractionExecutor`. `SessionResources<Api>` implements this capability directly: the caller
 prepares a query and selected plan on Session and receives an owned
-`ContractionExecution<'session, Api>` implementing `ExecutableContraction`.
+`CuTensorNetExecutableContraction<'session, Api>` implementing `ExecutableContraction`.
 There is no additional Context object or separate Executor to bind and unbind.
-The current Rust shared trait still has the old name/signature until slice 3b
-migrates it; the native Context/executable adapters are not implemented yet.
+The shared trait, native adapter and portable lifetime witnesses have migrated
+together. Native qualification of this reusable-input route remains pending.
 
-**Clarified input semantics:** the intended executable accepts different
+**Implemented input semantics:** the executable accepts different
 tensor values/bindings on successive executions without rebuilding its
-structure. The current private owner still fixes inputs at preparation.
+structure. Registration/replacement accepts a synchronous `TensorInput` view
+of ordered dimensions and contiguous column-major complex values; host views
+do not escape the call. Opaque `InputId` values are local to one executable.
 The [shared data-reuse, noise and loss design](../simulators/src/execution/README.md#tensor-data-reuse-noise-and-loss-design)
 defines the distinction, including resident matrix sharing, update lifetimes,
 and why loss needs more than a pre-sampled Pauli-like binding. Subsequent review
 approved executable-owned resident input storage and separate
-registration/replacement from complete per-run binding selection. The sequence
-below uses conceptual calls, not finalized Rust signatures.
+registration/replacement from complete per-run binding selection. Slice 3b
+implements these operations without noise orchestration or Pauli-only restrictions.
 
 The approved ownership model retains the existing **exclusive Session borrow**:
 the caller owns both the Session and the returned executable. The executable
@@ -361,12 +361,12 @@ Caller
 
 Responsibilities remain separate:
 
-| Owner or capability                                             | Responsibility                                                                                                                                             |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SessionResources<Api>` / `ContractionContext`                  | Own the selected device information, CUDA stream and cuTensorNet handle; prepare a supplied plan without search.                                           |
-| `CuTensorNetOptimizer`                                          | Temporarily borrow Session for explicit path search; return an owned portable plan and planning report; close its temporary children.                      |
-| `ContractionExecution<'session, Api>` / `ExecutableContraction` | Own topology, prepared resources and resident input storage; exclusively borrow Session; execute supplied inputs, report resources and close its children. |
-| Caller                                                          | Own Session and each returned executable; retain outputs and error outcomes; close Session separately after its children are gone.                         |
+| Owner or capability                                                         | Responsibility                                                                                                                                             |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SessionResources<Api>` / `ContractionContext`                              | Own the selected device information, CUDA stream and cuTensorNet handle; prepare a supplied plan without search.                                           |
+| `CuTensorNetContractionOptimizer`                                           | Temporarily borrow Session for explicit path search; return an owned portable plan and planning report; close its temporary children.                      |
+| `CuTensorNetExecutableContraction<'session, Api>` / `ExecutableContraction` | Own topology, prepared resources and resident input storage; exclusively borrow Session; execute supplied inputs, report resources and close its children. |
+| Caller                                                                      | Own Session and each returned executable; retain outputs and error outcomes; close Session separately after its children are gone.                         |
 
 The Context lifetime is explicit in the approved lifetime direction
 `prepare<'session>(&'session mut self, ...) -> Result<Self::Executable<'session>, ...>`.
@@ -385,7 +385,7 @@ sequenceDiagram
     participant Caller
     participant Session as SessionResources<br/>ContractionContext
     participant Native as Injected native API
-    participant Executable as ContractionExecution<br/>ExecutableContraction
+    participant Executable as CuTensorNetExecutableContraction<br/>ExecutableContraction
 
     Caller->>Session: new(api, device_ordinal)
     Session->>Native: Select device<br/>Create stream and handle
@@ -434,10 +434,20 @@ results, outside preparation's failure envelope.
 The [shared contraction contracts](../simulators/src/execution/README.md#shared-contraction-contracts-i3)
 define the lifetime-indexed prepared owner, synchronous methods and failure
 sequence. The ownership/wiring direction, resident-input operations and policies,
-native/shared report representation and host-allocation seam are approved.
+native/shared report representation and host-allocation seam are implemented.
+`CuTensorNetResourceReport` embeds `ResourceReport` plus optional native cache
+recommendations. Selected bytes/count describe the last fully validated
+selection; resident bytes/count include unselected candidates and failed-upload
+allocations. Required/recommended sizes remain distinct from actual acquisitions.
+Every input/execute failure poisons the owner, including preflight errors;
+`UnusableContraction`, resource inspection and consuming cleanup make that
+state explicit. Early preparation failures preserve primary and cleanup errors
+separately by value.
 The [shared implementation boundary](../simulators/src/execution/README.md#implementation-boundary-and-required-evidence)
-records these decisions and the regression-preserving, resource-keyed migration
-of the existing native API double. Native shared-route qualification
+records these decisions and the resource-keyed native API double's
+input-dependent analytical coverage. Its real host-scratch owner is exercised
+through `ContractionExecutionApi::allocate_host_scratch`, including injected
+allocation failure. Native shared-route qualification
 remains a later gate; private-route results do not qualify these new adapters.
 That later VM/A100 gate must cover representative automatic/explicit planning
 budgets, execution scratch ceilings, search effort, thread counts, seeds, rank
@@ -572,7 +582,7 @@ contraction cleanup rebind the selected device before releasing resources.
 
 #### Shared planning and portable-plan lowering
 
-The crate-private `CuTensorNetOptimizer` implements
+The crate-private `CuTensorNetContractionOptimizer` implements
 `qdk_simulators::execution::ContractionOptimizer` over the existing
 `ContractionResources` and injected native APIs. It exclusively borrows a
 caller-owned session; each search explicitly closes its temporary topology
@@ -633,37 +643,45 @@ availability cannot supply it.
 
 ### Private general-network numerical execution
 
-The retained `ContractionExecution` consumes a populated `ContractionResources`
-and the existing I2 immutable buffer bank/node bindings. Its exclusive session
-borrow and ownership of the topology prevent changing selected metadata while
-prepared native resources retain buffer pointers. This is a private production
-path, not a second test-local executor or a common Execution Framework interface.
-The diagnostic, 2x2 and frozen 4x4 cases have passed native A100 numerical
+The retained `CuTensorNetExecutableContraction` implements the shared
+`ExecutableContraction` contract. Session's `ContractionContext::prepare`
+imports the selected portable plan, then owns its topology, kernels, output
+and scratch independently of the initial input values. The exclusive Session
+borrow prevents changing selected metadata while native resources retain
+pointers. Explicit registration/replacement owns the input allocations;
+complete per-run selections can change sharing without uploading warm candidates.
+The I2 bank is one source of inputs, not the executable's fixed-input contract.
+
+The earlier fixed-input diagnostic, 2x2 and frozen 4x4 cases passed A100
 qualification, including the 4x4 retry after an explicit workspace rejection.
-Host tests and native-target compilation alone do not establish native execution.
+Those historical results below do **not** qualify the slice 3b shared/reusable
+route. Its ignored qualification and experiment callers now compile against
+Context, registration and complete selections, with fixtures/tolerances unchanged.
+They have not been rerun on a GPU in this slice.
 
 ```text
-I2 topology -> optimize -> owned metadata -> close source network/session
-                                           |
-fresh network/session <- import metadata (no search)
-    -> validate coefficients/bindings
-    -> size bounded workspace + upload each referenced buffer once
-    -> bind using native tensor IDs + prepare kernels (no path search)
+query -> optimize or supply a portable plan
+    -> Session.prepare(query, plan, limits): import, workspace/output, kernels
+    -> register each explicitly retained input: validate, allocate, upload once
+    -> execute(complete selection): validate all slots, bind changed native IDs
     -> contract with replacement -> synchronize -> owned host readback
-    -> repeat on the same preparation, without clearing output
+    -> replace mutable values or select resident candidates; repeat execution
     -> synchronize -> close workspace/network -> free buffers -> close session
 ```
 
 Input and output use complex-f64 column-major storage with explicit
-`Complex64Abi` conversion, not a cast of Rust complex values. Shared immutable
-coefficient buffers remain distinct from tensor nodes. Output is uninitialized
+`Complex64Abi` conversion, not a cast of Rust complex values. Shared resident
+inputs remain distinct from tensor nodes. Native slots are explicitly
+nonconstant even when a selected payload is immutable; caches stay disabled.
+Output is uninitialized
 before the first contraction: `accumulateOutput=0` must replace it. Execution
-failure disables further execution/native inspection; explicit close preserves
+or input-operation failure disables further input operations and native
+inspection, including failures rejected before native calls; explicit close preserves
 cleanup errors alongside the primary failure. Drop is a best-effort fallback.
 Numerical slicing is explicitly rejected in this bounded unit; the existing
 metadata-only slicing qualification remains intact.
 
-The three fixed cases run smallest first through this same owner:
+The three retained native selectors run smallest first through this owner:
 the asymmetric three-qubit shared-buffer diagnostic, 2x2 Case A, and unchanged
 4x4 Case A. The [retained workload inputs and independent CPU oracles](../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i3a-bounded-native-numerical-experiment)
 fix the gates, output order and comparison limits. Each case optimizes once,
@@ -678,7 +696,7 @@ scratch for all cases. Allocate the native minimum, with a
 256-byte positive device-scratch floor when the minimum is zero; allocate host
 scratch only when positive. Both caches are disabled with `(null, 0)`, with no
 memory pool or autotuning. Minimum/recommended scratch, recommended cache,
-actual scratch, unique coefficients, output and owned device bytes are reported
+actual scratch, selected inputs, all resident candidates, required output and owned device bytes are reported
 separately. Exceeding a ceiling fails; it does not trigger reoptimization or a
 larger allocation. There is **no total GPU-memory cap**: context/library/profiler
 allocations and device-wide free-memory snapshots are not per-owner accounting.
@@ -737,7 +755,7 @@ The experiment informs later common interfaces; it does not implement them.
 ### Overnight contraction-plan experiments
 
 `scripts/contraction-experiments.py` explores the **same frozen 4x4 Case A**
-through `ContractionResources` and `ContractionExecution`. It does not change the
+through `ContractionResources` and `CuTensorNetExecutableContraction`. It does not change the
 three fixed qualification cases or introduce a common plan API. This suite is a
 separate review candidate; the accepted numerical evidence above does **not**
 qualify its new configurations or chronological control on GPU.
@@ -822,14 +840,21 @@ it is not the default or a prerequisite for interface work.
 Each trial retains `config.json`, flushed `events.jsonl`, `trial.log`, sampled
 `memory-observations.jsonl`, and `summary.json`. The native journal records path,
 intermediate modes, available estimates, library versions/paths, requirements,
-allocations, comparisons and cleanup. The first raw readback is retained and
+allocations, comparisons and cleanup. Successful trials record resource snapshots
+after registration and after the final execution; summaries retain the latest
+snapshot. `selected_input_bytes`/`selected_input_count` are unknown before the
+first validated selection, while `resident_input_bytes`/`resident_input_count`
+already include all registered candidates. The first raw readback is retained and
 hashed; a failed comparison's output is also saved when available.
 A preparation rejection retains its plan and available required/maximum bytes,
 but **does not supply a complete allocation report**. Missing measurements remain
 absent, never zero or invented runtime results.
 
-Wall timings separate search, metadata export/import, host preparation, and each
-contract/synchronize/readback/host-conversion call. Preparation is a host-call
+Wall timings separate search, metadata export, Context preparation (including
+plan import), and each contract/synchronize/readback/host-conversion call.
+There is no separately measured import interval or `import_seconds` CSV column.
+Input registration is outside the preparation and contraction timing intervals.
+Preparation is a host-call
 timing; the first contraction can include queued preparation work. Comparisons,
 readback persistence and hashing are outside these intervals. These are not
 GPU-only timings. Approximately 100 ms `nvidia-smi`/`/proc` sampling records
