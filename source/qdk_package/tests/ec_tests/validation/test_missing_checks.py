@@ -11,6 +11,7 @@ from qdk.ec import audit
 from qdk.ec._audit._parity import ParityAnalysis
 from qdk.ec._audit.rules import default_rules
 from qdk.ec._audit.rules.gadget import MissingCheckRule
+from ec_tests.testing.optional import requires_stim
 
 
 def test_builtin_rule_ids_are_exact() -> None:
@@ -37,6 +38,7 @@ def test_builtin_rule_ids_are_exact() -> None:
     }
 
 
+@requires_stim
 def test_missing_checks_are_independent_verified_and_informational(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -70,6 +72,7 @@ def test_missing_checks_are_independent_verified_and_informational(
     ]
 
 
+@requires_stim
 def test_complete_and_equivalent_check_bases_do_not_report_omissions(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -82,6 +85,7 @@ def test_complete_and_equivalent_check_bases_do_not_report_omissions(
     assert len(ParityAnalysis(gadget).missing_checks()) == 1
 
 
+@requires_stim
 def test_duplicate_vacuous_and_invalid_checks_do_not_hide_omissions(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -99,6 +103,7 @@ def test_duplicate_vacuous_and_invalid_checks_do_not_hide_omissions(
     assert ParityAnalysis(gadget).missing_checks() == ()
 
 
+@requires_stim
 def test_readout_definitions_account_for_checks_written_through_readouts(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -113,6 +118,7 @@ def test_readout_definitions_account_for_checks_written_through_readouts(
     assert len(ParityAnalysis(gadget).missing_checks()) == 1
 
 
+@requires_stim
 def test_zero_flags_and_readout_dependencies_are_not_duplicate_suggestions(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -127,6 +133,7 @@ def test_zero_flags_and_readout_dependencies_are_not_duplicate_suggestions(
     assert ParityAnalysis(gadget).missing_checks() == ()
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "source,expected",
     [("R 0\nH 0\nM 0", ()), ("R 0\nM 0", (("circuit.readouts[0]",),))],
@@ -154,6 +161,7 @@ def test_random_bits_are_not_checks_but_constant_zero_bits_are(
     assert ParityAnalysis(gadget).missing_checks() == expected
 
 
+@requires_stim
 def test_parity_one_relations_are_not_suggested(rep3_qodec: qc.Qodec) -> None:
     physical = rep3_qodec.layers[1].instruction_set
     operand = qc.instructions.BlockOperand("qubit")
@@ -170,6 +178,7 @@ def test_parity_one_relations_are_not_suggested(rep3_qodec: qc.Qodec) -> None:
     assert ParityAnalysis(gadget).missing_checks() == ()
 
 
+@requires_stim
 def test_input_only_identities_do_not_add_missing_measurement_checks(
     rep3_qodec: qc.Qodec,
 ) -> None:

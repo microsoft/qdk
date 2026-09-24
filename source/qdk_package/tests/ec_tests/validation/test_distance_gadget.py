@@ -25,7 +25,7 @@ from qdk.ec._analysis.distance_solvers import EnumerationSolverOptions
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.interpreter import propagate_faults
 from qdk.ec._profile import _fault_observables
-from ec_tests.testing.optional import requires_highs
+from ec_tests.testing.optional import requires_highs, requires_stim
 from ec_tests.testing.qodecs import c4
 
 
@@ -132,6 +132,7 @@ def _measurement_gadget(physical: qc.InstructionSet, qubit_count: int) -> qc.Gad
     )
 
 
+@requires_stim
 def test_measurement_only_distance_includes_readout_flips(rep3_qodec: qc.Qodec) -> None:
     physical = rep3_qodec.layers[1].instruction_set
     gadget = _measurement_gadget(physical, 3)
@@ -214,6 +215,7 @@ def test_nondestructive_readout_flip_matches_pauli_sandwich(
     assert readout_fault in dict(profile.fault_effects)
 
 
+@requires_stim
 def test_readout_noise_uses_call_local_positions_not_reset_rows(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -305,6 +307,7 @@ def test_one_call_can_corrupt_several_readouts_as_one_fault(
     assert effect == FaultEffect(["readouts[0]"])
 
 
+@requires_stim
 def test_c4_z_measurement_has_distance_two_with_readout_noise() -> None:
     gadget = c4().layers[0].gadgets["measure_zz"]
     gadget.readouts = [
@@ -339,6 +342,7 @@ def test_highs_gadget_distance_returns_replayable_witness(rep3_qodec: qc.Qodec) 
         profile.distance(solver="highs", upper_bound=2)
 
 
+@requires_stim
 def test_preparation_distance_uses_the_prepared_logical_state(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -420,6 +424,7 @@ def test_readout_dependencies_are_reduced_once_for_all_faults(
     assert profile.distance(faults=faults).value is None
 
 
+@requires_stim
 @pytest.mark.parametrize("preserves_input", [False, True])
 def test_action_signs_combine_measurement_and_output_faults(
     rep3_qodec: qc.Qodec, preserves_input: bool
@@ -523,6 +528,7 @@ def test_profile_keeps_readout_dependencies_in_snapshot(rep3_qodec: qc.Qodec) ->
     assert profile._target.readouts == gadget.readouts
 
 
+@requires_stim
 def test_fault_measurement_rows_allow_interleaved_resets(rep3_qodec: qc.Qodec) -> None:
     circuit = qc.gadgets.Circuit(
         rep3_qodec.layers[1].instruction_set,
@@ -701,6 +707,7 @@ def test_distance_finds_combinations_and_returns_replayable_faults(
     assert profile.distance_bounds(faults=[]).lower_bound is None
 
 
+@requires_stim
 def test_flag_alone_is_not_a_logical_failure(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -802,6 +809,7 @@ def test_distance_requires_all_flag_equations_even_without_faults(
         getattr(GadgetProfile(gadget), method)(faults=[], solver="enumeration")
 
 
+@requires_stim
 def test_output_codespace_is_required_without_adding_declared_checks(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -892,6 +900,7 @@ def test_readout_free_distance_requires_combined_logical_residual() -> None:
     assert profile.distance().value == 2
 
 
+@requires_stim
 def test_output_syndromes_on_different_blocks_do_not_cancel() -> None:
     gadget = c4().layers[0].gadgets["transversal_cx"]
     gadget.checks = []
@@ -907,6 +916,7 @@ def test_output_syndromes_on_different_blocks_do_not_cancel() -> None:
     assert profile.distance_bounds(faults=faults).lower_bound is None
 
 
+@requires_stim
 def test_declared_checks_still_exclude_a_codespace_preserving_error() -> None:
     gadget = c4().layers[0].gadgets["idle"]
     last = len(gadget.circuit.calls()) - 1
@@ -953,6 +963,7 @@ def test_readout_dependencies_are_solved_for_fault_effects(
         GadgetProfile(gadget).distance(faults=[fault])
 
 
+@requires_stim
 def test_identical_logical_effects_cancel_instead_of_forming_a_failure(
     rep3_qodec: qc.Qodec,
 ) -> None:
@@ -972,6 +983,7 @@ def test_identical_logical_effects_cancel_instead_of_forming_a_failure(
     assert not effect
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "reference", ["circuit.readouts[9]", "readouts[9]", "in[0].z[0]"]
 )
@@ -1034,6 +1046,7 @@ def test_distance_three_matches_bounds_and_cutoff(rep3_qodec: qc.Qodec) -> None:
     assert distance.witness.factors == tuple(faults)
 
 
+@requires_stim
 def test_bare_circuit_distance_uses_discovered_checks(rep3_qodec: qc.Qodec) -> None:
     physical = rep3_qodec.layers[1].instruction_set
     operand = qc.instructions.BlockOperand("qubit")
@@ -1055,6 +1068,7 @@ def test_bare_circuit_distance_uses_discovered_checks(rep3_qodec: qc.Qodec) -> N
     assert measured.distance_bounds().lower_bound is None
 
 
+@requires_stim
 @pytest.mark.parametrize("bare", [False, True])
 def test_fault_effect_xor_matches_replay_and_uses_snapshot(
     idle_gadget: qc.Gadget, bare: bool
@@ -1104,6 +1118,7 @@ def test_bare_circuit_effect_output_positions_skip_prepared_slots(
     )
 
 
+@requires_stim
 @pytest.mark.parametrize("location", [-1, 2])
 def test_invalid_fault_location_raises(rep3_qodec: qc.Qodec, location: int) -> None:
     profile = GadgetProfile(

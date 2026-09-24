@@ -12,6 +12,9 @@ from qdk.ec._analysis.propagation.interpreter import (
 )
 from qdk.ec._analysis.propagation.stabilizer import frame_group_of
 from qdk.ec._layout import ProgramLayout
+from ec_tests.testing.optional import requires_stim
+
+pytestmark = requires_stim
 
 
 def test_walking_a_program_stabilizes_every_qubit(idle_gadget: qc.Gadget) -> None:

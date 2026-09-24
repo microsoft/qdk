@@ -10,6 +10,9 @@ from qdk.ec import audit, build_qodec, filled
 from qdk.ec._analysis.code_algebra import as_qodec_code
 from qdk.ec._fill import complete_gadget
 from qdk.ec._readouts import as_readout
+from ec_tests.testing.optional import requires_stim
+
+pytestmark = requires_stim
 
 
 def test_filled_returns_completed_gadget_copy(idle_gadget: qc.Gadget) -> None:

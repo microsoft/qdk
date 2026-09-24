@@ -24,6 +24,7 @@ from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
 from qdk.ec._build import _physical_isa
 from qdk.ec._layout import ProgramLayout
+from ec_tests.testing.optional import requires_stim
 
 
 def _action_of_gadget(gadget: qc.Gadget) -> ChannelAction:
@@ -68,6 +69,7 @@ def test_clifford_channel_keeps_all_logical_generator_images() -> None:
     assert declared.is_equivalent_to(realized)
 
 
+@requires_stim
 def test_c4_measurement_signs_use_circuit_readout_positions() -> None:
     code = qc.Code(
         "C4",
@@ -87,6 +89,7 @@ def test_c4_measurement_signs_use_circuit_readout_positions() -> None:
     } == {Pauli("Z_0"): frozenset({0, 2}), Pauli("Z_1"): frozenset({0, 1})}
 
 
+@requires_stim
 @pytest.mark.parametrize("decoded", [False, True])
 def test_action_frames_use_circuit_readouts(
     measure_zz_gadget: qc.Gadget,
@@ -113,6 +116,7 @@ def _action_from_stim(source: str) -> ChannelAction:
     return action_of(qc.gadgets.Circuit(_physical_isa(), source, format="stim"))
 
 
+@requires_stim
 def test_interleaved_resets_do_not_offset_readout_indices() -> None:
     action = _action_from_stim("R 2\nM 0\nR 2\nM 1\n")
     assert {
@@ -122,6 +126,7 @@ def test_interleaved_resets_do_not_offset_readout_indices() -> None:
     } == {Pauli("Z_0"): frozenset({0}), Pauli("Z_1"): frozenset({1})}
 
 
+@requires_stim
 def test_correlated_readouts_keep_one_shared_sign_variable() -> None:
     action = _action_from_stim("R 0 1\nH 0\nCX 0 1\nM 0\nM 1\n")
     assert action._stabilizers.frame_of(Pauli("Z_0")) == frozenset({0})
@@ -129,6 +134,7 @@ def test_correlated_readouts_keep_one_shared_sign_variable() -> None:
     assert action._stabilizers.frame_of(Pauli("Z_0 Z_1")) == frozenset()
 
 
+@requires_stim
 def test_unrecorded_reset_outcome_is_averaged_out() -> None:
     action = _action_from_stim("R 0 1\nH 0\nCX 0 1\nR 0\n")
     assert (
@@ -137,6 +143,7 @@ def test_unrecorded_reset_outcome_is_averaged_out() -> None:
     assert all(not generator.frame for generator in action._stabilizers.generators)
 
 
+@requires_stim
 def test_hidden_outcomes_cancel_in_retained_joint_relations() -> None:
     action = _action_from_stim("R 0 1 2\nH 0\nCX 0 1\nCX 0 2\nR 0\n")
     expected = FrameGroup([PauliFrame(Pauli("Z_0")), PauliFrame(Pauli("Z_1 Z_2"))])
@@ -144,12 +151,14 @@ def test_hidden_outcomes_cancel_in_retained_joint_relations() -> None:
     assert all(not generator.frame for generator in action._stabilizers.generators)
 
 
+@requires_stim
 def test_readout_can_recover_a_hidden_reset_sign() -> None:
     action = _action_from_stim("R 0 1\nH 0\nCX 0 1\nR 0\nM 1\n")
     assert action._stabilizers.frame_of(Pauli("Z_0")) == frozenset()
     assert action._stabilizers.frame_of(Pauli("Z_1")) == frozenset({0})
 
 
+@requires_stim
 def test_deterministic_readouts_keep_their_record_positions() -> None:
     action = _action_from_stim("R 1\nM 1\nM 0\n")
     assert action._observables.frame_of(Pauli("Z_0")) == frozenset({1})
@@ -183,6 +192,7 @@ def test_signed_readout_conversion_preserves_the_eigenvalue(source: str) -> None
     assert expected in action._stabilizers.generators
 
 
+@requires_stim
 def test_fault_probe_frames_are_indexed_by_readouts_not_reset_rows() -> None:
     program = qc.gadgets.Circuit(_physical_isa(), "R 1\nM 0\nR 1\n", format="stim")
     deltas, hidden, readouts = propagate_faults(
@@ -203,6 +213,7 @@ def test_fault_probe_frames_are_indexed_by_readouts_not_reset_rows() -> None:
         )
 
 
+@requires_stim
 def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> None:
     program = program_of(idle_gadget)
     inputs = input_qubits_of(program)
@@ -211,6 +222,7 @@ def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> Non
     assert inputs <= frozenset(range(ProgramLayout.of(program).total_qubits))
 
 
+@requires_stim
 def test_action_of_idle_channel_returns_channel_action(
     idle_gadget: qc.Gadget,
 ) -> None:
@@ -221,6 +233,7 @@ def test_action_of_idle_channel_returns_channel_action(
     assert isinstance(action._mapping, dict)
 
 
+@requires_stim
 def test_action_is_equivalent_to_itself(idle_gadget: qc.Gadget) -> None:
     action = _action_of_gadget(idle_gadget)
     assert action.is_equivalent_to(action)
@@ -312,6 +325,7 @@ def test_action_comparison_does_not_assume_mapping_corrections() -> None:
     assert expected.why_not_equivalent_to(actual)
 
 
+@requires_stim
 def test_distinct_gadgets_are_not_equivalent(
     idle_gadget: qc.Gadget, measure_xx_gadget: qc.Gadget
 ) -> None:
@@ -322,6 +336,7 @@ def test_distinct_gadgets_are_not_equivalent(
     assert not are_equivalent_mod_paulis(idle, measure)
 
 
+@requires_stim
 def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
     idle_gadget: qc.Gadget,
 ) -> None:
@@ -338,6 +353,7 @@ def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
     assert not flipped.is_equivalent_to(action)
 
 
+@requires_stim
 def test_different_stabilizers_are_not_mod_paulis_equivalent(
     idle_gadget: qc.Gadget,
 ) -> None:
@@ -349,6 +365,7 @@ def test_different_stabilizers_are_not_mod_paulis_equivalent(
     assert not are_equivalent_mod_paulis(action, perturbed)
 
 
+@requires_stim
 def test_preparation_declared_stabilizers_are_deterministic(
     prepare_xx_gadget: qc.Gadget,
     prepare_zz_gadget: qc.Gadget,
@@ -374,6 +391,7 @@ def test_preparation_declared_stabilizers_are_deterministic(
         assert gadget_action_mismatch(gadget) is None
 
 
+@requires_stim
 def test_idle_declared_and_realized_actions_match_golden_values(
     idle_gadget: qc.Gadget,
 ) -> None:
@@ -386,6 +404,7 @@ def test_idle_declared_and_realized_actions_match_golden_values(
     assert str(profile.action) == expected
 
 
+@requires_stim
 @pytest.mark.parametrize(
     "mnemonic, expected",
     [
@@ -496,6 +515,7 @@ def test_action_display_handles_empty_relations_and_pretty_cycles() -> None:
     assert output.getvalue() == "..."
 
 
+@requires_stim
 def test_realized_action_is_invariant_under_equivalent_logical_representatives(
     idle_gadget: qc.Gadget,
 ) -> None:
@@ -525,6 +545,7 @@ def test_realized_action_is_invariant_under_equivalent_logical_representatives(
     assert original.action.is_equivalent_to(changed.action)
 
 
+@requires_stim
 def test_destructive_measurement_carries_no_logical_but_stays_distinguishable(
     measure_zz_gadget: qc.Gadget,
     measure_xx_gadget: qc.Gadget,

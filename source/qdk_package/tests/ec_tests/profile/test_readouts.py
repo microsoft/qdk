@@ -9,8 +9,10 @@ from qdk.ec._analysis import check_discovery
 from qdk.ec._analysis.essential_checks import (
     outcomes_flipped_by_anti_observables_of,
 )
+from ec_tests.testing.optional import requires_stim
 
 
+@requires_stim
 def test_profile_of_discovers_the_readout_bindings(
     measure_zz_gadget: qc.Gadget,
 ) -> None:
@@ -28,6 +30,7 @@ def test_checks_and_readouts_share_one_discovery_pass() -> None:
     assert check_discovery.profile_of is checks_module.profile_of
 
 
+@requires_stim
 def test_anti_observable_flips_are_reported_per_outcome(
     measure_zz_gadget: qc.Gadget,
 ) -> None:
@@ -39,5 +42,6 @@ def test_anti_observable_flips_are_reported_per_outcome(
     ), "measuring ZZ must be flipped by some anti-observable"
 
 
+@requires_stim
 def test_idle_gadget_has_no_readouts(idle_gadget: qc.Gadget) -> None:
     assert check_discovery.profile_of(idle_gadget).readouts == {}

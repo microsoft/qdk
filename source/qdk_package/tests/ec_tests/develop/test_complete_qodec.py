@@ -9,6 +9,7 @@ from ec_tests.testing.qodecs import c4
 from qdk.ec import _fill
 from qdk.ec._fill import complete_qodec
 from qdk.ec._readouts import as_readout
+from ec_tests.testing.optional import requires_stim
 
 
 def _stripped(qodec: qc.Qodec) -> qc.Qodec:
@@ -32,6 +33,7 @@ def _stripped(qodec: qc.Qodec) -> qc.Qodec:
     return qc.Qodec(layers, name=qodec.name, description=qodec.description)
 
 
+@requires_stim
 def test_complete_qodec_fills_in_checks_for_every_gadget() -> None:
     draft = _stripped(c4())
     assert all(
@@ -49,6 +51,7 @@ def test_complete_qodec_fills_in_checks_for_every_gadget() -> None:
     assert any(count > 0 for _, _, count in discovered)
 
 
+@requires_stim
 def test_complete_qodec_leaves_the_input_untouched() -> None:
     draft = _stripped(c4())
 
@@ -59,6 +62,7 @@ def test_complete_qodec_leaves_the_input_untouched() -> None:
     )
 
 
+@requires_stim
 def test_complete_qodec_preserves_the_layer_chain_and_identity() -> None:
     qodec = c4()
 
@@ -75,6 +79,7 @@ def test_complete_qodec_preserves_the_layer_chain_and_identity() -> None:
     ]
 
 
+@requires_stim
 def test_complete_qodec_matches_the_authored_checks() -> None:
     qodec = c4()
 

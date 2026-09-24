@@ -3,6 +3,9 @@
 import qodec as qc
 from qdk.ec._analysis.channel_action import ChannelAction, realized_action_of
 from qdk.ec._analysis.equivalence import gadgets_equivalent, why_not_equivalent
+from ec_tests.testing.optional import requires_stim
+
+pytestmark = requires_stim
 
 
 def test_gadget_is_equivalent_to_itself(translation: qc.Layer) -> None:
