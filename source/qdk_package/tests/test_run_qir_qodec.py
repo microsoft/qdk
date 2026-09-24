@@ -235,6 +235,30 @@ def test_public_qodec_runner_matches_adaptive_physical_results(
     )
 
 
+@pytest.mark.parametrize("complete", [False, True])
+def test_generated_qodec_runs_without_serialization(complete):
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    ec = pytest.importorskip("qdk.ec")
+    from qdk import Result, TargetProfile, qsharp
+
+    code = qodec.Code(
+        "repetition3",
+        stabilizers=["Z_0 Z_1", "Z_1 Z_2"],
+        x=["X_0 X_1 X_2"],
+        z=["Z_0"],
+    )
+    codec = ec.build_qodec(code, strategy="bare-css/v1", strict=False)
+    if complete:
+        codec = ec.filled(codec)
+    qsharp.init(target_profile=TargetProfile.Base)
+    qir = qsharp.compile("{ use q = Qubit(); M(q) }")
+
+    assert run_qir(
+        qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise"
+    ) == [Result.Zero] * 3
+
+
 def test_custom_decoder_changes_public_results_and_closes_each_shot():
     qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")

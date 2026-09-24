@@ -366,7 +366,11 @@ def structural_issues(target: object) -> Iterator[tuple[str, str]]:
             for _, issue in structural_issues(instruction_set):
                 yield f"layers[{index}].instruction_set", issue
             blocks = {block.name: block.encodes for block in instruction_set.blocks}
-            bindings: dict[str, qc.Code] = {}
+            bindings = dict(layer.codes)
+            if index + 1 < len(target.layers):
+                for block in blocks:
+                    if block not in bindings:
+                        yield f"layers[{index}]", f"block {block!r} has no code binding in the layer"
             for mnemonic, gadget in layer.gadgets.items():
                 path = f"layers[{index}].gadgets[{json.dumps(mnemonic, ensure_ascii=False)}]"
                 if index + 1 == len(target.layers):
@@ -400,6 +404,6 @@ def structural_issues(target: object) -> Iterator[tuple[str, str]]:
                             and bindings[operand.block] != code
                         ):
                             yield path, f"block {operand.block!r} is bound to different codes in the layer"
-                        bindings[operand.block] = code
+                        bindings.setdefault(operand.block, code)
                 for issue in _gadget_issues(gadget, blocks):
                     yield path, issue
