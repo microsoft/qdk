@@ -42,7 +42,6 @@ ec = [
   "binar>=0.1.2",
   "more-itertools>=10.0",
   "highspy>=1.11,<2",
-  "mwpf>=0.2.2",
   "numpy>=1.24",
   "scipy>=1.9",
 ]
@@ -60,7 +59,6 @@ all = [
   "binar>=0.1.2",
   "more-itertools>=10.0",
   "highspy>=1.11,<2",
-  "mwpf>=0.2.2",
   "numpy>=1.24",
   "scipy>=1.9",
 ]
