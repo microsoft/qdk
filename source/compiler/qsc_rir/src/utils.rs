@@ -116,7 +116,8 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 | Instruction::Load(_, var)
                 | Instruction::Index(_, _, var)
                 | Instruction::CopyArray(_, var)
-                | Instruction::SliceArray(_, _, _, _, var) => {
+                | Instruction::SliceArray(_, _, _, _, var)
+                | Instruction::ConcatArrays(_, _, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -186,6 +187,15 @@ pub(crate) fn map_variable_use_in_block(
                     *src = src.map_to_variable(var_map);
                 } else {
                     // Otherwise drop the copy array by continuing the loop.
+                    continue;
+                }
+            }
+            Instruction::ConcatArrays(lhs, rhs, dest) => {
+                if var_stor_to_keep.contains(&dest.variable_id) {
+                    *lhs = lhs.map_to_variable(var_map);
+                    *rhs = rhs.map_to_variable(var_map);
+                } else {
+                    // Otherwise drop the concat arrays by continuing the loop.
                     continue;
                 }
             }

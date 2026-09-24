@@ -247,6 +247,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::SliceArray(array, start, step, end, var) => {
                 slice_array_to_qir(*array, *start, *step, *end, *var, program)
             }
+            rir::Instruction::ConcatArrays(lhs, rhs, var) => {
+                concat_arrays_to_qir(*lhs, *rhs, *var, program)
+            }
             rir::Instruction::StoreIndex(..) => {
                 unreachable!("StoreIndex instructions should be eliminated by passes")
             }
@@ -344,7 +347,6 @@ fn store_array_to_qir(
     let var_ty = get_variable_ty(variable);
     let mut qir = String::new();
     let var_str = ToQir::<String>::to_qir(&variable.variable_id, program);
-    let final_operand_idx = operands.len() - 1;
     for (i, operand) in operands.iter().enumerate() {
         let temp_var = format!("{var_str}_{i}");
         writeln!(
@@ -358,7 +360,7 @@ fn store_array_to_qir(
             ToQir::<String>::to_qir(operand, program)
         )
         .expect("writing to string should succeed");
-        if i != final_operand_idx {
+        if i != operands.len() - 1 {
             writeln!(qir).expect("writing to string should succeed");
         }
     }
@@ -409,9 +411,81 @@ fn slice_array_to_qir(
         .expect("writing to string should succeed");
         write!(qir, "  store {elem_ty} {temp_var}, ptr {temp_var}_dst")
             .expect("writing to string should succeed");
-        idx += step;
+        idx = if let Some(next) = idx.checked_add(step) {
+            next
+        } else {
+            writeln!(qir).expect("writing to string should succeed");
+            break;
+        };
         new_idx += 1;
         if (step > 0 && idx <= end) || (step < 0 && idx >= end) {
+            writeln!(qir).expect("writing to string should succeed");
+        }
+    }
+    qir
+}
+
+fn concat_arrays_to_qir(
+    lhs: rir::Variable,
+    rhs: rir::Variable,
+    var: rir::Variable,
+    program: &rir::Program,
+) -> String {
+    // To avoid introducing a loop, we emit explicit individual store instructions into the returned QIR string for
+    // each element from the first array followed by each element from the second array into the new array.
+    // This produces 4(N + M) QIR instructions, where N and M are the lengths of the first and second arrays, respectively.
+    let var_str = ToQir::<String>::to_qir(&var.variable_id, program);
+    let lhs_array_ty = get_variable_ty(lhs);
+    let rhs_array_ty = get_variable_ty(rhs);
+    let var_ty = get_variable_ty(var);
+    let (lhs_size, elem_ty) = if let rir::Ty::Array(lhs_size, elem_ty) = &lhs.ty {
+        (*lhs_size, get_prim_ty(*elem_ty))
+    } else {
+        panic!("expected array type for concatenation");
+    };
+    let rir::Ty::Array(rhs_size, _) = rhs.ty else {
+        panic!("expected array type for concatenation");
+    };
+    let lhs_array_str = ToQir::<String>::to_qir(&lhs.variable_id, program);
+    let rhs_array_str = ToQir::<String>::to_qir(&rhs.variable_id, program);
+    let mut qir = String::new();
+    let mut idx = 0;
+    for i in 0..lhs_size {
+        let temp_var = format!("{var_str}_{idx}");
+        writeln!(
+            qir,
+            "  {temp_var}_src = getelementptr {lhs_array_ty}, ptr {lhs_array_str}, i64 0, i64 {i}"
+        )
+        .expect("writing to string should succeed");
+        writeln!(qir, "  {temp_var} = load {elem_ty}, ptr {temp_var}_src")
+            .expect("writing to string should succeed");
+        writeln!(
+            qir,
+            "  {temp_var}_dst = getelementptr {var_ty}, ptr {var_str}, i64 0, i64 {idx}"
+        )
+        .expect("writing to string should succeed");
+        writeln!(qir, "  store {elem_ty} {temp_var}, ptr {temp_var}_dst")
+            .expect("writing to string should succeed");
+        idx += 1;
+    }
+    for i in 0..rhs_size {
+        let temp_var = format!("{var_str}_{idx}");
+        writeln!(
+            qir,
+            "  {temp_var}_src = getelementptr {rhs_array_ty}, ptr {rhs_array_str}, i64 0, i64 {i}"
+        )
+        .expect("writing to string should succeed");
+        writeln!(qir, "  {temp_var} = load {elem_ty}, ptr {temp_var}_src")
+            .expect("writing to string should succeed");
+        writeln!(
+            qir,
+            "  {temp_var}_dst = getelementptr {var_ty}, ptr {var_str}, i64 0, i64 {idx}"
+        )
+        .expect("writing to string should succeed");
+        write!(qir, "  store {elem_ty} {temp_var}, ptr {temp_var}_dst")
+            .expect("writing to string should succeed");
+        idx += 1;
+        if idx != lhs_size + rhs_size {
             writeln!(qir).expect("writing to string should succeed");
         }
     }

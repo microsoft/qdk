@@ -137,6 +137,15 @@ fn add_alloca_load_to_block(
                 *next_var_id = next_var_id.successor();
                 continue;
             }
+            Instruction::ConcatArrays(lhs, rhs, dest) => {
+                vars_to_alloca.insert(dest.variable_id, *dest);
+                block.0.push(Instruction::ConcatArrays(*lhs, *rhs, *dest));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&dest.variable_id);
+                *next_var_id = next_var_id.successor();
+                continue;
+            }
 
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _, _) => {
