@@ -79,7 +79,7 @@ def test_qodec_selects_encoded_runner(
 
 
 @pytest.mark.parametrize(
-    "options", [{"on_shot_failure": "discard"}, {"max_retries": 0}]
+    "options", [{"on_shot_failure": "raise"}, {"max_retries": 0}]
 )
 def test_shot_failure_options_require_a_qodec(options):
     with pytest.raises(ValueError, match="require a Qodec"):

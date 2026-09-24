@@ -37,7 +37,7 @@ def run_qir_with_qodec(
     decoder: PrepareDecoder | None = None,
     quantum_backend_factory: QuantumBackendFactory = stabilizer_backend,
     type: Literal["stabilizer", "cpu", "gpu", "clifford"] | None = None,
-    on_shot_failure: ShotFailurePolicy = "raise",
+    on_shot_failure: ShotFailurePolicy = "discard",
     max_retries: int = 3,
 ) -> list[object]:
     match type:
@@ -98,7 +98,7 @@ def run_qir_raw_records(
     executor: Executor[AdaptiveProgram, ResultT],
     shots: int,
     *,
-    on_shot_failure: ShotFailurePolicy = "raise",
+    on_shot_failure: ShotFailurePolicy = "discard",
     max_retries: int = 3,
 ) -> list[ResultT]:
     _validate_shot_policy(on_shot_failure, max_retries)

@@ -100,7 +100,7 @@ class NativeBatch:
         noise: NoiseConfig | None,
         *,
         seed: int,
-        on_shot_failure: Literal["raise", "discard"] = "raise",
+        on_shot_failure: Literal["raise", "discard"] = "discard",
     ) -> list[list[OutputRecordValue]]:
         physical = cast(
             list[list[Result]],

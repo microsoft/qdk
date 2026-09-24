@@ -801,7 +801,7 @@ def run_qir(
     *,
     qodec: Optional["Qodec"] = None,
     decoder: Optional["PrepareDecoder"] = None,
-    on_shot_failure: Literal["raise", "discard", "retry"] = "raise",
+    on_shot_failure: Literal["discard", "raise", "retry"] = "discard",
     max_retries: int = 3,
 ) -> List:
     """
@@ -824,12 +824,11 @@ def run_qir(
     :param decoder: EXPERIMENTAL
         A ``PrepareDecoder`` callable that prepares a decoder factory for
         each Qodec layer. ``None`` selects the built-in syndrome decoder.
-        Requires ``qodec``; each shot receives a fresh decoder session.
         See :mod:`qdk.simulation.decoders` for built-in preparation functions and
         the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
     :param on_shot_failure: EXPERIMENTAL
-        Qodec shot policy: ``"raise"`` stops on the first failure,
-        ``"discard"`` returns only successes, and ``"retry"`` restarts failed shots.
+        Qodec shot policy: ``"discard"`` (default) returns only successes,
+        ``"raise"`` stops on the first failure, and ``"retry"`` restarts failed shots.
         Discard and retry select accepted shots and can change the result distribution.
     :param max_retries: EXPERIMENTAL
         Additional attempts per Qodec shot under ``"retry"`` (default 3).
@@ -855,7 +854,7 @@ def run_qir(
     if decoder is not None:
         raise ValueError("A decoder requires a Qodec")
 
-    if on_shot_failure != "raise" or max_retries != 3:
+    if on_shot_failure != "discard" or max_retries != 3:
         raise ValueError("Shot failure options require a Qodec")
 
     if type is None:

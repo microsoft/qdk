@@ -34,17 +34,15 @@ def prepare_code_decoder(request):
 @pytest.mark.parametrize(
     "error_name", ["ExecutionRejected", "ExecutionUnresolved", "InconsistentParity"]
 )
-def test_raw_shot_failure_policy_raises_by_default(monkeypatch, error_name):
+def test_raw_shot_failure_policy_discards_by_default(monkeypatch, error_name):
     from qdk.simulation._qodec import _run
 
     monkeypatch.setattr(_run, "compile", Mock())
     failure = getattr(_run, error_name)("failed shot")
     executor = Mock()
-    executor.run.side_effect = failure
-    with pytest.raises(type(failure)) as raised:
-        _run.run_qir_raw_records(Mock(), executor, 2)
-    assert raised.value is failure
-    assert executor.run.call_count == 1
+    executor.run.side_effect = [failure, "accepted"]
+    assert _run.run_qir_raw_records(Mock(), executor, 2) == ["accepted"]
+    assert executor.run.call_count == 2
     executor.set_seed.assert_not_called()
 
 
