@@ -35,7 +35,6 @@ const buildOptions = {
     join(thisDir, "src/main.tsx"),
     join(thisDir, "src/compiler-worker.ts"),
     join(thisDir, "src/language-service-worker.ts"),
-    join(thisDir, "src/kataViewer.tsx"),
   ],
   outdir,
   bundle: true,

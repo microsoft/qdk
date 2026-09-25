@@ -56,7 +56,6 @@ export function OutputTabs(props: {
   evtTarget: QscEventTarget;
   showPanel: boolean;
   onShotError?: (err?: VSDiagnostic) => void;
-  kataMode?: boolean;
   ast: string;
   hir: string;
   rir: string[];

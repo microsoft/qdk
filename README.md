@@ -52,7 +52,7 @@ build of each project, including running tests and checks such as linting. Run w
 
 ### Playground
 
-The `playground` is a small website that loads the Q# editor, compiler, samples, katas, and documentation for the standard library. It's a way to manually validate any changes you make to these components.
+The `playground` is a small website that loads the Q# editor, compiler, samples, and documentation for the standard library. It's a way to manually validate any changes you make to these components.
 
 To see instructions for building the playground, refer to [Building the Playground Locally](./source/playground/README.md#building-the-playground-locally).
 
