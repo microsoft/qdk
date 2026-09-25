@@ -8,6 +8,50 @@
   }
 }
 
+.qs-circuit-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.qs-circuit-controls p {
+  margin: 0;
+  padding: 0;
+}
+
+.qs-circuit-export-button {
+  padding: 3px 9px;
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 4px;
+  background: var(
+    --vscode-button-secondaryBackground,
+    var(--qdk-host-background)
+  );
+  color: var(--vscode-button-secondaryForeground, var(--qdk-host-foreground));
+  cursor: pointer;
+  font: inherit;
+}
+
+.qs-circuit-export-button:hover:not(:disabled) {
+  border-color: var(--qdk-focus-border);
+}
+
+.qs-circuit-export-button:focus-visible {
+  outline: 1px solid var(--qdk-focus-border);
+  outline-offset: 1px;
+}
+
+.qs-circuit-export-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.qs-circuit-export-error {
+  margin: 0 0 8px;
+  color: var(--vscode-errorForeground, #a1260d);
+}
+
 /* Circuit widget */
 .qs-circuit {
   /* Background color for the circuit diagram */

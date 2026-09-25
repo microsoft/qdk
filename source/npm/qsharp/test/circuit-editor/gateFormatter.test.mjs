@@ -24,6 +24,7 @@ import {
   _zoomButton,
   _classicalControls,
   _getQuantumControlYs,
+  formatGate,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
 import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
@@ -315,4 +316,18 @@ test("_createGate: toggles classically-controlled-group class on presence of cla
     withoutClassical.classList.contains("classically-controlled-group"),
     false,
   );
+});
+
+test("formatGate: parameter labels retain the canonical circuit font class", () => {
+  const gate = formatGate(
+    makeRenderData({
+      label: "Rx",
+      displayArgs: "π/2",
+    }),
+  );
+  const argument = gate.querySelector(".arg-button");
+
+  assert.notEqual(argument, null);
+  assert.equal(argument?.classList.contains("qs-maintext"), true);
+  assert.equal(argument?.textContent, "π/2");
 });
