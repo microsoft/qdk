@@ -33,6 +33,19 @@ qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.6.1,<1.7", "cirq-ionq>=1.6.1,<1.7", "ply>=3.11"]
 qre = ["pandas>=2.1"]
 applications = ["cirq-core==1.6.1,<1.7"]
+# Tooling to develop, test, and deploy quantum error correction schemes (qodecs).
+# `qodec` is the declarative qodec file format and object model; `paulimer` and
+# `binar` provide the Clifford/binary-algebra kernels the analyses run on.
+# The `parsers` extra pulls in `stim`, which has no wheels for Linux aarch64 or
+# Windows ARM64, so those platforms get `qodec` without it.
+ec = [
+  "qodec[parsers]>=0.2.0.dev0,<0.3; platform_machine != 'aarch64' and platform_machine != 'ARM64'",
+  "qodec>=0.2.0.dev0,<0.3; platform_machine == 'aarch64' or platform_machine == 'ARM64'",
+  "paulimer>=0.2.2",
+  "binar>=0.1.2",
+  "more-itertools>=10.0",
+  "highspy>=1.11,<2",
+]
 all = [
   "qsharp-widgets==0.0.0",
   "azure-quantum>=3.8.0",
@@ -42,6 +55,12 @@ all = [
   "pandas>=2.1",
   "ply>=3.11",
   "qsharp-jupyterlab==0.0.0",
+  "qodec[parsers]>=0.2.0.dev0,<0.3; platform_machine != 'aarch64' and platform_machine != 'ARM64'",
+  "qodec>=0.2.0.dev0,<0.3; platform_machine == 'aarch64' or platform_machine == 'ARM64'",
+  "paulimer>=0.2.2",
+  "binar>=0.1.2",
+  "more-itertools>=10.0",
+  "highspy>=1.11,<2",
 ]
 
 [tool.pytest.ini_options]

@@ -44,8 +44,8 @@ from .._adaptive_pass import (
     OP_RECORD_OUTPUT,
 )
 
-if TYPE_CHECKING:  # This is in the pyi file only
-    from .._native import GpuShotResults
+if TYPE_CHECKING:
+    from .._native import GpuShotResults  # This is in the pyi file only
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
