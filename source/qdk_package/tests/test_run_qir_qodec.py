@@ -446,6 +446,70 @@ def test_preparation_syndromes_correct_faults_on_unframed_logicals(tmp_path, fau
     )
 
 
+# "retry" always uses the interpreter; "raise" lets Clifford runs batch natively.
+_EXECUTION_PATHS = [
+    pytest.param({"on_shot_failure": "raise"}, id="batch"),
+    pytest.param({"on_shot_failure": "retry"}, id="interpreter"),
+    pytest.param({"on_shot_failure": "retry", "type": "cpu"}, id="state-vector"),
+]
+
+
+@pytest.mark.parametrize("options", _EXECUTION_PATHS)
+def test_decoder_corrections_are_noiseless_frame_updates(tmp_path, options):
+    pytest.importorskip("qodec")
+    from qdk import Result, TargetProfile, qsharp
+
+    # The preparation leaves a Y fault on qubit 0 that the decoder corrects with
+    # X_0. Every physical X gate loses its qubit, so the correction would lose
+    # data if it ran as a gate.
+    codec = _repetition3_variant(
+        tmp_path,
+        (
+            _REPETITION3_PREPARE,
+            "prepare_z.gadget.yaml:\n"
+            '  circuit: {format: stim, source: "R 0 1 2 3 4\\n'
+            'Y 0\\nCX 0 3 1 3\\nCX 1 4 2 4\\nM 3 4"}\n'
+            "  checks:\n"
+            '    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]\n'
+            '    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]\n',
+        ),
+    )
+    noise = NoiseConfig()
+    noise.x.loss = 1
+    qsharp.init(target_profile=TargetProfile.Base)
+    qir = qsharp.compile("{ use q = Qubit(); M(q) }")
+
+    assert (
+        run_qir(qir, shots=5, seed=7, noise=noise, qodec=codec, **options)
+        == [Result.Zero] * 5
+    )
+
+
+@pytest.mark.parametrize("options", _EXECUTION_PATHS)
+def test_logical_paulis_without_instructions_are_noiseless_frame_updates(options):
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    ec = pytest.importorskip("qdk.ec")
+    from qdk import Result, TargetProfile, qsharp
+
+    code = qodec.Code(
+        "repetition3",
+        stabilizers=["Z_0 Z_1", "Z_1 Z_2"],
+        x=["X_0 X_1 X_2"],
+        z=["Z_0"],
+    )
+    codec = ec.build_qodec(code, strategy="bare-css/v1", strict=False)
+    noise = NoiseConfig()
+    noise.x.x = 1
+    qsharp.init(target_profile=TargetProfile.Base)
+    qir = qsharp.compile("{ use q = Qubit(); X(q); M(q) }")
+
+    assert (
+        run_qir(qir, shots=5, seed=7, noise=noise, qodec=codec, **options)
+        == [Result.One] * 5
+    )
+
+
 def test_custom_decoder_changes_public_results_and_closes_each_shot():
     qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")

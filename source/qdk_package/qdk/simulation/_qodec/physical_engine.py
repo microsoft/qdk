@@ -120,6 +120,15 @@ class PhysicalEngine:
             self._inner.reset(target)
         self._sample_and_apply(distribution, (target,), "reset")
 
+    def apply_frame(self, pauli: str, target: int) -> None:
+        """Apply a tracked Pauli exactly, without noise; lost qubits ignore it."""
+        if self._closed:
+            raise RuntimeError("physical engine is closed")
+        if pauli not in ("x", "y", "z"):
+            raise ValueError(f"frame updates must be x, y, or z, not {pauli!r}")
+        if target not in self._lost:
+            self._inner.apply(pauli, (target,))
+
     def peek_loss(self, target: int) -> bool:
         return target in self._lost
 

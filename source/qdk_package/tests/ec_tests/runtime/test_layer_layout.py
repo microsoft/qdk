@@ -50,7 +50,11 @@ class RecordingDecoder:
 def test_encoded_support_addresses_logical_slots_of_lower_blocks():
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
     from qdk.simulation._qodec.protocols import Correction
-    from qdk.simulation._qodec.quantum_operations import LogicalSlot, Operation
+    from qdk.simulation._qodec.quantum_operations import (
+        FrameUpdate,
+        LogicalSlot,
+        Operation,
+    )
 
     code = qodec.Code(
         "pair_code", ["Z_0 Z_1", "Z_2 Z_3"], ["X_0 X_1", "X_2 X_3"], ["Z_0", "Z_2"]
@@ -98,7 +102,7 @@ def test_encoded_support_addresses_logical_slots_of_lower_blocks():
         assert emitted == [
             InstructionCall("P", operands=[0]),
             InstructionCall("P", operands=[1]),
-            Operation("x", (LogicalSlot(1, 1, "pair"),)),
+            FrameUpdate("x", LogicalSlot(1, 1, "pair")),
         ]
         assert runtime.layout.blocks["data"].support == (0, 1)
     finally:

@@ -775,6 +775,36 @@ def test_engine_factories_sample_noise_independently_of_measurements(factory_nam
         pytest.param("tableau_backend", marks=requires_stim),
     ],
 )
+def test_frame_updates_bypass_noise_and_skip_lost_qubits(factory_name):
+    from qdk.simulation._qodec import quantum_backend
+    from qdk.simulation._qodec.quantum_operations import FrameUpdate
+
+    noise = simulation.NoiseConfig()
+    noise.x.x = 1
+    noise.h.loss = 1
+    backend = getattr(quantum_backend, factory_name)(noise, 7)
+    backend.start(Resources(qubits=3))
+    try:
+        assert backend.execute(FrameUpdate("x", 0)) == ()
+        assert backend.measure(0) is True
+        # The same Pauli as a gate is followed by its configured X fault.
+        backend.apply("x", (1,))
+        assert backend.measure(1) is False
+        backend.apply("h", (2,))
+        backend.execute(FrameUpdate("x", 2))
+        assert backend.measure(2) is None
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize(
+    "factory_name",
+    [
+        "full_state_backend",
+        "stabilizer_backend",
+        pytest.param("tableau_backend", marks=requires_stim),
+    ],
+)
 def test_engine_factories_preserve_noise_and_noiseless_discard(factory_name):
     from qdk.simulation._qodec import quantum_backend
 
@@ -2222,7 +2252,7 @@ def test_executor_does_not_complete_missing_pauli_gadgets(declared):
 
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
     from qdk.simulation._qodec.layer_runtime import LayerPlan, LayerRuntime
-    from qdk.simulation._qodec.quantum_operations import Operation
+    from qdk.simulation._qodec.quantum_operations import FrameUpdate, Operation
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
     layer = codec.layers[0]
@@ -2256,10 +2286,11 @@ def test_executor_does_not_complete_missing_pauli_gadgets(declared):
                 drive_requests(runtime.handle(Operation("x", (0,))), respond)
             respond.assert_not_called()
         else:
-            # Without an instruction, the code's logical X goes to the layer below.
+            # Without an instruction, the code's logical X becomes frame updates
+            # on the layer below.
             drive_requests(runtime.handle(Operation("x", (0,))), respond)
             assert [call.args[0] for call in respond.call_args_list] == [
-                Operation("x", (qubit,)) for qubit in runtime.layout.blocks[0].qubits
+                FrameUpdate("x", qubit) for qubit in runtime.layout.blocks[0].qubits
             ]
         assert (
             runtime.layout.blocks,
@@ -2600,7 +2631,7 @@ def test_decoder_hooks_track_lifetimes_and_correct_other_live_blocks():
         Invocation,
         Readouts,
     )
-    from qdk.simulation._qodec.quantum_operations import Operation
+    from qdk.simulation._qodec.quantum_operations import FrameUpdate, Operation
 
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
     inner = prepare_syndrome_decoder(layer)(7)
@@ -2635,9 +2666,12 @@ def test_decoder_hooks_track_lifetimes_and_correct_other_live_blocks():
 
     def respond(request):
         emitted.append(request)
-        events.append(
-            request.name if isinstance(request, Operation) else request.mnemonic
-        )
+        if isinstance(request, Operation):
+            events.append(request.name)
+        elif isinstance(request, FrameUpdate):
+            events.append(f"frame {request.pauli}")
+        else:
+            events.append(request.mnemonic)
         return (
             (False,)
             if isinstance(request, InstructionCall) and request.mnemonic == "M"
@@ -2653,10 +2687,11 @@ def test_decoder_hooks_track_lifetimes_and_correct_other_live_blocks():
         emitted.clear()
         drive_requests(runtime.execute("idle", (0,), {}), respond)
 
+        # A non-Pauli correction runs as a gate; a Pauli one is a frame update.
         assert emitted[0] == Operation("cx", (0, 3))
         assert events[:3] == ["cx", "before confirmed", "R"]
-        assert Operation("x", (4,)) in emitted
-        assert events.index("x") < events.index("after confirmed")
+        assert FrameUpdate("x", 4) in emitted
+        assert events.index("frame x") < events.index("after confirmed")
         assert invocations[2].inputs == invocations[0].outputs
         assert invocations[2].outputs == invocations[0].outputs
 
@@ -2697,7 +2732,7 @@ def test_failed_corrections_are_closed_without_acknowledgement(
         Invocation,
         Readouts,
     )
-    from qdk.simulation._qodec.quantum_operations import Operation
+    from qdk.simulation._qodec.quantum_operations import FrameUpdate, Operation
 
     acknowledged = []
     closed = []
@@ -2721,7 +2756,7 @@ def test_failed_corrections_are_closed_without_acknowledgement(
             pass
 
     def respond(request):
-        if isinstance(request, Operation) and request.name == "x":
+        if isinstance(request, FrameUpdate) and request.pauli == "x":
             if failure == "backend":
                 raise RuntimeError("correction failed")
             return None

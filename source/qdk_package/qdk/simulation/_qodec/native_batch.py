@@ -4,10 +4,11 @@ Tracing uses the ordinary layer and physical instruction lowering without
 sampling a quantum state. One encoded layer with measurement-independent
 execution is eligible. When only terminal gadgets record measurements, a
 batch-capable decoder supplies seed-independent readout tables. Otherwise every
-shot replays its decoder callbacks on the native records, carrying decoder
-corrections as a Pauli frame instead of applying them. Loss, reset/readout
-noise, and program-level feedback retain the interpreter path. Native sampling
-uses its own seeded stream.
+shot replays its decoder callbacks on the native records. Frame updates never
+enter the native circuit; each flips the later records its Pauli reaches, so
+batches track the same noiseless Pauli frame as the interpreter. Loss,
+reset/readout noise, and program-level feedback retain the interpreter path.
+Native sampling uses its own seeded stream.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ from .protocols import (
     Resources,
 )
 from .quantum_backend import stabilizer_backend
-from .quantum_operations import LogicalSlot, Operation, local_indices
+from .quantum_operations import FrameUpdate, LogicalSlot, Operation, local_indices
 from .readout_equations import InconsistentParity
 from .selection import Selection, prepare_selection
 
@@ -104,6 +105,7 @@ class NativeBatch:
     num_measurements: int
     decoders: tuple[_DecodingTable, ...]
     outputs: tuple[OutputRecordValue | _Readout, ...]
+    frames: tuple[tuple[int, int, str], ...] = ()
 
     def run(
         self,
@@ -125,13 +127,17 @@ class NativeBatch:
             ),
         )
         seeds = _shot_seeds(seed, shots)
+        flips = _static_flips(self.instructions, self.frames)
         logical: list[list[OutputRecordValue]] = [[] for _ in physical]
         failures: dict[int, Exception] = {}
         for decoder in self.decoders:
             rows = [
                 tuple(
-                    value == Result.One
-                    for value in shot[decoder.start : decoder.start + decoder.width]
+                    (value == Result.One) != bool((flips >> record) & 1)
+                    for record, value in enumerate(
+                        shot[decoder.start : decoder.start + decoder.width],
+                        decoder.start,
+                    )
                 )
                 for shot in physical
             ]
@@ -173,6 +179,8 @@ class _RecordingBackend:
     def __init__(self, noise: NoiseConfig | None) -> None:
         self.noise = noise
         self.instructions: list[tuple[object, ...]] = []
+        # Frame updates reached during tracing, as (position, qubit, pauli).
+        self.frames: list[tuple[int, int, str]] = []
         self.num_qubits = 0
         self.num_measurements = 0
         self.checked_noise: set[tuple[str, int]] = set()
@@ -183,10 +191,19 @@ class _RecordingBackend:
     def start(self, resources: Resources) -> None:
         self.num_qubits = resources.qubits
 
-    def execute(self, request: Operation) -> Readouts:
-        if self.probing:
-            (self.probed,) = local_indices(request)
+    def execute(self, request: Operation | FrameUpdate) -> Readouts:
+        if isinstance(request, FrameUpdate):
+            if not isinstance(request.target, int):
+                raise _NotBatchable
+            if self.probing:
+                self.probed = request.target
+            else:
+                self.frames.append(
+                    (len(self.instructions), request.target, request.pauli)
+                )
             return ()
+        if self.probing:
+            raise _NotBatchable
         if len(self.instructions) >= 100_000 or request.angle is not None:
             raise _NotBatchable
         targets = local_indices(request)
@@ -516,6 +533,19 @@ def _assign(group: set[int], qubit: int, present: bool) -> None:
         group.discard(qubit)
 
 
+def _static_flips(
+    instructions: Sequence[tuple[object, ...]],
+    frames: Sequence[tuple[int, int, str]],
+    masks: _FrameMasks | None = None,
+) -> int:
+    """Record flips from frame updates that every shot applies identically."""
+    masks = _FrameMasks(instructions) if masks is None else masks
+    flips = 0
+    for position, qubit, pauli in frames:
+        flips ^= masks.mask(position, qubit, pauli)
+    return flips
+
+
 _PAULI_OPCODES = (QirInstructionId.X, QirInstructionId.Y, QirInstructionId.Z)
 
 
@@ -534,9 +564,8 @@ def _shot_seeds(seed: int, shots: int) -> list[int]:
 class ReplayBatch:
     """Sample the traced circuit natively, then decode every shot in order.
 
-    Corrections the decoder emits are not applied physically; each one flips
-    the later measurement records its Pauli reaches, which is equivalent for
-    Clifford circuits with Pauli noise.
+    Decoder corrections are Pauli frame updates, as in the interpreter; each
+    one flips the later measurement records its Pauli reaches.
     """
 
     instructions: tuple[tuple[object, ...], ...]
@@ -546,6 +575,7 @@ class ReplayBatch:
     sources: tuple[tuple[int, int], ...]
     outputs: tuple[OutputRecordValue | _Readout, ...]
     create_session: DecoderFactory
+    frames: tuple[tuple[int, int, str], ...] = ()
 
     def run(
         self,
@@ -567,10 +597,11 @@ class ReplayBatch:
             ),
         )
         frame = _FrameMasks(self.instructions)
+        static = _static_flips(self.instructions, self.frames, frame)
         records = []
         for shot, shot_seed in zip(physical, _shot_seeds(seed, shots)):
             try:
-                measured = self._decode_shot(shot, shot_seed, frame)
+                measured = self._decode_shot(shot, shot_seed, frame, static)
             except (ExecutionRejected, ExecutionUnresolved, InconsistentParity):
                 if on_shot_failure == "discard":
                     continue
@@ -584,10 +615,9 @@ class ReplayBatch:
         return records
 
     def _decode_shot(
-        self, shot: Sequence[Result], seed: int, frame: _FrameMasks
+        self, shot: Sequence[Result], seed: int, frame: _FrameMasks, flips: int
     ) -> list[OutputRecordValue]:
         bits = [value == Result.One for value in shot]
-        flips = 0
         outcomes: dict[int, Readouts] = {}
         with closing(self.create_session(seed)) as session:
             for index, event in enumerate(self.events):
@@ -747,6 +777,7 @@ def _trace_tables(
         backend.num_measurements,
         tuple(decoder.decoders),
         _outputs(*traced, resolve),
+        tuple(backend.frames),
     )
 
 
@@ -771,4 +802,5 @@ def _trace_replay(
         tuple(layer.sources),
         _outputs(*traced, range(len(layer.sources))),
         create_session,
+        tuple(backend.frames),
     )

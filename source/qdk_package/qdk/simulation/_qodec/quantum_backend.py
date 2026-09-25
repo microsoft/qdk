@@ -6,7 +6,7 @@ from .. import NoiseConfig
 from .physical_engine import PhysicalEngine
 
 from .protocols import QuantumEngine, QuantumEngineFactory, Readouts, Resources
-from .quantum_operations import Operation, local_indices
+from .quantum_operations import FrameUpdate, Operation, local_indices
 
 
 class QuantumBackend:
@@ -46,7 +46,14 @@ class QuantumBackend:
     def prepare(self, target: int) -> None:
         self.engine.reset(target)
 
-    def execute(self, request: Operation) -> Readouts:
+    def execute(self, request: Operation | FrameUpdate) -> Readouts:
+        if isinstance(request, FrameUpdate):
+            if not isinstance(request.target, int):
+                raise NotImplementedError(
+                    "Frame updates require local integer qubit indices"
+                )
+            self.engine.apply_frame(request.pauli, request.target)
+            return ()
         targets = local_indices(request)
         if isinstance(request.angle, str):
             raise TypeError("Physical operation angles must be numeric")

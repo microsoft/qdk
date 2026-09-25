@@ -14,7 +14,7 @@ from .protocols import (
     Resources,
     Startable,
 )
-from .quantum_operations import Operation
+from .quantum_operations import FrameUpdate, Operation
 
 ProgramT = TypeVar("ProgramT")
 ResultT = TypeVar("ResultT")
@@ -62,7 +62,7 @@ class ExecutionPipeline(Generic[ProgramT, ResultT]):
                 except StopIteration as completed:
                     return cast(ValueT, completed.value)
                 if depth == len(self.layers):
-                    if not isinstance(request, Operation):
+                    if not isinstance(request, (Operation, FrameUpdate)):
                         raise TypeError(
                             "The quantum backend requires a lowered Operation"
                         )

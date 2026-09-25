@@ -125,7 +125,7 @@ def prepare_deq_decoder(
     not a circuit-level or temporal noise model. Simulator noise is not
     inferred. Unknown syndrome entries are omitted rather than treated as zero.
 
-    QDK handles readout equations, frames, and physical corrections. The deq
+    QDK handles readout equations, frames, and applying corrections. The deq
     runtime uses a private worker so synchronous simulation also works inside
     a running asyncio event loop, including notebooks.
     """
