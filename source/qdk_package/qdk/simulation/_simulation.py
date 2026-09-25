@@ -356,15 +356,17 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
 
 
 class OutputRecordingPass(pyqir.QirModuleVisitor):
-    _output_str = ""
-    _closers: List[str] = []
-    _counters: List[int] = []
-    _process_fn: Optional[Callable[[List[object]], object]] = None
-    # Running index into the per-shot ordered output record values (`v`)
-    # supplied to `process_output`. Incremented for each leaf record output
-    # (result / bool / int / double) so measurement results and classical
-    # records are addressed uniformly.
-    _record_index = 0
+    def __init__(self) -> None:
+        super().__init__()
+        self._output_str = ""
+        self._closers: List[str] = []
+        self._counters: List[int] = []
+        self._process_fn: Optional[Callable[[List[object]], object]] = None
+        # Running index into the per-shot ordered output record values (`v`)
+        # supplied to `process_output`. Incremented for each leaf record output
+        # (result / bool / int / double) so measurement results and classical
+        # records are addressed uniformly.
+        self._record_index = 0
 
     def process_output(self, records: List[object]) -> object:
         if self._process_fn:
