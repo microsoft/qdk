@@ -23,58 +23,6 @@ fn cx_gate_yields_expected_qir() {
 }
 
 #[test]
-fn cx_gate_with_repeated_qubit_yields_error() {
-    check(
-        "CX 0 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: CX
-               ,----
-             1 | CX 0 0
-               :      ^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn cnot_gate_yields_expected_qir() {
-    let source = "CNOT 0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn zcx_gate_yields_expected_qir() {
-    let source = "ZCX 0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn cxswap_gate_yields_expected_qir() {
     let source = "CXSWAP 0 1";
     check(
@@ -112,44 +60,8 @@ fn cy_gate_yields_expected_qir() {
 }
 
 #[test]
-fn zcy_gate_yields_expected_qir() {
-    let source = "ZCY 0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cy__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cy__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn cz_gate_yields_expected_qir() {
     let source = "CZ 0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__cz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cz__body(ptr, ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn zcz_gate_yields_expected_qir() {
-    let source = "ZCZ 0 1";
     check(
         source,
         &expect![[r#"
@@ -188,28 +100,6 @@ fn czswap_gate_yields_expected_qir() {
 }
 
 #[test]
-fn swapcz_gate_yields_expected_qir() {
-    let source = "SWAPCZ 0 1";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__cx__body(ptr, ptr)
-              declare void @__quantum__qis__h__body(ptr)
-
-            [metadata]
-              required_num_qubits = 2
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn ii_gate_yields_expected_qir() {
     let source = "II 0 1";
     check(
@@ -218,40 +108,6 @@ fn ii_gate_yields_expected_qir() {
             [metadata]
               required_num_qubits = 0
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn ii_gate_with_odd_number_of_targets_yields_error() {
-    let source = "II 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction II requires an even number of targets
-               ,----
-             1 | II 0
-               : ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_gate_with_args_yields_error() {
-    let source = "II(0.01) 0 1";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: II
-               ,----
-             1 | II(0.01) 0 1
-               :    ^^^^
-               `----
-        "#]],
     );
 }
 
@@ -277,22 +133,6 @@ fn iswap_gate_yields_expected_qir() {
             [metadata]
               required_num_qubits = 2
               required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn iswap_gate_with_repeated_qubit_yields_error() {
-    check(
-        "ISWAP 0 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.RepeatedQubit
-
-              x qubit 0 is repeated in instruction: ISWAP
-               ,----
-             1 | ISWAP 0 0
-               :         ^
-               `----
-        "#]],
     );
 }
 

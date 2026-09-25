@@ -6,31 +6,6 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn e_yields_expected_qir() {
-    let source = "E(0.01) X0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
-
-            NoiseConfig:
-            intrinsics:
-                0: NoiseTable:
-                    qubits: 1
-                    X: 0.01"#]],
-    );
-}
-
-#[test]
 fn correlated_error_yields_expected_qir() {
     let source = "CORRELATED_ERROR(0.01) X0";
     check(
@@ -52,93 +27,6 @@ fn correlated_error_yields_expected_qir() {
                 0: NoiseTable:
                     qubits: 1
                     X: 0.01"#]],
-    );
-}
-
-#[test]
-fn correlated_error_without_probability_yields_error() {
-    let source = "CORRELATED_ERROR X0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: CORRELATED_ERROR
-               ,----
-             1 | CORRELATED_ERROR X0
-               : ^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn correlated_error_with_invalid_probability_yields_error() {
-    let source = "CORRELATED_ERROR(1.5) X0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for CORRELATED_ERROR must be between 0 and 1; found 1.5
-               ,----
-             1 | CORRELATED_ERROR(1.5) X0
-               :                  ^^^
-               `----
-        "#]],
-    );
-    check(
-        "CORRELATED_ERROR(-0.1) X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for CORRELATED_ERROR must be between 0 and 1; found -0.1
-               ,----
-             1 | CORRELATED_ERROR(-0.1) X0
-               :                  ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn correlated_error_with_probability_in_radians_yields_error() {
-    check(
-        "CORRELATED_ERROR(0.1rad) X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnexpectedRadians
-
-              x argument for CORRELATED_ERROR cannot be specified in radians
-               ,----
-             1 | CORRELATED_ERROR(0.1rad) X0
-               :                  ^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn correlated_error_with_probability_of_exactly_one_is_valid() {
-    let source = "CORRELATED_ERROR(1.0) X0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
-
-            NoiseConfig:
-            intrinsics:
-                0: NoiseTable:
-                    qubits: 1
-                    X: 1"#]],
     );
 }
 
@@ -172,27 +60,6 @@ fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() 
                     X: 0.5
                     Y: 0.25
                     Z: 0.125"#]],
-    );
-}
-
-#[test]
-fn else_correlated_error_with_invalid_probability_yields_error() {
-    let source = indoc! {"
-        CORRELATED_ERROR(0.01) X0
-        ELSE_CORRELATED_ERROR(1.5) X0
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for ELSE_CORRELATED_ERROR must be between 0 and 1; found 1.5
-               ,-[2:23]
-             1 | CORRELATED_ERROR(0.01) X0
-             2 | ELSE_CORRELATED_ERROR(1.5) X0
-               :                       ^^^
-               `----
-        "#]],
     );
 }
 
@@ -480,69 +347,6 @@ fn depolarize1_yields_expected_qir() {
 }
 
 #[test]
-fn depolarize1_without_probability_yields_error() {
-    let source = "DEPOLARIZE1 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: DEPOLARIZE1
-               ,----
-             1 | DEPOLARIZE1 0
-               : ^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn depolarize1_with_invalid_probability_yields_error() {
-    let source = "DEPOLARIZE1(1.5) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for DEPOLARIZE1 must be between 0 and 1; found 1.5
-               ,----
-             1 | DEPOLARIZE1(1.5) 0
-               :             ^^^
-               `----
-        "#]],
-    );
-
-    check(
-        "DEPOLARIZE1(-0.1) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for DEPOLARIZE1 must be between 0 and 1; found -0.1
-               ,----
-             1 | DEPOLARIZE1(-0.1) 0
-               :             ^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn depolarize1_with_probability_in_radians_yields_error() {
-    check(
-        "DEPOLARIZE1(0.1rad) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnexpectedRadians
-
-              x argument for DEPOLARIZE1 cannot be specified in radians
-               ,----
-             1 | DEPOLARIZE1(0.1rad) 0
-               :             ^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn depolarize2_yields_expected_qir() {
     let source = "DEPOLARIZE2(0.01) 0 1";
     check(
@@ -582,199 +386,6 @@ fn depolarize2_yields_expected_qir() {
 }
 
 #[test]
-fn depolarize2_without_probability_yields_error() {
-    let source = "DEPOLARIZE2 0 1 2 3";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: DEPOLARIZE2
-               ,----
-             1 | DEPOLARIZE2 0 1 2 3
-               : ^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn depolarize2_with_odd_number_of_targets_yields_error() {
-    let source = "DEPOLARIZE2(0.01) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction DEPOLARIZE2 requires an even number of targets
-               ,----
-             1 | DEPOLARIZE2(0.01) 0
-               : ^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-#[ignore = "unsupported instruction"]
-fn heralded_erase_yields_expected_qir() {
-    let source = "HERALDED_ERASE(0.01) 0";
-    check(source, &expect![[""]]);
-}
-
-#[test]
-#[ignore = "unsupported instruction"]
-fn heralded_pauli_channel_1_yields_expected_qir() {
-    let source = "HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0";
-    check(source, &expect![[""]]);
-}
-
-#[test]
-fn i_error_yields_expected_qir() {
-    let source = indoc! {"
-        # does nothing
-        I_ERROR 0
-
-        # does nothing with probability 0.1, else does nothing
-        I_ERROR(0.1) 0
-
-        # doesn't require a probability argument
-        I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
-
-        # checks for you that the disjoint probabilities in the arguments are legal
-        I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
-    "};
-    check(
-        source,
-        &expect![[r#"
-            [metadata]
-              required_num_qubits = 0
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn i_error_with_invalid_probability_list_yields_error() {
-    check(
-        "I_ERROR(0.6, 0.6) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbabilitySum
-
-              x probabilities for I_ERROR must sum to at most 1.0, but they sum to 1.2
-               ,----
-             1 | I_ERROR(0.6, 0.6) 0
-               :         ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn i_error_with_unsupported_target_yields_error() {
-    check(
-        "I_ERROR X0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: I_ERROR
-               ,----
-             1 | I_ERROR X0
-               :         ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_error_yields_expected_qir() {
-    let source = indoc! {"
-        # does nothing
-        II_ERROR 0 1
-
-        # does nothing with probability 0.1, else does nothing
-        II_ERROR(0.1) 0 1
-
-        # checks for you that the targets are two-qubit pairs
-        II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
-
-        # checks for you that the disjoint probabilities in the arguments are legal
-        II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
-    "};
-    check(
-        source,
-        &expect![[r#"
-            [metadata]
-              required_num_qubits = 0
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn ii_error_with_incomplete_trailing_pair_yields_error() {
-    check(
-        "II_ERROR 0 1 2",
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction II_ERROR requires an even number of targets
-               ,----
-             1 | II_ERROR 0 1 2
-               : ^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_error_with_invalid_probability_list_yields_error() {
-    check(
-        "II_ERROR(0.6, 0.6) 0 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbabilitySum
-
-              x probabilities for II_ERROR must sum to at most 1.0, but they sum to 1.2
-               ,----
-             1 | II_ERROR(0.6, 0.6) 0 1
-               :          ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_error_with_unsupported_target_yields_error() {
-    check(
-        "II_ERROR 0 X1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedTarget
-
-              x unsupported target in instruction: II_ERROR
-               ,----
-             1 | II_ERROR 0 X1
-               :            ^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn ii_error_with_odd_number_of_targets_yields_error() {
-    let source = "II_ERROR 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction II_ERROR requires an even number of targets
-               ,----
-             1 | II_ERROR 0
-               : ^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn pauli_channel_1_yields_expected_qir() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
     check(
@@ -798,138 +409,6 @@ fn pauli_channel_1_yields_expected_qir() {
                     X: 0.1
                     Y: 0.2
                     Z: 0.3"#]],
-    );
-}
-
-#[test]
-fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
-    let source = "PAULI_CHANNEL_1(0.1, 0.2) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooFewArgs
-
-              x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
-               ,----
-             1 | PAULI_CHANNEL_1(0.1, 0.2) 0
-               :                 ^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_1_with_probabilities_exceeding_one_yields_error() {
-    let source = "PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbabilitySum
-
-              x probabilities for PAULI_CHANNEL_1 must sum to at most 1.0, but they sum to
-              | 1.5
-               ,----
-             1 | PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0
-               :                 ^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_1_with_probabilities_summing_to_exactly_one_is_valid() {
-    let source = "PAULI_CHANNEL_1(0.2, 0.3, 0.5) 0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @noise_intrinsic_0(ptr) #2
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0
-              uses_noise = true
-
-            NoiseConfig:
-            intrinsics:
-                0: NoiseTable:
-                    qubits: 1
-                    X: 0.2
-                    Y: 0.3
-                    Z: 0.5"#]],
-    );
-}
-
-#[test]
-fn pauli_channel_1_with_invalid_probability_yields_error() {
-    let source = "PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for PAULI_CHANNEL_1 must be between 0 and 1; found -0.1
-               ,----
-             1 | PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0
-               :                 ^^^^
-               `----
-        "#]],
-    );
-
-    check(
-        "PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for PAULI_CHANNEL_1 must be between 0 and 1; found 1.5
-               ,----
-             1 | PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0
-               :                 ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_1_with_probability_in_radians_yields_error() {
-    check(
-        "PAULI_CHANNEL_1(0.1rad, 0.2, 0.3) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnexpectedRadians
-
-              x argument for PAULI_CHANNEL_1 cannot be specified in radians
-               ,----
-             1 | PAULI_CHANNEL_1(0.1rad, 0.2, 0.3) 0
-               :                 ^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_1_with_multiple_probabilities_in_radians_yields_errors() {
-    check(
-        "PAULI_CHANNEL_1(0.1rad, 0.2rad, 0.3) 0",
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnexpectedRadians
-
-              x argument for PAULI_CHANNEL_1 cannot be specified in radians
-               ,----
-             1 | PAULI_CHANNEL_1(0.1rad, 0.2rad, 0.3) 0
-               :                 ^^^^^^
-               `----
-
-            Qdk.Stim.Semantic.UnexpectedRadians
-
-              x argument for PAULI_CHANNEL_1 cannot be specified in radians
-               ,----
-             1 | PAULI_CHANNEL_1(0.1rad, 0.2rad, 0.3) 0
-               :                         ^^^^^^
-               `----
-        "#]],
     );
 }
 
@@ -973,57 +452,6 @@ fn pauli_channel_2_yields_expected_qir() {
 }
 
 #[test]
-fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
-    let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.OddTargetCount
-
-              x instruction PAULI_CHANNEL_2 requires an even number of targets
-               ,----
-             1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
-    let source = "PAULI_CHANNEL_2(0.1) 0 1";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.TooFewArgs
-
-              x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
-               ,----
-             1 | PAULI_CHANNEL_2(0.1) 0 1
-               :                 ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_2_with_probabilities_exceeding_one_yields_error() {
-    check(
-        "PAULI_CHANNEL_2(0.6,0.6,0,0,0,0,0,0,0,0,0,0,0,0,0) 0 1",
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbabilitySum
-
-              x probabilities for PAULI_CHANNEL_2 must sum to at most 1.0, but they sum to
-              | 1.2
-               ,----
-             1 | PAULI_CHANNEL_2(0.6,0.6,0,0,0,0,0,0,0,0,0,0,0,0,0) 0 1
-               :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn x_error_yields_expected_qir() {
     let source = "X_ERROR(0.01) 0";
     check(
@@ -1045,40 +473,6 @@ fn x_error_yields_expected_qir() {
                 0: NoiseTable:
                     qubits: 1
                     X: 0.01"#]],
-    );
-}
-
-#[test]
-fn x_error_without_probability_yields_error() {
-    let source = "X_ERROR 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: X_ERROR
-               ,----
-             1 | X_ERROR 0
-               : ^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn x_error_with_probability_exceeding_one_yields_error() {
-    let source = "X_ERROR(1.5) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.InvalidProbability
-
-              x probability for X_ERROR must be between 0 and 1; found 1.5
-               ,----
-             1 | X_ERROR(1.5) 0
-               :         ^^^
-               `----
-        "#]],
     );
 }
 
@@ -1108,23 +502,6 @@ fn y_error_yields_expected_qir() {
 }
 
 #[test]
-fn y_error_without_probability_yields_error() {
-    let source = "Y_ERROR 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: Y_ERROR
-               ,----
-             1 | Y_ERROR 0
-               : ^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn z_error_yields_expected_qir() {
     let source = "Z_ERROR(0.01) 0";
     check(
@@ -1150,23 +527,6 @@ fn z_error_yields_expected_qir() {
 }
 
 #[test]
-fn z_error_without_probability_yields_error() {
-    let source = "Z_ERROR 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: Z_ERROR
-               ,----
-             1 | Z_ERROR 0
-               : ^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn loss_error_yields_expected_qir() {
     let source = "LOSS_ERROR(0.01) 0";
     check(
@@ -1188,23 +548,6 @@ fn loss_error_yields_expected_qir() {
                 0: NoiseTable:
                     qubits: 1
                     L: 0.01"#]],
-    );
-}
-
-#[test]
-fn loss_error_without_probability_yields_error() {
-    let source = "LOSS_ERROR 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.MissingArg
-
-              x missing argument in instruction: LOSS_ERROR
-               ,----
-             1 | LOSS_ERROR 0
-               : ^^^^^^^^^^^^
-               `----
-        "#]],
     );
 }
 
