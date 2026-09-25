@@ -229,13 +229,30 @@ def test_native_batch_matches_interpreter_for_logical_cnot_and_correlated_noise(
 
 
 @requires_stim
+def test_public_runner_batches_qsharp_programs_that_reset_after_measuring(
+    monkeypatch,
+):
+    from qdk import TargetProfile, qsharp
+    from qdk.simulation._qodec._run import run_qir_with_qodec
+    from qdk.simulation._qodec.executor import Executor
+
+    def unexpected_shot(*args):
+        pytest.fail("Eligible shots must not enter the per-shot Python interpreter")
+
+    monkeypatch.setattr(Executor, "run", unexpected_shot)
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    assert run_qir_with_qodec(qir, codec, None, shots=5, seed=7) == [Result.One] * 5
+
+
+@requires_stim
 @pytest.mark.parametrize(
     "gates",
     [
         "h data; h data;",
         "t data;",
         "bit first = measure data;",
-        "bit first = measure data; reset data;",
     ],
 )
 def test_native_batch_declines_unsupported_logical_programs(gates):
@@ -250,6 +267,22 @@ def test_native_batch_declines_unsupported_logical_programs(gates):
             prepare_batch(program, make_factory())
     else:
         assert prepare_batch(program, make_factory()) is None
+
+
+@requires_stim
+def test_native_batch_accepts_measured_qubits_after_a_reset():
+    from qdk.simulation._qodec.native_batch import prepare_batch
+
+    program = compile_qasm("""
+        include "stdgates.inc"; qubit data;
+        x data; bit first = measure data; reset data;
+        x data; bit last = measure data;
+    """)
+    factory = make_factory()
+    batch = prepare_batch(program, factory)
+    assert batch is not None
+    assert batch.run(3, None, seed=7) == [[Result.One, Result.One]] * 3
+    assert factory.build_pipeline().run(program) == [Result.One, Result.One]
 
 
 @requires_stim
@@ -450,7 +483,7 @@ def test_native_batch_validates_decoder_output_shape(rows):
 
 @requires_stim
 def test_native_batch_does_not_probe_non_batch_decoder_sessions():
-    from qdk.simulation._qodec.native_batch import prepare_batch
+    from qdk.simulation._qodec.native_batch import ReplayBatch, prepare_batch
 
     def decoder(layer):
         def create(seed):
@@ -461,7 +494,10 @@ def test_native_batch_does_not_probe_non_batch_decoder_sessions():
     program = compile_qasm(
         'include "stdgates.inc"; qubit data; bit readout = measure data;'
     )
-    assert prepare_batch(program, make_factory(decoder=decoder)) is None
+    # Scalar decoders replay one session per shot; preparing them opens none.
+    assert isinstance(
+        prepare_batch(program, make_factory(decoder=decoder)), ReplayBatch
+    )
 
 
 @pytest.mark.parametrize(
@@ -560,23 +596,87 @@ def test_prepared_batch_is_isolated_from_later_qodec_mutation():
     assert factory.build_pipeline().run(program) == [Result.One]
 
 
-@requires_stim
-def test_native_batch_declines_intermediate_syndrome_measurements():
+def _syndrome_measuring_repetition_code():
     from qodec.gadgets import Circuit
-    from qdk.simulation._qodec.native_batch import prepare_batch
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
-    layer = codec.layers[0]
-    gadget = layer.gadgets["x"]
+    gadget = codec.layers[0].gadgets["x"]
     gadget.circuit = Circuit(
         codec.layers[-1].instruction_set,
         "X 0 1 2\nR 3\nCX 0 3\nM 3",
         format="stim",
     )
+    return codec
+
+
+@requires_stim
+def test_native_batch_replays_intermediate_syndrome_measurements(monkeypatch):
+    from qdk.simulation._qodec._run import run_qir_with_qodec
+    from qdk.simulation._qodec.executor import Executor
+    from qdk.simulation._qodec.native_batch import ReplayBatch, prepare_batch
+
+    codec = _syndrome_measuring_repetition_code()
     program = compile_qasm(
         'include "stdgates.inc"; qubit data; x data; bit readout = measure data;'
     )
-    assert prepare_batch(program, make_factory(codec=codec)) is None
+    factory = make_factory(codec=codec)
+    assert isinstance(prepare_batch(program, factory), ReplayBatch)
+    assert factory.build_pipeline().run(program) == [Result.One]
+
+    def unexpected_shot(*args):
+        pytest.fail("Eligible shots must not enter the per-shot Python interpreter")
+
+    monkeypatch.setattr(Executor, "run", unexpected_shot)
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit data; x data; bit readout = measure data;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+    assert run_qir_with_qodec(qir, codec, None, shots=5, seed=7) == [Result.One] * 5
+
+
+@requires_stim
+def test_replay_falls_back_to_the_interpreter_for_non_pauli_corrections(
+    monkeypatch,
+):
+    from qdk.simulation._qodec._run import run_qir_with_qodec
+    from qdk.simulation._qodec.native_batch import ReplayBatch
+    from qdk.simulation._qodec.protocols import BatchUnsupported
+
+    def unsupported(*args, **kwargs):
+        raise BatchUnsupported
+
+    monkeypatch.setattr(ReplayBatch, "run", unsupported)
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit data; x data; bit readout = measure data;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+    codec = _syndrome_measuring_repetition_code()
+    assert run_qir_with_qodec(qir, codec, None, shots=3, seed=7) == [Result.One] * 3
+
+
+def test_frame_masks_follow_paulis_through_the_traced_circuit():
+    from qdk._native import QirInstructionId as Id
+    from qdk.simulation._qodec.native_batch import _FrameMasks
+
+    tape = [
+        (Id.RESET, 0),
+        (Id.RESET, 1),
+        (Id.H, 0),
+        (Id.CX, 0, 1),
+        (Id.MZ, 0, 0),
+        (Id.MZ, 1, 1),
+        (Id.RESET, 1),
+        (Id.MZ, 1, 2),
+    ]
+    masks = _FrameMasks(tape)
+    # X before the CX spreads to the target; the reset clears it before record 2.
+    assert masks.mask(3, 0, "x") == 0b011
+    assert masks.mask(4, 0, "x") == 0b001
+    # Z before the H becomes X; Z after it never flips a Z measurement.
+    assert masks.mask(2, 0, "z") == 0b011
+    assert masks.mask(3, 0, "z") == 0
+    assert masks.mask(3, 1, "y") == 0b010
+    assert masks.mask(6, 1, "x") == 0
 
 
 @requires_stim

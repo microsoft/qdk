@@ -325,6 +325,13 @@ class LayerRuntime:
         return block.reference, operator
 
     def measure(self, target: int | str | LogicalSlot) -> Requests[bool | None]:
+        readouts, index = yield from self._measure_readouts(target)
+        return readouts[index]
+
+    def _measure_readouts(
+        self, target: int | str | LogicalSlot
+    ) -> Requests[tuple[Readouts, int]]:
+        """The measurement gadget's readouts and the index reporting ``target``."""
         slot = self._resolve_logical_slot(target)
         (call,) = self.plan.resolve(
             "measure", (slot,), None, spare=self._spare_slots(slot)
@@ -339,7 +346,7 @@ class LayerRuntime:
             if len(readouts) != 1:
                 raise ValueError("A logical Z measurement must produce one readout")
             index = 0
-        return readouts[index]
+        return readouts, index
 
     def discard(self, target: int | str) -> Requests[None]:
         self._occupied.pop(target, None)
