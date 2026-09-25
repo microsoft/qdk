@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from random import SystemRandom
+from random import Random, SystemRandom
 
 from qdk import Result
 from .. import NoiseConfig
@@ -32,11 +32,15 @@ class QuantumBackend:
     def start(self, resources: Resources) -> None:
         if resources.blocks:
             raise ValueError("The quantum backend requires physical-qubit resources")
-        self._simulator = self.engine_factory(resources.qubits, self.seed)
+        # The engine and the noise sampler must draw from independent streams;
+        # seeding both with the same value makes faults decide measurement outcomes.
+        streams = Random(self.seed)
+        engine_seed, noise_seed = streams.getrandbits(64), streams.getrandbits(64)
+        self._simulator = self.engine_factory(resources.qubits, engine_seed)
         self._engine = PhysicalEngine(
             self._simulator,
             self.noise,
-            seed=self.seed,
+            seed=noise_seed,
         )
 
     def prepare(self, target: int) -> None:

@@ -94,7 +94,11 @@ class CodeDecoder:
                 ),
             )
             if not solution.success:
-                raise ValueError(f"No Pauli correction matches syndrome {syndrome}")
+                # Dependent stabilizers make some syndromes unreachable by any
+                # Pauli, e.g. after a readout fault; the shot is inconsistent.
+                raise InconsistentParity(
+                    f"No Pauli correction matches syndrome {syndrome}"
+                )
             for fault, selected in zip(self.faults, solution.x[:fault_count]):
                 if selected > 0.5:
                     correction *= fault
@@ -143,12 +147,17 @@ class SyndromeModel:
     def __init__(self, layer: Layer) -> None:
         self.gadgets = {}
         self.frames = {}
+        self.framed: dict[str, frozenset[tuple[int, str, int]]] = {}
         self.systems: dict[str, BinarySystem] = {}
         self.readout_keys: dict[str, tuple[Parity, ...]] = {}
         self._readout_tables: dict[tuple[str, int], tuple[Readouts, ...] | None] = {}
         for name, gadget in layer.gadgets.items():
             validate_equations(gadget)
             self.frames[name] = prepare_frames(gadget)
+            self.framed[name] = frozenset(
+                (frame.output, frame.basis, frame.logical)
+                for frame in self.frames[name]
+            )
             codes = {
                 (boundary, entry): CodeDecoder(encoding.code)
                 for boundary, encodings in (
@@ -304,6 +313,7 @@ class SyndromeSession:
                         system.add(sign ^ Parity(constant=value))
                         values[("encoding", "in", entry, property_name, index)] = value
         pending = {block: {} for block in invocation.outputs}
+        framed = self.model.framed[name]
         for (boundary, entry), decoder in codes.items():
             syndrome = tuple(
                 system.value(_sign(boundary, entry, "stabilizers", index))
@@ -315,7 +325,14 @@ class SyndromeSession:
             for basis in ("x", "z"):
                 for index, operator in enumerate(decoder.operators[basis]):
                     known = system.value(_sign(boundary, entry, basis, index))
-                    if known is None and boundary == "out" and not invocation.inputs:
+                    if (
+                        known is None
+                        and boundary == "out"
+                        and not invocation.inputs
+                        and (entry, basis, index) in framed
+                    ):
+                        # A preparation's framed logical carries its sign in the
+                        # frame, so the stabilizer correction must preserve it.
                         known = False
                     if known is not None and known != (
                         not correction.commutes_with(operator)

@@ -726,14 +726,45 @@ def test_quantum_backend_uses_an_injected_engine():
     finally:
         backend.close()
 
-    assert events == [
-        ("create", 3, 7),
+    assert events[0][:2] == ("create", 3)
+    assert events[1:] == [
         ("reset", 0),
         ("rz", (0,), 0.25),
         ("measure", 0),
         ("reset", 0),
         ("close",),
     ]
+
+
+@pytest.mark.parametrize(
+    "factory_name",
+    [
+        "full_state_backend",
+        "stabilizer_backend",
+        pytest.param("tableau_backend", marks=requires_stim),
+    ],
+)
+def test_engine_factories_sample_noise_independently_of_measurements(factory_name):
+    from qdk.simulation._qodec import quantum_backend
+
+    noise = simulation.NoiseConfig()
+    noise.x.x = 0.5
+    matches = 0
+    seeds = 400
+    for seed in range(seeds):
+        backend = getattr(quantum_backend, factory_name)(noise, seed)
+        backend.start(Resources(qubits=2))
+        try:
+            backend.apply("x", (1,))
+            backend.apply("h", (0,))
+            random_outcome = backend.measure(0)
+            fault = not backend.measure(1)
+        finally:
+            backend.close()
+        matches += random_outcome == fault
+
+    # Independent streams agree on about half the seeds (sd = 10).
+    assert 150 < matches < 250
 
 
 @pytest.mark.parametrize(
