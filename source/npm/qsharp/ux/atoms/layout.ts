@@ -799,10 +799,19 @@ export class Layout {
     if (step > 0) {
       const duration = forwards ? this.stepInterval / 2 : 0;
       const ops = this.getOpsAtStep(qubitLocationIndex);
+      const moves = ops.map((op) => parseMove(op, this.layout.skipCols));
+      // Sometimes, we get input with a step where the same qubit moves multiple times.
+      // While that's probably a bug, such traces exist in the wild and we should handle
+      // them gracefully.  Keep only the last move for a given qubit.
+      const lastMoveIndexByQubit = new Map<number, number>();
+      moves.forEach((move, index) => {
+        if (move) lastMoveIndexByQubit.set(move.qubit, index);
+      });
       let trailId = 0;
-      ops.forEach((op) => {
-        const move = parseMove(op, this.layout.skipCols);
+      ops.forEach((op, index) => {
+        const move = moves[index];
         if (move) {
+          if (lastMoveIndexByQubit.get(move.qubit) !== index) return;
           // Apply the move animation
           const [oldX, oldY] = this.getQubitCenter(move.qubit);
           const [newX, newY] = this.getLocationCenter(move.to[0], move.to[1]);
