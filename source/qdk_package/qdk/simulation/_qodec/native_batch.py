@@ -6,9 +6,11 @@ execution is eligible. When only terminal gadgets record measurements, a
 batch-capable decoder supplies seed-independent readout tables. Otherwise every
 shot replays its decoder callbacks on the native records. Frame updates never
 enter the native circuit; each flips the later records its Pauli reaches, so
-batches track the same noiseless Pauli frame as the interpreter. Loss,
-reset/readout noise, and program-level feedback retain the interpreter path.
-Native sampling uses its own seeded stream.
+batches track the same noiseless Pauli frame as the interpreter. Reset noise
+follows the interpreter: ``mresetz`` is sampled after every preparation and
+measurement, and discarding a qubit resets it without noise. Loss, readout
+noise, and program-level feedback retain the interpreter path. Native sampling
+uses its own seeded stream.
 """
 
 from __future__ import annotations
@@ -31,7 +33,13 @@ from ..._adaptive_bytecode import (
     OP_WRITE_RESULT,
 )
 from ..._adaptive_pass import AdaptiveProgram
-from ..._native import NoiseConfig, QirInstruction, QirInstructionId, run_clifford
+from ..._native import (
+    NoiseConfig,
+    NoiseTable,
+    QirInstruction,
+    QirInstructionId,
+    run_clifford,
+)
 from .adaptive_runtime import AdaptiveRuntime, OutputRecordValue
 from .circuit_runtime import CallListRuntime
 from .execution_pipeline import ExecutionPipeline
@@ -89,8 +97,44 @@ _GATES = {
     "mov": QirInstructionId.Move,
 }
 
+_TABLE_WIDTHS = {
+    name: 2 if name in ("cx", "cy", "cz", "swap") else 1 for name in _GATES
+}
+
+# Bounds the native qubits added to stand in for discarded qubits reused
+# without a preparation under reset noise.
+_MAX_FRESH_QUBITS = 1024
+
 
 _NotBatchable = BatchUnsupported
+
+
+def _native_noise(noise: NoiseConfig | None) -> NoiseConfig | None:
+    """Give the native simulator the interpreter's measurement noise.
+
+    The interpreter samples ``mresetz`` after every measurement and reset and
+    never reads ``mz``, while native ``MZ`` samples ``mz``. Copy the tables of
+    the operations a batch can trace, with ``mresetz`` in place of ``mz``.
+    """
+    if noise is None:
+        return None
+    native = NoiseConfig()
+    for name, width in _TABLE_WIDTHS.items():
+        _copy_table(getattr(noise, name), getattr(native, name), width)
+    _copy_table(noise.mresetz, native.mresetz, 1)
+    _copy_table(noise.mresetz, native.mz, 1)
+    return native
+
+
+def _copy_table(source: NoiseTable, destination: NoiseTable, width: int) -> None:
+    if source.is_noiseless():
+        return
+    for characters in product("IXYZL", repeat=width):
+        fault = "".join(characters)
+        if fault != "I" * width:
+            probability = getattr(source, fault)
+            if probability:
+                setattr(destination, fault, probability)
 
 
 @dataclass(frozen=True)
@@ -130,7 +174,7 @@ class NativeBatch:
                 self.num_qubits,
                 self.num_measurements,
                 shots,
-                noise,
+                _native_noise(noise),
                 seed,
             ),
         )
@@ -195,31 +239,53 @@ class _RecordingBackend:
         # While probing, a correction's physical qubit is captured, not traced.
         self.probing = False
         self.probed: int | None = None
+        # Under reset noise no native instruction resets without noise, as
+        # discarding does. A discarded qubit stays pending until its next use:
+        # preparing it runs the noisy reset the interpreter also runs, and any
+        # other use moves it to a fresh native qubit, which starts in |0>.
+        self.noisy_reset = noise is not None and not noise.mresetz.is_noiseless()
+        self.pending: set[int] = set()
+        self.native: dict[int, int] = {}
+        self.fresh_qubits = 0
 
     def start(self, resources: Resources) -> None:
         self.num_qubits = resources.qubits
+
+    def _target(self, qubit: int) -> int:
+        if qubit in self.pending:
+            if self.fresh_qubits >= _MAX_FRESH_QUBITS:
+                raise _NotBatchable
+            self.pending.remove(qubit)
+            self.native[qubit] = self.num_qubits
+            self.num_qubits += 1
+            self.fresh_qubits += 1
+        return self.native.get(qubit, qubit)
 
     def execute(self, request: Operation | FrameUpdate) -> Readouts:
         if isinstance(request, FrameUpdate):
             if not isinstance(request.target, int):
                 raise _NotBatchable
+            target = self._target(request.target)
             if self.probing:
-                self.probed = request.target
+                self.probed = target
             else:
-                self.frames.append(
-                    (len(self.instructions), request.target, request.pauli)
-                )
+                self.frames.append((len(self.instructions), target, request.pauli))
             return ()
         if self.probing:
             raise _NotBatchable
         if len(self.instructions) >= 100_000 or request.angle is not None:
             raise _NotBatchable
         targets = local_indices(request)
-        if request.name in ("prepare", "discard"):
-            self.instructions.append((QirInstructionId.RESET, targets[0]))
+        if request.name == "discard" and self.noisy_reset:
+            self.pending.add(targets[0])
+        elif request.name in ("prepare", "discard"):
+            self.pending.discard(targets[0])
+            self.instructions.append(
+                (QirInstructionId.RESET, self.native.get(targets[0], targets[0]))
+            )
         elif request.name == "measure":
             self.instructions.append(
-                (QirInstructionId.MZ, targets[0], self.num_measurements)
+                (QirInstructionId.MZ, self._target(targets[0]), self.num_measurements)
             )
             self.num_measurements += 1
             return (False,)
@@ -227,7 +293,9 @@ class _RecordingBackend:
             if request.name not in _GATES:
                 raise _NotBatchable
             self._check_noise(request.name, len(targets))
-            self.instructions.append((_GATES[request.name], *targets))
+            self.instructions.append(
+                (_GATES[request.name], *(self._target(target) for target in targets))
+            )
         return ()
 
     def _check_noise(self, name: str, width: int) -> None:
@@ -620,7 +688,7 @@ class ReplayBatch:
                 self.num_qubits,
                 self.num_measurements,
                 shots,
-                noise,
+                _native_noise(noise),
                 seed,
             ),
         )
@@ -718,7 +786,7 @@ def prepare_batch(
         or factory.classical_runtime_factory is not AdaptiveRuntime
         or len(factory.prepared) != 1
         or factory.noise is not None
-        and not factory.noise.mresetz.is_noiseless()
+        and factory.noise.mresetz.loss > 0
         or any(
             instruction.opcode & 0xFF
             in (

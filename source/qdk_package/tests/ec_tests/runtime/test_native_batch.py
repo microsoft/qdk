@@ -286,7 +286,7 @@ def test_native_batch_accepts_measured_qubits_after_a_reset():
 
 
 @requires_stim
-@pytest.mark.parametrize("noise_kind", ["reset", "loss"])
+@pytest.mark.parametrize("noise_kind", ["reset_loss", "loss"])
 def test_native_batch_declines_unsupported_noise(noise_kind):
     from qdk.simulation._qodec.native_batch import prepare_batch
 
@@ -294,11 +294,165 @@ def test_native_batch_declines_unsupported_noise(noise_kind):
         'include "stdgates.inc"; qubit data; x data; bit readout = measure data;'
     )
     noise = NoiseConfig()
-    if noise_kind == "reset":
-        noise.mresetz.x = 0.01
+    if noise_kind == "reset_loss":
+        noise.mresetz.loss = 0.01
     else:
         noise.x.set_pauli_noise("L", 0.01)
     assert prepare_batch(program, make_factory(noise)) is None
+
+
+def _reset_noise(fault, probability=1.0):
+    noise = NoiseConfig()
+    setattr(noise.mresetz, fault, probability)
+    return noise
+
+
+def _repetition_code_with_x_circuit(source, *, non_destructive_measurement=False):
+    from qodec.actions import Observe
+    from qodec.gadgets import Circuit
+    from qodec.instructions import BlockOperand
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    physical = codec.layers[-1].instruction_set
+    if non_destructive_measurement:
+        operand = BlockOperand("qubit")
+        instructions = physical.instructions
+        instructions["M"] = qodec.Instruction(
+            "M", inputs=[operand], outputs=[operand], action=[Observe(["Z_0"])]
+        )
+        physical.instructions = instructions
+    gadget = codec.layers[0].gadgets["__quantum__qis__x__body"]
+    gadget.circuit = Circuit(physical, source, format="stim")
+    return codec
+
+
+def _assert_batch_matches_interpreter(program, factory, noise, batch_type=None):
+    from qdk.simulation._qodec.native_batch import prepare_batch
+
+    batch = prepare_batch(program, factory)
+    assert batch is not None
+    if batch_type is not None:
+        assert type(batch).__name__ == batch_type
+    factory.set_seed(7)
+    expected = [factory.build_pipeline().run(program) for _ in range(3)]
+    assert batch.run(3, noise, seed=7) == expected
+
+
+@requires_stim
+@pytest.mark.parametrize("fault", ["x", "y", "z"])
+@pytest.mark.parametrize(
+    "gates",
+    [
+        "x data; bit readout = measure data;",
+        "x data; bit first = measure data; reset data; x data; bit last = measure data;",
+    ],
+)
+@pytest.mark.parametrize("batch_type", ["NativeBatch", "ReplayBatch"])
+def test_native_batch_matches_interpreter_under_reset_noise(fault, gates, batch_type):
+    program = compile_qasm(f'include "stdgates.inc"; qubit data; {gates}')
+    codec = (
+        _syndrome_measuring_repetition_code() if batch_type == "ReplayBatch" else None
+    )
+    noise = _reset_noise(fault)
+    _assert_batch_matches_interpreter(
+        program, make_factory(noise, codec=codec), noise, batch_type
+    )
+
+
+@requires_stim
+@pytest.mark.parametrize("fault", ["x", "y", "z"])
+def test_native_batch_resets_discarded_qubits_without_reset_noise(fault):
+    # The X gadget reuses its discarded ancilla without preparing it, so a
+    # noisy reset on discard would flip two data qubits.
+    codec = _repetition_code_with_x_circuit("X 0 1 2\nCX 3 0 3 1\nM 3")
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; x data; x data; bit readout = measure data;'
+    )
+    noise = _reset_noise(fault)
+    _assert_batch_matches_interpreter(program, make_factory(noise, codec=codec), noise)
+
+
+@requires_stim
+def test_native_batch_bounds_fresh_qubits_for_reused_discarded_qubits(monkeypatch):
+    from qdk.simulation._qodec import native_batch
+
+    monkeypatch.setattr(native_batch, "_MAX_FRESH_QUBITS", 0)
+    codec = _repetition_code_with_x_circuit("X 0 1 2\nCX 3 0 3 1\nM 3")
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; x data; x data; bit readout = measure data;'
+    )
+    noise = _reset_noise("x", 0.01)
+    assert native_batch.prepare_batch(program, make_factory(noise, codec=codec)) is None
+
+
+@requires_stim
+@pytest.mark.parametrize("table", ["mresetz", "mz"])
+def test_native_batch_samples_interpreter_noise_after_measurements(table):
+    # The interpreter samples mresetz after a measurement and never reads mz.
+    codec = _repetition_code_with_x_circuit(
+        "X 0 1 2\nM 3\nCX 3 0 3 1", non_destructive_measurement=True
+    )
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; x data; bit readout = measure data;'
+    )
+    noise = NoiseConfig()
+    getattr(noise, table).x = 1.0
+    _assert_batch_matches_interpreter(program, make_factory(noise, codec=codec), noise)
+
+
+def test_native_noise_maps_measurement_noise_without_mutating_the_config():
+    from qdk.simulation._qodec.native_batch import _native_noise
+
+    noise = NoiseConfig()
+    noise.mresetz.x = 0.1
+    noise.mz.z = 0.2
+    noise.cx.set_pauli_noise("XZ", 0.3)
+    native = _native_noise(noise)
+    assert native is not None and native is not noise
+    assert (native.mz.x, native.mz.z) == (0.1, 0.0)
+    assert (native.mresetz.x, native.cx.xz) == (0.1, 0.3)
+    assert (noise.mz.x, noise.mz.z) == (0.0, 0.2)
+    assert _native_noise(None) is None
+
+
+@requires_stim
+def test_native_batch_observes_expected_reset_noise_distribution():
+    import math
+
+    from qdk.simulation._qodec.native_batch import prepare_batch
+
+    probability = 0.2
+    shots = 10_000
+    noise = _reset_noise("x", probability)
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; bit readout = measure data;'
+    )
+    batch = prepare_batch(program, make_factory(noise))
+    assert batch is not None
+    results = batch.run(shots, noise, seed=17)
+    failures = sum(shot == [Result.One] for shot in results)
+    # Each code qubit's preparation flips with the given probability.
+    expected_rate = 3 * probability**2 - 2 * probability**3
+    deviation = math.sqrt(shots * expected_rate * (1 - expected_rate))
+    assert abs(failures - shots * expected_rate) < 5 * deviation
+
+
+@requires_stim
+def test_public_runner_batches_reset_noise(monkeypatch):
+    from qdk.simulation._qodec._run import run_qir_with_qodec
+    from qdk.simulation._qodec.executor import Executor
+
+    def unexpected_shot(*args):
+        pytest.fail("Eligible shots must not enter the per-shot Python interpreter")
+
+    monkeypatch.setattr(Executor, "run", unexpected_shot)
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    qir = qdk.openqasm.compile(
+        'include "stdgates.inc"; qubit data; x data; bit readout = measure data;',
+        target_profile=qdk.TargetProfile.Adaptive,
+    )
+    results = run_qir_with_qodec(qir, codec, _reset_noise("x", 0.01), shots=10, seed=7)
+    assert len(results) == 10
 
 
 @requires_stim

@@ -1101,6 +1101,7 @@ class NoiseConfig:
     # form is decomposed into other instructions before reaching the simulator.
     swap: NoiseTable
     mov: NoiseTable
+    mz: NoiseTable
     mresetz: NoiseTable
     # idle: IdleNoiseParams
     intrinsics: NoiseIntrinsicsTable
