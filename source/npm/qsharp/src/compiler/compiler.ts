@@ -132,6 +132,9 @@ export class Compiler implements ICompiler {
       () => {
         // do nothing; test callables are not reported in checkCode
       },
+      () => {
+        // do nothing; OpenQASM mode resolution is not reported in checkCode
+      },
       {
         readFile: async () => null,
         listDirectory: async () => [],
