@@ -257,6 +257,26 @@ def test_mps_options_is_publicly_exported():
     assert MpsOptions(device="nvidia").device == "nvidia"
 
 
+def test_mps_options_accept_a_bond_dimension():
+    assert MpsOptions().max_bond_dimension is None
+    assert MpsOptions(max_bond_dimension=8).max_bond_dimension == 8
+
+
+@pytest.mark.parametrize("bond", [0, -1, True, 2.5])
+def test_mps_options_reject_invalid_bond_dimensions(bond: Any):
+    with pytest.raises(ValueError, match="max_bond_dimension"):
+        MpsOptions(max_bond_dimension=cast(Any, bond))
+
+
+def test_mps_does_not_ignore_a_bond_dimension():
+    with pytest.raises(NotImplementedError, match="max_bond_dimension"):
+        run_qir(
+            BELL_BASE_QIR,
+            type="mps",
+            mps_options=MpsOptions(max_bond_dimension=8),
+        )
+
+
 @pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
 def test_mps_preserves_ordered_results_across_shots():
     shots = 8

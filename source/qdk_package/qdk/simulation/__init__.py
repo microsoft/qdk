@@ -22,6 +22,11 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 - :func:`~qdk.simulation.run_qir` — simulates QIR using the clifford, gpu,
   cpu, or MPS-contract method.
 
+- :func:`~qdk.simulation.tensornetwork_qir` — preview: evaluates
+  :class:`~qdk.simulation.Expectation`, :class:`~qdk.simulation.Probability`
+  and :class:`~qdk.simulation.Cost` queries on the tensor network of a QIR
+  program, by exact contraction or MPS, without shots.
+
 - :class:`~qdk.simulation.DensityMatrixSimulator` — an experimental simulator that uses
   a density-matrix to track its state.
 
@@ -31,6 +36,7 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 
 from .._device._atom import NeutralAtomDevice
 from ._simulation import LossPolicy, MpsOptions, NoiseConfig, run_qir
+from ._tensor_network import Cost, Expectation, Probability, tensornetwork_qir
 from ._noisy_simulator import (
     NoisySimulatorError,
     DensityMatrixSimulator,
@@ -47,6 +53,10 @@ __all__ = [
     "LossPolicy",
     "MpsOptions",
     "run_qir",
+    "tensornetwork_qir",
+    "Expectation",
+    "Probability",
+    "Cost",
     "NoisySimulatorError",
     "Operation",
     "Instrument",

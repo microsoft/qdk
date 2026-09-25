@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use pyo3::{exceptions::PyValueError, prelude::*, types::PyDict};
+use pyo3::{
+    exceptions::{PyNotImplementedError, PyValueError},
+    prelude::*,
+    types::{PyDict, PyList},
+};
 use qdk_simulators::execution::{
     AdaptiveCommand, AdaptiveExecution, AdaptiveResponse, CircuitTensorNetwork,
     PreparedAdaptiveProgram,
@@ -71,6 +75,24 @@ pub(crate) fn _tensor_network_build_probe<'py>(
             .collect::<Vec<_>>(),
     )?;
     Ok(report)
+}
+
+/// Evaluates probability and cost queries by general tensor-network contraction.
+///
+/// `queries` holds the dicts built by `qdk.simulation.tensornetwork_qir`;
+/// `outcomes[i]` fixes QIR result `i`. Returns one value per query, in order.
+#[pyfunction]
+#[pyo3(signature = (input, queries, outcomes=None))]
+pub(crate) fn _tensor_network_contraction_query<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    queries: &Bound<'py, PyList>,
+    outcomes: Option<Vec<bool>>,
+) -> PyResult<Bound<'py, PyList>> {
+    let _ = (py, input, queries, outcomes);
+    Err(PyNotImplementedError::new_err(
+        "tensor-network contraction queries are not implemented yet",
+    ))
 }
 
 fn describe_network<'py>(

@@ -15,6 +15,7 @@ evolution. The public API remains available through `qdk_simulators::execution`;
 | `immediate.rs`      | Provides the generic synchronous shot driver and adapts the legacy `Simulator` trait.                        |
 | `tensor_network.rs` | Builds a zero-state ket network and immutable shared coefficient bank from a resolved region; no execution.  |
 | `contraction.rs`    | Defines shared contraction optimizer, preparation and execution contracts, constraints, reports and errors.  |
+| `fixed_outcome.rs`  | Defines one program path with every measurement outcome fixed: unitaries and rank-one projections.           |
 
 The source-level dependency direction is:
 

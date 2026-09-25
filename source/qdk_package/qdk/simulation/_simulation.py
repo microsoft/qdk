@@ -52,17 +52,27 @@ if TYPE_CHECKING:  # This is in the pyi file only
 
 @dataclass(frozen=True)
 class MpsOptions:
-    """Options for the public MPS simulation contract.
+    """Options for matrix product state (MPS) simulation on NVIDIA cuTensorNet.
 
-    The current implementation uses a full-state simulator placeholder to
-    solidify this contract. It does not provide MPS or NVIDIA execution.
+    Used by ``run_qir(type="mps")`` and ``tensornetwork_qir(method="mps")``.
+    Preview: these options may change.
 
-    :param device: Select ``"nvidia"`` for the future NVIDIA backend contract.
-        Omitting the device uses the same temporary full-state placeholder.
+    :param device: ``"nvidia"`` or ``None``; both select NVIDIA cuTensorNet.
         CPU tensor-network execution is deferred.
+    :param max_bond_dimension: Largest bond dimension χ the MPS may keep.
+        Smaller values are faster and use less memory but truncate more, so
+        results are approximate. ``None`` keeps the backend default of 128.
     """
 
     device: Optional[Literal["nvidia"]] = None
+    max_bond_dimension: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        bond = self.max_bond_dimension
+        if bond is not None and (
+            isinstance(bond, bool) or not isinstance(bond, int) or bond < 1
+        ):
+            raise ValueError("max_bond_dimension must be a positive integer or None")
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -736,6 +746,10 @@ def _run_qir_mps(
         )
     if noise is not None:
         raise ValueError('Noise is not supported for type="mps"')
+    if options.max_bond_dimension is not None:
+        raise NotImplementedError(
+            'max_bond_dimension is not yet supported by run_qir(type="mps")'
+        )
 
     mod, shots, _, seed = preprocess_simulation_input(input, shots, None, seed)
     _validate_base_profile(mod)

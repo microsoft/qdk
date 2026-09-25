@@ -1211,6 +1211,29 @@ def _tensor_network_build_probe(input: dict) -> _TensorNetworkBuildReport:
     """
     ...
 
+def _tensor_network_contraction_query(
+    input: dict,
+    queries: List[dict],
+    outcomes: Optional[List[bool]] = None,
+) -> List[object]:
+    """Evaluate probability and cost queries by general contraction.
+
+    Backs ``qdk.simulation.tensornetwork_qir``; returns one value per query.
+    """
+    ...
+
+def _tensor_network_state_query(
+    input: dict,
+    queries: List[dict],
+    outcomes: Optional[List[bool]] = None,
+    mps: Optional[dict] = None,
+) -> List[object]:
+    """Evaluate queries on a cuTensorNet state, exact when ``mps`` is None.
+
+    Backs ``qdk.simulation.tensornetwork_qir``; returns one value per query.
+    """
+    ...
+
 def run_clifford_adaptive(
     input: dict,
     shots: int,

@@ -5,6 +5,7 @@
 
 mod adaptive;
 mod contraction;
+mod fixed_outcome;
 mod immediate;
 mod protocol;
 mod region;
@@ -20,6 +21,7 @@ pub use contraction::{
     ExecutionLimits, InputMutability, PlanningConstraints, PlanningReport, PreparationFailure,
     ResourceReport,
 };
+pub use fixed_outcome::{FixedOutcomeCircuit, FixedOutcomeCircuitError, FixedOutcomeOperation};
 pub use immediate::{
     ImmediateExecutionReport, ImmediatePreparedRegion, ImmediateRegionReport,
     ImmediateSimulatorConsumer, ShotExecutionError, ShotExecutionOutput, ShotExecutionResult,
