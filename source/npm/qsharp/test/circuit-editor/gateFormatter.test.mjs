@@ -73,7 +73,7 @@ function makeRenderData(overrides = {}) {
   };
 }
 
-test("omitted loop iterations map to an ellipsis with an accessible count", () => {
+test("omitted loop iterations render as a dashed unitary box with an accessible count", () => {
   const renderData = _opToRenderData(
     {
       kind: "unitary",
@@ -90,6 +90,14 @@ test("omitted loop iterations map to an ellipsis with an accessible count", () =
 
   const elem = _ellipsis(renderData);
   assert.equal(elem.querySelector("text")?.textContent, "...");
+  assert.equal(
+    elem.querySelector("rect")?.getAttribute("class"),
+    "gate-unitary",
+  );
+  assert.equal(
+    elem.querySelector("rect")?.getAttribute("stroke-dasharray"),
+    "8, 8",
+  );
   assert.equal(
     elem.querySelector("title")?.textContent,
     "7 loop iterations omitted",

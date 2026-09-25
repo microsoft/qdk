@@ -108,21 +108,28 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
 };
 
 const _ellipsis = (renderData: GateRenderData): SVGElement => {
-  const targetYs = (renderData.targetsY as number[][]).flat();
-  const y = (Math.min(...targetYs) + Math.max(...targetYs)) / 2;
-  const ellipsis = text(renderData.label, renderData.x, y + labelFontSize / 3);
-  ellipsis.classList.add("qs-maintext");
-  const elements: SVGElement[] = [ellipsis];
+  const groupedTargets = renderData.targetsY.every(Array.isArray)
+    ? (renderData.targetsY as number[][])
+    : [renderData.targetsY as number[]];
+  const gate = _unitary(
+    renderData.label,
+    renderData.x,
+    groupedTargets,
+    renderData.width,
+  );
+  gate
+    .querySelectorAll(".gate-unitary")
+    .forEach((box) => box.setAttribute("stroke-dasharray", "8, 8"));
 
   if (renderData.displayArgs !== undefined) {
     const title = createSvgElement("title");
     const iterationLabel =
       renderData.displayArgs === "1" ? "iteration" : "iterations";
     title.textContent = `${renderData.displayArgs} loop ${iterationLabel} omitted`;
-    elements.unshift(title);
+    gate.prepend(title);
   }
 
-  return group(elements);
+  return gate;
 };
 
 /**
