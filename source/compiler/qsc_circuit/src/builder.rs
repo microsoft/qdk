@@ -4,6 +4,44 @@
 #[cfg(test)]
 pub(crate) mod tests;
 
+#[cfg(test)]
+mod omitted_loop_text_output_test {
+    use super::OMITTED_LOOP_ITERATIONS_GATE;
+    use crate::tests::{circuit_with_options_success, default_test_tracer_config};
+    use qsc_circuit::CircuitEntryPoint;
+    use qsc_circuit::CircuitGenerationMethod;
+    use qsc_circuit::Profile;
+    use qsc_circuit::TracerConfig;
+
+    #[test]
+    fn omitted_loop_iterations_have_readable_text_output() {
+        let circuit = circuit_with_options_success(
+            r#"
+                namespace Test {
+                    @EntryPoint()
+                    operation Main() : Unit {
+                        use q = Qubit();
+                        for _ in 1..5 {
+                            H(q);
+                        }
+                    }
+                }
+            "#,
+            Profile::AdaptiveRIF,
+            CircuitEntryPoint::EntryPoint,
+            CircuitGenerationMethod::Static,
+            TracerConfig {
+                max_loop_iterations: 2,
+                ..default_test_tracer_config()
+            },
+        );
+
+        let text = circuit.to_string();
+        assert!(!text.contains(OMITTED_LOOP_ITERATIONS_GATE), "{text}");
+        assert!(text.contains("..."), "{text}");
+    }
+}
+
 use crate::{
     angle_format::format_angle,
     circuit::{
@@ -511,6 +549,8 @@ impl CircuitTracer {
 /// Constructs the final circuit representation from operations and qubits.
 ///
 /// This function:
+/// - Truncates oversized loops to the configured maximum number of rendered iterations,
+///   enforcing a minimum of two iterations
 /// - Optionally collapses unnecessary scope groups based on user/library package origin
 /// - Lays out operations into columns for circuit visualization
 /// - Resolves source location metadata into displayable file/line/column information
@@ -521,8 +561,8 @@ pub(crate) fn finish_circuit(
     collapse_trivial_groups: bool,
     max_loop_iterations: usize,
 ) -> Circuit {
+    truncate_loop_iterations(&mut operations, max_loop_iterations.max(2));
     if collapse_trivial_groups {
-        truncate_loop_iterations(&mut operations, max_loop_iterations);
         collapse_unnecessary_scopes(&mut operations, source_lookup);
     }
     let mut loop_id_cache = Default::default();
