@@ -34,8 +34,8 @@ use qsc_fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
         ExprId, ExprKind, Field, Functor, Global, Ident, LocalVarId, Mutability, PackageId,
         PackageStore, PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl,
-        Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId,
-        StringComponent, UnOp,
+        Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId, StoreItemSpecializationKey,
+        StorePatId, StoreStmtId, StringComponent, UnOp,
     },
     ty::{FunctorSetValue, Prim, Ty},
 };
@@ -43,8 +43,9 @@ use qsc_fir::{
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    RuntimeFeatureFlags, ValueKind,
+    ComputeKind, ComputePropertiesLookup, ItemComputeProperties,
+    MutableFixedSizeArraysParamApplication, PackageStoreComputeProperties, RuntimeFeatureFlags,
+    ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -335,7 +336,7 @@ impl<'a> PartialEvaluator<'a> {
         let pat = self.get_pat(pat_id);
         match &pat.kind {
             PatKind::Bind(ident) => {
-                self.bind_value_to_ident(mutability, ident, value);
+                self.bind_value_to_ident(mutability, ident, value, &pat.ty);
             }
             PatKind::Tuple(pats) => {
                 let tuple = value.unwrap_tuple();
@@ -350,18 +351,68 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn bind_value_to_ident(&mut self, mutability: Mutability, ident: &Ident, value: Value) {
+    fn bind_value_to_ident(
+        &mut self,
+        mutability: Mutability,
+        ident: &Ident,
+        value: Value,
+        ty: &Ty,
+    ) {
         // We do slightly different things depending on the mutability of the identifier.
         match mutability {
-            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value),
+            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value, ty),
             Mutability::Immutable => {
                 let current_scope = self.eval_context.get_current_scope();
                 if matches!(value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())
                 {
                     // An immutable identifier is being bound to a dynamic value, so treat the identifier as mutable.
                     // This allows it to represent a point-in-time copy of the mutable value during evaluation.
-                    self.bind_value_to_mutable_ident(ident, value);
+                    self.bind_value_to_mutable_ident(ident, value, ty);
                 } else {
+                    if self
+                        .program
+                        .config
+                        .capabilities
+                        .contains(TargetCapabilityFlags::StaticSizedArrays)
+                        && let Value::Array(array) = &value
+                        && array.iter().any(|elem| matches!(elem, Value::Var(val::Var {ty, ..}) if ty.is_primitive_ty()))
+                        && self
+                            .eval_context
+                            .get_current_scope()
+                            .arrays
+                            .iter()
+                            .all(|(cached_array, _)| !Rc::ptr_eq(cached_array, array))
+                    {
+                        // This target allows for static-sized arrays and this array has variable contents and is not currently cached,
+                        // so speculatively emit a store array to cache it for later dynamic use. This instruction will be optimized
+                        // out of the RIR if the resulting variable is never used.
+                        let var_id = self.resource_manager.next_var();
+                        self.eval_context
+                            .get_current_scope_mut()
+                            .arrays
+                            .push((Rc::clone(array), Some(var_id)));
+                        let operands = array
+                            .iter()
+                            .map(|value| self.map_eval_value_to_rir_operand(value))
+                            .collect::<Vec<_>>();
+                        let rir::Ty::Prim(elem_ty) = operands
+                            .first()
+                            .expect("array should have at least one element")
+                            .get_type()
+                        else {
+                            panic!("array element type should be a primitive type");
+                        };
+                        self.get_current_rir_block_mut()
+                            .0
+                            .push(Instruction::StoreArray(
+                                operands,
+                                rir::Variable {
+                                    variable_id: var_id,
+                                    ty: rir::Ty::Array(array.len(), elem_ty),
+                                },
+                            ));
+                    }
+
                     // The value is static, so bind it to the classical map.
                     self.bind_value_to_immutable_ident(ident, value);
                 }
@@ -379,14 +430,14 @@ impl<'a> PartialEvaluator<'a> {
         self.bind_value_in_hybrid_map(ident, value);
     }
 
-    fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value) {
+    fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value, ty: &Ty) {
         // If the value is not a variable, bind it to the classical map.
         if !matches!(value, Value::Var(_)) {
             self.bind_value_in_classical_map(ident, &value);
         }
 
         // Always bind the value to the hybrid map but do it differently depending of the value type.
-        if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value) {
+        if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value, ty) {
             // If the variable maps to a know static literal, track that mapping.
             if let Some(literal) = literal {
                 self.eval_context
@@ -742,7 +793,75 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
         let Value::Array(rhs_array) = rhs_value else {
-            panic!("expected array value from RHS expression");
+            // If the rhs expression is not an array, it must be a variable referring to an array.
+            let Value::Var(Var {
+                id: rhs_var_id,
+                ty: VarTy::Array(rhs_size),
+            }) = rhs_value
+            else {
+                panic!("expected array variable from RHS expression");
+            };
+
+            if rhs_size == 0 {
+                // The result of concatenating with an empty array is just the LHS array.
+                return Ok(EvalControlFlow::Continue(Value::Array(Rc::clone(
+                    lhs_array,
+                ))));
+            }
+
+            let ty = &self.get_expr(rhs_expr_id).ty;
+            let Ty::Array(inner) = ty else {
+                panic!("expected array type for mutable array variable, found: {ty}");
+            };
+            let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).map_err(|e| {
+                Error::Unexpected(
+                    format!("array element type `{e}` in concatenation"),
+                    bin_op_expr_span,
+                )
+            })?
+            else {
+                panic!("expected primitive type for array element type, found: {inner:?}")
+            };
+
+            let rhs_var = rir::Variable {
+                variable_id: rhs_var_id.into(),
+                ty: rir::Ty::Array(rhs_size, elem_ty),
+            };
+
+            if lhs_array.is_empty() {
+                // The result of concatenating with an empty array is just the RHS array, so emit a copy array instruction.
+                let result = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(rhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(rhs_var, result));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: result.variable_id.into(),
+                    ty: VarTy::Array(rhs_size),
+                })));
+            }
+
+            // Otherwise, the lhs array should be stored into a variable so it can be used in a concatenate instruction.
+            let lhs_var = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(lhs_array.len(), elem_ty),
+            };
+            self.store_array(lhs_var.variable_id, elem_ty, lhs_array);
+            let result = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(lhs_array.len() + rhs_size, elem_ty),
+            };
+
+            self.get_current_rir_block_mut()
+                .0
+                .push(Instruction::ConcatArrays(lhs_var, rhs_var, result));
+
+            return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                id: result.variable_id.into(),
+                ty: VarTy::Array(lhs_array.len() + rhs_size),
+            })));
         };
 
         // Concatenate the arrays.
@@ -1245,6 +1364,9 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
+            VarTy::Array(size) => {
+                self.eval_bin_op_array_concat(lhs_eval_var, size, rhs_expr_id, bin_op_expr_span)
+            }
             VarTy::Qubit | VarTy::Result => Err(Error::Unexpected(
                 format!(
                     "unsupported LHS variable type {} in binary operation",
@@ -1269,6 +1391,22 @@ impl<'a> PartialEvaluator<'a> {
             None,
             ErrorBehavior::FailOnError,
         );
+
+        // Before we evaluate the expression, cache the references to any mutalbe fixed size arrays in the current scope.
+        let cached_mutable_fixed_size_arrays = scope
+            .mutable_fixed_size_arrays
+            .iter()
+            .filter_map(|local_id| {
+                scope.env.get(*local_id).and_then(|variable| {
+                    if let Value::Array(array) = &variable.value {
+                        Some((*local_id, Rc::clone(array)))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<FxHashMap<_, _>>();
+
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
@@ -1307,6 +1445,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.update_hybrid_bindings_from_classical_bindings(*lhs_expr_id)?;
             }
         }
+
+        self.emit_update_for_cached_arrays(&cached_mutable_fixed_size_arrays);
 
         eval_result
     }
@@ -1493,17 +1633,70 @@ impl<'a> PartialEvaluator<'a> {
         let ExprKind::Var(Res::Local(array_loc_id), _) = &array_expr.kind else {
             panic!("array expression in assign index expression is expected to be a variable");
         };
-        let array = self
-            .eval_context
-            .get_current_scope()
-            .get_classical_local_value(*array_loc_id)
-            .clone()
-            .unwrap_array();
+        if self.is_mutable_fixed_size_array(*array_loc_id) {
+            // Try to evaluate the index and update expressions to get their value, short-circuiting execution if any of the
+            // expressions is a return.
+            let index_expr_package_span = self.get_expr_package_span(index_expr_id);
+            let index_control_flow = self.try_eval_expr(index_expr_id)?;
+            let EvalControlFlow::Continue(index_value) = index_control_flow else {
+                return Err(Error::Unexpected(
+                    "embedded return in index expression".to_string(),
+                    index_expr_package_span,
+                ));
+            };
+            if matches!(index_value, Value::Range(..)) {
+                return Err(Error::Unimplemented(
+                    "range indexing for mutation of fixed size array".to_string(),
+                    index_expr_package_span,
+                ));
+            }
+            let index_operand = self.map_eval_value_to_rir_operand(&index_value);
+            let update_control_flow = self.try_eval_expr(update_expr_id)?;
+            let EvalControlFlow::Continue(update_value) = update_control_flow else {
+                return Err(Error::Unexpected(
+                    "embedded return in update expression".to_string(),
+                    self.get_expr_package_span(update_expr_id),
+                ));
+            };
+            let update_operand = self.map_eval_value_to_rir_operand(&update_value);
 
-        // Evaluate the updated array and update the corresponding bindings.
-        let new_array_value =
-            self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
-        self.update_bindings(array_expr_id, new_array_value)?;
+            let Value::Var(array_var) = self
+                .eval_context
+                .get_current_scope()
+                .get_hybrid_local_value(*array_loc_id)
+            else {
+                panic!("mutable fixed size array should be backed by variable");
+            };
+            let VarTy::Array(array_size) = array_var.ty else {
+                panic!("mutable fixed size array should be backed by array type");
+            };
+            let rir::Ty::Prim(elem_ty) = update_operand.get_type() else {
+                panic!("update operand is expected to be of primitive type");
+            };
+            let array_variable = rir::Variable {
+                variable_id: array_var.id.into(),
+                ty: rir::Ty::Array(array_size, elem_ty),
+            };
+            self.get_current_rir_block_mut()
+                .0
+                .push(Instruction::StoreIndex(
+                    update_operand,
+                    index_operand,
+                    array_variable,
+                ));
+        } else {
+            let array = self
+                .eval_context
+                .get_current_scope()
+                .get_classical_local_value(*array_loc_id)
+                .clone()
+                .unwrap_array();
+
+            // Evaluate the updated array and update the corresponding bindings.
+            let new_array_value =
+                self.eval_array_update_index(&array, index_expr_id, update_expr_id)?;
+            self.update_bindings(array_expr_id, new_array_value)?;
+        }
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
 
@@ -1974,18 +2167,23 @@ impl<'a> PartialEvaluator<'a> {
                 ),
                 callee_expr_span,
             )),
-            "Length" => {
-                let Value::Array(arr) = args_value else {
-                    return Err(Error::Unexpected(
-                        "length call on dynamically sized array".to_string(),
-                        callee_expr_span,
-                    ));
-                };
-                match arr.len().try_into() {
+            "Length" => match args_value {
+                Value::Array(arr) => match arr.len().try_into() {
                     Ok(len) => Ok(Value::Int(len)),
                     Err(_) => Err(EvalError::ArrayTooLarge(args_span).into()),
-                }
-            }
+                },
+                Value::Var(val::Var {
+                    ty: VarTy::Array(size),
+                    ..
+                }) => match size.try_into() {
+                    Ok(len) => Ok(Value::Int(len)),
+                    Err(_) => Err(EvalError::ArrayTooLarge(args_span).into()),
+                },
+                _ => Err(Error::Unexpected(
+                    "length call on dynamically sized array".to_string(),
+                    callee_expr_span,
+                )),
+            },
             "IntAsDouble" | "Truncate" => self.convert_value(&args_value, args_span),
 
             // These intrinsic functions should be evaluated immediately rather than emitted if all
@@ -2107,6 +2305,7 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
     ) -> Result<Value, Error> {
         self.eval_context.push_scope(call_scope);
+        self.populate_mutable_fixed_size_array_ids();
 
         // Some arguments may include arrays with dynamic content, which we want to allow later instructions to index into.
         // To support this, we treat these as locally constant arrays and emit an RIR instruction to store their contents into a new
@@ -2493,6 +2692,7 @@ impl<'a> PartialEvaluator<'a> {
             successor: None,
         });
         self.eval_context.push_scope(body_scope);
+        self.populate_mutable_fixed_size_array_ids();
         self.ir_function_emission_depth += 1;
         let eval_result = self.try_eval_block(spec_decl.block);
         self.ir_function_emission_depth -= 1;
@@ -2719,31 +2919,137 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         // Get the value at the specified index.
-        let array = array_value.unwrap_array();
-        let index_package_span = self.get_expr_package_span(index_expr_id);
-        let array_package_span = self.get_expr_package_span(array_expr_id);
-        let value = match index_value {
-            Value::Int(index) => {
-                index_array(&array, index, index_package_span).map_err(Error::from)
-            }
-            Value::Range(range) => slice_array(
-                &array,
-                range.start,
-                range.step,
-                range.end,
-                index_package_span,
+        if let Value::Var(array_var) = array_value {
+            self.eval_expr_index_variable_array(
+                array_expr_id,
+                index_expr_id,
+                index_value,
+                array_var,
             )
-            .map_err(Error::from),
-            Value::Var(var) => {
-                let array_ty = &self.get_expr(array_expr_id).ty;
-                let Ty::Array(elem_ty) = array_ty else {
-                    panic!("expected array type in index expression");
-                };
-                self.eval_expr_dynamic_index(&array, var, array_package_span, elem_ty)
+        } else {
+            let array = array_value.unwrap_array();
+            let index_package_span = self.get_expr_package_span(index_expr_id);
+            let array_package_span = self.get_expr_package_span(array_expr_id);
+            let value = match index_value {
+                Value::Int(index) => {
+                    index_array(&array, index, index_package_span).map_err(Error::from)
+                }
+                Value::Range(range) => slice_array(
+                    &array,
+                    range.start,
+                    range.step,
+                    range.end,
+                    index_package_span,
+                )
+                .map_err(Error::from),
+                Value::Var(var) => {
+                    let array_ty = &self.get_expr(array_expr_id).ty;
+                    let Ty::Array(elem_ty) = array_ty else {
+                        panic!("expected array type in index expression");
+                    };
+                    self.eval_expr_dynamic_index(&array, var, array_package_span, elem_ty)
+                }
+                _ => panic!("invalid kind of value for index"),
+            }?;
+            Ok(EvalControlFlow::Continue(value))
+        }
+    }
+
+    fn eval_expr_index_variable_array(
+        &mut self,
+        array_expr_id: ExprId,
+        index_expr_id: ExprId,
+        index_value: Value,
+        array_var: Var,
+    ) -> Result<EvalControlFlow, Error> {
+        let array_ty = &self.get_expr(array_expr_id).ty;
+        let VarTy::Array(array_size) = &array_var.ty else {
+            panic!("expected array type in index expression");
+        };
+        let array_package_span = self.get_expr_package_span(array_expr_id);
+        let Ty::Array(array_elem_ty) = array_ty else {
+            panic!("expected array type in index expression");
+        };
+        let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty) else {
+            return Err(Error::Unexpected(
+                "array with non-primitive RIR type".to_string(),
+                array_package_span,
+            ));
+        };
+        if matches!(index_value, Value::Var(_) | Value::Int(_)) {
+            // The index is a single value (either static int or variable int), so emit an index instruction.
+            let index_operand = self.map_eval_value_to_rir_operand(&index_value);
+            let array_operand = rir::Operand::Variable(rir::Variable {
+                variable_id: array_var.id.into(),
+                ty: rir::Ty::Array(*array_size, elem_rir_prim_ty),
+            });
+
+            let variable_id = self.resource_manager.next_var();
+            let rir_variable = rir::Variable {
+                variable_id,
+                ty: rir::Ty::Prim(elem_rir_prim_ty),
+            };
+
+            self.get_current_rir_block_mut().0.push(Instruction::Index(
+                array_operand,
+                index_operand,
+                rir_variable,
+            ));
+
+            Ok(EvalControlFlow::Continue(Value::Var(
+                map_rir_var_to_eval_var(rir_variable).map_err(|()| {
+                    Error::Unexpected(
+                        format!(
+                            "dynamic value of type {} in index expression",
+                            rir_variable.ty
+                        ),
+                        array_package_span,
+                    )
+                })?,
+            )))
+        } else {
+            // The index must be a range, so emit a slicing instruction.
+            let last_index = TryInto::<i64>::try_into(*array_size)
+                .map_err(|_| EvalError::ArrayTooLarge(self.get_expr_package_span(index_expr_id)))?
+                - 1;
+            let (range_start, range_step, range_end) = index_value.unwrap_range();
+            let (start, step, end) = (
+                range_start.unwrap_or(if range_step > 0 { 0 } else { last_index }),
+                range_step,
+                range_end.unwrap_or(if range_step > 0 { last_index } else { 0 }),
+            );
+            if step == 0 {
+                return Err(
+                    EvalError::RangeStepZero(self.get_expr_package_span(index_expr_id)).into(),
+                );
             }
-            _ => panic!("invalid kind of value for index"),
-        }?;
-        Ok(EvalControlFlow::Continue(value))
+            let slice_size = ((end - start + step) / step)
+                .max(0)
+                .try_into()
+                .expect("array size should fit into usize");
+            let new_array_rir_variable = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(slice_size, elem_rir_prim_ty),
+            };
+
+            self.get_current_rir_block_mut()
+                .0
+                .push(Instruction::SliceArray(
+                    rir::Variable {
+                        variable_id: array_var.id.into(),
+                        ty: rir::Ty::Array(*array_size, elem_rir_prim_ty),
+                    },
+                    start,
+                    step,
+                    end,
+                    new_array_rir_variable,
+                ));
+
+            Ok(EvalControlFlow::Continue(Value::Var(val::Var {
+                id: new_array_rir_variable.variable_id.into(),
+                ty: VarTy::Array(slice_size),
+            })))
+        }
     }
 
     fn eval_expr_field(
@@ -3546,6 +3852,97 @@ impl<'a> PartialEvaluator<'a> {
             .is_unresolved_callee_expr(store_expr_id, self.in_parallel_scope())
     }
 
+    fn is_mutable_fixed_size_array(&self, id: LocalVarId) -> bool {
+        self.eval_context
+            .get_current_scope()
+            .mutable_fixed_size_arrays
+            .contains(&id)
+    }
+
+    fn populate_mutable_fixed_size_array_ids(&mut self) {
+        let current_package_id = self.get_current_package_id();
+        let in_parallel = self.in_parallel_scope();
+        let current_scope = self.eval_context.get_current_scope_mut();
+        let key = match current_scope.callable {
+            None => StoreItemSpecializationKey::TopLevel,
+            Some((local_item_id, functor_app)) => (
+                (current_package_id, local_item_id).into(),
+                functor_app_to_functor_set_value(functor_app),
+            )
+                .into(),
+        };
+        let Some(entry) = self.compute_properties.get_mutable_fixed_size_array_entry(
+            key,
+            current_package_id,
+            in_parallel,
+        ) else {
+            // There is no analysis entry for this context, so there are no mutable fixed size array ids to populate.
+            return;
+        };
+
+        // Populate the mutable fixed-size array ids for the current scope based on the analysis entry.
+        // First, any inherently mutable fixed-size arrays are added to the current scope.
+        current_scope
+            .mutable_fixed_size_arrays
+            .clone_from(&entry.inherent);
+
+        // Then, for each compute kind of the arguments to the current scope, check if the argument contributes any mutable fixed-size arrays
+        // and add them as well.
+        for (idx, arg) in current_scope.args_compute_kind.iter().enumerate() {
+            let ComputeKind::Dynamic {
+                runtime_features,
+                value_kind,
+            } = arg
+            else {
+                continue;
+            };
+            // Check the entry for the current parameter application to know if the array with this id is considered mutable fixed-size.
+            match entry
+                .param_application
+                .get(idx)
+                .expect("param applications should be present")
+            {
+                MutableFixedSizeArraysParamApplication::None => {}
+                MutableFixedSizeArraysParamApplication::Element(
+                    mutable_fixed_size_arrays_element_application,
+                ) => match value_kind {
+                    ValueKind::Constant => {
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_element_application.constant);
+                    }
+                    ValueKind::Variable => {
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_element_application.variable);
+                    }
+                },
+                MutableFixedSizeArraysParamApplication::Array(
+                    mutable_fixed_size_arrays_array_application,
+                ) => match value_kind {
+                    ValueKind::Variable
+                        if runtime_features
+                            .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
+                    {
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_array_application.dynamic_size);
+                    }
+                    ValueKind::Variable => {
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_array_application.static_size);
+                    }
+                    ValueKind::Constant => {
+                        current_scope
+                            .mutable_fixed_size_arrays
+                            .extend(&mutable_fixed_size_arrays_array_application.constant_content);
+                    }
+                },
+            }
+        }
+    }
+
     fn get_call_compute_kind(&self, callable_scope: &Scope) -> ComputeKind {
         let store_item_id = StoreItemId::from((
             callable_scope.package_id,
@@ -3585,9 +3982,29 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         local_var_id: LocalVarId,
         value: &Value,
+        ty: &Ty,
     ) -> Option<(rir::VariableId, Option<Literal>)> {
         // Check if we can create a mutable variable for this value.
-        let var_ty = try_get_eval_var_type(value)?;
+        let var_ty = if self.is_mutable_fixed_size_array(local_var_id) {
+            // We need to get the size of the array to carry it in the variable type.
+            let size = match value {
+                Value::Array(array) => array.len(),
+                Value::Var(Var {
+                    ty: VarTy::Array(size),
+                    ..
+                }) => *size,
+                _ => panic!("expected array value for mutable array variable, found: {value:?}"),
+            };
+            VarTy::Array(size)
+        } else if let Value::Var(Var {
+            ty: VarTy::Array(size),
+            ..
+        }) = value
+        {
+            VarTy::Array(*size)
+        } else {
+            try_get_eval_var_type(value)?
+        };
 
         // Create an evaluator variable and insert it.
         let var_id = self.resource_manager.next_var();
@@ -3599,19 +4016,71 @@ impl<'a> PartialEvaluator<'a> {
             .get_current_scope_mut()
             .insert_hybrid_local_value(local_var_id, Value::Var(eval_var));
 
-        // Insert a store instruction.
-        let value_operand = self.map_eval_value_to_rir_operand(value);
-        let rir_var = map_eval_var_to_rir_var(eval_var);
-        let store_ins = Instruction::Store(value_operand, rir_var);
-        self.get_current_rir_block_mut().0.push(store_ins);
+        if let VarTy::Array(size) = var_ty {
+            // Use the passed Ty to determine the element type of the array variable.
+            let Ty::Array(inner) = ty else {
+                panic!("expected array type for mutable array variable, found: {ty}");
+            };
+            let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).ok()? else {
+                panic!("expected primitive type for array element type, found: {inner:?}")
+            };
 
-        // Create a mutable variable, mapping it to the static value if any.
-        let static_value = match value_operand {
-            Operand::Literal(literal) => Some(literal),
-            Operand::Variable(_) => None,
-        };
+            match value {
+                Value::Array(array) => {
+                    // Insert a store array instruction to initialize the array variable with the given value.
+                    self.store_array(var_id, elem_ty, array);
+                }
+                Value::Var(var) => {
+                    self.get_current_rir_block_mut()
+                        .0
+                        .push(Instruction::CopyArray(
+                            rir::Variable {
+                                variable_id: var.id.into(),
+                                ty: rir::Ty::Array(size, elem_ty),
+                            },
+                            rir::Variable {
+                                variable_id: var_id,
+                                ty: rir::Ty::Array(size, elem_ty),
+                            },
+                        ));
+                }
+                _ => panic!(
+                    "expected array value for mutable array variable, found: {}",
+                    value.type_name()
+                ),
+            }
+            Some((var_id, None))
+        } else {
+            // Insert a store instruction.
+            let value_operand = self.map_eval_value_to_rir_operand(value);
+            let rir_var = map_eval_var_to_rir_var(eval_var);
+            let store_ins = Instruction::Store(value_operand, rir_var);
+            self.get_current_rir_block_mut().0.push(store_ins);
 
-        Some((var_id, static_value))
+            // Create a mutable variable, mapping it to the static value if any.
+            let static_value = match value_operand {
+                Operand::Literal(literal) => Some(literal),
+                Operand::Variable(_) => None,
+            };
+
+            Some((var_id, static_value))
+        }
+    }
+
+    fn store_array(&mut self, var_id: VariableId, elem_ty: rir::Prim, array: &Rc<Vec<Value>>) {
+        let operands = array
+            .iter()
+            .map(|value| self.map_eval_value_to_rir_operand(value))
+            .collect::<Vec<_>>();
+        self.get_current_rir_block_mut()
+            .0
+            .push(Instruction::StoreArray(
+                operands,
+                rir::Variable {
+                    variable_id: var_id,
+                    ty: rir::Ty::Array(array.len(), elem_ty),
+                },
+            ));
     }
 
     fn get_or_insert_callable(&mut self, callable: Callable) -> CallableId {
@@ -4100,22 +4569,78 @@ impl<'a> PartialEvaluator<'a> {
             .get_current_scope()
             .get_hybrid_local_value(local_var_id);
         if let Value::Var(var) = bound_value {
-            // Insert a store instruction when the value of a variable is updated.
-            let rhs_operand = self.map_eval_value_to_rir_operand(&value);
-            let rir_var = map_eval_var_to_rir_var(*var);
-            let store_ins = Instruction::Store(rhs_operand, rir_var);
-            self.get_current_rir_block_mut().0.push(store_ins);
-
-            // If this is a mutable variable, make sure to update whether it is static or dynamic.
-            let current_scope = self.eval_context.get_current_scope_mut();
-            match rhs_operand {
-                Operand::Literal(literal) => {
-                    // The variable maps to a static literal here, so track that literal value.
-                    current_scope.insert_static_var_mapping(rir_var.variable_id, literal);
+            if let Value::Var(rhs_var) = &value
+                && let VarTy::Array(lhs_size) = &var.ty
+            {
+                if let VarTy::Array(rhs_size) = &rhs_var.ty
+                    && lhs_size != rhs_size
+                {
+                    // This is a size update of a variable, which we can't emit a store instruction for.
+                    // Instead, overwrite the variable in the hybrid maps.
+                    self.eval_context
+                        .get_current_scope_mut()
+                        .insert_hybrid_local_value(local_var_id, value);
+                    return Ok(());
                 }
-                Operand::Variable(_) => {
-                    // The variable is not known to be some literal value, so remove the static mapping.
-                    current_scope.remove_static_value(rir_var.variable_id);
+
+                // This is an update of an array variable, so we need to emit it as a copy of the whole array.
+                // Use the passed Ty to determine the element type of the array variable.
+                let Ty::Array(inner) = &local_expr.ty else {
+                    panic!(
+                        "expected array type for mutable array variable, found: {}",
+                        &local_expr.ty
+                    );
+                };
+                let Ok(rir::Ty::Prim(elem_ty)) = map_fir_type_to_rir_type(inner) else {
+                    return Err(Error::Unexpected(
+                        "array with non-primitive RIR type".to_string(),
+                        map_fir_package_span_to_hir(local_expr.span),
+                    ));
+                };
+                let src_var = rir::Variable {
+                    variable_id: rhs_var.id.into(),
+                    ty: rir::Ty::Array(*lhs_size, elem_ty),
+                };
+                let dst_var = rir::Variable {
+                    variable_id: var.id.into(),
+                    ty: rir::Ty::Array(*lhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(src_var, dst_var));
+            } else if let Value::Array(rhs_array) = &value {
+                // If the right-hand side is an array, we need to emit a store array instruction.
+                let Ty::Array(inner) = &local_expr.ty else {
+                    panic!(
+                        "expected array type for mutable array variable, found: {}",
+                        &local_expr.ty
+                    );
+                };
+                let Ok(rir::Ty::Prim(elem_ty)) = map_fir_type_to_rir_type(inner) else {
+                    return Err(Error::Unexpected(
+                        "array with non-primitive RIR type".to_string(),
+                        map_fir_package_span_to_hir(local_expr.span),
+                    ));
+                };
+                self.store_array(var.id.into(), elem_ty, rhs_array);
+            } else {
+                // Insert a store instruction when the value of a variable is updated.
+                let rhs_operand = self.map_eval_value_to_rir_operand(&value);
+                let rir_var = map_eval_var_to_rir_var(*var);
+                let store_ins = Instruction::Store(rhs_operand, rir_var);
+                self.get_current_rir_block_mut().0.push(store_ins);
+
+                // If this is a mutable variable, make sure to update whether it is static or dynamic.
+                let current_scope = self.eval_context.get_current_scope_mut();
+                match rhs_operand {
+                    Operand::Literal(literal) => {
+                        // The variable maps to a static literal here, so track that literal value.
+                        current_scope.insert_static_var_mapping(rir_var.variable_id, literal);
+                    }
+                    Operand::Variable(_) => {
+                        // The variable is not known to be some literal value, so remove the static mapping.
+                        current_scope.remove_static_value(rir_var.variable_id);
+                    }
                 }
             }
         } else {
@@ -4196,7 +4721,15 @@ impl<'a> PartialEvaluator<'a> {
             Value::Array(vals) => self.record_array(ty, &mut instrs, &vals, tag_root)?,
             Value::Tuple(vals, _) => self.record_tuple(ty, &mut instrs, &vals, tag_root)?,
             Value::Result(res) => self.record_result(&mut instrs, res, tag_root),
-            Value::Var(var) => self.record_variable(ty, &mut instrs, var, tag_root),
+            Value::Var(var) => match &var.ty {
+                VarTy::Array(size) => {
+                    let Ty::Array(elem_ty) = ty else {
+                        panic!("expected array type for array variable");
+                    };
+                    self.record_array_variable(elem_ty, &mut instrs, var, *size, tag_root)?;
+                }
+                _ => self.record_variable(ty, &mut instrs, var, tag_root),
+            },
             Value::Bool(val) => self.record_bool(&mut instrs, val, tag_root),
             Value::Int(val) => self.record_int(&mut instrs, val, tag_root),
             Value::Double(val) => self.record_double(&mut instrs, val, tag_root),
@@ -4391,6 +4924,69 @@ impl<'a> PartialEvaluator<'a> {
                 elem_ty,
                 &new_tag_root,
             )?);
+        }
+
+        Ok(())
+    }
+
+    fn record_array_variable(
+        &mut self,
+        elem_ty: &Ty,
+        instrs: &mut Vec<Instruction>,
+        var: Var,
+        size: usize,
+        tag_root: &str,
+    ) -> Result<(), ()> {
+        let new_tag_root = format!("{tag_root}a");
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
+        let array_record_callable_id = self.get_array_record_callable();
+        instrs.push(Instruction::Call(
+            array_record_callable_id,
+            vec![
+                Operand::Literal(Literal::Integer(
+                    size.try_into().expect("array length should fit into i32"),
+                )),
+                Operand::Literal(Literal::Tag(idx, len)),
+            ],
+            None,
+            None,
+        ));
+        let rir::Ty::Prim(elem_prim_ty) =
+            map_fir_type_to_rir_type(elem_ty).expect("element type should map to RIR type")
+        else {
+            panic!("element type should map to RIR primitive type");
+        };
+        for idx in 0..size {
+            let new_tag_root = format!("{new_tag_root}{idx}");
+            let variable_id = self.resource_manager.next_var();
+            let rir_variable = rir::Variable {
+                variable_id,
+                ty: rir::Ty::Prim(elem_prim_ty),
+            };
+
+            self.get_current_rir_block_mut().0.push(Instruction::Index(
+                Operand::Variable(rir::Variable {
+                    variable_id: var.id.into(),
+                    ty: rir::Ty::Array(size, elem_prim_ty),
+                }),
+                Operand::Literal(Literal::Integer(
+                    idx.try_into().expect("index should fit into i32"),
+                )),
+                rir_variable,
+            ));
+            instrs.extend(
+                self.generate_output_recording_instructions(
+                    Value::Var(
+                        map_rir_var_to_eval_var(rir_variable)
+                            .expect("RIR variable should map to eval variable"),
+                    ),
+                    elem_ty,
+                    &new_tag_root,
+                )?,
+            );
         }
 
         Ok(())
@@ -4956,6 +5552,191 @@ impl<'a> PartialEvaluator<'a> {
             ty: elem_rir_prim_ty,
         })
     }
+
+    fn emit_update_for_cached_arrays(
+        &mut self,
+        cached_mutable_fixed_size_arrays: &FxHashMap<LocalVarId, Rc<Vec<Value>>>,
+    ) {
+        let scope = self.eval_context.get_current_scope();
+        let latest_mutable_fixed_size_arrays = scope
+            .mutable_fixed_size_arrays
+            .iter()
+            .filter_map(|local_id| {
+                scope.env.get(*local_id).and_then(|variable| {
+                    if let Value::Array(array) = &variable.value {
+                        Some((*local_id, Rc::clone(array)))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect::<FxHashMap<_, _>>();
+        for local_id in &scope.mutable_fixed_size_arrays.clone() {
+            let Some(latest_array) = latest_mutable_fixed_size_arrays.get(local_id) else {
+                continue;
+            };
+            let cached_array = cached_mutable_fixed_size_arrays
+                .get(local_id)
+                .expect("cached entries should contain entry for local id");
+            if !Rc::ptr_eq(latest_array, cached_array) {
+                // The array was updated between when it was cached and the current state.
+                // Emit a store array instruction with the updated contents to ensure that it has the right values.
+                let Value::Var(array_var) = self
+                    .eval_context
+                    .get_current_scope()
+                    .get_hybrid_local_value(*local_id)
+                else {
+                    panic!("mutable fixed size array should be backed by variable");
+                };
+                let array_var_id = array_var.id.into();
+                let operands = latest_array
+                    .iter()
+                    .map(|value| self.map_eval_value_to_rir_operand(value))
+                    .collect::<Vec<_>>();
+                let rir::Ty::Prim(elem_ty) = operands
+                    .first()
+                    .expect("array should have at least one element")
+                    .get_type()
+                else {
+                    panic!("array element type should be a primitive type");
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::StoreArray(
+                        operands,
+                        rir::Variable {
+                            variable_id: array_var_id,
+                            ty: rir::Ty::Array(latest_array.len(), elem_ty),
+                        },
+                    ));
+            }
+        }
+    }
+
+    fn eval_bin_op_array_concat(
+        &mut self,
+        lhs_eval_var: Var,
+        lhs_size: usize,
+        rhs_expr_id: ExprId,
+        bin_op_expr_span: PackageSpan,
+    ) -> Result<EvalControlFlow, Error> {
+        let ty = &self.get_expr(rhs_expr_id).ty;
+        let Ty::Array(inner) = ty else {
+            panic!("expected array type for mutable array variable, found: {ty}");
+        };
+        let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).map_err(|e| {
+            Error::Unexpected(
+                format!("array element type `{e}` in concatenation"),
+                bin_op_expr_span,
+            )
+        })?
+        else {
+            panic!("expected primitive type for array element type, found: {inner:?}")
+        };
+
+        let EvalControlFlow::Continue(rhs_value) = self.try_eval_expr(rhs_expr_id)? else {
+            return Err(Error::Unexpected(
+                "embedded return in array concatenation expression".to_string(),
+                self.get_expr_package_span(rhs_expr_id),
+            ));
+        };
+
+        let lhs_var = rir::Variable {
+            variable_id: lhs_eval_var.id.into(),
+            ty: rir::Ty::Array(lhs_size, elem_ty),
+        };
+
+        let (rhs_var, rhs_size) = if let Value::Array(rhs_array) = rhs_value {
+            if rhs_array.is_empty() {
+                // The result of the concatenation is just the lhs, so emit a copy array instruction.
+                let new_var = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(lhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(lhs_var, new_var));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: new_var.variable_id.into(),
+                    ty: VarTy::Array(lhs_size),
+                })));
+            } else if lhs_size == 0 {
+                // The result of the concatenation is just the rhs, so directly return it.
+                return Ok(EvalControlFlow::Continue(Value::Array(rhs_array)));
+            }
+
+            // Otherwise, the rhs array should be stored into a variable so it can be used in a concatenate instruction.
+            let rhs_var = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Array(rhs_array.len(), elem_ty),
+            };
+            self.store_array(rhs_var.variable_id, elem_ty, &rhs_array);
+            (rhs_var, rhs_array.len())
+        } else {
+            // We expect the rhs value to be an array variable.
+            let Value::Var(Var {
+                id: rhs_var_id,
+                ty: VarTy::Array(rhs_size),
+            }) = rhs_value
+            else {
+                return Err(Error::Unexpected(
+                    "expected rhs value to be an array variable".to_string(),
+                    self.get_expr_package_span(rhs_expr_id),
+                ));
+            };
+
+            if rhs_size == 0 {
+                // The result of concatenation is just the lhs, so emit a copy instruction and return it.
+                let result = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(lhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(lhs_var, result));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: result.variable_id.into(),
+                    ty: VarTy::Array(lhs_size),
+                })));
+            }
+
+            let rhs_var = rir::Variable {
+                variable_id: rhs_var_id.into(),
+                ty: rir::Ty::Array(rhs_size, elem_ty),
+            };
+
+            if lhs_size == 0 {
+                // The result of concatenation is just the rhs, so emit a copy instruction and return it.
+                let result = rir::Variable {
+                    variable_id: self.resource_manager.next_var(),
+                    ty: rir::Ty::Array(rhs_size, elem_ty),
+                };
+                self.get_current_rir_block_mut()
+                    .0
+                    .push(Instruction::CopyArray(rhs_var, result));
+                return Ok(EvalControlFlow::Continue(Value::Var(Var {
+                    id: result.variable_id.into(),
+                    ty: VarTy::Array(rhs_size),
+                })));
+            }
+
+            (rhs_var, rhs_size)
+        };
+
+        // Emit a concatenate instruction using the lhs and rhs array variables.
+        let result_size = lhs_size + rhs_size;
+        let result = rir::Variable {
+            variable_id: self.resource_manager.next_var(),
+            ty: rir::Ty::Array(result_size, elem_ty),
+        };
+        self.get_current_rir_block_mut()
+            .0
+            .push(Instruction::ConcatArrays(lhs_var, rhs_var, result));
+        Ok(EvalControlFlow::Continue(Value::Var(Var {
+            id: result.variable_id.into(),
+            ty: VarTy::Array(result_size),
+        })))
+    }
 }
 
 // Determines if a value can be treated as a static value, meaning something that can be directly passed
@@ -5321,6 +6102,7 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
         VarTy::Double => rir::Ty::Prim(rir::Prim::Double),
         VarTy::Qubit => rir::Ty::Prim(rir::Prim::Qubit),
         VarTy::Result => rir::Ty::Prim(rir::Prim::Result),
+        VarTy::Array(..) => rir::Ty::Prim(rir::Prim::Pointer),
     }
 }
 

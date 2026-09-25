@@ -28,3 +28,13 @@ fn alloca_pointer_without_size() {
     let inst = rir::Instruction::Alloca(rir::Variable::new_ptr(rir::VariableId(0)));
     expect!["  %var_0 = alloca ptr"].assert_eq(&inst.to_qir(&rir::Program::default()));
 }
+
+#[test]
+fn alloca_array_with_size() {
+    let inst = rir::Instruction::Alloca(rir::Variable::new_array(
+        rir::VariableId(0),
+        2,
+        rir::Prim::Integer,
+    ));
+    expect!["  %var_0 = alloca [2 x i64]"].assert_eq(&inst.to_qir(&rir::Program::default()));
+}

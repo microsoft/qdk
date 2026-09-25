@@ -238,6 +238,18 @@ pub enum VarTy {
     Double,
     Qubit,
     Result,
+    // An array carries the constant size of the array in the type.
+    Array(usize),
+}
+
+impl VarTy {
+    #[must_use]
+    pub fn is_primitive_ty(&self) -> bool {
+        match self {
+            Self::Boolean | Self::Integer | Self::Double | Self::Qubit | Self::Result => true,
+            Self::Array(_) => false,
+        }
+    }
 }
 
 impl Display for VarTy {
@@ -248,6 +260,7 @@ impl Display for VarTy {
             Self::Double => write!(f, "Double"),
             Self::Qubit => write!(f, "Qubit"),
             Self::Result => write!(f, "Result"),
+            Self::Array(size) => write!(f, "Array[{size}]"),
         }
     }
 }

@@ -23,8 +23,8 @@ use qsc_fir::{
         Attr, BinOp, Block, BlockId, CallableDecl, CallableImpl, CallableKind, Expr, ExprId,
         ExprKind, FieldAssign, Global, Ident, Item, ItemKind, LocalVarId, Mutability, Package,
         PackageId, PackageLookup, PackageStore, PackageStoreLookup, Pat, PatId, PatKind, Res,
-        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreExprId, StoreItemId, StorePatId,
-        StringComponent,
+        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreExprId, StoreItemId,
+        StoreItemSpecializationKey, StorePatId, StringComponent,
     },
     ty::{Arrow, FunctorSetValue, Prim, Ty},
     visit::{Visitor, walk_block, walk_expr, walk_stmt},
@@ -189,6 +189,12 @@ impl<'a> Analyzer<'a> {
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
 
+        let array_var_expr = self.get_expr(array_var_expr_id);
+        let ExprKind::Var(Res::Local(local_var_id), _) = &array_var_expr.kind else {
+            panic!("LHS expression should be a local");
+        };
+        let local_var_id = *local_var_id;
+
         // Since this is an assignment, the compute kind of the local variable (array var expression) needs to be updated.
         // The compute kind of the update is determined by the runtime features of the replacement value expression.
         let application_instance = self.get_current_application_instance();
@@ -196,13 +202,44 @@ impl<'a> Analyzer<'a> {
         let mut default_value_kind = ValueKind::Constant;
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
         // runtime feature is used to mark the array itself as dynamic.
-        if !application_instance.active_dynamic_scopes.is_empty() {
+        let mutable_fixed_size_array_key = self.get_item_specialization_key();
+        let already_tracked_as_mutable_fixed_size_array = application_instance
+            .mutable_fixed_size_arrays
+            .contains(&(mutable_fixed_size_array_key, local_var_id));
+        let mutable_fixed_size_array_key = if application_instance.active_dynamic_scopes.is_empty()
+            && !index_compute_kind.is_variable_value_kind()
+            && !already_tracked_as_mutable_fixed_size_array
+        {
+            if (replacement_value_compute_kind.is_variable_value_kind())
+                && self
+                    .target_capabilities
+                    .contains(TargetCapabilityFlags::StaticSizedArrays)
+                && is_supported_array_content(&self.get_expr(replacement_value_expr_id).ty)
+            {
+                // Static sized arrays are supported, so generate a key to store this use of the variable as a mutable fixed-size array.
+                Some(mutable_fixed_size_array_key)
+            } else {
+                None
+            }
+        } else {
+            // This is a dynamic scope, so the array itself must be treated as dynamic.
+            // The runtime features depend on the type of the replacement value.
+            let replacement_ty = &self.get_expr(replacement_value_expr_id).ty;
+            let mut runtime_features = RuntimeFeatureFlags::UseOfDynamicArray;
+            update_features_for_type(
+                replacement_ty,
+                &mut runtime_features,
+                &mut default_value_kind,
+            );
+
             default_value_kind = ValueKind::Variable;
             replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
+                runtime_features,
                 value_kind: ValueKind::Constant,
             });
-        }
+            // This update requires a dynamic array, so generate a key to store this as a mutable dynamic array.
+            Some(mutable_fixed_size_array_key)
+        };
 
         let mut updated_compute_kind = ComputeKind::Static;
         updated_compute_kind
@@ -215,14 +252,15 @@ impl<'a> Analyzer<'a> {
         }
 
         // Update the compute kind of the local variable in the locals map.
-        let array_var_expr = self.get_expr(array_var_expr_id);
-        let ExprKind::Var(Res::Local(local_var_id), _) = &array_var_expr.kind else {
-            panic!("LHS expression should be a local");
-        };
         let application_instance = self.get_current_application_instance_mut();
         application_instance
             .locals_map
-            .aggregate_compute_kind(*local_var_id, updated_compute_kind);
+            .aggregate_compute_kind(local_var_id, updated_compute_kind);
+        if let Some(key) = mutable_fixed_size_array_key {
+            application_instance
+                .mutable_fixed_size_arrays
+                .push((key, local_var_id));
+        }
 
         // The compute kind of this expression is determined by aggregating the runtime features of the index and
         // replacement expressions.
@@ -244,6 +282,20 @@ impl<'a> Analyzer<'a> {
             );
         }
         compute_kind
+    }
+
+    fn get_item_specialization_key(&self) -> StoreItemSpecializationKey {
+        match self.get_current_context() {
+            AnalysisContext::TopLevel(_) => StoreItemSpecializationKey::TopLevel,
+            AnalysisContext::Item(item_context) => (
+                item_context.id,
+                item_context
+                    .current_spec_context
+                    .as_ref()
+                    .map_or(FunctorSetValue::Empty, |s| s.functor_set_value),
+            )
+                .into(),
+        }
     }
 
     fn analyze_expr_bin_op(
@@ -1247,7 +1299,11 @@ impl<'a> Analyzer<'a> {
         let mut should_emit_classical_loop =
             self.should_emit_classical_loops() && !self.in_parallel_expr;
         let mut cached_locals_map = if should_emit_classical_loop {
-            Some(self.get_current_application_instance().locals_map.clone())
+            let application_instance = self.get_current_application_instance();
+            Some((
+                application_instance.locals_map.clone(),
+                application_instance.mutable_fixed_size_arrays.clone(),
+            ))
         } else {
             None
         };
@@ -1323,9 +1379,12 @@ impl<'a> Analyzer<'a> {
                 // Revert the calculated compute kinds and re-analyze marking the loop.
                 ClearComputeKinds::new(self).visit_expr(condition_expr_id);
                 ClearComputeKinds::new(self).visit_block(block_id);
-                self.get_current_application_instance_mut().locals_map = cached_locals_map.take().expect(
+                let (cached_locals_map, cached_mutable_fixed_size_arrays) = cached_locals_map.take().expect(
                     "cached locals map should exist when re-analyzing while loop with classical emission",
                 );
+                let application_instance = self.get_current_application_instance_mut();
+                application_instance.locals_map = cached_locals_map;
+                application_instance.mutable_fixed_size_arrays = cached_mutable_fixed_size_arrays;
                 should_emit_classical_loop = false;
             } else {
                 break (condition_expr_compute_kind, compute_kind);
@@ -2000,6 +2059,13 @@ impl<'a> Analyzer<'a> {
         self.target_capabilities
             .contains(TargetCapabilityFlags::BackwardsBranching)
     }
+}
+
+fn is_supported_array_content(replacement_ty: &Ty) -> bool {
+    matches!(
+        replacement_ty,
+        Ty::Prim(Prim::Bool | Prim::Int | Prim::Double | Prim::Qubit | Prim::Result)
+    )
 }
 
 fn update_features_for_type(
