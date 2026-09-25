@@ -2064,7 +2064,7 @@ impl<'a> Analyzer<'a> {
 fn is_supported_array_content(replacement_ty: &Ty) -> bool {
     matches!(
         replacement_ty,
-        Ty::Prim(Prim::Bool | Prim::Int | Prim::Double | Prim::Qubit)
+        Ty::Prim(Prim::Bool | Prim::Int | Prim::Double | Prim::Qubit | Prim::Result)
     )
 }
 
