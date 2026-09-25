@@ -22,7 +22,7 @@ fn i_gate_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: I
                ,----

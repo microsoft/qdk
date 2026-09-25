@@ -15,15 +15,15 @@ fn repeat_zero_times_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.ZeroRepeatCount
+            Qdk.Stim.Semantic.ZeroRepeatCount
 
-          x a REPEAT count of zero is not supported
-           ,-[1:8]
-         1 | REPEAT 0 {
-           :        ^
-         2 |   X 0
-           `----
-    "#]],
+              x a REPEAT count of zero is not supported
+               ,-[1:8]
+             1 | REPEAT 0 {
+               :        ^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -61,7 +61,7 @@ fn repeat_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Semantic.UnsupportedArgument
 
               x unsupported argument in instruction: REPEAT
                ,-[1:8]
@@ -83,7 +83,7 @@ fn repeat_with_multiple_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
               x unsupported target in instruction: REPEAT
                ,-[1:10]
@@ -105,7 +105,7 @@ fn repeat_with_no_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingTarget
+            Qdk.Stim.Semantic.MissingTarget
 
               x missing target in instruction: REPEAT
                ,-[1:1]
@@ -127,15 +127,15 @@ fn repeat_with_negated_count_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: REPEAT
-           ,-[1:8]
-         1 | REPEAT !3 {
-           :        ^^
-         2 |   X 0
-           `----
-    "#]],
+              x unsupported target in instruction: REPEAT
+               ,-[1:8]
+             1 | REPEAT !3 {
+               :        ^^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -149,15 +149,15 @@ fn repeat_with_pauli_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: REPEAT
-           ,-[1:8]
-         1 | REPEAT X0 {
-           :        ^^
-         2 |   X 0
-           `----
-    "#]],
+              x unsupported target in instruction: REPEAT
+               ,-[1:8]
+             1 | REPEAT X0 {
+               :        ^^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -171,15 +171,15 @@ fn repeat_with_measurement_record_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Semantic.UnsupportedTarget
 
-          x unsupported target in instruction: REPEAT
-           ,-[1:8]
-         1 | REPEAT rec[-1] {
-           :        ^^^^^^^
-         2 |   X 0
-           `----
-    "#]],
+              x unsupported target in instruction: REPEAT
+               ,-[1:8]
+             1 | REPEAT rec[-1] {
+               :        ^^^^^^^
+             2 |   X 0
+               `----
+        "#]],
     );
 }
 
@@ -588,7 +588,7 @@ fn require_inside_bare_repeat_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.InstructionOutsideSelectBlock
+            Qdk.Stim.Semantic.InstructionOutsideSelectBlock
 
               x REQUIRE must appear inside a SELECT block
                ,-[3:3]
