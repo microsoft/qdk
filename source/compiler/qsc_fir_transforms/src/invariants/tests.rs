@@ -22,8 +22,8 @@ use crate::test_utils::{
     compile_and_run_pipeline_to_with_library, find_callable_body_block,
 };
 
-use qsc_fir::fir::LocalVarId;
-use qsc_fir::ty::Prim;
+use qsc_fir::fir::{CallableKind, ExprKind, LocalItemId, LocalVarId, StoreItemId};
+use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim};
 
 /// Simple Q# source with a local variable binding.
 const SIMPLE_LOCAL_VAR: &str = r#"
@@ -238,6 +238,48 @@ fn divergent_nested_if_fail_tail_passes_block_tail() {
     "#;
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
     check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
+fn divergent_earlier_statement_passes_block_tail() {
+    for body in [
+        "{ fail \"expected\"; () }",
+        "{ fail \"expected\"; while false {} }",
+        "{ let value = { fail \"expected\"; 0 }; while false {} }",
+        "if true { fail \"expected\"; while false {} } else { fail \"other\"; while false {} }",
+    ] {
+        let source =
+            format!("namespace Test {{ @EntryPoint() operation Main() : Int {{ {body} }} }}");
+        let (store, pkg_id) = compile_and_run_pipeline_to(&source, PipelineStage::Full);
+        check(&store, pkg_id, InvariantLevel::PostAll);
+    }
+}
+
+#[test]
+fn conditional_failure_does_not_exempt_mismatched_block_tail() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                { if false { fail "unreachable"; } () }
+                0
+            }
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+    let removed = store
+        .get_mut(pkg_id)
+        .blocks
+        .get_mut(body_id)
+        .expect("body block should exist")
+        .stmts
+        .pop();
+    assert!(removed.is_some(), "body should have a value tail to remove");
+
+    assert_panics_with("Non-Unit block-tail invariant violation", || {
+        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+    });
 }
 
 #[test]
@@ -597,6 +639,148 @@ fn invariant_post_defunc_catches_closure() {
     assert_panics_with("is a Closure after defunctionalization", || {
         check(&store, pkg_id, InvariantLevel::PostDefunc);
     });
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn invariant_exemptions_are_phase_item_and_entry_scoped() {
+    let source = r#"
+        namespace Test {
+            function Residue() : Int { 1 }
+            function Clean() : Int { 2 }
+            @EntryPoint()
+            function Main() : Int {
+                let value = Clean();
+                value + Residue()
+            }
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let (residue_item, main_item, clean_init) = {
+        let package = store.get(pkg_id);
+        let mut residue_item = None;
+        let mut main_item = None;
+        let mut clean_init = None;
+        for (item_id, item) in &package.items {
+            let ItemKind::Callable(decl) = &item.kind else {
+                continue;
+            };
+            if decl.name.name.as_ref() == "Residue" {
+                residue_item = Some(item_id);
+            }
+            if decl.name.name.as_ref() == "Main" {
+                main_item = Some(item_id);
+                let CallableImpl::Spec(spec) = &decl.implementation else {
+                    panic!("Main should have a body");
+                };
+                let block = package.get_block(spec.body.block);
+                let stmt_id = *block.stmts.first().expect("Main should have a local");
+                clean_init = Some(match package.get_stmt(stmt_id).kind {
+                    StmtKind::Local(_, _, expr_id) => expr_id,
+                    StmtKind::Expr(..) | StmtKind::Semi(..) | StmtKind::Item(_) => {
+                        panic!("Main should start with a local")
+                    }
+                });
+            }
+        }
+        (
+            residue_item.expect("Residue should exist"),
+            main_item.expect("Main should exist"),
+            clean_init.expect("Main should have a local initializer"),
+        )
+    };
+    inject_closure_expr_at(&mut store, pkg_id, clean_init);
+
+    let defunc_only = InvariantExemptions {
+        defunc_items: FxHashSet::from_iter([StoreItemId::from((pkg_id, residue_item))]),
+        ..Default::default()
+    };
+    assert_panics_with("is a Closure after defunctionalization", || {
+        check_with_exemptions(&store, pkg_id, InvariantLevel::PostDefunc, &defunc_only);
+    });
+
+    let return_only = InvariantExemptions {
+        return_unify_items: FxHashSet::from_iter([StoreItemId::from((pkg_id, main_item))]),
+        ..Default::default()
+    };
+    assert_panics_with("is a Closure after defunctionalization", || {
+        check_with_exemptions(&store, pkg_id, InvariantLevel::PostDefunc, &return_only);
+    });
+
+    let (return_store, return_pkg_id) =
+        compile_and_run_pipeline_to(DYNAMIC_EARLY_RETURN, PipelineStage::Mono);
+    let return_main = return_store
+        .get(return_pkg_id)
+        .items
+        .iter()
+        .find_map(|(item_id, item)| {
+            matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main")
+                .then_some(item_id)
+        })
+        .expect("Main should exist");
+    let wrong_phase = InvariantExemptions {
+        defunc_items: FxHashSet::from_iter([StoreItemId::from((return_pkg_id, return_main))]),
+        ..Default::default()
+    };
+    assert_panics_with("ExprKind::Return found", || {
+        check_with_exemptions(
+            &return_store,
+            return_pkg_id,
+            InvariantLevel::PostReturnUnify,
+            &wrong_phase,
+        );
+    });
+
+    let (mut entry_store, entry_pkg_id) =
+        compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::Defunc);
+    let entry_main = entry_store
+        .get(entry_pkg_id)
+        .items
+        .iter()
+        .find_map(|(item_id, item)| {
+            matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main")
+                .then_some(item_id)
+        })
+        .expect("Main should exist");
+    let package = entry_store.get_mut(entry_pkg_id);
+    let entry = package.entry.expect("entry should exist");
+    let entry_expr = package.exprs.get_mut(entry).expect("entry should exist");
+    entry_expr.ty = Ty::Arrow(Box::new(Arrow {
+        kind: CallableKind::Function,
+        input: Box::new(Ty::Prim(Prim::Int)),
+        output: Box::new(Ty::Prim(Prim::Int)),
+        functors: FunctorSet::Value(FunctorSetValue::Empty),
+    }));
+    entry_expr.kind = ExprKind::Closure(Vec::new(), entry_main);
+    let entry_only = InvariantExemptions {
+        defunc_entry: true,
+        ..Default::default()
+    };
+    check_with_exemptions(
+        &entry_store,
+        entry_pkg_id,
+        InvariantLevel::PostDefunc,
+        &entry_only,
+    );
+}
+
+fn inject_closure_expr_at(
+    store: &mut qsc_fir::fir::PackageStore,
+    pkg_id: qsc_fir::fir::PackageId,
+    expr_id: qsc_fir::fir::ExprId,
+) {
+    let expr = store
+        .get_mut(pkg_id)
+        .exprs
+        .get_mut(expr_id)
+        .expect("expression should exist");
+    expr.ty = Ty::Arrow(Box::new(Arrow {
+        kind: CallableKind::Function,
+        input: Box::new(Ty::Prim(Prim::Int)),
+        output: Box::new(Ty::Prim(Prim::Int)),
+        functors: FunctorSet::Value(FunctorSetValue::Empty),
+    }));
+    expr.kind = ExprKind::Closure(Vec::new(), LocalItemId::from(0usize));
 }
 
 #[test]

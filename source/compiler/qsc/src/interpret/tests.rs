@@ -2891,12 +2891,13 @@ mod given_interpreter {
         }
 
         #[test]
-        fn restricted_profile_fatal_transform_error_reported_as_fir_transform() {
-            // A local callable forced to `Dynamic` by a loop reassignment cannot be
-            // resolved statically, so the defunctionalize stage of the FIR transform
-            // pipeline emits a fatal diagnostic. The construction-time gate must
-            // surface this as `Error::FirTransform` (mirroring codegen), not as a
-            // capability `Error::Pass`.
+        fn restricted_profile_resolvable_dynamic_callable_constructs_successfully() {
+            // A local callable over-approximated to `Dynamic` by a loop
+            // reassignment (`f` is provably `Bar` after the loop) is deferred by
+            // the defunctionalize stage rather than reported as a fatal FIR
+            // transform error. Partial evaluation resolves the residual arrow to
+            // the concrete `Bar` global, so interpreter construction succeeds even
+            // under the restricted AdaptiveRI profile.
             let source = indoc! { r#"
             namespace Test {
                 operation Foo(q : Qubit) : Unit {}
@@ -2926,23 +2927,11 @@ mod given_interpreter {
                 Default::default(),
             );
 
-            match result {
-                Ok(_) => panic!("expected a fatal FIR transform error for a dynamic callable"),
-                Err(errors) => {
-                    assert!(
-                        errors
-                            .iter()
-                            .all(|error| matches!(error, crate::interpret::Error::FirTransform(_))),
-                        "expected FIR transform errors, got {errors:?}"
-                    );
-                    assert!(
-                        errors
-                            .iter()
-                            .any(|error| format!("{error:?}").contains("DynamicCallable")),
-                        "expected a dynamic-callable transform diagnostic, got {errors:?}"
-                    );
-                }
-            }
+            assert!(
+                result.is_ok(),
+                "expected the deferred, resolvable dynamic callable to construct cleanly, got {:?}",
+                result.err()
+            );
         }
 
         #[test]
