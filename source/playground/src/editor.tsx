@@ -15,11 +15,8 @@ import {
   LanguageServiceDiagnosticEvent,
   getTargetProfileFromEntryPoint,
 } from "qsharp-lang";
-import { Exercise, getExerciseSources } from "qsharp-lang/katas-md";
 import { codeToCompressedBase64, lsRangeToMonacoRange } from "./utils.js";
 import { ActiveTab } from "./main.js";
-
-import type { KataSection } from "qsharp-lang/katas";
 
 type ErrCollection = {
   checkDiags: VSDiagnostic[];
@@ -80,7 +77,6 @@ export function Editor(props: {
   compilerState: CompilerState;
   defaultShots: number;
   evtTarget: QscEventTarget;
-  kataSection?: KataSection;
   onRestartCompiler: () => void;
   shotError?: VSDiagnostic;
   showExpr: boolean;
@@ -218,32 +214,20 @@ export function Editor(props: {
     } as ProgramConfig;
 
     try {
-      if (props.kataSection?.type === "exercise") {
-        // This is for a kata exercise. Provide the sources that implement the solution verification.
-        const sources = await getExerciseSources(props.kataSection as Exercise);
-        // check uses the unrestricted profile and doesn't do code gen,
-        // so we just pass the sources
-        await props.compiler.checkExerciseSolution(
-          code,
-          sources,
-          props.evtTarget,
-        );
-      } else {
-        performance.mark("compiler-run-start");
-        await props.compiler.run(config, runExpr, shotCount, props.evtTarget);
-        const runTimer = performance.measure(
-          "compiler-run",
-          "compiler-run-start",
-        );
-        log.logTelemetry({
-          id: "compiler-run",
-          data: {
-            duration: runTimer.duration,
-            codeSize: code.length,
-            shotCount,
-          },
-        });
-      }
+      performance.mark("compiler-run-start");
+      await props.compiler.run(config, runExpr, shotCount, props.evtTarget);
+      const runTimer = performance.measure(
+        "compiler-run",
+        "compiler-run-start",
+      );
+      log.logTelemetry({
+        id: "compiler-run",
+        data: {
+          duration: runTimer.duration,
+          codeSize: code.length,
+          shotCount,
+        },
+      });
     } catch (err) {
       // This could fail for several reasons, e.g. the run being cancelled.
       if (err === "terminated") {
@@ -264,14 +248,8 @@ export function Editor(props: {
 
     editor.current = newEditor;
     const srcModel =
-      monaco.editor.getModel(
-        monaco.Uri.parse(props.kataSection?.id ?? fileName),
-      ) ??
-      monaco.editor.createModel(
-        "",
-        language,
-        monaco.Uri.parse(props.kataSection?.id ?? fileName),
-      );
+      monaco.editor.getModel(monaco.Uri.parse(fileName)) ??
+      monaco.editor.createModel("", language, monaco.Uri.parse(fileName));
     srcModel.setValue(props.code);
     newEditor.setModel(srcModel);
     srcModel.onDidChangeContent(() => irRef.current());
@@ -316,10 +294,8 @@ export function Editor(props: {
 
   useEffect(() => {
     props.languageService.updateConfiguration({
-      packageType: props.kataSection ? "lib" : "exe",
-      lints: props.kataSection
-        ? []
-        : [{ lint: "needlessOperation", level: "warn" }],
+      packageType: "exe",
+      lints: [{ lint: "needlessOperation", level: "warn" }],
     });
 
     function onDiagnostics(evt: LanguageServiceDiagnosticEvent) {
@@ -337,7 +313,7 @@ export function Editor(props: {
       log.info("Removing diagnostics listener");
       props.languageService.removeEventListener("diagnostics", onDiagnostics);
     };
-  }, [props.languageService, props.kataSection]);
+  }, [props.languageService]);
 
   useEffect(() => {
     const theEditor = editor.current;

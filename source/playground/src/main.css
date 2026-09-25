@@ -198,9 +198,3 @@ pre:has(code) {
 .warning-row {
   background-color: var(--warning-background-color);
 }
-
-/* Katas */
-
-.kata-override {
-  background-color: var(--main-background);
-}
