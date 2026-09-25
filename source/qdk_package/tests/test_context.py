@@ -97,7 +97,7 @@ def test_circuit_max_loop_iterations() -> None:
     [omitted] = [
         operation
         for operation in operations
-        if operation["gate"] == "__qsharp_loop_iterations_omitted__"
+        if operation["gate"] == "..."
     ]
     assert omitted["args"] == ["3"]
 

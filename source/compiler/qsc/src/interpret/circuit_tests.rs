@@ -295,6 +295,33 @@ pub(crate) fn default_test_tracer_config() -> TracerConfig {
     }
 }
 
+/// Returns the operations directly contained in the circuit's `Main` group.
+fn main_children(circuit: &Circuit) -> Vec<&Operation> {
+    let [main_column] = circuit.component_grid.as_slice() else {
+        panic!("circuit should contain one top-level column");
+    };
+    let [Operation::Unitary(main)] = main_column.components.as_slice() else {
+        panic!("circuit should contain the Main group");
+    };
+    main.children
+        .iter()
+        .flat_map(|column| &column.components)
+        .collect()
+}
+
+/// Returns the iteration operations contained in the first loop under `Main`.
+fn first_loop_children(circuit: &Circuit) -> Vec<&Operation> {
+    let main_children = main_children(circuit);
+    let [Operation::Unitary(loop_group)] = main_children.as_slice() else {
+        panic!("Main should contain one loop group");
+    };
+    loop_group
+        .children
+        .iter()
+        .flat_map(|column| &column.components)
+        .collect()
+}
+
 // Drives a SyntheticEntry-routed callable+args shape through the Static circuit
 // path and asserts that it matches the ClassicalEval circuit. A captureless
 // callable value (`AllH`) passed as an argument routes through
@@ -638,79 +665,6 @@ fn classical_for_loop_is_grouped() {
         q_0@test.qs:4:20 ─ X@test.qs:11:20 ── Y@test.qs:12:20 ── X@test.qs:11:20 ── Y@test.qs:12:20 ── X@test.qs:11:20 ── Y@test.qs:12:20 ─
     "#]]
     .assert_eq(&circ);
-}
-
-#[test]
-fn long_loop_omits_middle_iterations() {
-    let circuit = circuit_with_options_success(
-        r"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use q = Qubit();
-                    for _ in 1..13 {
-                        H(q);
-                    }
-                }
-            }
-        ",
-        Profile::AdaptiveRIF,
-        CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::Static,
-        TracerConfig {
-            max_loop_iterations: 4,
-            ..default_test_tracer_config()
-        },
-    );
-
-    let loop_children = first_loop_children(&circuit);
-
-    assert_eq!(loop_children.len(), 5);
-    for (index, iteration) in loop_children[..3].iter().enumerate() {
-        assert_eq!(iteration.gate(), format!("({})", index + 1));
-    }
-
-    let Operation::Unitary(omitted) = loop_children[3] else {
-        panic!("omitted iterations should be represented by a unitary");
-    };
-    assert_eq!(omitted.gate, OMITTED_LOOP_ITERATIONS_GATE);
-    assert_eq!(omitted.args, ["9"]);
-    assert_eq!(omitted.targets.len(), 1);
-
-    assert_eq!(
-        loop_children
-            .last()
-            .expect("loop should retain its last iteration")
-            .gate(),
-        "(13)"
-    );
-}
-
-/// Returns the operations directly contained in the circuit's `Main` group.
-fn main_children(circuit: &Circuit) -> Vec<&Operation> {
-    let [main_column] = circuit.component_grid.as_slice() else {
-        panic!("circuit should contain one top-level column");
-    };
-    let [Operation::Unitary(main)] = main_column.components.as_slice() else {
-        panic!("circuit should contain the Main group");
-    };
-    main.children
-        .iter()
-        .flat_map(|column| &column.components)
-        .collect()
-}
-
-/// Returns the iteration operations contained in the first loop under `Main`.
-fn first_loop_children(circuit: &Circuit) -> Vec<&Operation> {
-    let main_children = main_children(circuit);
-    let [Operation::Unitary(loop_group)] = main_children.as_slice() else {
-        panic!("Main should contain one loop group");
-    };
-    loop_group
-        .children
-        .iter()
-        .flat_map(|column| &column.components)
-        .collect()
 }
 
 #[test]
@@ -2589,4 +2543,53 @@ fn parallel_nested_unlimited_outer_defers_all() {
         q_8@test.qs:9:34 ─ H@test.qs:9:52 ─── H@test.qs:11:52 ─
     "#]]
     .assert_eq(&circ);
+}
+
+#[test]
+fn long_loop_omits_middle_iterations() {
+    let circuit = circuit_with_options_success(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for _ in 1..13 {
+                        H(q);
+                    }
+                }
+            }
+        ",
+        Profile::AdaptiveRIF,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_loop_iterations: 4,
+            ..default_test_tracer_config()
+        },
+    );
+
+    let loop_children = first_loop_children(&circuit);
+
+    assert_eq!(loop_children.len(), 5);
+    for (index, iteration) in loop_children[..3].iter().enumerate() {
+        assert_eq!(iteration.gate(), format!("({})", index + 1));
+    }
+
+    let Operation::Unitary(omitted) = loop_children[3] else {
+        panic!("omitted iterations should be represented by a unitary");
+    };
+    assert_eq!(omitted.gate, OMITTED_LOOP_ITERATIONS_GATE);
+    assert_eq!(omitted.args, ["9"]);
+    assert_eq!(omitted.targets.len(), 1);
+
+    assert_eq!(
+        loop_children
+            .last()
+            .expect("loop should retain its last iteration")
+            .gate(),
+        "(13)"
+    );
+
+    let text = circuit.to_string();
+    assert!(text.contains("...(9)"), "{text}");
 }
