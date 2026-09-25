@@ -13,6 +13,11 @@ A whole-qodec audit requires an explicit ``layer.codes`` binding for every block
 type in each encoded layer, matching its gadget encodings. The bottom physical
 layer needs no code bindings. This completeness check is stricter than
 ``qodec.Qodec.validate()``, which permits bindings supplied only by encodings.
+
+Flags must be zero for noiseless execution with a trivial incoming Pauli frame,
+for every valid logical input state. A flag may report a nonzero incoming
+syndrome. Checks, logical readout equations, frame transformations, and readout
+equation consistency are still verified under arbitrary incoming Pauli frames.
 """
 
 from ._auditor import Auditor, audit
