@@ -321,3 +321,118 @@ def test_single_slot_nondestructive_measurement_remains_bindable():
     assert resolve("measure", (LogicalSlot("data", 0, "pair"),), None) == (
         InstructionCall("measure_first", operands=["data"]),
     )
+
+
+@pytest.mark.parametrize("operation", ["prepare", "measure"])
+def test_whole_block_binding_requires_the_other_slots_to_be_spare(operation):
+    from qodec.actions import Observe, Stabilize
+
+    from qdk.simulation._qodec.instruction_set import InstructionSet, UnboundOperation
+    from qdk.simulation._qodec.operation_resolution import prepare_resolver
+    from qdk.simulation._qodec.quantum_operations import (
+        LogicalSlot,
+        decompose_rotations,
+    )
+
+    operand = BlockOperand("pair")
+    instruction = (
+        qodec.Instruction(
+            "prepare_pair", outputs=[operand], action=[Stabilize(["Z_0", "Z_1"])]
+        )
+        if operation == "prepare"
+        else qodec.Instruction(
+            "measure_pair", inputs=[operand], action=[Observe(["Z_0", "Z_1"])]
+        )
+    )
+    isa = qodec.InstructionSet(
+        "pair", blocks=[Block("pair", 2)], instructions=[instruction]
+    )
+    instructions = InstructionSet(isa)
+    resolve = prepare_resolver(instructions, decompose_rotations)
+    target = LogicalSlot("data", 1, "pair")
+    with pytest.raises(UnboundOperation):
+        resolve(operation, (target,), None)
+    assert resolve(
+        operation, (target,), None, spare=(LogicalSlot("data", 0, "pair"),)
+    ) == (
+        InstructionCall(instruction.mnemonic, operands=["data"]),
+    )
+    if operation == "measure":
+        assert instructions.outcome_index("measure_pair", 1) == 1
+
+
+def test_binding_prefers_instructions_that_leave_spare_slots_untouched():
+    from qodec.actions import Stabilize
+
+    from qdk.simulation._qodec.instruction_set import InstructionSet
+    from qdk.simulation._qodec.operation_resolution import prepare_resolver
+    from qdk.simulation._qodec.quantum_operations import (
+        LogicalSlot,
+        decompose_rotations,
+    )
+
+    operand = BlockOperand("pair")
+    isa = qodec.InstructionSet(
+        "pair",
+        blocks=[Block("pair", 2)],
+        instructions=[
+            qodec.Instruction(
+                "prepare_pair", outputs=[operand], action=[Stabilize(["Z_0", "Z_1"])]
+            ),
+            qodec.Instruction(
+                "reset_first",
+                inputs=[operand],
+                outputs=[operand],
+                action=[Stabilize(["Z_0"])],
+            ),
+        ],
+    )
+    resolve = prepare_resolver(InstructionSet(isa), decompose_rotations)
+    assert resolve(
+        "prepare",
+        (LogicalSlot("data", 0, "pair"),),
+        None,
+        spare=(LogicalSlot("data", 1, "pair"),),
+    ) == (InstructionCall("reset_first", operands=["data"]),)
+
+
+def test_flagged_instructions_bind_with_a_clear_flag_selection_as_a_fallback():
+    from qodec.actions import Stabilize
+
+    from qdk.simulation._qodec.instruction_set import InstructionSet
+    from qdk.simulation._qodec.operation_resolution import prepare_resolver
+    from qdk.simulation._qodec.quantum_operations import (
+        LogicalSlot,
+        decompose_rotations,
+    )
+
+    operand = BlockOperand("one")
+    checked = qodec.Instruction(
+        "prepare_checked",
+        outputs=[operand],
+        flags=["reject", "leak"],
+        action=[Stabilize(["Z_0"])],
+    )
+    plain = qodec.Instruction(
+        "prepare_plain", outputs=[operand], action=[Stabilize(["Z_0"])]
+    )
+    target = (LogicalSlot("data", 0, "one"),)
+
+    def resolve(instructions):
+        isa = qodec.InstructionSet(
+            "one", blocks=[Block("one", 1)], instructions=instructions
+        )
+        return prepare_resolver(InstructionSet(isa), decompose_rotations)(
+            "prepare", target, None
+        )
+
+    assert resolve([checked]) == (
+        InstructionCall(
+            "prepare_checked",
+            operands=["data"],
+            select=[{"reject": 0, "leak": 0}],
+        ),
+    )
+    assert resolve([checked, plain]) == (
+        InstructionCall("prepare_plain", operands=["data"]),
+    )

@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import random
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, cast
 
 from paulimer import CliffordUnitary, DensePauli, SparsePauli, UnitaryOpcode
@@ -37,6 +38,14 @@ _CLIFFORD_GATES = {
     "cz": UnitaryOpcode.ControlledZ,
     "swap": UnitaryOpcode.Swap,
 }
+
+
+@dataclass(frozen=True)
+class _Projection:
+    amplitudes: dict[int, complex]
+    probability: float
+    # (pivot, CNOT targets, S exponent) for the frame change V, if any.
+    change: tuple[int, tuple[int, ...], int] | None
 
 
 class StabilizerEngine:
@@ -117,9 +126,9 @@ class StabilizerEngine:
         self._ensure_open()
         self._validate_targets((target,))
         observable = SparsePauli.z(target)
-        probability_one = self._projected(observable, 1)[1]
+        probability_one = self._projection(observable, 1).probability
         outcome = int(self._rng.random() < probability_one)
-        self._project(observable, outcome)
+        self._commit(self._projection(observable, outcome))
         return outcome
 
     def outcome_probability(self, target: int, outcome: int) -> float:
@@ -127,7 +136,7 @@ class StabilizerEngine:
         self._validate_targets((target,))
         if outcome not in (0, 1):
             raise ValueError("measurement outcome must be zero or one")
-        return self._projected(SparsePauli.z(target), outcome)[1]
+        return self._projection(SparsePauli.z(target), outcome).probability
 
     def reset(self, target: int) -> None:
         if self.measure(target):
@@ -148,26 +157,80 @@ class StabilizerEngine:
         )
         self._amplitudes = self._normalized(updated)
 
-    def _projected(
-        self, observable: SparsePauli, outcome: int
-    ) -> tuple[dict[int, complex], float]:
-        preimage = self._frame.preimage_of(observable)
-        projected = self._linear_result(
-            0.5 + 0.0j,
-            complex(-0.5 if outcome else 0.5),
-            preimage,
-        )
-        probability = sum(abs(amplitude) ** 2 for amplitude in projected.values())
-        return projected, probability
+    def _projection(self, observable: SparsePauli, outcome: int) -> _Projection:
+        """Project onto ``outcome`` of ``observable`` without adding branches.
 
-    def _project(self, observable: SparsePauli, outcome: int) -> None:
-        projected, probability = self._projected(observable, outcome)
-        if probability <= _AMPLITUDE_EPSILON:
+        With state ``F |phi>``, the projector pulls back to ``(I + s P) / 2`` for
+        the preimage ``P = F^dagger O F`` and ``s = (-1)^outcome``. A diagonal
+        ``P`` only filters branches. Otherwise ``P |b> = phase_b |b ^ x>`` pairs
+        each branch with its partner, and ``|c> + beta_c |c ^ x>`` equals
+        ``sqrt(2) V |d>`` for one Clifford ``V`` built from a pivot ``k`` in the
+        X part: H on ``k``, then ``S^m`` on ``k``, then CNOTs from ``k`` across
+        ``x``. Moving ``V`` into the frame leaves one branch per pair, so
+        measurements never increase the branch count; only rotations do.
+        """
+        preimage = self._frame.preimage_of(observable)
+        sign = -1 if outcome else 1
+        characters = preimage.characters
+        flips = [
+            qubit for qubit, character in enumerate(characters) if character in "XY"
+        ]
+        if not flips:
+            projected = self._linear_result(0.5 + 0.0j, 0.5 * sign + 0.0j, preimage)
+            return _Projection(projected, self._norm(projected), None)
+        pivot = flips[0]
+        mask = sum(1 << qubit for qubit in flips)
+        paired: dict[int, complex] = {}
+        for basis, amplitude in self._amplitudes.items():
+            if (basis >> pivot) & 1:
+                _, phase = self._pauli_image(preimage, basis)
+                self._add(paired, basis ^ mask, sign * phase * amplitude)
+            else:
+                self._add(paired, basis, amplitude)
+        exponent: int | None = None
+        projected: dict[int, complex] = {}
+        for basis, amplitude in paired.items():
+            if abs(amplitude) <= _AMPLITUDE_EPSILON:
+                continue
+            _, phase = self._pauli_image(preimage, basis)
+            relative = sign * phase
+            if exponent is None:
+                exponent = 0 if abs(relative.imag) < 0.5 else 1
+            real = relative * (-1j if exponent else 1)
+            if abs(real.imag) > 1e-9 or abs(abs(real.real) - 1) > 1e-9:
+                raise RuntimeError("stabilizer projection produced an invalid phase")
+            reduced = basis if real.real > 0 else basis | (1 << pivot)
+            self._add(projected, reduced, amplitude / math.sqrt(2.0))
+        change = None if exponent is None else (pivot, tuple(flips[1:]), exponent)
+        return _Projection(projected, self._norm(projected), change)
+
+    def _commit(self, projection: _Projection) -> None:
+        if projection.probability <= _AMPLITUDE_EPSILON:
             raise RuntimeError("measurement selected a zero-probability outcome")
-        scale = 1.0 / math.sqrt(probability)
+        if projection.change is not None:
+            pivot, targets, exponent = projection.change
+            # The frame becomes F V; paulimer multiplies on the left only, so
+            # form (V^dagger F^dagger)^dagger.
+            inverse_change = CliffordUnitary.identity(self._num_qubits)
+            for target in targets:
+                inverse_change.left_mul(UnitaryOpcode.ControlledX, [pivot, target])
+            if exponent:
+                inverse_change.left_mul(UnitaryOpcode.SqrtZInv, [pivot])
+            inverse_change.left_mul(UnitaryOpcode.Hadamard, [pivot])
+            inverse_frame = self._frame.inverse()
+            inverse_frame.left_mul_clifford(
+                inverse_change, list(range(self._num_qubits))
+            )
+            self._frame = inverse_frame.inverse()
+        scale = 1.0 / math.sqrt(projection.probability)
         self._amplitudes = {
-            basis: amplitude * scale for basis, amplitude in projected.items()
+            basis: amplitude * scale
+            for basis, amplitude in projection.amplitudes.items()
         }
+
+    @staticmethod
+    def _norm(amplitudes: dict[int, complex]) -> float:
+        return sum(abs(amplitude) ** 2 for amplitude in amplitudes.values())
 
     def _linear_result(
         self,

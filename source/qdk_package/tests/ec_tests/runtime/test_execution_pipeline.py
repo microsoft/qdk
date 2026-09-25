@@ -2220,9 +2220,16 @@ def test_executor_does_not_complete_missing_pauli_gadgets(declared):
             runtime._next_invocation,
         )
         respond.reset_mock()
-        with pytest.raises(NotImplementedError, match="implement"):
+        if declared:
+            with pytest.raises(NotImplementedError, match="implement"):
+                drive_requests(runtime.handle(Operation("x", (0,))), respond)
+            respond.assert_not_called()
+        else:
+            # Without an instruction, the code's logical X goes to the layer below.
             drive_requests(runtime.handle(Operation("x", (0,))), respond)
-        respond.assert_not_called()
+            assert [call.args[0] for call in respond.call_args_list] == [
+                Operation("x", (qubit,)) for qubit in runtime.layout.blocks[0].qubits
+            ]
         assert (
             runtime.layout.blocks,
             runtime.layout.free,

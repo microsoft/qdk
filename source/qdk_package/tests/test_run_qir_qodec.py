@@ -259,6 +259,114 @@ def test_generated_qodec_runs_without_serialization(complete):
     ) == [Result.Zero] * 3
 
 
+@pytest.mark.parametrize(
+    "fixture, program, expected",
+    [
+        ("steane/qodec.yaml", "X(a); MResetZ(a)", "One"),
+        ("steane/qodec.yaml", "Y(a); MResetZ(a)", "One"),
+        ("steane/qodec.yaml", "H(a); Z(a); H(a); MResetZ(a)", "One"),
+        (
+            "steane/qodec.yaml",
+            "X(a); CNOT(a, b); [MResetZ(a), MResetZ(b)]",
+            "[One, One]",
+        ),
+        ("c4c6/qodec.yaml", "X(a); MResetZ(a)", "One"),
+        ("c4c6/qodec.yaml", "X(a); Z(a); Y(a); MResetZ(a)", "Zero"),
+    ],
+)
+def test_logical_paulis_without_instructions_apply_the_code_operators(
+    fixture, program, expected
+):
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.runtime import FIXTURES
+    from qdk import TargetProfile, qsharp
+
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile(f"{{ use (a, b) = (Qubit(), Qubit()); {program} }}")
+    codec = qodec.Qodec.load(str(FIXTURES / fixture))
+
+    results = run_qir(qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise")
+    assert [str(result) for result in results] == [expected] * 3
+
+
+def test_generated_qodec_applies_logical_paulis_as_code_operators():
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    ec = pytest.importorskip("qdk.ec")
+    from qdk import Result, TargetProfile, qsharp
+
+    code = qodec.Code(
+        "repetition3",
+        stabilizers=["Z_0 Z_1", "Z_1 Z_2"],
+        x=["X_0 X_1 X_2"],
+        z=["Z_0"],
+    )
+    codec = ec.build_qodec(code, strategy="bare-css/v1", strict=False)
+    assert not {"x", "y", "z"} & set(codec.layers[0].instruction_set.instructions)
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
+
+    assert (
+        run_qir(qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise")
+        == [Result.One] * 3
+    )
+
+
+def test_single_qubits_run_on_blocks_that_encode_two_logical_qubits():
+    pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.testing.qodecs import c4
+    from qdk import Result, TargetProfile, qsharp
+
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile("""{
+            use (a, b) = (Qubit(), Qubit());
+            X(a);
+            let first = [MResetZ(a), MResetZ(b)];
+            X(b);
+            first + [MResetZ(a), MResetZ(b)]
+        }""")
+
+    assert (
+        run_qir(
+            qir, shots=3, seed=7, type="clifford", qodec=c4(), on_shot_failure="raise"
+        )
+        == [[Result.One, Result.Zero, Result.Zero, Result.One]] * 3
+    )
+
+
+def test_raised_preparation_flags_follow_the_shot_failure_policy():
+    pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.testing.qodecs import c4
+    from qdk import TargetProfile, qsharp
+    from qdk.simulation.decoders import ExecutionRejected
+
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile("{ use q = Qubit(); MResetZ(q) }")
+    noise = NoiseConfig()
+    noise.cx.set_depolarizing(0.2)
+    codec = c4()
+
+    def run(policy):
+        return run_qir(
+            qir,
+            shots=40,
+            seed=7,
+            type="clifford",
+            noise=noise,
+            qodec=codec,
+            on_shot_failure=policy,
+            max_retries=50,
+        )
+
+    with pytest.raises(ExecutionRejected):
+        run("raise")
+    assert len(run("discard")) < 40
+    assert len(run("retry")) == 40
+
+
 def test_custom_decoder_changes_public_results_and_closes_each_shot():
     qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")

@@ -15,6 +15,7 @@ from .bytecode import compile
 from .decoding import prepare_syndrome_decoder
 from .executor import Executor
 from .protocols import (
+    BatchUnsupported,
     ExecutionRejected,
     ExecutionUnresolved,
     PrepareDecoder,
@@ -69,9 +70,14 @@ def run_qir_with_qodec(
 
         batch = prepare_batch(compile(module), executor.pipeline_factory)
         if batch is not None:
-            records = batch.run(
-                shots, noise, seed=seed, on_shot_failure=on_shot_failure
-            )
+            try:
+                records = batch.run(
+                    shots, noise, seed=seed, on_shot_failure=on_shot_failure
+                )
+            except BatchUnsupported:
+                # A replayed decoder issued a correction that cannot be carried
+                # as a Pauli frame; rerun every shot in the interpreter.
+                records = None
     if records is None:
         records = run_qir_raw_records(
             module,

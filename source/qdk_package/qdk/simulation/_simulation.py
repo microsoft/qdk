@@ -821,6 +821,12 @@ def run_qir(
         The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
         With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
         ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
+        Each program qubit gets its own block; when a block encodes several
+        logical qubits, the unused ones may be prepared and measured alongside it.
+        Instructions with flags are used only when no unflagged one fits, and a
+        raised flag fails the shot (see ``on_shot_failure``). A logical X, Y, or Z
+        without a matching instruction is applied as the layer code's logical
+        operator on the layer below.
     :param decoder: EXPERIMENTAL
         A ``PrepareDecoder`` callable that prepares a decoder factory for
         each Qodec layer. ``None`` selects the built-in syndrome decoder.

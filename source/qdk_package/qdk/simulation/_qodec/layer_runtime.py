@@ -7,13 +7,15 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import TypeVar, cast
 
+from paulimer import DensePauli
 from qodec import Gadget, Layer
 from qodec.instructions import InstructionCall
 
 from .call_binding import BoundCall, InstructionBinding
 from .circuit_runtime import prepare_circuit as prepare_body
+from .clifford_semantics import pauli
 from .encoding_layout import EncodingLayout, layout_boundary
-from .instruction_set import InstructionSet
+from .instruction_set import InstructionSet, UnboundOperation
 from .layer_layout import LayerLayout, LiveBlock
 from .operation_resolution import ResolveOperation, prepare_resolver
 from .protocols import (
@@ -21,6 +23,7 @@ from .protocols import (
     BlockObserver,
     BlockReference,
     Closable,
+    Correction,
     Corrections,
     DecoderSession,
     Invocation,
@@ -41,6 +44,13 @@ from .quantum_operations import (
 from .selection import Selection, prepare_selection
 
 ResultT = TypeVar("ResultT")
+
+
+def _pauli_corrections(
+    block: BlockReference, operator: DensePauli
+) -> Corrections[None]:
+    for target in operator.support:
+        yield Correction((block,), Operation(operator[target].lower(), (target,)))
 
 
 @dataclass(frozen=True)
@@ -137,10 +147,12 @@ class LayerPlan:
             )
 
     @cached_property
+    def instructions(self) -> InstructionSet:
+        return InstructionSet(self.instruction_set)
+
+    @cached_property
     def resolve(self) -> ResolveOperation:
-        return prepare_resolver(
-            InstructionSet(self.instruction_set), decompose_rotations
-        )
+        return prepare_resolver(self.instructions, decompose_rotations)
 
 
 class LayerRuntime:
@@ -148,6 +160,10 @@ class LayerRuntime:
         self.plan = plan
         self.decoder = decoder
         self.layout = LayerLayout()
+        # Slots that hold program data, for live blocks this layer prepared on
+        # the program's behalf. A live block missing here counts as fully
+        # occupied; its other slots are spare only while this set leaves them out.
+        self._occupied: dict[int | str, set[int]] = {}
         self._next_invocation = 0
         self._failed = False
 
@@ -174,6 +190,7 @@ class LayerRuntime:
 
     def start(self, resources: Resources) -> None:
         self.layout.start(resources, self.plan.lower_capacities)
+        self._occupied.clear()
         self._next_invocation = 0
         self._failed = False
 
@@ -186,14 +203,15 @@ class LayerRuntime:
                     yield from self.apply("x", (slot,))
             return ()
         if isinstance(request, InstructionCall):
-            return (
-                yield from self.execute(
-                    request.mnemonic,
-                    request.operands,
-                    request.arguments,
-                    select=request.select,
-                )
+            readouts = yield from self.execute(
+                request.mnemonic,
+                request.operands,
+                request.arguments,
+                select=request.select,
             )
+            for operand in request.operands:
+                self._occupied.pop(operand, None)
+            return readouts
         targets = tuple(
             self._resolve_logical_slot(target) for target in request.targets
         )
@@ -229,11 +247,26 @@ class LayerRuntime:
             raise ValueError("Logical slot does not match the live block type")
         return slot
 
-    def prepare(self, target: int | str | LogicalSlot) -> Requests[None]:
-        (call,) = self.plan.resolve(
-            "prepare", (self._resolve_logical_slot(target),), None
+    def _spare_slots(self, slot: LogicalSlot) -> tuple[LogicalSlot, ...]:
+        others = set(range(self.plan.capacities[slot.block_type])) - {slot.index}
+        if slot.block in self.layout.blocks:
+            others -= self._occupied.get(slot.block, others)
+        return tuple(
+            LogicalSlot(slot.block, index, slot.block_type) for index in sorted(others)
         )
-        yield from self.execute(call.mnemonic, call.operands, call.arguments)
+
+    def prepare(self, target: int | str | LogicalSlot) -> Requests[None]:
+        slot = self._resolve_logical_slot(target)
+        (call,) = self.plan.resolve(
+            "prepare", (slot,), None, spare=self._spare_slots(slot)
+        )
+        yield from self.execute(
+            call.mnemonic, call.operands, call.arguments, select=call.select
+        )
+        if not self.plan.bindings[call.mnemonic].input_types:
+            self._occupied[slot.block] = {slot.index}
+        elif slot.block in self._occupied:
+            self._occupied[slot.block].add(slot.index)
 
     def apply(
         self,
@@ -242,23 +275,81 @@ class LayerRuntime:
         angle: float | str | None = None,
     ) -> Requests[None]:
         slots = tuple(self._resolve_logical_slot(target) for target in targets)
-        calls = self.plan.resolve(operation, slots, angle)
+        try:
+            calls = self.plan.resolve(operation, slots, angle)
+        except UnboundOperation:
+            logical = self._logical_pauli(operation, slots, angle)
+            if logical is None:
+                raise
+            yield from self._apply_decoder_corrections(_pauli_corrections(*logical))
+            calls = ()
         for call in calls:
             if call.mnemonic not in self.plan.gadgets:
                 raise NotImplementedError(f"No gadget implements {call.mnemonic!r}")
         for call in calls:
-            yield from self.execute(call.mnemonic, call.operands, call.arguments)
+            yield from self.execute(
+                call.mnemonic, call.operands, call.arguments, select=call.select
+            )
+        for slot in slots:
+            if slot.block in self._occupied:
+                self._occupied[slot.block].add(slot.index)
+
+    def _logical_pauli(
+        self,
+        operation: str,
+        slots: Sequence[LogicalSlot],
+        angle: float | str | None,
+    ) -> tuple[BlockReference, DensePauli] | None:
+        """The code's logical operator for a Pauli the ISA does not declare.
+
+        Logical Paulis are commonly left out of an ISA and tracked as frame
+        updates. Without an instruction, the Pauli is applied as the layer code's
+        logical operator on the block's qubits in the layer below, the same way
+        decoder corrections are, so each lower layer resolves it in turn.
+        """
+        if operation not in ("x", "y", "z") or angle is not None or len(slots) != 1:
+            return None
+        (slot,) = slots
+        code = self.plan.codes.get(slot.block_type)
+        if code is None or not 0 <= slot.index < len(code.x):
+            return None
+        block = self.layout.blocks.get(slot.block)
+        if block is None:
+            raise ValueError(f"Input block {slot.block!r} has not been prepared")
+        width = code.physical_qubit_count
+        operator = pauli("", width)
+        if operation in ("x", "y"):
+            operator *= pauli(code.x[slot.index], width)
+        if operation in ("z", "y"):
+            operator *= pauli(code.z[slot.index], width)
+        return block.reference, operator
 
     def measure(self, target: int | str | LogicalSlot) -> Requests[bool | None]:
+        readouts, index = yield from self._measure_readouts(target)
+        return readouts[index]
+
+    def _measure_readouts(
+        self, target: int | str | LogicalSlot
+    ) -> Requests[tuple[Readouts, int]]:
+        """The measurement gadget's readouts and the index reporting ``target``."""
+        slot = self._resolve_logical_slot(target)
         (call,) = self.plan.resolve(
-            "measure", (self._resolve_logical_slot(target),), None
+            "measure", (slot,), None, spare=self._spare_slots(slot)
         )
-        readouts = yield from self.execute(call.mnemonic, call.operands, call.arguments)
-        if len(readouts) != 1:
-            raise ValueError("A logical Z measurement must produce one readout")
-        return readouts[0]
+        readouts = yield from self.execute(
+            call.mnemonic, call.operands, call.arguments, select=call.select
+        )
+        if slot.block not in self.layout.blocks:
+            self._occupied.pop(slot.block, None)
+        index = self.plan.instructions.outcome_index(call.mnemonic, slot.index)
+        if index is None:
+            if len(readouts) != 1:
+                raise ValueError("A logical Z measurement must produce one readout")
+            index = 0
+        return readouts, index
 
     def discard(self, target: int | str) -> Requests[None]:
+        self._occupied.pop(target, None)
         block = self.layout.remove_block(target)
         if block is None:
             return
@@ -538,4 +629,5 @@ class LayerRuntime:
 
     def close(self) -> None:
         self.layout.clear()
+        self._occupied.clear()
         self.decoder.close()
