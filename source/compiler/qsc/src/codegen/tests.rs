@@ -6323,7 +6323,7 @@ fn mutable_fixed_size_arrays_in_entry_point() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6334,6 +6334,7 @@ fn mutable_fixed_size_arrays_in_entry_point() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -6429,7 +6430,7 @@ fn mutable_fixed_size_arrays_in_callable_varying_by_input_params() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6440,6 +6441,7 @@ fn mutable_fixed_size_arrays_in_callable_varying_by_input_params() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -6522,7 +6524,7 @@ fn mutable_fixed_size_arrays_constant_update_after_dynamic_update() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6533,6 +6535,7 @@ fn mutable_fixed_size_arrays_constant_update_after_dynamic_update() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -6617,7 +6620,7 @@ fn mutable_fixed_size_arrays_snapshot_reassignment_uses_array_copy() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6628,6 +6631,7 @@ fn mutable_fixed_size_arrays_snapshot_reassignment_uses_array_copy() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -6710,7 +6714,7 @@ fn mutable_fixed_size_arrays_literal_assignment_after_dynamic_update() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6721,6 +6725,7 @@ fn mutable_fixed_size_arrays_literal_assignment_after_dynamic_update() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -6820,7 +6825,7 @@ fn mutable_fixed_size_arrays_concatenation_with_literal_array() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6831,6 +6836,7 @@ fn mutable_fixed_size_arrays_concatenation_with_literal_array() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -6910,7 +6916,7 @@ fn mutable_fixed_size_arrays_zero_size_iteration() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -6921,6 +6927,195 @@ fn mutable_fixed_size_arrays_zero_size_iteration() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn mutable_result_arrays_in_dynamic_loop() {
+    let source = indoc::indoc! {r#"
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            mutable redo = true;
+            mutable results = [Zero, Zero];
+            mutable loop_count = 0;
+            repeat {
+                Rx(2.5, q[0]);
+                Rx(2.5, q[1]);
+                results[0] = MResetZ(q[0]);
+                results[1] = MResetZ(q[1]);
+                loop_count += 1;
+            } until (not IsLossResult(results[0])
+                and not IsLossResult(results[1])
+                and results[0] == One
+                and results[1] == One)
+                or loop_count >= 100;
+            results
+        }
+    "#};
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
+        @2 = internal constant [6 x i8] c"2_a1r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_2 = alloca [2 x ptr]
+          %var_3 = alloca i64
+          %var_4 = alloca i1
+          %var_13 = alloca i1
+          %var_17 = alloca i1
+          %var_21 = alloca i1
+          %var_25 = alloca i1
+          %var_28 = alloca [2 x ptr]
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__write_result(i1 false, ptr inttoptr (i64 2 to ptr))
+          %var_2_0 = getelementptr [2 x ptr], ptr %var_2, i64 0, i64 0
+          store ptr inttoptr (i64 2 to ptr), ptr %var_2_0
+          %var_2_1 = getelementptr [2 x ptr], ptr %var_2, i64 0, i64 1
+          store ptr inttoptr (i64 2 to ptr), ptr %var_2_1
+          store i64 0, ptr %var_3
+          store i1 true, ptr %var_4
+          br label %block_1
+        block_1:
+          %var_34 = load i1, ptr %var_4
+          br i1 %var_34, label %block_2, label %block_3
+        block_2:
+          call void @Rx(double 2.5, ptr inttoptr (i64 0 to ptr))
+          call void @Rx(double 2.5, ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_39_offset_chk = icmp slt i64 0, 0
+          %var_39_offset = select i1 %var_39_offset_chk, i64 1, i64 0
+          %var_39 = getelementptr [2 x ptr], ptr %var_2, i64 %var_39_offset, i64 0
+          store ptr inttoptr (i64 0 to ptr), ptr %var_39
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_40_offset_chk = icmp slt i64 1, 0
+          %var_40_offset = select i1 %var_40_offset_chk, i64 1, i64 0
+          %var_40 = getelementptr [2 x ptr], ptr %var_2, i64 %var_40_offset, i64 1
+          store ptr inttoptr (i64 1 to ptr), ptr %var_40
+          %var_41 = load i64, ptr %var_3
+          %var_7 = add i64 %var_41, 1
+          store i64 %var_7, ptr %var_3
+          %var_8_offset_chk = icmp slt i64 0, 0
+          %var_8_offset = select i1 %var_8_offset_chk, i64 1, i64 0
+          %var_8 = getelementptr [2 x ptr], ptr %var_2, i64 %var_8_offset, i64 0
+          %var_43 = load ptr, ptr %var_8
+          %var_11 = call i1 @IsLossResult(ptr %var_43)
+          %var_12 = xor i1 %var_11, true
+          store i1 false, ptr %var_13
+          br i1 %var_12, label %block_4, label %block_5
+        block_3:
+          %var_35 = load [2 x ptr], ptr %var_2
+          store [2 x ptr] %var_35, ptr %var_28
+          %var_29_offset_chk = icmp slt i64 0, 0
+          %var_29_offset = select i1 %var_29_offset_chk, i64 1, i64 0
+          %var_29 = getelementptr [2 x ptr], ptr %var_28, i64 %var_29_offset, i64 0
+          %var_37 = load ptr, ptr %var_29
+          %var_30_offset_chk = icmp slt i64 1, 0
+          %var_30_offset = select i1 %var_30_offset_chk, i64 1, i64 0
+          %var_30 = getelementptr [2 x ptr], ptr %var_28, i64 %var_30_offset, i64 1
+          %var_38 = load ptr, ptr %var_30
+          call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__result_record_output(ptr %var_37, ptr @1)
+          call void @__quantum__rt__result_record_output(ptr %var_38, ptr @2)
+          ret i64 0
+        block_4:
+          %var_14_offset_chk = icmp slt i64 1, 0
+          %var_14_offset = select i1 %var_14_offset_chk, i64 1, i64 0
+          %var_14 = getelementptr [2 x ptr], ptr %var_2, i64 %var_14_offset, i64 1
+          %var_59 = load ptr, ptr %var_14
+          %var_15 = call i1 @IsLossResult(ptr %var_59)
+          %var_16 = xor i1 %var_15, true
+          store i1 %var_16, ptr %var_13
+          br label %block_5
+        block_5:
+          store i1 false, ptr %var_17
+          %var_46 = load i1, ptr %var_13
+          br i1 %var_46, label %block_6, label %block_7
+        block_6:
+          %var_18_offset_chk = icmp slt i64 0, 0
+          %var_18_offset = select i1 %var_18_offset_chk, i64 1, i64 0
+          %var_18 = getelementptr [2 x ptr], ptr %var_2, i64 %var_18_offset, i64 0
+          %var_57 = load ptr, ptr %var_18
+          %var_19 = call i1 @__quantum__rt__read_result(ptr %var_57)
+          store i1 %var_19, ptr %var_17
+          br label %block_7
+        block_7:
+          store i1 false, ptr %var_21
+          %var_48 = load i1, ptr %var_17
+          br i1 %var_48, label %block_8, label %block_9
+        block_8:
+          %var_22_offset_chk = icmp slt i64 1, 0
+          %var_22_offset = select i1 %var_22_offset_chk, i64 1, i64 0
+          %var_22 = getelementptr [2 x ptr], ptr %var_2, i64 %var_22_offset, i64 1
+          %var_55 = load ptr, ptr %var_22
+          %var_23 = call i1 @__quantum__rt__read_result(ptr %var_55)
+          store i1 %var_23, ptr %var_21
+          br label %block_9
+        block_9:
+          store i1 true, ptr %var_25
+          %var_50 = load i1, ptr %var_21
+          br i1 %var_50, label %block_10, label %block_11
+        block_10:
+          %var_53 = load i1, ptr %var_25
+          %var_27 = xor i1 %var_53, true
+          store i1 %var_27, ptr %var_4
+          br label %block_1
+        block_11:
+          %var_51 = load i64, ptr %var_3
+          %var_26 = icmp sge i64 %var_51, 100
+          store i1 %var_26, ptr %var_25
+          br label %block_10
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define internal void @Rx(double %var_5, ptr %var_6) {
+        block_12:
+          call void @__quantum__qis__rx__body(double %var_5, ptr %var_6)
+          ret void
+        }
+
+        declare void @__quantum__qis__rx__body(double, ptr)
+
+        declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+        define internal i1 @IsLossResult(ptr %var_9) {
+        block_13:
+          %var_10 = call i1 @__quantum__rt__read_loss(ptr %var_9)
+          ret i1 %var_10
+        }
+
+        declare i1 @__quantum__rt__read_loss(ptr)
+
+        declare i1 @__quantum__rt__read_result(ptr) #2
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        declare void @__quantum__rt__write_result(i1, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="3" }
+        attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 

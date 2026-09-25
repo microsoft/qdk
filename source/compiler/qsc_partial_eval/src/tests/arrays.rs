@@ -1866,3 +1866,62 @@ fn mutable_array_updated_in_constant_expr_emitted_as_unconditional_update() {
                 Jump(1)"#]],
     );
 }
+
+#[test]
+fn mutable_array_of_results_updated_in_loop() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Result[] {
+            use qs = Qubit[3];
+            mutable results = [Zero, size=Length(qs) + 1];
+
+            for i in Std.Arrays.IndexRange(qs) {
+                results[0] = MResetZ(qs[i]);
+            }
+
+            results
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(1, Array(4, Result)) = StoreArray [ResultLit(false), ResultLit(false), ResultLit(false), ResultLit(false)]
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(2)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(7, Array(4, Result)) = CopyArray Variable(1, Array(4, Result))
+            Variable(8, Result) = Index Variable(7, Array(4, Result)), Integer(0)
+            Variable(9, Result) = Index Variable(7, Array(4, Result)), Integer(1)
+            Variable(10, Result) = Index Variable(7, Array(4, Result)), Integer(2)
+            Variable(11, Result) = Index Variable(7, Array(4, Result)), Integer(3)
+            Call id(3), args( Integer(4), Tag(0, 3), )
+            Call id(4), args( Variable(8, Result), Tag(1, 5), )
+            Call id(4), args( Variable(9, Result), Tag(2, 5), )
+            Call id(4), args( Variable(10, Result), Tag(3, 5), )
+            Call id(4), args( Variable(11, Result), Tag(4, 5), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Call id(2), args( Variable(5, Qubit), Result(0), )
+            StoreIndex Result(0), Integer(0), Variable(1, Array(4, Result))
+            Variable(6, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(2, Integer) = Store Variable(6, Integer)
+            Jump(1)"#]],
+    );
+}
