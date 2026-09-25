@@ -591,12 +591,13 @@ fn collapse_if_unnecessary(
             }
 
             // now, if each c applies to a distinct set of qubits, this loop is entirely vertical and can be collapsed as well
-            let mut distinct_sets_of_qubits = FxHashSet::default();
+            let mut distinct_sets_of_qubits: FxHashSet<QubitWire> = FxHashSet::default();
             for child_op in children.iter() {
-                let qs = child_op.all_qubits();
-                if !distinct_sets_of_qubits.insert(qs) {
-                    // There's overlap, so we won't collapse
-                    return None;
+                for qubit in child_op.all_qubits() {
+                    if !distinct_sets_of_qubits.insert(qubit) {
+                        // There's overlap, so we won't collapse
+                        return None;
+                    }
                 }
             }
             let mut all_children = vec![];
