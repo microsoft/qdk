@@ -10,6 +10,7 @@ fn check_groups(c: &FakeCompilation, instructions: &[(Vec<Frame>, &str)], expect
     let mut tracer = CircuitTracer::new(
         TracerConfig {
             max_operations: usize::MAX,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: false,

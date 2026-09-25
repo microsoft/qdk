@@ -1,4 +1,5 @@
 import gc
+import json
 import weakref
 
 import pytest
@@ -57,6 +58,48 @@ def test_circuit() -> None:
     ctx.eval("operation Program() : Result { use q = Qubit(); H(q); MResetZ(q) }")
     circuit = ctx.circuit("Program()")
     assert "H" in str(circuit)
+
+
+def test_circuit_max_loop_iterations() -> None:
+    ctx = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RIF)
+    ctx.eval(
+        """
+        operation Program() : Unit {
+            use q = Qubit();
+            for _ in 1..6 {
+                H(q);
+            }
+        }
+        """
+    )
+
+    circuit = ctx.circuit(
+        "Program()",
+        generation_method=qsharp.CircuitGenerationMethod.Static,
+        max_loop_iterations=3,
+    )
+    circuit_data = json.loads(circuit.json())
+
+    def nested_operations(component_grid):
+        for column in component_grid:
+            for operation in column["components"]:
+                yield operation
+                yield from nested_operations(operation.get("children", []))
+
+    operations = list(nested_operations(circuit_data["componentGrid"]))
+    iteration_labels = [
+        operation["gate"]
+        for operation in operations
+        if operation["gate"].startswith("(")
+    ]
+    assert iteration_labels == ["(1)", "(2)", "(6)"]
+
+    [omitted] = [
+        operation
+        for operation in operations
+        if operation["gate"] == "..."
+    ]
+    assert omitted["args"] == ["3"]
 
 
 def test_logical_counts() -> None:

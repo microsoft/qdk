@@ -27,6 +27,7 @@ const getMinGateWidth = ({
     case GateType.Measure:
     case GateType.Cnot:
     case GateType.Swap:
+    case GateType.Ellipsis:
       return minGateWidth;
     default: {
       // Classically controlled gates are wider because of the control button on the left

@@ -185,6 +185,7 @@ pub fn get_circuit(
     let tracer_config = qsc::circuit::TracerConfig {
         source_locations: config.source_locations,
         max_operations: config.max_operations,
+        max_loop_iterations: qsc::circuit::TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
         group_by_scope: config.group_by_scope,
         prune_classical_qubits: false,
     };

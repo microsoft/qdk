@@ -2027,6 +2027,7 @@ impl Debugger {
     fn circuit_config() -> TracerConfig {
         TracerConfig {
             max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
             source_locations: true,
             group_by_scope: false,
             prune_classical_qubits: false,

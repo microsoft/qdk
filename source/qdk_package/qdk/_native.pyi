@@ -474,6 +474,7 @@ class CircuitConfig:
         self,
         *,
         max_operations: Optional[int] = None,
+        max_loop_iterations: int = 100,
         generation_method: Optional["CircuitGenerationMethod"] = None,
         source_locations: bool = False,
         group_by_scope: bool = False,
@@ -483,6 +484,11 @@ class CircuitConfig:
     max_operations: Optional[int]
     """
     The maximum number of operations to include in the generated circuit.
+    """
+
+    max_loop_iterations: int
+    """
+    The maximum number of loop iterations to render in full.
     """
 
     generation_method: Optional[CircuitGenerationMethod]
