@@ -19,7 +19,13 @@ from .clifford_semantics import (
     named_clifford,
     pauli as pauli,
 )
-from .quantum_operations import LogicalSlot, Operation, RestoreMeasured, local_indices
+from .quantum_operations import (
+    FrameUpdate,
+    LogicalSlot,
+    Operation,
+    RestoreMeasured,
+    local_indices,
+)
 from .protocols import Readouts, Request, Requests, Resources
 from .action_runtime import ActionProgram, prepare_actions, temporary_count
 from .call_binding import BoundCall, InstructionBinding
@@ -432,6 +438,27 @@ class InstructionRuntime:
                 yield from self.handle(Operation("prepare", (request.target,)))
                 if request.value:
                     yield from self.handle(Operation("x", (request.target,)))
+            return ()
+        if isinstance(request, FrameUpdate):
+            if self.layout is None:
+                readouts = yield request
+            else:
+                slot = (
+                    request.target
+                    if isinstance(request.target, LogicalSlot)
+                    else LogicalSlot(request.target, 0, self.instructions.block_type)
+                )
+                block = self.layout.blocks.get(slot.block)
+                if block is None or block.block_type != slot.block_type:
+                    raise ValueError(
+                        f"Frame update targets physical block {slot.block!r}, "
+                        "which is not live"
+                    )
+                if not 0 <= slot.index < len(block.qubits):
+                    raise ValueError("Physical logical slot is out of range")
+                readouts = yield FrameUpdate(request.pauli, block.qubits[slot.index])
+            if readouts is None:
+                raise TypeError("Frame updates must return a readout tuple")
             return ()
         if isinstance(request, Operation):
             if self.layout is None:

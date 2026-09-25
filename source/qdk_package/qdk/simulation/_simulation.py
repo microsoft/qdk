@@ -825,8 +825,10 @@ def run_qir(
         logical qubits, the unused ones may be prepared and measured alongside it.
         Instructions with flags are used only when no unflagged one fits, and a
         raised flag fails the shot (see ``on_shot_failure``). A logical X, Y, or Z
-        without a matching instruction is applied as the layer code's logical
-        operator on the layer below.
+        without a matching instruction becomes the layer code's logical operator
+        on the layer below. Such logical Paulis and single-qubit Pauli decoder
+        corrections are tracked in a noiseless Pauli frame rather than run as
+        gates.
     :param decoder: EXPERIMENTAL
         A ``PrepareDecoder`` callable that prepares a decoder factory for
         each Qodec layer. ``None`` selects the built-in syndrome decoder.

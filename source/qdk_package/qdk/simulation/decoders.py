@@ -8,16 +8,26 @@ once per encoded layer and returns a factory for fresh, seeded shot sessions.
 ``prepare_frame_decoder`` tracks noiseless frames without inferring faults.
 ``prepare_deq_decoder`` uses deq relay-BP for per-boundary syndrome decoding.
 
-Native shot batching is selected by the prepared factory's optional
-``BatchDecoderFactory`` capability, not the name of the preparation function.
-The supplied syndrome, frame, and deq factories implement it; wrappers that
-return these factories retain it. A custom factory can implement
-``prepare_batch()`` and return a ``BatchDecoderSession`` whose
-``prepare_readouts()`` provides independent terminal ``ReadoutBatch`` evaluators.
-``ReadoutTable`` implements this evaluator for deterministic finite tables.
-Factories without this capability, adaptive circuits, and retry policies retain
-the interpreter. Batched deq inference preserves the per-shot decoder seeds;
-only clean-syndrome results are shared, never stochastic solver answers.
+Single-qubit Pauli corrections are tracked in a noiseless Pauli frame: they
+sample no gate noise and never lose a qubit. Any other correction operation
+runs as a physical gate with its configured noise.
+
+Clifford programs on the default stabilizer backend with one encoded layer,
+Pauli gate noise without loss or measurement noise, and no
+measurement-dependent feedback run in the native shot loop.
+Decoding then takes one of two forms. When every measurement is recorded by a
+terminal gadget and the prepared factory implements the optional
+``BatchDecoderFactory`` capability, its ``prepare_batch()`` session provides
+``ReadoutBatch`` evaluators through ``prepare_readouts()``; ``ReadoutTable``
+implements one for deterministic finite tables. The supplied syndrome, frame,
+and deq factories implement this capability, and wrappers that return them
+retain it. Otherwise, including for custom factories without the capability,
+each shot replays a fresh, seeded decoder session on its native records, with
+its Pauli corrections flipping the records they reach. A correction that is
+not a single-qubit Pauli reruns every shot in the interpreter. Other programs,
+backends, and the retry policy always use the interpreter. Batched deq
+inference preserves the per-shot decoder seeds; only clean-syndrome results
+are shared, never stochastic solver answers.
 
 To configure deq's independent Pauli prior::
 

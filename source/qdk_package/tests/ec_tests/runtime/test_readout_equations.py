@@ -556,6 +556,7 @@ def test_dependent_stabilizer_positions_are_preserved():
     import qodec
 
     from qdk.simulation._qodec.decoding import CodeDecoder
+    from qdk.simulation._qodec.readout_equations import InconsistentParity
 
     code = qodec.Code(
         "dependent", ["Z_0 Z_1", "Z_1 Z_2", "Z_0 Z_1"], ["X_0 X_1 X_2"], ["Z_0"]
@@ -566,5 +567,5 @@ def test_dependent_stabilizer_positions_are_preserved():
     assert tuple(
         not correction.commutes_with(stabilizer) for stabilizer in decoder.stabilizers
     ) == (True, False, True)
-    with pytest.raises(ValueError, match="matches syndrome"):
+    with pytest.raises(InconsistentParity, match="matches syndrome"):
         decoder.correct((True, False, False))

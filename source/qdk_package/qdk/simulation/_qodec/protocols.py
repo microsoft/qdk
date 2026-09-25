@@ -11,13 +11,13 @@ from qodec.gadgets import Circuit
 from qodec.instructions import InstructionCall
 
 from .. import NoiseConfig
-from .quantum_operations import Operation, RestoreMeasured
+from .quantum_operations import FrameUpdate, Operation, RestoreMeasured
 
 ProgramT = TypeVar("ProgramT", contravariant=True)
 ResultT = TypeVar("ResultT", covariant=True)
 
 Readouts: TypeAlias = tuple[bool | None, ...]
-Request: TypeAlias = Operation | InstructionCall | RestoreMeasured
+Request: TypeAlias = Operation | InstructionCall | RestoreMeasured | FrameUpdate
 Requests: TypeAlias = Generator[Request, Readouts | None, ResultT]
 
 
@@ -50,6 +50,12 @@ class Invocation:
 
 @dataclass(frozen=True)
 class Correction:
+    """A decoder correction on code qubits of ``blocks``.
+
+    Single-qubit Pauli corrections are tracked as noiseless frame updates;
+    any other operation runs as a physical gate.
+    """
+
     blocks: tuple[BlockReference, ...]
     operation: Operation
 
@@ -101,7 +107,7 @@ class ExecutionLayer(Protocol):
 
 
 class OperationExecutor(Protocol):
-    def execute(self, request: Operation, /) -> Readouts: ...
+    def execute(self, request: Operation | FrameUpdate, /) -> Readouts: ...
 
 
 QuantumBackendFactory: TypeAlias = Callable[

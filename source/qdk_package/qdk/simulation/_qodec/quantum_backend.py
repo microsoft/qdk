@@ -1,12 +1,12 @@
 from collections.abc import Sequence
-from random import SystemRandom
+from random import Random, SystemRandom
 
 from qdk import Result
 from .. import NoiseConfig
 from .physical_engine import PhysicalEngine
 
 from .protocols import QuantumEngine, QuantumEngineFactory, Readouts, Resources
-from .quantum_operations import Operation, local_indices
+from .quantum_operations import FrameUpdate, Operation, local_indices
 
 
 class QuantumBackend:
@@ -32,17 +32,28 @@ class QuantumBackend:
     def start(self, resources: Resources) -> None:
         if resources.blocks:
             raise ValueError("The quantum backend requires physical-qubit resources")
-        self._simulator = self.engine_factory(resources.qubits, self.seed)
+        # The engine and the noise sampler must draw from independent streams;
+        # seeding both with the same value makes faults decide measurement outcomes.
+        streams = Random(self.seed)
+        engine_seed, noise_seed = streams.getrandbits(64), streams.getrandbits(64)
+        self._simulator = self.engine_factory(resources.qubits, engine_seed)
         self._engine = PhysicalEngine(
             self._simulator,
             self.noise,
-            seed=self.seed,
+            seed=noise_seed,
         )
 
     def prepare(self, target: int) -> None:
         self.engine.reset(target)
 
-    def execute(self, request: Operation) -> Readouts:
+    def execute(self, request: Operation | FrameUpdate) -> Readouts:
+        if isinstance(request, FrameUpdate):
+            if not isinstance(request.target, int):
+                raise NotImplementedError(
+                    "Frame updates require local integer qubit indices"
+                )
+            self.engine.apply_frame(request.pauli, request.target)
+            return ()
         targets = local_indices(request)
         if isinstance(request.angle, str):
             raise TypeError("Physical operation angles must be numeric")

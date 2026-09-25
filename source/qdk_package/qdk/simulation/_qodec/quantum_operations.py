@@ -22,6 +22,24 @@ class Operation:
     angle: float | str | None = None
 
 
+@dataclass(frozen=True)
+class FrameUpdate:
+    """A Pauli tracked in the program's Pauli frame rather than run as a gate.
+
+    Frame updates are noiseless and consume no noise samples. Each encoded layer
+    lowers one through its code's logical operator, and the backend folds the
+    physical Pauli into the simulated state exactly, which is equivalent to
+    classical frame tracking.
+    """
+
+    pauli: str
+    target: int | LogicalSlot
+
+    def __post_init__(self) -> None:
+        if self.pauli not in ("x", "y", "z"):
+            raise ValueError(f"Frame updates must be x, y, or z, not {self.pauli!r}")
+
+
 def local_indices(operation: Operation) -> tuple[int, ...]:
     indices = []
     for target in operation.targets:

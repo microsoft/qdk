@@ -35,6 +35,7 @@ from .protocols import (
     Resources,
 )
 from .quantum_operations import (
+    FrameUpdate,
     LogicalSlot,
     Operation,
     RestoreMeasured,
@@ -195,6 +196,15 @@ class LayerRuntime:
         self._failed = False
 
     def handle(self, request: Request) -> Requests[Readouts]:
+        if isinstance(request, FrameUpdate):
+            slot = self._resolve_logical_slot(request.target)
+            logical = self._logical_pauli(request.pauli, (slot,), None)
+            if logical is None:
+                raise ValueError(
+                    f"Frame updates on {slot.block_type!r} blocks require a layer code"
+                )
+            yield from self._apply_decoder_corrections(_pauli_corrections(*logical))
+            return ()
         if isinstance(request, RestoreMeasured):
             slot = self._resolve_logical_slot(request.target)
             if slot.block not in self.layout.blocks:
@@ -303,9 +313,10 @@ class LayerRuntime:
         """The code's logical operator for a Pauli the ISA does not declare.
 
         Logical Paulis are commonly left out of an ISA and tracked as frame
-        updates. Without an instruction, the Pauli is applied as the layer code's
-        logical operator on the block's qubits in the layer below, the same way
-        decoder corrections are, so each lower layer resolves it in turn.
+        updates. Without an instruction, the Pauli becomes the layer code's
+        logical operator on the block's qubits in the layer below, tracked in
+        the Pauli frame like decoder corrections, so each lower layer resolves
+        it in turn.
         """
         if operation not in ("x", "y", "z") or angle is not None or len(slots) != 1:
             return None
@@ -390,11 +401,17 @@ class LayerRuntime:
                     for index in target_indices
                 ):
                     raise ValueError("Correction targets an out-of-range code qubit")
-                lower_readouts = yield Operation(
-                    operation.name,
-                    tuple(correction_qubits[index] for index in target_indices),
-                    operation.angle,
-                )
+                targets = tuple(correction_qubits[index] for index in target_indices)
+                if (
+                    operation.name in ("x", "y", "z")
+                    and len(targets) == 1
+                    and operation.angle is None
+                ):
+                    lower_readouts = yield FrameUpdate(operation.name, targets[0])
+                else:
+                    lower_readouts = yield Operation(
+                        operation.name, targets, operation.angle
+                    )
                 if lower_readouts is None:
                     raise TypeError("Correction execution must return a readout tuple")
 
@@ -597,6 +614,13 @@ class LayerRuntime:
                             circuit_placement,
                         ),
                         circuit_request.value,
+                    )
+                elif isinstance(circuit_request, FrameUpdate):
+                    lower_request = FrameUpdate(
+                        circuit_request.pauli,
+                        self._map_circuit_target(
+                            circuit_request.target, gadget_plan, circuit_placement
+                        ),
                     )
                 else:
                     lower_request = Operation(
