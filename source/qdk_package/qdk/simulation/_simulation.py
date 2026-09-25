@@ -356,15 +356,17 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
 
 
 class OutputRecordingPass(pyqir.QirModuleVisitor):
-    _output_str = ""
-    _closers: List[str] = []
-    _counters: List[int] = []
-    _process_fn: Optional[Callable[[List[object]], object]] = None
-    # Running index into the per-shot ordered output record values (`v`)
-    # supplied to `process_output`. Incremented for each leaf record output
-    # (result / bool / int / double) so measurement results and classical
-    # records are addressed uniformly.
-    _record_index = 0
+    def __init__(self) -> None:
+        super().__init__()
+        self._output_str = ""
+        self._closers: List[str] = []
+        self._counters: List[int] = []
+        self._process_fn: Optional[Callable[[List[object]], object]] = None
+        # Running index into the per-shot ordered output record values (`v`)
+        # supplied to `process_output`. Incremented for each leaf record output
+        # (result / bool / int / double) so measurement results and classical
+        # records are addressed uniformly.
+        self._record_index = 0
 
     def process_output(self, records: List[object]) -> object:
         if self._process_fn:
@@ -794,14 +796,14 @@ def run_qir(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
 ) -> List:
     """
     Simulate the given QIR source.
 
     :param input: The QIR source to simulate.
     :param type: The type of simulator to use.
-        Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
+        Use ``"stabilizer"`` if your QIR only contains Clifford gates, a limited number of T gates, and measurements.
         Use ``"gpu"`` if you have a GPU available in your system.
         Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
         If ``None`` (default), the GPU simulator will be tried first, falling back to
@@ -820,7 +822,7 @@ def run_qir(
             type = "cpu"
 
     match type:
-        case "clifford":
+        case "clifford" | "stabilizer":
             return run_qir_clifford(input, shots, noise, seed)
         case "cpu":
             return run_qir_cpu(input, shots, noise, seed)

@@ -130,7 +130,7 @@ def test_device_simlate_with_clifford() -> None:
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
-    result = device.simulate(compiled, type="clifford")
+    result = device.simulate(compiled, type="stabilizer")
 
     assert result == [[qsharp.Result.Zero, qsharp.Result.Zero]] or result == [
         [qsharp.Result.One, qsharp.Result.One]
@@ -153,7 +153,7 @@ def test_device_simulate_with_loss() -> None:
     noise = NoiseConfig()
     noise.mov.loss = 1.0  # Ensure loss occurs
     result = device.simulate(qir, noise=noise, type="cpu")
-    result2 = device.simulate(qir, noise=noise, type="clifford")
+    result2 = device.simulate(qir, noise=noise, type="stabilizer")
 
     assert result == [[qsharp.Result.Loss, qsharp.Result.Loss]]
     assert result2 == [[qsharp.Result.Loss, qsharp.Result.Loss]]

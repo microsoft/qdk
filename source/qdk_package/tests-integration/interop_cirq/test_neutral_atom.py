@@ -10,7 +10,6 @@ from qdk.cirq import NeutralAtomCirqResult, NeutralAtomSampler
 from qdk.simulation import NoiseConfig
 from qdk._device._atom import NeutralAtomDevice
 
-
 # ---------------------------------------------------------------------------
 # Module-scoped fixtures — one device and default sampler shared across tests.
 # ---------------------------------------------------------------------------
@@ -297,7 +296,7 @@ def test_cpu_simulator_type(device) -> None:
 
 def test_clifford_simulator_type(device) -> None:
     circuit = create_bell_circuit()
-    result = NeutralAtomSampler(simulator_type="clifford", seed=7, device=device).run(
+    result = NeutralAtomSampler(simulator_type="stabilizer", seed=7, device=device).run(
         circuit, repetitions=100
     )
     for row in result.measurements["m"]:

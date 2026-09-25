@@ -1,6 +1,6 @@
 {
-  "name": "qsharp-lang-vscode-dev",
-  "displayName": "[DEV BUILD] Microsoft Quantum Development Kit (QDK)",
+  "name": "qsharp-lang-vscode",
+  "displayName": "Microsoft Quantum Development Kit (QDK)",
   "description": "Q#, OpenQASM, and DEQ Language Support",
   "version": "0.0.0",
   "publisher": "quantum",
@@ -496,12 +496,6 @@
       ]
     },
     "views": {
-      "explorer": [
-        {
-          "id": "quantum-workspaces-placeholder",
-          "name": "Quantum Workspaces"
-        }
-      ],
       "qsharp-vscode-katas": [
         {
           "id": "qsharp-vscode.learningWelcome",
@@ -525,10 +519,6 @@
       {
         "view": "quantum-workspaces",
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
-      },
-      {
-        "view": "quantum-workspaces-placeholder",
-        "contents": "Looking for your Microsoft Quantum workspaces?\nThe Quantum Workspaces panel has moved to the Microsoft Quantum activity bar.\n[Open Microsoft Quantum panel](command:workbench.view.extension.qsharp-vscode-katas)"
       }
     ],
     "chatInstructions": [
