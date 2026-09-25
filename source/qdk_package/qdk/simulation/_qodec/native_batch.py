@@ -318,7 +318,11 @@ class _RecordingLayer(LayerRuntime):
             raise _NotBatchable
         readouts = yield from super().handle(request)
         if isinstance(request, InstructionCall):
-            count = self.plan.bindings[request.mnemonic].observe_count
+            binding = self.plan.bindings[request.mnemonic]
+            # A call that selects no flags receives them after its outcomes.
+            count = binding.observe_count + (
+                0 if request.select else len(binding.flags)
+            )
             self.sources.extend((self.recorder.latest, index) for index in range(count))
         return readouts
 

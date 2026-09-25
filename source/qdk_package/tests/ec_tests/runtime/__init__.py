@@ -12,7 +12,7 @@ def physical_qodec():
     names = {"R": "reset", "M": "m", "CX": "cx", "rotate_z": "rz"}
     instructions = {}
     for mnemonic, instruction in isa.instructions.items():
-        name = names.get(mnemonic, mnemonic.lower())
+        name = f"__quantum__qis__{names.get(mnemonic, mnemonic.lower())}__body"
         instructions[name] = qodec.Instruction(
             name,
             description=instruction.description,

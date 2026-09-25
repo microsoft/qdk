@@ -264,10 +264,14 @@ def test_generated_qodec_runs_without_serialization(complete):
 
 
 @pytest.mark.parametrize(
-    "program, name",
-    [("H(q); MResetZ(q)", "h"), ("S(q); MResetZ(q)", "s"), ("Reset(q)", "reset")],
+    "program, callee",
+    [
+        ("H(q); MResetZ(q)", "__quantum__qis__h__body"),
+        ("S(q); MResetZ(q)", "__quantum__qis__s__body"),
+        ("Reset(q)", "__quantum__qis__reset__body"),
+    ],
 )
-def test_quantum_calls_require_an_instruction_of_the_same_name(program, name):
+def test_quantum_calls_require_an_instruction_of_the_same_name(program, callee):
     qodec = pytest.importorskip("qodec")
     from ec_tests.runtime import FIXTURES
     from qdk import TargetProfile, qsharp
@@ -277,7 +281,10 @@ def test_quantum_calls_require_an_instruction_of_the_same_name(program, name):
     qir = qsharp.compile(f"{{ use q = Qubit(); {program} }}")
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
 
-    with pytest.raises(UnknownInstruction, match=f"instruction named '{name}'"):
+    with pytest.raises(
+        UnknownInstruction,
+        match=f"QIR call '{callee}' requires an instruction of that name",
+    ):
         run_qir(qir, qodec=codec)
 
 
@@ -303,8 +310,11 @@ def test_program_intrinsics_invoke_instructions_by_name(tmp_path):
     # ``flip`` is the fixture's logical X under a name only a Q# intrinsic uses.
     codec = _repetition3_variant(
         tmp_path,
-        ("    - mnemonic: x\n", "    - mnemonic: flip\n"),
-        ("        x: x.gadget.yaml\n", "        flip: x.gadget.yaml\n"),
+        ("    - mnemonic: __quantum__qis__x__body\n", "    - mnemonic: flip\n"),
+        (
+            "        __quantum__qis__x__body: x.gadget.yaml\n",
+            "        flip: x.gadget.yaml\n",
+        ),
     )
     qsharp.init(target_profile=TargetProfile.Adaptive)
     qsharp.eval("operation flip(q : Qubit) : Unit { body intrinsic; }")
@@ -324,8 +334,14 @@ def test_measurement_intrinsics_return_instruction_outcomes(tmp_path):
 
     codec = _repetition3_variant(
         tmp_path,
-        ("    - mnemonic: m\n", "    - mnemonic: MyCustomMeasurement\n"),
-        ("        m: m.gadget.yaml\n", "        MyCustomMeasurement: m.gadget.yaml\n"),
+        (
+            "    - mnemonic: __quantum__qis__m__body\n",
+            "    - mnemonic: MyCustomMeasurement\n",
+        ),
+        (
+            "        __quantum__qis__m__body: m.gadget.yaml\n",
+            "        MyCustomMeasurement: m.gadget.yaml\n",
+        ),
     )
     qsharp.init(target_profile=TargetProfile.Adaptive)
     qsharp.eval("""
@@ -355,15 +371,15 @@ def test_program_intrinsic_arguments_bind_operands_and_parameters():
     module, _, _, _ = preprocess_simulation_input("""
         %Qubit = type opaque
         define i64 @main() #0 {
-          call void @__quantum__qis__turn__body(double 0.5, %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @turn(double 0.5, %Qubit* inttoptr (i64 1 to %Qubit*))
           ret i64 0
         }
-        declare void @__quantum__qis__turn__body(double, %Qubit*)
+        declare void @turn(double, %Qubit*)
         attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
     """)
     isa = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
     declarations = dict(isa.instruction_set.instructions)
-    rotation = declarations["rz"]
+    rotation = declarations["__quantum__qis__rz__body"]
     declarations["turn"] = qodec.Instruction(
         "turn",
         inputs=rotation.inputs,
@@ -381,12 +397,27 @@ def test_program_intrinsic_arguments_bind_operands_and_parameters():
 @pytest.mark.parametrize(
     "callee, signature, arguments, message",
     [
-        ("rz", "%Qubit*, %Qubit*", "%Qubit* null, %Qubit* null", "takes 1 block"),
-        ("rz", "%Qubit*", "%Qubit* null", "takes 1 parameters"),
-        ("rz", "i64, %Qubit*", "i64 1, %Qubit* null", None),
-        ("rz", "i1, %Qubit*", "i1 true, %Qubit* null", "expects number, but .* bool"),
-        ("m", "%Qubit*", "%Qubit* null", "takes 1 block operands and reports 1"),
-        ("m", "", "", "reports 1 outcomes, but .* only 0"),
+        (
+            "__quantum__qis__rz__body",
+            "%Qubit*, %Qubit*",
+            "%Qubit* null, %Qubit* null",
+            "takes 1 block",
+        ),
+        ("__quantum__qis__rz__body", "%Qubit*", "%Qubit* null", "takes 1 parameters"),
+        ("__quantum__qis__rz__body", "i64, %Qubit*", "i64 1, %Qubit* null", None),
+        (
+            "__quantum__qis__rz__body",
+            "i1, %Qubit*",
+            "i1 true, %Qubit* null",
+            "expects number, but .* bool",
+        ),
+        (
+            "__quantum__qis__m__body",
+            "%Qubit*",
+            "%Qubit* null",
+            "takes 1 block operands and reports 1",
+        ),
+        ("__quantum__qis__m__body", "", "", "reports 1 outcomes, but .* only 0"),
     ],
 )
 def test_program_intrinsics_must_match_the_instruction_signature(
@@ -475,6 +506,91 @@ def test_raised_preparation_flags_follow_the_shot_failure_policy():
         run("raise")
     assert len(run("discard")) < 40
     assert len(run("retry")) == 40
+
+
+_C4_BLOCK_PROGRAM = """
+    define void @main() #0 {
+      call void @prepare_zz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+      call void @measure_zz(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+      call void @__quantum__rt__array_record_output(i64 3, ptr null)
+      call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+      call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
+      call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr null)
+      ret void
+    }
+    declare void @prepare_zz(ptr, ptr)
+    declare void @measure_zz(ptr, ptr, ptr) #1
+    declare void @__quantum__rt__array_record_output(i64, ptr)
+    declare void @__quantum__rt__result_record_output(ptr, ptr)
+    attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
+    attributes #1 = { "irreversible" }
+"""
+
+
+@pytest.mark.parametrize("options", [{}, {"on_shot_failure": "retry"}])
+def test_calls_with_a_result_per_flag_return_raised_flags(options):
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.runtime import FIXTURES
+    from qdk import Result
+
+    noise = NoiseConfig()
+    noise.cx.set_depolarizing(0.2)
+    codec = qodec.Qodec.load(str(FIXTURES / "c4.qodec.yaml"))
+
+    results = run_qir(
+        _C4_BLOCK_PROGRAM,
+        shots=40,
+        seed=7,
+        type="clifford",
+        noise=noise,
+        qodec=codec,
+        **options,
+    )
+
+    # A returned flag is the program's to act on, so no shot is rejected.
+    assert len(results) == 40
+    assert {result[0] for result in results} == {Result.Zero, Result.One}
+
+
+def test_block_creating_calls_replace_implicit_preparation():
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.runtime import FIXTURES
+    from qdk import Result
+    from qdk.simulation.decoders import prepare_syndrome_decoder
+
+    invoked = []
+
+    def prepare_decoder(layer):
+        create = prepare_syndrome_decoder(layer)
+
+        def session(seed):
+            inner = create(seed)
+
+            class Recorder:
+                def decode(self, invocation, readouts):
+                    invoked.append(invocation.gadget.implements.mnemonic)
+                    return (yield from inner.decode(invocation, readouts))
+
+                def close(self):
+                    inner.close()
+
+            return Recorder()
+
+        return session
+
+    codec = qodec.Qodec.load(str(FIXTURES / "c4.qodec.yaml"))
+
+    assert run_qir(
+        _C4_BLOCK_PROGRAM,
+        seed=7,
+        type="clifford",
+        qodec=codec,
+        decoder=prepare_decoder,
+        on_shot_failure="retry",
+    ) == [[Result.Zero] * 3]
+    assert invoked == ["prepare_zz", "measure_zz"]
 
 
 def _repetition3_variant(tmp_path, *replacements):

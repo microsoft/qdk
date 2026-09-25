@@ -358,7 +358,9 @@ def test_missing_encoded_input_is_not_implicitly_initialized():
     try:
         with pytest.raises(ValueError, match="not been prepared"):
             drive(
-                runtime.handle(InstructionCall("x", operands=[0])),
+                runtime.handle(
+                    InstructionCall("__quantum__qis__x__body", operands=[0])
+                ),
                 lambda request: emitted.append(request) or (),
             )
         assert emitted == []

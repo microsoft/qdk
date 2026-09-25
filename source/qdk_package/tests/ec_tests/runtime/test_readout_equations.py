@@ -12,11 +12,11 @@ def test_prepared_terminal_readout_table_matches_all_repetition_measurements():
 
     layer = Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
     model = SyndromeModel(layer)
-    table = model.readout_table(layer.gadgets["m"], 3)
+    table = model.readout_table(layer.gadgets["__quantum__qis__m__body"], 3)
     assert table == tuple((pattern.bit_count() >= 2,) for pattern in range(8))
-    assert model.readout_table(layer.gadgets["m"], 3) is table
+    assert model.readout_table(layer.gadgets["__quantum__qis__m__body"], 3) is table
     assert model.readout_table(layer.gadgets["idle"], 2) is None
-    assert model.readout_table(layer.gadgets["m"], 11) is None
+    assert model.readout_table(layer.gadgets["__quantum__qis__m__body"], 11) is None
 
 
 def test_readout_table_rejects_dependence_on_an_incoming_boundary():
@@ -24,7 +24,7 @@ def test_readout_table_rejects_dependence_on_an_incoming_boundary():
     from qdk.simulation._qodec.decoding import SyndromeModel
 
     layer = Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    gadget = layer.gadgets["m"]
+    gadget = layer.gadgets["__quantum__qis__m__body"]
     gadget.checks = []
     assert SyndromeModel(layer).readout_table(gadget, 3) is None
 
@@ -191,14 +191,14 @@ def test_syndrome_decoder_solves_readout_aliases_without_declaration_order(cycli
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
     layer = codec.layers[0]
-    original = layer.gadgets["m"]
+    original = layer.gadgets["__quantum__qis__m__body"]
     instruction = qodec.Instruction(
-        "m",
+        "__quantum__qis__m__body",
         inputs=original.implements.inputs,
         action=[Observe(["Z_0", "Z_0", "I"] if cyclic else ["Z_0", "Z_0"])],
     )
     declarations = layer.instruction_set.instructions
-    declarations["m"] = instruction
+    declarations["__quantum__qis__m__body"] = instruction
     layer.instruction_set.instructions = declarations
     original.implements = instruction
     original.readouts = (
@@ -435,7 +435,7 @@ def test_an_unobserved_required_readout_remains_unavailable():
     session = prepare_syndrome_decoder(layer)(7)
     try:
         assert decode_gadget(
-            session, layer.gadgets["m"], (None, False, False)
+            session, layer.gadgets["__quantum__qis__m__body"], (None, False, False)
         ).readouts == (None,)
     finally:
         session.close()
@@ -519,7 +519,7 @@ def test_invalid_parity_references_fail_during_decoder_preparation(reference):
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
 
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    layer.gadgets["m"].readouts = [[reference]]
+    layer.gadgets["__quantum__qis__m__body"].readouts = [[reference]]
     with pytest.raises(ValueError, match="reference"):
         prepare_syndrome_decoder(layer)
 
@@ -530,7 +530,7 @@ def test_missing_readout_equations_are_not_constant_zero():
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
 
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    layer.gadgets["m"].readouts = []
+    layer.gadgets["__quantum__qis__m__body"].readouts = []
     with pytest.raises(ValueError, match="readout equations"):
         prepare_syndrome_decoder(layer)
 
@@ -542,7 +542,7 @@ def test_out_of_range_circuit_reference_is_not_an_erasure():
     from .test_execution_pipeline import decode_gadget
 
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    gadget = layer.gadgets["m"]
+    gadget = layer.gadgets["__quantum__qis__m__body"]
     gadget.readouts = [["circuit.readouts[9]"]]
     session = prepare_syndrome_decoder(layer)(7)
     try:

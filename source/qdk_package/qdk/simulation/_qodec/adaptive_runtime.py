@@ -7,7 +7,7 @@ from qodec.instructions import InstructionCall
 from qdk import Result
 from ..._adaptive_pass import AdaptiveProgram
 from ._interpreter import OutputRecordValue, _Interpreter
-from .protocols import Request, Requests, Resources
+from .protocols import ExecutionUnresolved, Request, Requests, Resources
 from .quantum_operations import Operation
 
 DEFAULT_MAX_STEPS = 10_000_000
@@ -43,7 +43,7 @@ class AdaptiveRuntime:
                         )
                     for result_id, value in zip(result_ids, readouts):
                         if value is None:
-                            raise ValueError("Measurement reply is unresolved")
+                            raise ExecutionUnresolved("Measurement reply is unresolved")
                         self.results[result_id] = cast(
                             Result, Result.One if value else Result.Zero
                         )

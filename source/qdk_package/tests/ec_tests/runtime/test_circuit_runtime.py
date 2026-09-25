@@ -255,7 +255,7 @@ def test_qir_gadget_invokes_lower_layer_without_resetting_live_inputs():
     from qdk.simulation._qodec.quantum_operations import Operation
 
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    gadget = layer.gadgets["x"]
+    gadget = layer.gadgets["__quantum__qis__x__body"]
     gadget.circuit = qir_circuit(
         'include "stdgates.inc"; qubit[3] data; x data[0]; x data[1]; x data[2];'
     )

@@ -15,15 +15,17 @@ Qodec 0.1.0 loaded the upstream artifacts and saved self-contained bundles with
 The [three-qubit repetition code](repetition3.qodec.yaml) and runtime tests were
 ported from the Qodec runtime sandbox. Tests require no network access.
 
-The [C4 fixture](c4.qodec.yaml) extends the vendored C4 test qodec with `x`, `m`,
-and `mresetz`, and its copy in the qdk_ec sample notebooks matches it.
+The [C4 fixture](c4.qodec.yaml) extends the vendored C4 test qodec with
+`__quantum__qis__x__body`, `__quantum__qis__m__body`, and
+`__quantum__qis__mresetz__body`, and its copy in the qdk_ec sample notebooks
+matches it.
 
 ## QIR instruction names
 
-A QIR program's quantum calls run the top-layer instructions that share their
-names, such as `x`, `m`, and `mresetz`. The repetition and C4 fixtures declare
-those names so QIR programs can run on them. The Steane and C4/C6 fixtures keep
-their upstream names and serve layer-level tests only.
+A QIR call runs the top-layer instruction whose mnemonic is exactly the callee's
+name, such as `__quantum__qis__m__body` for a Q# `M`. The repetition and C4
+fixtures declare those names so QIR programs can run on them. The Steane and
+C4/C6 fixtures keep their upstream names and serve layer-level tests only.
 
 ## Coverage
 

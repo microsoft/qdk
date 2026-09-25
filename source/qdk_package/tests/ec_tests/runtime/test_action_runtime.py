@@ -180,7 +180,10 @@ def test_physical_action_execution_supports_temporaries_guards_and_typed_blocks(
                 ],
             ),
             qodec.Instruction(
-                "x", inputs=[operand], outputs=[operand], action=[Pauli("X_0")]
+                "__quantum__qis__x__body",
+                inputs=[operand],
+                outputs=[operand],
+                action=[Pauli("X_0")],
             ),
             qodec.Instruction(
                 "measure", inputs=[operand], action=[Observe(["Z_0", "Z_1"])]
@@ -198,7 +201,12 @@ def test_physical_action_execution_supports_temporaries_guards_and_typed_blocks(
             runtime.handle(InstructionCall("prepare", operands=["data"])),
             backend.execute,
         )
-        drive(runtime.handle(InstructionCall("x", operands=["data"])), backend.execute)
+        drive(
+            runtime.handle(
+                InstructionCall("__quantum__qis__x__body", operands=["data"])
+            ),
+            backend.execute,
+        )
         assert drive(
             runtime.handle(InstructionCall("joint", operands=["data"])), backend.execute
         ) == (True,)
@@ -407,7 +415,10 @@ def test_replaced_physical_output_does_not_dirty_a_fresh_input():
         blocks=[Block("wire", 1)],
         instructions=[
             qodec.Instruction(
-                "x", inputs=[operand], outputs=[operand], action=[Pauli("X_0")]
+                "__quantum__qis__x__body",
+                inputs=[operand],
+                outputs=[operand],
+                action=[Pauli("X_0")],
             ),
             qodec.Instruction(
                 "extend",
@@ -426,7 +437,10 @@ def test_replaced_physical_output_does_not_dirty_a_fresh_input():
     backend.start(Resources(qubits=2))
     try:
         drive(
-            runtime.handle(InstructionCall("x", operands=["replaced"])), backend.execute
+            runtime.handle(
+                InstructionCall("__quantum__qis__x__body", operands=["replaced"])
+            ),
+            backend.execute,
         )
         assert drive(
             runtime.handle(InstructionCall("extend", operands=["fresh", "replaced"])),

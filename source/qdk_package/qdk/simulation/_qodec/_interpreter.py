@@ -394,9 +394,8 @@ class _Interpreter:
             operands=operands,
             arguments=dict(zip(site.parameters, values)),
         )
-        if site.flags:
-            # The program cannot observe flags, so a raised flag rejects the shot.
-            call.select = [dict.fromkeys(site.flags, 0)]
+        if site.selected_flags:
+            call.select = [dict.fromkeys(site.selected_flags, 0)]
         return call, tuple(results)
 
     def _op_measure(self, instr: Instruction) -> None:

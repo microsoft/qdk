@@ -207,7 +207,7 @@ def test_qir_shot_failure_policy_handles_encoded_decoding_failures(
         noise.x.loss = 1
         error_type = ExecutionUnresolved
     else:
-        gadget = codec.layers[0].gadgets["m"]
+        gadget = codec.layers[0].gadgets["__quantum__qis__m__body"]
         gadget.checks = [*gadget.checks, ["circuit.readouts[0]"]]
         error_type = InconsistentParity
     qir = qdk.openqasm.compile(
@@ -392,7 +392,7 @@ def test_decoder_contract_supports_correction_replies_and_distinct_flags():
     gadget = (
         qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
         .layers[0]
-        .gadgets["m"]
+        .gadgets["__quantum__qis__m__body"]
     )
     requests = decoder.decode(invocation_for(gadget), (None, False, False))
     with closing(requests):
@@ -490,7 +490,7 @@ def test_circuit_preparation_contract_is_independent_of_source_format():
     gadget = (
         qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
         .layers[0]
-        .gadgets["m"]
+        .gadgets["__quantum__qis__m__body"]
     )
     circuit = Circuit(gadget.circuit.instruction_set, "opaque source", format="custom")
     prepare_circuit: PrepareCircuit = prepare
@@ -527,18 +527,18 @@ def test_native_instruction_program_preserves_flags_and_rejection(flag, reject_f
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
     layer = codec.layers[0]
-    original = layer.gadgets["m"]
+    original = layer.gadgets["__quantum__qis__m__body"]
     instruction = qodec.Instruction(
-        "m",
+        "__quantum__qis__m__body",
         inputs=original.implements.inputs,
         action=original.implements.action,
         flags=["reject"],
     )
     declarations = layer.instruction_set.instructions
-    declarations["m"] = instruction
+    declarations["__quantum__qis__m__body"] = instruction
     layer.instruction_set.instructions = declarations
     gadgets = layer.gadgets
-    gadgets["m"] = qodec.Gadget(
+    gadgets["__quantum__qis__m__body"] = qodec.Gadget(
         instruction,
         original.circuit,
         inputs=original.inputs,
@@ -558,7 +558,7 @@ def test_native_instruction_program_preserves_flags_and_rejection(flag, reject_f
 
         def run(self, program: bool) -> Requests[Readouts]:
             yield InstructionCall("prepare_z", operands=[0])
-            readouts = yield InstructionCall("m", operands=[0])
+            readouts = yield InstructionCall("__quantum__qis__m__body", operands=[0])
             if readouts is None:
                 raise TypeError("Missing call reply")
             if program and readouts[1]:
@@ -1111,7 +1111,7 @@ def test_syndrome_decoder_preparation_returns_a_session_factory(prepare_code_dec
     second = create_decoder(8)
     try:
         assert first is not second
-        gadget = layer.gadgets["m"]
+        gadget = layer.gadgets["__quantum__qis__m__body"]
         assert decode_gadget(first, gadget, (True, False, False)).readouts == (False,)
         assert decode_gadget(second, gadget, (False, True, True)).readouts == (True,)
     finally:
@@ -1141,7 +1141,9 @@ def test_deq_decoder_rejects_invalid_corrections(monkeypatch, failure):
     with closing(prepare_deq_decoder(layer)(7)) as session:
         monkeypatch.setattr(session, "_decode", decode)
         with pytest.raises(ExecutionUnresolved, match="deq"):
-            decode_gadget(session, layer.gadgets["m"], (True, False, False))
+            decode_gadget(
+                session, layer.gadgets["__quantum__qis__m__body"], (True, False, False)
+            )
 
 
 @pytest.mark.parametrize("failure", ["start", "shutdown"])
@@ -1170,11 +1172,17 @@ def test_deq_decoder_releases_worker_after_failure(monkeypatch, failure):
         monkeypatch.setattr(deq_decoding, "Runtime", failed_runtime)
         with pytest.raises(RuntimeError) as raised:
             with closing(factory(7)) as session:
-                decode_gadget(session, layer.gadgets["m"], (True, False, False))
+                decode_gadget(
+                    session,
+                    layer.gadgets["__quantum__qis__m__body"],
+                    (True, False, False),
+                )
     else:
         session = factory(7)
         assert isinstance(session, deq_decoding.DeqSession)
-        decode_gadget(session, layer.gadgets["m"], (True, False, False))
+        decode_gadget(
+            session, layer.gadgets["__quantum__qis__m__body"], (True, False, False)
+        )
         assert session._runtime is not None
         monkeypatch.setattr(session._runtime, "shutdown", failed_shutdown)
         with pytest.raises(RuntimeError) as raised:
@@ -1204,7 +1212,7 @@ def test_deq_clean_syndromes_do_not_start_solver_resources(monkeypatch):
     with closing(prepare_deq_decoder(layer)(7)) as session:
         for logical in (False, True):
             assert decode_gadget(
-                session, layer.gadgets["m"], (logical,) * 3
+                session, layer.gadgets["__quantum__qis__m__body"], (logical,) * 3
             ).readouts == (logical,)
 
 
@@ -1621,7 +1629,10 @@ def test_binding_does_not_decompose_operations():
 
     with pytest.raises(NotImplementedError, match="does not implement 't'"):
         instructions.bind("t", 1)
-    assert instructions.bind("rz", 1, 0.25) == ("rz", {"theta": 0.25})
+    assert instructions.bind("rz", 1, 0.25) == (
+        "__quantum__qis__rz__body",
+        {"theta": 0.25},
+    )
 
 
 def rotation_instruction_set(*fixed_names):
@@ -1636,7 +1647,7 @@ def rotation_instruction_set(*fixed_names):
         .instruction_set
     )
     declarations = isa.instructions
-    rotation = declarations["rz"]
+    rotation = declarations["__quantum__qis__rz__body"]
     for name in fixed_names:
         declarations[name] = qodec.Instruction(
             name,
@@ -1654,7 +1665,10 @@ def test_binding_prefers_a_fixed_angle_over_a_parameter():
     instructions = rotation_instruction_set("quarter_phase")
 
     assert instructions.bind("rz", 1, pi / 4) == ("quarter_phase", {})
-    assert instructions.bind("rz", 1, 0.25) == ("rz", {"theta": 0.25})
+    assert instructions.bind("rz", 1, 0.25) == (
+        "__quantum__qis__rz__body",
+        {"theta": 0.25},
+    )
 
 
 def test_binding_rejects_equally_specific_matches():
@@ -1675,13 +1689,13 @@ def test_binding_prefers_the_equivalent_instruction_named_after_the_operation():
         .instruction_set
     )
     declarations = isa.instructions
-    flip = declarations["x"]
+    flip = declarations["__quantum__qis__x__body"]
     declarations["flip"] = qodec.Instruction(
         "flip", inputs=flip.inputs, outputs=flip.outputs, action=flip.action
     )
     isa.instructions = declarations
 
-    assert InstructionSet(isa).bind("x", 1) == ("x", {})
+    assert InstructionSet(isa).bind("x", 1) == ("__quantum__qis__x__body", {})
 
 
 def test_resolver_uses_a_direct_binding_before_decomposition():
@@ -1694,7 +1708,9 @@ def test_resolver_uses_a_direct_binding_before_decomposition():
     resolve = prepare_resolver(rotation_instruction_set(), decompose)
 
     assert resolve("rz", ("data",), 0.25) == (
-        InstructionCall("rz", operands=["data"], arguments={"theta": 0.25}),
+        InstructionCall(
+            "__quantum__qis__rz__body", operands=["data"], arguments={"theta": 0.25}
+        ),
     )
     decompose.assert_not_called()
 
@@ -1711,7 +1727,7 @@ def test_resolver_keeps_a_direct_named_gate_implementation():
         .instruction_set
     )
     declarations = isa.instructions
-    rotation = declarations["rz"]
+    rotation = declarations["__quantum__qis__rz__body"]
     declarations["quarter_turn"] = qodec.Instruction(
         "quarter_turn",
         inputs=rotation.inputs,
@@ -2069,7 +2085,7 @@ def test_encoded_adaptive_execution_without_legacy_runtime_or_stim(backend_name)
         codec = qodec.Qodec.load(sys.argv[2])
         circuits = {
             "prepare_z": "[{R: [0]}, {R: [1]}, {R: [2]}]",
-            "m": "[{M: [0]}, {M: [1]}, {M: [2]}]",
+            "__quantum__qis__m__body": "[{M: [0]}, {M: [1]}, {M: [2]}]",
             "idle": "[{R: [3]}, {R: [4]}, {CX: [0, 3]}, {CX: [1, 3]}, {CX: [1, 4]}, {CX: [2, 4]}, {M: [3]}, {M: [4]}]",
         }
         for name, source in circuits.items():
@@ -2086,9 +2102,9 @@ def test_encoded_adaptive_execution_without_legacy_runtime_or_stim(backend_name)
         assert run_qir_with_qodec(qir, codec, None, decoder=prepare_syndrome_decoder, shots=3, seed=7, quantum_backend_factory=backend_factory) == [[qdk.Result.One, qdk.Result.One]] * 3
         decoder = prepare_syndrome_decoder(codec.layers[0])(7)
         try:
-            gadget = codec.layers[0].gadgets["m"]
+            gadget = codec.layers[0].gadgets["__quantum__qis__m__body"]
             block = BlockReference(0, 1, gadget.implements.inputs[0].block)
-            invocation = Invocation(0, gadget, InstructionCall("m", operands=[0]), (block,), ())
+            invocation = Invocation(0, gadget, InstructionCall("__quantum__qis__m__body", operands=[0]), (block,), ())
             try:
                 next(decoder.decode(invocation, (True, False, False)))
             except StopIteration as completed:
@@ -2129,7 +2145,9 @@ def test_resolver_binds_phase_gates_by_semantics(dedicated):
     expected = (
         InstructionCall("quarter_phase", operands=[9])
         if dedicated
-        else InstructionCall("rz", operands=[9], arguments={"theta": pi / 4})
+        else InstructionCall(
+            "__quantum__qis__rz__body", operands=[9], arguments={"theta": pi / 4}
+        )
     )
 
     assert resolve("t", (9,), None) == (expected,)
@@ -2252,7 +2270,10 @@ def test_syndrome_decoder_corrects_single_data_faults(
     corrections = []
     with closing(prepare_code_decoder(layer)(7)) as decoder:
         decoded = decode_gadget(
-            decoder, layer.gadgets["m"], tuple(readouts), corrections
+            decoder,
+            layer.gadgets["__quantum__qis__m__body"],
+            tuple(readouts),
+            corrections,
         )
 
     assert decoded.readouts == (logical,)
@@ -2272,15 +2293,18 @@ def test_executor_does_not_complete_missing_pauli_gadgets(declared):
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
     layer = codec.layers[0]
     declarations = layer.instruction_set.instructions
-    declarations.pop("x", None)
+    declarations.pop("__quantum__qis__x__body", None)
     if declared:
         operands = declarations["idle"].inputs
-        declarations["x"] = qodec.Instruction(
-            "x", inputs=operands, outputs=operands, action=[Pauli("X_0")]
+        declarations["__quantum__qis__x__body"] = qodec.Instruction(
+            "__quantum__qis__x__body",
+            inputs=operands,
+            outputs=operands,
+            action=[Pauli("X_0")],
         )
     layer.instruction_set.instructions = declarations
     gadgets = layer.gadgets
-    gadgets.pop("x", None)
+    gadgets.pop("__quantum__qis__x__body", None)
     layer.gadgets = gadgets
     authored = codec.dumps()
     runtime = LayerRuntime(LayerPlan(layer), prepare_syndrome_decoder(layer)(7))
@@ -2358,7 +2382,9 @@ def test_native_call_arguments_fail_before_side_effects(arguments, message):
         with pytest.raises((TypeError, ValueError), match=message):
             drive_requests(
                 runtime.handle(
-                    InstructionCall("rz", operands=[0], arguments=arguments)
+                    InstructionCall(
+                        "__quantum__qis__rz__body", operands=[0], arguments=arguments
+                    )
                 ),
                 respond,
             )
@@ -2419,7 +2445,10 @@ def test_supplied_gadgets_ignore_unrelated_instruction_actions(unrelated):
             == ()
         )
         assert drive_requests(
-            runtime.handle(InstructionCall("m", operands=["data"])), respond
+            runtime.handle(
+                InstructionCall("__quantum__qis__m__body", operands=["data"])
+            ),
+            respond,
         ) == (False,)
         assert [
             request.mnemonic
@@ -3123,11 +3152,11 @@ def nested_repetition_qodec():
     gadgets = {}
     for name, source in (
         ("R", "prepare_z"),
-        ("M", "m"),
-        ("rotate_z", "rz"),
-        ("X", "x"),
-        ("Y", "y"),
-        ("Z", "z"),
+        ("M", "__quantum__qis__m__body"),
+        ("rotate_z", "__quantum__qis__rz__body"),
+        ("X", "__quantum__qis__x__body"),
+        ("Y", "__quantum__qis__y__body"),
+        ("Z", "__quantum__qis__z__body"),
     ):
         gadget = logical.gadgets[source]
         gadgets[name] = qodec.Gadget(
@@ -3392,7 +3421,9 @@ def test_decoder_reuses_boundary_operators_without_parsing(monkeypatch):
                     readouts = [logical] * 3
                     readouts[fault] = not readouts[fault]
                     assert decode_gadget(
-                        session, layer.gadgets["m"], tuple(readouts)
+                        session,
+                        layer.gadgets["__quantum__qis__m__body"],
+                        tuple(readouts),
                     ).readouts == (logical,)
         finally:
             session.close()
@@ -3422,7 +3453,7 @@ def test_returned_correction_cannot_mutate_shared_decoder_state():
             assert repeated == initial
             assert code.correct((True, False)) == expected
             assert decode_gadget(
-                session, layer.gadgets["m"], (True, False, False)
+                session, layer.gadgets["__quantum__qis__m__body"], (True, False, False)
             ).readouts == (False,)
     finally:
         first.close()
@@ -3485,8 +3516,8 @@ def test_decoder_closes_when_a_logical_gate_has_no_gadget():
     isa = codec.layers[0].instruction_set
     declarations = isa.instructions
     idle = declarations["idle"]
-    declarations["h"] = qodec.Instruction(
-        "h",
+    declarations["__quantum__qis__h__body"] = qodec.Instruction(
+        "__quantum__qis__h__body",
         inputs=idle.inputs,
         outputs=idle.outputs,
         action=[Clifford({"X_0": "Z_0", "Z_0": "X_0"})],
@@ -3505,7 +3536,9 @@ def test_decoder_closes_when_a_logical_gate_has_no_gadget():
         target_profile=qdk.TargetProfile.Adaptive,
     )
 
-    with pytest.raises(NotImplementedError, match="No gadget implements 'h'"):
+    with pytest.raises(
+        NotImplementedError, match="No gadget implements '__quantum__qis__h__body'"
+    ):
         run_qir_with_qodec(
             qir,
             codec,
@@ -3528,7 +3561,7 @@ def test_adaptive_branch_uses_decoded_not_raw_measurement(monkeypatch):
 
     def prepare_with_fault(backend, target):
         prepare(backend, target)
-        if target == 0:
+        if target == 0 and not injected:
             backend.apply("x", (target,))
             injected.append(target)
 
@@ -3566,7 +3599,7 @@ def test_erased_readouts_remain_explicitly_unavailable():
 
     try:
         assert decode_gadget(
-            session, layer.gadgets["m"], (None, False, False)
+            session, layer.gadgets["__quantum__qis__m__body"], (None, False, False)
         ).readouts == (None,)
     finally:
         session.close()
@@ -3605,15 +3638,15 @@ def test_nondestructive_measurement_does_not_trigger_repreparation():
         action=measurement.action,
     )
     physical.instruction_set.instructions = declarations
-    gadget = logical.gadgets["m"]
+    gadget = logical.gadgets["__quantum__qis__m__body"]
     instruction = qodec.Instruction(
-        "m",
+        "__quantum__qis__m__body",
         inputs=gadget.implements.inputs,
         outputs=gadget.implements.inputs,
         action=gadget.implements.action,
     )
     declarations = logical.instruction_set.instructions
-    declarations["m"] = instruction
+    declarations["__quantum__qis__m__body"] = instruction
     logical.instruction_set.instructions = declarations
     gadget.implements = instruction
     gadget.outputs = gadget.inputs
@@ -3635,7 +3668,12 @@ def test_nondestructive_measurement_does_not_trigger_repreparation():
         'include "stdgates.inc"; qubit data; bit first = measure data; x data; bit second = measure data;'
     )
     assert pipeline.run(program) == [qdk.Result.Zero, qdk.Result.One]
-    assert executions == ["prepare_z", "m", "x", "m"]
+    assert executions == [
+        "prepare_z",
+        "__quantum__qis__m__body",
+        "__quantum__qis__x__body",
+        "__quantum__qis__m__body",
+    ]
 
 
 @requires_stim

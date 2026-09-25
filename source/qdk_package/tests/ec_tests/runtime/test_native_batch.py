@@ -103,7 +103,9 @@ def test_deq_batch_reuses_transport_for_independent_seeded_records(monkeypatch):
     factory = prepare_deq_decoder(layer)
     assert isinstance(factory, BatchDecoderFactory)
     with closing(factory.prepare_batch()) as session:
-        prepared = session.prepare_readouts(invocation_for(layer.gadgets["m"]), 3)
+        prepared = session.prepare_readouts(
+            invocation_for(layer.gadgets["__quantum__qis__m__body"]), 3
+        )
     assert prepared is not None
     assert workers == []
     rows = [
@@ -378,7 +380,11 @@ def test_native_batch_preserves_custom_decoder_outputs_hooks_and_seeds():
     expected = [factory.build_pipeline().run(program) for _ in range(8)]
     batch = prepare_batch(program, factory)
     assert batch is not None
-    assert prepared_hooks == ["prepare_z", "x", "m"]
+    assert prepared_hooks == [
+        "prepare_z",
+        "__quantum__qis__x__body",
+        "__quantum__qis__m__body",
+    ]
     assert batch.run(8, None, seed=19) == expected == [[Result.Zero]] * 8
     assert batch_seeds == scalar_seeds
 
@@ -409,7 +415,9 @@ def test_native_batch_frame_decoder_preserves_readouts_and_rejections():
             decode_gadget(session, layer.gadgets["prepare_z"], ())
             try:
                 expected.append(
-                    decode_gadget(session, layer.gadgets["m"], row).readouts
+                    decode_gadget(
+                        session, layer.gadgets["__quantum__qis__m__body"], row
+                    ).readouts
                 )
             except InconsistentParity as error:
                 expected.append(error)
@@ -515,7 +523,9 @@ def test_prepared_decoder_rejects_unknown_or_mismatched_inputs(decoder_name):
     factory = getattr(decoders, f"prepare_{decoder_name}_decoder")(layer)
     with closing(factory.prepare_batch()) as session:
         decode_gadget(session, layer.gadgets["prepare_z"], ())
-        prepared = session.prepare_readouts(invocation_for(layer.gadgets["m"]), 3)
+        prepared = session.prepare_readouts(
+            invocation_for(layer.gadgets["__quantum__qis__m__body"]), 3
+        )
     assert prepared is not None
     result = prepared.decode_batch([(None, False, False)], [7])
     assert len(result) == 1
@@ -548,7 +558,10 @@ def test_retry_policy_keeps_the_interpreted_attempt_sequence(monkeypatch):
 
 @pytest.mark.parametrize(
     "fixture,measurement,width",
-    [("repetition3.qodec.yaml", "m", 3), ("steane/qodec.yaml", "measure_z", 7)],
+    [
+        ("repetition3.qodec.yaml", "__quantum__qis__m__body", 3),
+        ("steane/qodec.yaml", "measure_z", 7),
+    ],
 )
 def test_deq_batch_matches_individual_seeded_decoder_sessions(
     fixture, measurement, width
@@ -588,7 +601,7 @@ def test_prepared_batch_is_isolated_from_later_qodec_mutation():
         'include "stdgates.inc"; qubit data; x data; bit readout = measure data;'
     )
     factory = make_factory(codec=codec)
-    codec.layers[0].gadgets["m"].readouts = []
+    codec.layers[0].gadgets["__quantum__qis__m__body"].readouts = []
     batch = prepare_batch(program, factory)
     assert batch is not None
     assert batch.run(2, None, seed=7) == [[Result.One]] * 2
@@ -599,7 +612,7 @@ def _syndrome_measuring_repetition_code():
     from qodec.gadgets import Circuit
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
-    gadget = codec.layers[0].gadgets["x"]
+    gadget = codec.layers[0].gadgets["__quantum__qis__x__body"]
     gadget.circuit = Circuit(
         codec.layers[-1].instruction_set,
         "X 0 1 2\nR 3\nCX 0 3\nM 3",

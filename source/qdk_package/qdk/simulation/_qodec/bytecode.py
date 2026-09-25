@@ -24,8 +24,6 @@ INSTRUCTION_CALL_OP_ID = 132
 
 ArgumentKind: TypeAlias = Literal["qubit", "result", "bool", "int", "double"]
 
-_QIS_PREFIX = "__quantum__qis__"
-
 # QIS calls that are classical or scheduling hints rather than quantum operations.
 _CLASSICAL_QIS = frozenset(
     {
@@ -50,35 +48,21 @@ class UnknownInstruction(ValueError):
 
 @dataclass(frozen=True)
 class InstructionCallSite:
-    """A QIR call site that invokes an ISA instruction by name."""
+    """A QIR call site that invokes an ISA instruction by name.
+
+    ``selected_flags`` are the instruction's flags the call does not receive as
+    results; the program cannot observe them, so a raised one rejects the shot.
+    """
 
     mnemonic: str
     arguments: tuple[ArgumentKind, ...]
     parameters: tuple[str, ...]
-    flags: tuple[str, ...]
+    selected_flags: tuple[str, ...]
 
 
 @dataclass
 class QodecProgram(AdaptiveProgram):
     instruction_calls: list[InstructionCallSite] = field(default_factory=list)
-
-
-def instruction_name(callee: str) -> str | None:
-    """The ISA mnemonic a QIR quantum call names, or ``None`` for runtime calls.
-
-    ``__quantum__qis__name__body`` names ``name`` and any other QIS callee
-    drops only the prefix, so ``__quantum__qis__s__adj`` names ``s__adj``.
-    Other ``__quantum__`` callees are runtime functions; any remaining
-    callee, such as a Q# ``body intrinsic`` operation, is its own name.
-    """
-    if callee in _CLASSICAL_QIS:
-        return None
-    if callee.startswith(_QIS_PREFIX):
-        name = callee[len(_QIS_PREFIX) :]
-        return name[: -len("__body")] if name.endswith("__body") else name
-    if callee.startswith("__quantum__"):
-        return None
-    return callee
 
 
 def compile(
@@ -87,15 +71,18 @@ def compile(
     """Compile adaptive QIR for the qodec interpreter.
 
     Without ``instructions``, standard QIR gates lower to the operations the
-    adaptive pass defines. With ``instructions``, every QIR quantum call
-    invokes the instruction its callee names (see :func:`instruction_name`),
-    and a QIS callee with no such instruction is an error. Other declared
-    callees naming an instruction, such as Q# ``body intrinsic`` operations,
-    invoke it too. As in QIR measurements, including Q# ``@Measurement()``
-    intrinsics, the last pointer arguments are results that receive the
-    instruction's outcomes; the pointers before them are qubits bound in order
-    to its block operands. The remaining arguments bind the instruction's
-    parameters in declaration order.
+    adaptive pass defines. With ``instructions``, a call to a declared function
+    whose name is exactly an instruction's mnemonic invokes that instruction,
+    so ``__quantum__qis__h__body`` needs an instruction of that name and a Q#
+    ``body intrinsic`` operation ``foo`` invokes ``foo``. Any other
+    ``__quantum__qis__`` call that is not a classical query is an error.
+
+    As in QIR measurements, including Q# ``@Measurement()`` intrinsics, the
+    last pointer arguments are results and the pointers before them are qubits
+    bound in order to the instruction's block operands. The results receive
+    the instruction's outcomes, followed by its flags when the call passes a
+    result for every flag; otherwise a raised flag rejects the shot. The
+    remaining arguments bind the instruction's parameters in declaration order.
     """
     if instructions is None:
         adaptive_pass: AdaptiveProfilePass = AdaptiveProfilePass(Bytecode.Bit64)
@@ -120,13 +107,14 @@ class _QodecPass(AdaptiveProfilePass):
 
     def _emit_call(self, call: pyqir.Call) -> None:
         callee = call.callee.name
-        name = None if callee in self._func_to_id else instruction_name(callee)
-        if name is not None and name in self._instruction_set:
-            self._emit_instruction_call(call, self._instruction_set[name])
-        elif name is not None and callee.startswith(_QIS_PREFIX):
+        if callee in self._func_to_id:
+            super()._emit_call(call)
+        elif callee in self._instruction_set:
+            self._emit_instruction_call(call, self._instruction_set[callee])
+        elif callee.startswith("__quantum__qis__") and callee not in _CLASSICAL_QIS:
             raise UnknownInstruction(
-                f"QIR call {callee!r} requires an instruction named {name!r} "
-                "in the qodec's top instruction set"
+                f"QIR call {callee!r} requires an instruction of that name in "
+                "the qodec's top instruction set"
             )
         else:
             super()._emit_call(call)
@@ -134,7 +122,9 @@ class _QodecPass(AdaptiveProfilePass):
     def _emit_instruction_call(
         self, call: pyqir.Call, instruction: Instruction
     ) -> None:
-        kinds = _argument_kinds(instruction, [arg.type for arg in call.args])
+        kinds, returns_flags = _argument_kinds(
+            instruction, [arg.type for arg in call.args]
+        )
         _check_signature(instruction, kinds)
         offset = len(self.call_args)
         for arg in call.args:
@@ -151,7 +141,7 @@ class _QodecPass(AdaptiveProfilePass):
                 instruction.mnemonic,
                 kinds,
                 tuple(parameter.name for parameter in instruction.parameters),
-                tuple(instruction.flags),
+                () if returns_flags else tuple(instruction.flags),
             )
         )
         qop_idx = self._emit_quantum_op(INSTRUCTION_CALL_OP_ID, site, len(call.args))
@@ -163,9 +153,17 @@ class _QodecPass(AdaptiveProfilePass):
         )
 
 
+def _operand_count(instruction: Instruction) -> int | None:
+    operands = (*instruction.inputs, *instruction.outputs)
+    if any(operand.is_variadic for operand in operands):
+        return None
+    return max(len(instruction.inputs), len(instruction.outputs))
+
+
 def _argument_kinds(
     instruction: Instruction, types: Sequence[pyqir.Type]
-) -> tuple[ArgumentKind, ...]:
+) -> tuple[tuple[ArgumentKind, ...], bool]:
+    """The kind of each argument, and whether the call receives the flags."""
     # Opaque pointers do not say whether they point to a qubit or a result.
     kinds: list[ArgumentKind] = []
     for ty in types:
@@ -182,28 +180,31 @@ def _argument_kinds(
             )
     pointers = [index for index, kind in enumerate(kinds) if kind == "qubit"]
     outcomes = instruction.observe_count
-    if len(pointers) < outcomes:
+    flags = len(instruction.flags)
+    operands = _operand_count(instruction)
+    results = outcomes
+    if flags and operands is not None and len(pointers) == operands + outcomes + flags:
+        results += flags
+    if len(pointers) < results:
         raise ValueError(
             f"Instruction {instruction.mnemonic!r} reports {outcomes} outcomes, "
             f"but the QIR call passes only {len(pointers)} qubits and results"
         )
-    for index in pointers[len(pointers) - outcomes :]:
+    for index in pointers[len(pointers) - results :]:
         kinds[index] = "result"
-    return tuple(kinds)
+    return tuple(kinds), results > outcomes
 
 
 def _check_signature(instruction: Instruction, kinds: tuple[ArgumentKind, ...]) -> None:
     mnemonic = instruction.mnemonic
-    operands = (*instruction.inputs, *instruction.outputs)
-    if not any(operand.is_variadic for operand in operands):
-        expected = max(len(instruction.inputs), len(instruction.outputs))
-        if kinds.count("qubit") != expected:
-            raise ValueError(
-                f"Instruction {mnemonic!r} takes {expected} block operands and "
-                f"reports {instruction.observe_count} outcomes, but the QIR call "
-                f"passes {kinds.count('qubit') + kinds.count('result')} qubits "
-                "and results"
-            )
+    expected = _operand_count(instruction)
+    if expected is not None and kinds.count("qubit") != expected:
+        raise ValueError(
+            f"Instruction {mnemonic!r} takes {expected} block operands and "
+            f"reports {instruction.observe_count} outcomes, but the QIR call "
+            f"passes {kinds.count('qubit') + kinds.count('result')} qubits "
+            "and results"
+        )
     classical = [kind for kind in kinds if kind not in ("qubit", "result")]
     parameters = instruction.parameters
     if len(classical) != len(parameters):

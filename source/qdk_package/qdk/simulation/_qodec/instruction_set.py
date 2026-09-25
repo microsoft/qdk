@@ -309,8 +309,9 @@ class InstructionSet:
             (name, arguments) for rank, name, arguments in matches if rank == best
         ]
         if len(chosen) > 1:
-            # Among equivalent instructions, one named after the operation wins.
-            chosen = [match for match in chosen if match[0] == operation] or chosen
+            # Among equivalent instructions, the operation's QIR gate wins.
+            qir_name = f"__quantum__qis__{operation}__body"
+            chosen = [match for match in chosen if match[0] == qir_name] or chosen
         if len(chosen) > 1:
             raise ValueError(f"Ambiguous {operation!r} binding in ISA {self.name!r}")
         return chosen[0]

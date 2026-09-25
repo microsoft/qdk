@@ -17,9 +17,9 @@ qodec.yaml:
       x1: x1.gadget.yaml
       z0: z0.gadget.yaml
       z1: z1.gadget.yaml
-      x: x.gadget.yaml
-      m: m.gadget.yaml
-      mresetz: mresetz.gadget.yaml
+      __quantum__qis__x__body: x.gadget.yaml
+      __quantum__qis__m__body: m.gadget.yaml
+      __quantum__qis__mresetz__body: mresetz.gadget.yaml
   - instruction_set: stim.isa.yaml
 ---
 C4.isa.yaml:
@@ -115,7 +115,7 @@ C4.isa.yaml:
     - c4
     action:
     - pauli: Z_1
-  - mnemonic: x
+  - mnemonic: __quantum__qis__x__body
     description: Logical X on the first logical qubit, tracked in the Pauli frame.
     in:
     - c4
@@ -123,13 +123,13 @@ C4.isa.yaml:
     - c4
     action:
     - pauli: X_0
-  - mnemonic: m
+  - mnemonic: __quantum__qis__m__body
     description: Destructively measure the first logical qubit in Z.
     in:
     - c4
     action:
     - observe: Z_0
-  - mnemonic: mresetz
+  - mnemonic: __quantum__qis__mresetz__body
     description: Measure the first logical qubit in Z, then prepare |00>.
     in:
     - c4
@@ -468,7 +468,7 @@ z1.gadget.yaml:
     - 3
 ---
 x.gadget.yaml:
-  implements: ./C4.isa.yaml#x
+  implements: ./C4.isa.yaml#__quantum__qis__x__body
   circuit:
     instruction_set: ./stim.isa.yaml
     source: ''
@@ -495,7 +495,7 @@ x.gadget.yaml:
     - 1
 ---
 m.gadget.yaml:
-  implements: ./C4.isa.yaml#m
+  implements: ./C4.isa.yaml#__quantum__qis__m__body
   circuit:
     instruction_set: ./stim.isa.yaml
     source: |
@@ -518,7 +518,7 @@ m.gadget.yaml:
     - circuit.readouts[2]
 ---
 mresetz.gadget.yaml:
-  implements: ./C4.isa.yaml#mresetz
+  implements: ./C4.isa.yaml#__quantum__qis__mresetz__body
   circuit:
     instruction_set: ./stim.isa.yaml
     source: |
