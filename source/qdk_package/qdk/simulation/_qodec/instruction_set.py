@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from math import isclose
 from types import MappingProxyType
@@ -158,7 +158,16 @@ class InstructionSet:
         operation: str,
         slots: Sequence[LogicalSlot],
         angle: float | str | None = None,
+        *,
+        spare: Collection[LogicalSlot] = (),
     ) -> tuple[str, tuple[int | str, ...], dict[str, InstructionCall.Argument]]:
+        """Bind ``operation`` on ``slots`` to one instruction.
+
+        ``spare`` lists other slots of the same blocks that hold no data. A
+        preparation or measurement may also reset or measure those slots,
+        which lets a block that encodes several logical qubits serve a single
+        one. Instructions that leave spare slots untouched are preferred.
+        """
         labels = tuple(dict.fromkeys(slot.block for slot in slots))
         block_types = {}
         for slot in slots:
@@ -177,10 +186,29 @@ class InstructionSet:
         positions = tuple(offsets[slot.block] + slot.index for slot in slots)
         if len(set(positions)) != len(positions):
             raise ValueError("Operation targets must be distinct logical slots")
+        spare_positions = frozenset(
+            offsets[slot.block] + slot.index
+            for slot in spare
+            if block_types.get(slot.block) == slot.block_type
+            and 0 <= slot.index < self.capacities[slot.block_type]
+        ) - set(positions)
         mnemonic, arguments = self._bind(
-            operation, positions, tuple(block_types[label] for label in labels), angle
+            operation,
+            positions,
+            tuple(block_types[label] for label in labels),
+            angle,
+            spare_positions,
         )
         return mnemonic, labels, arguments
+
+    def outcome_index(self, mnemonic: str, position: int) -> int | None:
+        """The outcome of a bound measurement that reports ``position``."""
+        measured = [
+            step.targets
+            for step in self.semantics.get(mnemonic, ())
+            if isinstance(step, Operation) and step.name == "measure"
+        ]
+        return measured.index((position,)) if (position,) in measured else None
 
     def _bind(
         self,
@@ -188,6 +216,7 @@ class InstructionSet:
         positions: tuple[int, ...],
         blocks: tuple[str, ...],
         angle: float | str | None,
+        spare: frozenset[int] = frozenset(),
     ) -> tuple[str, dict[str, InstructionCall.Argument]]:
         width = sum(self.capacities[block_type] for block_type in blocks)
         gate = named_clifford(operation, len(positions), angle)
@@ -195,8 +224,14 @@ class InstructionSet:
         if gate is not None:
             requested_clifford = CliffordUnitary.identity(width)
             requested_clifford.left_mul_clifford(gate, positions)
-        candidates: list[tuple[str, dict[str, InstructionCall.Argument]]] = []
-        parameterized: list[tuple[str, dict[str, InstructionCall.Argument]]] = []
+        requested = set(positions)
+        # Each match is ranked (flagged, touches spare slots, parameterized):
+        # unflagged instructions never reject a shot, instructions confined to
+        # the requested slots leave spare ones alone, and exact angles beat
+        # parameterized ones.
+        matches: list[
+            tuple[tuple[bool, bool, bool], str, dict[str, InstructionCall.Argument]]
+        ] = []
         for name, operations in self.semantics.items():
             binding = self.bindings[name]
             inputs = binding.input_types
@@ -209,16 +244,39 @@ class InstructionSet:
                 compatible = inputs == outputs == blocks
             if not compatible:
                 continue
-            if inputs != outputs and set(range(width)) - set(positions):
+            # Creating or consuming a block affects every slot it encodes.
+            touched = set(range(width)) - requested if inputs != outputs else set()
+            if touched - spare:
                 continue
-            if binding.flags:
-                continue
+            flagged = bool(binding.flags)
             if requested_clifford is not None:
                 if self.cliffords[name] == requested_clifford:
-                    candidates.append((name, {}))
+                    matches.append(((flagged, False, False), name, {}))
                 continue
             if operation == "mov" and not operations:
-                candidates.append((name, {}))
+                matches.append(((flagged, False, False), name, {}))
+            if operation in ("prepare", "measure"):
+                steps = [step for step in operations if isinstance(step, Operation)]
+                if (
+                    angle is not None
+                    or not steps
+                    or len(steps) != len(operations)
+                    or any(
+                        step.name != operation
+                        or len(step.targets) != 1
+                        or step.angle is not None
+                        for step in steps
+                    )
+                ):
+                    continue
+                targets = [cast(int, step.targets[0]) for step in steps]
+                if len(set(targets)) != len(targets) or not requested <= set(targets):
+                    continue
+                touched |= set(targets) - requested
+                if touched - spare:
+                    continue
+                matches.append(((flagged, bool(touched), False), name, {}))
+                continue
             if len(operations) != 1:
                 continue
             action = operations[0]
@@ -227,21 +285,26 @@ class InstructionSet:
             if action.name != operation or action.targets != positions:
                 continue
             if isinstance(action.angle, str) and angle is not None:
-                parameterized.append((name, {action.angle: angle}))
+                matches.append(((flagged, False, True), name, {action.angle: angle}))
             elif action.angle is None and angle is None:
-                candidates.append((name, {}))
+                matches.append(((flagged, False, False), name, {}))
             elif (
                 isinstance(action.angle, (int, float))
                 and isinstance(angle, (int, float))
                 and isclose(action.angle, angle)
             ):
-                candidates.append((name, {}))
-        candidates = candidates or parameterized
-        if len(candidates) > 1:
+                matches.append(((flagged, False, False), name, {}))
+        if not matches:
+            raise UnboundOperation(
+                f"ISA {self.name!r} does not implement {operation!r}"
+            )
+        best = min(rank for rank, _, _ in matches)
+        chosen = [
+            (name, arguments) for rank, name, arguments in matches if rank == best
+        ]
+        if len(chosen) > 1:
             raise ValueError(f"Ambiguous {operation!r} binding in ISA {self.name!r}")
-        if candidates:
-            return candidates[0]
-        raise UnboundOperation(f"ISA {self.name!r} does not implement {operation!r}")
+        return chosen[0]
 
 
 @dataclass(frozen=True)

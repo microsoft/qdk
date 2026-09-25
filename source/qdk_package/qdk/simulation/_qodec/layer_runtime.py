@@ -137,10 +137,12 @@ class LayerPlan:
             )
 
     @cached_property
+    def instructions(self) -> InstructionSet:
+        return InstructionSet(self.instruction_set)
+
+    @cached_property
     def resolve(self) -> ResolveOperation:
-        return prepare_resolver(
-            InstructionSet(self.instruction_set), decompose_rotations
-        )
+        return prepare_resolver(self.instructions, decompose_rotations)
 
 
 class LayerRuntime:
@@ -148,6 +150,10 @@ class LayerRuntime:
         self.plan = plan
         self.decoder = decoder
         self.layout = LayerLayout()
+        # Slots that hold program data, for live blocks this layer prepared on
+        # the program's behalf. A live block missing here counts as fully
+        # occupied; its other slots are spare only while this set leaves them out.
+        self._occupied: dict[int | str, set[int]] = {}
         self._next_invocation = 0
         self._failed = False
 
@@ -174,6 +180,7 @@ class LayerRuntime:
 
     def start(self, resources: Resources) -> None:
         self.layout.start(resources, self.plan.lower_capacities)
+        self._occupied.clear()
         self._next_invocation = 0
         self._failed = False
 
@@ -186,14 +193,15 @@ class LayerRuntime:
                     yield from self.apply("x", (slot,))
             return ()
         if isinstance(request, InstructionCall):
-            return (
-                yield from self.execute(
-                    request.mnemonic,
-                    request.operands,
-                    request.arguments,
-                    select=request.select,
-                )
+            readouts = yield from self.execute(
+                request.mnemonic,
+                request.operands,
+                request.arguments,
+                select=request.select,
             )
+            for operand in request.operands:
+                self._occupied.pop(operand, None)
+            return readouts
         targets = tuple(
             self._resolve_logical_slot(target) for target in request.targets
         )
@@ -229,11 +237,26 @@ class LayerRuntime:
             raise ValueError("Logical slot does not match the live block type")
         return slot
 
-    def prepare(self, target: int | str | LogicalSlot) -> Requests[None]:
-        (call,) = self.plan.resolve(
-            "prepare", (self._resolve_logical_slot(target),), None
+    def _spare_slots(self, slot: LogicalSlot) -> tuple[LogicalSlot, ...]:
+        others = set(range(self.plan.capacities[slot.block_type])) - {slot.index}
+        if slot.block in self.layout.blocks:
+            others -= self._occupied.get(slot.block, others)
+        return tuple(
+            LogicalSlot(slot.block, index, slot.block_type) for index in sorted(others)
         )
-        yield from self.execute(call.mnemonic, call.operands, call.arguments)
+
+    def prepare(self, target: int | str | LogicalSlot) -> Requests[None]:
+        slot = self._resolve_logical_slot(target)
+        (call,) = self.plan.resolve(
+            "prepare", (slot,), None, spare=self._spare_slots(slot)
+        )
+        yield from self.execute(
+            call.mnemonic, call.operands, call.arguments, select=call.select
+        )
+        if not self.plan.bindings[call.mnemonic].input_types:
+            self._occupied[slot.block] = {slot.index}
+        elif slot.block in self._occupied:
+            self._occupied[slot.block].add(slot.index)
 
     def apply(
         self,
@@ -247,18 +270,32 @@ class LayerRuntime:
             if call.mnemonic not in self.plan.gadgets:
                 raise NotImplementedError(f"No gadget implements {call.mnemonic!r}")
         for call in calls:
-            yield from self.execute(call.mnemonic, call.operands, call.arguments)
+            yield from self.execute(
+                call.mnemonic, call.operands, call.arguments, select=call.select
+            )
+        for slot in slots:
+            if slot.block in self._occupied:
+                self._occupied[slot.block].add(slot.index)
 
     def measure(self, target: int | str | LogicalSlot) -> Requests[bool | None]:
+        slot = self._resolve_logical_slot(target)
         (call,) = self.plan.resolve(
-            "measure", (self._resolve_logical_slot(target),), None
+            "measure", (slot,), None, spare=self._spare_slots(slot)
         )
-        readouts = yield from self.execute(call.mnemonic, call.operands, call.arguments)
-        if len(readouts) != 1:
-            raise ValueError("A logical Z measurement must produce one readout")
-        return readouts[0]
+        readouts = yield from self.execute(
+            call.mnemonic, call.operands, call.arguments, select=call.select
+        )
+        if slot.block not in self.layout.blocks:
+            self._occupied.pop(slot.block, None)
+        index = self.plan.instructions.outcome_index(call.mnemonic, slot.index)
+        if index is None:
+            if len(readouts) != 1:
+                raise ValueError("A logical Z measurement must produce one readout")
+            index = 0
+        return readouts[index]
 
     def discard(self, target: int | str) -> Requests[None]:
+        self._occupied.pop(target, None)
         block = self.layout.remove_block(target)
         if block is None:
             return
@@ -538,4 +575,5 @@ class LayerRuntime:
 
     def close(self) -> None:
         self.layout.clear()
+        self._occupied.clear()
         self.decoder.close()

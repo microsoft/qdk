@@ -259,6 +259,60 @@ def test_generated_qodec_runs_without_serialization(complete):
     ) == [Result.Zero] * 3
 
 
+def test_single_qubits_run_on_blocks_that_encode_two_logical_qubits():
+    pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.testing.qodecs import c4
+    from qdk import Result, TargetProfile, qsharp
+
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile("""{
+            use (a, b) = (Qubit(), Qubit());
+            X(a);
+            let first = [MResetZ(a), MResetZ(b)];
+            X(b);
+            first + [MResetZ(a), MResetZ(b)]
+        }""")
+
+    assert (
+        run_qir(
+            qir, shots=3, seed=7, type="clifford", qodec=c4(), on_shot_failure="raise"
+        )
+        == [[Result.One, Result.Zero, Result.Zero, Result.One]] * 3
+    )
+
+
+def test_raised_preparation_flags_follow_the_shot_failure_policy():
+    pytest.importorskip("qodec")
+    pytest.importorskip("stim")
+    from ec_tests.testing.qodecs import c4
+    from qdk import TargetProfile, qsharp
+    from qdk.simulation.decoders import ExecutionRejected
+
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qir = qsharp.compile("{ use q = Qubit(); MResetZ(q) }")
+    noise = NoiseConfig()
+    noise.cx.set_depolarizing(0.2)
+    codec = c4()
+
+    def run(policy):
+        return run_qir(
+            qir,
+            shots=40,
+            seed=7,
+            type="clifford",
+            noise=noise,
+            qodec=codec,
+            on_shot_failure=policy,
+            max_retries=50,
+        )
+
+    with pytest.raises(ExecutionRejected):
+        run("raise")
+    assert len(run("discard")) < 40
+    assert len(run("retry")) == 40
+
+
 def test_custom_decoder_changes_public_results_and_closes_each_shot():
     qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")
