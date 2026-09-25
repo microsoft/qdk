@@ -1,97 +1,436 @@
-# Simulating the qdk-chemistry 2D Ising demo
+# 2D Ising Quench Demo: MPS and General Tensor-Network Contraction
 
-This document records the general-contraction objective and its independently reviewed
-iterations. **I1 has a retained 4x4 input and independent CPU state reference;
-I2 builds and qualifies its neutral tensor network and coefficient bindings;
-I3a's diagnostic, 2x2 and frozen 4x4 cases pass native numerical qualification;
-the public A100 milestone is not implemented.**
-It sits next to [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) the way a successor demo
-sits next to the one it builds on, and it follows the same iteration discipline as
-[`README.md`'s "Next Integration Iteration"](../../../source/simulators/src/execution/README.md#next-integration-iteration)
-— this is the _next_ iteration after that one.
+This demo simulates the Trotterized 2D Ising quench from the `qdk-chemistry`
+[resource-estimation notebook](https://github.com/microsoft/qdk-chemistry/blob/1eb14a9d73685d4e57ee7ee7ca6f4d2ef845a6dd/examples/estimation_ising_2d.ipynb)
+with two tensor-network methods, through the public `qdk.simulation.run_qir` API:
 
-|                               |                                                                                                                                                                                       |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reference case                | [`estimation_ising_2d.ipynb`](https://github.com/microsoft/qdk-chemistry/blob/ec194789d7021cb53f1b2a62f00d8632c4ce13f7/examples/estimation_ising_2d.ipynb), `microsoft/qdk-chemistry` |
-| What that notebook does today | Fault-tolerant **resource estimation** of a Trotterized 2D Ising quench. It builds the circuit, it never simulates it.                                                                |
-| What this document scopes     | Actually **classically simulating** that circuit (or a size-reduced version of it), to validate correctness and to explore how hard it can be made.                                   |
-| Prior art this builds on      | [`DEMO.md`](../mps_trotter_quench_demo/DEMO.md) — 1D MPS execution, same execution layer, same public API shape                                                                       |
-| Status                        | I1 input/reference and I2 builder qualification delivered below. I3a/I3b and I4 remain separate implementation/review units.                                                                                                |
+- **MPS**, the existing cuTensorNet matrix-product-state backend, which approximates the state by truncation;
+- **general contraction**, which contracts the circuit's 2D tensor network without truncation.
 
-## I3a bounded native numerical experiment
+Both methods run the **same** QIR program and return ordered measurement shots.
+The question the demo lets you explore is:
 
-The approved order is **numerical end-to-end evidence before common
-plan/optimizer/executor interfaces**. The reusable private cuTensorNet path is
-implemented through the actual I2 builder and its immutable shared-buffer bank.
-The diagnostic and 2x2 each passed two native A100 contractions, with byte-identical
-repeated readbacks and amplitude/norm/probability errors below `1e-12`. The 4x4
-case was initially rejected before contraction because its selected path required
-about 2.04 GiB of scratch, exceeding the original 64 MiB ceiling. The source-built
-retry at `511141aba105cbd5738380d67246a1f1e8f909a9`, with a 3 GiB ceiling,
-passed both 4x4 contractions with byte-identical readbacks. Maximum amplitude
-error was `5.983150429055106e-10`; probability TV and squared-norm error also
-passed the `1e-8` limit. All explicit cleanup succeeded. Kernel tracing remains
-deferred; this is private numerical execution, not public `run_qir` integration.
+> For a given Ising quench and accuracy, how far does each method reach, and at what cost?
 
-| Case | Circuit | Output | Numerical limit |
-| --- | --- | --- | --- |
-| Asymmetric diagnostic | 3 qubits, idle q1; Rx(0.7,q0), Rx(0.7,q2), Rzz(0.41,q0,q2), Rx(-0.3,q0), Rzz(0.41,q2,q0), Rx(0.29,q2) | 8 amplitudes | `1e-12` |
-| 2x2 Case A | Open row-major grid; J=1, h=0.5, time=1, order 4, two subdivisions, identity preparation; 48 Rx + 40 Rzz | 16 amplitudes | `1e-12` |
-| Frozen 4x4 Case A | Unchanged I1 input; 192 Rx + 240 Rzz | 65,536 amplitudes (1 MiB) | `1e-8` |
+It is a demonstration for feedback, not a shipped feature. It sits next to the
+1D [MPS Trotter quench demo](../mps_trotter_quench_demo/DEMO.md) and uses the
+same execution layer.
 
-Every limit applies independently to maximum complex-amplitude absolute error,
-probability total variation and squared-norm error. Values must be finite.
-There is no global-phase alignment or amplitude normalization; probabilities
-are normalized only after both vectors' squared norms pass.
-Output order is q0 least significant/first tensor axis fastest.
+> **Preview status.** Circuit generation and `type="mps"` work today.
+> General contraction through `run_qir`, the `--field` option and the demo
+> script are **planned for this demo's first version**; commands for them are
+> marked ⏳ and their names may change. Nothing in this document has been
+> measured as an MPS versus general-contraction comparison yet.
 
-`fixtures/i3a_numerical/` retains exact f64 gate-angle bits, the diagnostic and
-2x2 CPU arrays, and hashes/provenance. Its 4x4 adapter references the existing I1
-array without replacing it. `i3a_reference.py` reuses the released QDK sparse
-engine and the existing recipe/conversion/reference machinery, independently of
-the new contractor; the diagnostic also has the phase-sensitive I2 analytic
-cross-check. Reproduce checks in the existing pinned reference environment:
+| | |
+| --- | --- |
+| Circuit source | `qdk-chemistry==2.2.1` builders, via [`build_measured_circuit.py`](build_measured_circuit.py) |
+| Public entry point | `run_qir(qir, shots=..., type=...)` |
+| Methods | MPS (today) · general contraction (⏳ first version) |
+| Reference host | NVIDIA A100 80GB PCIe, Linux x86_64 |
+| Validation so far | 4x4 exact contraction agrees with an independent CPU state to `6e-10` ([Appendix A](#appendix-a--validation-history)) |
 
-```sh
-.venv-ising-i1/bin/python samples/python_interop/ising2d_tensor_network_demo/i3a_reference.py verify \
-  samples/python_interop/ising2d_tensor_network_demo/fixtures/i3a_numerical
-.venv-ising-i1/bin/python -m pytest -q \
-  samples/python_interop/ising2d_tensor_network_demo/test_i3a_reference.py
+---
+
+## TL;DR
+
+**What you do.** Generate an Ising circuit for an `N×N` lattice, run the same
+QIR with MPS and with general contraction, and compare two observables and
+their cost.
+
+```text
+generator(N, h) ──► QIR ──► run_qir(type="mps")        ──► shots ──┐
+                        └─► run_qir(general contraction) ──► shots ──┴─► m_z, C_ZZ ± error, time, memory
 ```
 
-Each case optimizes once, exports owned metadata, closes source owners, imports
-into a fresh network without search, prepares and contracts twice with overwrite
-semantics and no intervening output clear. The separate
-`--contraction-qualification` validator selector stops before larger cases on
-failure. Search uses one sample/thread, seed 17, no reconfiguration, deferred
-rank simplification or automatic slicing, and a 64 MiB optimizer constraint.
-Separately, device-scratch limits are 64 MiB for diagnostic/2x2 and **3 GiB for
-4x4**; the host-scratch limit remains 1 MiB for all cases,
-allocating minima (256-byte device floor), disabling caches, and using no
-autotuning or memory pool. Unique inputs/output are separately accounted;
-there is **no total GPU-memory cap**. See the
-[native numerical contract](../../../source/cutensornet/README.md#private-general-network-numerical-execution)
-for ownership, cleanup and evidence requirements.
+**Why it is interesting.** 2D lattices are known to be hard for MPS, and a
+field near the critical point is expected to make them harder. General
+contraction has no truncation, but its cost grows with the circuit's
+contraction structure. Which one wins, and where, is what we want to measure
+with you, not something we assume.
 
-This includes one bounded frozen 4x4 run in I3a, not a broader I3b campaign.
-Native source-build provenance, retained numerical readbacks, resource reports
-and cleanup remain acceptance gates. The observed 4x4 budget rejection is retained
-as a host regression through the production owner; the larger native ceiling
-does not relax that guard. Nsight tracing and performance analysis are later work.
-Common interfaces and I4 public `run_qir`/sampling stay paused.
+**What we want from you.** Run the examples, try your own sizes and fields,
+and tell us what is useful and what is missing ([§8](#8-feedback-wanted)).
+[§7](#7-what-could-come-next) lists what could come next, including noise.
 
-The separate [overnight plan-quality suite](../../../source/cutensornet/README.md#overnight-contraction-plan-experiments)
-keeps these qualification cases unchanged and sweeps only frozen 4x4 Case A:
-eight optimizer configurations plus a supplied chronological control through the
-same native owner. Review this nine-trial first stage before selecting seed
-follow-ups or intermediate search settings; the original 55-case grid is opt-in.
-It uses 32 GiB optimizer/device-scratch limits, no host-scratch
-policy ceiling, and records actual allocations and sampled process memory.
-First/repeated execution timings, independent numerical checks and failure
-evidence are retained per trial. This new suite still needs source review and
-native execution; it is not covered by the accepted fixed-case results above.
+---
 
-## I1 retained input and CPU reference
+## 1. The problem
+
+The notebook's Hamiltonian on an open `N×N` square lattice, qubit `q = y*N + x`:
+
+$$
+H = J \sum_{\langle i,j \rangle} Z_i Z_j + h \sum_i X_i,
+\qquad
+|\psi(t)\rangle \approx U_{\text{Trotter}}(t)\,|0\rangle^{\otimes N^2}.
+$$
+
+```text
+      o───o───o───o     o = qubit, q = y*N + x
+      │   │   │   │     ─ / │ = ZZ bond (J), open boundaries
+      o───o───o───o     every o also feels a transverse field h·X
+      │   │   │   │
+      o───o───o───o     notebook: 10×10 = 100 qubits (resource estimation only)
+      │   │   │   │     this demo: from 4×4 = 16 qubits upwards
+      o───o───o───o
+```
+
+Every circuit uses the notebook's settings: start in $|0\cdots0\rangle$, evolve
+to `t=1` with fourth-order Trotter–Suzuki and two subdivisions, then measure
+every qubit in Z. Only the lattice size and the field change.
+
+**Two fields to compare.**
+
+| Scenario | J | h | What it is |
+| --- | --- | --- | --- |
+| Baseline | 1 | 0.5 | The notebook's default |
+| Near-critical | 1 | 3.03 | Close to the square-lattice critical point |
+
+The ground-state critical point is $h/J \approx 3.044$
+([Blöte and Deng, Phys. Rev. E 66, 066110 (2002)](https://doi.org/10.1103/PhysRevE.66.066110),
+same Pauli normalization). That is a zero-temperature, infinite-lattice
+property. Whether it makes *this* finite-time quench on a small lattice harder
+is exactly the kind of thing the demo lets you check.
+
+**Two observables, from the shots.** For each shot, with bits $b_i$ and spins
+$z_i = 1 - 2b_i$, on $n=N^2$ sites and $|E|=2N(N-1)$ bonds:
+
+$$
+m_z = \frac{1}{n}\sum_i z_i
+\quad\text{(how much of the initial polarization survives)},
+\qquad
+C_{ZZ} = \frac{1}{|E|}\sum_{\langle i,j\rangle} z_i z_j
+\quad\text{(how aligned neighbours are)}.
+$$
+
+The demo averages both over shots and reports a standard error.
+
+## 2. How to use it
+
+### 2.1 Prerequisites
+
+Same host requirements as the [MPS demo](../mps_trotter_quench_demo/DEMO.md#41-prerequisites):
+Linux x86_64, an NVIDIA GPU, cuQuantum `libcutensornet.so.2`, and QDK built with
+`--qdk --editable`. Circuit generation also needs `qdk-chemistry`:
+
+```bash
+./source/qdk_package/.venv/bin/python -m pip install qdk-chemistry==2.2.1
+```
+
+### 2.2 Step 1: generate the circuit
+
+```bash
+./source/qdk_package/.venv/bin/python \
+  samples/python_interop/ising2d_tensor_network_demo/build_measured_circuit.py \
+  --nx 4 --ny 4 --output ising-4x4-h0.5.ll
+# wrote ising-4x4-h0.5.ll: 16 qubits, 16 measured results
+```
+
+The output is an ordinary Base-profile QIR program. `run_qir` knows nothing
+about lattices or fields; any program works as long as the chosen method
+supports its gates.
+
+⏳ First version adds `--field h` (today the field is fixed at `h=0.5`).
+
+### 2.3 Step 2: run it
+
+```python
+from qdk.simulation import MpsOptions, run_qir
+
+qir = open("ising-4x4-h0.5.ll").read()
+
+# MPS: works today
+mps_shots = run_qir(qir, shots=1000, seed=42, type="mps",
+                    mps_options=MpsOptions(device="nvidia"))
+
+# ⏳ General contraction: first version; selector name to be decided
+tn_shots = run_qir(qir, shots=1000, seed=42, type="tensor_network")
+```
+
+Each result is a list of shots, and each shot is a list of `Result` values
+ordered `q0, q1, ...`. A general-contraction request never falls back to MPS
+silently: if it cannot run, it fails with an error.
+
+### 2.4 Step 3: summarize
+
+```python
+import numpy as np
+from qdk import Result
+
+def summarize(shots, N):
+    b = np.array([[r == Result.One for r in shot] for shot in shots], dtype=float)
+    z = 1.0 - 2.0 * b                                   # (shots, N*N), q = y*N + x
+    bonds = [(y*N + x, y*N + x + 1) for y in range(N) for x in range(N - 1)] + \
+            [(y*N + x, (y+1)*N + x) for y in range(N - 1) for x in range(N)]
+    m = z.mean(axis=1)                                  # one value per shot
+    c = np.mean([z[:, i] * z[:, j] for i, j in bonds], axis=0)
+    se = lambda v: v.std(ddof=1) / np.sqrt(len(v))
+    return {"m_z": (m.mean(), se(m)), "C_ZZ": (c.mean(), se(c))}
+
+print(summarize(mps_shots, 4))
+```
+
+The error bars come from the spread across shots. Sites and bonds in the same
+shot are correlated, so they are averaged per shot first rather than treated
+as independent samples.
+
+### 2.5 ⏳ The demo script
+
+The planned `run.py` does steps 1–3 for both methods and prints one table.
+Proposed usage:
+
+```bash
+./source/qdk_package/.venv/bin/python \
+  samples/python_interop/ising2d_tensor_network_demo/run.py \
+  --size 4 --field 0.5 --shots 1000 --seed 42 \
+  --methods mps tensor_network --output ~/ising2d-4x4-h0.5.json
+```
+
+`--size N` sets up an `N×N` circuit and `--field` sets `h`. Nothing else changes
+between runs. Expected output shape (values are placeholders until measured):
+
+```text
+ising2d | size=4 qubits=16 J=1 h=0.5 shots=1000 seed=42
+method           m_z               C_ZZ              time     peak memory
+exact            0.9508            0.9327            —        —
+mps              …  ± …            …  ± …            … s      … MiB
+tensor_network   …  ± …            …  ± …            … s      … MiB
+```
+
+At sizes where an exact reference exists, the script prints it and whether each
+method agrees within its error bars. Timings split setup (planning,
+preparation) from sampling, because repeated shots reuse the setup.
+
+## 3. Examples
+
+### Example 1: baseline 4x4, both methods against exact (h=0.5)
+
+The first thing to run. At 16 qubits the exact answer is known: from the
+independent CPU state for this exact circuit,
+**$m_z = 0.9508$ and $C_{ZZ} = 0.9327$**. With 1000 shots expect error bars of
+about `0.003` and `0.004`. Both methods should agree with these values; that is
+the sanity check before scaling up.
+
+```bash
+run.py --size 4 --field 0.5 --shots 1000 --methods mps tensor_network   # ⏳
+```
+
+### Example 2: near-critical 4x4 (h=3.03)
+
+Same size and settings, field near the critical point. The first version ships
+an independent exact reference for this 4x4 circuit too, so both methods are
+checked here as well.
+
+```bash
+run.py --size 4 --field 3.03 --shots 1000 --methods mps tensor_network  # ⏳
+```
+
+### Example 3: grow the lattice
+
+Keep the field and increase `--size` until a method runs out of time or
+memory. The script reports, per method, time and peak memory, and for MPS
+whether it had to truncate.
+
+```bash
+for N in 4 5 6 7 8; do
+  run.py --size $N --field 3.03 --shots 1000 --methods mps tensor_network \
+         --output ~/ising2d-${N}x${N}-h3.03.json                          # ⏳
+done
+```
+
+Beyond the exact-reference sizes, agreement between the two methods is evidence,
+not proof: MPS may be truncating, and general contraction may simply be too
+expensive. Both outcomes are useful results.
+
+### Example 4: your own circuit
+
+`run_qir` accepts any Base-profile QIR with terminal measurements. Today MPS
+supports `X`, `H`, `Rx`, `Rz`, `CNOT` and `Rzz` on at least two qubits. The first
+version of general contraction supports the gates this demo needs (`Rx`,
+`Rzz`); more gates can be added if you need them.
+
+## 4. Reading the results
+
+- **Error bars cover shot noise only.** More shots shrink them, but cannot
+  remove MPS truncation error or Trotter error.
+- **Agreement is with the circuit, not with the physics.** Both methods simulate
+  the same Trotterized circuit. Matching the exact reference means the method is
+  right for that circuit; it does not measure how far the circuit is from exact
+  time evolution. That gap can be larger at `h=3.03`, with the same Trotter
+  settings.
+- **Near-critical is a hypothesis, not a promise.** The critical point is a
+  ground-state property. For this short quench it may or may not be the
+  hardest field for either method.
+- **The two methods scale differently.** For MPS the cost depends on how
+  entangled the state becomes, so it changes with `h`. For general contraction
+  the cost is set mostly by the circuit's structure, which is the same for
+  every `h` at a given size.
+- **Sign conventions do not matter here.** Flipping the sign of `J`, of `h`, or
+  both gives the same shot distribution from $|0\cdots0\rangle$, so the demo's
+  results also describe the ferromagnetic convention.
+
+## 5. How it works
+
+### 5.1 One program, pluggable samplers
+
+```text
+run_qir(qir, shots, type=...)
+        │
+shared execution: runs the program, owns shots and measurement order
+        │   asks for "S ordered samples of the final state"
+        ▼
+Sampling interface (backend-neutral)
+ ├─ cuTensorNet MPS sampler                      available today (type="mps")
+ ├─ cuTensorNet general-network sampler          ⏳ first version
+ └─ further implementations                      on request, for example:
+      · generic contraction sampler on the shared contraction interfaces
+      · other devices or libraries
+```
+
+The sampling interface is the extension point. The first version provides one
+general-contraction implementation, cuTensorNet's native sampler. According to
+NVIDIA's documentation, it samples groups of qubits from their reduced density
+matrices and reuses cached intermediate tensors between those contractions. Other implementations plug in
+behind the same interface and are checked by the same tests. For example, a
+generic sampler built on the existing
+[shared contraction interfaces](../../../source/simulators/src/execution/README.md#shared-contraction-contracts-i3)
+would work with any contraction backend and expose a finer cost breakdown.
+They are developed if there is interest.
+
+### 5.2 Why MPS finds 2D hard
+
+```text
+lattice (N=3)              MPS chain (mode = qubit index)
+ 0 ─ 1 ─ 2                 0 ─ 1 ─ 2   3 ─ 4 ─ 5   6 ─ 7 ─ 8
+ │   │   │                 └─────N─────┘
+ 3 ─ 4 ─ 5                 every vertical bond spans N chain sites
+ │   │   │
+ 6 ─ 7 ─ 8
+```
+
+MPS arranges the qubits in a line, in qubit order. Horizontal bonds stay short,
+but every vertical bond becomes a long-range gate across `N` chain sites, which
+can grow the MPS bond dimension. How much it grows depends on the state, so
+MPS may still do well at small `h` or short times. It is a motivation for the
+comparison, not a verdict.
+
+### 5.3 Why general contraction needs a sampler
+
+General contraction computes numbers from the whole 2D network at once, without
+truncation. Asking it for the full state is only practical up to about 4x4:
+
+| Lattice | Qubits | Full state (complex f64) |
+| --- | --- | --- |
+| 4×4 | 16 | 1 MiB |
+| 5×5 | 25 | 512 MiB |
+| 6×6 | 36 | 1 TiB |
+
+So shots come from the sampler, which contracts only small conditional
+probabilities, never the full state. Full amplitudes are used only to validate
+small cases. A small output does not make contraction cheap, though: its cost
+is set by the intermediate tensors, which is what Example 3 measures.
+
+### 5.4 Why not the other QDK simulators
+
+Dense CPU/GPU statevectors stop at about 25 qubits
+([measured](../mps_trotter_quench_demo/DEMO.md#22-the-dense-wall-measured)); the
+wgpu `type="gpu"` path has a fixed 27-qubit single-precision limit
+([`shader_types.rs`](../../../source/simulators/src/gpu_full_state_simulator/shader_types.rs)).
+The sparse simulator densifies quickly under the transverse field, and the
+Clifford simulator cannot run generic rotations. They remain useful references
+at small sizes.
+
+## 6. Status
+
+| Piece | Status |
+| --- | --- |
+| Circuit generator from `qdk-chemistry` (`--nx/--ny`, `h=0.5`) | Available |
+| `run_qir(type="mps")` | Available |
+| 4x4 general contraction, validated against an independent CPU state (private, native) | Done ([Appendix A](#appendix-a--validation-history)) |
+| Shared contraction interfaces and reusable inputs | Done |
+| Sampling interface and cuTensorNet general-network sampler | ⏳ First version |
+| General contraction through `run_qir` | ⏳ First version |
+| `--field`, `run.py`, near-critical 4x4 reference | ⏳ First version |
+| Measured MPS vs general-contraction results | ⏳ First version |
+| Further samplers, public MPS truncation settings, more gates | On request |
+
+## 7. What could come next
+
+If the demo is useful to you, these are directions we could take. None is
+planned yet; your feedback decides which come first.
+
+| Possible addition | What it would enable |
+| --- | --- |
+| **Noise** through `run_qir(noise=...)` for the tensor-network methods | Noisy Ising dynamics and noisy QEC rounds; both methods are noiseless today |
+| **Expectation values without shots** | Contract $\langle Z_i\rangle$, $\langle Z_i Z_j\rangle$ or energies directly, with no shot noise |
+| **Probabilities of chosen outcomes** | Exact probability of a bitstring or of fixed measurement outcomes (for example postselection or acceptance probabilities) |
+| **Mid-circuit measurement, reset and feedforward** | Repeated-round programs such as syndrome extraction; the methods accept terminal-measurement (Base-profile) programs today |
+| **More gates** | Circuits beyond the current `Rx`/`Rzz` (contraction) and `X, H, Rx, Rz, CNOT, Rzz` (MPS) sets, for example `T` or general rotations |
+| **Accuracy controls** | Choose MPS bond dimension, cutoffs and precision yourself |
+| **Larger contractions** | Splitting one contraction into slices across time or several GPUs |
+| **Other samplers and backends** | The alternatives listed in [§5.1](#51-one-program-pluggable-samplers) |
+
+**A QEC demo is next.** It will use the same pattern (one QIR program,
+several methods, current QDK simulators as references for small cases) on
+error-correction circuits. Its questions are different: does contraction cost
+stay bounded as rounds are added, what are the exact event and acceptance
+probabilities, and what happens with non-Clifford content such as coherent
+over-rotation. Programs come from Stim circuits through the existing
+`qdk.stim` compiler, so QEC tools that export Stim can feed it directly. It
+needs several of the additions above, starting with outcome probabilities and
+mid-circuit measurement.
+
+## 8. Feedback wanted
+
+- Are the Ising examples the right ones? Which sizes, fields or times matter to you?
+- Are `m_z` and `C_ZZ` useful, or do you need other observables (for example single-site $\langle Z_i\rangle$ or correlations at a distance)?
+- Would you want to tune MPS accuracy (bond dimension, cutoffs) yourself?
+- Which other circuits would you run: other chemistry models, QEC circuits, your own?
+- Which of the additions in [§7](#7-what-could-come-next) would you need first?
+- How should the method be selected in `run_qir`? (See the
+  [`type=` naming discussion](../mps_trotter_quench_demo/DEMO.md#t17-in-detail--the-type-selector-conflates-two-axes).)
+
+**Feedback that shaped this demo.** A `qdk-chemistry` team member wrote, on the
+1D demo (2026-09-08):
+
+> This is a good start - 1D has an analytical solution. 2D is canonically hard for MPS. Depending
+> on the parameterization. If you take J=1 and h=3.03, that's the quantum critical point on a
+> square lattice. Moving away from that will make the problem easier.
+>
+> Per the above - you don't need to stand up these circuits yourself. They're in QDK-chemistry. If
+> you'd like a run through, let me know.
+
+That is why the demo uses the chemistry circuits, includes MPS, and adds the
+`h=3.03` field. A later review pointed out that approximate tensor-network
+methods can trade a little accuracy for a lot of speed, which is why the demo
+compares accuracy against cost rather than treating "no truncation" as the
+goal.
+
+---
+
+## Appendix A — Validation history
+
+These iterations built and validated the general-contraction path before any
+public integration. They are retained as the evidence and provenance behind
+the demo. Their frozen fixtures and numerical limits are unchanged; statements
+about "not yet implemented" describe the state at the time of each iteration.
+
+### Validation map
+
+| Iteration | What it established |
+| --- | --- |
+| [I1](#i1-retained-input-and-cpu-reference) | Frozen 4x4 `h=0.5` circuit and an independent CPU state reference |
+| [I2](#i2-neutral-network-and-shared-coefficient-buffers) | Circuit-to-tensor-network builder and shared coefficient buffers |
+| [I3a](#i3a-bounded-native-numerical-experiment) | Native A100 contraction of diagnostic, 2x2 and 4x4 cases against the references |
+| Shared interfaces | [Contraction interfaces and reusable inputs](../../../source/simulators/src/execution/README.md#shared-contraction-contracts-i3), tiny cases GPU-validated |
+
+Two circuit shapes appear in this history. **Case A** is the notebook's
+`order=4, num_divisions=2` construction used everywhere above (12 field layers
+and 10 bond layers, 432 gates at 4x4). **Case B** would be a first-order
+construction with more subdivisions, a later convergence check. They name
+Trotter schedules, not the two field scenarios.
+
+### I1 retained input and CPU reference
 
 The fixed case is **4x4, J=1, h=0.5, time=1, Trotter order 4, two subdivisions,
 identity preparation**. The existing generator is the chemistry decoupling boundary;
@@ -139,7 +478,7 @@ bond layer `Rzz(2*J*s)`. Adjacent field layers within a subdivision combine.
 Tests check this layer order, all sites/bonds and positive/negative coefficients
 at 2x2 and 4x4, rather than merely summing angles.
 
-### Artifacts and numerical contract
+#### Artifacts and numerical contract
 
 All retained files are under [`fixtures/case_a_4x4/`](fixtures/case_a_4x4/):
 
@@ -175,7 +514,8 @@ Analytic signed-Rx, Rzz phase, nonadjacent interference and asymmetric-qubit che
 use absolute error `1e-12`. Repeated reference executions and frozen-state replay
 must agree to maximum complex-amplitude error and probability total-variation
 distance `<= 1e-12`, without global-phase alignment. The recorded candidate limits
-for later TN comparison are `1e-8` for both metrics; no TN comparison has run yet.
+for later TN comparison are `1e-8` for both metrics; no TN comparison had run at
+I1 time (I3a later passed them).
 
 The retained squared-norm error is **6.66e-15**; the two pre-measurement states
 (seeds 42 and 17) agree exactly on the recorded host. These seeds exercise reference
@@ -183,7 +523,7 @@ repeatability, not the later public-shot sampling contract. Sparse simulation ha
 its existing floating-point/pruning policy; this is not an exact-arithmetic oracle.
 No post-reset state or shot histogram is substituted for the numerical reference.
 
-### Reproduction
+#### Reproduction
 
 From the repository root, using Python 3.11 on the qualified aarch64 host:
 
@@ -210,9 +550,7 @@ Read either array with `numpy.load(path, allow_pickle=False)`; its dtype and
 shape are self-describing and checked by `verify`. The retained QIR is also admitted by the public CPU `run_qir` route;
 that check establishes input/output shape only, not the amplitude oracle.
 
----
-
-## I2 neutral network and shared coefficient buffers
+### I2 neutral network and shared coefficient buffers
 
 I2 delivers `qdk_simulators::execution::CircuitTensorNetwork`, not a numerical
 backend or new `run_qir` selector. The builder receives a resolved
@@ -278,10 +616,10 @@ one leading region in one block, and stops before measurement without
 fabricating outcomes. It is not a full-program validator; I1 separately
 qualifies the frozen terminal suffix. Tiny numerical evaluation is bounded
 to 12 distinct binary indices and uses NumPy, not a new CPU contractor.
-The **full 4x4 network has not been contracted or compared numerically with
-the CPU reference**. Those are I3b acceptance gates.
+At I2 time the **full 4x4 network had not been contracted or compared
+numerically with the CPU reference**; I3a later did both.
 
-### I2 reproduction
+#### I2 reproduction
 
 From the repository root, using the existing development environment with
 Maturin, PyQIR, NumPy and pytest (and `patchelf` for Linux wheel RPATH setup):
@@ -308,252 +646,84 @@ No fixtures are regenerated or modified by I2. Host qualification needs no
 GPU and does not establish an optimizer path, treewidth, contraction cost,
 GPU buffer lifecycle, full-size numerical agreement or terminal-shot behavior.
 
-## 1. The physical problem
+### I3a bounded native numerical experiment
 
-The notebook simulates a 2D transverse-field Ising model on an `N×N` square lattice:
+The approved order is **numerical end-to-end evidence before common
+plan/optimizer/executor interfaces**. The reusable private cuTensorNet path is
+implemented through the actual I2 builder and its immutable shared-buffer bank.
+The diagnostic and 2x2 each passed two native A100 contractions, with byte-identical
+repeated readbacks and amplitude/norm/probability errors below `1e-12`. The 4x4
+case was initially rejected before contraction because its selected path required
+about 2.04 GiB of scratch, exceeding the original 64 MiB ceiling. The source-built
+retry at `511141aba105cbd5738380d67246a1f1e8f909a9`, with a 3 GiB ceiling,
+passed both 4x4 contractions with byte-identical readbacks. Maximum amplitude
+error was `5.983150429055106e-10`; probability TV and squared-norm error also
+passed the `1e-8` limit. All explicit cleanup succeeded. Kernel tracing remains
+deferred; this is private numerical execution, not public `run_qir` integration.
 
-$$
-H = \underbrace{J \sum_{\langle i,j \rangle} Z_i Z_j}_{\text{ZZ bonds, 2D grid}} \;+\; \underbrace{h \sum_i X_i}_{\text{transverse field}}
-$$
+| Case | Circuit | Output | Numerical limit |
+| --- | --- | --- | --- |
+| Asymmetric diagnostic | 3 qubits, idle q1; Rx(0.7,q0), Rx(0.7,q2), Rzz(0.41,q0,q2), Rx(-0.3,q0), Rzz(0.41,q2,q0), Rx(0.29,q2) | 8 amplitudes | `1e-12` |
+| 2x2 Case A | Open row-major grid; J=1, h=0.5, time=1, order 4, two subdivisions, identity preparation; 48 Rx + 40 Rzz | 16 amplitudes | `1e-12` |
+| Frozen 4x4 Case A | Unchanged I1 input; 192 Rx + 240 Rzz | 65,536 amplitudes (1 MiB) | `1e-8` |
 
-Here $i$ and $j$ are site labels (flattened over the whole `N×N` lattice), not row/column
-coordinates. $\langle i,j \rangle$ is the standard shorthand for "sum over nearest-neighbor pairs" —
-an edge of the lattice graph, horizontal or vertical alike — and $i$ in the second sum ranges over
-every site individually.
+Every limit applies independently to maximum complex-amplitude absolute error,
+probability total variation and squared-norm error. Values must be finite.
+There is no global-phase alignment or amplitude normalization; probabilities
+are normalized only after both vectors' squared norms pass.
+Output order is q0 least significant/first tensor axis fastest.
 
-```text
-      o───o───o───o     o = qubit
-      │   │   │   │     ─ / │ = ZZ coupling (J)
-      o───o───o───o     each o also feels a transverse field h·X
-      │   │   │   │
-      o───o───o───o     10×10 in the notebook → 100 qubits
-      │   │   │   │
-      o───o───o───o
+`fixtures/i3a_numerical/` retains exact f64 gate-angle bits, the diagnostic and
+2x2 CPU arrays, and hashes/provenance. Its 4x4 adapter references the existing I1
+array without replacing it. `i3a_reference.py` reuses the released QDK sparse
+engine and the existing recipe/conversion/reference machinery, independently of
+the new contractor; the diagnostic also has the phase-sensitive I2 analytic
+cross-check. Reproduce checks in the existing pinned reference environment:
+
+```sh
+.venv-ising-i1/bin/python samples/python_interop/ising2d_tensor_network_demo/i3a_reference.py verify \
+  samples/python_interop/ising2d_tensor_network_demo/fixtures/i3a_numerical
+.venv-ising-i1/bin/python -m pytest -q \
+  samples/python_interop/ising2d_tensor_network_demo/test_i3a_reference.py
 ```
 
-The notebook's default point is `J=1.0, h=0.5` — deep in the ordered phase. The 2D square-lattice
-quantum critical point is at **$h_c/J \approx 3.044$**. Sweeping `h` toward $h_c$ is the knob that makes
-this genuinely hard: correlation length diverges, and entanglement generated per unit of simulated
-time grows with it. That is the "critical fan" referred to in the objective below.
+Each case optimizes once, exports owned metadata, closes source owners, imports
+into a fresh network without search, prepares and contracts twice with overwrite
+semantics and no intervening output clear. The separate
+`--contraction-qualification` validator selector stops before larger cases on
+failure. Search uses one sample/thread, seed 17, no reconfiguration, deferred
+rank simplification or automatic slicing, and a 64 MiB optimizer constraint.
+Separately, device-scratch limits are 64 MiB for diagnostic/2x2 and **3 GiB for
+4x4**; the host-scratch limit remains 1 MiB for all cases,
+allocating minima (256-byte device floor), disabling caches, and using no
+autotuning or memory pool. Unique inputs/output are separately accounted;
+there is **no total GPU-memory cap**. See the
+[native numerical contract](../../../source/cutensornet/README.md#private-general-network-numerical-execution)
+for ownership, cleanup and evidence requirements.
 
-## 2. Why no existing QDK simulator reaches it
+This includes one bounded frozen 4x4 run in I3a, not a broader I3b campaign.
+Native source-build provenance, retained numerical readbacks, resource reports
+and cleanup remain acceptance gates. The observed 4x4 budget rejection is retained
+as a host regression through the production owner; the larger native ceiling
+does not relax that guard. Nsight tracing and performance analysis are later work.
+At the time, common interfaces and public `run_qir`/sampling were paused. The
+shared contraction interfaces have since been implemented; public general
+contraction is planned for this demo's first version.
 
-| Simulator                                                                                                         | Outcome                                   | Reason                                                                                                                                                              |
-| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dense CPU/GPU statevector                                                                                         | ✗                                         | Caps at ~25 qubits (measured, [`DEMO.md` §2.2](../mps_trotter_quench_demo/DEMO.md#22-the-dense-wall-measured)). 100 qubits is `2^100` amplitudes regardless of `h`. |
-| Sparse simulator                                                                                                  | ✗                                         | The transverse field is a generic non-Clifford rotation; the state densifies almost immediately.                                                                    |
-| Clifford simulator                                                                                                | ✗                                         | `Rx(hΔt)`/`Rz(JΔt)` at generic angles are not Clifford gates, at any `h`.                                                                                           |
-| cuTensorNet **MPS** (this repo's current backend, [`execution.rs`](../../../source/cutensornet/src/execution.rs)) | ⚠ possible but structurally disadvantaged | It is a 1D ansatz. A 2D lattice must be linearized (snake ordering) before it fits, which turns every "vertical" bond into a long-range MPS gate — see §3.          |
+The separate [overnight plan-quality suite](../../../source/cutensornet/README.md#overnight-contraction-plan-experiments)
+keeps these qualification cases unchanged and sweeps only frozen 4x4 Case A:
+eight optimizer configurations plus a supplied chronological control through the
+same native owner. Review this nine-trial first stage before selecting seed
+follow-ups or intermediate search settings; the original 55-case grid is opt-in.
+It uses 32 GiB optimizer/device-scratch limits, no host-scratch
+policy ceiling, and records actual allocations and sampled process memory.
+First/repeated execution timings, independent numerical checks and failure
+evidence are retained per trial. This new suite still needs source review and
+native execution; it is not covered by the accepted fixed-case results above.
 
-None of the shipped backends are disqualified _by criticality specifically_ — dense/sparse/Clifford
-fail from qubit count and gate type alone, before `h` even matters. MPS is the only one where `h`
-changes the answer, and only as a second-order effect on top of a first-order problem.
+---
 
-**The `type="gpu"` (wgpu) path is narrower than the CPU one, by a hardcoded constant.** Worth
-stating precisely, because "we have an A100, so the GPU simulator should reach further" is the
-natural assumption and it is wrong:
-
-```rust
-// source/simulators/src/gpu_full_state_simulator/shader_types.rs:14
-pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
-```
-
-That is a compile-time ceiling of **27 qubits at single precision** (`complex32`), set by a buffer
-binding limit rather than by device memory — so an A100 with 80 GB gets exactly the same 27 as any
-laptop iGPU. The CPU statevector has no equivalent constant (it is RAM-bound, at double precision),
-which makes wgpu strictly _narrower_ than CPU here, corroborating
-[`DEMO.md` §"Terminology hazard"](../mps_trotter_quench_demo/DEMO.md). Against the target sizes:
-
-| Lattice                | Qubits | wgpu `type="gpu"` (cap 27) | MPS / exact TN                      |
-| ---------------------- | ------ | -------------------------- | ----------------------------------- |
-| 4×4                    | 16     | Within width limit         | First TN qualification target       |
-| 5×5                    | 25     | Within width limit         | Not qualified                       |
-| 6×6                    | 36     | Beyond width limit         | Not qualified; full output is 1 TiB |
-| 10×10 (notebook scale) | 100    | Beyond width limit         | Later, unqualified                  |
-
-This is a _structural_ limit, not a resource one, so it is demonstrable by source citation on any
-host — no GPU, and no Vulkan/ICD install, is needed to establish it. (Recorded because the
-development host used for this work runs a headless NVIDIA driver with no Vulkan ICD, so
-`type="gpu"` cannot be exercised there at all; installing the graphics userspace would only
-reproduce the same 27, so it is deliberately not a prerequisite for any step below.)
-
-## 3. Why this is a poor fit for MPS, and what fits instead
-
-```mermaid
-flowchart LR
-    subgraph twod["Actual circuit graph (2D, shallow)"]
-        direction TB
-        a1((•))---a2((•))---a3((•))
-        a1---b1((•))
-        a2---b2((•))
-        a3---b3((•))
-        b1---b2---b3
-        b1---c1((•))
-        b2---c2((•))
-        b3---c3((•))
-        c1---c2---c3
-    end
-
-    subgraph snake["Same lattice, forced into MPS order"]
-        direction LR
-        s1((1))---s2((2))---s3((3))---s4((4))---s5((5))---s6((6))---s7((7))---s8((8))---s9((9))
-        s1-.long range.-s4
-        s2-.long range.-s5
-        s3-.long range.-s6
-        s4-.long range.-s7
-        s5-.long range.-s8
-        s6-.long range.-s9
-    end
-
-    twod -- "snake linearization" --> snake
-
-    style twod fill:#78a0d21f,stroke:#7aa2c8,stroke-width:1.5px
-    style snake fill:#d28c7826,stroke:#c98a6e,stroke-width:1.5px
-
-    classDef siteNode fill:#96969659,stroke:#9aa5b1,stroke-width:1px;
-    class a1,a2,a3,b1,b2,b3,c1,c2,c3,s1,s2,s3,s4,s5,s6,s7,s8,s9 siteNode;
-```
-
-Every dashed edge above is a lattice bond that becomes long-range after
-linearization. Such gates can increase bond dimensions across chain cuts,
-depending on the evolving state. This structural disadvantage is not itself
-an entanglement lower bound or a runtime measurement.
-
-The frozen Case A recursively composes five second-order steps per subdivision,
-then repeats twice. The actual retained input has **12 field layers and 10
-commuting-bond layers, totaling 432 gates**. The earlier estimate of roughly
-80 grouped blocks was not a measurement of this frozen circuit and is superseded
-by its explicit schedule.
-
-**What actually fits:** a **general/exact tensor-network contraction** of the true 2D circuit
-graph — no forced linearization, no MPS bond-dimension truncation. For a circuit this shallow, cost
-tracks the contraction treewidth of the real gate graph, not an artificially imposed 1D bond
-dimension. This is not the same algorithm family as PEPS (which adds boundary-MPS truncation for
-deep/ground-state problems); it's closer to the exact contraction technique used for shallow
-random/structured circuits at scale. cuTensorNet ships the primitives for this (path
-optimization + slicing + execution over arbitrary topology) but the QDK integration only calls its
-MPS-specific `cutensornetStateFinalizeMPS` path today ([`library.rs`](../../../source/cutensornet/src/library.rs),
-[`execution.rs`](../../../source/cutensornet/src/execution.rs)) — there is no PEPS-shaped ansatz to reach for either way; cuTensorNet
-does not ship one.
-
-## 4. Two circuit shapes, one target — convergence evidence
-
-Independent of the contraction backend, the notebook's own Trotter builder gives us two circuits
-that should agree, to within stated Trotter error, on the same physics:
-
-|                             | Construction                                        | Shape                                                             |
-| --------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
-| Case A (as in the notebook) | `order=4, num_divisions=2`                          | Frozen 4x4: 12 field layers + 10 commuting-bond layers, 432 gates |
-| Case B ("standard")         | `order=1, num_divisions=N` (from `target_accuracy`) | Many simple repeated layers, structurally like the 1D demo        |
-
-Both approximate the same $e^{-iHt}$ at $t=1$, but they are different finite
-circuits. Their agreement as subdivision counts increase is convergence evidence,
-not an independent backend oracle: shared implementation errors can affect both.
-The first backend check compares Case A's identical circuit against the independent
-CPU state above. Case B is a later comparison, not an I1 prerequisite.
-
-## 5. Objective
-
-Run **4x4 Case A through the real `run_qir` entry point on A100**, using generic
-cuTensorNet path optimization and contraction, returning ordered terminal shots
-and agreeing with the independent CPU numerical reference for the same circuit.
-The bounded first readout is all 65,536 complex-f64 amplitudes, then probabilities
-and samples. The 1 MiB output does not include contraction workspace.
-
-Exact contraction means no MPS truncation of the finite Trotter circuit, not exact
-Hamiltonian evolution or zero floating-point error. A 6x6 full amplitude output
-alone needs 1 TiB; scalable readout is a separate decision. This adds a new consumer
-and must preserve existing MPS behavior. A/B convergence and larger scaling/field
-campaigns follow the first milestone.
-
-## 6. Iteration plan
-
-Each iteration is independently evidenced before the next begins, following the same discipline as
-[`README.md`'s "Next Integration Iteration"](../../../source/simulators/src/execution/README.md#next-integration-iteration).
-
-```mermaid
-flowchart TB
-    Input["I1: frozen 4x4 Case A<br/>independent CPU amplitudes/probabilities<br/>DELIVERED"] --> Graph
-    Graph["I2: neutral circuit-to-network builder<br/>shared coefficient bank + qualification DELIVERED"] --> Tiny
-    Tiny["I3a: diagnostic + 2x2 + frozen 4x4<br/>native lifecycle/numerics BEFORE interfaces"] --> Full
-    Full["Review native evidence and refine interfaces<br/>broader I3b work remains separate"] --> Wire
-    Wire["I4: public run_qir and terminal shots<br/>A100 evidence + MPS regression"] --> Later
-    Later["Later: Case B convergence<br/>scalable readout and scaling campaigns"]
-```
-
-1. **I1: input and reference.** Delivered above. Keep the original generator,
-   measured Base-QIR input, same-circuit pre-measurement CPU state and bit-order
-   contract. This is not an A100 result.
-2. **I2: neutral network/data builder.** Delivered above using
-   `QuantumEvolutionRegion`, `UnitaryOperation`, `Index`, `Indices`,
-   `TensorNetwork` and `ContractionQuery`. Coefficients remain in an immutable
-   shared bank outside the shapes-only crate. Boundaries, bindings, axis order,
-   connectivity and small analytic contractions are qualified. No optimizer
-   or cost estimate is included.
-3. **I3a then I3b: native contraction.** First qualify native path metadata
-   on tiny asymmetric networks through the reusable
-   [native topology/metadata owner](../../../source/cutensornet/README.md#private-general-network-metadata).
-   Metadata qualification is accepted. Next, run the bounded diagnostic, 2x2
-   and frozen 4x4 numerical experiment described above **before** defining common
-   interfaces. Its private implementation is retained, not throw-away code.
-   Use the resulting native evidence and earlier cross-tool analysis to refine
-   those interfaces, then review before proceeding. Reuse the existing
-   bindings/resource owners; do not substitute the MPS State API.
-4. **I4: public integration.** Add only the needed shared batch/sampling and public
-   wiring. Evidence must include the real A100 `run_qir` route, ordered terminal
-   results, seeded repeatability, distributional correctness and MPS regression.
-   Before public wiring, implement the [per-execution consumer guard](../../../source/simulators/src/execution/README.md#required-i4-consumer-guard):
-   reject a second evolution region, including the same region ID revisited,
-   and quantum evolution after measurement, before reinitializing from zero.
-   Behavioral checks must cover these failures and successful fresh independent
-   executions through the actual consumer/execution route. This guard is an
-   explicit acceptance requirement, not functionality delivered by I2.
-5. **Later comparisons/scaling.** Case B, scalable readout and larger campaigns
-   follow the reviewed milestone. At fixed topology, changing `h` changes tensor
-   values, not the graph of a shapes-only path optimizer.
-
-## 7. Open questions / risks
-
-- **Grouping is recorded, not assumed.** The frozen lattice's edge coloring and
-  the actual Suzuki gate schedule are retained. Historical 10x10 group-count
-  observations do not define the gate count or cost of this 4x4 input.
-- **Topology is not cost evidence.** I2 qualifies the concrete circuit graph,
-  not treewidth or a contraction path. Optimizer/path and workspace evidence
-  belong to I3; shallow depth alone does not establish feasibility.
-- **Feedforward is out of scope, and that's fine here.** The existing MPS consumer rejects
-  mid-circuit measurement with feedforward ([`execution.rs`](../../../source/cutensornet/src/execution.rs), tested explicitly).
-  The Trotter quench circuit has none — measurement happens once, at the end — so this limitation
-  does not apply to this case and does not need to be solved as a prerequisite.
-- **Gate coverage is already present for MPS.** `Rzz` was added in `791a64b5b`;
-  it is not an I1 prerequisite to reimplement. The fixed input uses only `Rx`/`Rzz`.
-  I2 now supplies separate general-TN Rx/Rzz factors; it does not reuse State API buffers.
-- **No profile relaxation is needed.** The original chemistry QIR has no
-  measurements and is tagged Adaptive, but the existing generator recompiles
-  the measured Q# under `TargetProfile.Base`. I1 verifies that tag. Genuine
-  feedforward, noise and broad MPS refactoring remain outside this milestone.
-
-## 8. External validation
-
-An informal Teams comment from a `qdk-chemistry` team member (2026-09-08), on the 1D
-[`DEMO.md`](../mps_trotter_quench_demo/DEMO.md), independently confirmed two claims this document
-relies on, and offers a path that changes iteration 1's plan of record:
-
-> This is a good start - 1D has an analytical solution. 2D is canonically hard for MPS. Depending
-> on the parameterization. If you take J=1 and h=3.03, that's the quantum critical point on a
-> square lattice. Moving away from that will make the problem easier.
->
-> Per the above - you don't need to stand up these circuits yourself. They're in QDK-chemistry. If
-> you'd like a run through, let me know.
-
-- **2D-is-hard-for-MPS (§3)** and the **critical point** (`h_c=3.03` at `J=1`, matching this
-  document's cited $h_c/J \approx 3.044$) are now independently corroborated, not derived from this
-  document's reasoning alone.
-- **Circuit construction**: this does not change iteration 1's plan, which already called for
-  using `qdk_chemistry`'s own builders rather than a hand-rolled generator (§6, item 1). It does
-  mean the fastest path to an unblocked iteration 1 is likely a walkthrough with that team, rather
-  than reverse-engineering the builder settings from the notebook alone.
-
-## 9. cuTensorNet API reference for §6 item 3
+## Appendix B — cuTensorNet general-contraction API reference
 
 **Historical onboarding notes below are not new work instructions.** The generic
 Network/contraction bindings, loader symbols and lifecycle owners already exist.
@@ -756,7 +926,7 @@ scratch later:
   `cutensornetComputeGradientsBackward` (experimental), and
   `cutensornetExpectationComputeWithGradientsBackward` (a gradient-aware extension of the
   `Expectation` API we already have). Relevant only if/when we want variational (VQE-style)
-  optimization rather than one-shot sampling — not needed for §5's objective.
+  optimization rather than one-shot sampling — not needed for this demo.
 - **Mixed-state / density-matrix simulation**: `CUTENSORNET_STATE_PURITY_MIXED`,
   `cutensornetCreateMarginalDiagonal` and related marginal-distribution APIs — for noise/channel
   modeling. Our objective is exact contraction of a pure-state circuit; not needed.
@@ -768,7 +938,7 @@ scratch later:
   backend, not the exact-contraction consumer.
 - **`cutensornetWorkspacePurgeCache`** — minor cache-management utility.
 - **Distributed/multi-GPU (MPI) execution** — relevant only once a single A100 is the bottleneck;
-  no evidence yet (§6, item 5 hasn't run) that it is.
+  no evidence yet that it is.
 
 **Historical onboarding approach (delivered, retained for context):** The general
 State/MPS bindings were originally onboarded through a separate, heavier exploratory worktree
@@ -813,8 +983,8 @@ without adding safety.
   hardware check should follow that split rather than inventing a third convention.
 - **No prior-worktree port available this time.** Earlier additions (`991904397`, `7a539a55c`)
   explicitly ported already-written declarations from a specific commit in `cutensornet-rust-ffi`
-  ("Port ... from eed6e1bbe"). Confirmed that worktree has no Network/contraction work at all (§9
-  above), so these bindings are written fresh from the NVIDIA reference signatures, not ported.
+  ("Port ... from eed6e1bbe"). Confirmed that worktree has no Network/contraction work at all
+  (above), so these bindings are written fresh from the NVIDIA reference signatures, not ported.
 
 The remaining I3a gate is the approved diagnostic/2x2/frozen-4x4 A100 numerical
 sequence, with workspace/lifetime/readback/cleanup and kernel-activity evidence.
