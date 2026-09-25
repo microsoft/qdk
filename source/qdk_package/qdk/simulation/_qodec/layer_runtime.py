@@ -7,13 +7,15 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import TypeVar, cast
 
+from paulimer import DensePauli
 from qodec import Gadget, Layer
 from qodec.instructions import InstructionCall
 
 from .call_binding import BoundCall, InstructionBinding
 from .circuit_runtime import prepare_circuit as prepare_body
+from .clifford_semantics import pauli
 from .encoding_layout import EncodingLayout, layout_boundary
-from .instruction_set import InstructionSet
+from .instruction_set import InstructionSet, UnboundOperation
 from .layer_layout import LayerLayout, LiveBlock
 from .operation_resolution import ResolveOperation, prepare_resolver
 from .protocols import (
@@ -21,6 +23,7 @@ from .protocols import (
     BlockObserver,
     BlockReference,
     Closable,
+    Correction,
     Corrections,
     DecoderSession,
     Invocation,
@@ -41,6 +44,13 @@ from .quantum_operations import (
 from .selection import Selection, prepare_selection
 
 ResultT = TypeVar("ResultT")
+
+
+def _pauli_corrections(
+    block: BlockReference, operator: DensePauli
+) -> Corrections[None]:
+    for target in operator.support:
+        yield Correction((block,), Operation(operator[target].lower(), (target,)))
 
 
 @dataclass(frozen=True)
@@ -265,7 +275,14 @@ class LayerRuntime:
         angle: float | str | None = None,
     ) -> Requests[None]:
         slots = tuple(self._resolve_logical_slot(target) for target in targets)
-        calls = self.plan.resolve(operation, slots, angle)
+        try:
+            calls = self.plan.resolve(operation, slots, angle)
+        except UnboundOperation:
+            logical = self._logical_pauli(operation, slots, angle)
+            if logical is None:
+                raise
+            yield from self._apply_decoder_corrections(_pauli_corrections(*logical))
+            calls = ()
         for call in calls:
             if call.mnemonic not in self.plan.gadgets:
                 raise NotImplementedError(f"No gadget implements {call.mnemonic!r}")
@@ -276,6 +293,36 @@ class LayerRuntime:
         for slot in slots:
             if slot.block in self._occupied:
                 self._occupied[slot.block].add(slot.index)
+
+    def _logical_pauli(
+        self,
+        operation: str,
+        slots: Sequence[LogicalSlot],
+        angle: float | str | None,
+    ) -> tuple[BlockReference, DensePauli] | None:
+        """The code's logical operator for a Pauli the ISA does not declare.
+
+        Logical Paulis are commonly left out of an ISA and tracked as frame
+        updates. Without an instruction, the Pauli is applied as the layer code's
+        logical operator on the block's qubits in the layer below, the same way
+        decoder corrections are, so each lower layer resolves it in turn.
+        """
+        if operation not in ("x", "y", "z") or angle is not None or len(slots) != 1:
+            return None
+        (slot,) = slots
+        code = self.plan.codes.get(slot.block_type)
+        if code is None or not 0 <= slot.index < len(code.x):
+            return None
+        block = self.layout.blocks.get(slot.block)
+        if block is None:
+            raise ValueError(f"Input block {slot.block!r} has not been prepared")
+        width = code.physical_qubit_count
+        operator = pauli("", width)
+        if operation in ("x", "y"):
+            operator *= pauli(code.x[slot.index], width)
+        if operation in ("z", "y"):
+            operator *= pauli(code.z[slot.index], width)
+        return block.reference, operator
 
     def measure(self, target: int | str | LogicalSlot) -> Requests[bool | None]:
         slot = self._resolve_logical_slot(target)
