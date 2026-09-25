@@ -1967,6 +1967,7 @@ dependencies = [
  "miette",
  "num-bigint",
  "num-complex",
+ "qdk_simulators",
  "qsc_codegen",
  "qsc_data_structures",
  "qsc_eval",

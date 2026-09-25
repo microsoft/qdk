@@ -92,4 +92,8 @@ export interface GateRenderData {
     localScope: LayoutScope;
     childScopes: Map<string, LayoutScope>;
   };
+  /** Gate error probability. */
+  gateError?: number;
+  /** Error probabilities to display on output wires after this gate. */
+  outputErrors?: { y: number; probability: number }[];
 }
