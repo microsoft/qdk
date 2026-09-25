@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from typing import cast, Literal, TypeAlias, TypeVar
 
-from pyqir import Module
 from qodec import Qodec
 
 from ..._adaptive_pass import AdaptiveProgram
@@ -64,11 +63,14 @@ def run_qir_with_qodec(
     recorder = OutputRecordingPass()
     recorder.run(module)
     _validate_shot_policy(on_shot_failure, max_retries)
+    program = compile(
+        module, executor.pipeline_factory.program_instructions.declarations
+    )
     records = None
     if shots > 0 and on_shot_failure != "retry":
         from .native_batch import prepare_batch
 
-        batch = prepare_batch(compile(module), executor.pipeline_factory)
+        batch = prepare_batch(program, executor.pipeline_factory)
         if batch is not None:
             try:
                 records = batch.run(
@@ -80,7 +82,7 @@ def run_qir_with_qodec(
                 records = None
     if records is None:
         records = run_qir_raw_records(
-            module,
+            program,
             executor,
             shots,
             on_shot_failure=on_shot_failure,
@@ -100,7 +102,7 @@ def _validate_shot_policy(on_shot_failure: ShotFailurePolicy, max_retries: int) 
 
 
 def run_qir_raw_records(
-    module: Module,
+    bytecode: AdaptiveProgram,
     executor: Executor[AdaptiveProgram, ResultT],
     shots: int,
     *,
@@ -108,7 +110,6 @@ def run_qir_raw_records(
     max_retries: int = 3,
 ) -> list[ResultT]:
     _validate_shot_policy(on_shot_failure, max_retries)
-    bytecode = compile(module)
     records: list[ResultT] = []
     for shot_index in range(shots):
         for attempt in range(max_retries + 1):

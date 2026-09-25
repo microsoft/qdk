@@ -21,6 +21,7 @@ from random import Random
 from typing import Literal, TypeVar, cast
 
 from qdk import Result
+from qodec.instructions import InstructionCall
 
 from ..._adaptive_bytecode import (
     OP_PEEK_LOSS,
@@ -55,11 +56,18 @@ from .protocols import (
     Invocation,
     ReadoutBatch,
     Readouts,
+    Request,
     Requests,
     Resources,
 )
 from .quantum_backend import stabilizer_backend
-from .quantum_operations import FrameUpdate, LogicalSlot, Operation, local_indices
+from .quantum_operations import (
+    FrameUpdate,
+    LogicalSlot,
+    Operation,
+    RestoreMeasured,
+    local_indices,
+)
 from .readout_equations import InconsistentParity
 from .selection import Selection, prepare_selection
 
@@ -262,6 +270,12 @@ class _RecordingRuntime(AdaptiveRuntime):
         self.measured.add(target)
         super().mz(target, result_id)
 
+    def instruction(self, call: InstructionCall, results: Sequence[int]) -> None:
+        for result_id in results:
+            self.result_sources[result_id] = self.measurements
+            self.measurements += 1
+        super().instruction(call, results)
+
     def result(self, result_id: int) -> Result:
         self.output_sources.append(self.result_sources.get(result_id))
         return cast(Result, Result.Zero)
@@ -297,6 +311,16 @@ class _RecordingLayer(LayerRuntime):
         super().__init__(plan, decoder)
         self.recorder = decoder
         self.sources: list[tuple[int, int]] = []
+
+    def handle(self, request: Request) -> Requests[Readouts]:
+        if isinstance(request, RestoreMeasured):
+            # Restoring a measured qubit makes the trace depend on its outcome.
+            raise _NotBatchable
+        readouts = yield from super().handle(request)
+        if isinstance(request, InstructionCall):
+            count = self.plan.bindings[request.mnemonic].observe_count
+            self.sources.extend((self.recorder.latest, index) for index in range(count))
+        return readouts
 
     def measure(self, target: int | str | LogicalSlot) -> Requests[bool | None]:
         readouts, index = yield from self._measure_readouts(target)
@@ -727,7 +751,7 @@ def _trace(
     pipeline = ExecutionPipeline(
         runtime,
         [
-            LogicalQubits(),
+            LogicalQubits(factory.program_instructions),
             layer,
             InstructionRuntime(
                 factory.physical, operations=factory.physical_operations

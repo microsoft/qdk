@@ -5,6 +5,8 @@ import operator
 import struct
 from typing import Callable, Dict, List, Protocol, Sequence, Tuple, TypeAlias, Union
 
+from qodec.instructions import InstructionCall
+
 from ..._adaptive_bytecode import *
 from ..._adaptive_pass import (
     CORRELATED_NOISE_OP_ID,
@@ -12,6 +14,7 @@ from ..._adaptive_pass import (
     AdaptiveProgram,
     Instruction,
 )
+from .bytecode import INSTRUCTION_CALL_OP_ID, QodecProgram
 
 _MASK64 = 0xFFFF_FFFF_FFFF_FFFF
 _SIGN64 = 0x8000_0000_0000_0000
@@ -78,6 +81,9 @@ class QuantumSink(Protocol):
     def correlated_noise_intrinsic(
         self, intrinsic_id: int, targets: Sequence[int]
     ) -> None: ...
+    def instruction(self, call: InstructionCall, results: Sequence[int]) -> None:
+        """Invoke an ISA instruction by name, recording its outcomes in ``results``."""
+        ...
 
     def result(self, result_id: int) -> Result:
         """Outcome recorded for ``result_id``, or ``Result.Zero`` if unmeasured."""
@@ -335,6 +341,8 @@ class _Interpreter:
             args = self._program.call_args
             targets = [self._registers[args[offset + i]] for i in range(count)]
             sink.correlated_noise_intrinsic(op.q1, targets)
+        elif op_id == INSTRUCTION_CALL_OP_ID:
+            sink.instruction(*self._instruction_call(op.q1, instr))
         elif op_id in _ONE_QUBIT_GATES:
             getattr(sink, _ONE_QUBIT_GATES[op_id])(self._u(instr.aux1, instr.opcode, 4))
         elif op_id in _TWO_QUBIT_GATES:
@@ -356,6 +364,40 @@ class _Interpreter:
         else:
             raise ValueError(f"unsupported quantum gate op_id={op_id}")
         self._pc += 1
+
+    def _instruction_call(
+        self, site_index: int, instr: Instruction
+    ) -> Tuple[InstructionCall, Tuple[int, ...]]:
+        if not isinstance(self._program, QodecProgram):
+            raise ValueError("Instruction calls require a qodec-compiled program")
+        site = self._program.instruction_calls[site_index]
+        count = self._u(instr.aux1, instr.opcode, 4)
+        offset = self._u(instr.aux2, instr.opcode, 5)
+        args = self._program.call_args
+        operands: List[int | str] = []
+        results: List[int] = []
+        values: List[bool | int | float] = []
+        for i, kind in zip(range(count), site.arguments):
+            value = self._registers[args[offset + i]]
+            if kind == "qubit":
+                operands.append(value)
+            elif kind == "result":
+                results.append(value)
+            elif kind == "bool":
+                values.append(value != 0)
+            elif kind == "int":
+                values.append(_as_i64(value))
+            else:
+                values.append(_bits_to_f64(value))
+        call = InstructionCall(
+            site.mnemonic,
+            operands=operands,
+            arguments=dict(zip(site.parameters, values)),
+        )
+        if site.flags:
+            # The program cannot observe flags, so a raised flag rejects the shot.
+            call.select = [dict.fromkeys(site.flags, 0)]
+        return call, tuple(results)
 
     def _op_measure(self, instr: Instruction) -> None:
         op_id = self._program.quantum_ops[instr.aux0].op_id

@@ -78,9 +78,7 @@ def test_qodec_selects_encoded_runner(
     )
 
 
-@pytest.mark.parametrize(
-    "options", [{"on_shot_failure": "raise"}, {"max_retries": 0}]
-)
+@pytest.mark.parametrize("options", [{"on_shot_failure": "raise"}, {"max_retries": 0}])
 def test_shot_failure_options_require_a_qodec(options):
     with pytest.raises(ValueError, match="require a Qodec"):
         run_qir("", **options)
@@ -235,6 +233,11 @@ def test_public_qodec_runner_matches_adaptive_physical_results(
     )
 
 
+@pytest.mark.xfail(
+    raises=ValueError,
+    strict=True,
+    reason="build_qodec does not yet name its instructions after QIR gates",
+)
 @pytest.mark.parametrize("complete", [False, True])
 def test_generated_qodec_runs_without_serialization(complete):
     qodec = pytest.importorskip("qodec")
@@ -254,69 +257,171 @@ def test_generated_qodec_runs_without_serialization(complete):
     qsharp.init(target_profile=TargetProfile.Base)
     qir = qsharp.compile("{ use q = Qubit(); M(q) }")
 
-    assert run_qir(
-        qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise"
-    ) == [Result.Zero] * 3
+    assert (
+        run_qir(qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise")
+        == [Result.Zero] * 3
+    )
 
 
 @pytest.mark.parametrize(
-    "fixture, program, expected",
-    [
-        ("steane/qodec.yaml", "X(a); MResetZ(a)", "One"),
-        ("steane/qodec.yaml", "Y(a); MResetZ(a)", "One"),
-        ("steane/qodec.yaml", "H(a); Z(a); H(a); MResetZ(a)", "One"),
-        (
-            "steane/qodec.yaml",
-            "X(a); CNOT(a, b); [MResetZ(a), MResetZ(b)]",
-            "[One, One]",
-        ),
-        ("c4c6/qodec.yaml", "X(a); MResetZ(a)", "One"),
-        ("c4c6/qodec.yaml", "X(a); Z(a); Y(a); MResetZ(a)", "Zero"),
-    ],
+    "program, name",
+    [("H(q); MResetZ(q)", "h"), ("S(q); MResetZ(q)", "s"), ("Reset(q)", "reset")],
 )
-def test_logical_paulis_without_instructions_apply_the_code_operators(
-    fixture, program, expected
-):
+def test_quantum_calls_require_an_instruction_of_the_same_name(program, name):
     qodec = pytest.importorskip("qodec")
-    pytest.importorskip("stim")
     from ec_tests.runtime import FIXTURES
     from qdk import TargetProfile, qsharp
+    from qdk.simulation._qodec.bytecode import UnknownInstruction
 
     qsharp.init(target_profile=TargetProfile.Adaptive)
-    qir = qsharp.compile(f"{{ use (a, b) = (Qubit(), Qubit()); {program} }}")
-    codec = qodec.Qodec.load(str(FIXTURES / fixture))
+    qir = qsharp.compile(f"{{ use q = Qubit(); {program} }}")
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
 
-    results = run_qir(qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise")
-    assert [str(result) for result in results] == [expected] * 3
+    with pytest.raises(UnknownInstruction, match=f"instruction named '{name}'"):
+        run_qir(qir, qodec=codec)
 
 
-def test_generated_qodec_applies_logical_paulis_as_code_operators():
-    qodec = pytest.importorskip("qodec")
-    pytest.importorskip("stim")
-    ec = pytest.importorskip("qdk.ec")
+_REPETITION3_X = (
+    "x.gadget.yaml:\n  circuit:\n    source: [{X: [0]}, {X: [1]}, {X: [2]}]\n"
+)
+
+_REPETITION3_FRAME_X = (
+    "x.gadget.yaml:\n"
+    "  circuit: {source: []}\n"
+    "  checks:\n"
+    '    - ["in[0].stabilizers[0]", "out[0].stabilizers[0]"]\n'
+    '    - ["in[0].stabilizers[1]", "out[0].stabilizers[1]"]\n'
+    "  frames:\n"
+    "    out[0].z[0]: [1]\n"
+)
+
+
+def test_program_intrinsics_invoke_instructions_by_name(tmp_path):
+    pytest.importorskip("qodec")
     from qdk import Result, TargetProfile, qsharp
 
-    code = qodec.Code(
-        "repetition3",
-        stabilizers=["Z_0 Z_1", "Z_1 Z_2"],
-        x=["X_0 X_1 X_2"],
-        z=["Z_0"],
+    # ``flip`` is the fixture's logical X under a name only a Q# intrinsic uses.
+    codec = _repetition3_variant(
+        tmp_path,
+        ("    - mnemonic: x\n", "    - mnemonic: flip\n"),
+        ("        x: x.gadget.yaml\n", "        flip: x.gadget.yaml\n"),
     )
-    codec = ec.build_qodec(code, strategy="bare-css/v1", strict=False)
-    assert not {"x", "y", "z"} & set(codec.layers[0].instruction_set.instructions)
     qsharp.init(target_profile=TargetProfile.Adaptive)
-    qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
+    qsharp.eval("operation flip(q : Qubit) : Unit { body intrinsic; }")
+    qir = qsharp.compile(
+        "{ use q = Qubit(); flip(q); let r = M(q); flip(q); [r, M(q)] }"
+    )
 
     assert (
         run_qir(qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise")
-        == [Result.One] * 3
+        == [[Result.One, Result.Zero]] * 3
     )
 
 
-def test_single_qubits_run_on_blocks_that_encode_two_logical_qubits():
+def test_measurement_intrinsics_return_instruction_outcomes(tmp_path):
     pytest.importorskip("qodec")
+    from qdk import Result, TargetProfile, qsharp
+
+    codec = _repetition3_variant(
+        tmp_path,
+        ("    - mnemonic: m\n", "    - mnemonic: MyCustomMeasurement\n"),
+        ("        m: m.gadget.yaml\n", "        MyCustomMeasurement: m.gadget.yaml\n"),
+    )
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qsharp.eval("""
+        @Measurement()
+        operation MyCustomMeasurement(q : Qubit) : Result { body intrinsic; }
+    """)
+    qir = qsharp.compile("""{
+        use (a, b) = (Qubit(), Qubit());
+        X(a);
+        [MyCustomMeasurement(a), MyCustomMeasurement(b)]
+    }""")
+
+    assert (
+        run_qir(qir, shots=3, seed=7, qodec=codec, on_shot_failure="raise")
+        == [[Result.One, Result.Zero]] * 3
+    )
+
+
+def test_program_intrinsic_arguments_bind_operands_and_parameters():
+    qodec = pytest.importorskip("qodec")
+    from ec_tests.runtime import FIXTURES
+    from qdk.simulation._qodec.adaptive_runtime import AdaptiveRuntime
+    from qdk.simulation._qodec.bytecode import compile
+    from qdk.simulation._simulation import preprocess_simulation_input
+    from qodec.instructions import InstructionCall
+
+    module, _, _, _ = preprocess_simulation_input("""
+        %Qubit = type opaque
+        define i64 @main() #0 {
+          call void @__quantum__qis__turn__body(double 0.5, %Qubit* inttoptr (i64 1 to %Qubit*))
+          ret i64 0
+        }
+        declare void @__quantum__qis__turn__body(double, %Qubit*)
+        attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
+    """)
+    isa = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
+    declarations = dict(isa.instruction_set.instructions)
+    rotation = declarations["rz"]
+    declarations["turn"] = qodec.Instruction(
+        "turn",
+        inputs=rotation.inputs,
+        outputs=rotation.outputs,
+        parameters=rotation.parameters,
+        action=rotation.action,
+    )
+    requests = AdaptiveRuntime(initialize=False).run(compile(module, declarations))
+
+    assert next(requests) == InstructionCall(
+        "turn", operands=[1], arguments={"theta": 0.5}
+    )
+
+
+@pytest.mark.parametrize(
+    "callee, signature, arguments, message",
+    [
+        ("rz", "%Qubit*, %Qubit*", "%Qubit* null, %Qubit* null", "takes 1 block"),
+        ("rz", "%Qubit*", "%Qubit* null", "takes 1 parameters"),
+        ("rz", "i64, %Qubit*", "i64 1, %Qubit* null", None),
+        ("rz", "i1, %Qubit*", "i1 true, %Qubit* null", "expects number, but .* bool"),
+        ("m", "%Qubit*", "%Qubit* null", "takes 1 block operands and reports 1"),
+        ("m", "", "", "reports 1 outcomes, but .* only 0"),
+    ],
+)
+def test_program_intrinsics_must_match_the_instruction_signature(
+    callee, signature, arguments, message
+):
+    qodec = pytest.importorskip("qodec")
+    from ec_tests.runtime import FIXTURES
+    from qdk.simulation._qodec.bytecode import compile
+    from qdk.simulation._simulation import preprocess_simulation_input
+
+    module, _, _, _ = preprocess_simulation_input(f"""
+        %Qubit = type opaque
+        define i64 @main() #0 {{
+          call void @{callee}({arguments})
+          ret i64 0
+        }}
+        declare void @{callee}({signature})
+        attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }}
+    """)
+    declarations = (
+        qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+        .layers[0]
+        .instruction_set.instructions
+    )
+    if message is None:
+        assert compile(module, declarations).instruction_calls[0].mnemonic == callee
+    else:
+        with pytest.raises((TypeError, ValueError), match=message):
+            compile(module, declarations)
+
+
+def test_single_qubits_run_on_blocks_that_encode_two_logical_qubits():
+    qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")
-    from ec_tests.testing.qodecs import c4
+    from ec_tests.runtime import FIXTURES
     from qdk import Result, TargetProfile, qsharp
 
     qsharp.init(target_profile=TargetProfile.Adaptive)
@@ -330,16 +435,21 @@ def test_single_qubits_run_on_blocks_that_encode_two_logical_qubits():
 
     assert (
         run_qir(
-            qir, shots=3, seed=7, type="clifford", qodec=c4(), on_shot_failure="raise"
+            qir,
+            shots=3,
+            seed=7,
+            type="clifford",
+            qodec=qodec.Qodec.load(str(FIXTURES / "c4.qodec.yaml")),
+            on_shot_failure="raise",
         )
         == [[Result.One, Result.Zero, Result.Zero, Result.One]] * 3
     )
 
 
 def test_raised_preparation_flags_follow_the_shot_failure_policy():
-    pytest.importorskip("qodec")
+    qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")
-    from ec_tests.testing.qodecs import c4
+    from ec_tests.runtime import FIXTURES
     from qdk import TargetProfile, qsharp
     from qdk.simulation.decoders import ExecutionRejected
 
@@ -347,7 +457,7 @@ def test_raised_preparation_flags_follow_the_shot_failure_policy():
     qir = qsharp.compile("{ use q = Qubit(); MResetZ(q) }")
     noise = NoiseConfig()
     noise.cx.set_depolarizing(0.2)
-    codec = c4()
+    codec = qodec.Qodec.load(str(FIXTURES / "c4.qodec.yaml"))
 
     def run(policy):
         return run_qir(
@@ -486,21 +596,14 @@ def test_decoder_corrections_are_noiseless_frame_updates(tmp_path, options):
 
 
 @pytest.mark.parametrize("options", _EXECUTION_PATHS)
-def test_logical_paulis_without_instructions_are_noiseless_frame_updates(options):
-    qodec = pytest.importorskip("qodec")
-    pytest.importorskip("stim")
-    ec = pytest.importorskip("qdk.ec")
+def test_frame_gadgets_apply_logical_paulis_noiselessly(tmp_path, options):
+    pytest.importorskip("qodec")
     from qdk import Result, TargetProfile, qsharp
 
-    code = qodec.Code(
-        "repetition3",
-        stabilizers=["Z_0 Z_1", "Z_1 Z_2"],
-        x=["X_0 X_1 X_2"],
-        z=["Z_0"],
-    )
-    codec = ec.build_qodec(code, strategy="bare-css/v1", strict=False)
+    # Every physical X gate loses its qubit, so only a frame update keeps the data.
+    codec = _repetition3_variant(tmp_path, (_REPETITION3_X, _REPETITION3_FRAME_X))
     noise = NoiseConfig()
-    noise.x.x = 1
+    noise.x.loss = 1
     qsharp.init(target_profile=TargetProfile.Base)
     qir = qsharp.compile("{ use q = Qubit(); X(q); M(q) }")
 
@@ -681,7 +784,6 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency):
 def test_shot_failure_policy_preserves_order_and_attempt_count(policy, failure_type):
     pytest.importorskip("qodec")
     from qdk.simulation._qodec import _run
-    from qdk.simulation._simulation import preprocess_simulation_input
 
     failure = getattr(_run, failure_type)("failed shot")
     outcomes = iter(["first", failure, "second", "third"])
@@ -698,18 +800,15 @@ def test_shot_failure_policy_preserves_order_and_attempt_count(policy, failure_t
                 raise outcome
             return outcome
 
-    module, _, _, _ = preprocess_simulation_input("""
-        define void @main() #0 { ret void }
-        attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
-    """)
+    program = object()
     if policy == "raise":
         with pytest.raises(type(failure)) as raised:
-            _run.run_qir_raw_records(module, Executor(), 3, on_shot_failure=policy)
+            _run.run_qir_raw_records(program, Executor(), 3, on_shot_failure=policy)
         assert raised.value is failure
         assert len(attempts) == 2
     else:
         records = _run.run_qir_raw_records(
-            module, Executor(), 3, on_shot_failure=policy
+            program, Executor(), 3, on_shot_failure=policy
         )
         assert records == (
             ["first", "second"] if policy == "discard" else ["first", "second", "third"]
@@ -724,7 +823,6 @@ def test_shot_failure_policy_preserves_order_and_attempt_count(policy, failure_t
 def test_shot_failure_policy_does_not_catch_execution_errors(policy, error_type):
     pytest.importorskip("qodec")
     from qdk.simulation._qodec._run import run_qir_raw_records
-    from qdk.simulation._simulation import preprocess_simulation_input
 
     failure = error_type("backend failed")
 
@@ -732,10 +830,7 @@ def test_shot_failure_policy_does_not_catch_execution_errors(policy, error_type)
         def run(self, program):
             raise failure
 
-    module, _, _, _ = preprocess_simulation_input("""
-        define void @main() #0 { ret void }
-        attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
-    """)
+    program = object()
     with pytest.raises(error_type) as raised:
-        run_qir_raw_records(module, Executor(), 1, on_shot_failure=policy)
+        run_qir_raw_records(program, Executor(), 1, on_shot_failure=policy)
     assert raised.value is failure

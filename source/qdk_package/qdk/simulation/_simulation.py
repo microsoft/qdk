@@ -821,14 +821,20 @@ def run_qir(
         The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
         With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
         ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
+        Each QIR quantum call runs the instruction of the Qodec's top instruction
+        set that shares its name, so ``__quantum__qis__h__body`` runs ``h`` and
+        ``__quantum__qis__mresetz__body`` runs ``mresetz``; a call without such an
+        instruction is an error. A declared callee named after an instruction,
+        such as a Q# ``body intrinsic`` operation, runs it too. Qubit arguments
+        bind the instruction's block operands, measurement results receive its
+        outcomes, and other arguments bind its parameters in order.
         Each program qubit gets its own block; when a block encodes several
         logical qubits, the unused ones may be prepared and measured alongside it.
-        Instructions with flags are used only when no unflagged one fits, and a
-        raised flag fails the shot (see ``on_shot_failure``). A logical X, Y, or Z
-        without a matching instruction becomes the layer code's logical operator
-        on the layer below. Such logical Paulis and single-qubit Pauli decoder
-        corrections are tracked in a noiseless Pauli frame rather than run as
-        gates.
+        Qubit preparation and restoring a destructively measured qubit use the
+        instructions whose declared actions match. A raised instruction flag
+        fails the shot (see ``on_shot_failure``). Single-qubit Pauli decoder
+        corrections, and gadget frame updates, are tracked in a noiseless Pauli
+        frame rather than run as gates.
     :param decoder: EXPERIMENTAL
         A ``PrepareDecoder`` callable that prepares a decoder factory for
         each Qodec layer. ``None`` selects the built-in syndrome decoder.

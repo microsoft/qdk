@@ -309,6 +309,9 @@ class InstructionSet:
             (name, arguments) for rank, name, arguments in matches if rank == best
         ]
         if len(chosen) > 1:
+            # Among equivalent instructions, one named after the operation wins.
+            chosen = [match for match in chosen if match[0] == operation] or chosen
+        if len(chosen) > 1:
             raise ValueError(f"Ambiguous {operation!r} binding in ISA {self.name!r}")
         return chosen[0]
 
@@ -429,15 +432,15 @@ class InstructionRuntime:
                 raise RuntimeError(
                     "Measured-state restoration requires physical startup resources"
                 )
-            label = (
-                request.target.block
+            slot = (
+                request.target
                 if isinstance(request.target, LogicalSlot)
-                else request.target
+                else LogicalSlot(request.target, 0, self.instructions.block_type)
             )
-            if label not in self.layout.blocks:
-                yield from self.handle(Operation("prepare", (request.target,)))
+            if slot.block not in self.layout.blocks:
+                yield from self.handle(Operation("prepare", (slot,)))
                 if request.value:
-                    yield from self.handle(Operation("x", (request.target,)))
+                    yield from self.handle(Operation("x", (slot,)))
             return ()
         if isinstance(request, FrameUpdate):
             if self.layout is None:

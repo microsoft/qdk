@@ -312,8 +312,9 @@ class LayerRuntime:
     ) -> tuple[BlockReference, DensePauli] | None:
         """The code's logical operator for a Pauli the ISA does not declare.
 
-        Logical Paulis are commonly left out of an ISA and tracked as frame
-        updates. Without an instruction, the Pauli becomes the layer code's
+        Program calls name their instructions, but the runtime also needs
+        Paulis of its own, such as restoring a measured value or a frame
+        update. Without an instruction, such a Pauli becomes the layer code's
         logical operator on the block's qubits in the layer below, tracked in
         the Pauli frame like decoder corrections, so each lower layer resolves
         it in turn.
@@ -639,7 +640,7 @@ class LayerRuntime:
 
     def _map_circuit_target(
         self,
-        target: int | LogicalSlot,
+        target: int | str | LogicalSlot,
         gadget_plan: GadgetPlan,
         circuit_placement: Mapping[str, int],
     ) -> int | LogicalSlot:

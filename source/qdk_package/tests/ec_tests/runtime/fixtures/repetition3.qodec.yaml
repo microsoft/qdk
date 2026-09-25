@@ -16,8 +16,9 @@ qodec.yaml:
       gadgets:
         prepare_z: prepare_z.gadget.yaml
         idle: idle.gadget.yaml
-        measure_z: measure_z.gadget.yaml
-        rotate_z: rotate_z.gadget.yaml
+        m: m.gadget.yaml
+        mresetz: mresetz.gadget.yaml
+        rz: rz.gadget.yaml
         x: x.gadget.yaml
         y: y.gadget.yaml
         z: z.gadget.yaml
@@ -36,11 +37,16 @@ repetition3.isa.yaml:
       description: One syndrome-extraction round (identity logical action).
       in: [repetition3]
       out: [repetition3]
-    - mnemonic: measure_z
+    - mnemonic: m
       description: Destructive Z-basis measurement of the logical Z observable.
       in: [repetition3]
       action: [observe: Z_0]
-    - mnemonic: rotate_z
+    - mnemonic: mresetz
+      description: Z-basis measurement of the logical Z observable, then reset to |0>.
+      in: [repetition3]
+      out: [repetition3]
+      action: [observe: Z_0, stabilize: Z_0]
+    - mnemonic: rz
       description: Logical Z-axis rotation by theta radians (non-Clifford for generic theta).
       in: [repetition3]
       out: [repetition3]
@@ -126,14 +132,22 @@ idle.gadget.yaml:
     - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
     - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
 ---
-measure_z.gadget.yaml:
+m.gadget.yaml:
   circuit: {format: stim, source: "M 0 1 2"}
   checks:
     - ["circuit.readouts[0]", "circuit.readouts[1]", "in[0].stabilizers[0]"]
     - ["circuit.readouts[1]", "circuit.readouts[2]", "in[0].stabilizers[1]"]
   readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
 ---
-rotate_z.gadget.yaml:
+mresetz.gadget.yaml:
+  circuit:
+    source: [{M: [0]}, {M: [1]}, {M: [2]}, {R: [0]}, {R: [1]}, {R: [2]}]
+  checks:
+    - ["circuit.readouts[0]", "circuit.readouts[1]", "in[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "circuit.readouts[2]", "in[0].stabilizers[1]"]
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+---
+rz.gadget.yaml:
   circuit:
     source: [rotate_z: [0, theta: theta]]
   parameter_bindings: {theta: circuit.source.theta}

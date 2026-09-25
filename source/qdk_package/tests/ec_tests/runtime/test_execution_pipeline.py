@@ -1,6 +1,6 @@
-from . import FIXTURES
+from . import FIXTURES, physical_qodec
 from contextlib import closing
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import qdk
 import qdk.openqasm
@@ -38,7 +38,6 @@ def prepare_code_decoder(request):
 def test_raw_shot_failure_policy_discards_by_default(monkeypatch, error_name):
     from qdk.simulation._qodec import _run
 
-    monkeypatch.setattr(_run, "compile", Mock())
     failure = getattr(_run, error_name)("failed shot")
     executor = Mock()
     executor.run.side_effect = [failure, "accepted"]
@@ -56,7 +55,6 @@ def test_raw_shot_failure_policy_limits_retries(
     from qdk.simulation._qodec import _run
     from qdk.simulation._qodec.readout_equations import InconsistentParity
 
-    monkeypatch.setattr(_run, "compile", Mock())
     monkeypatch.setattr(_run, "sys", SimpleNamespace(version_info=python_version))
     failure = InconsistentParity("unrecoverable check")
     executor = Mock()
@@ -78,13 +76,11 @@ def test_raw_shot_failure_policy_limits_retries(
     executor.set_seed.assert_not_called()
 
 
-def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
+def test_raw_shot_retry_budget_resets_for_each_requested_shot():
     from qdk.simulation._qodec import _run
     from qdk.simulation._qodec.protocols import ExecutionRejected
 
-    program = object()
-    compile_program = Mock(return_value=program)
-    monkeypatch.setattr(_run, "compile", compile_program)
+    program = Mock()
     executor = Mock()
     executor.run.side_effect = [
         ExecutionRejected(),
@@ -92,9 +88,8 @@ def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
         ExecutionRejected(),
         "second",
     ]
-    module = Mock()
     assert _run.run_qir_raw_records(
-        module,
+        program,
         executor,
         2,
         on_shot_failure="retry",
@@ -102,7 +97,6 @@ def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
     ) == ["first", "second"]
     assert executor.run.call_count == 4
     assert all(call.args == (program,) for call in executor.run.call_args_list)
-    compile_program.assert_called_once_with(module)
     executor.set_seed.assert_not_called()
 
 
@@ -115,17 +109,12 @@ def test_raw_shot_retry_budget_resets_for_each_requested_shot(monkeypatch):
         {"max_retries": True},
     ],
 )
-def test_raw_shot_policy_rejects_invalid_configuration_before_execution(
-    monkeypatch, options
-):
+def test_raw_shot_policy_rejects_invalid_configuration_before_execution(options):
     from qdk.simulation._qodec import _run
 
-    compile_program = Mock()
-    monkeypatch.setattr(_run, "compile", compile_program)
     executor = Mock()
     with pytest.raises(ValueError):
         _run.run_qir_raw_records(Mock(), executor, 1, **options)
-    compile_program.assert_not_called()
     executor.run.assert_not_called()
     executor.set_seed.assert_not_called()
 
@@ -165,7 +154,7 @@ def test_qir_shot_failure_policy_restarts_and_closes_lost_shots(
         instances.append(backend)
         return backend
 
-    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).slice(1, 2)
+    codec = physical_qodec()
     qir = qdk.openqasm.compile(
         'include "stdgates.inc"; qubit target; x target; bit result = measure target;',
         target_profile=qdk.TargetProfile.Adaptive,
@@ -194,7 +183,8 @@ def test_qir_shot_failure_policy_restarts_and_closes_lost_shots(
         assert len({instance.seed for instance in instances}) == attempts
         assert all(instance.closed for instance in instances)
         assert all(
-            instance.operations == ["prepare", "x", "measure"] for instance in instances
+            instance.operations == ["prepare", "x", "measure", "discard"]
+            for instance in instances
         )
         seeds.append([instance.seed for instance in instances])
         instances.clear()
@@ -217,7 +207,7 @@ def test_qir_shot_failure_policy_handles_encoded_decoding_failures(
         noise.x.loss = 1
         error_type = ExecutionUnresolved
     else:
-        gadget = codec.layers[0].gadgets["measure_z"]
+        gadget = codec.layers[0].gadgets["m"]
         gadget.checks = [*gadget.checks, ["circuit.readouts[0]"]]
         error_type = InconsistentParity
     qir = qdk.openqasm.compile(
@@ -258,8 +248,15 @@ def test_shot_policy_does_not_retry_preparation_failures(monkeypatch, policy):
     compile_program = Mock(side_effect=failure)
     monkeypatch.setattr(_run, "compile", compile_program)
     executor = Mock()
+    executor_type = MagicMock()
+    executor_type.__getitem__.return_value = Mock(return_value=executor)
+    monkeypatch.setattr(_run, "Executor", executor_type)
+    qir = """
+        define void @main() #0 { ret void }
+        attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+    """
     with pytest.raises(InconsistentParity) as raised:
-        _run.run_qir_raw_records(Mock(), executor, 2, on_shot_failure=policy)
+        _run.run_qir_with_qodec(qir, Mock(), None, shots=2, on_shot_failure=policy)
     assert raised.value is failure
     assert compile_program.call_count == 1
     executor.run.assert_not_called()
@@ -395,7 +392,7 @@ def test_decoder_contract_supports_correction_replies_and_distinct_flags():
     gadget = (
         qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
         .layers[0]
-        .gadgets["measure_z"]
+        .gadgets["m"]
     )
     requests = decoder.decode(invocation_for(gadget), (None, False, False))
     with closing(requests):
@@ -493,7 +490,7 @@ def test_circuit_preparation_contract_is_independent_of_source_format():
     gadget = (
         qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
         .layers[0]
-        .gadgets["measure_z"]
+        .gadgets["m"]
     )
     circuit = Circuit(gadget.circuit.instruction_set, "opaque source", format="custom")
     prepare_circuit: PrepareCircuit = prepare
@@ -530,18 +527,18 @@ def test_native_instruction_program_preserves_flags_and_rejection(flag, reject_f
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
     layer = codec.layers[0]
-    original = layer.gadgets["measure_z"]
+    original = layer.gadgets["m"]
     instruction = qodec.Instruction(
-        "measure_z",
+        "m",
         inputs=original.implements.inputs,
         action=original.implements.action,
         flags=["reject"],
     )
     declarations = layer.instruction_set.instructions
-    declarations["measure_z"] = instruction
+    declarations["m"] = instruction
     layer.instruction_set.instructions = declarations
     gadgets = layer.gadgets
-    gadgets["measure_z"] = qodec.Gadget(
+    gadgets["m"] = qodec.Gadget(
         instruction,
         original.circuit,
         inputs=original.inputs,
@@ -561,7 +558,7 @@ def test_native_instruction_program_preserves_flags_and_rejection(flag, reject_f
 
         def run(self, program: bool) -> Requests[Readouts]:
             yield InstructionCall("prepare_z", operands=[0])
-            readouts = yield InstructionCall("measure_z", operands=[0])
+            readouts = yield InstructionCall("m", operands=[0])
             if readouts is None:
                 raise TypeError("Missing call reply")
             if program and readouts[1]:
@@ -1017,7 +1014,7 @@ def test_runner_accepts_a_stateless_backend_factory():
         'include "stdgates.inc"; qubit target; bit readout = measure target;',
         target_profile=qdk.TargetProfile.Adaptive,
     )
-    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).slice(1, 2)
+    codec = physical_qodec()
 
     assert (
         run_qir_with_qodec(
@@ -1114,7 +1111,7 @@ def test_syndrome_decoder_preparation_returns_a_session_factory(prepare_code_dec
     second = create_decoder(8)
     try:
         assert first is not second
-        gadget = layer.gadgets["measure_z"]
+        gadget = layer.gadgets["m"]
         assert decode_gadget(first, gadget, (True, False, False)).readouts == (False,)
         assert decode_gadget(second, gadget, (False, True, True)).readouts == (True,)
     finally:
@@ -1144,7 +1141,7 @@ def test_deq_decoder_rejects_invalid_corrections(monkeypatch, failure):
     with closing(prepare_deq_decoder(layer)(7)) as session:
         monkeypatch.setattr(session, "_decode", decode)
         with pytest.raises(ExecutionUnresolved, match="deq"):
-            decode_gadget(session, layer.gadgets["measure_z"], (True, False, False))
+            decode_gadget(session, layer.gadgets["m"], (True, False, False))
 
 
 @pytest.mark.parametrize("failure", ["start", "shutdown"])
@@ -1173,11 +1170,11 @@ def test_deq_decoder_releases_worker_after_failure(monkeypatch, failure):
         monkeypatch.setattr(deq_decoding, "Runtime", failed_runtime)
         with pytest.raises(RuntimeError) as raised:
             with closing(factory(7)) as session:
-                decode_gadget(session, layer.gadgets["measure_z"], (True, False, False))
+                decode_gadget(session, layer.gadgets["m"], (True, False, False))
     else:
         session = factory(7)
         assert isinstance(session, deq_decoding.DeqSession)
-        decode_gadget(session, layer.gadgets["measure_z"], (True, False, False))
+        decode_gadget(session, layer.gadgets["m"], (True, False, False))
         assert session._runtime is not None
         monkeypatch.setattr(session._runtime, "shutdown", failed_shutdown)
         with pytest.raises(RuntimeError) as raised:
@@ -1207,7 +1204,7 @@ def test_deq_clean_syndromes_do_not_start_solver_resources(monkeypatch):
     with closing(prepare_deq_decoder(layer)(7)) as session:
         for logical in (False, True):
             assert decode_gadget(
-                session, layer.gadgets["measure_z"], (logical,) * 3
+                session, layer.gadgets["m"], (logical,) * 3
             ).readouts == (logical,)
 
 
@@ -1624,7 +1621,7 @@ def test_binding_does_not_decompose_operations():
 
     with pytest.raises(NotImplementedError, match="does not implement 't'"):
         instructions.bind("t", 1)
-    assert instructions.bind("rz", 1, 0.25) == ("rotate_z", {"theta": 0.25})
+    assert instructions.bind("rz", 1, 0.25) == ("rz", {"theta": 0.25})
 
 
 def rotation_instruction_set(*fixed_names):
@@ -1639,7 +1636,7 @@ def rotation_instruction_set(*fixed_names):
         .instruction_set
     )
     declarations = isa.instructions
-    rotation = declarations["rotate_z"]
+    rotation = declarations["rz"]
     for name in fixed_names:
         declarations[name] = qodec.Instruction(
             name,
@@ -1657,7 +1654,7 @@ def test_binding_prefers_a_fixed_angle_over_a_parameter():
     instructions = rotation_instruction_set("quarter_phase")
 
     assert instructions.bind("rz", 1, pi / 4) == ("quarter_phase", {})
-    assert instructions.bind("rz", 1, 0.25) == ("rotate_z", {"theta": 0.25})
+    assert instructions.bind("rz", 1, 0.25) == ("rz", {"theta": 0.25})
 
 
 def test_binding_rejects_equally_specific_matches():
@@ -1667,6 +1664,24 @@ def test_binding_rejects_equally_specific_matches():
 
     with pytest.raises(ValueError, match="Ambiguous"):
         instructions.bind("rz", 1, pi / 4)
+
+
+def test_binding_prefers_the_equivalent_instruction_named_after_the_operation():
+    from qdk.simulation._qodec.instruction_set import InstructionSet
+
+    isa = (
+        qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+        .layers[0]
+        .instruction_set
+    )
+    declarations = isa.instructions
+    flip = declarations["x"]
+    declarations["flip"] = qodec.Instruction(
+        "flip", inputs=flip.inputs, outputs=flip.outputs, action=flip.action
+    )
+    isa.instructions = declarations
+
+    assert InstructionSet(isa).bind("x", 1) == ("x", {})
 
 
 def test_resolver_uses_a_direct_binding_before_decomposition():
@@ -1679,7 +1694,7 @@ def test_resolver_uses_a_direct_binding_before_decomposition():
     resolve = prepare_resolver(rotation_instruction_set(), decompose)
 
     assert resolve("rz", ("data",), 0.25) == (
-        InstructionCall("rotate_z", operands=["data"], arguments={"theta": 0.25}),
+        InstructionCall("rz", operands=["data"], arguments={"theta": 0.25}),
     )
     decompose.assert_not_called()
 
@@ -1696,7 +1711,7 @@ def test_resolver_keeps_a_direct_named_gate_implementation():
         .instruction_set
     )
     declarations = isa.instructions
-    rotation = declarations["rotate_z"]
+    rotation = declarations["rz"]
     declarations["quarter_turn"] = qodec.Instruction(
         "quarter_turn",
         inputs=rotation.inputs,
@@ -2054,7 +2069,7 @@ def test_encoded_adaptive_execution_without_legacy_runtime_or_stim(backend_name)
         codec = qodec.Qodec.load(sys.argv[2])
         circuits = {
             "prepare_z": "[{R: [0]}, {R: [1]}, {R: [2]}]",
-            "measure_z": "[{M: [0]}, {M: [1]}, {M: [2]}]",
+            "m": "[{M: [0]}, {M: [1]}, {M: [2]}]",
             "idle": "[{R: [3]}, {R: [4]}, {CX: [0, 3]}, {CX: [1, 3]}, {CX: [1, 4]}, {CX: [2, 4]}, {M: [3]}, {M: [4]}]",
         }
         for name, source in circuits.items():
@@ -2071,9 +2086,9 @@ def test_encoded_adaptive_execution_without_legacy_runtime_or_stim(backend_name)
         assert run_qir_with_qodec(qir, codec, None, decoder=prepare_syndrome_decoder, shots=3, seed=7, quantum_backend_factory=backend_factory) == [[qdk.Result.One, qdk.Result.One]] * 3
         decoder = prepare_syndrome_decoder(codec.layers[0])(7)
         try:
-            gadget = codec.layers[0].gadgets["measure_z"]
+            gadget = codec.layers[0].gadgets["m"]
             block = BlockReference(0, 1, gadget.implements.inputs[0].block)
-            invocation = Invocation(0, gadget, InstructionCall("measure_z", operands=[0]), (block,), ())
+            invocation = Invocation(0, gadget, InstructionCall("m", operands=[0]), (block,), ())
             try:
                 next(decoder.decode(invocation, (True, False, False)))
             except StopIteration as completed:
@@ -2114,7 +2129,7 @@ def test_resolver_binds_phase_gates_by_semantics(dedicated):
     expected = (
         InstructionCall("quarter_phase", operands=[9])
         if dedicated
-        else InstructionCall("rotate_z", operands=[9], arguments={"theta": pi / 4})
+        else InstructionCall("rz", operands=[9], arguments={"theta": pi / 4})
     )
 
     assert resolve("t", (9,), None) == (expected,)
@@ -2237,7 +2252,7 @@ def test_syndrome_decoder_corrects_single_data_faults(
     corrections = []
     with closing(prepare_code_decoder(layer)(7)) as decoder:
         decoded = decode_gadget(
-            decoder, layer.gadgets["measure_z"], tuple(readouts), corrections
+            decoder, layer.gadgets["m"], tuple(readouts), corrections
         )
 
     assert decoded.readouts == (logical,)
@@ -2343,7 +2358,7 @@ def test_native_call_arguments_fail_before_side_effects(arguments, message):
         with pytest.raises((TypeError, ValueError), match=message):
             drive_requests(
                 runtime.handle(
-                    InstructionCall("rotate_z", operands=[0], arguments=arguments)
+                    InstructionCall("rz", operands=[0], arguments=arguments)
                 ),
                 respond,
             )
@@ -2404,7 +2419,7 @@ def test_supplied_gadgets_ignore_unrelated_instruction_actions(unrelated):
             == ()
         )
         assert drive_requests(
-            runtime.handle(InstructionCall("measure_z", operands=["data"])), respond
+            runtime.handle(InstructionCall("m", operands=["data"])), respond
         ) == (False,)
         assert [
             request.mnemonic
@@ -3108,8 +3123,8 @@ def nested_repetition_qodec():
     gadgets = {}
     for name, source in (
         ("R", "prepare_z"),
-        ("M", "measure_z"),
-        ("rotate_z", "rotate_z"),
+        ("M", "m"),
+        ("rotate_z", "rz"),
         ("X", "x"),
         ("Y", "y"),
         ("Z", "z"),
@@ -3377,7 +3392,7 @@ def test_decoder_reuses_boundary_operators_without_parsing(monkeypatch):
                     readouts = [logical] * 3
                     readouts[fault] = not readouts[fault]
                     assert decode_gadget(
-                        session, layer.gadgets["measure_z"], tuple(readouts)
+                        session, layer.gadgets["m"], tuple(readouts)
                     ).readouts == (logical,)
         finally:
             session.close()
@@ -3407,7 +3422,7 @@ def test_returned_correction_cannot_mutate_shared_decoder_state():
             assert repeated == initial
             assert code.correct((True, False)) == expected
             assert decode_gadget(
-                session, layer.gadgets["measure_z"], (True, False, False)
+                session, layer.gadgets["m"], (True, False, False)
             ).readouts == (False,)
     finally:
         first.close()
@@ -3462,10 +3477,21 @@ def test_decoder_models_are_prepared_once_and_sessions_close():
 
 
 @requires_stim
-def test_decoder_closes_when_a_logical_gate_is_unsupported():
+def test_decoder_closes_when_a_logical_gate_has_no_gadget():
     from qdk.simulation._qodec.decoding import SyndromeSession, prepare_syndrome_decoder
+    from qodec.actions import Clifford
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    isa = codec.layers[0].instruction_set
+    declarations = isa.instructions
+    idle = declarations["idle"]
+    declarations["h"] = qodec.Instruction(
+        "h",
+        inputs=idle.inputs,
+        outputs=idle.outputs,
+        action=[Clifford({"X_0": "Z_0", "Z_0": "X_0"})],
+    )
+    isa.instructions = declarations
     session = prepare_syndrome_decoder(codec.layers[0])(7)
     assert isinstance(session, SyndromeSession)
     prepare_decoder = Mock(return_value=lambda seed: session)
@@ -3479,7 +3505,7 @@ def test_decoder_closes_when_a_logical_gate_is_unsupported():
         target_profile=qdk.TargetProfile.Adaptive,
     )
 
-    with pytest.raises(NotImplementedError, match="does not implement 'h'"):
+    with pytest.raises(NotImplementedError, match="No gadget implements 'h'"):
         run_qir_with_qodec(
             qir,
             codec,
@@ -3540,7 +3566,7 @@ def test_erased_readouts_remain_explicitly_unavailable():
 
     try:
         assert decode_gadget(
-            session, layer.gadgets["measure_z"], (None, False, False)
+            session, layer.gadgets["m"], (None, False, False)
         ).readouts == (None,)
     finally:
         session.close()
@@ -3579,15 +3605,15 @@ def test_nondestructive_measurement_does_not_trigger_repreparation():
         action=measurement.action,
     )
     physical.instruction_set.instructions = declarations
-    gadget = logical.gadgets["measure_z"]
+    gadget = logical.gadgets["m"]
     instruction = qodec.Instruction(
-        "measure_z",
+        "m",
         inputs=gadget.implements.inputs,
         outputs=gadget.implements.inputs,
         action=gadget.implements.action,
     )
     declarations = logical.instruction_set.instructions
-    declarations["measure_z"] = instruction
+    declarations["m"] = instruction
     logical.instruction_set.instructions = declarations
     gadget.implements = instruction
     gadget.outputs = gadget.inputs
@@ -3609,7 +3635,7 @@ def test_nondestructive_measurement_does_not_trigger_repreparation():
         'include "stdgates.inc"; qubit data; bit first = measure data; x data; bit second = measure data;'
     )
     assert pipeline.run(program) == [qdk.Result.Zero, qdk.Result.One]
-    assert executions == ["prepare_z", "measure_z", "x", "measure_z"]
+    assert executions == ["prepare_z", "m", "x", "m"]
 
 
 @requires_stim

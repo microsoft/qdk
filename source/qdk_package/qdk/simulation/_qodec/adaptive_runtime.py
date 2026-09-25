@@ -2,10 +2,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import cast
 
+from qodec.instructions import InstructionCall
+
 from qdk import Result
 from ..._adaptive_pass import AdaptiveProgram
 from ._interpreter import OutputRecordValue, _Interpreter
-from .protocols import Requests, Resources
+from .protocols import Request, Requests, Resources
 from .quantum_operations import Operation
 
 DEFAULT_MAX_STEPS = 10_000_000
@@ -15,7 +17,7 @@ class AdaptiveRuntime:
     def __init__(self, *, initialize: bool = True) -> None:
         self.initialize = initialize
         self.results: dict[int, Result] = {}
-        self._pending: list[tuple[Operation, int | None]] = []
+        self._pending: list[tuple[Request, tuple[int, ...]]] = []
 
     def required_resources(self, bytecode: AdaptiveProgram) -> Resources:
         return Resources(qubits=bytecode.num_qubits)
@@ -31,14 +33,15 @@ class AdaptiveRuntime:
             for _ in range(DEFAULT_MAX_STEPS):
                 if interpreter.step():
                     return interpreter.records
-                for request, result_id in self._pending:
+                for request, result_ids in self._pending:
                     readouts = yield request
-                    if result_id is not None:
-                        if readouts is None:
-                            raise TypeError(
-                                "Measurement execution must return a readout tuple"
-                            )
-                        (value,) = readouts
+                    if not result_ids:
+                        continue
+                    if readouts is None:
+                        raise TypeError(
+                            "Measurement execution must return a readout tuple"
+                        )
+                    for result_id, value in zip(result_ids, readouts):
                         if value is None:
                             raise ValueError("Measurement reply is unresolved")
                         self.results[result_id] = cast(
@@ -54,7 +57,10 @@ class AdaptiveRuntime:
     def _apply(
         self, operation: str, targets: tuple[int, ...], angle: float | None = None
     ) -> None:
-        self._pending.append((Operation(operation, targets, angle), None))
+        self._pending.append((Operation(operation, targets, angle), ()))
+
+    def instruction(self, call: InstructionCall, results: Sequence[int]) -> None:
+        self._pending.append((call, tuple(results)))
 
     def x(self, target: int) -> None:
         self._apply("x", (target,))
@@ -120,7 +126,7 @@ class AdaptiveRuntime:
         self._apply("mov", (target,))
 
     def mz(self, target: int, result_id: int) -> None:
-        self._pending.append((Operation("measure", (target,)), result_id))
+        self._pending.append((Operation("measure", (target,)), (result_id,)))
 
     def mresetz(self, target: int, result_id: int) -> None:
         self.mz(target, result_id)

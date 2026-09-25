@@ -71,6 +71,10 @@ class ExecutionPipelineFactory(Generic[ProgramT, ResultT]):
             self.prepared = tuple(
                 (LayerPlan(layer), decoder(layer)) for layer in qodec.layers[:-1]
             )
+        # Program instruction calls name instructions of the top layer.
+        self.program_instructions = (
+            self.prepared[0][0].instructions if self.prepared else self.physical
+        )
 
     def set_seed(self, seed: int | None) -> None:
         self.rng.seed(seed)
@@ -93,7 +97,7 @@ class ExecutionPipelineFactory(Generic[ProgramT, ResultT]):
             pipeline = ExecutionPipeline(
                 self.classical_runtime_factory(),
                 [
-                    LogicalQubits(),
+                    LogicalQubits(self.program_instructions),
                     *layers,
                     InstructionRuntime(
                         self.physical, operations=self.physical_operations

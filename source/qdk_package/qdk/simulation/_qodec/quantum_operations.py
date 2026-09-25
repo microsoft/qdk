@@ -11,7 +11,7 @@ class LogicalSlot:
 
 @dataclass(frozen=True)
 class RestoreMeasured:
-    target: int | LogicalSlot
+    target: int | str | LogicalSlot
     value: bool
 
 
