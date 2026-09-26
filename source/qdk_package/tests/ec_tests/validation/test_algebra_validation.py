@@ -162,6 +162,7 @@ def test_algebra_failure_does_not_block_independent_gadget(
     encoding = qc.gadgets.Encoding(
         qc.Code("qubit", stabilizers=[], x=["X_0"], z=["Z_0"]), support=["0"]
     )
+    source.codes["unencoded"] = encoding.code
     gadget = qc.Gadget(
         instruction,
         qc.gadgets.Circuit(physical.instruction_set, "[]", format="yaml"),

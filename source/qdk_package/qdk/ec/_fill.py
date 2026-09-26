@@ -110,6 +110,7 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
     untouched; a gadget whose circuit cannot be simulated is re-raised with its
     mnemonic attached so the offending draft is easy to find.
 
+    Explicit layer code bindings are preserved, including those without gadgets.
     The input qodec and every object it references are left unchanged.
     """
     layers = []
@@ -117,7 +118,13 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
         completed: list[qc.Gadget] = []
         for mnemonic, gadget in layer.gadgets.items():
             completed.append(_try_complete_gadget(gadget, index, mnemonic))
-        layers.append(qc.Layer(layer.instruction_set, gadgets=completed))
+        layers.append(
+            qc.Layer(
+                layer.instruction_set,
+                gadgets=completed,
+                codes=dict(layer.codes),
+            )
+        )
     return qc.Qodec(
         layers,
         name=qodec.name,
@@ -140,7 +147,8 @@ def filled(target: qc.Gadget | qc.Qodec) -> qc.Gadget | qc.Qodec:
 
     The input and all objects it references are left unchanged. Checks and
     observable readout equations may be recomputed, including supplied
-    equations. Flag bindings are preserved, not inferred.
+    equations. Flag bindings and explicit layer code bindings are preserved,
+    not inferred.
     """
     if isinstance(target, qc.Gadget):
         return complete_gadget(target)

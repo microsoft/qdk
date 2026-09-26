@@ -13,6 +13,7 @@ from qdk.ec._audit import Auditor
 from qdk.ec._audit._parity import ParityAnalysis
 from qdk.ec._audit.rules.gadget import (
     ActionMismatchRule,
+    CheckMismatchRule,
     MissingFlagRule,
     MissingObservableRule,
     FlagMismatchRule,
@@ -319,6 +320,78 @@ def test_flag_conflict_is_reported_once_without_inventing_flag_equations() -> No
     assert report.errors[0].rule == "gadget/flag-mismatch"
     assert "readouts[0].equation, readouts[1].equation" in report.errors[0].summary
     assert "Verified readout equation" not in report.errors[0].detail
+
+
+@requires_stim
+@pytest.mark.parametrize("mnemonic", ["measure_xx", "measure_zz"])
+def test_syndrome_flag_accepts_trivial_frame_but_check_requires_all_frames(
+    mnemonic: str,
+) -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets[mnemonic]
+    syndrome = [f"circuit.readouts[{index}]" for index in range(4)]
+    gadget.implements.flags = ["reject"]
+    gadget.readouts = [*gadget.readouts, {"reject": syndrome}]
+    assert not list(FlagMismatchRule()(gadget, qodec=protocol))
+
+    gadget.checks = [syndrome]
+    diagnostics = list(CheckMismatchRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert "arbitrary incoming frames" in diagnostics[0].detail
+
+
+@requires_stim
+@pytest.mark.parametrize("through_readout", [False, True])
+def test_flag_still_checks_every_logical_input_with_trivial_frame(
+    through_readout: bool,
+) -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_zz"]
+    gadget.implements.flags = ["reject"]
+    equation = (
+        ["readouts[0]"]
+        if through_readout
+        else ["in[0].stabilizers[0]", "circuit.readouts[0]", "circuit.readouts[2]"]
+    )
+    gadget.readouts = [*gadget.readouts, {"reject": equation}]
+    diagnostics = list(FlagMismatchRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert "can fire without a fault" in diagnostics[0].summary
+    assert "with a trivial incoming frame" in diagnostics[0].detail
+    witness = json.loads(
+        diagnostics[0].detail.splitlines()[2].removeprefix("Equation term values: ")
+    )
+    assert sum(witness.values()) % 2 == 1
+    if not through_readout:
+        assert witness["in[0].stabilizers[0]"] == 0
+
+
+@requires_stim
+def test_inverted_syndrome_flag_always_fires_with_trivial_frame() -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_zz"]
+    gadget.implements.flags = ["reject"]
+    gadget.readouts = [
+        *gadget.readouts,
+        {"reject": [*(f"circuit.readouts[{index}]" for index in range(4)), 1]},
+    ]
+    diagnostics = list(FlagMismatchRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert "always fires, even without a fault" in diagnostics[0].summary
+
+
+@requires_stim
+def test_flag_equations_must_remain_consistent_for_nontrivial_frames() -> None:
+    protocol = _c4()
+    gadget = protocol.layers[0].gadgets["measure_zz"]
+    gadget.implements.flags = ["reject"]
+    gadget.readouts = [
+        *gadget.readouts,
+        {"reject": ["readouts[2]", "in[0].stabilizers[0]"]},
+    ]
+    diagnostics = list(FlagMismatchRule()(gadget, qodec=protocol))
+    assert len(diagnostics) == 1
+    assert diagnostics[0].summary == "readouts[2].equation is inconsistent"
 
 
 @requires_stim

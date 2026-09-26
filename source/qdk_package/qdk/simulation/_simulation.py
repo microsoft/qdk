@@ -45,7 +45,10 @@ from .._adaptive_pass import (
 )
 
 if TYPE_CHECKING:
+    from qodec import Qodec
+
     from .._native import GpuShotResults  # This is in the pyi file only
+    from .decoders import PrepareDecoder
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -797,6 +800,11 @@ def run_qir(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
     type: Optional[Literal["stabilizer", "cpu", "gpu", "clifford"]] = None,
+    *,
+    qodec: Optional["Qodec"] = None,
+    decoder: Optional["PrepareDecoder"] = None,
+    on_shot_failure: Literal["discard", "raise", "retry"] = "discard",
+    max_retries: int = 3,
 ) -> List:
     """
     Simulate the given QIR source.
@@ -811,9 +819,67 @@ def run_qir(
     :param shots: The number of shots to run.
     :param noise: A noise model to use in the simulation.
     :param seed: A seed for reproducibility.
+    :param qodec: EXPERIMENTAL
+        The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
+        Gadget equations are trusted as supplied. Use :func:`qdk.ec.audit` to
+        check the declarations before execution; invalid equations may produce
+        incorrect results or decoding failures.
+        With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
+        ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
+        A QIR call runs the instruction of the Qodec's top instruction set whose
+        mnemonic is exactly the callee's name, so ``__quantum__qis__h__body``
+        needs an instruction named ``__quantum__qis__h__body``, and a Q#
+        ``body intrinsic`` operation ``foo`` runs ``foo``. A quantum
+        ``__quantum__qis__`` call without such an instruction is an error.
+        The last pointer arguments are results, which receive the instruction's
+        outcomes and, when the call passes one per flag, its flags; the
+        pointers before them bind its block operands, and other arguments bind
+        its parameters in order.
+        Each program qubit gets its own block; when a block encodes several
+        logical qubits, the unused ones may be prepared and measured alongside it.
+        A program qubit is prepared before its first use unless that use
+        creates its block. Qubit preparation and restoring a destructively
+        measured qubit use the instructions whose declared actions match. A
+        raised flag the program does not receive fails the shot (see
+        ``on_shot_failure``). Single-qubit Pauli decoder corrections, and
+        gadget frame updates, are tracked in a noiseless Pauli frame rather
+        than run as gates.
+    :param decoder: EXPERIMENTAL
+        A ``PrepareDecoder`` callable that prepares a decoder factory for
+        each Qodec layer. ``None`` selects the built-in syndrome decoder.
+        See :mod:`qdk.simulation.decoders` for built-in preparation functions and
+        the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
+    :param on_shot_failure: EXPERIMENTAL
+        Qodec shot policy: ``"discard"`` (default) returns only successes,
+        ``"raise"`` stops on the first failure, and ``"retry"`` restarts failed shots.
+        Discard and retry select accepted shots and can change the result distribution.
+    :param max_retries: EXPERIMENTAL
+        Additional attempts per Qodec shot under ``"retry"`` (default 3).
+        Exhaustion re-raises the last failure without returning partial results.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
     """
+    if qodec is not None:
+        from ._qodec._run import run_qir_with_qodec
+
+        return run_qir_with_qodec(
+            input,
+            qodec,
+            noise,
+            shots,
+            seed,
+            decoder=decoder,
+            type=type,
+            on_shot_failure=on_shot_failure,
+            max_retries=max_retries,
+        )
+
+    if decoder is not None:
+        raise ValueError("A decoder requires a Qodec")
+
+    if on_shot_failure != "discard" or max_retries != 3:
+        raise ValueError("Shot failure options require a Qodec")
+
     if type is None:
         try:
             try_create_gpu_adapter()
