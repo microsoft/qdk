@@ -50,10 +50,13 @@ To derive a circuit-level deq model from the simulator's noise instead::
     decoder = partial(prepare_deq_decoder, circuit_level=True)
     results = run_qir(qir, shots=1000, qodec=codec, decoder=decoder, noise=noise)
 
-This mode keeps native physical sampling and builds reusable deq gadget types
-from the traced Qodec gadget bodies. Instances connect through their encoded
+This mode keeps native physical sampling and composes consecutive traced Qodec
+gadgets into reusable deq types. Groups target at most 1024 model entries,
+counting measurements, finished and unfinished checks, errors, and one entry per
+source gadget. An individually larger gadget remains intact. Grouping uses no
+instruction names or code-specific rules. Instances connect through their encoded
 block ports. deq propagates circuit faults across those connections and uses
-its monolithic coordinator to decode each completed connected component.
+its window coordinator with buffer and lookahead radii of one composite each.
 All instances and outcomes are submitted before waiting for decoded readouts;
 discarded and still-live output ports receive explicit terminators.
 
@@ -63,20 +66,28 @@ detection checks. Detection checks must use physical records and stabilizer
 ports; logical sign equations describe frame propagation. deq evaluates logical
 readouts; QDK does not replay its syndrome decoder. Raw rejection flags are
 evaluated in batches from their authored record parities, including declared
-frame changes but excluding inferred error corrections. Noiseless behavior is
-preserved, but noisy logical results and rejection rates can differ from the
-boundary decoder.
+frame changes but excluding inferred error corrections. Under ``discard``, shots
+that already fail their raw-flag selections are removed before deq decoding.
+Explicitly returned, unselected flags are not filtered. Under ``raise``, decoding
+still runs before checking selections, preserving failure ordering.
+Noiseless behavior is preserved, but noisy logical results and rejection rates
+can differ from the boundary decoder.
 Each run uses a seeded deq stream and isolated shot instances; exact stochastic
 answers are not promised to match other decoders or deq versions.
-The library is loaded once per run, but instances are created for every shot.
-deq's reset operation does not retain those instances or their connections.
+The library and repeated composite types are reused within a run. Shot batches
+target at most 262144 model entries and 256 shots, with a minimum of one shot.
+After a completed batch, deq resets instances and connections while retaining
+its type and decoder caches. A connected shot is never reset midway through.
+These limits are work estimates, not byte limits: native records for all shots,
+the fixed trace, and deq's history within one shot still grow with program size.
+Window decoding does not guarantee constant total memory or the same noisy
+corrections as whole-component decoding.
 
 Circuit-level mode requires one encoded layer, measurement-independent Clifford
 execution on the stabilizer backend, and no loss. Measurements may be random;
-only the execution trace must be independent of their values. Windowed decoding
-is not selected by this mode. It supports a single Pauli
-mechanism per noise table and depolarizing channels with total nonidentity
-probability at most 3/4 (one qubit) or 15/16 (two qubits). General Pauli channels
+only the execution trace must be independent of their values. It supports a
+single Pauli mechanism per noise table and depolarizing channels with total
+nonidentity probability at most 3/4 (one qubit) or 15/16 (two qubits). General Pauli channels
 are rejected rather than approximated. Measurement/reset noise follows the
 simulator: it acts on the state after measurement/preparation, not on a bit
 already recorded; discards remain noiseless. ``error_probability`` and the retry

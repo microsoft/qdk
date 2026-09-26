@@ -13,10 +13,13 @@ from .test_execution_pipeline import compile_qasm
 from .test_native_batch import make_factory
 
 
-@pytest.fixture
-def circuit_decoder():
+@pytest.fixture(params=[32, 1024])
+def circuit_decoder(request, monkeypatch):
     pytest.importorskip("deq")
     pytest.importorskip("deq_runtime")
+    from qdk.simulation._qodec import deq_composition
+
+    monkeypatch.setattr(deq_composition, "_COMPOSITE_SIZE", request.param)
     return partial(prepare_deq_decoder, circuit_level=True)
 
 
@@ -71,11 +74,14 @@ def test_circuit_deq_never_constructs_or_replays_syndrome_decoder(
 
 
 def test_circuit_deq_connects_reusable_local_gadget_types(circuit_decoder):
+    from qdk.simulation._qodec.deq_circuit import _connected_library
+
     program = compile_qasm(
         'include "stdgates.inc"; qubit data; x data; x data; bit r = measure data;'
     )
     batch = circuit_batch(circuit_decoder, program=program)
-    assert len(batch.library.gadget_types) == 3
+    local_library, _ = _connected_library(batch.trace, None)
+    assert len(local_library.gadget_types) == 3
     assert len(batch.gadgets) == 4
     assert batch.gadgets[1].gtype == batch.gadgets[2].gtype
     assert [gadget.connectors for gadget in batch.gadgets] == [
@@ -86,6 +92,128 @@ def test_circuit_deq_connects_reusable_local_gadget_types(circuit_decoder):
     ]
     assert [gadget.width for gadget in batch.gadgets] == [0, 0, 0, 3]
     assert batch.run(3, None, seed=9) == [[Result.Zero]] * 3
+
+
+def memory_batch(circuit_decoder, noise=None):
+    from qdk.simulation._simulation import preprocess_simulation_input
+    from qdk.simulation._qodec.bytecode import compile
+
+    rounds = "\n".join(
+        f"call void @idle(%Qubit* inttoptr (i64 {block} to %Qubit*))"
+        for _ in range(8)
+        for block in range(2)
+    )
+    qir = f"""
+        %Qubit = type opaque
+        %Result = type opaque
+        define void @main() #0 {{
+          call void @prepare_z(%Qubit* null)
+          call void @prepare_z(%Qubit* inttoptr (i64 1 to %Qubit*))
+          {rounds}
+          call void @__quantum__qis__m__body(%Qubit* null, %Result* null)
+          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__rt__array_record_output(i64 2, i8* null)
+          call void @__quantum__rt__result_record_output(%Result* null, i8* null)
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+          ret void
+        }}
+        declare void @prepare_z(%Qubit*)
+        declare void @idle(%Qubit*)
+        declare void @__quantum__qis__m__body(%Qubit*, %Result*)
+        declare void @__quantum__rt__array_record_output(i64, i8*)
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+        attributes #0 = {{ "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }}
+    """
+    module, _, _, _ = preprocess_simulation_input(qir)
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    program = compile(module, codec.layers[0].instruction_set.instructions)
+    return circuit_batch(circuit_decoder, noise, codec, program)
+
+
+def test_composition_reuses_open_port_types_and_resets_completed_shots(
+    circuit_decoder, monkeypatch
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from qdk.simulation._qodec import deq_circuit, deq_composition
+
+    monkeypatch.setattr(deq_composition, "_COMPOSITE_SIZE", 32)
+    batch = memory_batch(circuit_decoder)
+    assert 1 < len(batch.composites) < len(batch.gadgets)
+    assert len(batch.library.gadget_types) < len(batch.composites)
+    assert any(chunk.connectors for chunk in batch.composites)
+    assert all(kind.base.is_free_hop is False for kind in batch.library.gadget_types)
+    assert sorted(
+        index for chunk in batch.composites for index in chunk.measurements
+    ) == list(range(batch.trace.num_measurements))
+    assert sorted(
+        original for chunk in batch.composites for original, _ in chunk.readouts
+    ) == list(range(len(batch.gadgets)))
+    resets = []
+    original_runtime = deq_circuit.Runtime
+
+    @asynccontextmanager
+    async def runtime(**kwargs):
+        assert kwargs["coordinator"] == "window"
+        assert kwargs["coordinator_config"] == {
+            "buffer_radius": 1,
+            "lookahead_radius": 1,
+        }
+        async with original_runtime(**kwargs) as runtime:
+            service = runtime.jit_controller
+
+            async def reset(**flags):
+                resets.append(flags)
+                await service.reset(**flags)
+
+            yield SimpleNamespace(
+                jit_controller=SimpleNamespace(
+                    load_library=service.load_library,
+                    batch_execute=service.batch_execute,
+                    batch_decode=service.batch_decode,
+                    reset=reset,
+                )
+            )
+
+    monkeypatch.setattr(deq_circuit, "Runtime", runtime)
+    assert batch.run(257, None, seed=9) == [[Result.Zero, Result.Zero]] * 257
+    assert resets == [{"reset_library": False, "reset_decoder_service": False}]
+
+
+def test_composition_corrects_single_faults_across_chunks(circuit_decoder, monkeypatch):
+    from contextlib import closing
+    from qdk.simulation._qodec import deq_composition
+    from qdk.simulation._qodec.deq_decoding import _DeqTransport
+
+    monkeypatch.setattr(deq_composition, "_COMPOSITE_SIZE", 32)
+    noise = NoiseConfig()
+    noise.cx.xi = 0.01
+    batch = memory_batch(circuit_decoder, noise)
+    assert len(batch.composites) > 2
+    masks = {mask for mask, _ in physical_faults(batch.trace, noise)}
+    assert len(masks) > 10
+    rows = [
+        [
+            Result.One if mask >> index & 1 else Result.Zero
+            for index in range(batch.trace.num_measurements)
+        ]
+        for mask in sorted(masks)
+    ]
+    with closing(_DeqTransport()) as transport:
+        results = transport.run(batch._decode(batch.library, rows, 9, "raise"))
+    assert results == [[Result.Zero, Result.Zero]] * len(rows)
+
+
+def test_composition_keeps_individually_oversized_gadgets_intact(
+    circuit_decoder, monkeypatch
+):
+    from qdk.simulation._qodec import deq_composition
+
+    monkeypatch.setattr(deq_composition, "_COMPOSITE_SIZE", 1)
+    batch = memory_batch(circuit_decoder)
+    assert len(batch.composites) == len(batch.gadgets)
+    assert all(len(chunk.readouts) == 1 for chunk in batch.composites)
+    assert batch.run(3, None, seed=9) == [[Result.Zero, Result.Zero]] * 3
 
 
 @pytest.mark.parametrize("source", ["x data;", "x data; reset data; x data;"])
@@ -167,16 +295,42 @@ def test_circuit_deq_preserves_raw_rejection_flags(circuit_decoder):
             transport.run(batch._decode(library, rows, 9, "raise"))
 
 
+def test_circuit_deq_skips_selected_raw_flags_only_when_discarding(
+    circuit_decoder, monkeypatch
+):
+    from contextlib import closing
+    from qdk.simulation._qodec import deq_circuit
+    from qdk.simulation._qodec.deq_decoding import _DeqTransport
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    measure = codec.layers[0].gadgets["__quantum__qis__m__body"]
+    measure.implements.flags = ["reject"]
+    measure.readouts.append({"reject": ["circuit.readouts[0]", "circuit.readouts[1]"]})
+    batch = circuit_batch(circuit_decoder, codec=codec)
+    rows = [[Result.One, Result.Zero, Result.Zero]]
+    with closing(_DeqTransport()) as transport:
+        with pytest.raises(ExecutionUnresolved, match="explain"):
+            transport.run(batch._decode(batch.library, rows, 9, "raise"))
+
+        def forbidden(**kwargs):
+            pytest.fail("Selected-out raw flags must not reach deq under discard")
+
+        monkeypatch.setattr(deq_circuit, "Runtime", forbidden)
+        assert transport.run(batch._decode(batch.library, rows, 9, "discard")) == []
+
+
 @pytest.mark.parametrize("probability", [0, 0.01, 0.75, 1])
-def test_circuit_deq_seeded_runs_are_reproducible(circuit_decoder, probability):
+@pytest.mark.parametrize("shots", [20, 257])
+def test_circuit_deq_seeded_runs_are_reproducible(circuit_decoder, probability, shots):
     noise = NoiseConfig()
     noise.mresetz.x = probability
     batch = circuit_batch(circuit_decoder, noise)
-    first = batch.run(20, noise, seed=42)
-    assert first == batch.run(20, noise, seed=42)
-    assert len(first) == 20
+    first = batch.run(shots, noise, seed=42)
+    assert first == batch.run(shots, noise, seed=42)
+    assert len(first) == shots
     if probability in (0, 1):
-        assert first == [[Result.Zero]] * 20
+        assert first == [[Result.Zero]] * shots
 
 
 def test_circuit_deq_requires_explicit_supported_execution(circuit_decoder):
@@ -637,19 +791,23 @@ def test_circuit_deq_does_not_discard_runtime_protocol_errors(
             raise RuntimeError("native decoder failure")
         if kind == "count":
             return []
+        widths = {
+            kind.base.gtype: len(kind.base.readouts)
+            for kind in batch.library.gadget_types
+        }
         return [
             coordinator.Readouts(
                 gid=99 if kind == "identifier" else outcome.gid,
                 readouts=util.BitVector(
-                    size=99 if kind == "size" else gadget.readouts + gadget.checks,
+                    size=99 if kind == "size" else widths[gadget.gtype],
                     data=(
                         b""
                         if kind == "bytes"
-                        else bytes((gadget.readouts + gadget.checks + 7) // 8)
+                        else bytes((widths[gadget.gtype] + 7) // 8)
                     ),
                 ),
             )
-            for outcome, gadget in zip(outcomes, batch.gadgets)
+            for outcome, gadget in zip(outcomes, batch.composites)
         ]
 
     @asynccontextmanager

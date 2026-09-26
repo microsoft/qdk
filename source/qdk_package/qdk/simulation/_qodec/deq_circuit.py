@@ -1,4 +1,4 @@
-"""Decode connected Clifford gadgets with deq's monolithic coordinator.
+"""Decode bounded groups of connected Clifford gadgets with deq windows.
 
 Encoding signs denote Pauli-frame corrections, not logical measurement values.
 Qodec signs name observables; deq logical targets name correction Paulis.
@@ -40,6 +40,7 @@ from ..._native import QirInstruction, QirInstructionId, run_clifford
 from ._interpreter import OutputRecordValue
 from .clifford_semantics import pauli
 from .deq_decoding import _DeqTransport
+from .deq_composition import _Composite, _compose_gadgets, _model_size
 from .native_batch import (
     ReplayBatch,
     _Before,
@@ -86,7 +87,10 @@ class CircuitDeqModel:
     ) -> CircuitDeqBatch:
         readouts = _readout_plan(trace)
         library, gadgets = _connected_library(trace, noise)
-        return CircuitDeqBatch(trace, readouts, library, _noise_key(noise), gadgets)
+        library, composites = _compose_gadgets(library, gadgets)
+        return CircuitDeqBatch(
+            trace, readouts, library, _noise_key(noise), gadgets, composites
+        )
 
 
 @dataclass(frozen=True)
@@ -838,6 +842,7 @@ class CircuitDeqBatch:
     library: jit.JitLibrary
     noise_key: tuple[float, ...]
     gadgets: tuple[_Gadget, ...]
+    composites: tuple[_Composite, ...]
 
     def run(
         self,
@@ -889,23 +894,43 @@ class CircuitDeqBatch:
                 np.logical_xor.reduce(records[:, parity.indices], axis=1)
                 ^ parity.constant
             )
+        if policy == "discard" and self.readout_plan.flags:
+            keep = [
+                shot
+                for shot, row in enumerate(flags)
+                if all(
+                    selection.accepts(tuple(bool(row[index]) for index in indices))
+                    for selection, indices in self.readout_plan.selections
+                )
+            ]
+            records, flags = records[keep], flags[keep]
+        shot_count = len(records)
+        if not shot_count:
+            return []
         static = _static_flips(self.trace.instructions, self.trace.frames)
         for index in range(self.trace.num_measurements):
             if static >> index & 1:
                 records[:, index] ^= True
-        count = len(self.gadgets)
+        count = len(self.composites)
+        widths = {
+            kind.base.gtype: len(kind.base.readouts) for kind in library.gadget_types
+        }
+        weights = {kind.base.gtype: _model_size(kind) for kind in library.gadget_types}
+        weight_per_shot = sum(weights[chunk.gtype] for chunk in self.composites)
+        batch_size = max(1, min(256, 262144 // weight_per_shot))
         async with Runtime(
             decoder="black-box-relay-bp",
             decoder_config={"parallel": 1, "seed": seed},
-            coordinator="monolithic",
+            coordinator="window",
+            coordinator_config={"buffer_radius": 1, "lookahead_radius": 1},
             controller="jit",
         ) as runtime:
             service = runtime.jit_controller
             await service.load_library(library)
             # Bound live coordinator state while amortizing native async crossings.
-            for start in range(0, len(physical), 256):
-                stop = min(start + 256, len(physical))
-                gids = list(range(start * count + 1, stop * count + 1))
+            for start in range(0, shot_count, batch_size):
+                stop = min(start + batch_size, shot_count)
+                gids = list(range(1, (stop - start) * count + 1))
                 assigned = await service.batch_execute(
                     [
                         jit.JitInstruction(
@@ -920,8 +945,8 @@ class CircuitDeqBatch:
                                 ],
                             )
                         )
-                        for shot in range(start, stop)
-                        for index, gadget in enumerate(self.gadgets)
+                        for shot in range(stop - start)
+                        for index, gadget in enumerate(self.composites)
                     ]
                 )
                 if assigned != gids:
@@ -929,18 +954,16 @@ class CircuitDeqBatch:
                 replies = await service.batch_decode(
                     [
                         coordinator.Outcomes(
-                            gid=shot * count + index + 1,
+                            gid=(shot - start) * count + index + 1,
                             outcomes=util.BitVector(
-                                size=gadget.width,
+                                size=len(gadget.measurements),
                                 data=np.packbits(
-                                    records[
-                                        shot, gadget.start : gadget.start + gadget.width
-                                    ]
+                                    records[shot, list(gadget.measurements)]
                                 ).tobytes(),
                             ),
                         )
                         for shot in range(start, stop)
-                        for index, gadget in enumerate(self.gadgets)
+                        for index, gadget in enumerate(self.composites)
                     ]
                 )
                 if len(replies) != len(gids):
@@ -949,8 +972,7 @@ class CircuitDeqBatch:
                     )
                 unpacked = []
                 for index, (gid, reply) in enumerate(zip(gids, replies)):
-                    gadget = self.gadgets[index % count]
-                    size = gadget.readouts + gadget.checks
+                    size = widths[self.composites[index % count].gtype]
                     if (
                         reply.gid != gid
                         or reply.readouts.size != size
@@ -965,16 +987,29 @@ class CircuitDeqBatch:
                         )[:size]
                     )
                 for shot in range(start, stop):
+                    offset = (shot - start) * count
+                    original_readouts = {
+                        original: unpacked[offset + index][list(order)]
+                        for index, gadget in enumerate(self.composites)
+                        for original, order in gadget.readouts
+                    }
                     try:
-                        offset = (shot - start) * count
                         results.append(
                             self._readouts(
-                                unpacked[offset : offset + count], flags[shot]
+                                [
+                                    original_readouts[index]
+                                    for index in range(len(self.gadgets))
+                                ],
+                                flags[shot],
                             )
                         )
                     except (ExecutionRejected, ExecutionUnresolved, InconsistentParity):
                         if policy == "raise":
                             raise
+                if stop < shot_count:
+                    await service.reset(
+                        reset_library=False, reset_decoder_service=False
+                    )
         return results
 
     def _readouts(

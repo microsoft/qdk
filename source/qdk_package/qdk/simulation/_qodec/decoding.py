@@ -128,8 +128,8 @@ def prepare_deq_decoder(
     runtime uses a private worker so synchronous simulation also works inside
     a running asyncio event loop, including notebooks.
 
-    With ``circuit_level=True``, connect local Clifford gadget models using
-    the ``run_qir`` noise model and deq's monolithic coordinator instead.
+    With ``circuit_level=True``, compose bounded groups of local Clifford
+    gadgets using the ``run_qir`` noise model and deq's window coordinator.
     The execution trace must be measurement-independent, but individual
     measurements may be random. This mode requires
     one encoded layer, the stabilizer backend, and supported Pauli channels
