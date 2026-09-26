@@ -511,31 +511,42 @@ def test_failed_explicit_frame_correction_does_not_commit_output_state():
 
 
 @pytest.mark.parametrize(
-    "reference", ["in[4].x[0]", "in[0].z[1]", "out[0].z[0]", "readouts[1]"]
+    "reference",
+    [
+        "in[4].x[0]",
+        "in[0].z[1]",
+        "out[0].z[0]",
+        "readouts[1]",
+        "circuit.readouts[9]",
+    ],
 )
-def test_invalid_parity_references_fail_during_decoder_preparation(reference):
+@pytest.mark.parametrize("decoder", ["syndrome", "frame"])
+def test_decoders_leave_unbound_parity_references_unresolved(
+    reference: str, decoder: str
+) -> None:
     import qodec
 
-    from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
+    from qdk.simulation.decoders import (
+        prepare_frame_decoder,
+        prepare_syndrome_decoder,
+    )
+    from .test_execution_pipeline import decode_gadget
 
+    prepare = {
+        "syndrome": prepare_syndrome_decoder,
+        "frame": prepare_frame_decoder,
+    }[decoder]
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    layer.gadgets["__quantum__qis__m__body"].readouts = [[reference]]
-    with pytest.raises(ValueError, match="reference"):
-        prepare_syndrome_decoder(layer)
+    gadget = layer.gadgets["__quantum__qis__m__body"]
+    gadget.readouts = [[reference]]
+    session = prepare(layer)(7)
+    try:
+        assert decode_gadget(session, gadget, (False, False, False)).readouts == (None,)
+    finally:
+        session.close()
 
 
-def test_missing_readout_equations_are_not_constant_zero():
-    import qodec
-
-    from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
-
-    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    layer.gadgets["__quantum__qis__m__body"].readouts = []
-    with pytest.raises(ValueError, match="readout equations"):
-        prepare_syndrome_decoder(layer)
-
-
-def test_out_of_range_circuit_reference_is_not_an_erasure():
+def test_missing_readout_equations_are_not_filled():
     import qodec
 
     from qdk.simulation._qodec.decoding import prepare_syndrome_decoder
@@ -543,11 +554,10 @@ def test_out_of_range_circuit_reference_is_not_an_erasure():
 
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
     gadget = layer.gadgets["__quantum__qis__m__body"]
-    gadget.readouts = [["circuit.readouts[9]"]]
+    gadget.readouts = []
     session = prepare_syndrome_decoder(layer)(7)
     try:
-        with pytest.raises(ValueError, match="reference"):
-            decode_gadget(session, gadget, (False, False, False))
+        assert decode_gadget(session, gadget, (False, False, False)).readouts == ()
     finally:
         session.close()
 

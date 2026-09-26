@@ -819,6 +819,9 @@ def run_qir(
     :param seed: A seed for reproducibility.
     :param qodec: EXPERIMENTAL
         The Qodec used to build an error-correcting pipeline. Requires ``qdk[ec]``.
+        Gadget equations are trusted as supplied. Use :func:`qdk.ec.audit` to
+        check the declarations before execution; invalid equations may produce
+        incorrect results or decoding failures.
         With a Qodec, ``None`` and ``"clifford"`` select the stabilizer backend,
         ``"cpu"`` selects the state-vector backend, and ``"gpu"`` is unsupported.
         A QIR call runs the instruction of the Qodec's top instruction set whose

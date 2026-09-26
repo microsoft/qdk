@@ -99,48 +99,6 @@ def expression(terms: Iterable[Reference | int]) -> Parity:
     return result
 
 
-def validate_equations(gadget: Gadget, record_count: int | None = None) -> None:
-    expected = gadget.implements.observe_count + len(gadget.implements.flags)
-    if len(gadget.readouts) != expected:
-        raise ValueError(
-            f"Gadget {gadget.implements.mnemonic!r} requires {expected} readout equations"
-        )
-    equations = (
-        *gadget.checks,
-        *(readout.equation for readout in gadget.readouts),
-        *gadget.frames.values(),
-    )
-    for terms in equations:
-        for term in terms:
-            if isinstance(term, str):
-                term = Reference(term)
-            if isinstance(term, Reference):
-                for reference in term.expand():
-                    kind, boundary, entry, basis, index = reference_key(reference)
-                    if kind == "readout":
-                        valid = index < len(gadget.readouts)
-                    elif kind == "circuit_readout":
-                        valid = record_count is None or index < record_count
-                    else:
-                        encodings = (
-                            gadget.inputs if boundary == "in" else gadget.outputs
-                        )
-                        valid = (
-                            entry is not None
-                            and 0 <= entry < len(encodings)
-                            and basis in ("stabilizers", "x", "z")
-                            and index < len(getattr(encodings[entry].code, basis))
-                        )
-                    if not valid:
-                        raise ValueError(
-                            f"Gadget parity reference {reference!s} is outside its declared record or boundary"
-                        )
-            elif type(term) is not int or term not in (0, 1):
-                raise ValueError(
-                    "Gadget parity terms require references or integer bits"
-                )
-
-
 @dataclass(frozen=True)
 class FrameDelta:
     output: int

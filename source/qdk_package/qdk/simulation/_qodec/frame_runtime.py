@@ -5,7 +5,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from typing import cast
 
-from qodec import Gadget, Layer
+from qodec import Layer
 
 from .action_runtime import prepare_actions
 from .frame_transport import circuit_transport
@@ -36,7 +36,6 @@ from .readout_equations import (
     Parity,
     expression,
     prepare_frames,
-    validate_equations,
 )
 
 
@@ -46,7 +45,6 @@ def _sign(boundary: str, entry: int, basis: str, index: int) -> Parity:
 
 @dataclass(frozen=True)
 class FramePlan:
-    gadget: Gadget
     checks: tuple[Parity, ...]
     readouts: tuple[Parity, ...]
     frames: tuple[FrameDelta, ...]
@@ -56,9 +54,7 @@ class FramePlan:
 def prepare_frame_decoder(layer: Layer) -> DecoderFactory:
     plans = {}
     for name, gadget in layer.gadgets.items():
-        validate_equations(gadget)
         plans[name] = FramePlan(
-            gadget,
             tuple(expression(check) for check in gadget.checks),
             tuple(expression(readout.equation) for readout in gadget.readouts),
             prepare_frames(gadget),
@@ -90,7 +86,6 @@ class FrameSession:
         if self.closed:
             raise RuntimeError("Frame session is closed")
         plan = self.plans[invocation.call.mnemonic]
-        validate_equations(plan.gadget, len(readouts))
         system = BinarySystem(plan.checks)
         for index, value in enumerate(readouts):
             if value is not None:

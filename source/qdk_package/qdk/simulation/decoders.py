@@ -8,6 +8,12 @@ once per encoded layer and returns a factory for fresh, seeded shot sessions.
 ``prepare_frame_decoder`` tracks noiseless frames without inferring faults.
 ``prepare_deq_decoder`` uses deq relay-BP for per-boundary syndrome decoding.
 
+Built-in decoders evaluate gadget equations as supplied, without auditing their
+correctness or completeness. Use :func:`qdk.ec.audit` to check the declarations
+before execution. Invalid declarations can produce incorrect results or fail
+during decoding. Contradictory evidence and unresolved readouts retain their
+normal decoding failure behavior.
+
 Single-qubit Pauli corrections are tracked in a noiseless Pauli frame: they
 sample no gate noise and never lose a qubit. Any other correction operation
 runs as a physical gate with its configured noise.
