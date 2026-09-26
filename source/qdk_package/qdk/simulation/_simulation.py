@@ -847,6 +847,9 @@ def run_qir(
         each Qodec layer. ``None`` selects the built-in syndrome decoder.
         See :mod:`qdk.simulation.decoders` for built-in preparation functions and
         the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
+        Its ``circuit_level=True`` mode derives a full-shot fault model from
+        ``noise`` for supported non-adaptive Clifford programs, without changing
+        the default QDK decoder.
     :param on_shot_failure: EXPERIMENTAL
         Qodec shot policy: ``"discard"`` (default) returns only successes,
         ``"raise"`` stops on the first failure, and ``"retry"`` restarts failed shots.

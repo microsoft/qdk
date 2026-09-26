@@ -57,6 +57,8 @@ from .protocols import (
     BlockReference,
     Correction,
     Corrections,
+    CircuitBatch,
+    CircuitDecoderFactory,
     Decoded,
     DecoderFactory,
     ExecutionRejected,
@@ -780,7 +782,10 @@ def _defer(
 def prepare_batch(
     program: AdaptiveProgram,
     factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
-) -> NativeBatch | ReplayBatch | None:
+) -> NativeBatch | ReplayBatch | CircuitBatch | None:
+    circuit_level = any(
+        isinstance(decoder, CircuitDecoderFactory) for _, decoder in factory.prepared
+    )
     if (
         factory.quantum_backend_factory is not stabilizer_backend
         or factory.classical_runtime_factory is not AdaptiveRuntime
@@ -799,6 +804,11 @@ def prepare_batch(
             for instruction in program.instructions
         )
     ):
+        if circuit_level:
+            raise NotImplementedError(
+                "Circuit-level deq requires one encoded layer, the stabilizer "
+                "backend, and measurement-independent Clifford execution without loss"
+            )
         return None
     plan, create_session = factory.prepared[0]
     if isinstance(create_session, BatchDecoderFactory):
@@ -810,7 +820,14 @@ def prepare_batch(
             batch = _trace_tables(program, factory, plan, session)
             if batch is not None:
                 return batch
-    return _trace_replay(program, factory, plan, create_session)
+    trace = _trace_replay(program, factory, plan, create_session)
+    if isinstance(create_session, CircuitDecoderFactory):
+        if trace is None:
+            raise NotImplementedError(
+                "Circuit-level deq cannot trace this circuit or noise model"
+            )
+        return create_session.prepare_circuit(trace, factory.noise)
+    return trace
 
 
 def _trace(

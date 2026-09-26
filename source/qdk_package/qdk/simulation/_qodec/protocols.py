@@ -4,7 +4,14 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    runtime_checkable,
+)
 
 from qodec import Gadget, Layer
 from qodec.gadgets import Circuit
@@ -12,6 +19,10 @@ from qodec.instructions import InstructionCall
 
 from .. import NoiseConfig
 from .quantum_operations import FrameUpdate, Operation, RestoreMeasured
+
+if TYPE_CHECKING:
+    from ._interpreter import OutputRecordValue
+    from .native_batch import ReplayBatch
 
 ProgramT = TypeVar("ProgramT", contravariant=True)
 ResultT = TypeVar("ResultT", covariant=True)
@@ -231,6 +242,26 @@ class BatchDecoderFactory(Protocol):
 
 class BatchUnsupported(Exception):
     """Batch preparation cannot preserve semantics; use the layer interpreter."""
+
+
+@runtime_checkable
+class CircuitDecoderFactory(Protocol):
+    """Private whole-circuit preparation capability; never falls back to replay."""
+
+    def prepare_circuit(
+        self, trace: ReplayBatch, noise: NoiseConfig | None, /
+    ) -> CircuitBatch: ...
+
+
+class CircuitBatch(Protocol):
+    def run(
+        self,
+        shots: int,
+        noise: NoiseConfig | None,
+        *,
+        seed: int,
+        on_shot_failure: Literal["raise", "discard"] = "discard",
+    ) -> list[list[OutputRecordValue]]: ...
 
 
 DecoderFactory: TypeAlias = Callable[[int | None], DecoderSession]

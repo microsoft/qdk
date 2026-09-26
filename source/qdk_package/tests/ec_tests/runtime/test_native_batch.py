@@ -21,6 +21,18 @@ def make_factory(noise=None, decoder=prepare_syndrome_decoder, codec=None):
     )
 
 
+@pytest.fixture(params=["syndrome", "circuit_deq"])
+def record_decoder(request):
+    if request.param == "syndrome":
+        return prepare_syndrome_decoder
+    pytest.importorskip("deq")
+    pytest.importorskip("deq_runtime")
+    from functools import partial
+    from qdk.simulation._qodec.decoding import prepare_deq_decoder
+
+    return partial(prepare_deq_decoder, circuit_level=True)
+
+
 @requires_stim
 def test_native_batch_prepares_static_noisy_qodec_shots():
     from qdk.simulation._qodec.native_batch import prepare_batch
@@ -868,7 +880,9 @@ def test_native_batch_observes_expected_repetition_noise_distribution():
 
 
 @requires_stim
-def test_native_batch_preserves_mixed_reordered_and_repeated_output_records():
+def test_native_batch_preserves_mixed_reordered_and_repeated_output_records(
+    record_decoder,
+):
     from qdk.simulation._simulation import preprocess_simulation_input
     from qdk.simulation._qodec.bytecode import compile
     from qdk.simulation._qodec.native_batch import prepare_batch
@@ -896,16 +910,16 @@ def test_native_batch_preserves_mixed_reordered_and_repeated_output_records():
         attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="3" }
     """)
     program = compile(module)
-    factory = make_factory()
+    factory = make_factory(decoder=record_decoder)
     batch = prepare_batch(program, factory)
     assert batch is not None
     expected = [42, Result.Zero, True, Result.One, Result.One, Result.Zero]
-    assert factory.build_pipeline().run(program) == expected
+    assert make_factory().build_pipeline().run(program) == expected
     assert batch.run(2, None, seed=7) == [expected] * 2
 
 
 @requires_stim
-def test_native_batch_preserves_entangled_measurements():
+def test_native_batch_preserves_entangled_measurements(record_decoder):
     from qodec.actions import Clifford, Observe, Stabilize
     from qodec.gadgets import Circuit, Encoding
     from qodec.instructions import Block, BlockOperand
@@ -970,7 +984,7 @@ def test_native_batch_preserves_entangled_measurements():
         h data[0]; cx data[0], data[1];
         bit[2] readout = measure data;
     """)
-    batch = prepare_batch(program, make_factory(codec=codec))
+    batch = prepare_batch(program, make_factory(codec=codec, decoder=record_decoder))
     assert batch is not None
     records = batch.run(100, None, seed=7)
     assert all(first == second for first, second in records)

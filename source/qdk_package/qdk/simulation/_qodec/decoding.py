@@ -114,19 +114,26 @@ def prepare_syndrome_decoder(layer: Layer) -> DecoderFactory:
 
 
 def prepare_deq_decoder(
-    layer: Layer, *, error_probability: float = 0.001
+    layer: Layer, *, error_probability: float | None = None, circuit_level: bool = False
 ) -> DecoderFactory:
     """Prepare a deq relay-BP decoder for a Qodec layer.
 
     Requires ``pip install deq deq-runtime``. The model assigns independent
-    X, Y, and Z faults to each code qubit with the given probability, which
-    must be between zero and one half. This is a per-boundary syndrome model,
-    not a circuit-level or temporal noise model. Simulator noise is not
-    inferred. Unknown syndrome entries are omitted rather than treated as zero.
+    X, Y, and Z faults to each code qubit with ``error_probability`` (0.001
+    when None), which must be between zero and one half. This is a per-boundary
+    syndrome model, not a circuit-level or temporal noise model. Simulator noise
+    is not inferred. Unknown syndrome entries are omitted rather than treated as zero.
 
     QDK handles readout equations, frames, and applying corrections. The deq
     runtime uses a private worker so synchronous simulation also works inside
     a running asyncio event loop, including notebooks.
+
+    With ``circuit_level=True``, compile a complete measurement-independent
+    Clifford shot using the ``run_qir`` noise model instead. This mode requires
+    one encoded layer, the stabilizer backend, and supported Pauli channels
+    without loss. It does not use QDK's syndrome decoder. Flags retain their
+    declared zero-frame values, without inferred error corrections. The retry
+    policy is unsupported. Leave ``error_probability=None`` in this mode.
     """
     try:
         from .deq_decoding import DeqModel
@@ -137,6 +144,14 @@ def prepare_deq_decoder(
                 "Install them with: pip install deq deq-runtime"
             ) from error
         raise
+    if circuit_level:
+        if error_probability is not None:
+            raise ValueError("circuit_level uses run_qir noise, not error_probability")
+        from .deq_circuit import CircuitDeqModel
+
+        return CircuitDeqModel()
+    if error_probability is None:
+        error_probability = 0.001
     if not 0 < error_probability < 0.5:
         raise ValueError("error_probability must be between zero and one half")
     return DeqModel(layer, error_probability)

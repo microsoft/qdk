@@ -15,6 +15,7 @@ from .decoding import prepare_syndrome_decoder
 from .executor import Executor
 from .protocols import (
     BatchUnsupported,
+    CircuitDecoderFactory,
     ExecutionRejected,
     ExecutionUnresolved,
     PrepareDecoder,
@@ -66,6 +67,11 @@ def run_qir_with_qodec(
     program = compile(
         module, executor.pipeline_factory.program_instructions.declarations
     )
+    if on_shot_failure == "retry" and any(
+        isinstance(factory, CircuitDecoderFactory)
+        for _, factory in executor.pipeline_factory.prepared
+    ):
+        raise NotImplementedError("Circuit-level deq does not support the retry policy")
     records = None
     if shots > 0 and on_shot_failure != "retry":
         from .native_batch import prepare_batch
