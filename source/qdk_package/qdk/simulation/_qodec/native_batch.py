@@ -462,6 +462,7 @@ class _Before:
     invocation: Invocation
     position: int
     qubits: Mapping[BlockReference, tuple[int, ...]]
+    frame_position: int = 0
 
 
 @dataclass(frozen=True)
@@ -472,6 +473,7 @@ class _Decode:
     start: int
     width: int
     selection: Selection
+    frame_position: int = 0
 
 
 @dataclass(frozen=True)
@@ -504,7 +506,9 @@ class _DeferringDecoder:
         _require_static_circuit(self.plan, self.operations, invocation)
         position = len(self.backend.instructions)
         qubits = yield from self._probe(invocation.inputs)
-        self.events.append(_Before(invocation, position, qubits))
+        self.events.append(
+            _Before(invocation, position, qubits, len(self.backend.frames))
+        )
 
     def decode(
         self, invocation: Invocation, readouts: Readouts
@@ -516,7 +520,15 @@ class _DeferringDecoder:
         selection = prepare_selection(gadget.implements.flags, invocation.call.select)
         self.latest = len(self.events)
         self.events.append(
-            _Decode(invocation, position, qubits, start, len(readouts), selection)
+            _Decode(
+                invocation,
+                position,
+                qubits,
+                start,
+                len(readouts),
+                selection,
+                len(self.backend.frames),
+            )
         )
         return Decoded(
             (False,) * gadget.implements.observe_count,

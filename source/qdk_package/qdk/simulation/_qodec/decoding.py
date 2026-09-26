@@ -128,8 +128,10 @@ def prepare_deq_decoder(
     runtime uses a private worker so synchronous simulation also works inside
     a running asyncio event loop, including notebooks.
 
-    With ``circuit_level=True``, compile a complete measurement-independent
-    Clifford shot using the ``run_qir`` noise model instead. This mode requires
+    With ``circuit_level=True``, connect local Clifford gadget models using
+    the ``run_qir`` noise model and deq's monolithic coordinator instead.
+    The execution trace must be measurement-independent, but individual
+    measurements may be random. This mode requires
     one encoded layer, the stabilizer backend, and supported Pauli channels
     without loss. It does not use QDK's syndrome decoder. Flags retain their
     declared zero-frame values, without inferred error corrections. The retry

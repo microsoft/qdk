@@ -30,6 +30,27 @@ def circuit_batch(circuit_decoder, noise=None, codec=None, program=None):
     return batch
 
 
+def physical_faults(trace, noise):
+    from qdk._native import QirInstructionId
+    from qdk.simulation._qodec.deq_circuit import _channel
+    from qdk.simulation._qodec.native_batch import _FrameMasks, _GATES
+
+    masks = _FrameMasks(trace.instructions)
+    for position, (opcode, *operands) in enumerate(trace.instructions):
+        if opcode in (QirInstructionId.MZ, QirInstructionId.RESET):
+            name, targets = "mresetz", operands[:1]
+        else:
+            name = next(name for name, value in _GATES.items() if value == opcode)
+            targets = operands
+        for axes, probability in _channel(noise, name, len(targets)):
+            effect = 0
+            for target, axis in zip(targets, axes):
+                if axis != "I":
+                    effect ^= masks.mask(position + 1, target, axis.lower())
+            if effect:
+                yield effect, probability
+
+
 def test_circuit_deq_never_constructs_or_replays_syndrome_decoder(
     circuit_decoder, monkeypatch
 ):
@@ -49,8 +70,66 @@ def test_circuit_deq_never_constructs_or_replays_syndrome_decoder(
     assert batch.run(8, None, seed=9) == [[Result.Zero, Result.One]] * 8
 
 
+def test_circuit_deq_connects_reusable_local_gadget_types(circuit_decoder):
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; x data; x data; bit r = measure data;'
+    )
+    batch = circuit_batch(circuit_decoder, program=program)
+    assert len(batch.library.gadget_types) == 3
+    assert len(batch.gadgets) == 4
+    assert batch.gadgets[1].gtype == batch.gadgets[2].gtype
+    assert [gadget.connectors for gadget in batch.gadgets] == [
+        (),
+        ((1, 0),),
+        ((2, 0),),
+        ((3, 0),),
+    ]
+    assert [gadget.width for gadget in batch.gadgets] == [0, 0, 0, 3]
+    assert batch.run(3, None, seed=9) == [[Result.Zero]] * 3
+
+
+@pytest.mark.parametrize("source", ["x data;", "x data; reset data; x data;"])
+def test_circuit_deq_closes_discarded_and_live_outputs(circuit_decoder, source):
+    batch = circuit_batch(
+        circuit_decoder,
+        program=compile_qasm(f'include "stdgates.inc"; qubit data; {source}'),
+    )
+    assert any(gadget.event is None for gadget in batch.gadgets)
+    assert batch.run(3, None, seed=9) == [[]] * 3
+
+
+def test_circuit_deq_does_not_add_undeclared_detection_checks(circuit_decoder):
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    codec.layers[0].gadgets["__quantum__qis__m__body"].checks = []
+    batch = circuit_batch(circuit_decoder, codec=codec)
+    assert all(not gadget.finished_checks for gadget in batch.library.gadget_types)
+
+
+def test_circuit_deq_trusts_authored_check_sign_until_decoding(circuit_decoder):
+    from qdk.simulation._qodec.protocols import ExecutionUnresolved
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    codec.layers[0].gadgets["__quantum__qis__m__body"].checks = [
+        ["circuit.readouts[0]", "circuit.readouts[1]", 1]
+    ]
+    batch = circuit_batch(circuit_decoder, codec=codec)
+    with pytest.raises(ExecutionUnresolved, match="explain"):
+        batch.run(1, None, seed=9, on_shot_failure="raise")
+
+
+def test_circuit_deq_preserves_a_pauli_before_a_logical_readout(circuit_decoder):
+    from qodec.gadgets import Circuit
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    measure = codec.layers[0].gadgets["__quantum__qis__m__body"]
+    measure.circuit = Circuit(
+        codec.layers[-1].instruction_set, "X 0 1 2\nM 0 1 2", format="stim"
+    )
+    batch = circuit_batch(circuit_decoder, codec=codec)
+    assert batch.run(3, None, seed=9) == [[Result.One]] * 3
+
+
 def test_circuit_deq_corrects_all_single_bit_errors(circuit_decoder):
-    from qdk.simulation._qodec.deq_circuit import _library
     from qdk.simulation._qodec.deq_decoding import _DeqTransport
     from contextlib import closing
 
@@ -62,16 +141,11 @@ def test_circuit_deq_corrects_all_single_bit_errors(circuit_decoder):
         for fault in range(3)
     ]
     with closing(_DeqTransport()) as transport:
-        results = transport.run(
-            batch._decode(
-                _library(batch.trace, batch.equations, noise), rows, 9, "raise"
-            )
-        )
+        results = transport.run(batch._decode(batch.library, rows, 9, "raise"))
     assert results == [[Result.Zero]] * 3
 
 
 def test_circuit_deq_preserves_raw_rejection_flags(circuit_decoder):
-    from qdk.simulation._qodec.deq_circuit import _library
     from qdk.simulation._qodec.deq_decoding import _DeqTransport
     from qdk.simulation._qodec.protocols import ExecutionRejected
     from contextlib import closing
@@ -84,7 +158,7 @@ def test_circuit_deq_preserves_raw_rejection_flags(circuit_decoder):
     noise.mresetz.x = 0.01
     batch = circuit_batch(circuit_decoder, noise, codec)
     rows = [[Result.One, Result.Zero, Result.Zero], [Result.Zero] * 3]
-    library = _library(batch.trace, batch.equations, noise)
+    library = batch.library
     with closing(_DeqTransport()) as transport:
         assert transport.run(batch._decode(library, rows, 9, "discard")) == [
             [Result.Zero]
@@ -93,7 +167,7 @@ def test_circuit_deq_preserves_raw_rejection_flags(circuit_decoder):
             transport.run(batch._decode(library, rows, 9, "raise"))
 
 
-@pytest.mark.parametrize("probability", [0, 0.01, 1])
+@pytest.mark.parametrize("probability", [0, 0.01, 0.75, 1])
 def test_circuit_deq_seeded_runs_are_reproducible(circuit_decoder, probability):
     noise = NoiseConfig()
     noise.mresetz.x = probability
@@ -213,16 +287,82 @@ def test_circuit_deq_handles_random_preparation_syndromes(circuit_decoder):
         ["out[0].stabilizers[1]", "circuit.readouts[0]"],
         ["out[0].z[0]"],
     ]
+    measure = codec.layers[0].gadgets["__quantum__qis__m__body"]
+    measure.implements.flags = ["reject"]
+    measure.readouts.append({"reject": ["circuit.readouts[0]", "circuit.readouts[1]"]})
     batch = circuit_batch(circuit_decoder, codec=codec)
     assert (
         batch.run(100, None, seed=42, on_shot_failure="raise") == [[Result.Zero]] * 100
     )
 
 
+def test_circuit_deq_logical_sign_equation_matches_an_authored_frame(circuit_decoder):
+    from qodec.actions import Clifford
+    from qodec.gadgets import Circuit
+    from qodec.instructions import BlockOperand
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    physical = codec.layers[-1].instruction_set
+    physical.instructions["H"] = qodec.Instruction(
+        "H",
+        inputs=[BlockOperand("qubit")],
+        outputs=[BlockOperand("qubit")],
+        action=[Clifford({"X_0": "Z_0", "Z_0": "X_0"})],
+    )
+    prepare = codec.layers[0].gadgets["prepare_z"]
+    prepare.circuit = Circuit(physical, "R 0 1 2 3\nH 3\nM 3", format="stim")
+    prepare.frames = {"out[0].z[0]": ["circuit.readouts[0]"]}
+    expected = circuit_batch(circuit_decoder, codec=codec).run(30, None, seed=42)
+    assert {row[0] for row in expected} == {Result.Zero, Result.One}
+    prepare.frames = {}
+    prepare.checks = [["out[0].z[0]", "circuit.readouts[0]"]]
+    assert (
+        circuit_batch(circuit_decoder, codec=codec).run(30, None, seed=42) == expected
+    )
+
+
+@pytest.mark.parametrize("aliased", [False, True])
+def test_circuit_deq_resolves_coupled_and_aliased_logical_signs(
+    circuit_decoder, aliased
+):
+    from qdk.simulation import run_qir
+
+    codec = qodec.Qodec.load(str(FIXTURES / "c4.qodec.yaml"))
+    prepare = codec.layers[0].gadgets["prepare_zz"]
+    if aliased:
+        prepare.readouts = [{"reject": ["out[0].z[1]", 1]}]
+        prepare.checks += [["out[0].z[0]", 1], ["readouts[0]"]]
+    else:
+        prepare.checks += [
+            ["out[0].z[0]", "out[0].z[1]"],
+            ["out[0].z[1]", 1],
+        ]
+    qir = """
+        %Qubit = type opaque
+        %Result = type opaque
+        define void @main() #0 {
+          call void @prepare_zz(%Qubit* null, %Result* null)
+          call void @measure_zz(%Qubit* null, %Result* inttoptr (i64 1 to %Result*), %Result* inttoptr (i64 2 to %Result*))
+          call void @__quantum__rt__array_record_output(i64 2, i8* null)
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
+          ret void
+        }
+        declare void @prepare_zz(%Qubit*, %Result*)
+        declare void @measure_zz(%Qubit*, %Result*, %Result*)
+        declare void @__quantum__rt__array_record_output(i64, i8*)
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+        attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="3" }
+    """
+    assert (
+        run_qir(qir, qodec=codec, decoder=circuit_decoder, shots=3, seed=42)
+        == [[Result.One, Result.One]] * 3
+    )
+
+
 def test_circuit_faults_follow_measurement_and_reset_timing(circuit_decoder):
     from dataclasses import replace
     from qdk._native import QirInstructionId as Id
-    from qdk.simulation._qodec.deq_circuit import _faults
 
     batch = circuit_batch(circuit_decoder)
     trace = replace(
@@ -239,7 +379,11 @@ def test_circuit_faults_follow_measurement_and_reset_timing(circuit_decoder):
     noise.mresetz.x = 0.1
     # Reset faults flip subsequent measurements; measurement faults never
     # flip the bit just recorded, and do not survive the next reset.
-    assert list(_faults(trace, noise)) == [(0b011, 0.1), (0b010, 0.1), (0b100, 0.1)]
+    assert list(physical_faults(trace, noise)) == [
+        (0b011, 0.1),
+        (0b010, 0.1),
+        (0b100, 0.1),
+    ]
 
 
 @pytest.mark.parametrize("width", [1, 2])
@@ -278,13 +422,12 @@ def test_circuit_deq_surfaces_constant_contradictions(circuit_decoder):
 
 
 def test_circuit_deq_cannot_explain_impossible_evidence(circuit_decoder):
-    from qdk.simulation._qodec.deq_circuit import _library
     from qdk.simulation._qodec.deq_decoding import _DeqTransport
     from qdk.simulation._qodec.protocols import ExecutionUnresolved
     from contextlib import closing
 
     batch = circuit_batch(circuit_decoder)
-    library = _library(batch.trace, batch.equations, None)
+    library = batch.library
     rows = [[Result.One, Result.Zero, Result.Zero], [Result.Zero] * 3]
     with closing(_DeqTransport()) as transport:
         assert transport.run(batch._decode(library, rows, 1, "discard")) == [
@@ -346,10 +489,22 @@ def test_circuit_deq_accounts_for_deterministic_gate_faults(circuit_decoder):
     assert batch.run(4, noise, seed=42) == [[Result.One]] * 4
 
 
+def test_circuit_deq_complements_a_fault_that_flips_a_port_stabilizer(circuit_decoder):
+    from .test_native_batch import _repetition_code_with_x_circuit
+
+    codec = _repetition_code_with_x_circuit("Y 0\nX 1 2")
+    noise = NoiseConfig()
+    noise.y.x = 1
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; x data; bit r = measure data;'
+    )
+    batch = circuit_batch(circuit_decoder, noise, codec, program)
+    assert batch.run(4, noise, seed=42, on_shot_failure="raise") == [[Result.One]] * 4
+
+
 def test_circuit_deq_corrects_data_and_intermediate_syndrome_faults(circuit_decoder):
     from contextlib import closing
     from qodec.gadgets import Circuit
-    from qdk.simulation._qodec.deq_circuit import _faults
     from qdk.simulation._qodec.deq_decoding import _DeqTransport
 
     codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
@@ -372,7 +527,7 @@ def test_circuit_deq_corrects_data_and_intermediate_syndrome_faults(circuit_deco
             Result.One if value ^ bool(fault >> index & 1) else Result.Zero
             for index, value in enumerate(clean)
         ]
-        for fault, _ in _faults(batch.trace, noise)
+        for fault, _ in physical_faults(batch.trace, noise)
     ]
     assert len(rows) == 5
     with closing(_DeqTransport()) as transport:
@@ -472,7 +627,10 @@ def test_circuit_deq_does_not_discard_runtime_protocol_errors(
         pass
 
     async def batch_execute(instructions):
-        return [99 if kind == "execute" else 1]
+        return [
+            99 if kind == "execute" else instruction.gadget.gid
+            for instruction in instructions
+        ]
 
     async def batch_decode(outcomes):
         if kind == "failure":
@@ -481,12 +639,17 @@ def test_circuit_deq_does_not_discard_runtime_protocol_errors(
             return []
         return [
             coordinator.Readouts(
-                gid=99 if kind == "identifier" else 1,
+                gid=99 if kind == "identifier" else outcome.gid,
                 readouts=util.BitVector(
-                    size=99 if kind == "size" else 3,
-                    data=b"" if kind == "bytes" else b"\0",
+                    size=99 if kind == "size" else gadget.readouts + gadget.checks,
+                    data=(
+                        b""
+                        if kind == "bytes"
+                        else bytes((gadget.readouts + gadget.checks + 7) // 8)
+                    ),
                 ),
             )
+            for outcome, gadget in zip(outcomes, batch.gadgets)
         ]
 
     @asynccontextmanager

@@ -50,19 +50,31 @@ To derive a circuit-level deq model from the simulator's noise instead::
     decoder = partial(prepare_deq_decoder, circuit_level=True)
     results = run_qir(qir, shots=1000, qodec=codec, decoder=decoder, noise=noise)
 
-This mode keeps native physical sampling and compiles the entire shot into one
-closed deq gadget. It uses the authored record equations in the zero correction
-frame, compiles output-sign corrections and declared frame updates, and
-propagates circuit faults across invocation boundaries. deq evaluates readouts
-and corrects logical outputs; QDK does not replay its syndrome decoder.
-Flags retain the declared zero-frame
-record parities, not deq-corrected values. Noiseless behavior is preserved, but
-noisy logical results and rejection rates can differ from the boundary decoder.
+This mode keeps native physical sampling and builds reusable deq gadget types
+from the traced Qodec gadget bodies. Instances connect through their encoded
+block ports. deq propagates circuit faults across those connections and uses
+its monolithic coordinator to decode each completed connected component.
+All instances and outcomes are submitted before waiting for decoded readouts;
+discarded and still-live output ports receive explicit terminators.
+
+Authored detection checks are supplied without validation. deq derives only
+missing output-port propagation relations from the local circuit, not extra
+detection checks. Detection checks must use physical records and stabilizer
+ports; logical sign equations describe frame propagation. deq evaluates logical
+readouts; QDK does not replay its syndrome decoder. Raw rejection flags are
+evaluated in batches from their authored record parities, including declared
+frame changes but excluding inferred error corrections. Noiseless behavior is
+preserved, but noisy logical results and rejection rates can differ from the
+boundary decoder.
 Each run uses a seeded deq stream and isolated shot instances; exact stochastic
 answers are not promised to match other decoders or deq versions.
+The library is loaded once per run, but instances are created for every shot.
+deq's reset operation does not retain those instances or their connections.
 
 Circuit-level mode requires one encoded layer, measurement-independent Clifford
-execution on the stabilizer backend, and no loss. It supports a single Pauli
+execution on the stabilizer backend, and no loss. Measurements may be random;
+only the execution trace must be independent of their values. Windowed decoding
+is not selected by this mode. It supports a single Pauli
 mechanism per noise table and depolarizing channels with total nonidentity
 probability at most 3/4 (one qubit) or 15/16 (two qubits). General Pauli channels
 are rejected rather than approximated. Measurement/reset noise follows the
