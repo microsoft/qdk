@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from paulimer import OutcomeCompleteSimulation
 from qodec.gadgets import Circuit
@@ -21,6 +21,7 @@ class ConditionalChoiResult:
     projector_outcome_rows: tuple[int, ...]
     observe_outcome_rows: tuple[int, ...]
     aux_origin: int
+    parameter_outcome_rows: Mapping[str, int]
 
 
 def conditional_choi_state(
@@ -29,8 +30,9 @@ def conditional_choi_state(
     input_qubits: Sequence[int],
     codespace_projector: Sequence[Pauli] = (),
     aux_origin: int | None = None,
+    parameters: Mapping[str, str] | None = None,
 ) -> ConditionalChoiResult:
-    from ..._analysis.check_discovery import simulate_program
+    from .interpreter import walk_program
 
     relevant_qubits: set[int] = set(range(ProgramLayout.of(program).total_qubits))
     relevant_qubits.update(input_qubits)
@@ -40,8 +42,10 @@ def conditional_choi_state(
         aux_origin = max(relevant_qubits) + 1 if relevant_qubits else 0
 
     total_qubits = aux_origin + len(input_qubits)
-    simulation = OutcomeCompleteSimulation.with_capacity(total_qubits, 100, 64)
-    simulation.reserve_qubits(total_qubits)
+    parameters = {} if parameters is None else parameters
+    capacity = total_qubits + bool(parameters)
+    simulation = OutcomeCompleteSimulation.with_capacity(capacity, 100, 64)
+    simulation.reserve_qubits(capacity)
     simulation.reserve_outcomes(100, 64)
 
     for offset, qubit in enumerate(input_qubits):
@@ -56,13 +60,29 @@ def conditional_choi_state(
         projector_rows.append(simulation.outcome_count)
         simulation.measure(stabilizer)
 
-    walk = simulate_program(program, simulation=simulation)
+    parameter_rows = {}
+    for name in sorted(set(parameters.values())):
+        # Measuring X on a fresh Z eigenstate makes one independent symbolic bit.
+        parameter_rows[name] = simulation.outcome_count
+        simulation.measure(Pauli.x(total_qubits))
+        simulation.measure(Pauli.z(total_qubits))
+    walk = walk_program(
+        program,
+        simulation=simulation,
+        parameter_rows={
+            alias: parameter_rows[name] for alias, name in parameters.items()
+        },
+    )
+    group = frame_group_of(simulation)
+    if parameters:
+        group, _, _ = group.partition(over=range(total_qubits))
     return ConditionalChoiResult(
-        group=frame_group_of(simulation),
+        group=group,
         simulation=simulation,
         projector_outcome_rows=tuple(projector_rows),
-        observe_outcome_rows=tuple(walk.observe_outcomes),
+        observe_outcome_rows=walk.observe_outcomes,
         aux_origin=aux_origin,
+        parameter_outcome_rows=parameter_rows,
     )
 
 

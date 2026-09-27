@@ -49,6 +49,12 @@ class GadgetProfile:
     Members are computed on first access and cached, but do not share one
     simulation. The target is snapshotted at construction, so a profile
     describes the gadget as it was then.
+
+    Action analysis supports conditional Paulis. Conditions may use concrete
+    bits, preceding measurement outcomes, or declared bit parameters. Unbound
+    bit parameters remain named symbolic inputs when comparing actions and
+    objectives; they are not averaged away. Other conditional action kinds
+    raise NotImplementedError, even with a constant condition.
     """
 
     def __init__(self, target: qc.Gadget | Circuit) -> None:
