@@ -21,16 +21,15 @@ def make_factory(noise=None, decoder=prepare_syndrome_decoder, codec=None):
     )
 
 
-@pytest.fixture(params=["syndrome", "circuit_deq"])
+@pytest.fixture(params=["syndrome", "deq"])
 def record_decoder(request):
     if request.param == "syndrome":
         return prepare_syndrome_decoder
     pytest.importorskip("deq")
     pytest.importorskip("deq_runtime")
-    from functools import partial
     from qdk.simulation._qodec.decoding import prepare_deq_decoder
 
-    return partial(prepare_deq_decoder, circuit_level=True)
+    return prepare_deq_decoder
 
 
 @requires_stim
@@ -52,83 +51,6 @@ def test_native_batch_prepares_static_noisy_qodec_shots():
     assert len(first) == 1000
     assert all(len(shot) == 5 for shot in first)
     assert sum(any(bit == Result.Zero for bit in shot) for shot in first) < 20
-
-
-@pytest.mark.parametrize("qubits", [1, 4])
-def test_native_batch_uses_deq_and_its_per_shot_seeds(monkeypatch, qubits):
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation._qodec.decoding import CodeDecoder, prepare_deq_decoder
-    from qdk.simulation._qodec.deq_decoding import DeqSession
-    from qdk.simulation._qodec.native_batch import prepare_batch
-
-    def forbidden_syndrome_solver(*args):
-        pytest.fail("Selecting deq must not use the syndrome solver")
-
-    seeds = []
-    original_start = DeqSession._start
-
-    async def start(session, seed):
-        seeds.append(seed)
-        await original_start(session, seed)
-
-    monkeypatch.setattr(CodeDecoder, "correct", forbidden_syndrome_solver)
-    monkeypatch.setattr(DeqSession, "_start", start)
-    gates = " ".join(f"x data[{index}];" for index in range(qubits))
-    program = compile_qasm(f"""
-        include "stdgates.inc"; qubit[{qubits}] data;
-        {gates}
-        bit[{qubits}] readout = measure data;
-    """)
-    noise = NoiseConfig()
-    noise.x.x = 0.2
-    batch = prepare_batch(program, make_factory(noise, decoder=prepare_deq_decoder))
-    assert batch is not None
-    assert seeds == []
-    first = batch.run(32, noise, seed=17)
-    assert first == batch.run(32, noise, seed=17)
-    assert len(first) == 32
-    assert all(len(shot) == qubits for shot in first)
-    assert len(set(seeds)) > 1
-
-
-def test_deq_batch_reuses_transport_for_independent_seeded_records(monkeypatch):
-    from contextlib import closing
-
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation._qodec import deq_decoding
-    from qdk.simulation._qodec.decoding import prepare_deq_decoder
-    from qdk.simulation._qodec.protocols import BatchDecoderFactory
-    from .test_execution_pipeline import invocation_for
-
-    original_worker = deq_decoding.ThreadPoolExecutor
-    workers = []
-
-    def worker(*args, **kwargs):
-        result = original_worker(*args, **kwargs)
-        workers.append(result)
-        return result
-
-    monkeypatch.setattr(deq_decoding, "ThreadPoolExecutor", worker)
-    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    factory = prepare_deq_decoder(layer)
-    assert isinstance(factory, BatchDecoderFactory)
-    with closing(factory.prepare_batch()) as session:
-        prepared = session.prepare_readouts(
-            invocation_for(layer.gadgets["__quantum__qis__m__body"]), 3
-        )
-    assert prepared is not None
-    assert workers == []
-    rows = [
-        tuple(bool(pattern & (1 << index)) for index in range(3))
-        for pattern in range(8)
-    ]
-    assert prepared.decode_batch(rows, list(range(8))) == [
-        (sum(row) >= 2,) for row in rows
-    ]
-    assert len(workers) == 1
-    assert all(not thread.is_alive() for thread in workers[0]._threads)
 
 
 @requires_stim
@@ -674,7 +596,7 @@ def test_native_batch_does_not_probe_non_batch_decoder_sessions():
 
 @pytest.mark.parametrize(
     "decoder_name",
-    ["syndrome", pytest.param("frame", marks=requires_stim), "deq"],
+    ["syndrome", pytest.param("frame", marks=requires_stim)],
 )
 def test_prepared_decoder_rejects_unknown_or_mismatched_inputs(decoder_name):
     from contextlib import closing
@@ -682,9 +604,6 @@ def test_prepared_decoder_rejects_unknown_or_mismatched_inputs(decoder_name):
     from qdk.simulation import decoders
     from .test_execution_pipeline import decode_gadget, invocation_for
 
-    if decoder_name == "deq":
-        pytest.importorskip("deq")
-        pytest.importorskip("deq_runtime")
     layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
     factory = getattr(decoders, f"prepare_{decoder_name}_decoder")(layer)
     with closing(factory.prepare_batch()) as session:
@@ -720,42 +639,6 @@ def test_retry_policy_keeps_the_interpreted_attempt_sequence(monkeypatch):
         run_qir_with_qodec(qir, codec, None, shots=3, seed=7, on_shot_failure="retry")
         == [Result.One] * 3
     )
-
-
-@pytest.mark.parametrize(
-    "fixture,measurement,width",
-    [
-        ("repetition3.qodec.yaml", "__quantum__qis__m__body", 3),
-        ("steane/qodec.yaml", "measure_z", 7),
-    ],
-)
-def test_deq_batch_matches_individual_seeded_decoder_sessions(
-    fixture, measurement, width
-):
-    from contextlib import closing
-
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation._qodec.decoding import prepare_deq_decoder
-    from .test_execution_pipeline import decode_gadget, invocation_for
-
-    layer = qodec.Qodec.load(str(FIXTURES / fixture)).layers[0]
-    gadget = layer.gadgets[measurement]
-    factory = prepare_deq_decoder(layer, error_probability=0.02)
-    with closing(factory.prepare_batch()) as session:
-        prepared = session.prepare_readouts(invocation_for(gadget), width)
-    assert prepared is not None
-    rows = [
-        tuple(bool(pattern & (1 << index)) for index in range(width))
-        for pattern in range(1 << width)
-    ]
-    seeds = [7 + index * 13 for index in range(len(rows))]
-    expected = []
-    for records, seed in zip(rows, seeds):
-        with closing(factory(seed)) as session:
-            expected.append(decode_gadget(session, gadget, records).readouts)
-    assert prepared.decode_batch(rows, seeds) == expected
-    assert prepared.decode_batch(rows, seeds) == expected
 
 
 @requires_stim

@@ -93,9 +93,8 @@ def test_decoder_requires_a_qodec():
 
 
 @pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
-@pytest.mark.parametrize("circuit_level", [False, True])
 def test_deq_missing_dependency_has_install_instructions(
-    monkeypatch, missing_dependency, circuit_level
+    monkeypatch, missing_dependency
 ):
     pytest.importorskip("qodec")
     from qdk.simulation.decoders import prepare_deq_decoder
@@ -108,7 +107,7 @@ def test_deq_missing_dependency_has_install_instructions(
             monkeypatch.delitem(sys.modules, name)
     monkeypatch.setitem(sys.modules, missing_dependency, None)
     with pytest.raises(ImportError, match="pip install deq deq-runtime"):
-        prepare_deq_decoder(cast("Layer", object()), circuit_level=circuit_level)
+        prepare_deq_decoder(cast("Layer", object()))
 
 
 @pytest.mark.parametrize("failure", [None, "start", "execute"])
@@ -196,7 +195,7 @@ def test_adaptive_runtime_branches_on_returned_readouts(measurement):
 
 
 @pytest.mark.parametrize("simulator_type", [None, "clifford", "cpu"])
-@pytest.mark.parametrize("decoder_name", [None, "syndrome", "frame", "deq"])
+@pytest.mark.parametrize("decoder_name", [None, "syndrome", "frame"])
 def test_public_qodec_runner_matches_adaptive_physical_results(
     simulator_type, decoder_name
 ):
@@ -210,9 +209,6 @@ def test_public_qodec_runner_matches_adaptive_physical_results(
     if decoder_name is not None:
         from qdk.simulation import decoders
 
-        if decoder_name == "deq":
-            pytest.importorskip("deq")
-            pytest.importorskip("deq_runtime")
         decoder = getattr(decoders, f"prepare_{decoder_name}_decoder")
 
     qir = qdk.openqasm.compile(

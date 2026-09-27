@@ -847,7 +847,7 @@ def run_qir(
         each Qodec layer. ``None`` selects the built-in syndrome decoder.
         See :mod:`qdk.simulation.decoders` for built-in preparation functions and
         the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
-        Its ``circuit_level=True`` mode derives connected gadget fault models
+        The deq adapter derives connected gadget fault models
         from ``noise`` and uses bounded compositions with deq's window coordinator
         for supported non-adaptive Clifford programs, without changing the default
         QDK decoder.

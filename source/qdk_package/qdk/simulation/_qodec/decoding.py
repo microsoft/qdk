@@ -113,29 +113,24 @@ def prepare_syndrome_decoder(layer: Layer) -> DecoderFactory:
     return SyndromeModel(layer)
 
 
-def prepare_deq_decoder(
-    layer: Layer, *, error_probability: float | None = None, circuit_level: bool = False
-) -> DecoderFactory:
-    """Prepare a deq relay-BP decoder for a Qodec layer.
+def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
+    """Prepare a circuit-level deq decoder for a Qodec layer.
 
-    Requires ``pip install deq deq-runtime``. The model assigns independent
-    X, Y, and Z faults to each code qubit with ``error_probability`` (0.001
-    when None), which must be between zero and one half. This is a per-boundary
-    syndrome model, not a circuit-level or temporal noise model. Simulator noise
-    is not inferred. Unknown syndrome entries are omitted rather than treated as zero.
-
-    QDK handles readout equations, frames, and applying corrections. The deq
-    runtime uses a private worker so synchronous simulation also works inside
-    a running asyncio event loop, including notebooks.
-
-    With ``circuit_level=True``, compose bounded groups of local Clifford
-    gadgets using the ``run_qir`` noise model and deq's window coordinator.
+    Requires ``pip install deq deq-runtime``. The decoder composes bounded
+    groups of local Clifford gadgets using the ``run_qir`` noise model and
+    deq's window coordinator with relay-BP decoding.
+    A single lowering supplies the physical circuit and connected gadget calls.
+    Primitive models retain QDK's constant-frame adjustment before deq composes
+    them; no QIR rewrite or per-shot compilation is needed.
     The execution trace must be measurement-independent, but individual
-    measurements may be random. This mode requires
+    measurements may be random. Execution requires
     one encoded layer, the stabilizer backend, and supported Pauli channels
     without loss. It does not use QDK's syndrome decoder. Flags retain their
     declared zero-frame values, without inferred error corrections. The retry
-    policy is unsupported. Leave ``error_probability=None`` in this mode.
+    policy is unsupported. A worker thread allows synchronous simulation
+    inside a running asyncio event loop, including notebooks.
+    Circuit fault probabilities are passed to deq without complementing values
+    above one half. deq 0.5.7 can miss corrections for such faults at zero syndrome.
     """
     try:
         from .deq_decoding import DeqModel
@@ -146,17 +141,7 @@ def prepare_deq_decoder(
                 "Install them with: pip install deq deq-runtime"
             ) from error
         raise
-    if circuit_level:
-        if error_probability is not None:
-            raise ValueError("circuit_level uses run_qir noise, not error_probability")
-        from .deq_circuit import CircuitDeqModel
-
-        return CircuitDeqModel()
-    if error_probability is None:
-        error_probability = 0.001
-    if not 0 < error_probability < 0.5:
-        raise ValueError("error_probability must be between zero and one half")
-    return DeqModel(layer, error_probability)
+    return DeqModel()
 
 
 class SyndromeModel:
@@ -195,11 +180,8 @@ class SyndromeModel:
                 (*checks, *(key ^ equation for key, equation in zip(keys, readouts)))
             )
 
-    def new_session(self, seed: int | None = None) -> SyndromeSession:
-        return SyndromeSession(self)
-
     def __call__(self, seed: int | None = None) -> SyndromeSession:
-        return self.new_session(seed)
+        return SyndromeSession(self)
 
     def prepare_batch(self) -> BatchDecoderSession:
         return _SyndromeBatchSession(self)
@@ -215,7 +197,7 @@ class SyndromeModel:
             )
         return self._readout_tables[key]
 
-    def terminal_invocation(
+    def _terminal_invocation(
         self, gadget: Gadget, record_count: int
     ) -> Invocation | None:
         if gadget.outputs or not 0 <= record_count <= 10:
@@ -258,11 +240,11 @@ class SyndromeModel:
     def _prepare_readout_table(
         self, gadget: Gadget, record_count: int
     ) -> tuple[Readouts, ...] | None:
-        invocation = self.terminal_invocation(gadget, record_count)
+        invocation = self._terminal_invocation(gadget, record_count)
         if invocation is None:
             return None
         table = []
-        session = self.new_session()
+        session = self()
         try:
             for pattern in range(1 << record_count):
                 records = tuple(
@@ -291,9 +273,6 @@ class SyndromeSession:
         self.model = model
         self.closed = False
         self.boundaries: dict[BlockReference, dict[tuple[str, int], bool]] = {}
-
-    def correct(self, decoder: CodeDecoder, syndrome: Readouts) -> DensePauli:
-        return decoder.correct(syndrome)
 
     def decode(
         self, invocation: Invocation, readouts: Readouts
@@ -335,7 +314,7 @@ class SyndromeSession:
             )
             if syndrome and all(value is None for value in syndrome):
                 continue
-            correction = self.correct(decoder, syndrome)
+            correction = decoder.correct(syndrome)
             for basis in ("x", "z"):
                 for index, operator in enumerate(decoder.operators[basis]):
                     known = system.value(_sign(boundary, entry, basis, index))

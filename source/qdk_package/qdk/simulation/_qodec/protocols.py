@@ -22,7 +22,7 @@ from .quantum_operations import FrameUpdate, Operation, RestoreMeasured
 
 if TYPE_CHECKING:
     from ._interpreter import OutputRecordValue
-    from .native_batch import ReplayBatch
+    from .native_batch import CircuitTrace
 
 ProgramT = TypeVar("ProgramT", contravariant=True)
 ResultT = TypeVar("ResultT", covariant=True)
@@ -249,7 +249,7 @@ class CircuitDecoderFactory(Protocol):
     """Private whole-circuit preparation capability; never falls back to replay."""
 
     def prepare_circuit(
-        self, trace: ReplayBatch, noise: NoiseConfig | None, /
+        self, trace: CircuitTrace, noise: NoiseConfig | None, /
     ) -> CircuitBatch: ...
 
 

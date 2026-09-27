@@ -6,7 +6,6 @@
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
-from functools import partial
 from itertools import cycle, islice
 import multiprocessing
 
@@ -53,7 +52,7 @@ def _sample_chunk(chunk: tuple[str, float, int, int]) -> Counter[str]:
     rows = run_qir(
         program,
         qodec=_codec,
-        decoder=partial(prepare_deq_decoder, circuit_level=True),
+        decoder=prepare_deq_decoder,
         noise=noise,
         shots=shots,
         seed=seed,

@@ -21,14 +21,10 @@ from qdk.simulation._qodec.quantum_backend import (
 from ec_tests.testing.optional import requires_stim
 
 
-@pytest.fixture(params=["syndrome", "deq"])
-def prepare_code_decoder(request):
+@pytest.fixture
+def prepare_code_decoder():
     from qdk.simulation import decoders
 
-    if request.param == "deq":
-        pytest.importorskip("deq")
-        pytest.importorskip("deq_runtime")
-        return decoders.prepare_deq_decoder
     return decoders.prepare_syndrome_decoder
 
 
@@ -1117,137 +1113,6 @@ def test_syndrome_decoder_preparation_returns_a_session_factory(prepare_code_dec
     finally:
         first.close()
         second.close()
-
-
-@pytest.mark.parametrize("failure", ["gid", "size", "data", "syndrome"])
-def test_deq_decoder_rejects_invalid_corrections(monkeypatch, failure):
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from deq.proto import coordinator_pb2, util_pb2
-    from qdk.simulation.decoders import prepare_deq_decoder
-    from qdk.simulation._qodec.protocols import ExecutionUnresolved
-
-    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-
-    async def decode(library, outcomes):
-        return coordinator_pb2.Readouts(
-            gid=2 if failure == "gid" else 1,
-            readouts=util_pb2.BitVector(
-                size=8 if failure == "size" else 9,
-                data=b"" if failure == "data" else b"\x00\x00",
-            ),
-        )
-
-    with closing(prepare_deq_decoder(layer)(7)) as session:
-        monkeypatch.setattr(session, "_decode", decode)
-        with pytest.raises(ExecutionUnresolved, match="deq"):
-            decode_gadget(
-                session, layer.gadgets["__quantum__qis__m__body"], (True, False, False)
-            )
-
-
-@pytest.mark.parametrize("failure", ["start", "shutdown"])
-def test_deq_decoder_releases_worker_after_failure(monkeypatch, failure):
-    import threading
-
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation._qodec import deq_decoding
-    from qdk.simulation.decoders import prepare_deq_decoder
-
-    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    factory = prepare_deq_decoder(layer)
-    workers = []
-    original = RuntimeError("injected deq failure")
-
-    def failed_runtime(**options):
-        workers.append(threading.current_thread())
-        raise original
-
-    async def failed_shutdown():
-        workers.append(threading.current_thread())
-        raise original
-
-    if failure == "start":
-        monkeypatch.setattr(deq_decoding, "Runtime", failed_runtime)
-        with pytest.raises(RuntimeError) as raised:
-            with closing(factory(7)) as session:
-                decode_gadget(
-                    session,
-                    layer.gadgets["__quantum__qis__m__body"],
-                    (True, False, False),
-                )
-    else:
-        session = factory(7)
-        assert isinstance(session, deq_decoding.DeqSession)
-        decode_gadget(
-            session, layer.gadgets["__quantum__qis__m__body"], (True, False, False)
-        )
-        assert session._runtime is not None
-        monkeypatch.setattr(session._runtime, "shutdown", failed_shutdown)
-        with pytest.raises(RuntimeError) as raised:
-            session.close()
-        session.close()
-        assert session._transport is not None
-        assert session._transport.loop.is_closed()
-    assert raised.value is original
-    assert workers and all(not worker.is_alive() for worker in workers)
-
-
-def test_deq_clean_syndromes_do_not_start_solver_resources(monkeypatch):
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation._qodec import deq_decoding
-    from qdk.simulation.decoders import prepare_deq_decoder
-
-    monkeypatch.setattr(
-        deq_decoding, "Runtime", Mock(side_effect=AssertionError("No solver needed"))
-    )
-    monkeypatch.setattr(
-        deq_decoding,
-        "ThreadPoolExecutor",
-        Mock(side_effect=AssertionError("No worker needed")),
-    )
-    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    with closing(prepare_deq_decoder(layer)(7)) as session:
-        for logical in (False, True):
-            assert decode_gadget(
-                session, layer.gadgets["__quantum__qis__m__body"], (logical,) * 3
-            ).readouts == (logical,)
-
-
-@pytest.mark.parametrize("probability", [-1, 0, 0.5, 1, float("nan"), float("inf")])
-def test_deq_decoder_rejects_invalid_fault_probability(probability):
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation.decoders import prepare_deq_decoder
-
-    layer = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml")).layers[0]
-    with pytest.raises(ValueError, match="error_probability"):
-        prepare_deq_decoder(layer, error_probability=probability)
-
-
-def test_deq_decoder_corrects_all_single_qubit_steane_paulis():
-    pytest.importorskip("deq")
-    pytest.importorskip("deq_runtime")
-    from qdk.simulation._qodec.decoding import CodeDecoder
-    from qdk.simulation._qodec.deq_decoding import DeqSession
-    from qdk.simulation.decoders import prepare_deq_decoder
-
-    layer = qodec.Qodec.load(str(FIXTURES / "steane/qodec.yaml")).layers[0]
-    code = CodeDecoder(layer.codes["steane"])
-    with closing(prepare_deq_decoder(layer)(7)) as session:
-        assert isinstance(session, DeqSession)
-        for fault in code.faults:
-            syndrome = tuple(
-                not fault.commutes_with(stabilizer) for stabilizer in code.stabilizers
-            )
-            residual = fault * session.correct(code, syndrome)
-            assert all(
-                residual.commutes_with(operator)
-                for operators in code.operators.values()
-                for operator in operators
-            )
 
 
 def test_decoder_preparation_is_only_required_for_encoded_layers():

@@ -71,7 +71,7 @@ def run_qir_with_qodec(
         isinstance(factory, CircuitDecoderFactory)
         for _, factory in executor.pipeline_factory.prepared
     ):
-        raise NotImplementedError("Circuit-level deq does not support the retry policy")
+        raise NotImplementedError("deq does not support the retry policy")
     records = None
     if shots > 0 and on_shot_failure != "retry":
         from .native_batch import prepare_batch

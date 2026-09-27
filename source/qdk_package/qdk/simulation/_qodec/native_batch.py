@@ -671,12 +671,8 @@ def _shot_seeds(seed: int, shots: int) -> list[int]:
 
 
 @dataclass(frozen=True)
-class ReplayBatch:
-    """Sample the traced circuit natively, then decode every shot in order.
-
-    Decoder corrections are Pauli frame updates, as in the interpreter; each
-    one flips the later measurement records its Pauli reaches.
-    """
+class CircuitTrace:
+    """One lowering's physical instructions, connected gadgets, and result map."""
 
     instructions: tuple[tuple[object, ...], ...]
     num_qubits: int
@@ -684,18 +680,13 @@ class ReplayBatch:
     events: tuple[_Before | _Decode | _Discard, ...]
     sources: tuple[tuple[int, int], ...]
     outputs: tuple[OutputRecordValue | _Readout, ...]
-    create_session: DecoderFactory
     frames: tuple[tuple[int, int, str], ...] = ()
 
-    def run(
-        self,
-        shots: int,
-        noise: NoiseConfig | None,
-        *,
-        seed: int,
-        on_shot_failure: Literal["raise", "discard"] = "discard",
-    ) -> list[list[OutputRecordValue]]:
-        physical = cast(
+    def sample(
+        self, shots: int, noise: NoiseConfig | None, *, seed: int
+    ) -> list[list[Result]]:
+        """Sample physical records; the decoder applies frame updates afterward."""
+        return cast(
             list[list[Result]],
             run_clifford(
                 cast(list[QirInstruction], list(self.instructions)),
@@ -706,8 +697,30 @@ class ReplayBatch:
                 seed,
             ),
         )
-        frame = _FrameMasks(self.instructions)
-        static = _static_flips(self.instructions, self.frames, frame)
+
+
+@dataclass(frozen=True)
+class ReplayBatch:
+    """Sample a shared trace, then replay a decoder session for each shot.
+
+    Decoder corrections are Pauli frame updates, as in the interpreter; each
+    one flips the later measurement records its Pauli reaches.
+    """
+
+    trace: CircuitTrace
+    create_session: DecoderFactory
+
+    def run(
+        self,
+        shots: int,
+        noise: NoiseConfig | None,
+        *,
+        seed: int,
+        on_shot_failure: Literal["raise", "discard"] = "discard",
+    ) -> list[list[OutputRecordValue]]:
+        physical = self.trace.sample(shots, noise, seed=seed)
+        frame = _FrameMasks(self.trace.instructions)
+        static = _static_flips(self.trace.instructions, self.trace.frames, frame)
         records = []
         for shot, shot_seed in zip(physical, _shot_seeds(seed, shots)):
             try:
@@ -719,7 +732,7 @@ class ReplayBatch:
             records.append(
                 [
                     measured[value.index] if isinstance(value, _Readout) else value
-                    for value in self.outputs
+                    for value in self.trace.outputs
                 ]
             )
         return records
@@ -730,7 +743,7 @@ class ReplayBatch:
         bits = [value == Result.One for value in shot]
         outcomes: dict[int, Readouts] = {}
         with closing(self.create_session(seed)) as session:
-            for index, event in enumerate(self.events):
+            for index, event in enumerate(self.trace.events):
                 if isinstance(event, _Discard):
                     if isinstance(session, BlockObserver):
                         session.discarded(event.blocks)
@@ -757,7 +770,7 @@ class ReplayBatch:
                     event.selection.require(decoded.flags)
                     outcomes[index] = decoded.readouts
         measured: list[OutputRecordValue] = []
-        for event_index, outcome in self.sources:
+        for event_index, outcome in self.trace.sources:
             value = outcomes[event_index][outcome]
             if value is None:
                 raise ExecutionUnresolved("Logical measurement could not be decoded")
@@ -795,7 +808,7 @@ def prepare_batch(
     program: AdaptiveProgram,
     factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
 ) -> NativeBatch | ReplayBatch | CircuitBatch | None:
-    circuit_level = any(
+    requires_trace = any(
         isinstance(decoder, CircuitDecoderFactory) for _, decoder in factory.prepared
     )
     if (
@@ -816,9 +829,9 @@ def prepare_batch(
             for instruction in program.instructions
         )
     ):
-        if circuit_level:
+        if requires_trace:
             raise NotImplementedError(
-                "Circuit-level deq requires one encoded layer, the stabilizer "
+                "deq requires one encoded layer, the stabilizer "
                 "backend, and measurement-independent Clifford execution without loss"
             )
         return None
@@ -832,14 +845,12 @@ def prepare_batch(
             batch = _trace_tables(program, factory, plan, session)
             if batch is not None:
                 return batch
-    trace = _trace_replay(program, factory, plan, create_session)
+    trace = _trace_circuit(program, factory, plan)
     if isinstance(create_session, CircuitDecoderFactory):
         if trace is None:
-            raise NotImplementedError(
-                "Circuit-level deq cannot trace this circuit or noise model"
-            )
+            raise NotImplementedError("deq cannot trace this circuit or noise model")
         return create_session.prepare_circuit(trace, factory.noise)
-    return trace
+    return None if trace is None else ReplayBatch(trace, create_session)
 
 
 def _trace(
@@ -906,12 +917,11 @@ def _trace_tables(
     )
 
 
-def _trace_replay(
+def _trace_circuit(
     program: AdaptiveProgram,
     factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
     plan: LayerPlan,
-    create_session: DecoderFactory,
-) -> ReplayBatch | None:
+) -> CircuitTrace | None:
     backend = _RecordingBackend(factory.noise)
     decoder = _DeferringDecoder(plan, backend, factory)
     layer = _RecordingLayer(plan, decoder)
@@ -919,13 +929,12 @@ def _trace_replay(
     traced = _trace(program, factory, layer, backend)
     if traced is None:
         return None
-    return ReplayBatch(
+    return CircuitTrace(
         tuple(backend.instructions),
         backend.num_qubits,
         backend.num_measurements,
         tuple(decoder.events),
         tuple(layer.sources),
         _outputs(*traced, range(len(layer.sources))),
-        create_session,
         tuple(backend.frames),
     )
