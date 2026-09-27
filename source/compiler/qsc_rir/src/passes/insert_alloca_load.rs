@@ -33,6 +33,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
     };
 
     let mut vars_to_alloca = IndexMap::default();
+    let mut vars_to_load = IndexMap::default();
     let mut visited_blocks = FxHashSet::default();
     let mut blocks_to_visit = vec![entry_block_id];
     while let Some(block_id) = blocks_to_visit.pop() {
@@ -40,7 +41,13 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
             continue;
         }
         visited_blocks.insert(block_id);
-        add_alloca_load_to_block(program, block_id, &mut vars_to_alloca, next_var_id);
+        add_alloca_load_to_block(
+            program,
+            block_id,
+            &mut vars_to_alloca,
+            &mut vars_to_load,
+            next_var_id,
+        );
         for successor_id in get_block_successors(program.get_block(block_id)) {
             if !visited_blocks.contains(&successor_id) {
                 blocks_to_visit.push(successor_id);
@@ -65,6 +72,7 @@ fn add_alloca_load_to_block(
     program: &mut Program,
     block_id: BlockId,
     vars_to_alloca: &mut IndexMap<VariableId, Variable>,
+    vars_to_load: &mut IndexMap<VariableId, Variable>,
     next_var_id: &mut VariableId,
 ) {
     let block = program.get_block_mut(block_id);
@@ -80,7 +88,7 @@ fn add_alloca_load_to_block(
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
-                    should_load_operand(operand, vars_to_alloca),
+                    should_load_operand(operand, vars_to_alloca, vars_to_load),
                 );
                 block.0.push(Instruction::Store(new_operand, *var));
                 // Drop the cached load for this variable so a later read in this
@@ -99,7 +107,7 @@ fn add_alloca_load_to_block(
                             &mut var_map,
                             &mut block.0,
                             next_var_id,
-                            should_load_operand(operand, vars_to_alloca),
+                            should_load_operand(operand, vars_to_alloca, vars_to_load),
                         )
                     })
                     .collect();
@@ -121,7 +129,8 @@ fn add_alloca_load_to_block(
                             &mut var_map,
                             &mut block.0,
                             next_var_id,
-                            vars_to_alloca.contains_key(var.variable_id),
+                            vars_to_alloca.contains_key(var.variable_id)
+                                || vars_to_load.contains_key(var.variable_id),
                         ),
                         Operand::Literal(_) => *arg,
                     })
@@ -135,7 +144,8 @@ fn add_alloca_load_to_block(
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
-                    vars_to_alloca.contains_key(var.variable_id),
+                    vars_to_alloca.contains_key(var.variable_id)
+                        || vars_to_load.contains_key(var.variable_id),
                 );
             }
 
@@ -164,14 +174,14 @@ fn add_alloca_load_to_block(
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
-                    should_load_operand(lhs, vars_to_alloca),
+                    should_load_operand(lhs, vars_to_alloca, vars_to_load),
                 );
                 *rhs = map_or_load_operand(
                     rhs,
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
-                    should_load_operand(rhs, vars_to_alloca),
+                    should_load_operand(rhs, vars_to_alloca, vars_to_load),
                 );
             }
 
@@ -185,7 +195,7 @@ fn add_alloca_load_to_block(
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
-                    should_load_operand(operand, vars_to_alloca),
+                    should_load_operand(operand, vars_to_alloca, vars_to_load),
                 );
             }
 
@@ -197,12 +207,16 @@ fn add_alloca_load_to_block(
                     &mut var_map,
                     &mut block.0,
                     next_var_id,
-                    should_load_operand(operand, vars_to_alloca),
+                    should_load_operand(operand, vars_to_alloca, vars_to_load),
                 );
                 block
                     .0
                     .push(Instruction::Index(*array, *operand, *variable));
                 load_from_variable(variable, &mut var_map, &mut block.0, next_var_id);
+                // A variable corresponding to a load from an array should be loaded in successor blocks too,
+                // include it in the vars_to_load map. This is separate from the vars_to_alloca map because
+                // loads from an array do not require a corresponding alloca.
+                vars_to_load.insert(variable.variable_id, *variable);
                 // Continue here to avoid pushing the instruction again below.
                 continue;
             }
@@ -222,10 +236,17 @@ fn add_alloca_load_to_block(
     }
 }
 
-fn should_load_operand(operand: &Operand, vars_to_alloca: &IndexMap<VariableId, Variable>) -> bool {
+fn should_load_operand(
+    operand: &Operand,
+    vars_to_alloca: &IndexMap<VariableId, Variable>,
+    vars_to_load: &mut IndexMap<VariableId, Variable>,
+) -> bool {
     match operand {
         Operand::Literal(_) => false,
-        Operand::Variable(var) => vars_to_alloca.contains_key(var.variable_id),
+        Operand::Variable(var) => {
+            vars_to_alloca.contains_key(var.variable_id)
+                || vars_to_load.contains_key(var.variable_id)
+        }
     }
 }
 

@@ -255,3 +255,55 @@ fn inserts_load_before_value_return_in_successor_block() {
             Return Variable(2, Integer)"#]]
     .assert_eq(&program.get_block(BlockId(1)).to_string());
 }
+
+#[test]
+fn inserts_load_before_value_use_when_read_from_array_in_previous_block() {
+    let mut program = Program::with_blocks(vec![
+        (
+            BlockId(0),
+            Block(vec![
+                Instruction::Index(
+                    Operand::Literal(Literal::Array(0)),
+                    Operand::Literal(Literal::Integer(0)),
+                    Variable::new_integer(VariableId(0)),
+                ),
+                Instruction::Jump(BlockId(1)),
+            ]),
+        ),
+        (
+            BlockId(1),
+            Block(vec![Instruction::Return(Some(Operand::Variable(
+                Variable::new_integer(VariableId(0)),
+            )))]),
+        ),
+    ]);
+
+    // Before
+    expect![[r#"
+        Block:
+            Variable(0, Integer) = Index Array(0), Integer(0)
+            Jump(1)"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+    expect![[r#"
+        Block:
+            Return Variable(0, Integer)"#]]
+    .assert_eq(&program.get_block(BlockId(1)).to_string());
+
+    insert_alloca_load_instrs(&mut program);
+
+    // After block 0
+    expect![[r#"
+        Block:
+            Variable(0, Integer) = Index Array(0), Integer(0)
+            Variable(1, Integer) = Load Variable(0, Integer)
+            Jump(1)"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+
+    // After block 1: a load is inserted before the return and the return
+    // operand is rewritten to the loaded variable.
+    expect![[r#"
+        Block:
+            Variable(2, Integer) = Load Variable(0, Integer)
+            Return Variable(2, Integer)"#]]
+    .assert_eq(&program.get_block(BlockId(1)).to_string());
+}
