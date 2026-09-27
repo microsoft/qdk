@@ -16,6 +16,7 @@ from typing import cast
 
 from paulimer import CliffordUnitary
 from qodec import Code, Gadget, Layer
+from qodec.gadgets import Encoding
 from qodec.instructions import InstructionCall
 from deq.circuit import model as circuit  # pyright: ignore[reportMissingImports]
 from deq.circuit.parser import parse  # pyright: ignore[reportMissingImports]
@@ -116,11 +117,17 @@ class _LibraryBuilder:
                 raise ValueError(f"Gadget parameter binding {name!r} has no argument")
         definition, width = self._gadget_definition(plan)
         flags = _flag_parities(gadget, width)
+        codes = {code.name: code for code in self.codes.values()}
+        inferred = resolve_gadget_checks(definition, codes)
+        propagations = _complete_propagations(
+            definition, codes, _action_propagations(gadget, arguments)
+        )
+        defaults = _default_signs(gadget, width, propagations, inferred.unfinished)
         _apply_contract(
             definition,
-            {code.name: code for code in self.codes.values()},
-            _local_contract(gadget, width),
-            arguments,
+            _local_contract(gadget, width, defaults),
+            propagations,
+            inferred.unfinished,
         )
         self.gadgets.append(definition)
         self.cached[key] = _GadgetModel(
@@ -351,7 +358,11 @@ def _flag_parities(gadget: Gadget, width: int) -> tuple[_Parity, ...]:
 
 
 def _eliminate_aliases(
-    equations: Iterable[_Parity], origin: int, count: int, *, free_count: int = 0
+    equations: Iterable[_Parity],
+    origin: int,
+    count: int,
+    *,
+    defaults: Iterable[_Parity] = (),
 ) -> tuple[list[_Parity], list[_Parity]]:
     rows: dict[int, _Parity] = {}
     checks = []
@@ -359,15 +370,15 @@ def _eliminate_aliases(
         remainder = _insert_equation(equation, rows, origin)
         if remainder is not None:
             checks.append(remainder)
+    # Defaults fill only missing pivots; their residuals are not authored checks.
+    for equation in defaults:
+        _insert_equation(equation, rows, origin)
     readouts = []
     for index in range(count):
         value = _Parity(1 << (origin + index))
         while value.mask.bit_length() > origin:
             pivot = value.mask.bit_length() - 1
             if pivot not in rows:
-                if pivot < origin + free_count:
-                    value ^= _Parity(1 << pivot)
-                    continue
                 raise ExecutionUnresolved(
                     "Gadget readout equations are underdetermined"
                 )
@@ -402,19 +413,71 @@ class _LocalContract:
     frames: dict[tuple[int, str, int], _Parity]
 
 
-def _local_contract(gadget: Gadget, width: int) -> _LocalContract:
-    inputs = tuple(
+def _encoding_signs(encodings: Sequence[Encoding]) -> tuple[tuple[int, str, int], ...]:
+    return tuple(
         (port, basis, index)
-        for port, encoding in enumerate(gadget.inputs)
+        for port, encoding in enumerate(encodings)
         for basis in ("stabilizers", "x", "z")
         for index in range(len(getattr(encoding.code, basis)))
     )
-    outputs = tuple(
-        (port, basis, index)
-        for port, encoding in enumerate(gadget.outputs)
-        for basis in ("stabilizers", "x", "z")
-        for index in range(len(getattr(encoding.code, basis)))
+
+
+def _default_signs(
+    gadget: Gadget,
+    width: int,
+    propagations: Sequence[circuit.PropagateStatement],
+    unfinished: Sequence[tuple[frozenset[int], bool]],
+) -> dict[tuple[int, str, int], _Parity]:
+    """Express local frame defaults in the authored equations' column space."""
+    inputs = _encoding_signs(gadget.inputs)
+    columns = {key: width + index for index, key in enumerate(inputs)}
+    signs = {}
+    for statement in propagations:
+        target = statement.target
+        assert target.port_index is not None
+        value = _Parity(constant=statement.flip)
+        for term in statement.terms:
+            if isinstance(term, circuit.PhysicalMeasurementTarget):
+                column = term.index
+            elif isinstance(term, circuit.DestabilizerTarget):
+                column = columns[term.port_index, "stabilizers", term.stab_index]
+            elif isinstance(term, circuit.LogicalPauliTarget):
+                assert term.port_index is not None
+                column = columns[
+                    term.port_index, "z" if term.pauli == "X" else "x", term.index
+                ]
+            else:
+                raise ExecutionUnresolved(f"Unsupported default frame term: {term}")
+            value ^= _Parity(1 << column)
+        signs[target.port_index, "z" if target.pauli == "X" else "x", target.index] = (
+            value
+        )
+
+    input_stabilizers = [columns[key] for key in inputs if key[1] == "stabilizers"]
+    measurements = [*input_stabilizers, *range(width)]
+    output_stabilizers = [
+        key for key in _encoding_signs(gadget.outputs) if key[1] == "stabilizers"
+    ]
+    resolved, _ = _eliminate_aliases(
+        (
+            _Parity(sum(1 << index for index in indices), flip)
+            for indices, flip in unfinished
+        ),
+        len(measurements),
+        len(output_stabilizers),
     )
+    for key, row in zip(output_stabilizers, resolved):
+        signs[key] = _Parity(
+            sum(1 << measurements[index] for index in row.indices), row.constant
+        )
+    return signs
+
+
+def _local_contract(
+    gadget: Gadget, width: int, defaults: Mapping[tuple[int, str, int], _Parity]
+) -> _LocalContract:
+    inputs = _encoding_signs(gadget.inputs)
+    outputs = _encoding_signs(gadget.outputs)
     variables = [
         *(("circuit_readout", None, None, None, index) for index in range(width)),
         *(("encoding", "in", *key) for key in inputs),
@@ -439,7 +502,10 @@ def _local_contract(gadget: Gadget, width: int) -> _LocalContract:
         equations,
         origin,
         len(outputs) + gadget.implements.observe_count,
-        free_count=len(outputs),
+        defaults=(
+            _Parity(1 << (origin + index)) ^ defaults[key]
+            for index, key in enumerate(outputs)
+        ),
     )
     specified = set()
     aliases = set()
@@ -545,12 +611,11 @@ def _measurement_target(
 
 def _apply_contract(
     gadget: circuit.GadgetDefinition,
-    codes: dict[str, circuit.CodeDefinition],
     contract: _LocalContract,
-    arguments: Mapping[str, InstructionCall.Argument],
+    propagations: Sequence[circuit.PropagateStatement],
+    unfinished_checks: Sequence[tuple[frozenset[int], bool]],
 ) -> None:
-    inferred = resolve_gadget_checks(gadget, codes)
-    finished, unfinished = _manual_checks(inferred.unfinished, contract)
+    finished, unfinished = _manual_checks(unfinished_checks, contract)
     gadget.decorators.append(
         circuit.Decorator("CHECKS", ("manual", circuit.KeywordArg("verify", 0)))
     )
@@ -561,9 +626,6 @@ def _apply_contract(
                 flip=row.constant,
             )
         )
-    propagations = _complete_propagations(
-        gadget, codes, _action_propagations(contract.gadget, arguments)
-    )
     _apply_authored_frames(contract, propagations)
     gadget.body.extend(propagations)
     for row in contract.readouts:

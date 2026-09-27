@@ -96,8 +96,13 @@ bound arguments specialize the declared action, not those definitions. Top-level
 parameters are supported when the gadget's physical circuit is a fixed Clifford
 call list. Parameterized physical calls and measurement-dependent execution
 remain unsupported. deq also supplies physical measurement and input
-syndrome contributions. Authored logical-sign equations override inferred rows,
-and authored frames supply additional measurement terms and constant flips.
+syndrome contributions. Authored logical-sign equations take priority; missing
+independent relations are filled by the declared transport and local byproducts,
+not by setting unconstrained signs to zero. For example, an identity gadget
+constraining only the parity of two output signs still transports both incoming
+signs independently. Output stabilizer relations are completed from deq's local
+port propagation. Authored frames supply additional measurement terms and
+constant flips.
 Signs of the intended physical operation are not added as frame corrections.
 deq tracks these frames during decoding and compiles bounded ``COMPOSE``
 definitions over the primitive models without recompiling them.

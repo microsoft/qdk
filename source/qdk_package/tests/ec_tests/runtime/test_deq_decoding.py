@@ -334,11 +334,11 @@ def test_composition_reuses_primitives_without_patching_or_recompiling(
     contracts = []
     compile_contract = deq_conversion._local_contract
 
-    def record_contract(gadget, width):
+    def record_contract(gadget, width, defaults):
         key = (id(gadget), width)
         assert key not in contracts
         contracts.append(key)
-        return compile_contract(gadget, width)
+        return compile_contract(gadget, width, defaults)
 
     def build_primitives(*args, **kwargs):
         from deq.circuit.model import (
@@ -482,6 +482,254 @@ def test_circuit_deq_propagates_incoming_frames_through_actions(
             for row in physical_samples
         ]
         assert results == expected
+
+
+@pytest.mark.parametrize(
+    "action, body, basis, inputs",
+    [
+        ([], "", "z", ["in[0].z[0]", "in[0].z[1]"]),
+        ([], "", "x", ["in[0].x[0]", "in[0].x[1]"]),
+        (
+            [actions.Clifford({"X_0": "Z_0", "Z_0": "X_0"})],
+            "H 0",
+            "z",
+            ["in[0].x[0]", "in[0].z[1]"],
+        ),
+        (
+            [actions.Clifford({"X_0": "X_0 X_1", "Z_1": "Z_0 Z_1"})],
+            "CX 0 1",
+            "z",
+            ["in[0].z[1]"],
+        ),
+        pytest.param(
+            [actions.Clifford({"X_0": "Z_0", "Z_0": "X_0"})],
+            "",
+            "z",
+            ["in[0].x[0]", "in[0].z[1]"],
+            id="declared-action-not-physical-body",
+        ),
+    ],
+)
+@pytest.mark.parametrize("flip", [0, 1])
+def test_partial_output_checks_complete_frames_from_declared_action(
+    simulate, physical_samples, action, body, basis, inputs, flip
+):
+    from qdk.ec import GadgetProfile
+    from qdk.ec._analysis.propagation.pauli import Pauli
+
+    codec = unencoded_codec(2)
+    gadgets = codec.layers[0].gadgets
+    gadgets["step"].implements.action = action
+    gadgets["step"].circuit.source = body
+    gadgets["step"].checks = [
+        [f"out[0].{basis}[0]", f"out[0].{basis}[1]", *inputs, flip]
+    ]
+    if basis == "x":
+        gadgets["measure"].implements.action = [actions.Observe(["X_0", "X_1"])]
+        gadgets["measure"].circuit.source = "H 0 1\nM 0 1"
+    program = qir_program(
+        [("prepare", [0], []), ("step", [0], []), ("measure", [0], [0, 1])],
+        [0, 1],
+    )
+    # ChannelAction independently supplies the intended generator images.
+    channel = GadgetProfile(gadgets["step"]).objective
+    assert channel is not None
+    images = [
+        channel._mapping[Pauli({index: axis})].pauli
+        for index in range(2)
+        for axis in ("X", "Z")
+    ]
+    flips = [
+        sum(
+            1 << bit
+            for bit, image in enumerate(images)
+            if not image.commutes_with(Pauli({index: basis.upper()}))
+        )
+        for index in range(2)
+    ]
+    for incoming in (1, 2, 4, 8, 3, 12, 15):
+        gadgets["prepare"].frames = {
+            f"out[0].{axis}[{index}]": [1]
+            for index in range(2)
+            for offset, axis in enumerate(("z", "x"))
+            if incoming >> (2 * index + offset) & 1
+        }
+        results = simulate(program, codec=codec, shots=3, seed=7)
+        assert results == [
+            [
+                (
+                    Result.One
+                    if (bit == Result.One)
+                    ^ bool((incoming & mask).bit_count() % 2)
+                    ^ bool(index == 1 and flip)
+                    else Result.Zero
+                )
+                for index, (bit, mask) in enumerate(zip(row, flips))
+            ]
+            for row in physical_samples
+        ]
+
+
+@pytest.mark.parametrize("controlled_x", [False, True])
+def test_partial_output_checks_span_separate_code_ports(simulate, controlled_x):
+    from qodec.gadgets import Encoding
+    from qodec.instructions import BlockOperand
+
+    codec = unencoded_codec()
+    gadgets = codec.layers[0].gadgets
+    step = gadgets["step"]
+    step.implements.inputs = [BlockOperand("data"), BlockOperand("data")]
+    step.implements.outputs = [BlockOperand("data"), BlockOperand("data")]
+    code = codec.layers[0].codes["data"]
+    step.inputs = [Encoding(code, support=[str(index)]) for index in range(2)]
+    step.outputs = [Encoding(code, support=[str(index)]) for index in range(2)]
+    inputs = ["in[1].z[0]"]
+    if controlled_x:
+        step.implements.action = [
+            actions.Clifford({"X_0": "X_0 X_1", "Z_1": "Z_0 Z_1"})
+        ]
+        step.circuit.source = "CX 0 1"
+    else:
+        inputs.append("in[0].z[0]")
+    step.checks = [["out[0].z[0]", "out[1].z[0]", *inputs]]
+    gadgets["prepare"].frames = {"out[0].z[0]": [1]}
+    program = qir_program(
+        [
+            ("prepare", [0], []),
+            ("prepare", [1], []),
+            ("step", [0, 1], []),
+            ("measure", [0], [0]),
+            ("measure", [1], [1]),
+        ],
+        [0, 1],
+    )
+    expected = [Result.One, Result.Zero if controlled_x else Result.One]
+    assert simulate(program, codec=codec) == [expected] * 3
+
+
+def test_partial_output_checks_keep_teleportation_byproducts(
+    simulate, physical_samples
+):
+    from qodec.gadgets import Encoding
+
+    codec = unencoded_codec(2)
+    gadgets = codec.layers[0].gadgets
+    gadgets["prepare"].frames = {"out[0].z[0]": [1]}
+    step = gadgets["step"]
+    step.circuit.source = "R 2 3\nH 2\nCX 2 3\nCX 0 2\nH 0\nM 0 2"
+    step.outputs = [Encoding(step.outputs[0].code, support=["3", "1"])]
+    step.checks = [
+        [
+            "out[0].z[0]",
+            "out[0].z[1]",
+            "in[0].z[0]",
+            "in[0].z[1]",
+            "circuit.readouts[1]",
+        ]
+    ]
+    program = qir_program(
+        [("prepare", [0], []), ("step", [0], []), ("measure", [0], [0, 1])],
+        [0, 1],
+    )
+    assert (
+        simulate(program, codec=codec, shots=32, seed=13)
+        == [[Result.One, Result.Zero]] * 32
+    )
+    assert {tuple(row[:2]) for row in physical_samples} == set(
+        product((Result.Zero, Result.One), repeat=2)
+    )
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_partial_output_checks_use_bound_declared_actions(simulate, enabled):
+    from qodec.instructions import Parameter
+
+    codec = unencoded_codec(2)
+    gadgets = codec.layers[0].gadgets
+    gadgets["prepare"].frames = {"out[0].z[0]": [1]}
+    step = gadgets["step"]
+    step.implements.parameters = [Parameter("enabled", "bit")]
+    step.implements.action = [
+        actions.Clifford(
+            {"X_0": "Z_0", "Z_0": "X_0"}, condition=actions.Condition(["enabled"])
+        )
+    ]
+    step.checks = [
+        [
+            "out[0].x[0]",
+            "out[0].z[0]",
+            "out[0].z[1]",
+            "in[0].x[0]",
+            "in[0].z[0]",
+            "in[0].z[1]",
+        ]
+    ]
+    program = f"""
+        %Qubit = type opaque
+        %Result = type opaque
+        define void @main() #0 {{
+          call void @prepare(%Qubit* null)
+          call void @step(%Qubit* null, i1 {str(enabled).lower()})
+          call void @measure(%Qubit* null, %Result* null, %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__rt__array_record_output(i64 2, i8* null)
+          call void @__quantum__rt__result_record_output(%Result* null, i8* null)
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+          ret void
+        }}
+        declare void @prepare(%Qubit*)
+        declare void @step(%Qubit*, i1)
+        declare void @measure(%Qubit*, %Result*, %Result*)
+        declare void @__quantum__rt__array_record_output(i64, i8*)
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+        attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }}
+    """
+    expected = [Result.Zero if enabled else Result.One, Result.Zero]
+    assert simulate(program, codec=codec) == [expected] * 3
+
+
+def test_partial_stabilizer_checks_preserve_incoming_syndromes(
+    simulate, physical_samples
+):
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    physical = codec.layers[-1].instruction_set
+    physical.instructions["H"] = (
+        unencoded_codec().layers[-1].instruction_set.instructions["H"]
+    )
+    gadgets = codec.layers[0].gadgets
+    prepare = gadgets["prepare_z"]
+    prepare.circuit.source = "R 0 1 2 3\nH 1\nCX 1 3\nM 3"
+    prepare.checks = [
+        ["out[0].stabilizers[0]", "circuit.readouts[0]"],
+        ["out[0].stabilizers[1]", "circuit.readouts[0]"],
+        ["out[0].z[0]"],
+    ]
+    gadgets["idle"].circuit.source = ""
+    gadgets["idle"].checks = [
+        [
+            "out[0].stabilizers[0]",
+            "out[0].stabilizers[1]",
+            "in[0].stabilizers[0]",
+            "in[0].stabilizers[1]",
+        ]
+    ]
+    swap = gadgets["__quantum__qis__x__body"]
+    swap.implements.action = []
+    swap.circuit.source = "CX 0 1\nCX 1 0\nCX 0 1"
+    swap.checks = [
+        ["out[0].stabilizers[0]", "in[0].stabilizers[0]"],
+        ["out[0].stabilizers[1]", "in[0].stabilizers[0]", "in[0].stabilizers[1]"],
+    ]
+    program = qir_program(
+        [
+            ("prepare_z", [0], []),
+            ("idle", [0], []),
+            ("__quantum__qis__x__body", [0], []),
+            ("__quantum__qis__m__body", [0], [0]),
+        ],
+        [0],
+    )
+    assert simulate(program, codec=codec, shots=32, seed=0) == [[Result.Zero]] * 32
+    assert {row[0] for row in physical_samples} == {Result.Zero, Result.One}
 
 
 @pytest.mark.parametrize("explicit_frames", [False, True])
