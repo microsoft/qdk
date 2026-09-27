@@ -267,6 +267,63 @@ function renderHistogram({ model, el }: RenderArgs) {
 }
 
 function renderCircuit({ model, el }: RenderArgs) {
+  const staticStyleProperties = [
+    "color",
+    "display",
+    "dominant-baseline",
+    "fill",
+    "fill-opacity",
+    "font-family",
+    "font-size",
+    "font-style",
+    "font-weight",
+    "opacity",
+    "stroke",
+    "stroke-dasharray",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-opacity",
+    "stroke-width",
+    "text-anchor",
+    "visibility",
+  ];
+
+  const syncSvg = () => {
+    const svg = el.querySelector<SVGSVGElement>("svg.qviz");
+    if (!svg) {
+      return;
+    }
+
+    const clone = svg.cloneNode(true) as SVGSVGElement;
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.style.removeProperty("width");
+
+    const sourceElements = [svg, ...svg.querySelectorAll<SVGElement>("*")];
+    const clonedElements = [clone, ...clone.querySelectorAll<SVGElement>("*")];
+    sourceElements.forEach((source, index) => {
+      const computedStyle = window.getComputedStyle(source);
+      const target = clonedElements[index];
+      staticStyleProperties.forEach((property) => {
+        const value = computedStyle.getPropertyValue(property);
+        if (value) {
+          target.style.setProperty(property, value);
+        }
+      });
+    });
+
+    const circuitContainer = svg.closest<HTMLElement>(".qs-circuit");
+    if (circuitContainer) {
+      clone.style.backgroundColor =
+        window.getComputedStyle(circuitContainer).backgroundColor;
+    }
+
+    const serialized = new XMLSerializer().serializeToString(clone);
+    if (model.get("svg") !== serialized) {
+      model.set("svg", serialized);
+      void model.save_changes();
+    }
+  };
+
   const onChange = () => {
     const circuitJson = model.get("circuit_json") as string;
     prender(
@@ -280,6 +337,7 @@ function renderCircuit({ model, el }: RenderArgs) {
             href: "#",
           };
         }}
+        onCircuitChanged={model.get("capture_svg") ? syncSvg : undefined}
       ></Circuit>,
       el,
     );
