@@ -204,10 +204,50 @@ fn unsupported_instruction_program() -> AdaptiveProgram<u64> {
     )
 }
 
+/// X q0; reset q0; mz q0 -> r0; ret (no output recording).
+fn x_reset_measure_program() -> AdaptiveProgram<u64> {
+    const IMMEDIATE_AUX1: u64 = 1 << 20;
+    const IMMEDIATE_AUX2: u64 = 1 << 21;
+
+    adaptive_program(
+        vec![
+            Instruction {
+                opcode: OP_QUANTUM_GATE | IMMEDIATE_AUX1,
+                aux0: 0,
+                aux1: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x12 | IMMEDIATE_AUX1,
+                aux0: 1,
+                aux1: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+                aux0: 2,
+                aux1: 0,
+                aux2: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x02,
+                ..Instruction::default()
+            },
+        ],
+        vec![Block {
+            instr_offset: 0,
+            instr_count: 4,
+        }],
+        vec![operation(2), operation(1), operation(21)],
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TestConsumerFailure {
     ExecuteRegion,
     Measure,
+    Reset,
     Close,
 }
 
@@ -285,6 +325,13 @@ impl RegionConsumer for FailingTestConsumer {
             return Err(TestConsumerFailure::Measure);
         }
         Ok(self.measurement_result)
+    }
+
+    fn reset(&mut self, _qubit: usize) -> Result<(), Self::Error> {
+        if self.failure == Some(TestConsumerFailure::Reset) {
+            return Err(TestConsumerFailure::Reset);
+        }
+        Ok(())
     }
 
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error> {
@@ -900,4 +947,391 @@ fn prepared_measurement_branch_matches_legacy_cpu_and_clifford() {
 
     assert_parity::<FullStateSimulator>();
     assert_parity::<StabilizerSimulator>();
+}
+
+#[test]
+fn reset_is_a_command_between_regions_and_measurements() {
+    let program = PreparedAdaptiveProgram::new(x_reset_measure_program())
+        .expect("reset scenario should prepare");
+    assert_eq!(program.regions().len(), 1);
+
+    let mut execution = AdaptiveExecution::new(&program);
+    assert!(matches!(
+        execution.next_command(None),
+        Ok(AdaptiveCommand::ExecuteRegion { .. })
+    ));
+    assert_eq!(
+        execution.next_command(Some(AdaptiveResponse::RegionComplete)),
+        Ok(AdaptiveCommand::Reset { qubit: 0 })
+    );
+    assert_eq!(
+        execution.next_command(Some(AdaptiveResponse::ResetComplete)),
+        Ok(AdaptiveCommand::Measure(MeasurementRequest {
+            kind: MeasurementKind::MeasureZ,
+            qubit: 0,
+            result_id: 0,
+        }))
+    );
+    assert_eq!(
+        execution.next_command(Some(AdaptiveResponse::Measurement(MeasurementResult::One))),
+        Ok(AdaptiveCommand::Complete(vec![OutputRecord::Result(
+            MeasurementResult::One
+        )]))
+    );
+}
+
+#[test]
+fn reset_requires_its_own_completion_response() {
+    let program = PreparedAdaptiveProgram::new(x_reset_measure_program())
+        .expect("reset scenario should prepare");
+    let reach_reset = |execution: &mut AdaptiveExecution<'_>| {
+        execution.next_command(None).expect("region");
+        assert_eq!(
+            execution.next_command(Some(AdaptiveResponse::RegionComplete)),
+            Ok(AdaptiveCommand::Reset { qubit: 0 })
+        );
+    };
+
+    let mut missing = AdaptiveExecution::new(&program);
+    reach_reset(&mut missing);
+    assert_eq!(
+        missing.next_command(None),
+        Err(AdaptiveExecutionError::MissingResponse)
+    );
+
+    let mut wrong = AdaptiveExecution::new(&program);
+    reach_reset(&mut wrong);
+    assert_eq!(
+        wrong.next_command(Some(AdaptiveResponse::RegionComplete)),
+        Err(AdaptiveExecutionError::UnexpectedResponse)
+    );
+
+    let mut unexpected = AdaptiveExecution::new(&program);
+    unexpected.next_command(None).expect("region");
+    assert_eq!(
+        unexpected.next_command(Some(AdaptiveResponse::ResetComplete)),
+        Err(AdaptiveExecutionError::UnexpectedResponse)
+    );
+}
+
+#[test]
+fn adaptive_execution_rejects_invalid_reset_operations() {
+    let reset_program = |operations| {
+        PreparedAdaptiveProgram::new(adaptive_program(
+            vec![instruction(0x12, 0)],
+            vec![Block {
+                instr_offset: 0,
+                instr_count: 1,
+            }],
+            operations,
+        ))
+        .expect("reset should prepare")
+    };
+
+    let unsupported = reset_program(vec![operation(21)]);
+    assert_eq!(
+        AdaptiveExecution::new(&unsupported).next_command(None),
+        Err(AdaptiveExecutionError::UnsupportedReset {
+            operation_id: 21,
+            instruction_index: 0,
+        })
+    );
+
+    let missing = reset_program(Vec::new());
+    assert_eq!(
+        AdaptiveExecution::new(&missing).next_command(None),
+        Err(AdaptiveExecutionError::InvalidResetOperationIndex {
+            operation_index: 0,
+            instruction_index: 0,
+        })
+    );
+}
+
+#[test]
+fn immediate_consumer_resets_and_matches_legacy_cpu_and_clifford() {
+    fn assert_parity<S>()
+    where
+        S: Simulator,
+        S::Noise: Default,
+    {
+        for seed in 0..8 {
+            let mut legacy = S::new(2, 1, seed, Default::default());
+            let mut prepared = S::new(2, 1, seed, Default::default());
+            let prepared_program = PreparedAdaptiveProgram::new(x_reset_measure_program())
+                .expect("reset scenario should prepare");
+
+            run_shot(&x_reset_measure_program(), &mut legacy);
+            let actual = run_prepared_shot(&prepared_program, &mut prepared)
+                .expect("reset scenario should execute");
+
+            assert_eq!(prepared.measurements(), legacy.measurements());
+            assert_eq!(prepared.measurements(), &[MeasurementResult::Zero]);
+            assert_eq!(actual, vec![OutputRecord::Result(MeasurementResult::Zero)]);
+        }
+    }
+
+    assert_parity::<FullStateSimulator>();
+    assert_parity::<StabilizerSimulator>();
+}
+
+#[test]
+fn generic_driver_propagates_reset_error() {
+    let program = PreparedAdaptiveProgram::new(x_reset_measure_program())
+        .expect("reset scenario should prepare");
+    let mut consumer = FailingTestConsumer::new(Some(TestConsumerFailure::Reset), false);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::Consumer(TestConsumerFailure::Reset))
+    );
+    assert!(consumer.closed);
+}
+
+/// The shape `qdk.stim.compile` emits for `SELECT`/`REQUIRE`:
+///
+/// ```text
+/// block 0: H q0; mresetz q0 -> r0
+///          l = read_loss r0; r = read_result r0; restart = or l, r
+///          branch restart ? block 1 : block 2
+/// block 1: X q1; mz q1 -> r1; ret        (restart path)
+/// block 2: mz q1 -> r1; ret              (continue path)
+/// ```
+///
+/// `or_immediate_rhs` replaces `r` with an immediate `0`, so the `src1`
+/// immediate flag is exercised too.
+fn loss_or_branch_program(or_immediate_rhs: bool) -> AdaptiveProgram<u64> {
+    const IMMEDIATE_SRC0: u64 = 1 << 16;
+    const IMMEDIATE_SRC1: u64 = 1 << 17;
+    const IMMEDIATE_AUX1: u64 = 1 << 20;
+    const IMMEDIATE_AUX2: u64 = 1 << 21;
+    let measure = |operation_index, qubit, result| Instruction {
+        opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+        aux0: operation_index,
+        aux1: qubit,
+        aux2: result,
+        ..Instruction::default()
+    };
+    let gate = |operation_index, qubit| Instruction {
+        opcode: OP_QUANTUM_GATE | IMMEDIATE_AUX1,
+        aux0: operation_index,
+        aux1: qubit,
+        ..Instruction::default()
+    };
+    let ret = Instruction {
+        opcode: 0x02,
+        ..Instruction::default()
+    };
+
+    let mut program = adaptive_program(
+        vec![
+            gate(0, 0),
+            measure(1, 0, 0),
+            Instruction {
+                opcode: 0x15 | IMMEDIATE_SRC0,
+                dst: 0,
+                src0: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x13 | IMMEDIATE_SRC0,
+                dst: 1,
+                src0: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x29 | if or_immediate_rhs { IMMEDIATE_SRC1 } else { 0 },
+                dst: 2,
+                src0: 0,
+                src1: u64::from(!or_immediate_rhs),
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x05,
+                src0: 2,
+                aux0: 1,
+                aux1: 2,
+                ..Instruction::default()
+            },
+            gate(2, 1),
+            measure(3, 1, 1),
+            ret,
+            measure(3, 1, 1),
+            ret,
+        ],
+        vec![
+            Block {
+                instr_offset: 0,
+                instr_count: 6,
+            },
+            Block {
+                instr_offset: 6,
+                instr_count: 3,
+            },
+            Block {
+                instr_offset: 9,
+                instr_count: 2,
+            },
+        ],
+        vec![operation(5), operation(22), operation(2), operation(21)],
+    );
+    program.num_results = 2;
+    program.num_registers = 3;
+    program
+}
+
+#[test]
+fn read_loss_or_branch_restarts_on_loss_or_one() {
+    for (or_immediate_rhs, outcome, restarts) in [
+        (false, MeasurementResult::Zero, false),
+        (false, MeasurementResult::One, true),
+        (false, MeasurementResult::Loss, true),
+        (true, MeasurementResult::Zero, false),
+        (true, MeasurementResult::One, false),
+        (true, MeasurementResult::Loss, true),
+    ] {
+        let program = PreparedAdaptiveProgram::new(loss_or_branch_program(or_immediate_rhs))
+            .expect("loss-or-branch scenario should prepare");
+        let mut execution = AdaptiveExecution::new(&program);
+        execution.next_command(None).expect("leading region");
+        assert!(matches!(
+            execution.next_command(Some(AdaptiveResponse::RegionComplete)),
+            Ok(AdaptiveCommand::Measure(_))
+        ));
+        let next = execution
+            .next_command(Some(AdaptiveResponse::Measurement(outcome)))
+            .expect("classical control should continue");
+        let case = format!("immediate rhs {or_immediate_rhs}, outcome {outcome:?}");
+        if restarts {
+            let AdaptiveCommand::ExecuteRegion { region, .. } = next else {
+                panic!("{case}: expected the restart region, got {next:?}");
+            };
+            assert_eq!(
+                region.operations(),
+                &[UnitaryOperation::X { target: 1 }],
+                "{case}"
+            );
+        } else {
+            assert!(
+                matches!(next, AdaptiveCommand::Measure(request) if request.qubit == 1),
+                "{case}: expected the continue path, got {next:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn read_loss_or_branch_matches_legacy_cpu_and_clifford() {
+    fn assert_parity<S>()
+    where
+        S: Simulator,
+        S::Noise: Default,
+    {
+        let mut observed = [false; 2];
+        for seed in 0..64 {
+            let mut legacy = S::new(2, 2, seed, Default::default());
+            let mut prepared = S::new(2, 2, seed, Default::default());
+            let prepared_program = PreparedAdaptiveProgram::new(loss_or_branch_program(false))
+                .expect("loss-or-branch scenario should prepare");
+
+            run_shot(&loss_or_branch_program(false), &mut legacy);
+            run_prepared_shot(&prepared_program, &mut prepared)
+                .expect("loss-or-branch scenario should execute");
+
+            assert_eq!(prepared.measurements(), legacy.measurements());
+            // r1 = 1 exactly on the restart path, which applies X q1.
+            assert_eq!(prepared.measurements()[1], prepared.measurements()[0]);
+            observed[usize::from(prepared.measurements()[0] == MeasurementResult::One)] = true;
+        }
+        assert_eq!(observed, [true, true]);
+    }
+
+    assert_parity::<FullStateSimulator>();
+    assert_parity::<StabilizerSimulator>();
+}
+
+#[test]
+fn unitary_operation_names_are_the_variant_names() {
+    let operations = [
+        (UnitaryOperation::I { target: 0 }, "I"),
+        (UnitaryOperation::X { target: 0 }, "X"),
+        (UnitaryOperation::Y { target: 0 }, "Y"),
+        (UnitaryOperation::Z { target: 0 }, "Z"),
+        (UnitaryOperation::H { target: 0 }, "H"),
+        (UnitaryOperation::S { target: 0 }, "S"),
+        (UnitaryOperation::SAdj { target: 0 }, "SAdj"),
+        (UnitaryOperation::Sx { target: 0 }, "Sx"),
+        (UnitaryOperation::SxAdj { target: 0 }, "SxAdj"),
+        (UnitaryOperation::T { target: 0 }, "T"),
+        (UnitaryOperation::TAdj { target: 0 }, "TAdj"),
+        (
+            UnitaryOperation::Rx {
+                angle: 0.5,
+                target: 0,
+            },
+            "Rx",
+        ),
+        (
+            UnitaryOperation::Ry {
+                angle: 0.5,
+                target: 0,
+            },
+            "Ry",
+        ),
+        (
+            UnitaryOperation::Rz {
+                angle: 0.5,
+                target: 0,
+            },
+            "Rz",
+        ),
+        (
+            UnitaryOperation::Cx {
+                control: 0,
+                target: 1,
+            },
+            "Cx",
+        ),
+        (
+            UnitaryOperation::Cy {
+                control: 0,
+                target: 1,
+            },
+            "Cy",
+        ),
+        (
+            UnitaryOperation::Cz {
+                control: 0,
+                target: 1,
+            },
+            "Cz",
+        ),
+        (
+            UnitaryOperation::Rxx {
+                angle: 0.5,
+                q1: 0,
+                q2: 1,
+            },
+            "Rxx",
+        ),
+        (
+            UnitaryOperation::Ryy {
+                angle: 0.5,
+                q1: 0,
+                q2: 1,
+            },
+            "Ryy",
+        ),
+        (
+            UnitaryOperation::Rzz {
+                angle: 0.5,
+                q1: 0,
+                q2: 1,
+            },
+            "Rzz",
+        ),
+        (UnitaryOperation::Swap { q1: 0, q2: 1 }, "Swap"),
+    ];
+    for (operation, name) in operations {
+        assert_eq!(operation.name(), name);
+    }
 }

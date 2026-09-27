@@ -44,6 +44,10 @@ pub enum AdaptiveCommand {
         region: QuantumEvolutionRegion,
     },
     Measure(MeasurementRequest),
+    /// Resets `qubit` to |0⟩ without recording a result.
+    Reset {
+        qubit: QubitID,
+    },
     Complete(Vec<OutputRecord>),
 }
 
@@ -52,4 +56,5 @@ pub enum AdaptiveCommand {
 pub enum AdaptiveResponse {
     RegionComplete,
     Measurement(MeasurementResult),
+    ResetComplete,
 }

@@ -125,6 +125,10 @@ impl RegionConsumer for CircuitPreparationConsumer {
         Ok(MeasurementResult::Zero)
     }
 
+    fn reset(&mut self, qubit: QubitID) -> Result<(), Self::Error> {
+        Err(CuTensorNetMpsConsumerError::UnsupportedReset { qubit }.into())
+    }
+
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error> {
         Ok(())
     }
@@ -377,6 +381,28 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "consumer execution failed: unitary operation Y is not supported by cuTensorNet"
+        );
+        assert!(!error.is_environment_error());
+    }
+
+    #[test]
+    fn preflight_rejects_reset_before_device_discovery() {
+        let reset = Instruction {
+            opcode: 0x12 | IMMEDIATE_AUX1,
+            aux0: 2,
+            aux1: 0,
+            ..Instruction::default()
+        };
+        let program = prepared_program(
+            vec![gate(0), reset, measure(0), ret()],
+            vec![operation(5), operation(21), operation(1)],
+        );
+
+        let error = prepare_mps_run(&program, 1, Some(42)).expect_err("reset should be rejected");
+
+        assert_eq!(
+            error.to_string(),
+            "consumer execution failed: reset is not supported by cuTensorNet MPS batch sampling (qubit 0)"
         );
         assert!(!error.is_environment_error());
     }

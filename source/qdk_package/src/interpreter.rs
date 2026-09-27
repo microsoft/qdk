@@ -31,7 +31,9 @@ use crate::{
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
         },
-        tensor_network::{_tensor_network_build_probe, _tensor_network_contraction_query},
+        tensor_network::{
+            _fixed_outcome_probe, _tensor_network_build_probe, _tensor_network_contraction_query,
+        },
         tensor_network_state::_tensor_network_state_query,
         unbind_noise_config,
     },
@@ -149,6 +151,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_clifford_adaptive, m)?)?;
     m.add_function(wrap_pyfunction!(run_mps_full_state_placeholder, m)?)?;
     m.add_function(wrap_pyfunction!(_shared_execution_base_profile_probe, m)?)?;
+    m.add_function(wrap_pyfunction!(_fixed_outcome_probe, m)?)?;
     m.add_function(wrap_pyfunction!(_tensor_network_build_probe, m)?)?;
     m.add_function(wrap_pyfunction!(_tensor_network_contraction_query, m)?)?;
     m.add_function(wrap_pyfunction!(_tensor_network_state_query, m)?)?;

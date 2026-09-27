@@ -11,7 +11,7 @@ use crate::{MeasurementResult, OutputRecord, QubitID, bytecode::AdaptiveProgram}
 
 use super::{
     AdaptiveCommand, AdaptiveResponse, MeasurementKind, MeasurementRequest, OPID_MRESETZ, OPID_MZ,
-    QuantumEvolutionRegion, RegionId, UnitaryOperation, resolve_unitary_operation,
+    OPID_RESETZ, QuantumEvolutionRegion, RegionId, UnitaryOperation, resolve_unitary_operation,
 };
 
 pub(super) const OP_QUANTUM_GATE: u64 = 0x10;
@@ -19,10 +19,14 @@ const OP_RET: u8 = 0x02;
 const OP_JUMP: u8 = 0x04;
 const OP_BRANCH: u8 = 0x05;
 const OP_MEASURE: u8 = 0x11;
+const OP_RESET: u8 = 0x12;
 const OP_READ_RESULT: u8 = 0x13;
 const OP_RECORD_OUTPUT: u8 = 0x14;
+const OP_READ_LOSS: u8 = 0x15;
+const OP_OR: u8 = 0x29;
 
 const FLAG_SRC0_IMM: u64 = 1 << 16;
+const FLAG_SRC1_IMM: u64 = 1 << 17;
 const FLAG_AUX1_IMM: u64 = 1 << 20;
 const FLAG_AUX2_IMM: u64 = 1 << 21;
 
@@ -273,6 +277,14 @@ pub enum AdaptiveExecutionError {
         operation_index: usize,
         instruction_index: usize,
     },
+    UnsupportedReset {
+        operation_id: u64,
+        instruction_index: usize,
+    },
+    InvalidResetOperationIndex {
+        operation_index: usize,
+        instruction_index: usize,
+    },
 }
 
 impl fmt::Display for AdaptiveExecutionError {
@@ -301,6 +313,20 @@ impl fmt::Display for AdaptiveExecutionError {
                 formatter,
                 "adaptive measurement at instruction {instruction_index} references missing quantum operation {operation_index}"
             ),
+            Self::UnsupportedReset {
+                operation_id,
+                instruction_index,
+            } => write!(
+                formatter,
+                "unsupported adaptive reset {operation_id} at instruction {instruction_index}"
+            ),
+            Self::InvalidResetOperationIndex {
+                operation_index,
+                instruction_index,
+            } => write!(
+                formatter,
+                "adaptive reset at instruction {instruction_index} references missing quantum operation {operation_index}"
+            ),
         }
     }
 }
@@ -312,6 +338,7 @@ enum AdaptiveExecutionState {
     Ready,
     AwaitingRegionCompletion,
     AwaitingMeasurementResult { result_id: usize },
+    AwaitingResetCompletion,
     Complete,
 }
 
@@ -398,6 +425,7 @@ impl<'program> AdaptiveExecution<'program> {
                     });
                 }
                 OP_MEASURE => return self.measurement_command(),
+                OP_RESET => return self.reset_command(),
                 OP_READ_RESULT => {
                     let result_id =
                         bytecode_index(self.resolve_u64(instruction.src0, instruction.opcode, 0));
@@ -405,6 +433,24 @@ impl<'program> AdaptiveExecution<'program> {
                         self.measurements[result_id],
                         MeasurementResult::One
                     ));
+                    self.instruction_index += 1;
+                }
+                OP_READ_LOSS => {
+                    // Same semantics as the legacy runtime, the GPU shader and
+                    // qsc_eval: 1 when the measurement that produced the result
+                    // observed a lost qubit, else 0 (also for an unset slot).
+                    let result_id =
+                        bytecode_index(self.resolve_u64(instruction.src0, instruction.opcode, 0));
+                    self.registers[bytecode_index(instruction.dst)] = u64::from(matches!(
+                        self.measurements.get(result_id),
+                        Some(MeasurementResult::Loss)
+                    ));
+                    self.instruction_index += 1;
+                }
+                OP_OR => {
+                    let lhs = self.resolve_u64(instruction.src0, instruction.opcode, 0);
+                    let rhs = self.resolve_u64(instruction.src1, instruction.opcode, 1);
+                    self.registers[bytecode_index(instruction.dst)] = lhs | rhs;
                     self.instruction_index += 1;
                 }
                 OP_RECORD_OUTPUT => {
@@ -438,6 +484,10 @@ impl<'program> AdaptiveExecution<'program> {
             (
                 AdaptiveExecutionState::AwaitingRegionCompletion,
                 Some(AdaptiveResponse::RegionComplete),
+            )
+            | (
+                AdaptiveExecutionState::AwaitingResetCompletion,
+                Some(AdaptiveResponse::ResetComplete),
             ) => {
                 self.state = AdaptiveExecutionState::Ready;
                 Ok(())
@@ -452,7 +502,8 @@ impl<'program> AdaptiveExecution<'program> {
             }
             (
                 AdaptiveExecutionState::AwaitingRegionCompletion
-                | AdaptiveExecutionState::AwaitingMeasurementResult { .. },
+                | AdaptiveExecutionState::AwaitingMeasurementResult { .. }
+                | AdaptiveExecutionState::AwaitingResetCompletion,
                 None,
             ) => Err(AdaptiveExecutionError::MissingResponse),
             (AdaptiveExecutionState::Complete, _) | (AdaptiveExecutionState::Ready, Some(_)) => {
@@ -524,6 +575,30 @@ impl<'program> AdaptiveExecution<'program> {
         Ok(AdaptiveCommand::Measure(request))
     }
 
+    fn reset_command(&mut self) -> Result<AdaptiveCommand, AdaptiveExecutionError> {
+        let program = self.prepared_program.program();
+        let instruction = program.instructions[self.instruction_index];
+        let operation_index = bytecode_index(instruction.aux0);
+        let operation_id = program
+            .quantum_ops
+            .get(operation_index)
+            .ok_or(AdaptiveExecutionError::InvalidResetOperationIndex {
+                operation_index,
+                instruction_index: self.instruction_index,
+            })?
+            .op_id;
+        if operation_id != OPID_RESETZ {
+            return Err(AdaptiveExecutionError::UnsupportedReset {
+                operation_id,
+                instruction_index: self.instruction_index,
+            });
+        }
+        let qubit = bytecode_index(self.resolve_u64(instruction.aux1, instruction.opcode, 4));
+        self.instruction_index += 1;
+        self.state = AdaptiveExecutionState::AwaitingResetCompletion;
+        Ok(AdaptiveCommand::Reset { qubit })
+    }
+
     fn jump(&mut self, block_id: u64) {
         self.current_block_id = block_id;
         self.instruction_index = bytecode_index(
@@ -534,6 +609,7 @@ impl<'program> AdaptiveExecution<'program> {
     fn resolve_u64(&self, operand: u64, flags: u64, operand_index: u64) -> u64 {
         let immediate_flag = match operand_index {
             0 => FLAG_SRC0_IMM,
+            1 => FLAG_SRC1_IMM,
             4 => FLAG_AUX1_IMM,
             5 => FLAG_AUX2_IMM,
             _ => 0,

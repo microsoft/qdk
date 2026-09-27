@@ -140,6 +140,29 @@ attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubi
 """
 
 
+# One unitary region, then reset and measurement: reaches the consumer's reset.
+X_RESET_MEASURE_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__reset__body(%Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
+"""
+
+
 UNSUPPORTED_SHARED_EXECUTION_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -219,6 +242,23 @@ def test_shared_execution_base_profile_probe_uses_fresh_state_per_shot():
     )
 
     assert actual == expected == [(Result.One, Result.Zero)] * shots
+
+
+def test_shared_execution_base_profile_probe_executes_reset():
+    expected = run_qir_cpu(X_RESET_MEASURE_BASE_QIR, shots=4, seed=42)
+    actual, region_count = _shared_execution_base_profile_probe(
+        X_RESET_MEASURE_BASE_QIR, shots=4, seed=42
+    )
+
+    assert region_count == 1
+    assert actual == expected == [Result.Zero] * 4
+
+
+def test_mps_rejects_reset_with_a_clear_error_before_device_discovery():
+    with pytest.raises(
+        ValueError, match="reset is not supported by cuTensorNet MPS batch sampling"
+    ):
+        run_qir(X_RESET_MEASURE_BASE_QIR, shots=1, seed=42, type="mps")
 
 
 @pytest.mark.parametrize(

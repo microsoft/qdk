@@ -27,6 +27,9 @@ pub(crate) enum CuTensorNetMpsConsumerError {
     )]
     UnsupportedMeasurementAfterReset { qubit: QubitID },
 
+    #[error("reset is not supported by cuTensorNet MPS batch sampling (qubit {qubit})")]
+    UnsupportedReset { qubit: QubitID },
+
     #[error("cuTensorNet batch sampling cannot resolve measurement metadata: {error}")]
     InvalidMeasurementMetadata { error: MeasurementMetadataError },
 
@@ -287,6 +290,10 @@ impl RegionConsumer for CuTensorNetMpsConsumer<'_, '_> {
         Ok(result)
     }
 
+    fn reset(&mut self, qubit: QubitID) -> Result<(), Self::Error> {
+        Err(CuTensorNetMpsConsumerError::UnsupportedReset { qubit })
+    }
+
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error> {
         Ok(())
     }
@@ -316,11 +323,13 @@ mod tests {
     const IMMEDIATE_AUX2: u64 = 1 << 21;
     const OP_QUANTUM_GATE: u64 = 0x10;
     const OP_MEASURE: u64 = 0x11;
+    const OP_RESET: u64 = 0x12;
     const OP_RECORD_OUTPUT: u64 = 0x14;
     const OP_RET: u64 = 0x02;
     const OPID_H: u64 = 5;
     const OPID_MZ: u64 = 21;
     const OPID_MRESETZ: u64 = 22;
+    const OPID_RESETZ: u64 = 1;
 
     fn operation(operation_id: u64) -> Op<u64> {
         Op {
@@ -542,6 +551,42 @@ mod tests {
             drive_prepared_shot(&prepared, &mut consumer),
             Err(ShotExecutionError::Consumer(
                 CuTensorNetMpsConsumerError::UnsupportedMeasurementAfterReset { qubit: 0 }
+            ))
+        );
+    }
+
+    #[test]
+    fn consumer_rejects_reset() {
+        let reset = Instruction {
+            opcode: OP_RESET | IMMEDIATE_AUX1,
+            aux0: 2,
+            aux1: 0,
+            ..Instruction::default()
+        };
+        let prepared = program(
+            vec![gate(0), reset, measure(0, 0), ret()],
+            vec![
+                operation(OPID_H),
+                operation(OPID_MZ),
+                operation(OPID_RESETZ),
+            ],
+            1,
+        );
+        let matrix = CuTensorNetSampleMatrix::new(
+            prepared
+                .measured_qubits()
+                .expect("measurement operands should be immediate"),
+            1,
+            &[1],
+        )
+        .expect("sample matrix shape should match prepared measurements");
+        let mut consumer = CuTensorNetMpsConsumer::new(&prepared, &matrix, 0)
+            .expect("program has exactly one region");
+
+        assert_eq!(
+            drive_prepared_shot(&prepared, &mut consumer),
+            Err(ShotExecutionError::Consumer(
+                CuTensorNetMpsConsumerError::UnsupportedReset { qubit: 0 }
             ))
         );
     }

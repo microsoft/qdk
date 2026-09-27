@@ -739,7 +739,7 @@ Prepared program + noise declarations
 
 The instrument boundary above is intended, not an existing command.
 [`protocol.rs`](protocol.rs) currently exposes only region execution,
-measurement and completion, and [`drive_prepared_shot`](immediate.rs) dispatches
+measurement, reset and completion, and [`drive_prepared_shot`](immediate.rs) dispatches
 those commands through [`RegionConsumer`](region.rs).
 
 **Rust-shaped illustration, not finalized API:** the added `noise` field and
@@ -1780,8 +1780,17 @@ AdaptiveExecution::new
            |                                      |
            |<-------- Measurement(result) --------+
            |
+           +-- Reset ----------------> AwaitingResetCompletion
+           |                                      |
+           |<----------- ResetComplete -----------+
+           |
            +-- Complete(records) -----> Complete
 ```
+
+`Reset` carries only its qubit and returns no value, but it is not unitary, so
+it ends a region like a measurement does. Every `RegionConsumer` implements
+`reset`: the immediate consumer calls `resetz`, and a consumer that cannot
+represent reset rejects it with an error rather than ignoring it.
 
 A `QuantumEvolutionRegion` is uninterrupted target-local state evolution
 between host-visible semantic boundaries. The current payload contains only
@@ -1844,6 +1853,77 @@ partitions its unitary prefix into exactly one `QuantumEvolutionRegion` and
 matches the existing Base CPU output across multiple shots. This route is not a
 documented API or production dispatch path and does not add backend or noise
 support.
+
+[`FixedOutcomeCircuit::from_prepared_program`](fixed_outcome.rs) drives one
+shot through the same protocol with every measurement answered from a given
+outcome record. Branches follow the record, so any number of regions yields one
+linear circuit of unitaries and rank-one projections, which a backend can
+evaluate without sampling. A reset folds into the preceding projection when the
+qubit is in a known basis state; a reset after a gate is a channel with no
+single-amplitude form and is rejected.
+`FixedOutcomeCircuit::with_outcome` changes one projection while keeping the
+path, which checks that evaluation observes the projections independently of
+control flow.
+
+A record holds one value per result, so it describes a path only if every
+result is measured at most once. A record that fails a selection check breaks
+that: `qdk.stim.compile` lowers a Stim `SELECT` block to a loop that restarts
+while any `REQUIRE` fails.
+
+```text
+Stim                     QIR from qdk.stim.compile
+SELECT {                 select_0: reset q0, q1; H q1; CX q1, q0
+  R 0 1                            mresetz q0 -> r0
+  H 1                              restart = read_loss(r0) | read_result(r0)
+  CX 1 0                           br restart ? select_0 : continue
+  MR 0                   continue: mz q1 -> r1
+  REQUIRE rec[-1]
+}
+M 1
+```
+
+| Record `[r0, r1]` | Selection check   | Result                                                    |
+| ----------------- | ----------------- | --------------------------------------------------------- |
+| `[0, 0]`          | passes            | `H q1; CX q1, q0; M q0 = 0 (reset); M q1 = 0`             |
+| `[1, 1]`          | fails (`r0` is 1) | the loop measures `r0` again: `ResultMeasuredAgain { 0 }` |
+
+This follows selection semantics, as in Stim-based samplers of these blocks: a
+sampler discards records that fail a check and samples again, so `[1, 1]`,
+although a possible outcome of one pass with probability 1/2, is never a
+program output. Its probability among the outputs is 0.
+
+`from_prepared_program` still reports an error rather than a zero probability,
+for two reasons. No single circuit exists for such a record. And the same
+detection fires when a program measures a result more than once on every path,
+for example a loop reusing a result id, where zero would be the wrong answer
+and fixed-outcome evaluation is simply unsupported. A failing record usually
+means a wrong bit order, a different program version, or bits taken from a
+failed attempt.
+
+**TODO(selection-normalization): a fixed-outcome circuit gives the probability
+of one pass, not of a selected output.** Evaluating the circuit of a record
+that passes every check gives $P_\text{pass}(r) = |\langle r|C(r)|0\ldots0\rangle|^2$.
+A sampler repeats failed blocks, so its outputs follow $P_\text{pass}$ divided
+by the acceptance probability. In the example above, `REQUIRE` passes with
+probability 1/2 and samplers only output `[0, 0]`, whose probability as a
+program output is therefore 1, while $P_\text{pass}([0, 0]) = 1/2$. The two agree
+when every check passes with probability 1, as in noiseless error-correction
+rounds where checks are stabilizer measurements. With noise, or any check that
+can fail, a `Probability` query built on this circuit is off by the acceptance
+factor. Missing:
+
+- computing the acceptance probability, a sum over rejected outcomes that needs
+  a marginal (double-layer) network rather than one amplitude;
+- fixing which normalization is meant: over the whole record (reject the whole
+  shot) or per block given the state before it (retry the block, as the lowered
+  loop does). They agree when the acceptance of each block does not depend on
+  earlier outcomes and a failed attempt does not disturb qubits outside the
+  block.
+
+The restart resets qubits that are still in use before measuring `r0` again.
+Those resets follow from the failed check, so they are reported as
+`ResetOfLiveQubit` only if the program completes without measuring a result
+again.
 
 The public `run_qir(type="mps", mps_options=MpsOptions(...))` contract now
 routes noiseless Base-profile QIR through the same lowering and preparation,

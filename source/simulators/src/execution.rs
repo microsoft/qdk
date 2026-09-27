@@ -21,7 +21,9 @@ pub use contraction::{
     ExecutionLimits, InputMutability, PlanningConstraints, PlanningReport, PreparationFailure,
     ResourceReport,
 };
-pub use fixed_outcome::{FixedOutcomeCircuit, FixedOutcomeCircuitError, FixedOutcomeOperation};
+pub use fixed_outcome::{
+    FixedOutcomeCircuit, FixedOutcomeCircuitError, FixedOutcomeError, FixedOutcomeOperation,
+};
 pub use immediate::{
     ImmediateExecutionReport, ImmediatePreparedRegion, ImmediateRegionReport,
     ImmediateSimulatorConsumer, ShotExecutionError, ShotExecutionOutput, ShotExecutionResult,
@@ -34,7 +36,7 @@ pub use region::{QuantumEvolutionRegion, RegionConsumer};
 pub use tensor_network::{CircuitTensorNetwork, TensorNetworkBuildError};
 pub use unitary::UnitaryOperation;
 pub(crate) use unitary::{
-    OPID_MRESETZ, OPID_MZ, apply_unitary_immediately, resolve_unitary_operation,
+    OPID_MRESETZ, OPID_MZ, OPID_RESETZ, apply_unitary_immediately, resolve_unitary_operation,
 };
 
 #[cfg(test)]

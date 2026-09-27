@@ -6,6 +6,7 @@
 use crate::{QubitID, Simulator};
 
 const OPID_I: u64 = 0;
+pub(crate) const OPID_RESETZ: u64 = 1;
 const OPID_X: u64 = 2;
 const OPID_Y: u64 = 3;
 const OPID_Z: u64 = 4;
@@ -108,6 +109,64 @@ pub enum UnitaryOperation {
         q1: QubitID,
         q2: QubitID,
     },
+}
+
+impl UnitaryOperation {
+    /// The qubits this operation acts on; the second slot is used only by
+    /// two-qubit operations.
+    pub(crate) fn qubits(self) -> (QubitID, Option<QubitID>) {
+        match self {
+            Self::I { target }
+            | Self::X { target }
+            | Self::Y { target }
+            | Self::Z { target }
+            | Self::H { target }
+            | Self::S { target }
+            | Self::SAdj { target }
+            | Self::Sx { target }
+            | Self::SxAdj { target }
+            | Self::T { target }
+            | Self::TAdj { target }
+            | Self::Rx { target, .. }
+            | Self::Ry { target, .. }
+            | Self::Rz { target, .. } => (target, None),
+            Self::Cx { control, target }
+            | Self::Cy { control, target }
+            | Self::Cz { control, target } => (control, Some(target)),
+            Self::Rxx { q1, q2, .. }
+            | Self::Ryy { q1, q2, .. }
+            | Self::Rzz { q1, q2, .. }
+            | Self::Swap { q1, q2 } => (q1, Some(q2)),
+        }
+    }
+
+    /// The variant name, e.g. `"Cz"`, for reports and diagnostics.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::I { .. } => "I",
+            Self::X { .. } => "X",
+            Self::Y { .. } => "Y",
+            Self::Z { .. } => "Z",
+            Self::H { .. } => "H",
+            Self::S { .. } => "S",
+            Self::SAdj { .. } => "SAdj",
+            Self::Sx { .. } => "Sx",
+            Self::SxAdj { .. } => "SxAdj",
+            Self::T { .. } => "T",
+            Self::TAdj { .. } => "TAdj",
+            Self::Rx { .. } => "Rx",
+            Self::Ry { .. } => "Ry",
+            Self::Rz { .. } => "Rz",
+            Self::Cx { .. } => "Cx",
+            Self::Cy { .. } => "Cy",
+            Self::Cz { .. } => "Cz",
+            Self::Rxx { .. } => "Rxx",
+            Self::Ryy { .. } => "Ryy",
+            Self::Rzz { .. } => "Rzz",
+            Self::Swap { .. } => "Swap",
+        }
+    }
 }
 
 pub(crate) fn resolve_unitary_operation(

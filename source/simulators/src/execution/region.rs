@@ -3,7 +3,7 @@
 
 //! Target-neutral quantum evolution regions and their consumer contract.
 
-use crate::MeasurementResult;
+use crate::{MeasurementResult, QubitID};
 
 use super::{MeasurementRequest, UnitaryOperation};
 
@@ -59,6 +59,10 @@ pub trait RegionConsumer {
     ) -> Result<Self::RegionReport, Self::Error>;
 
     fn measure(&mut self, request: MeasurementRequest) -> Result<MeasurementResult, Self::Error>;
+
+    /// Resets `qubit` to |0⟩. Required, so that each target states explicitly
+    /// whether it supports reset rather than silently ignoring it.
+    fn reset(&mut self, qubit: QubitID) -> Result<(), Self::Error>;
 
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error>;
 

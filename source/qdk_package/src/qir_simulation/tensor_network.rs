@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::collections::BTreeMap;
+
 use pyo3::{
     exceptions::{PyNotImplementedError, PyValueError},
     prelude::*,
@@ -8,10 +10,48 @@ use pyo3::{
 };
 use qdk_simulators::execution::{
     AdaptiveCommand, AdaptiveExecution, AdaptiveResponse, CircuitTensorNetwork,
-    PreparedAdaptiveProgram,
+    FixedOutcomeCircuit, FixedOutcomeOperation, PreparedAdaptiveProgram,
 };
 
 use super::adaptive_program_from_pydict;
+
+/// Summarizes the fixed-outcome circuit that `outcomes` selects, for host
+/// qualification. Does not build or contract a tensor network.
+#[pyfunction]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn _fixed_outcome_probe<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    outcomes: Vec<bool>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let program = adaptive_program_from_pydict::<u64>(input)?;
+    let prepared = PreparedAdaptiveProgram::new(program)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let circuit = FixedOutcomeCircuit::from_prepared_program(&prepared, &outcomes)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+
+    let mut gate_counts = BTreeMap::<&str, usize>::new();
+    let mut measure_count = 0;
+    let mut reset_measure_count = 0;
+    for operation in circuit.operations() {
+        match operation {
+            FixedOutcomeOperation::Unitary(unitary) => {
+                *gate_counts.entry(unitary.name()).or_default() += 1;
+            }
+            FixedOutcomeOperation::Measure { reset, .. } => {
+                measure_count += 1;
+                reset_measure_count += usize::from(*reset);
+            }
+        }
+    }
+    let report = PyDict::new(py);
+    report.set_item("qubit_count", circuit.qubit_count())?;
+    report.set_item("gate_counts", gate_counts)?;
+    report.set_item("measure_count", measure_count)?;
+    report.set_item("reset_measure_count", reset_measure_count)?;
+    report.set_item("region_count", prepared.regions().len())?;
+    Ok(report)
+}
 
 /// Builds a single leading region for host qualification, without executing
 /// measurements, contracting tensors, or validating the terminal suffix.
@@ -50,7 +90,9 @@ pub(crate) fn _tensor_network_build_probe<'py>(
         .next_command(Some(AdaptiveResponse::RegionComplete))
         .map_err(|error| PyValueError::new_err(error.to_string()))?
     {
-        AdaptiveCommand::Measure(_) | AdaptiveCommand::Complete(_) => {}
+        AdaptiveCommand::Measure(_)
+        | AdaptiveCommand::Reset { .. }
+        | AdaptiveCommand::Complete(_) => {}
         AdaptiveCommand::ExecuteRegion { .. } => {
             return Err(PyValueError::new_err("unexpected second unitary region"));
         }

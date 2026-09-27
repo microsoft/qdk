@@ -5,7 +5,7 @@
 
 use std::{convert::Infallible, fmt};
 
-use crate::{MeasurementResult, OutputRecord, Simulator};
+use crate::{MeasurementResult, OutputRecord, QubitID, Simulator};
 
 use super::{
     AdaptiveCommand, AdaptiveExecution, AdaptiveExecutionError, AdaptiveResponse, MeasurementKind,
@@ -151,6 +151,11 @@ impl<S: Simulator> RegionConsumer for ImmediateSimulatorConsumer<'_, S> {
         Ok(self.simulator.measurements()[request.result_id])
     }
 
+    fn reset(&mut self, qubit: QubitID) -> Result<(), Self::Error> {
+        self.simulator.resetz(qubit);
+        Ok(())
+    }
+
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error> {
         Ok(ImmediateExecutionReport)
     }
@@ -197,6 +202,10 @@ pub fn drive_prepared_shot<C: RegionConsumer>(
             }
             AdaptiveCommand::Measure(request) => match consumer.measure(request) {
                 Ok(result) => AdaptiveResponse::Measurement(result),
+                Err(error) => return Err(close_after_consumer_error(consumer, error)),
+            },
+            AdaptiveCommand::Reset { qubit } => match consumer.reset(qubit) {
+                Ok(()) => AdaptiveResponse::ResetComplete,
                 Err(error) => return Err(close_after_consumer_error(consumer, error)),
             },
             AdaptiveCommand::Complete(records) => {

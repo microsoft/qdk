@@ -1211,6 +1211,21 @@ def _tensor_network_build_probe(input: dict) -> _TensorNetworkBuildReport:
     """
     ...
 
+class _FixedOutcomeReport(TypedDict):
+    qubit_count: int
+    gate_counts: Dict[str, int]
+    measure_count: int
+    reset_measure_count: int
+    region_count: int
+
+def _fixed_outcome_probe(input: dict, outcomes: List[bool]) -> _FixedOutcomeReport:
+    """Summarize the fixed-outcome circuit selected by ``outcomes``.
+
+    Input is AdaptiveProfilePass 64-bit bytecode; ``outcomes[i]`` fixes QIR
+    result ``i``. For host qualification only; builds no tensor network.
+    """
+    ...
+
 def _tensor_network_contraction_query(
     input: dict,
     queries: List[dict],
