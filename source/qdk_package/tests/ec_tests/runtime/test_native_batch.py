@@ -594,6 +594,62 @@ def test_native_batch_does_not_probe_non_batch_decoder_sessions():
     )
 
 
+def test_native_batch_replays_fixed_parameterized_gadgets():
+    from qodec.instructions import Parameter
+    from qdk.simulation._qodec.bytecode import compile
+    from qdk.simulation._qodec.native_batch import ReplayBatch, prepare_batch
+    from qdk.simulation._simulation import preprocess_simulation_input
+
+    codec = qodec.Qodec.load(str(FIXTURES / "repetition3.qodec.yaml"))
+    measure = codec.layers[0].gadgets["__quantum__qis__m__body"]
+    measure.implements.parameters = [Parameter("tag", "bit")]
+    module, _, _, _ = preprocess_simulation_input("""
+        %Qubit = type opaque
+        %Result = type opaque
+        define void @main() #0 {
+          call void @prepare_z(%Qubit* null)
+          call void @__quantum__qis__m__body(%Qubit* null, i1 true, %Result* null)
+          call void @__quantum__rt__result_record_output(%Result* null, i8* null)
+          ret void
+        }
+        declare void @prepare_z(%Qubit*)
+        declare void @__quantum__qis__m__body(%Qubit*, i1, %Result*)
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+        attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+    """)
+    factory = make_factory(codec=codec)
+    program = compile(module, factory.program_instructions.declarations)
+    batch = prepare_batch(program, factory)
+    assert isinstance(batch, ReplayBatch)
+    assert batch.run(3, None, seed=42) == [[Result.Zero]] * 3
+    assert factory.build_pipeline().run(program) == [Result.Zero]
+
+
+def test_other_circuit_decoders_keep_implicit_pauli_support():
+    from qdk.simulation._qodec.native_batch import ReplayBatch, prepare_batch
+    from .test_deq_decoding import unencoded_codec
+
+    codec = unencoded_codec()
+    sessions = prepare_syndrome_decoder(codec.layers[0])
+
+    class CircuitDecoder:
+        def __call__(self, seed=None):
+            return sessions(seed)
+
+        def prepare_circuit(self, trace, noise):
+            return ReplayBatch(trace, sessions)
+
+    # Deliberately use lower-level bytecode: public QIR calls must belong to the ISA.
+    program = compile_qasm(
+        'include "stdgates.inc"; qubit data; y data; bit result = measure data;'
+    )
+    batch = prepare_batch(
+        program, make_factory(decoder=lambda _: CircuitDecoder(), codec=codec)
+    )
+    assert batch is not None
+    assert batch.run(3, None, seed=42) == [[Result.One]] * 3
+
+
 @pytest.mark.parametrize(
     "decoder_name",
     ["syndrome", pytest.param("frame", marks=requires_stim)],

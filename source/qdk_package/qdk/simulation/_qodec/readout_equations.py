@@ -107,11 +107,13 @@ class FrameDelta:
     parity: Parity
 
 
-def prepare_frames(gadget: Gadget) -> tuple[FrameDelta, ...]:
+def _local_parities(
+    gadget: Gadget, equations: Iterable[Iterable[Reference | str | int]]
+) -> tuple[Parity, ...]:
     aliases: dict[int, Parity] = {}
     active: set[int] = set()
 
-    def expand_frame(terms: Iterable[Reference | str | int]) -> Parity:
+    def expand(terms: Iterable[Reference | str | int]) -> Parity:
         result = Parity()
         for term in terms:
             if isinstance(term, str):
@@ -124,28 +126,32 @@ def prepare_frames(gadget: Gadget) -> tuple[FrameDelta, ...]:
                     elif kind == "readout":
                         if index in active or not 0 <= index < len(gadget.readouts):
                             raise ValueError(
-                                "Frame aliases must be acyclic and reference declared readouts"
+                                "Frame and flag aliases must be acyclic and reference declared readouts"
                             )
                         if index not in aliases:
                             active.add(index)
-                            aliases[index] = expand_frame(
-                                gadget.readouts[index].equation
-                            )
+                            aliases[index] = expand(gadget.readouts[index].equation)
                             active.remove(index)
                         result ^= aliases[index]
                     else:
-                        raise ValueError("Frame values cannot reference encoding signs")
+                        raise ValueError(
+                            "Frame and flag values cannot reference encoding signs"
+                        )
             elif type(term) is int and term in (0, 1):
                 result ^= Parity(constant=bool(term))
             else:
                 raise ValueError(
-                    "Frame terms must be record references or integer bits"
+                    "Frame and flag terms must be record references or integer bits"
                 )
         return result
 
-    frames = []
+    return tuple(expand(equation) for equation in equations)
+
+
+def prepare_frames(gadget: Gadget) -> tuple[FrameDelta, ...]:
+    keys: list[tuple[int, str, int]] = []
     targets = set()
-    for target, terms in gadget.frames.items():
+    for target in gadget.frames:
         references = Reference(target).expand()
         if len(references) != 1:
             raise ValueError("Frame keys must identify one output logical sign")
@@ -164,5 +170,8 @@ def prepare_frames(gadget: Gadget) -> tuple[FrameDelta, ...]:
         if key in targets:
             raise ValueError("Frame keys must not alias the same output sign")
         targets.add(key)
-        frames.append(FrameDelta(entry, basis, index, expand_frame(terms)))
-    return tuple(frames)
+        keys.append((entry, basis, index))
+    return tuple(
+        FrameDelta(*key, parity)
+        for key, parity in zip(keys, _local_parities(gadget, gadget.frames.values()))
+    )

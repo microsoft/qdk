@@ -119,15 +119,21 @@ def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
     Requires ``pip install deq deq-runtime``. The decoder composes bounded
     groups of local Clifford gadgets using the ``run_qir`` noise model and
     deq's window coordinator with relay-BP decoding.
-    A single lowering supplies the physical circuit and connected gadget calls.
-    Primitive models retain QDK's constant-frame adjustment before deq composes
-    them; no QIR rewrite or per-shot compilation is needed.
+    Gadget models are converted independently of the program trace. The trace
+    supplies connected top-level ISA calls and native physical samples; deq
+    owns frame propagation through explicit PROPAGATE statements.
     The execution trace must be measurement-independent, but individual
     measurements may be random. Execution requires
     one encoded layer, the stabilizer backend, and supported Pauli channels
-    without loss. It does not use QDK's syndrome decoder. Flags retain their
-    declared zero-frame values, without inferred error corrections. The retry
-    policy is unsupported. A worker thread allows synchronous simulation
+    without loss. QIR compilation resolves quantum calls against the top-level
+    ISA and rejects undeclared calls. Top-level parameters may specialize the
+    action when the physical gadget circuit is fixed; check and readout
+    definitions do not depend on them. Flags may use only
+    local measurements, constants, and aliases of those values. They receive
+    neither incoming-frame adjustments nor inferred error corrections. A known
+    nonzero incoming syndrome can therefore raise a flag without a new fault.
+    It does not use QDK's syndrome decoder. The retry policy is unsupported.
+    A worker thread allows synchronous simulation
     inside a running asyncio event loop, including notebooks.
     Circuit fault probabilities are passed to deq without complementing values
     above one half. deq 0.5.7 can miss corrections for such faults at zero syndrome.
@@ -141,7 +147,7 @@ def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
                 "Install them with: pip install deq deq-runtime"
             ) from error
         raise
-    return DeqModel()
+    return DeqModel(layer)
 
 
 class SyndromeModel:

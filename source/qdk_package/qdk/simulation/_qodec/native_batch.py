@@ -357,8 +357,6 @@ def _require_static_circuit(
     invocation: Invocation,
 ) -> None:
     """Reject gadget bodies whose physical trace could depend on a shot."""
-    if invocation.gadget.implements.parameters:
-        raise _NotBatchable
     body = plan.gadgets[invocation.call.mnemonic].body.create_runtime()
     if not isinstance(body, CallListRuntime):
         raise _NotBatchable
@@ -421,7 +419,11 @@ class _RecordingDecoder:
         return len(self.decoders) - 1
 
     def before(self, invocation: Invocation) -> Corrections[None]:
-        if invocation.gadget.implements.flags:
+        # Readout tables do not specialize on call arguments.
+        if (
+            invocation.gadget.implements.flags
+            or invocation.gadget.implements.parameters
+        ):
             raise _NotBatchable
         _require_static_circuit(self.plan, self.operations, invocation)
         if isinstance(self.session, BeforeInvocation):
@@ -462,7 +464,6 @@ class _Before:
     invocation: Invocation
     position: int
     qubits: Mapping[BlockReference, tuple[int, ...]]
-    frame_position: int = 0
 
 
 @dataclass(frozen=True)
@@ -473,7 +474,6 @@ class _Decode:
     start: int
     width: int
     selection: Selection
-    frame_position: int = 0
 
 
 @dataclass(frozen=True)
@@ -506,9 +506,7 @@ class _DeferringDecoder:
         _require_static_circuit(self.plan, self.operations, invocation)
         position = len(self.backend.instructions)
         qubits = yield from self._probe(invocation.inputs)
-        self.events.append(
-            _Before(invocation, position, qubits, len(self.backend.frames))
-        )
+        self.events.append(_Before(invocation, position, qubits))
 
     def decode(
         self, invocation: Invocation, readouts: Readouts
@@ -527,7 +525,6 @@ class _DeferringDecoder:
                 start,
                 len(readouts),
                 selection,
-                len(self.backend.frames),
             )
         )
         return Decoded(

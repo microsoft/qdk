@@ -44,8 +44,11 @@ To decode the physical circuit with deq::
         qir, shots=1000, qodec=codec, decoder=prepare_deq_decoder, noise=noise
     )
 
-deq decoding keeps native physical sampling and composes consecutive traced Qodec
-gadgets into reusable deq types. Groups target at most 1024 model entries,
+deq decoding keeps native physical sampling. A conversion module compiles Qodec
+gadgets independently of the program, using their local circuits, declared
+actions, equations, and noise model. An execution module connects those models
+using the program trace and composes consecutive instances into reusable deq
+types. Groups target at most 1024 model entries,
 counting measurements, finished and unfinished checks, errors, and one entry per
 source gadget. An individually larger gadget remains intact. Grouping uses no
 instruction names or code-specific rules. Instances connect through their encoded
@@ -56,28 +59,43 @@ discarded and still-live output ports receive explicit terminators.
 
 Authored detection checks are supplied without validation. deq derives only
 missing output-port propagation relations from the local circuit, not extra
-detection checks. Detection checks must use physical records and stabilizer
+detection checks. Constant checks, including an always-firing check, are passed
+to deq rather than rejected as contradictory. Detection checks must use physical
+records and stabilizer
 ports; logical sign equations describe frame propagation. deq evaluates logical
 readouts; QDK does not replay its syndrome decoder. Raw rejection flags are
-evaluated in batches from their authored record parities, including declared
-frame changes but excluding inferred error corrections. Under ``discard``, shots
+evaluated in batches from local physical measurement parities and constants.
+Readout aliases must be acyclic and expand only to those local values. Direct
+or aliased input/output encoding signs are rejected, even in unselected flags.
+Checks are not assumed to hold when evaluating flags. Neither incoming-frame
+adjustments nor inferred error corrections are applied to flags: a known nonzero
+incoming syndrome can raise a flag even without a new fault. Under ``discard``, shots
 that already fail their raw-flag selections are removed before deq decoding.
 Explicitly returned, unselected flags are not filtered. Under ``raise``, decoding
 still runs before checking selections, preserving failure ordering.
-Noiseless behavior is preserved, but noisy logical results and rejection rates
-can differ from the default syndrome decoder.
+Authored checks remain in deq's decoding model; QDK requests only logical
+readouts and does not add a residual-check rejection rule. Explicit local-flag
+selections determine postselection. Actual deq service errors and malformed
+replies propagate to the caller, including under ``discard``.
+Logical results and rejection rates can differ from the default syndrome decoder,
+including noiseless rejection of known nonzero incoming syndromes.
 Each run uses a seeded deq stream and isolated shot instances; exact stochastic
 answers are not promised to match other decoders or deq versions.
-One lowering records the physical circuit, gadget connections, and result maps;
-QIR is not rewritten to introduce composite intrinsics. Each gadget specialization
-shares one compiled equation/frame contract between raw-flag and deq preparation.
-Decoded-bit destinations and check positions are prepared once, not rebuilt per shot.
+One program lowering records the physical circuit, gadget connections, and result
+maps; QIR is not rewritten to introduce composite intrinsics. Each used gadget
+specialization is lowered locally and compiled once. Equation/frame contracts
+remain local to conversion; execution retains only compiled models and routing.
+Decoded-bit destinations are prepared once, not rebuilt per shot.
 Explicit ``PROPAGATE`` statements describe logical frame transport before
 primitive compilation; compiled matrices are not patched. For unitary Clifford
 and Pauli action lists, the declared action determines the logical-input terms,
 emitted directly as deq targets without an intermediate QDK parity representation.
 The global phase of a propagated correction is ignored. Other action forms retain
-deq's inferred transport. deq also supplies physical measurement and input
+deq's inferred transport. Check and readout definitions are fixed per gadget;
+bound arguments specialize the declared action, not those definitions. Top-level
+parameters are supported when the gadget's physical circuit is a fixed Clifford
+call list. Parameterized physical calls and measurement-dependent execution
+remain unsupported. deq also supplies physical measurement and input
 syndrome contributions. Authored logical-sign equations override inferred rows,
 and authored frames supply additional measurement terms and constant flips.
 Signs of the intended physical operation are not added as frame corrections.
@@ -94,7 +112,12 @@ corrections as whole-component decoding.
 
 deq requires one encoded layer, measurement-independent Clifford
 execution on the stabilizer backend, and no loss. Measurements may be random;
-only the execution trace must be independent of their values. It supports a
+only the execution trace must be independent of their values. QIR compilation
+resolves quantum calls against the top-level Qodec ISA and rejects undeclared
+calls. Allocation and output recording remain supported. QDK does not propagate
+physical or logical frames
+between gadgets for deq; the default decoder's frame handling is unchanged.
+It supports a
 single Pauli mechanism per noise table and depolarizing channels with total
 nonidentity probability at most 3/4 (one qubit) or 15/16 (two qubits). General Pauli channels
 are rejected rather than approximated. Measurement/reset noise follows the
