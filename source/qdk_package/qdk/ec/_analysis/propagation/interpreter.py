@@ -277,7 +277,9 @@ def walk_program(
                     continue
             if isinstance(action, Stabilize):
                 for pauli_str in action.operators:
-                    remapped = remap_pauli(pauli_str, qubit_map)
+                    remapped = remap_pauli(
+                        pauli_str, qubit_map, arguments=call.arguments
+                    )
                     if not remapped.weight:
                         continue
                     correction = _eigenstate_correction(remapped)
@@ -301,13 +303,17 @@ def walk_program(
                 for engine in extra_engines:
                     engine.apply_clifford(clifford, qubits)
             elif isinstance(action, PauliAction):
-                remapped = remap_pauli(action.operator, qubit_map)
+                remapped = remap_pauli(
+                    action.operator, qubit_map, arguments=call.arguments
+                )
                 _apply_guarded_pauli(oracle, remapped, indices, parity, record_rows)
                 for engine, rows in zip(extra_engines, engine_record_rows):
                     _apply_guarded_pauli(engine, remapped, indices, parity, rows)
             elif isinstance(action, Observe):
                 for observable in action.observables:
-                    remapped = remap_pauli(observable, qubit_map)
+                    remapped = remap_pauli(
+                        observable, qubit_map, arguments=call.arguments
+                    )
                     observe_rows.append(oracle.outcome_count)
                     record_rows.append(oracle.outcome_count)
                     oracle.measure(remapped)

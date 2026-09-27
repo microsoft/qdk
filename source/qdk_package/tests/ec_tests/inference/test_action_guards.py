@@ -514,6 +514,29 @@ def test_symbolic_paulis_transport_through_unconditional_cliffords() -> None:
     assert before.objective.is_equivalent_to(after.objective)
 
 
+@pytest.mark.parametrize("kind", ["Pauli", "Stabilize", "Observe"])
+def test_channel_action_resolves_bound_pauli_expressions(kind: str) -> None:
+    def action(operator: str) -> Action:
+        if kind == "Pauli":
+            return Pauli(operator)
+        if kind == "Stabilize":
+            return Stabilize([operator])
+        return Observe([operator])
+
+    gadget = _gadget([action("operator")], arguments={"operator": "-Z_0"})
+    gadget.implements.parameters = [Parameter("operator", "pauli")]
+    gadget.circuit.instruction_set.instructions["step"].parameters = [
+        Parameter("operator", "pauli")
+    ]
+    expected = _gadget([action("-Z_0")])
+    assert ec.GadgetProfile(gadget).action.is_equivalent_to(
+        ec.GadgetProfile(expected).action
+    )
+    assert ec.GadgetProfile(gadget.circuit).action.is_equivalent_to(
+        ec.GadgetProfile(expected.circuit).action
+    )
+
+
 @pytest.mark.parametrize("measured", [False, True])
 def test_symbolic_comparison_agrees_with_every_concrete_bit_assignment(
     measured: bool,

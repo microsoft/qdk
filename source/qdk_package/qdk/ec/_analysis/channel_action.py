@@ -232,7 +232,9 @@ def input_qubits_of(program: Circuit) -> frozenset[int]:
             touched: set[int] = set()
             if isinstance(action, Stabilize) and not indices:
                 for pauli_str in action.operators:
-                    remapped = remap_pauli(pauli_str, qubit_map)
+                    remapped = remap_pauli(
+                        pauli_str, qubit_map, arguments=call.arguments
+                    )
                     support = set(remapped.support)
                     touched |= support
                     if len(support) == 1:
@@ -806,7 +808,11 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
     return ""
 
 
-def declared_program_of(gadget: qc.Gadget) -> Circuit:
+def declared_program_of(
+    gadget: qc.Gadget,
+    *,
+    arguments: Mapping[str, qc.instructions.InstructionCall.Argument] | None = None,
+) -> Circuit:
     instruction = gadget.implements
     input_count, output_count = _declared_logical_counts(gadget)
     unit = qc.instructions.BlockOperand("declared")
@@ -826,10 +832,14 @@ def declared_program_of(gadget: qc.Gadget) -> Circuit:
                 {
                     instruction.mnemonic: {
                         "operands": list(range(max(input_count, output_count))),
-                        "arguments": {
-                            parameter.name: parameter.name
-                            for parameter in instruction.parameters
-                        },
+                        "arguments": (
+                            dict(arguments)
+                            if arguments is not None
+                            else {
+                                parameter.name: parameter.name
+                                for parameter in instruction.parameters
+                            }
+                        ),
                     }
                 }
             ]
@@ -895,16 +905,21 @@ def _stack_encodings(encodings: Sequence[qc.gadgets.Encoding]) -> SeparableCode:
     return SeparableCode(*blocks)
 
 
-def declared_action_of(gadget: qc.Gadget) -> ChannelAction:
+def declared_action_of(
+    gadget: qc.Gadget,
+    *,
+    arguments: Mapping[str, qc.instructions.InstructionCall.Argument] | None = None,
+) -> ChannelAction:
     codes_in, codes_out = declared_codes_of(gadget)
     physical = _action_of(
-        declared_program_of(gadget),
+        declared_program_of(gadget, arguments=arguments),
         input_qubits=sorted(codes_in.support),
         output_support=sorted(codes_out.support),
         parameters={
             parameter.name: parameter.name
             for parameter in gadget.implements.parameters
             if parameter.kind == qc.instructions.Parameter.Kind.BIT
+            and (arguments is None or parameter.name not in arguments)
         },
     )
     return _decode(physical, with_respect_to=(codes_in, codes_out))

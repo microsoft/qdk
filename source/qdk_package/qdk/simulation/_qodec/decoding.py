@@ -121,7 +121,9 @@ def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
     deq's window coordinator with relay-BP decoding.
     Gadget models are converted independently of the program trace. The trace
     supplies connected top-level ISA calls and native physical samples; deq
-    owns frame propagation through explicit PROPAGATE statements.
+    owns frame propagation through explicit PROPAGATE statements derived from
+    the instruction's declared ChannelAction. Conditional Paulis are supported;
+    other conditional action kinds are rejected.
     The execution trace must be measurement-independent, but individual
     measurements may be random. Execution requires
     one encoded layer, the stabilizer backend, and supported Pauli channels

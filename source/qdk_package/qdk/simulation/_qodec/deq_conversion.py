@@ -14,7 +14,6 @@ from itertools import product
 from math import expm1, log1p
 from typing import cast
 
-from paulimer import CliffordUnitary
 from qodec import Code, Gadget, Layer
 from qodec.gadgets import Encoding
 from qodec.instructions import InstructionCall
@@ -36,7 +35,8 @@ from deq.transpiler.jit_transpiler import (  # pyright: ignore[reportMissingImpo
 
 from .. import NoiseConfig
 from ..._native import QirInstructionId
-from .action_runtime import prepare_actions
+from ...ec._analysis.channel_action import declared_action_of
+from ...ec._analysis.propagation.pauli import Pauli
 from .call_binding import validate_arguments
 from .circuit_runtime import CallListRuntime
 from .clifford_semantics import pauli
@@ -45,7 +45,6 @@ from .instruction_set import InstructionRuntime, InstructionSet, PreparedAction
 from .layer_runtime import GadgetPlan, LayerPlan
 from .native_batch import _GATES, _RecordingBackend, _TABLE_WIDTHS
 from .protocols import ExecutionUnresolved, Readouts, Requests, Resources
-from .quantum_instruments import CliffordGate, PauliGate
 from .quantum_operations import Operation
 from .readout_equations import (
     Parity,
@@ -705,6 +704,7 @@ def _complete_propagations(
 def _action_propagations(
     gadget: Gadget, arguments: Mapping[str, InstructionCall.Argument]
 ) -> list[circuit.PropagateStatement] | None:
+    action = declared_action_of(gadget, arguments=arguments)
     inputs = [
         (port, index)
         for port, encoding in enumerate(gadget.inputs)
@@ -715,41 +715,26 @@ def _action_propagations(
         for port, encoding in enumerate(gadget.outputs)
         for index in range(len(encoding.code.x))
     ]
-    if len(inputs) != len(outputs):
+    if len(inputs) != len(outputs) or len(action._mapping) != 2 * len(inputs):
+        # Non-unitary channels retain deq's physical transport and byproducts.
         return None
-    program = prepare_actions(gadget.implements, len(inputs), len(outputs), arguments)
-    action = CliffordUnitary.identity(len(inputs))
-    for step in program.steps:
-        if step.guard is not None:
-            if step.guard.outcomes:
-                return None
-            if not step.guard.accepts(()):
-                continue
-        if isinstance(step.instrument, CliffordGate):
-            action.left_mul_clifford(step.instrument.operator, list(range(len(inputs))))
-        elif not isinstance(step.instrument, PauliGate):
-            return None
-    # Conjugation signs are global phases of corrections, not frame bits.
-    statements = []
-    for logical, (port, index) in enumerate(outputs):
-        for axis, image in (
-            ("X", action.preimage_z(logical)),
-            ("Z", action.preimage_x(logical)),
-        ):
-            statements.append(
-                circuit.PropagateStatement(
-                    circuit.LogicalPauliTarget(axis, index, "OUT", port),
-                    [
-                        circuit.LogicalPauliTarget(
-                            incoming, inputs[source][1], "IN", inputs[source][0]
-                        )
-                        for source in image.support
-                        for incoming, paulis in (("Z", ("X", "Y")), ("X", ("Z", "Y")))
-                        if image[source] in paulis
-                    ],
-                )
-            )
-    return statements
+    images = [
+        (
+            circuit.LogicalPauliTarget(axis, index, "IN", port),
+            action._mapping[Pauli({logical: axis})].pauli,
+        )
+        for logical, (port, index) in enumerate(inputs)
+        for axis in ("X", "Z")
+    ]
+    # Parameter-dependent signs are global phases of corrections, not frame bits.
+    return [
+        circuit.PropagateStatement(
+            circuit.LogicalPauliTarget(axis, index, "OUT", port),
+            [source for source, image in images if not image.commutes_with(observable)],
+        )
+        for logical, (port, index) in enumerate(outputs)
+        for axis, observable in (("X", Pauli.z(logical)), ("Z", Pauli.x(logical)))
+    ]
 
 
 def _apply_authored_frames(

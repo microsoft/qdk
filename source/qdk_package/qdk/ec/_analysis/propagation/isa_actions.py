@@ -11,9 +11,17 @@ from .pauli import Pauli, parse_term, relabel
 _PauliKey = TypeVar("_PauliKey", bound=str)
 
 
-def remap_pauli(pauli_str: str, qubit_map: Mapping[int, int]) -> Pauli:
+def remap_pauli(
+    pauli_str: str,
+    qubit_map: Mapping[int, int],
+    *,
+    arguments: Mapping[str, object] | None = None,
+) -> Pauli:
     """The Pauli ``pauli_str`` names, each term placed through ``qubit_map``."""
-    operator = Pauli(pauli_str)
+    value = pauli_str if arguments is None else arguments.get(pauli_str, pauli_str)
+    if not isinstance(value, str):
+        raise TypeError(f"Pauli parameter {pauli_str!r} must be a string")
+    operator = Pauli(value)
     placement = {qubit: qubit_map[qubit] for qubit in operator.support}
     return relabel(operator, placement)
 

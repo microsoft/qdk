@@ -641,7 +641,8 @@ def test_partial_output_checks_keep_teleportation_byproducts(
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-def test_partial_output_checks_use_bound_declared_actions(simulate, enabled):
+@pytest.mark.parametrize("kind", ["Clifford", "Stabilize", "Rotate"])
+def test_deq_rejects_conditional_non_pauli_actions(simulate, enabled, kind):
     from qodec.instructions import Parameter
 
     codec = unencoded_codec(2)
@@ -649,20 +650,15 @@ def test_partial_output_checks_use_bound_declared_actions(simulate, enabled):
     gadgets["prepare"].frames = {"out[0].z[0]": [1]}
     step = gadgets["step"]
     step.implements.parameters = [Parameter("enabled", "bit")]
+    condition = actions.Condition(["enabled"])
     step.implements.action = [
-        actions.Clifford(
-            {"X_0": "Z_0", "Z_0": "X_0"}, condition=actions.Condition(["enabled"])
-        )
-    ]
-    step.checks = [
-        [
-            "out[0].x[0]",
-            "out[0].z[0]",
-            "out[0].z[1]",
-            "in[0].x[0]",
-            "in[0].z[0]",
-            "in[0].z[1]",
-        ]
+        {
+            "Clifford": actions.Clifford(
+                {"X_0": "Z_0", "Z_0": "X_0"}, condition=condition
+            ),
+            "Stabilize": actions.Stabilize(["Z_0"], condition=condition),
+            "Rotate": actions.Rotate("Z_0", 0.25, condition=condition),
+        }[kind]
     ]
     program = f"""
         %Qubit = type opaque
@@ -683,8 +679,8 @@ def test_partial_output_checks_use_bound_declared_actions(simulate, enabled):
         declare void @__quantum__rt__result_record_output(%Result*, i8*)
         attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }}
     """
-    expected = [Result.Zero if enabled else Result.One, Result.Zero]
-    assert simulate(program, codec=codec) == [expected] * 3
+    with pytest.raises(NotImplementedError, match=f"conditional {kind}"):
+        simulate(program, codec=codec)
 
 
 def test_partial_stabilizer_checks_preserve_incoming_syndromes(
@@ -802,7 +798,10 @@ def test_circuit_deq_preserves_stabilizer_contributions_to_logical_frames(
     assert {row[0] for row in physical_samples} == {Result.Zero, Result.One}
 
 
-def test_circuit_deq_specializes_propagation_for_bound_action_guards(circuit_decoder):
+@pytest.mark.parametrize("invert", [False, True])
+def test_circuit_deq_preserves_transport_for_conditional_paulis(
+    circuit_decoder, invert
+):
     from deq.circuit.model import LogicalPauliTarget, PropagateStatement
     from qodec.instructions import Parameter
     from qdk.simulation._qodec.deq_conversion import _LibraryBuilder
@@ -811,37 +810,96 @@ def test_circuit_deq_specializes_propagation_for_bound_action_guards(circuit_dec
     gadget = codec.layers[0].gadgets["step"]
     gadget.implements.parameters = [Parameter("enabled", "bit")]
     gadget.implements.action = [
-        actions.Clifford(
-            {"X_0": "Z_0", "Z_0": "X_0"}, condition=actions.Condition(["enabled"])
-        )
+        actions.Pauli("X_0", condition=actions.Condition(["enabled"], invert=invert))
     ]
-    gadget.circuit.source = "H 0"
+    gadget.circuit.source = "X 0"
     builder = _LibraryBuilder(codec.layers[0], None)
     types = [
         builder.add_gadget("step", {"enabled": enabled}).gtype
         for enabled in (False, True, False)
     ]
     assert types == [1, 2, 1]
-    for definition, axis in zip(builder.gadgets, ("X", "Z"), strict=True):
+    for definition in builder.gadgets:
         row = next(
             item
             for item in definition.body
             if isinstance(item, PropagateStatement) and item.target.pauli == "X"
         )
-        assert row.terms == [LogicalPauliTarget(axis, 0, "IN", 0)]
+        assert row.terms == [LogicalPauliTarget("X", 0, "IN", 0)]
+        assert not row.flip
+
+
+@pytest.mark.parametrize("invert", [False, True])
+def test_deq_accepts_measurement_conditioned_pauli_actions(simulate, invert):
+    from qodec.gadgets import Circuit
+    from qodec.instructions import BlockOperand
+
+    codec = unencoded_codec()
+    physical = codec.layers[-1].instruction_set
+    operand = BlockOperand("qubit")
+    physical.instructions["measure_stay"] = qodec.Instruction(
+        "measure_stay",
+        inputs=[operand],
+        outputs=[operand],
+        action=[actions.Observe(["Z_0"])],
+    )
+    gadgets = codec.layers[0].gadgets
+    gadgets["prepare"].circuit.source = "R 0\nH 0"
+    step = gadgets["step"]
+    step.implements.action = [
+        actions.Observe(["Z_0"]),
+        actions.Pauli(
+            "X_0", condition=actions.Condition(["outcomes[0]"], invert=invert)
+        ),
+    ]
+    step.circuit = Circuit(physical, "- measure_stay: [0]", format="yaml")
+    step.readouts = [["circuit.readouts[0]", "in[0].z[0]"]]
+    step.checks = [
+        ["out[0].x[0]", "in[0].x[0]"],
+        ["out[0].z[0]", "in[0].z[0]"],
+    ]
+    step.frames = {"out[0].z[0]": ["circuit.readouts[0]", int(invert)]}
+    program = qir_program(
+        [("prepare", [0], []), ("step", [0], [0]), ("measure", [0], [1])], [0, 1]
+    )
+    results = simulate(program, codec=codec, shots=32, seed=13)
+    assert {row[0] for row in results} == {Result.Zero, Result.One}
+    assert [row[1] for row in results] == [Result.One if invert else Result.Zero] * 32
+
+
+@pytest.mark.parametrize("operator", ["X_0", "Y_0", "-Z_0"])
+def test_deq_channel_action_binds_pauli_parameters(circuit_decoder, operator):
+    from deq.circuit.model import LogicalPauliTarget, PropagateStatement
+    from qodec.instructions import Parameter
+    from qdk.simulation._qodec.deq_conversion import _LibraryBuilder
+
+    codec = unencoded_codec()
+    step = codec.layers[0].gadgets["step"]
+    step.implements.parameters = [Parameter("operator", "pauli")]
+    step.implements.action = [actions.Pauli("operator")]
+    builder = _LibraryBuilder(codec.layers[0], None)
+    builder.add_gadget("step", {"operator": operator})
+    statements = [
+        item for item in builder.gadgets[0].body if isinstance(item, PropagateStatement)
+    ]
+    assert len(statements) == 2
+    for statement in statements:
+        assert statement.terms == [
+            LogicalPauliTarget(statement.target.pauli, 0, "IN", 0)
+        ]
+        assert not statement.flip
 
 
 def test_public_deq_binds_actions_with_fixed_checks_and_readouts(circuit_decoder):
     from qodec.instructions import Parameter
 
     codec = unencoded_codec()
-    codec.layers[0].gadgets["prepare"].frames = {"out[0].z[0]": [1]}
+    codec.layers[0].gadgets["prepare"].frames = {"out[0].x[0]": [1]}
     step = codec.layers[0].gadgets["step"]
     step.implements.parameters = [Parameter("enabled", "bit")]
     step.implements.action = [
-        actions.Clifford(
-            {"X_0": "Z_0", "Z_0": "X_0"}, condition=actions.Condition(["enabled"])
-        )
+        actions.Clifford({"X_0": "Z_0", "Z_0": "X_0"}),
+        actions.Pauli("X_0", condition=actions.Condition(["enabled"])),
     ]
     step.circuit.source = "R 1\nM 1"
     step.implements.flags = ["reject"]
@@ -890,7 +948,7 @@ def test_public_deq_binds_actions_with_fixed_checks_and_readouts(circuit_decoder
             seed=42,
             on_shot_failure="raise",
         )
-        == [[Result.One, Result.Zero, Result.One]] * 3
+        == [[Result.One, Result.One, Result.One]] * 3
     )
 
 

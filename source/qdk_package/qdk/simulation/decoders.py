@@ -88,11 +88,14 @@ remain local to conversion; execution retains only compiled models and routing.
 Decoded-bit destinations are prepared once, not rebuilt per shot.
 Explicit ``PROPAGATE`` statements describe logical frame transport before
 primitive compilation; compiled matrices are not patched. For unitary Clifford
-and Pauli action lists, the declared action determines the logical-input terms,
-emitted directly as deq targets without an intermediate QDK parity representation.
-The global phase of a propagated correction is ignored. Other action forms retain
-deq's inferred transport. Check and readout definitions are fixed per gadget;
-bound arguments specialize the declared action, not those definitions. Top-level
+and Pauli channels, the declared ``ChannelAction`` supplies generator images,
+which determine the logical-input terms directly. The adapter does not interpret
+the instruction's action list separately. The global phase of a propagated
+correction is ignored, including signs controlled by bit parameters. Non-unitary
+channels retain deq's inferred transport and physical byproducts. Only conditional
+Paulis are supported; other conditional action kinds are rejected even when the
+condition is constant. Check and readout definitions are fixed per gadget;
+bound arguments specialize the declared channel, not those definitions. Top-level
 parameters are supported when the gadget's physical circuit is a fixed Clifford
 call list. Parameterized physical calls and measurement-dependent execution
 remain unsupported. deq also supplies physical measurement and input
