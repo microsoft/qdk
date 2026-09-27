@@ -21,7 +21,10 @@ from .. import NoiseConfig
 from .quantum_operations import FrameUpdate, Operation, RestoreMeasured
 
 if TYPE_CHECKING:
+    from ..._adaptive_pass import AdaptiveProgram
     from ._interpreter import OutputRecordValue
+    from .executor import ExecutionPipelineFactory
+    from .layer_runtime import LayerPlan
     from .native_batch import CircuitTrace
 
 ProgramT = TypeVar("ProgramT", contravariant=True)
@@ -251,6 +254,19 @@ class CircuitDecoderFactory(Protocol):
     def prepare_circuit(
         self, trace: CircuitTrace, noise: NoiseConfig | None, /
     ) -> CircuitBatch: ...
+
+
+@runtime_checkable
+class _PreparedCircuitDecoder(CircuitDecoderFactory, Protocol):
+    """A circuit decoder that owns reusable lowering and tracing preparation."""
+
+    layer_plan: LayerPlan
+
+    def record_circuit(
+        self,
+        program: AdaptiveProgram,
+        factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
+    ) -> CircuitTrace | None: ...
 
 
 class CircuitBatch(Protocol):

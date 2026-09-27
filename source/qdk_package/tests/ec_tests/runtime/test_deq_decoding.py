@@ -302,6 +302,34 @@ def test_circuit_deq_records_once_without_constructing_a_replay_batch(
     assert batch.trace.outputs == ()
 
 
+def test_deq_skips_replay_probes_and_reuses_layer_preparation(simulate, monkeypatch):
+    from qdk.simulation._qodec import native_batch
+    from qdk.simulation._qodec.layer_runtime import LayerPlan
+
+    plans = []
+    checked = []
+    original_plan = LayerPlan.__init__
+    original_check = native_batch._require_static_circuit
+
+    def prepare(plan, *args, **kwargs):
+        plans.append(plan)
+        original_plan(plan, *args, **kwargs)
+
+    def check(plan, operations, invocation):
+        checked.append(invocation.call.mnemonic)
+        original_check(plan, operations, invocation)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("deq tracing must not construct correction-replay metadata")
+
+    monkeypatch.setattr(LayerPlan, "__init__", prepare)
+    monkeypatch.setattr(native_batch, "_require_static_circuit", check)
+    monkeypatch.setattr(native_batch._DeferringDecoder, "_probe", forbidden)
+    assert simulate(memory_program()) == [[Result.Zero, Result.Zero]] * 3
+    assert len(plans) == 1
+    assert sorted(checked) == ["__quantum__qis__m__body", "idle", "prepare_z"]
+
+
 def test_circuit_deq_connects_reusable_local_gadget_types(simulate, compilations):
     program = compile_qasm(
         'include "stdgates.inc"; qubit data; x data; x data; bit r = measure data;'
@@ -985,10 +1013,11 @@ def test_gadget_conversion_rejects_unbound_circuit_parameters(circuit_decoder):
         _LibraryBuilder(codec.layers[0], None).add_gadget("step", {})
 
 
-def test_circuit_deq_translates_propagation_without_qdk_parities(
+def test_circuit_deq_prepares_propagation_without_deq_inference(
     circuit_decoder, monkeypatch
 ):
-    from deq.circuit.model import CodeDefinition, GadgetDefinition
+    from deq.circuit.model import PropagateStatement
+    from deq.transpiler import check_plugins, jit_noise_builder
     from qdk.simulation._qodec import deq_conversion
 
     codec = unencoded_codec()
@@ -996,36 +1025,99 @@ def test_circuit_deq_translates_propagation_without_qdk_parities(
     step.implements.action = [actions.Clifford({"X_0": "Z_0", "Z_0": "X_0"})]
     step.circuit.source = "H 0"
     compiler = deq_conversion._LibraryBuilder(codec.layers[0], None)
-    gadget = compiler.add_gadget("step", {})
-    source, _ = compiler.build()
-    codes = {
-        definition.name: definition
-        for definition in source.definitions
-        if isinstance(definition, CodeDefinition)
-    }
-    definitions = [
-        definition
-        for definition in source.definitions
-        if isinstance(definition, GadgetDefinition)
-    ]
 
     def forbidden(*args, **kwargs):
-        pytest.fail("deq propagation must not round-trip through QDK parities")
+        pytest.fail("QDK must supply propagation without asking deq to infer it")
 
-    monkeypatch.setattr(deq_conversion, "Parity", forbidden)
-    monkeypatch.setattr(deq_conversion, "_Parity", forbidden)
-    declared = deq_conversion._action_propagations(step, {})
-    completed = deq_conversion._complete_propagations(
-        definitions[gadget.gtype - 1], codes, declared
+    monkeypatch.setattr(check_plugins, "resolve_gadget_checks", forbidden)
+    monkeypatch.setattr(jit_noise_builder, "compute_correction_propagation", forbidden)
+    compiler.add_gadget("step", {})
+    statements = [
+        item
+        for item in compiler.gadgets[0].body
+        if isinstance(item, PropagateStatement)
+    ]
+    assert {
+        (str(statement.target), tuple(map(str, statement.terms)))
+        for statement in statements
+    } == {
+        ("OUT0.LX0", ("IN0.LZ0",)),
+        ("OUT0.LZ0", ("IN0.LX0",)),
+    }
+
+
+@pytest.mark.parametrize("axis", ["X", "Z"])
+@pytest.mark.parametrize("incoming", ["x", "z"])
+def test_declared_reset_channel_discards_incoming_frames(simulate, axis, incoming):
+    codec = unencoded_codec()
+    gadgets = codec.layers[0].gadgets
+    gadgets["prepare"].frames = {f"out[0].{incoming}[0]": [1]}
+    gadgets["step"].implements.action = [actions.Stabilize([f"{axis}_0"])]
+    # Deliberately different physical body: transport must use the declared reset.
+    gadgets["step"].circuit.source = ""
+    program = qir_program(
+        [("prepare", [0], []), ("step", [0], []), ("measure", [0], [0])], [0]
     )
-    for statements in (declared, completed):
-        assert {
-            (str(statement.target), tuple(map(str, statement.terms)))
-            for statement in statements
-        } == {
-            ("OUT0.LX0", ("IN0.LZ0",)),
-            ("OUT0.LZ0", ("IN0.LX0",)),
-        }
+    assert simulate(program, codec=codec) == [[Result.Zero]] * 3
+
+
+@pytest.mark.parametrize("incoming", [False, True])
+def test_declared_measurement_channel_preserves_surviving_logical_frames(
+    simulate, incoming
+):
+    from qodec.gadgets import Encoding
+    from qodec.instructions import BlockOperand
+
+    codec = unencoded_codec()
+    layer = codec.layers[0]
+    step = layer.gadgets["step"]
+    step.implements.inputs = [BlockOperand("data"), BlockOperand("data")]
+    step.implements.action = [actions.Observe(["Z_1"])]
+    step.inputs = [
+        Encoding(layer.codes["data"], support=[str(index)]) for index in range(2)
+    ]
+    step.circuit.source = "M 1"
+    step.readouts = [["circuit.readouts[0]", "in[1].z[0]"]]
+    layer.gadgets["prepare"].frames = {"out[0].z[0]": [int(incoming)]}
+    program = qir_program(
+        [
+            ("prepare", [0], []),
+            ("prepare", [1], []),
+            ("step", [0, 1], [0]),
+            ("measure", [0], [1]),
+        ],
+        [0, 1],
+    )
+    assert (
+        simulate(program, codec=codec)
+        == [[Result.One if incoming else Result.Zero] * 2] * 3
+    )
+
+
+def test_declared_preparation_channel_adds_an_unframed_output(simulate):
+    from qodec.gadgets import Encoding
+    from qodec.instructions import BlockOperand
+
+    codec = unencoded_codec()
+    layer = codec.layers[0]
+    layer.gadgets["prepare"].frames = {"out[0].z[0]": [1]}
+    step = layer.gadgets["step"]
+    step.implements.outputs = [BlockOperand("data"), BlockOperand("data")]
+    step.implements.action = [actions.Stabilize(["Z_1"])]
+    step.outputs = [
+        Encoding(layer.codes["data"], support=[str(index)]) for index in range(2)
+    ]
+    step.circuit.source = "R 1"
+    program = qir_program(
+        [
+            ("prepare", [0], []),
+            ("step", [0, 1], []),
+            ("measure", [0], [0]),
+            ("measure", [1], [1]),
+        ],
+        [0, 1],
+    )
+    assert simulate(program, codec=codec) == [[Result.One, Result.Zero]] * 3
 
 
 def test_composition_preserves_measurement_and_result_order(simulate):

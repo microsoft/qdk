@@ -69,6 +69,7 @@ from .protocols import (
     Request,
     Requests,
     Resources,
+    _PreparedCircuitDecoder,
 )
 from .quantum_backend import stabilizer_backend
 from .quantum_operations import (
@@ -467,13 +468,17 @@ class _Before:
 
 
 @dataclass(frozen=True)
-class _Decode:
+class _CircuitCall:
     invocation: Invocation
-    position: int
-    qubits: Mapping[BlockReference, tuple[int, ...]]
     start: int
     width: int
     selection: Selection
+
+
+@dataclass(frozen=True)
+class _Decode(_CircuitCall):
+    position: int
+    qubits: Mapping[BlockReference, tuple[int, ...]]
 
 
 @dataclass(frozen=True)
@@ -499,7 +504,7 @@ class _DeferringDecoder:
         self.backend = backend
         self.operations = factory.physical_operations
         self.layout: LayerLayout | None = None
-        self.events: list[_Before | _Decode | _Discard] = []
+        self.events: list[_Before | _CircuitCall | _Discard] = []
         self.latest = -1
 
     def before(self, invocation: Invocation) -> Corrections[None]:
@@ -520,11 +525,11 @@ class _DeferringDecoder:
         self.events.append(
             _Decode(
                 invocation,
-                position,
-                qubits,
                 start,
                 len(readouts),
                 selection,
+                position,
+                qubits,
             )
         )
         return Decoded(
@@ -560,6 +565,45 @@ class _DeferringDecoder:
         finally:
             self.backend.probing = False
         return mapping
+
+
+class _CircuitRecorder(_DeferringDecoder):
+    """Record calls for whole-circuit decoding, without correction-replay probes."""
+
+    def __init__(
+        self,
+        plan: LayerPlan,
+        backend: _RecordingBackend,
+        factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
+    ) -> None:
+        super().__init__(plan, backend, factory)
+        self.checked: set[str] = set()
+
+    def before(self, invocation: Invocation) -> Corrections[None]:
+        name = invocation.call.mnemonic
+        if name not in self.checked:
+            _require_static_circuit(self.plan, self.operations, invocation)
+            self.checked.add(name)
+        yield from ()
+
+    def decode(
+        self, invocation: Invocation, readouts: Readouts
+    ) -> Corrections[Decoded]:
+        gadget = invocation.gadget
+        self.latest = len(self.events)
+        self.events.append(
+            _CircuitCall(
+                invocation,
+                self.backend.num_measurements - len(readouts),
+                len(readouts),
+                prepare_selection(gadget.implements.flags, invocation.call.select),
+            )
+        )
+        yield from ()
+        return Decoded(
+            (False,) * gadget.implements.observe_count,
+            (False,) * len(gadget.implements.flags),
+        )
 
 
 class _FrameMasks:
@@ -674,7 +718,7 @@ class CircuitTrace:
     instructions: tuple[tuple[object, ...], ...]
     num_qubits: int
     num_measurements: int
-    events: tuple[_Before | _Decode | _Discard, ...]
+    events: tuple[_Before | _CircuitCall | _Discard, ...]
     sources: tuple[tuple[int, int], ...]
     outputs: tuple[OutputRecordValue | _Readout, ...]
     frames: tuple[tuple[int, int, str], ...] = ()
@@ -750,6 +794,10 @@ class ReplayBatch:
                             session.before(event.invocation), event, frame, flips
                         )
                 else:
+                    if not isinstance(event, _Decode):
+                        raise ValueError(
+                            "Decoder replay requires correction-qubit metadata"
+                        )
                     readouts = tuple(
                         bits[record] != bool((flips >> record) & 1)
                         for record in range(event.start, event.start + event.width)
@@ -842,7 +890,11 @@ def prepare_batch(
             batch = _trace_tables(program, factory, plan, session)
             if batch is not None:
                 return batch
-    trace = _trace_circuit(program, factory, plan)
+    trace = (
+        create_session.record_circuit(program, factory)
+        if isinstance(create_session, _PreparedCircuitDecoder)
+        else _trace_circuit(program, factory, plan)
+    )
     if isinstance(create_session, CircuitDecoderFactory):
         if trace is None:
             raise NotImplementedError("deq cannot trace this circuit or noise model")
@@ -918,9 +970,11 @@ def _trace_circuit(
     program: AdaptiveProgram,
     factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
     plan: LayerPlan,
+    *,
+    recorder: type[_DeferringDecoder] = _DeferringDecoder,
 ) -> CircuitTrace | None:
     backend = _RecordingBackend(factory.noise)
-    decoder = _DeferringDecoder(plan, backend, factory)
+    decoder = recorder(plan, backend, factory)
     layer = _RecordingLayer(plan, decoder)
     decoder.layout = layer.layout
     traced = _trace(program, factory, layer, backend)

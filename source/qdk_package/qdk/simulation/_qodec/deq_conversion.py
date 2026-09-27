@@ -19,24 +19,17 @@ from qodec.gadgets import Encoding
 from qodec.instructions import InstructionCall
 from deq.circuit import model as circuit  # pyright: ignore[reportMissingImports]
 from deq.circuit.parser import parse  # pyright: ignore[reportMissingImports]
-from deq.transpiler.check_plugins import (  # pyright: ignore[reportMissingImports]
-    resolve_gadget_checks,
-)
 from deq.transpiler.jit_library_builder import (  # pyright: ignore[reportMissingImports]
     JitLibraryArtifacts,
     build_jit_library_artifacts,
 )
-from deq.transpiler.jit_noise_builder import (  # pyright: ignore[reportMissingImports]
-    compute_correction_propagation,
-)
-from deq.transpiler.jit_transpiler import (  # pyright: ignore[reportMissingImports]
-    PortColumnLayout,
-)
 
 from .. import NoiseConfig
 from ..._native import QirInstructionId
-from ...ec._analysis.channel_action import declared_action_of
-from ...ec._analysis.propagation.pauli import Pauli
+from ...ec._analysis.channel_action import ChannelAction, _action_of, declared_action_of
+from ...ec._analysis.propagation.frames import FrameGroup, PauliFrame
+from ...ec._analysis.propagation.pauli import Pauli, complex_conjugate_of, relabel
+from ...ec._layout import ProgramLayout
 from .call_binding import validate_arguments
 from .circuit_runtime import CallListRuntime
 from .clifford_semantics import pauli
@@ -82,13 +75,14 @@ class _GadgetModel:
 
 
 class _LibraryBuilder:
-    def __init__(self, layer: Layer, noise: NoiseConfig | None) -> None:
-        self.plan = LayerPlan(layer)
+    def __init__(self, layer: Layer | LayerPlan, noise: NoiseConfig | None) -> None:
+        self.plan = layer if isinstance(layer, LayerPlan) else LayerPlan(layer)
         self.noise = noise
         self.codes: dict[str, circuit.CodeDefinition] = {}
         self.gadgets: list[circuit.GadgetDefinition] = []
         self.cached: dict[tuple[str, str], _GadgetModel] = {}
         self.discards: dict[str, _GadgetModel] = {}
+        self.physical: dict[int, InstructionRuntime] = {}
 
     def add_code(self, code: Code) -> str:
         source = _code_source(code)
@@ -116,18 +110,8 @@ class _LibraryBuilder:
                 raise ValueError(f"Gadget parameter binding {name!r} has no argument")
         definition, width = self._gadget_definition(plan)
         flags = _flag_parities(gadget, width)
-        codes = {code.name: code for code in self.codes.values()}
-        inferred = resolve_gadget_checks(definition, codes)
-        propagations = _complete_propagations(
-            definition, codes, _action_propagations(gadget, arguments)
-        )
-        defaults = _default_signs(gadget, width, propagations, inferred.unfinished)
-        _apply_contract(
-            definition,
-            _local_contract(gadget, width, defaults),
-            propagations,
-            inferred.unfinished,
-        )
+        defaults = _channel_defaults(plan, width, arguments)
+        _apply_contract(definition, _local_contract(gadget, width, defaults), defaults)
         self.gadgets.append(definition)
         self.cached[key] = _GadgetModel(
             len(self.gadgets),
@@ -161,8 +145,12 @@ class _LibraryBuilder:
         input_codes = [self.add_code(item.code) for item in plan.gadget.inputs]
         output_codes = [self.add_code(item.code) for item in plan.gadget.outputs]
         body = plan.body.create_runtime()
+        isa = plan.gadget.circuit.instruction_set
+        if id(isa) not in self.physical:
+            self.physical[id(isa)] = InstructionRuntime(InstructionSet(isa))
+        prepared = self.physical[id(isa)]
         physical = InstructionRuntime(
-            InstructionSet(plan.gadget.circuit.instruction_set)
+            prepared.instructions, operations=prepared.operations
         )
         if not isinstance(body, CallListRuntime) or any(
             call.call.arguments
@@ -421,55 +409,131 @@ def _encoding_signs(encodings: Sequence[Encoding]) -> tuple[tuple[int, str, int]
     )
 
 
-def _default_signs(
-    gadget: Gadget,
-    width: int,
-    propagations: Sequence[circuit.PropagateStatement],
-    unfinished: Sequence[tuple[frozenset[int], bool]],
-) -> dict[tuple[int, str, int], _Parity]:
-    """Express local frame defaults in the authored equations' column space."""
-    inputs = _encoding_signs(gadget.inputs)
-    columns = {key: width + index for index, key in enumerate(inputs)}
-    signs = {}
-    for statement in propagations:
-        target = statement.target
-        assert target.port_index is not None
-        value = _Parity(constant=statement.flip)
-        for term in statement.terms:
-            if isinstance(term, circuit.PhysicalMeasurementTarget):
-                column = term.index
-            elif isinstance(term, circuit.DestabilizerTarget):
-                column = columns[term.port_index, "stabilizers", term.stab_index]
-            elif isinstance(term, circuit.LogicalPauliTarget):
-                assert term.port_index is not None
-                column = columns[
-                    term.port_index, "z" if term.pauli == "X" else "x", term.index
-                ]
-            else:
-                raise ExecutionUnresolved(f"Unsupported default frame term: {term}")
-            value ^= _Parity(1 << column)
-        signs[target.port_index, "z" if target.pauli == "X" else "x", target.index] = (
-            value
+def _channel_equations(
+    action: ChannelAction, inputs: Sequence[Pauli], outputs: Sequence[Pauli], width: int
+) -> list[_Parity]:
+    """Express channel relations over measurements and input/output sign columns."""
+
+    def on_side(operator: Pauli, side: int) -> Pauli:
+        operator = complex_conjugate_of(operator) if side == 0 else operator
+        return relabel(
+            operator, {qubit: 2 * qubit + side for qubit in operator.support}
         )
 
-    input_stabilizers = [columns[key] for key in inputs if key[1] == "stabilizers"]
-    measurements = [*input_stabilizers, *range(width)]
-    output_stabilizers = [
-        key for key in _encoding_signs(gadget.outputs) if key[1] == "stabilizers"
-    ]
-    resolved, _ = _eliminate_aliases(
-        (
-            _Parity(sum(1 << index for index in indices), flip)
-            for indices, flip in unfinished
+    relations = [
+        *(
+            PauliFrame(on_side(item.pauli, 0), item.frame)
+            for item in action._observables.generators
         ),
-        len(measurements),
-        len(output_stabilizers),
+        *(
+            PauliFrame(on_side(item.pauli, 1), item.frame)
+            for item in action._stabilizers.generators
+        ),
+        *(
+            PauliFrame(on_side(source, 0) * on_side(image.pauli, 1), image.frame)
+            for source, image in action._mapping.items()
+        ),
+    ]
+    operators = [
+        *(on_side(item, 0) for item in inputs),
+        *(on_side(item, 1) for item in outputs),
+    ]
+    origin = 1 + max(
+        (
+            qubit
+            for operator in [*(item.pauli for item in relations), *operators]
+            for qubit in operator.support
+        ),
+        default=-1,
     )
-    for key, row in zip(output_stabilizers, resolved):
-        signs[key] = _Parity(
-            sum(1 << measurements[index] for index in row.indices), row.constant
+    relations.extend(
+        PauliFrame(operator * Pauli.z(origin + index))
+        for index, operator in enumerate(operators)
+    )
+    constraints, _, _ = FrameGroup(relations).partition(
+        over=range(origin, origin + len(operators))
+    )
+    return [
+        _Parity(
+            sum(1 << bit for bit in item.frame)
+            ^ sum(1 << (width + qubit - origin) for qubit in item.pauli.support),
+            item.pauli.phase == -1,
         )
-    return signs
+        for item in constraints.generators
+    ]
+
+
+def _channel_defaults(
+    plan: GadgetPlan, width: int, arguments: Mapping[str, InstructionCall.Argument]
+) -> dict[tuple[int, str, int], _Parity]:
+    gadget = plan.gadget
+    layout = ProgramLayout.of(gadget.circuit)
+    capacities = {
+        block.name: block.encodes for block in gadget.circuit.instruction_set.blocks
+    }
+    bases = {str(label): base for label, base in layout.instance_bases.items()}
+    next_qubit = layout.total_qubits
+    for label in plan.labels:
+        if label not in bases:
+            width_of_block = capacities[plan.label_types[label]]
+            bases[label] = (
+                int(label) * width_of_block if label.isdecimal() else next_qubit
+            )
+            next_qubit = max(next_qubit, bases[label] + width_of_block)
+
+    def boundary(
+        encodings: Sequence[Encoding], layouts: Sequence[EncodingLayout]
+    ) -> list[Pauli]:
+        result = []
+        for encoding, placement in zip(encodings, layouts):
+            qubits = [
+                bases[label] + index
+                for label, block in zip(placement.labels, placement.lower_types)
+                for index in range(capacities[block])
+            ]
+            for basis in ("stabilizers", "x", "z"):
+                result.extend(
+                    relabel(Pauli(text), dict(enumerate(qubits)))
+                    for text in getattr(encoding.code, basis)
+                )
+        return result
+
+    inputs = boundary(gadget.inputs, plan.inputs)
+    outputs = boundary(gadget.outputs, plan.outputs)
+    physical = _action_of(
+        gadget.circuit,
+        input_qubits=sorted(
+            {qubit for operator in inputs for qubit in operator.support}
+        ),
+        output_support=sorted(
+            {qubit for operator in outputs for qubit in operator.support}
+        ),
+    )
+    origin = width + len(inputs)
+    physical_rows = _channel_equations(physical, inputs, outputs, width)
+    physical_signs, _ = _eliminate_aliases(
+        (row for row in physical_rows if row.mask >> origin),
+        origin,
+        len(outputs),
+        defaults=(_Parity(1 << (origin + index)) for index in range(len(outputs))),
+    )
+    logical = _action_propagations(gadget, arguments)
+    input_keys = _encoding_signs(gadget.inputs)
+    keep = (1 << width) - 1
+    keep |= sum(
+        1 << (width + index)
+        for index, key in enumerate(input_keys)
+        if key[1] == "stabilizers"
+    )
+    defaults = {}
+    for key, row in zip(_encoding_signs(gadget.outputs), physical_signs):
+        if key[1] == "stabilizers":
+            defaults[key] = row
+        else:
+            declared = logical[key]
+            mask = sum(1 << (width + input_keys.index(source)) for source in declared)
+            defaults[key] = _Parity((row.mask & keep) ^ mask)
+    return defaults
 
 
 def _local_contract(
@@ -553,36 +617,24 @@ def _check_row(row: _Parity, contract: _LocalContract) -> _Parity:
 
 
 def _manual_checks(
-    inferred: Sequence[tuple[frozenset[int], bool]], contract: _LocalContract
-) -> tuple[list[_Parity], list[_Parity]]:
-    """Complete only missing port propagation; never audit authored checks."""
+    contract: _LocalContract, defaults: Mapping[tuple[int, str, int], _Parity]
+) -> list[_Parity]:
+    """Translate authored checks and completed output stabilizer relations."""
     gadget = contract.gadget
     input_count = sum(len(encoding.code.stabilizers) for encoding in gadget.inputs)
     origin = input_count + contract.width
-    output_count = sum(len(encoding.code.stabilizers) for encoding in gadget.outputs)
     authored = [_check_row(row, contract) for row in contract.checks]
-    for (port, basis, index), value in contract.signs.items():
+    for (port, basis, index), default in defaults.items():
         if basis != "stabilizers":
             continue
+        value = contract.signs.get((port, basis, index), default)
         offset = sum(
             len(encoding.code.stabilizers) for encoding in gadget.outputs[:port]
         )
         authored.append(
             _Parity(1 << (origin + offset + index)) ^ _check_row(value, contract)
         )
-    pivots: dict[int, _Parity] = {}
-    finished = []
-    for row in authored:
-        remainder = _insert_equation(row, pivots, origin)
-        if remainder is not None:
-            finished.append(remainder)
-    for indices, constant in inferred:
-        row = _Parity(sum(1 << index for index in indices), constant)
-        _insert_equation(row, pivots, origin)
-    resolved, _ = _eliminate_aliases(pivots.values(), origin, output_count)
-    return finished, [
-        value ^ _Parity(1 << (origin + index)) for index, value in enumerate(resolved)
-    ]
+    return authored
 
 
 def _measurement_target(
@@ -611,22 +663,19 @@ def _measurement_target(
 def _apply_contract(
     gadget: circuit.GadgetDefinition,
     contract: _LocalContract,
-    propagations: Sequence[circuit.PropagateStatement],
-    unfinished_checks: Sequence[tuple[frozenset[int], bool]],
+    defaults: Mapping[tuple[int, str, int], _Parity],
 ) -> None:
-    finished, unfinished = _manual_checks(unfinished_checks, contract)
     gadget.decorators.append(
         circuit.Decorator("CHECKS", ("manual", circuit.KeywordArg("verify", 0)))
     )
-    for row in (*finished, *unfinished):
+    for row in _manual_checks(contract, defaults):
         gadget.body.append(
             circuit.CheckStatement(
                 targets=[_measurement_target(index, contract) for index in row.indices],
                 flip=row.constant,
             )
         )
-    _apply_authored_frames(contract, propagations)
-    gadget.body.extend(propagations)
+    gadget.body.extend(_frame_propagations(contract, defaults))
     for row in contract.readouts:
         gadget.body.append(
             circuit.ReadoutStatement(
@@ -652,102 +701,60 @@ def _apply_contract(
             )
 
 
-def _logical_targets(layout: PortColumnLayout) -> dict[int, circuit.LogicalPauliTarget]:
-    targets = {}
-    for column, (observable, is_x) in layout.col_to_obs.items():
-        port, index = layout.obs_to_port[observable]
-        targets[column] = circuit.LogicalPauliTarget(
-            "Z" if is_x else "X", index, layout.port_kind, port
-        )
-    return targets
-
-
-def _complete_propagations(
-    gadget: circuit.GadgetDefinition,
-    codes: dict[str, circuit.CodeDefinition],
-    action: Sequence[circuit.PropagateStatement] | None,
-) -> list[circuit.PropagateStatement]:
-    """Add deq's physical correction terms to the declared logical transport."""
-    inputs, outputs = gadget.input_ports, gadget.output_ports
-    input_layout = PortColumnLayout(inputs, codes)
-    declared = {statement.target: statement for statement in action or ()}
-    statements = {
-        row: declared.get(target, circuit.PropagateStatement(target))
-        for row, target in _logical_targets(PortColumnLayout(outputs, codes)).items()
-    }
-    if not statements:
-        return []
-    propagation, measurements = compute_correction_propagation(
-        gadget,
-        codes,
-        input_ports=inputs,
-        output_ports=outputs,
-        unfinished_checks=(),
-        input_virtual_count=sum(
-            len(codes[port.code_name].stabilizers) for port in inputs
-        ),
-    )
-    targets: dict[int, circuit.PropagateTerm] = {
-        column: circuit.DestabilizerTarget(port, index)
-        for column, (port, index) in input_layout.generator_map.items()
-    }
-    if action is None:
-        targets.update(_logical_targets(input_layout))
-    for row, column in zip(propagation.i, propagation.j):
-        if row in statements and column in targets:
-            statements[row].terms.append(targets[column])
-    for row, measurement in measurements:
-        statements[row].terms.append(circuit.PhysicalMeasurementTarget(measurement))
-    return list(statements.values())
-
-
 def _action_propagations(
     gadget: Gadget, arguments: Mapping[str, InstructionCall.Argument]
-) -> list[circuit.PropagateStatement] | None:
+) -> dict[tuple[int, str, int], tuple[tuple[int, str, int], ...]]:
     action = declared_action_of(gadget, arguments=arguments)
-    inputs = [
-        (port, index)
-        for port, encoding in enumerate(gadget.inputs)
-        for index in range(len(encoding.code.x))
-    ]
+    inputs = [key for key in _encoding_signs(gadget.inputs) if key[1] != "stabilizers"]
     outputs = [
-        (port, index)
-        for port, encoding in enumerate(gadget.outputs)
-        for index in range(len(encoding.code.x))
-    ]
-    if len(inputs) != len(outputs) or len(action._mapping) != 2 * len(inputs):
-        # Non-unitary channels retain deq's physical transport and byproducts.
-        return None
-    images = [
-        (
-            circuit.LogicalPauliTarget(axis, index, "IN", port),
-            action._mapping[Pauli({logical: axis})].pauli,
-        )
-        for logical, (port, index) in enumerate(inputs)
-        for axis in ("X", "Z")
-    ]
-    # Parameter-dependent signs are global phases of corrections, not frame bits.
-    return [
-        circuit.PropagateStatement(
-            circuit.LogicalPauliTarget(axis, index, "OUT", port),
-            [source for source, image in images if not image.commutes_with(observable)],
-        )
-        for logical, (port, index) in enumerate(outputs)
-        for axis, observable in (("X", Pauli.z(logical)), ("Z", Pauli.x(logical)))
+        key for key in _encoding_signs(gadget.outputs) if key[1] != "stabilizers"
     ]
 
+    def operators(encodings: Sequence[Encoding]) -> list[Pauli]:
+        result = []
+        offset = 0
+        for encoding in encodings:
+            for axis in ("X", "Z"):
+                result.extend(
+                    Pauli({offset + index: axis})
+                    for index in range(len(encoding.code.x))
+                )
+            offset += len(encoding.code.x)
+        return result
 
-def _apply_authored_frames(
-    contract: _LocalContract, statements: Sequence[circuit.PropagateStatement]
-) -> None:
-    for statement in statements:
-        target = statement.target
-        assert target.port_index is not None
-        key = (target.port_index, "z" if target.pauli == "X" else "x", target.index)
-        statement.flip = contract.frames.get(key, _Parity()).constant
-        if key not in contract.signs:
+    width = len(gadget.readouts)
+    equations = _channel_equations(
+        action, operators(gadget.inputs), operators(gadget.outputs), width
+    )
+    count = len(outputs) + width
+    rows = [
+        _Parity(
+            (row.mask >> width)
+            | ((row.mask & ((1 << width) - 1)) << (len(inputs) + len(outputs)))
+        )
+        for row in equations
+    ]
+    resolved, _ = _eliminate_aliases(
+        rows,
+        len(inputs),
+        count,
+        defaults=(_Parity(1 << (len(inputs) + index)) for index in range(count)),
+    )
+    return {
+        key: tuple(inputs[index] for index in row.indices)
+        for key, row in zip(outputs, resolved)
+    }
+
+
+def _frame_propagations(
+    contract: _LocalContract, defaults: Mapping[tuple[int, str, int], _Parity]
+) -> list[circuit.PropagateStatement]:
+    statements = []
+    for key, default in defaults.items():
+        port, basis, logical = key
+        if basis == "stabilizers":
             continue
-        value = contract.signs[key]
+        value = contract.signs.get(key, default)
         terms: list[circuit.PropagateTerm] = []
         for index in value.indices:
             if index < contract.width:
@@ -761,5 +768,13 @@ def _apply_authored_frames(
                         "X" if input_basis == "z" else "Z", position, "IN", entry
                     )
                 )
-        statement.terms = terms
-        statement.flip ^= value.constant
+        statements.append(
+            circuit.PropagateStatement(
+                circuit.LogicalPauliTarget(
+                    "X" if basis == "z" else "Z", logical, "OUT", port
+                ),
+                terms,
+                flip=value.constant ^ contract.frames.get(key, _Parity()).constant,
+            )
+        )
+    return statements

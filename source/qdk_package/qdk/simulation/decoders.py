@@ -57,9 +57,9 @@ its window coordinator with buffer and lookahead radii of one composite each.
 All instances and outcomes are submitted before waiting for decoded readouts;
 discarded and still-live output ports receive explicit terminators.
 
-Authored detection checks are supplied without validation. deq derives only
-missing output-port propagation relations from the local circuit, not extra
-detection checks. Constant checks, including an always-firing check, are passed
+Authored detection checks are supplied without validation. QDK channel analysis
+supplies missing output-port propagation relations from the local circuit, not
+extra detection checks. Constant checks, including an always-firing check, are passed
 to deq rather than rejected as contradictory. Detection checks must use physical
 records and stabilizer
 ports; logical sign equations describe frame propagation. deq evaluates logical
@@ -87,23 +87,23 @@ specialization is lowered locally and compiled once. Equation/frame contracts
 remain local to conversion; execution retains only compiled models and routing.
 Decoded-bit destinations are prepared once, not rebuilt per shot.
 Explicit ``PROPAGATE`` statements describe logical frame transport before
-primitive compilation; compiled matrices are not patched. For unitary Clifford
-and Pauli channels, the declared ``ChannelAction`` supplies generator images,
-which determine the logical-input terms directly. The adapter does not interpret
+primitive compilation; compiled matrices are not patched. The declared
+``ChannelAction`` supplies input/output relations for Clifford gates, Pauli gates,
+preparation, reset, measurement, and discard. The adapter does not interpret
 the instruction's action list separately. The global phase of a propagated
-correction is ignored, including signs controlled by bit parameters. Non-unitary
-channels retain deq's inferred transport and physical byproducts. Only conditional
+correction is ignored, including signs controlled by bit parameters. Physical
+``ChannelAction`` relations supply measurement byproducts and input syndromes;
+QDK does not ask deq to infer these propagation rules. Only conditional
 Paulis are supported; other conditional action kinds are rejected even when the
 condition is constant. Check and readout definitions are fixed per gadget;
 bound arguments specialize the declared channel, not those definitions. Top-level
 parameters are supported when the gadget's physical circuit is a fixed Clifford
 call list. Parameterized physical calls and measurement-dependent execution
-remain unsupported. deq also supplies physical measurement and input
-syndrome contributions. Authored logical-sign equations take priority; missing
+remain unsupported. Authored logical-sign equations take priority; missing
 independent relations are filled by the declared transport and local byproducts,
 not by setting unconstrained signs to zero. For example, an identity gadget
 constraining only the parity of two output signs still transports both incoming
-signs independently. Output stabilizer relations are completed from deq's local
+signs independently. Output stabilizer relations are completed from the physical channel's local
 port propagation. Authored frames supply additional measurement terms and
 constant flips.
 Signs of the intended physical operation are not added as frame corrections.
@@ -123,8 +123,10 @@ execution on the stabilizer backend, and no loss. Measurements may be random;
 only the execution trace must be independent of their values. QIR compilation
 resolves quantum calls against the top-level Qodec ISA and rejects undeclared
 calls. Allocation and output recording remain supported. QDK does not propagate
-physical or logical frames
-between gadgets for deq; the default decoder's frame handling is unchanged.
+physical or logical frames between gadgets for deq; the default decoder's frame
+handling is unchanged. Deq tracing records only calls, records, and connections,
+without the physical-qubit probes needed by replay decoders. Layer preparation
+and static-gadget checks are reused within each run.
 It supports a
 single Pauli mechanism per noise table and depolarizing channels with total
 nonidentity probability at most 3/4 (one qubit) or 15/16 (two qubits). General Pauli channels

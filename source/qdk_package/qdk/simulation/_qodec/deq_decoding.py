@@ -36,9 +36,19 @@ from deq.transpiler.loss.model_none import (
 
 from qdk import Result
 from .. import NoiseConfig
+from ..._adaptive_pass import AdaptiveProgram
 from ._interpreter import OutputRecordValue
 from .deq_conversion import _GadgetModel, _LibraryBuilder, _noise_key
-from .native_batch import CircuitTrace, _Decode, _Discard, _Readout
+from .native_batch import (
+    CircuitTrace,
+    _CircuitCall,
+    _CircuitRecorder,
+    _Discard,
+    _Readout,
+    _trace_circuit,
+)
+from .executor import ExecutionPipelineFactory
+from .layer_runtime import LayerPlan
 from .protocols import (
     BlockReference,
     DecoderSession,
@@ -79,7 +89,16 @@ class _ReadoutPlan:
 
 class DeqModel:
     def __init__(self, layer: Layer) -> None:
-        self.layer = layer
+        self.layer_plan = LayerPlan(layer)
+
+    def record_circuit(
+        self,
+        program: AdaptiveProgram,
+        factory: ExecutionPipelineFactory[AdaptiveProgram, list[OutputRecordValue]],
+    ) -> CircuitTrace | None:
+        return _trace_circuit(
+            program, factory, self.layer_plan, recorder=_CircuitRecorder
+        )
 
     def __call__(self, seed: int | None = None) -> DecoderSession:
         raise NotImplementedError("deq requires a complete native trace")
@@ -87,7 +106,7 @@ class DeqModel:
     def prepare_circuit(
         self, trace: CircuitTrace, noise: NoiseConfig | None, /
     ) -> DeqBatch:
-        builder = _LibraryBuilder(self.layer, noise)
+        builder = _LibraryBuilder(self.layer_plan, noise)
         instances, readouts = _connect_gadgets(trace, builder)
         source, artifacts = builder.build()
         library, composites = _compose_gadgets(source, artifacts, instances)
@@ -119,7 +138,7 @@ def _connect_gadgets(
         if isinstance(event, _Discard):
             for block in event.blocks:
                 discard(block)
-        elif isinstance(event, _Decode):
+        elif isinstance(event, _CircuitCall):
             invocation = event.invocation
             compiled = builder.add_gadget(
                 invocation.call.mnemonic, invocation.call.arguments

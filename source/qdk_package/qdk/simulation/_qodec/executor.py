@@ -19,6 +19,7 @@ from .protocols import (
     ExecutionLayer,
     PrepareDecoder,
     QuantumBackendFactory,
+    _PreparedCircuitDecoder,
 )
 
 ProgramT = TypeVar("ProgramT")
@@ -68,9 +69,16 @@ class ExecutionPipelineFactory(Generic[ProgramT, ResultT]):
         if len(qodec.layers) > 1:
             if not callable(decoder):
                 raise TypeError("decoder must be a callable that prepares a layer")
-            self.prepared = tuple(
-                (LayerPlan(layer), decoder(layer)) for layer in qodec.layers[:-1]
-            )
+            prepared = []
+            for layer in qodec.layers[:-1]:
+                model = decoder(layer)
+                plan = (
+                    model.layer_plan
+                    if isinstance(model, _PreparedCircuitDecoder)
+                    else LayerPlan(layer)
+                )
+                prepared.append((plan, model))
+            self.prepared = tuple(prepared)
         # Program instruction calls name instructions of the top layer.
         self.program_instructions = (
             self.prepared[0][0].instructions if self.prepared else self.physical
