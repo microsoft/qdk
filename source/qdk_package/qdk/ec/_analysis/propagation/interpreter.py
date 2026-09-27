@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import (
     TYPE_CHECKING,
     Callable,
@@ -147,24 +148,51 @@ def _eigenstate_correction(observable: Pauli) -> Pauli:
 
 
 def _condition_indices(
-    condition: qc.actions.Condition, arguments: Mapping[str, object], record_size: int
+    condition: qc.actions.Condition,
+    arguments: Mapping[str, object],
+    record_size: int,
+    *,
+    outcome_start: int = 0,
+    parameter_indices: Mapping[str, int] | None = None,
 ) -> tuple[list[int], bool]:
-    indices = []
+    """Resolve the guard into circuit-record indexes and the required XOR value."""
+    indices: set[int] = set()
+    parameter_indices = {} if parameter_indices is None else parameter_indices
+    circuit_start = max(parameter_indices.values(), default=-1) + 1
     parity = not condition.invert
     for predicate in condition.predicates:
+        local = re.fullmatch(r"outcomes\[([0-9]+)\]", predicate)
+        if local is not None:
+            index = outcome_start + int(local[1])
+            if index >= record_size:
+                raise ValueError(
+                    f"condition {predicate!r} must reference a preceding instruction outcome"
+                )
+            indices.symmetric_difference_update({index})
+            continue
         value = arguments.get(predicate, predicate)
         if isinstance(value, (bool, int)) and value in (0, 1):
             parity ^= bool(value)
         elif isinstance(value, str):
+            if value in parameter_indices:
+                indices.symmetric_difference_update({parameter_indices[value]})
+                continue
+            if value == predicate and predicate in arguments:
+                raise ValueError(
+                    f"condition {predicate!r} requires a bound bit argument"
+                )
             term = reference_term(value)
-            if not isinstance(term, Outcome) or term.index >= record_size:
+            if (
+                not isinstance(term, Outcome)
+                or term.index + circuit_start >= record_size
+            ):
                 raise ValueError(
                     f"condition {predicate!r} must reference a preceding circuit readout"
                 )
-            indices.append(term.index)
+            indices.symmetric_difference_update({term.index + circuit_start})
         else:
             raise ValueError(f"condition {predicate!r} has no bit argument")
-    return indices, parity
+    return sorted(indices), parity
 
 
 def _apply_guarded_pauli(
@@ -195,6 +223,7 @@ def walk_program(
     input_stabilizers: Sequence[Pauli] = (),
     output_stabilizers: Sequence[Pauli] = (),
     on_instruction: Callable[[int], None] | None = None,
+    parameter_rows: Mapping[str, int] | None = None,
 ) -> WalkResult:
     if simulation is None:
         qubit_count = ProgramLayout.of(program).total_qubits
@@ -213,14 +242,39 @@ def walk_program(
 
     outcome_count = 0
     observe_rows: list[int] = []
-    record_rows: list[int | None] = []
-    engine_record_rows: list[list[int | None]] = [[] for _ in extra_engines]
+    parameter_rows = {} if parameter_rows is None else parameter_rows
+    record_rows: list[int | None] = list(dict.fromkeys(parameter_rows.values()))
+    parameter_indices = {
+        name: record_rows.index(row) for name, row in parameter_rows.items()
+    }
+    engine_record_rows: list[list[int | None]] = [
+        [engine.measure(Pauli.identity()) for _ in record_rows]
+        for engine in extra_engines
+    ]
     layout = ProgramLayout.of(program)
     for instruction_index, call in enumerate(program.calls()):
         instruction = program.instruction_set.instructions[call.mnemonic]
         qubit_map = layout.call_qubit_map(call)
+        outcome_start = len(record_rows)
 
         for action in instruction.action:
+            indices, parity = [], False
+            condition = getattr(action, "condition", None)
+            if condition is not None:
+                if not isinstance(action, PauliAction):
+                    raise NotImplementedError(
+                        f"conditional {type(action).__name__} actions are not supported; "
+                        "only conditional Pauli actions can be analyzed"
+                    )
+                indices, parity = _condition_indices(
+                    condition,
+                    call.arguments,
+                    len(record_rows),
+                    outcome_start=outcome_start,
+                    parameter_indices=parameter_indices,
+                )
+                if not indices and parity:
+                    continue
             if isinstance(action, Stabilize):
                 for pauli_str in action.operators:
                     remapped = remap_pauli(pauli_str, qubit_map)
@@ -248,17 +302,9 @@ def walk_program(
                     engine.apply_clifford(clifford, qubits)
             elif isinstance(action, PauliAction):
                 remapped = remap_pauli(action.operator, qubit_map)
-                if action.condition is None:
-                    oracle.apply_pauli(remapped)
-                    for engine in extra_engines:
-                        engine.apply_pauli(remapped)
-                else:
-                    indices, parity = _condition_indices(
-                        action.condition, call.arguments, len(record_rows)
-                    )
-                    _apply_guarded_pauli(oracle, remapped, indices, parity, record_rows)
-                    for engine, rows in zip(extra_engines, engine_record_rows):
-                        _apply_guarded_pauli(engine, remapped, indices, parity, rows)
+                _apply_guarded_pauli(oracle, remapped, indices, parity, record_rows)
+                for engine, rows in zip(extra_engines, engine_record_rows):
+                    _apply_guarded_pauli(engine, remapped, indices, parity, rows)
             elif isinstance(action, Observe):
                 for observable in action.observables:
                     remapped = remap_pauli(observable, qubit_map)
@@ -326,12 +372,9 @@ def propagate_faults(
     readout_offset = 0
     for call in calls:
         instruction = program.instruction_set.instructions[call.mnemonic]
-        if (
-            call.select
-            or any(
-                getattr(action, "condition", None) is not None
-                for action in instruction.action
-            )
+        if call.select or any(
+            getattr(action, "condition", None) is not None
+            for action in instruction.action
         ):
             raise NotImplementedError(
                 "conditional or selected circuits are not supported by fault propagation"

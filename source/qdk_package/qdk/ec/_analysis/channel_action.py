@@ -17,7 +17,7 @@ from .._frames import FrameMap
 from .propagation.conditional import ConditionalChoiResult, conditional_choi_state
 from .propagation.frames import FrameGroup, PauliFrame
 from .propagation.groups import restriction_indicator_basis_of
-from .propagation.interpreter import program_of
+from .propagation.interpreter import _condition_indices, program_of
 from .propagation.isa_actions import remap_pauli
 from .propagation.pauli import (
     Pauli,
@@ -38,11 +38,13 @@ class ChannelAction:
     Compare results with :meth:`is_equivalent_to` or
     :meth:`why_not_equivalent_to`. Direct construction and access to the
     internal stabilizers, observables, and logical mapping are not supported.
-    Frame indices are positions in the analyzed circuit's readouts, not simulator
-    rows or gadget readout equations. The objective uses the declared operation's
-    readouts. Artificial input preparation and code projection are conditioned
-    away; unrecorded outcomes are averaged over, retaining only readout-conditioned
-    relations. Dependent readouts use an independent subset of readout positions.
+    Measurement signs use positions in the analyzed circuit's readouts, not
+    simulator rows or gadget readout equations. Unbound bit parameters are
+    separate named inputs, displayed as ``parameters['name']``. The objective
+    uses the declared operation's readouts. Artificial input preparation and code projection are conditioned
+    away; unrecorded outcomes are averaged over, retaining parameter- and
+    readout-conditioned relations. Dependent readouts use an independent subset
+    of readout positions.
 
     Text displays observables on the input, stabilizers on the output, and Pauli
     mappings from input to output. Empty sections are omitted. The sign notation
@@ -53,6 +55,7 @@ class ChannelAction:
     _observables: FrameGroup
     _stabilizers: FrameGroup
     _mapping: Mapping[Pauli, PauliFrame]
+    _parameters: Mapping[str, int]
 
     def __new__(cls) -> "ChannelAction":
         raise TypeError(
@@ -66,11 +69,14 @@ class ChannelAction:
         observables: FrameGroup,
         stabilizers: FrameGroup,
         mapping: Mapping[Pauli, PauliFrame],
+        *,
+        parameters: Mapping[str, int] | None = None,
     ) -> "ChannelAction":
         action = object.__new__(cls)
         action._observables = observables
         action._stabilizers = stabilizers
         action._mapping = mapping
+        action._parameters = {} if parameters is None else dict(parameters)
         return action
 
     def is_equivalent_to(
@@ -79,7 +85,8 @@ class ChannelAction:
         """Compare operators and their joint outcome-sign relations.
 
         Outcome labels are local to each action, so renumbering them does not
-        change equivalence. With modulo_paulis, ignore all signs. Otherwise,
+        change equivalence. Bit-parameter names identify the same input on both
+        sides and cannot be renamed or averaged away. With modulo_paulis, ignore all signs. Otherwise,
         outcome-dependent signs must agree; undeclared corrections are not assumed.
         """
         if self is other:
@@ -135,6 +142,7 @@ class ChannelAction:
 
     def __str__(self) -> str:
         lines = []
+        parameters = {position: name for name, position in self._parameters.items()}
         for name, group in (
             ("observables", self._observables),
             ("stabilizers", self._stabilizers),
@@ -144,14 +152,18 @@ class ChannelAction:
                 for generator in sorted(
                     group.generators, key=lambda item: _sort_key(item.pauli)
                 ):
-                    sign = _action_sign(1 / generator.pauli.phase, generator.frame)
+                    sign = _action_sign(
+                        1 / generator.pauli.phase, generator.frame, parameters
+                    )
                     lines.append(f"  {abs(generator.pauli):sparse,ascii} = {sign}")
         if self._mapping:
             lines.append("mapping:")
             for operator, image in sorted(
                 self._mapping.items(), key=lambda item: _sort_key(item[0])
             ):
-                lines.append(f"  {operator:sparse,ascii} → {_action_image(image)}")
+                lines.append(
+                    f"  {operator:sparse,ascii} → {_action_image(image, parameters)}"
+                )
         return "\n".join(lines) or "no observable, stabilizer, or mapping relations"
 
     def __repr__(self) -> str:
@@ -161,37 +173,64 @@ class ChannelAction:
         printer.text("..." if cycle else str(self))
 
 
-def _action_sign(phase: complex, readouts: frozenset[int]) -> str:
-    """Format an eigenvalue or sign factor using circuit-readout positions.
+def _action_sign(
+    phase: complex, readouts: frozenset[int], parameters: Mapping[int, str]
+) -> str:
+    """Format a sign factor using circuit-readout positions and named inputs.
 
     The compact text -1^(...) denotes (-1) raised to the enclosed bit parity.
     """
     constant = {1: "+1", -1: "-1", 1j: "+i", -1j: "-i"}[phase]
     if not readouts:
         return constant
-    terms = [f"circuit.readouts[{index}]" for index in sorted(readouts)]
+    terms = [
+        (
+            f"parameters[{parameters[index]!r}]"
+            if index in parameters
+            else f"circuit.readouts[{index}]"
+        )
+        for index in sorted(readouts)
+    ]
     if phase in (-1, -1j):
         terms.insert(0, "1")
     factor = f"-1^({' ⊕ '.join(terms)})"
     return f"i {factor}" if phase in (1j, -1j) else factor
 
 
-def _action_image(image: PauliFrame) -> str:
+def _action_image(image: PauliFrame, parameters: Mapping[int, str]) -> str:
     if not image.frame:
         return f"{image.pauli:sparse,ascii}"
-    return f"{_action_sign(image.pauli.phase, image.frame)} {abs(image.pauli):sparse,ascii}"
+    return f"{_action_sign(image.pauli.phase, image.frame, parameters)} {abs(image.pauli):sparse,ascii}"
 
 
 def input_qubits_of(program: Circuit) -> frozenset[int]:
     seen: set[int] = set()
     prepared: set[int] = set()
     layout = ProgramLayout.of(program)
+    record_size = 0
     for call in program.calls():
         instruction = program.instruction_set.instructions[call.mnemonic]
         qubit_map = layout.call_qubit_map(call)
+        outcome_start = record_size
         for action in instruction.action:
+            indices = []
+            condition = getattr(action, "condition", None)
+            if condition is not None:
+                if not isinstance(action, qc.actions.Pauli):
+                    raise NotImplementedError(
+                        f"conditional {type(action).__name__} actions are not supported; "
+                        "only conditional Pauli actions can be analyzed"
+                    )
+                indices, parity = _condition_indices(
+                    condition,
+                    call.arguments,
+                    record_size,
+                    outcome_start=outcome_start,
+                )
+                if not indices and parity:
+                    continue
             touched: set[int] = set()
-            if isinstance(action, Stabilize):
+            if isinstance(action, Stabilize) and not indices:
                 for pauli_str in action.operators:
                     remapped = remap_pauli(pauli_str, qubit_map)
                     support = set(remapped.support)
@@ -203,6 +242,9 @@ def input_qubits_of(program: Circuit) -> frozenset[int]:
             else:
                 touched |= set(qubit_map.values())
             seen |= touched
+            if isinstance(action, qc.actions.Observe):
+                record_size += len(action.observables)
+        record_size += len(instruction.flags)
     return frozenset(range(layout.total_qubits)) - prepared
 
 
@@ -233,6 +275,7 @@ def _action_of(
     codespace_projector: Sequence[Pauli] = (),
     output_support: Sequence[int] | None = None,
     frames: FrameMap | None = None,
+    parameters: Mapping[str, str] | None = None,
 ) -> ChannelAction:
     auxiliary_origin = _aux_origin_of(
         program,
@@ -245,6 +288,7 @@ def _action_of(
         input_qubits=input_qubits,
         codespace_projector=codespace_projector,
         aux_origin=auxiliary_origin,
+        parameters=parameters,
     )
     group = result.group
     if frames is not None:
@@ -306,7 +350,7 @@ def _action_of(
     auxiliary_to_input = {
         auxiliary_origin + offset: qubit for offset, qubit in enumerate(input_qubits)
     }
-    return _assemble_action(
+    action = _assemble_action(
         stabilizers_out,
         stabilizers_in,
         logicals,
@@ -314,6 +358,11 @@ def _action_of(
         auxiliary_to_input=auxiliary_to_input,
         physical_support=physical_support,
     )
+    action._parameters = {
+        name: len(program.readouts) + index
+        for index, name in enumerate(result.parameter_outcome_rows)
+    }
+    return action
 
 
 def _independent_readout_rows(
@@ -323,7 +372,8 @@ def _independent_readout_rows(
 ) -> list[tuple[int, int]]:
     """Select independent readouts after fixing the artificial input outcomes.
 
-    Each pair gives a circuit-readout position and its simulation outcome row.
+    Each pair gives a sign position and its simulation outcome row. Parameter
+    positions follow the circuit readouts and take priority in the basis.
     Constant shifts do not affect independence; sign conversion uses the original rows.
     """
     readout_positions = (
@@ -331,9 +381,14 @@ def _independent_readout_rows(
         for position, readout in enumerate(program.readouts)
         if not isinstance(readout, qc.gadgets.Flag)
     )
-    readout_rows = list(
-        zip(readout_positions, result.observe_outcome_rows, strict=True)
-    )
+    # Parameters must be retained even when a measurement reveals the same bit.
+    readout_rows = [
+        *(
+            (len(program.readouts) + index, row)
+            for index, row in enumerate(result.parameter_outcome_rows.values())
+        ),
+        *zip(readout_positions, result.observe_outcome_rows, strict=True),
+    ]
     if not readout_rows or not unfixed_random_bits:
         return []
     outcome_matrix = result.simulation.outcome_matrix
@@ -353,7 +408,7 @@ def _readout_conditioned_group(
     initial_count: int,
     initial: BitVector,
 ) -> FrameGroup:
-    """Express sign relations in an independent circuit-readout basis.
+    """Express sign relations in an independent parameter/readout basis.
 
     Encode each remaining random bit as an auxiliary Z operator. Append the
     recorded readout relations, then keep products with no auxiliary support.
@@ -518,7 +573,9 @@ def _decode(
         if len(images) != 1:
             continue
         mapping[code_in.logical_action_of(target)] = images[0]
-    return ChannelAction._create(observables, stabilizers, mapping)
+    return ChannelAction._create(
+        observables, stabilizers, mapping, parameters=action._parameters
+    )
 
 
 def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
@@ -662,7 +719,7 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
     actual_items = _outcome_items(actual)
     if len(expected_items) != len(actual_items):
         return "Different numbers of outcome-sign relations."
-    if expected_items == actual_items:
+    if expected_items == actual_items and expected._parameters == actual._parameters:
         return ""
     labels = [
         *(
@@ -682,22 +739,55 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
             for operator in sorted(expected._mapping, key=_sort_key)
         ),
     ]
+    first_parameter = 2 * (
+        1
+        + max(
+            (bit for _, frame in (*expected_items, *actual_items) for bit in frame),
+            default=-1,
+        )
+    )
+    parameter_columns = {
+        name: first_parameter + index
+        for index, name in enumerate(
+            sorted(expected._parameters.keys() | actual._parameters.keys())
+        )
+    }
+    parameter_maps = [
+        {
+            position: parameter_columns[name]
+            for name, position in action._parameters.items()
+        }
+        for action in (expected, actual)
+    ]
+
+    # Outcomes may be relabeled independently; named inputs must be shared.
+    def sign_operator(frame: frozenset[int], side: int) -> Pauli:
+        return Pauli(
+            {parameter_maps[side].get(bit, 2 * bit + side): "Z" for bit in frame}
+        )
+
     products = []
     for index, (
         (expected_phase, expected_frame),
         (actual_phase, actual_frame),
     ) in enumerate(zip(expected_items, actual_items, strict=True)):
         product = (
-            Pauli({2 * bit: "Z" for bit in expected_frame})
-            * Pauli({2 * bit + 1: "Z" for bit in actual_frame})
+            sign_operator(expected_frame, 0)
+            * sign_operator(actual_frame, 1)
             * identity(expected_phase * actual_phase)
         )
         products.append(PauliFrame(product, frozenset({index})))
     support = {qubit for item in products for qubit in item.pauli.support}
     group = FrameGroup(products)
+    shared = set(parameter_columns.values())
     for side in (0, 1):
         restricted, _, _ = group.partition(
-            over={qubit for qubit in support if qubit % 2 == side}
+            over={
+                qubit
+                for qubit in support
+                if qubit < first_parameter and qubit % 2 == side
+            }
+            | shared
         )
         for witness in restricted.generators:
             if not witness.pauli.weight and witness.pauli.phase == 1:
@@ -707,7 +797,12 @@ def _sign_difference(expected: ChannelAction, actual: ChannelAction) -> str:
                 return f"Opposite sign parity: {terms}."
             variable = "expected" if side == 0 else "circuit"
             fixed = "circuit" if side == 0 else "expected"
-            return f"Sign parity ({terms}): {variable} varies with outcomes; {fixed} is fixed."
+            source = (
+                "parameters or outcomes"
+                if set(witness.pauli.support) & shared
+                else "outcomes"
+            )
+            return f"Sign parity ({terms}): {variable} varies with {source}; {fixed} is fixed."
     return ""
 
 
@@ -802,20 +897,37 @@ def _stack_encodings(encodings: Sequence[qc.gadgets.Encoding]) -> SeparableCode:
 
 def declared_action_of(gadget: qc.Gadget) -> ChannelAction:
     codes_in, codes_out = declared_codes_of(gadget)
-    return action_of(
+    physical = _action_of(
         declared_program_of(gadget),
-        with_respect_to=(codes_in, codes_out),
+        input_qubits=sorted(codes_in.support),
+        output_support=sorted(codes_out.support),
+        parameters={
+            parameter.name: parameter.name
+            for parameter in gadget.implements.parameters
+            if parameter.kind == qc.instructions.Parameter.Kind.BIT
+        },
     )
+    return _decode(physical, with_respect_to=(codes_in, codes_out))
 
 
 def realized_action_of(gadget: qc.Gadget) -> ChannelAction:
     codes_in, codes_out = realized_codes_of(gadget)
+    parameters = {}
+    for parameter in gadget.implements.parameters:
+        if parameter.kind == qc.instructions.Parameter.Kind.BIT:
+            binding = gadget.parameter_bindings.get(parameter.name)
+            if binding is None:
+                parameters[parameter.name] = parameter.name
+            else:
+                parameters[binding] = parameter.name
+                parameters[binding.removeprefix("circuit.source.")] = parameter.name
     physical = _action_of(
         program_of(gadget),
         input_qubits=sorted(codes_in.support),
         codespace_projector=tuple(codes_in.stabilizers),
         output_support=sorted(codes_out.support),
         frames=FrameMap(gadget) if gadget.frames else None,
+        parameters=parameters,
     )
     return _decode(physical, with_respect_to=(codes_in, codes_out))
 
