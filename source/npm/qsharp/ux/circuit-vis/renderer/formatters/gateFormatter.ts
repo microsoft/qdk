@@ -100,9 +100,36 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
       return _controlledGate(renderData);
     case GateType.Group:
       return _groupedOperations(renderData);
+    case GateType.Ellipsis:
+      return _createGate([_ellipsis(renderData)], renderData);
     default:
       throw new Error(`ERROR: unknown gate (${label}) of type ${type}.`);
   }
+};
+
+const _ellipsis = (renderData: GateRenderData): SVGElement => {
+  const groupedTargets = renderData.targetsY.every(Array.isArray)
+    ? (renderData.targetsY as number[][])
+    : [renderData.targetsY as number[]];
+  const gate = _unitary(
+    renderData.label,
+    renderData.x,
+    groupedTargets,
+    renderData.width,
+  );
+  gate
+    .querySelectorAll(".gate-unitary")
+    .forEach((box) => box.setAttribute("stroke-dasharray", "8, 8"));
+
+  if (renderData.displayArgs !== undefined) {
+    const title = createSvgElement("title");
+    const iterationLabel =
+      renderData.displayArgs === "1" ? "iteration" : "iterations";
+    title.textContent = `${renderData.displayArgs} loop ${iterationLabel} omitted`;
+    gate.prepend(title);
+  }
+
+  return gate;
 };
 
 /**
@@ -913,4 +940,5 @@ export {
   _zoomButton,
   _classicalControls,
   _getQuantumControlYs,
+  _ellipsis,
 };
