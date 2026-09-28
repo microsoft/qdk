@@ -50,11 +50,11 @@ block_7:
   br i1 %var_20, label %block_10, label %block_11
 block_8:
   %var_49 = load i64, ptr %var_6
-  %var_8_offset_chk = icmp slt i64 %var_49, 0
-  %var_8_offset = select i1 %var_8_offset_chk, i64 1, i64 0
-  %var_8 = getelementptr [2 x ptr], ptr @array0, i64 %var_8_offset, i64 %var_49
-  %var_50 = load ptr, ptr %var_8
-  call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_50)
+  %var_50_offset_chk = icmp slt i64 %var_49, 0
+  %var_50_offset = select i1 %var_50_offset_chk, i64 1, i64 0
+  %var_50 = getelementptr [2 x ptr], ptr @array0, i64 %var_50_offset, i64 %var_49
+  %var_8 = load ptr, ptr %var_50
+  call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_8)
   %var_12 = add i64 %var_49, 1
   store i64 %var_12, ptr %var_6
   br label %block_6
@@ -65,11 +65,11 @@ block_9:
   br label %block_1
 block_10:
   %var_42 = load i64, ptr %var_19
-  %var_21_offset_chk = icmp slt i64 %var_42, 0
-  %var_21_offset = select i1 %var_21_offset_chk, i64 1, i64 0
-  %var_21 = getelementptr [3 x ptr], ptr @array1, i64 %var_21_offset, i64 %var_42
-  %var_43 = load ptr, ptr %var_21
-  call void @Reset(ptr %var_43)
+  %var_43_offset_chk = icmp slt i64 %var_42, 0
+  %var_43_offset = select i1 %var_43_offset_chk, i64 1, i64 0
+  %var_43 = getelementptr [3 x ptr], ptr @array1, i64 %var_43_offset, i64 %var_42
+  %var_21 = load ptr, ptr %var_43
+  call void @Reset(ptr %var_21)
   %var_24 = add i64 %var_42, 1
   store i64 %var_24, ptr %var_19
   br label %block_7
@@ -82,11 +82,11 @@ block_12:
   br i1 %var_26, label %block_13, label %block_14
 block_13:
   %var_39 = load i64, ptr %var_25
-  %var_27_offset_chk = icmp slt i64 %var_39, 0
-  %var_27_offset = select i1 %var_27_offset_chk, i64 1, i64 0
-  %var_27 = getelementptr [1 x ptr], ptr @array2, i64 %var_27_offset, i64 %var_39
-  %var_40 = load ptr, ptr %var_27
-  call void @Reset(ptr %var_40)
+  %var_40_offset_chk = icmp slt i64 %var_39, 0
+  %var_40_offset = select i1 %var_40_offset_chk, i64 1, i64 0
+  %var_40 = getelementptr [1 x ptr], ptr @array2, i64 %var_40_offset, i64 %var_39
+  %var_27 = load ptr, ptr %var_40
+  call void @Reset(ptr %var_27)
   %var_29 = add i64 %var_39, 1
   store i64 %var_29, ptr %var_25
   br label %block_12

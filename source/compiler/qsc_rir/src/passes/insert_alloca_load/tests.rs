@@ -294,8 +294,8 @@ fn inserts_load_before_value_use_when_read_from_array_in_previous_block() {
     // After block 0
     expect![[r#"
         Block:
-            Variable(0, Integer) = Index Array(0), Integer(0)
-            Variable(1, Integer) = Load Variable(0, Integer)
+            Variable(1, Integer) = Index Array(0), Integer(0)
+            Variable(0, Integer) = Load Variable(1, Integer)
             Jump(1)"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
 
@@ -303,7 +303,6 @@ fn inserts_load_before_value_use_when_read_from_array_in_previous_block() {
     // operand is rewritten to the loaded variable.
     expect![[r#"
         Block:
-            Variable(2, Integer) = Load Variable(0, Integer)
-            Return Variable(2, Integer)"#]]
+            Return Variable(0, Integer)"#]]
     .assert_eq(&program.get_block(BlockId(1)).to_string());
 }
