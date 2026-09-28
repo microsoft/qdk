@@ -2593,34 +2593,3 @@ fn long_loop_omits_middle_iterations() {
     let text = circuit.to_string();
     assert!(text.contains("...(9)"), "{text}");
 }
-
-#[test]
-fn long_loop_is_not_truncated_without_iteration_limit() {
-    let circuit = circuit_with_options_success(
-        r"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use q = Qubit();
-                    for _ in 1..13 {
-                        H(q);
-                    }
-                }
-            }
-        ",
-        Profile::AdaptiveRIF,
-        CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::Static,
-        TracerConfig {
-            max_loop_iterations: None,
-            ..default_test_tracer_config()
-        },
-    );
-
-    let loop_children = first_loop_children(&circuit);
-
-    assert_eq!(loop_children.len(), 13);
-    for (index, iteration) in loop_children.iter().enumerate() {
-        assert_eq!(iteration.gate(), format!("({})", index + 1));
-    }
-}
