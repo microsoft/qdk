@@ -6,8 +6,7 @@
 //! Tests for the return unification pass.
 
 mod contracts_and_errors;
-#[path = "tests/flag_strategy.rs"]
-mod flag_lowering;
+mod flag_strategy;
 mod general;
 mod idempotency;
 mod qubit_release;

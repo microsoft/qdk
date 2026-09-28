@@ -14,7 +14,217 @@ use miette::Diagnostic;
 
 use super::super::build_spec_key;
 use super::super::types::CallSite;
-use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId};
+use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId, StoreItemId};
+
+fn eval_entry_with_output(
+    store: &fir::PackageStore,
+    package_id: PackageId,
+) -> (Result<qsc_eval::val::Value, String>, String) {
+    let mut output = Vec::new();
+    let result = qsc_eval::eval(
+        package_id,
+        Some(42),
+        store.get(package_id).entry_exec_graph.clone(),
+        fir::ExecGraphConfig::NoDebug,
+        store,
+        &mut qsc_eval::Env::default(),
+        &mut qsc_eval::backend::TracingBackend::no_tracer(&mut qsc_eval::backend::SparseSim::new()),
+        &mut qsc_eval::output::GenericReceiver::new(&mut output),
+    )
+    .map_err(|(error, _)| format!("{error:?}"));
+    (
+        result,
+        String::from_utf8(output).expect("valid receiver output"),
+    )
+}
+
+#[test]
+fn library_deep_capture_preserves_field_output_order_snapshot_and_failure_prefix() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to_with_library, compile_to_fir_with_library,
+    };
+
+    let library = indoc! {r#"
+        namespace TestLib {
+            newtype Inner = (Bias : Int, Action : Int -> Int);
+            function Shift(offset : Int) : Int -> Int { value -> offset + value }
+            function Evaluate(payload : (Int, (Int, Inner)), value : Int) : Int {
+                let (scale, (offset, inner)) = payload;
+                let action = inner::Action;
+                scale * action(value) + offset + inner::Bias
+            }
+            function Make(payload : (Int, (Int, Inner))) : Int -> Int {
+                value -> Evaluate(payload, value)
+            }
+            export Inner, Shift, Make;
+        }
+    "#};
+    for (last_value, output) in [
+        ("5", "field 2\nfield 3\nfield 5\n"),
+        ("-5", "field 2\nfield 3\nfield -5\n"),
+    ] {
+        let user = indoc::formatdoc! {r#"
+            import TestLib.*;
+            operation Mark(value : Int) : Int {{
+                Message($"field {{value}}");
+                if value < 0 {{ fail "field producer failed"; }}
+                value
+            }}
+            function Forward(action : Int -> Int) : Int -> Int {{ action }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable seed = 7;
+                let action = Make((Mark(2), (Mark(3), Inner(Mark({last_value}), Shift(seed)))));
+                set seed = 100;
+                Forward(action)(1)
+            }}
+        "#};
+        let (original, package_id) = compile_to_fir_with_library(library, &user);
+        let library_id = (&original)
+            .into_iter()
+            .find_map(|(owner, package)| {
+                package.items.values().any(|item| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Make")
+            }).then_some(owner)
+            })
+            .expect("library factory exists");
+        assert_ne!(library_id, package_id);
+        assert!(original.get(library_id).exprs.values().any(|expr| {
+            matches!(&expr.kind, fir::ExprKind::Closure(captures, _) if !captures.is_empty())
+        }));
+        assert_no_dangling_cross_package_closures(&original);
+        let expected = eval_entry_with_output(&original, package_id);
+        assert_eq!(expected.1, output);
+        if last_value == "5" {
+            assert_eq!(expected.0, Ok(qsc_eval::val::Value::Int(24)));
+        } else {
+            assert!(
+                expected
+                    .0
+                    .as_ref()
+                    .expect_err("producer must fail")
+                    .contains("field producer failed")
+            );
+        }
+        let (normalized, normalized_id) =
+            compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Defunc);
+        assert_no_dangling_cross_package_closures(&normalized);
+        assert!(!normalized.get(normalized_id).pats.values().any(|pat| {
+            matches!(&pat.kind, fir::PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+        }), "the library-owned environment remains outside the entry prepass");
+        assert!(
+            normalized.get(library_id).exprs.values().any(|expr| {
+                matches!(&expr.kind, fir::ExprKind::Closure(captures, target)
+                if !captures.is_empty() && original.get(library_id).items.contains_key(*target))
+            }),
+            "the original library closure and its owner must remain available"
+        );
+        let (full, full_id) =
+            compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Full);
+        let actual = eval_entry_with_output(&full, full_id);
+        assert_eq!(actual.1, output);
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn foreign_udt_capture_preserves_owner_and_snapshot_beside_normalized_arrow() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to_with_library, compile_to_fir_with_library,
+    };
+    use qsc_fir::ty::Ty;
+
+    let library = indoc! {r#"
+        namespace TestLib {
+            newtype Payload = (Bias : Int, Offset : Int);
+            export Payload;
+        }
+    "#};
+    for replace_payload in [false, true] {
+        let replacement = if replace_payload {
+            "set payload = Payload(50, seed);"
+        } else {
+            ""
+        };
+        for (mixed, binding, answer) in [
+            (
+                false,
+                "let environment = payload; let saved = value -> Evaluate(environment, value);",
+                11,
+            ),
+            (
+                true,
+                "let environment = (payload, Add17); let saved = value -> { let (opaque, action) = environment; Evaluate(opaque, value) + action(value) };",
+                29,
+            ),
+        ] {
+            let user = indoc::formatdoc! {r#"
+            import TestLib.*;
+            function Add17(value : Int) : Int {{ 17 + value }}
+            function Evaluate(payload : Payload, value : Int) : Int {{
+                payload::Bias + payload::Offset + value
+            }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable seed = 7;
+                mutable payload = Payload(3, seed);
+                {binding}
+                set seed = 100;
+                {replacement}
+                saved(1)
+            }}
+        "#};
+            let (original, package_id) = compile_to_fir_with_library(library, &user);
+            let foreign_item = (&original)
+                .into_iter()
+                .find_map(|(owner, package)| {
+                    package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Ty(ident, _) if ident.name.as_ref() == "Payload")
+                    .then_some(ItemId { package: owner, item: item_id })
+            })
+                })
+                .expect("foreign type exists");
+            assert_ne!(foreign_item.package, package_id);
+            assert!(original.get(package_id).exprs.values().any(|expr| {
+                matches!(&expr.kind, fir::ExprKind::Closure(captures, _) if captures.len() == 1)
+            }));
+            let expected = eval_entry_with_output(&original, package_id);
+            assert_eq!(
+                expected,
+                (Ok(qsc_eval::val::Value::Int(answer)), String::new())
+            );
+            let (normalized, normalized_id) =
+                compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Defunc);
+            let leaves: Vec<_> = normalized.get(normalized_id).pats.values().filter(|pat| {
+            matches!(&pat.kind, fir::PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+        }).collect();
+            assert_eq!(!leaves.is_empty(), mixed);
+            if mixed {
+                assert!(
+                    leaves
+                        .iter()
+                        .any(|pat| pat.ty == Ty::Udt(fir::Res::Item(foreign_item)))
+                );
+                assert!(leaves.iter().any(|pat| matches!(&pat.ty, Ty::Arrow(_))));
+            }
+            assert!(matches!(
+                &normalized
+                    .get(foreign_item.package)
+                    .items
+                    .get(foreign_item.item)
+                    .expect("foreign owner retained")
+                    .kind,
+                ItemKind::Ty(_, _)
+            ));
+            assert_no_dangling_cross_package_closures(&normalized);
+            let (full, full_id) =
+                compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Full);
+            assert_eq!(eval_entry_with_output(&full, full_id), expected);
+        }
+    }
+}
 
 /// Regression guard: two call sites that differ only in the package owning the
 /// closure body (`call_pkg_id`) must produce distinct `SpecKey`s. The closure
@@ -103,7 +313,7 @@ fn cross_package_hof_body_with_nested_lambda_clones_into_target() {
 
     // Specialization succeeds because the closure target is extracted and
     // relocated rather than left dangling.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_hof_body_with_nested_lambda_clones_into_target",
         &errors,
@@ -182,7 +392,7 @@ fn cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized()
         "precondition: the entry package starts with no lifted lambda items"
     );
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized",
         &errors,
@@ -305,7 +515,7 @@ fn cross_package_foreign_hof_without_nested_lambda_specializes_into_entry() {
 
     let entry_items_before = callable_item_ids(fir_store.get(fir_pkg_id));
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_foreign_hof_without_nested_lambda_specializes_into_entry",
         &errors,
@@ -380,7 +590,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
-    let cross_package_errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let cross_package_errors =
+        defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     // The identical mutual recursion declared entirely in the entry package.
     let same_package_source = r#"
@@ -405,7 +616,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
     let (mut same_store, same_pkg_id) =
         crate::test_utils::compile_to_monomorphized_fir(same_package_source);
     let mut same_assigners = PackageAssigners::new(&same_store, same_pkg_id);
-    let same_package_errors = defunctionalize(&mut same_store, same_pkg_id, &mut same_assigners);
+    let same_package_errors =
+        defunctionalize(&mut same_store, same_pkg_id, &mut same_assigners).diagnostics;
 
     // Both reject the forwarded callable parameter.
     assert!(
@@ -473,7 +685,7 @@ fn cross_package_function_typed_return_flows_across_packages() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_function_typed_return_flows_across_packages",
         &errors,
@@ -535,7 +747,7 @@ fn foreign_factory_capturing_callable_field_is_defunctionalized() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "foreign_factory_capturing_callable_field_is_defunctionalized",
         &errors,
@@ -594,7 +806,7 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         1,
@@ -629,6 +841,88 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
         &lib_source[span.lo as usize..span.hi as usize],
         "config.Apply(q)",
         "the foreign diagnostic label should retain the unresolved call expression"
+    );
+
+    let _ = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        crate::PipelineStage::Full,
+    );
+
+    let producer_lib_source = r#"
+        namespace ProducerLib {
+            operation MakeInner(q : Qubit) : Qubit => Unit {
+                X(q);
+                Rx(0.0, _)
+            }
+
+            operation MakeOuter(q : Qubit) : Qubit => Unit {
+                MakeInner(q)
+            }
+
+            export MakeOuter;
+        }
+    "#;
+    let producer_user_source = r#"
+        import ProducerLib.*;
+
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOuter(q);
+            ApplyOp(op, q);
+        }
+    "#;
+    let (mut producer_store, producer_entry_package) =
+        crate::test_utils::compile_to_fir_with_library(producer_lib_source, producer_user_source);
+    let mut producer_assigners = PackageAssigners::new(&producer_store, producer_entry_package);
+    crate::monomorphize::monomorphize(
+        &mut producer_store,
+        producer_entry_package,
+        &mut producer_assigners,
+    );
+    let nested_producer = (&producer_store)
+        .into_iter()
+        .find_map(|(package_id, package)| {
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(
+                    &item.kind,
+                    ItemKind::Callable(decl) if decl.name.name.starts_with("MakeInner")
+                )
+                .then_some(StoreItemId::from((package_id, item_id)))
+            })
+        })
+        .expect("nested foreign producer MakeInner should exist");
+    assert_ne!(
+        nested_producer.package, producer_entry_package,
+        "the nested producer should retain its library package"
+    );
+
+    let producer_outcome = defunctionalize(
+        &mut producer_store,
+        producer_entry_package,
+        &mut producer_assigners,
+    );
+    assert!(
+        producer_outcome
+            .diagnostics
+            .iter()
+            .any(crate::defunctionalize::Error::is_deferrable),
+        "the foreign producer chain should produce a deferrable diagnostic"
+    );
+    assert!(
+        producer_outcome.residue_items.contains(&nested_producer),
+        "a nested producer reached across a package boundary must remain authorized"
+    );
+
+    let _ = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        producer_lib_source,
+        producer_user_source,
+        crate::PipelineStage::Full,
     );
 }
 
@@ -1095,7 +1389,7 @@ fn analysis_bernstein_vazirani_sample_shape() {
             function EncodeIntegerAsParityOperation(bitStringAsInt : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = bitStringAsInt;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
@@ -1307,7 +1601,7 @@ fn analysis_deutsch_jozsa_sample_shape() {
               site: callee=H:Adj, default
             lattice states:
               callable Main:
-                5: Multi([SimpleConstantBoolF:Body, SimpleBalancedBoolF:Body, ConstantBoolF:Body, BalancedBoolF:Body])"#]],
+                5: Dynamic"#]],
     );
     check_rewrite_with_capabilities(
         source,
@@ -1517,14 +1811,17 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     mutable _index_id_253 : Int = 0;
                     while _index_id_253 < _len_id_248 {
                         let fn : ((Qubit[], Qubit) => Unit) = _array_id_244[_index_id_253];
-                        let _ : Bool = if _index_id_253 == 0 {
-                            DeutschJozsa_Empty__SimpleConstantBoolF_(5)
-                        } else if _index_id_253 == 1 {
-                            DeutschJozsa_Empty__SimpleBalancedBoolF_(5)
-                        } else if _index_id_253 == 2 {
-                            DeutschJozsa_Empty__ConstantBoolF_(5)
-                        } else {
-                            DeutschJozsa_Empty__BalancedBoolF_(5)
+                        let _ : Bool = {
+                            [(), (), (), ()][_index_id_253];
+                            if (_index_id_253 == 0) or (_index_id_253 == -4) {
+                                DeutschJozsa_Empty__SimpleConstantBoolF_(5)
+                            } else if (_index_id_253 == 1) or (_index_id_253 == -3) {
+                                DeutschJozsa_Empty__SimpleBalancedBoolF_(5)
+                            } else if (_index_id_253 == 2) or (_index_id_253 == -2) {
+                                DeutschJozsa_Empty__ConstantBoolF_(5)
+                            } else {
+                                DeutschJozsa_Empty__BalancedBoolF_(5)
+                            }
                         };
                         _index_id_253 += 1;
                     }
@@ -3369,5 +3666,136 @@ fn cross_package_same_hof_same_global_from_two_packages_is_correct() {
     "};
 
     // Inc(10) + Inc(20) = 32, both before and after the transforms.
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// Library used by the cross-package multi-candidate dispatch sweep.
+const SWEEP_LIB: &str = r#"
+namespace TestLib {
+    operation FA(q : Qubit) : Unit { X(q); }
+    operation FB(q : Qubit) : Unit { Y(q); }
+    operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+    export FA, FB, Run;
+}
+"#;
+
+/// Renders the entry package after the full pipeline, tolerating diagnostics so
+/// a declined shape can be inspected rather than aborting the test.
+fn swept_cross_package_rendering(user_source: &str) -> String {
+    let (store, package_id, _result) =
+        crate::test_utils::compile_and_run_pipeline_to_with_library_and_errors(
+            SWEEP_LIB,
+            user_source,
+            crate::PipelineStage::Full,
+        );
+    crate::pretty::write_package_qsharp_parseable(&store, package_id)
+}
+
+/// Asserts both candidates appear after the guard and in selection order, which
+/// a swapped candidate-to-guard mapping would violate.
+fn assert_guarded_in_order(rendered: &str, guard: &str, first: &str, second: &str) {
+    let g = rendered
+        .find(guard)
+        .unwrap_or_else(|| panic!("missing guard `{guard}` in:\n{rendered}"));
+    let f = rendered
+        .find(first)
+        .unwrap_or_else(|| panic!("missing candidate `{first}` in:\n{rendered}"));
+    let s = rendered
+        .find(second)
+        .unwrap_or_else(|| panic!("missing candidate `{second}` in:\n{rendered}"));
+    assert!(
+        g < f && f < s,
+        "expected `{guard}` then `{first}` then `{second}` in:\n{rendered}"
+    );
+}
+
+/// Candidates defined in a foreign package and chosen by a measurement-dependent
+/// condition must dispatch to both, in selection order.
+#[test]
+fn cross_package_conditional_selection_dispatches_both_candidates() {
+    let rendered = swept_cross_package_rendering(
+        r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let pick = MResetZ(q) == One;
+    let f = pick ? FA | FB;
+    f(q);
+}
+"#,
+    );
+    assert_guarded_in_order(&rendered, "if pick", "FA(q)", "FB(q)");
+}
+
+/// The same foreign candidates routed through a foreign higher-order operation
+/// must reach per-candidate specializations rather than collapsing to one.
+#[test]
+fn cross_package_hof_dispatches_both_specializations() {
+    let rendered = swept_cross_package_rendering(
+        r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let pick = MResetZ(q) == One;
+    Run(pick ? FA | FB, q);
+}
+"#,
+    );
+    assert_guarded_in_order(&rendered, "if pick", "Run_Empty__FA_", "Run_Empty__FB_");
+}
+
+/// Foreign candidates selected by a dynamic array index must be dispatched under
+/// an index guard that reaches every candidate; emitting one unconditionally
+/// would drop the other.
+#[test]
+fn cross_package_indexed_selection_guards_every_candidate() {
+    let rendered = swept_cross_package_rendering(
+        r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let ops = [FA, FB];
+    let idx = MResetZ(q) == One ? 0 | 1;
+    ops[idx](q);
+}
+"#,
+    );
+    assert_guarded_in_order(&rendered, "idx == 0", "FA(q)", "FB(q)");
+}
+
+/// Semantic anchor for the cross-package sweep.
+///
+/// Emitted-code assertions are necessary but not sufficient here, so one shape
+/// is also checked for behavioral equivalence. The oracle compares returned
+/// values, so the fixture returns a `Result` that differs by which candidate
+/// ran: only `Applied` flips the target, so dispatching the wrong candidate
+/// changes the returned value rather than going unnoticed.
+///
+/// The measured qubit starts in |0>, so `pick` is deterministically `false` and
+/// both qubits are released in |0>.
+#[test]
+fn cross_package_conditional_selection_preserves_semantics() {
+    let lib_source = r#"
+namespace TestLib {
+    operation Applied(q : Qubit) : Unit { X(q); }
+    operation Skipped(q : Qubit) : Unit { }
+    export Applied, Skipped;
+}
+"#;
+    let user_source = r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Result {
+    use q = Qubit();
+    use target = Qubit();
+    let pick = MResetZ(q) == One;
+    let f = pick ? Applied | Skipped;
+    f(target);
+    return MResetZ(target);
+}
+"#;
     crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
 }
