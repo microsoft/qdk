@@ -1,32 +1,27 @@
-# 2D Ising Quench Demo: MPS and General Tensor-Network Contraction
+# 2D Ising Quench Demo: MPS Accuracy Against Cost
 
 This demo simulates the Trotterized 2D Ising quench from the `qdk-chemistry`
 [resource-estimation notebook](https://github.com/microsoft/qdk-chemistry/blob/1eb14a9d73685d4e57ee7ee7ca6f4d2ef845a6dd/examples/estimation_ising_2d.ipynb)
-with two tensor-network methods, through the public `qdk.simulation.run_qir` API:
+with cuTensorNet's matrix-product-state (MPS) backend, and measures its error
+against an exact reference. The question it answers:
 
-- **MPS**, the existing cuTensorNet matrix-product-state backend, which approximates the state by truncation;
-- **general contraction**, which contracts the circuit's 2D tensor network without truncation.
+> How close to correct does MPS get, how much quicker is it, and how much bond
+> dimension does a 2D lattice need, away from and near the critical point?
 
-Both methods run the **same** QIR program and return ordered measurement shots.
-The question the demo lets you explore is:
+It is a preview for feedback, not a shipped feature. The API is the preview
+`qdk.simulation.tensornetwork_qir`, whose names may change. A companion QEC
+demo uses the same API for exact general contraction.
 
-> For a given Ising quench and accuracy, how far does each method reach, and at what cost?
-
-It is a demonstration for feedback, not a shipped feature. It sits next to the
-1D [MPS Trotter quench demo](../mps_trotter_quench_demo/DEMO.md) and uses the
-same execution layer.
-
-> **Preview status.** Circuit generation and `type="mps"` work today.
-> General contraction through `run_qir`, the `--field` option and the demo
-> script are **planned for this demo's first version**; commands for them are
-> marked ⏳ and their names may change. Nothing in this document has been
-> measured as an MPS versus general-contraction comparison yet.
+> **Preview status.** Items marked ⏳ are being prepared for the demo and
+> their names may change. No accuracy-against-cost result has been measured
+> yet; table and plot shapes below show what will be reported.
 
 | | |
 | --- | --- |
 | Circuit source | `qdk-chemistry==2.2.1` builders, via [`build_measured_circuit.py`](build_measured_circuit.py) |
-| Public entry point | `run_qir(qir, shots=..., type=...)` |
-| Methods | MPS (today) · general contraction (⏳ first version) |
+| Entry point | `tensornetwork_qir(qir, queries, method="mps" \| "contraction")` |
+| Approximate method | MPS with bond dimension cap χ (default 128) |
+| Reference | Exact, from cuTensorNet's state API without MPS truncation, where it fits |
 | Reference host | NVIDIA A100 80GB PCIe, Linux x86_64 |
 | Validation so far | 4x4 exact contraction agrees with an independent CPU state to `6e-10` ([Appendix A](#appendix-a--validation-history)) |
 
@@ -34,24 +29,21 @@ same execution layer.
 
 ## TL;DR
 
-**What you do.** Generate an Ising circuit for an `N×N` lattice, run the same
-QIR with MPS and with general contraction, and compare two observables and
-their cost.
-
 ```text
-generator(N, h) ──► QIR ──► run_qir(type="mps")        ──► shots ──┐
-                        └─► run_qir(general contraction) ──► shots ──┴─► m_z, C_ZZ ± error, time, memory
+build_measured_circuit.py --field h ─► QIR ─┬─► tensornetwork_qir(method="mps", χ)  ─► m_z(χ), C_ZZ(χ), Cost, time
+                                            └─► tensornetwork_qir(method="contraction") ─► m_z, C_ZZ exact, time
+                                                          error(χ) = |MPS(χ) − exact|
 ```
 
-**Why it is interesting.** 2D lattices are known to be hard for MPS, and a
-field near the critical point is expected to make them harder. General
-contraction has no truncation, but its cost grows with the circuit's
-contraction structure. Which one wins, and where, is what we want to measure
-with you, not something we assume.
+**What you get.** Two tables and plots: the error of the lattice-averaged
+magnetization and nearest-neighbour correlation against χ, next to time and
+memory; and the χ each lattice size needs at `h=0.5` and at the critical
+point `h=3.03`. Both are computed as expectation values, not from shots, so
+shot noise does not hide the MPS error.
 
-**What we want from you.** Run the examples, try your own sizes and fields,
-and tell us what is useful and what is missing ([§8](#8-feedback-wanted)).
-[§7](#7-what-could-come-next) lists what could come next, including noise.
+**What we want from you.** Which of the two ways of plugging this into
+`qdk-chemistry` fits your algorithms ([§5.4](#54-how-its-done-two-qdk-chemistry-seams)),
+and which models or observables matter to you ([§8](#8-feedback-wanted)).
 
 ---
 
@@ -76,231 +68,169 @@ $$
 ```
 
 Every circuit uses the notebook's settings: start in $|0\cdots0\rangle$, evolve
-to `t=1` with fourth-order Trotter–Suzuki and two subdivisions, then measure
-every qubit in Z. Only the lattice size and the field change.
-
-**Two fields to compare.**
+to `t=1` with fourth-order Trotter–Suzuki and two subdivisions. Only the
+lattice size and the field change.
 
 | Scenario | J | h | What it is |
 | --- | --- | --- | --- |
 | Baseline | 1 | 0.5 | The notebook's default |
-| Near-critical | 1 | 3.03 | Close to the square-lattice critical point |
+| Near-critical | 1 | 3.03 | Close to the square-lattice critical point $h/J \approx 3.044$ ([Blöte and Deng, Phys. Rev. E 66, 066110 (2002)](https://doi.org/10.1103/PhysRevE.66.066110)) |
 
-The ground-state critical point is $h/J \approx 3.044$
-([Blöte and Deng, Phys. Rev. E 66, 066110 (2002)](https://doi.org/10.1103/PhysRevE.66.066110),
-same Pauli normalization). That is a zero-temperature, infinite-lattice
-property. Whether it makes *this* finite-time quench on a small lattice harder
-is exactly the kind of thing the demo lets you check.
-
-**Two observables, from the shots.** For each shot, with bits $b_i$ and spins
-$z_i = 1 - 2b_i$, on $n=N^2$ sites and $|E|=2N(N-1)$ bonds:
+**Observables**, on the state $|\psi\rangle$ before the terminal measurements,
+with $n=N^2$ sites and $|E|=2N(N-1)$ bonds:
 
 $$
-m_z = \frac{1}{n}\sum_i z_i
-\quad\text{(how much of the initial polarization survives)},
+m_z = \frac{1}{n}\sum_i \langle Z_i\rangle,
 \qquad
-C_{ZZ} = \frac{1}{|E|}\sum_{\langle i,j\rangle} z_i z_j
-\quad\text{(how aligned neighbours are)}.
+C_{ZZ} = \frac{1}{|E|}\sum_{\langle i,j\rangle} \langle Z_i Z_j\rangle .
 $$
 
-The demo averages both over shots and reports a standard error.
+**Error and "χ needed".** For MPS with bond-dimension cap χ,
+
+$$
+\varepsilon_m(\chi) = \bigl|m_z(\chi) - m_z^{\text{ref}}\bigr|,
+\qquad
+\varepsilon_C(\chi) = \bigl|C_{ZZ}(\chi) - C_{ZZ}^{\text{ref}}\bigr|,
+\qquad
+\chi_{\text{needed}} = \min\{\chi : \varepsilon_m,\ \varepsilon_C \le 10^{-3}\}.
+$$
+
+The threshold only sets the summary table; the full error-against-χ curve is
+always shown.
 
 ## 2. How to use it
 
 ### 2.1 Prerequisites
 
-Same host requirements as the [MPS demo](../mps_trotter_quench_demo/DEMO.md#41-prerequisites):
-Linux x86_64, an NVIDIA GPU, cuQuantum `libcutensornet.so.2`, and QDK built with
-`--qdk --editable`. Circuit generation also needs `qdk-chemistry`:
+Linux x86_64, an NVIDIA GPU, cuQuantum `libcutensornet.so.2`, and the preview
+`qdk` build. `qdk-chemistry==2.2.1` is needed only to generate new circuits;
+the circuits the demo uses ship with the sample. ⏳
+
+### 2.2 Step 1: generate a circuit
 
 ```bash
-./source/qdk_package/.venv/bin/python -m pip install qdk-chemistry==2.2.1
+python build_measured_circuit.py --nx 4 --ny 4 --field 3.03 --output ising-4x4-h3.03.ll   # ⏳ --field
 ```
 
-### 2.2 Step 1: generate the circuit
+The output is an ordinary Base-profile QIR program. `tensornetwork_qir`
+knows nothing about lattices or fields; any program works as long as the
+method supports its gates.
 
-```bash
-./source/qdk_package/.venv/bin/python \
-  samples/python_interop/ising2d_tensor_network_demo/build_measured_circuit.py \
-  --nx 4 --ny 4 --output ising-4x4-h0.5.ll
-# wrote ising-4x4-h0.5.ll: 16 qubits, 16 measured results
-```
-
-The output is an ordinary Base-profile QIR program. `run_qir` knows nothing
-about lattices or fields; any program works as long as the chosen method
-supports its gates.
-
-⏳ First version adds `--field h` (today the field is fixed at `h=0.5`).
-
-### 2.3 Step 2: run it
+### 2.3 Step 2: query it
 
 ```python
-from qdk.simulation import MpsOptions, run_qir
+from qdk.simulation import Cost, Expectation, MpsOptions, tensornetwork_qir
 
-qir = open("ising-4x4-h0.5.ll").read()
+N = 4
+n = N * N
+bonds = [(y*N + x, y*N + x + 1) for y in range(N) for x in range(N - 1)] + \
+        [(y*N + x, (y+1)*N + x) for y in range(N - 1) for x in range(N)]
+m_z  = Expectation([("Z",  [q],    1 / n)          for q in range(n)])
+c_zz = Expectation([("ZZ", [i, j], 1 / len(bonds)) for i, j in bonds])
 
-# MPS: works today
-mps_shots = run_qir(qir, shots=1000, seed=42, type="mps",
-                    mps_options=MpsOptions(device="nvidia"))
+qir = open("ising-4x4-h3.03.ll").read()
 
-# ⏳ General contraction: first version; selector name to be decided
-tn_shots = run_qir(qir, shots=1000, seed=42, type="tensor_network")
+# ⏳ Exact reference: cuTensorNet's state API, no truncation.
+exact = tensornetwork_qir(qir, [m_z, c_zz], method="contraction")
+
+# ⏳ MPS with bond-dimension cap χ = 16.
+approx = tensornetwork_qir(qir, [m_z, c_zz, Cost()], method="mps",
+                           options=MpsOptions(max_bond_dimension=16))
+# approx[2] == {"max_bond_dimension": ..., "state_bytes": ..., "workspace_bytes": ...}
 ```
 
-Each result is a list of shots, and each shot is a list of `Result` values
-ordered `q0, q1, ...`. A general-contraction request never falls back to MPS
-silently: if it cannot run, it fails with an error.
+Each `Expectation` result is complex, real up to rounding for these
+observables. `Cost()` reports the largest bond the MPS actually reached, its
+size and the workspace it needed.
 
-### 2.4 Step 3: summarize
+### 2.4 Step 3: the χ sweep ⏳
 
-```python
-import numpy as np
-from qdk import Result
-
-def summarize(shots, N):
-    b = np.array([[r == Result.One for r in shot] for shot in shots], dtype=float)
-    z = 1.0 - 2.0 * b                                   # (shots, N*N), q = y*N + x
-    bonds = [(y*N + x, y*N + x + 1) for y in range(N) for x in range(N - 1)] + \
-            [(y*N + x, (y+1)*N + x) for y in range(N - 1) for x in range(N)]
-    m = z.mean(axis=1)                                  # one value per shot
-    c = np.mean([z[:, i] * z[:, j] for i, j in bonds], axis=0)
-    se = lambda v: v.std(ddof=1) / np.sqrt(len(v))
-    return {"m_z": (m.mean(), se(m)), "C_ZZ": (c.mean(), se(c))}
-
-print(summarize(mps_shots, 4))
-```
-
-The error bars come from the spread across shots. Sites and bonds in the same
-shot are correlated, so they are averaged per shot first rather than treated
-as independent samples.
-
-### 2.5 ⏳ The demo script
-
-The planned `run.py` does steps 1–3 for both methods and prints one table.
-Proposed usage:
+`run.py` runs Step 2 for a list of χ values and sizes, writes one results
+file, and renders tables and plots from it. Measuring needs the GPU;
+rendering does not. Proposed usage:
 
 ```bash
-./source/qdk_package/.venv/bin/python \
-  samples/python_interop/ising2d_tensor_network_demo/run.py \
-  --size 4 --field 0.5 --shots 1000 --seed 42 \
-  --methods mps tensor_network --output ~/ising2d-4x4-h0.5.json
+python run.py measure --size 4 --field 3.03 --chi 2 4 8 16 32 64 128 --output results.json
+python run.py render results.json
 ```
 
-`--size N` sets up an `N×N` circuit and `--field` sets `h`. Nothing else changes
-between runs. Expected output shape (values are placeholders until measured):
+## 3. What the demo shows
+
+### 3.1 Close to correct, but much quicker
+
+Error against χ, with time and memory, at 4×4 and at larger sizes while the
+exact reference fits. At 4×4 the reference is also checked against an
+independent CPU state: for `h=0.5`, **$m_z = 0.9508364$, $C_{ZZ} = 0.9326830$**.
 
 ```text
-ising2d | size=4 qubits=16 J=1 h=0.5 shots=1000 seed=42
-method           m_z               C_ZZ              time     peak memory
-exact            0.9508            0.9327            —        —
-mps              …  ± …            …  ± …            … s      … MiB
-tensor_network   …  ± …            …  ± …            … s      … MiB
+ising2d | size=4 J=1 h=3.03 | reference: exact (… s)
+χ     ε_m      ε_C      max bond   time     state     workspace
+2     …        …        …          … s      … KiB     … MiB
+…
+128   …        …        …          … s      … KiB     … MiB
 ```
 
-At sizes where an exact reference exists, the script prints it and whether each
-method agrees within its error bars. Timings split setup (planning,
-preparation) from sampling, because repeated shots reuse the setup.
+### 3.2 2D is hard for MPS, hardest near h = 3.03
 
-## 3. Examples
+χ needed against N, at `h=0.5` and `h=3.03`. Where the exact reference no
+longer fits, the reference is the largest-χ MPS run, labelled as such and
+never called exact.
 
-### Example 1: baseline 4x4, both methods against exact (h=0.5)
-
-The first thing to run. At 16 qubits the exact answer is known: from the
-independent CPU state for this exact circuit,
-**$m_z = 0.9508$ and $C_{ZZ} = 0.9327$**. With 1000 shots expect error bars of
-about `0.003` and `0.004`. Both methods should agree with these values; that is
-the sanity check before scaling up.
-
-```bash
-run.py --size 4 --field 0.5 --shots 1000 --methods mps tensor_network   # ⏳
+```text
+N    qubits   reference         χ needed (h=0.5)   χ needed (h=3.03)
+4    16       exact             …                  …
+…
 ```
 
-### Example 2: near-critical 4x4 (h=3.03)
+### 3.3 Your own circuit or observable
 
-Same size and settings, field near the critical point. The first version ships
-an independent exact reference for this 4x4 circuit too, so both methods are
-checked here as well.
-
-```bash
-run.py --size 4 --field 3.03 --shots 1000 --methods mps tensor_network  # ⏳
-```
-
-### Example 3: grow the lattice
-
-Keep the field and increase `--size` until a method runs out of time or
-memory. The script reports, per method, time and peak memory, and for MPS
-whether it had to truncate.
-
-```bash
-for N in 4 5 6 7 8; do
-  run.py --size $N --field 3.03 --shots 1000 --methods mps tensor_network \
-         --output ~/ising2d-${N}x${N}-h3.03.json                          # ⏳
-done
-```
-
-Beyond the exact-reference sizes, agreement between the two methods is evidence,
-not proof: MPS may be truncating, and general contraction may simply be too
-expensive. Both outcomes are useful results.
-
-### Example 4: your own circuit
-
-`run_qir` accepts any Base-profile QIR with terminal measurements. Today MPS
-supports `X`, `H`, `Rx`, `Rz`, `CNOT` and `Rzz` on at least two qubits. The first
-version of general contraction supports the gates this demo needs (`Rx`,
-`Rzz`); more gates can be added if you need them.
+Any Base-profile QIR with the supported gates works, and any Pauli sum is a
+valid `Expectation`: for example single-site $\langle Z_i\rangle$, longer-range
+correlations or the energy $\langle H\rangle$, with its `X` terms.
 
 ## 4. Reading the results
 
-- **Error bars cover shot noise only.** More shots shrink them, but cannot
-  remove MPS truncation error or Trotter error.
-- **Agreement is with the circuit, not with the physics.** Both methods simulate
-  the same Trotterized circuit. Matching the exact reference means the method is
-  right for that circuit; it does not measure how far the circuit is from exact
-  time evolution. That gap can be larger at `h=3.03`, with the same Trotter
-  settings.
-- **Near-critical is a hypothesis, not a promise.** The critical point is a
-  ground-state property. For this short quench it may or may not be the
-  hardest field for either method.
-- **The two methods scale differently.** For MPS the cost depends on how
-  entangled the state becomes, so it changes with `h`. For general contraction
-  the cost is set mostly by the circuit's structure, which is the same for
-  every `h` at a given size.
-- **Sign conventions do not matter here.** Flipping the sign of `J`, of `h`, or
-  both gives the same shot distribution from $|0\cdots0\rangle$, so the demo's
-  results also describe the ferromagnetic convention.
+- **Errors are truncation only.** No shots are involved, so the difference
+  from the reference is MPS truncation error.
+- **Agreement is with the circuit, not with the physics.** Both sides
+  simulate the same Trotterized circuit; neither measures Trotter error,
+  which can be larger at `h=3.03`.
+- **Beyond the exact reference, errors are convergence estimates.** The
+  difference from the largest-χ run shows whether results have settled, not
+  how far they are from exact.
+- **The chain order matters.** MPS orders qubits by index, so vertical bonds
+  span `N` sites ([§5.2](#52-why-mps-finds-2d-hard)). A better site order could
+  lower the χ needed; it is not part of this demo.
+- **Near-critical is a hypothesis.** The critical point is a ground-state
+  property. For this short quench it is expected, not guaranteed, to be the
+  hardest field.
+- **Sign conventions do not matter.** Flipping the sign of `J`, of `h`, or
+  both gives the same $m_z$ and $C_{ZZ}$ from $|0\cdots0\rangle$.
 
 ## 5. How it works
 
-### 5.1 One program, pluggable samplers
+### 5.1 One API, two methods
 
 ```text
-run_qir(qir, shots, type=...)
-        │
-shared execution: runs the program, owns shots and measurement order
-        │   asks for "S ordered samples of the final state"
-        ▼
-Sampling interface (backend-neutral)
- ├─ cuTensorNet MPS sampler                      available today (type="mps")
- ├─ cuTensorNet general-network sampler          ⏳ first version
- └─ further implementations                      on request, for example:
-      · generic contraction sampler on the shared contraction interfaces
-      · other devices or libraries
+QIR ─► prepared program ─► circuit (gates + terminal measurements)
+                                   │
+          ┌────────────────────────┴────────────────────────┐
+   method="mps", χ                                    method="contraction"
+   cuTensorNet MPS state (truncates to χ)             cuTensorNet state, no truncation
+          │                                                  │
+          └──────► Expectation(Σ cₖ Pₖ), Cost ◄───────────────┘
 ```
 
-The sampling interface is the extension point. The first version provides one
-general-contraction implementation, cuTensorNet's native sampler. According to
-NVIDIA's documentation, it samples groups of qubits from their reduced density
-matrices and reuses cached intermediate tensors between those contractions. Other implementations plug in
-behind the same interface and are checked by the same tests. For example, a
-generic sampler built on the existing
-[shared contraction interfaces](../../../source/simulators/src/execution/README.md#shared-contraction-contracts-i3)
-would work with any contraction backend and expose a finer cost breakdown.
-They are developed if there is interest.
+Both methods share QDK's program execution; only the state representation
+differs. The exact reference contracts the circuit's network for each
+expectation value with an optimized contraction path. Its cost is set by the
+circuit's structure rather than by entanglement, which is why it stops
+fitting at some lattice size.
 
 ### 5.2 Why MPS finds 2D hard
 
 ```text
-lattice (N=3)              MPS chain (mode = qubit index)
+lattice (N=3)              MPS chain (site = qubit index)
  0 ─ 1 ─ 2                 0 ─ 1 ─ 2   3 ─ 4 ─ 5   6 ─ 7 ─ 8
  │   │   │                 └─────N─────┘
  3 ─ 4 ─ 5                 every vertical bond spans N chain sites
@@ -308,29 +238,95 @@ lattice (N=3)              MPS chain (mode = qubit index)
  6 ─ 7 ─ 8
 ```
 
-MPS arranges the qubits in a line, in qubit order. Horizontal bonds stay short,
-but every vertical bond becomes a long-range gate across `N` chain sites, which
-can grow the MPS bond dimension. How much it grows depends on the state, so
-MPS may still do well at small `h` or short times. It is a motivation for the
-comparison, not a verdict.
+Horizontal bonds stay short, but every vertical bond becomes a long-range gate
+across `N` chain sites. The entanglement across a cut of the chain can grow
+with the lattice width, so the χ needed grows with `N`. How fast depends on
+the state, which is what [§3.2](#32-2d-is-hard-for-mps-hardest-near-h--303)
+measures.
 
-### 5.3 Why general contraction needs a sampler
+### 5.3 What is and is not claimed
 
-General contraction computes numbers from the whole 2D network at once, without
-truncation. Asking it for the full state is only practical up to about 4x4:
+- **General contraction is exact:** no truncation, with an optimized
+  contraction path. The QEC demo uses it for outcome probabilities.
+- **This demo studies MPS against an exact reference.** It does not evaluate
+  `Expectation` through the QEC demo's general-contraction builder; that
+  needs a double-layer network ($\langle\psi|P|\psi\rangle$), which is not
+  built.
+- **PEPS is not planned.** It suits 2D lattices, but nothing in this preview
+  implements it.
 
-| Lattice | Qubits | Full state (complex f64) |
-| --- | --- | --- |
-| 4×4 | 16 | 1 MiB |
-| 5×5 | 25 | 512 MiB |
-| 6×6 | 36 | 1 TiB |
+### 5.4 How it's done: two qdk-chemistry seams
 
-So shots come from the sampler, which contracts only small conditional
-probabilities, never the full state. Full amplitudes are used only to validate
-small cases. A small output does not make contraction cheap, though: its cost
-is set by the intermediate tensors, which is what Example 3 measures.
+`qdk-chemistry`'s QDK executor already calls `circuit.get_qir()` and
+`run_qir(...)`, so QIR is its internal plumbing. A tensor-network backend can
+sit behind either of two existing seams, whose contracts differ:
 
-### 5.4 Why not the other QDK simulators
+```text
+CircuitExecutor:      (Circuit, shots, QuantumErrorProfile?) ─► bitstring counts
+ExpectationEstimator: (Circuit, QubitOperator, shots, noise?) ─► ⟨H⟩, variance
+this demo:            (QIR, [Expectation(P), …])             ─► values, no shot noise
+```
+
+The two sketches below are illustrative only: nothing in `qdk-chemistry` is
+built or changed, and registration and settings are omitted.
+
+**Seam 1: a drop-in `CircuitExecutor` (shots).** Wraps `run_qir(type="mps")`
+like the full-state executor. The MPS backend is noiseless and runs
+Base-profile programs, so it must reject a noise profile.
+
+```python
+from collections import Counter
+from qdk import Result
+from qdk.simulation import run_qir
+from qdk_chemistry.algorithms.circuit_executor.base import CircuitExecutor
+from qdk_chemistry.data import CircuitExecutorData
+
+class QdkMpsSimulator(CircuitExecutor):
+    def _run_impl(self, circuit, shots, noise=None):
+        if noise is not None:
+            raise ValueError("the MPS executor is noiseless; remove the noise profile")
+        runs = run_qir(circuit.get_qir(), shots=shots, type="mps")
+        counts = Counter("".join("1" if r == Result.One else "0" for r in reversed(run))
+                         for run in runs)                 # little-endian, like the QDK executor
+        return CircuitExecutorData(bitstring_counts=dict(counts), total_shots=shots,
+                                   executor=self.name(), executor_metadata=runs)
+
+    def name(self):
+        return "qdk_mps_simulator"
+```
+
+**Seam 2: a tensor-network `ExpectationEstimator` (no shots).** Computes
+$\langle H\rangle$ directly from `Expectation` queries, which is this demo's
+value: no shot noise and no measurement-basis circuits.
+
+```python
+from qdk.simulation import Expectation, MpsOptions, tensornetwork_qir
+from qdk_chemistry.algorithms.expectation_estimator.expectation_estimator import ExpectationEstimator
+from qdk_chemistry.data import EnergyExpectationResult, MeasurementData
+
+def _term(label):                                         # "IXZ" -> ("XZ", [1, 0])
+    ops = [(p, len(label) - 1 - i) for i, p in enumerate(label) if p != "I"]
+    return "".join(p for p, _ in ops), [q for _, q in ops]  # rightmost label is qubit 0
+
+class TensorNetworkEstimator(ExpectationEstimator):
+    def _run_impl(self, circuit, qubit_hamiltonian, total_shots, noise_model=None):
+        if noise_model is not None:
+            raise ValueError("tensor-network expectation values are noiseless")
+        labels, coeffs = qubit_hamiltonian.pauli_strings, qubit_hamiltonian.coefficients
+        queries = [Expectation([(*_term(label), 1.0)]) for label in labels]  # identity terms omitted for brevity
+        values = [v.real for v in tensornetwork_qir(circuit.get_qir(), queries, method="mps",
+                                                     options=MpsOptions(max_bond_dimension=64))]
+        energy = float(sum(c * v for c, v in zip(coeffs, values)))
+        return (EnergyExpectationResult(energy_expectation_value=energy, energy_variance=0.0,
+                                        expvals_each_term=values, variances_each_term=[0.0] * len(values)),
+                MeasurementData(hamiltonians=[qubit_hamiltonian], bitstring_counts=[], shots_list=[]))
+```
+
+The same estimator with `method="contraction"` gives the exact value where it
+fits. **Which seam fits your algorithms better?** The answer sets the priority
+for production integration.
+
+### 5.5 Why not the other QDK simulators
 
 Dense CPU/GPU statevectors stop at about 25 qubits
 ([measured](../mps_trotter_quench_demo/DEMO.md#22-the-dense-wall-measured)); the
@@ -338,73 +334,59 @@ wgpu `type="gpu"` path has a fixed 27-qubit single-precision limit
 ([`shader_types.rs`](../../../source/simulators/src/gpu_full_state_simulator/shader_types.rs)).
 The sparse simulator densifies quickly under the transverse field, and the
 Clifford simulator cannot run generic rotations. They remain useful references
-at small sizes.
+at small sizes, as in [Appendix A](#appendix-a--validation-history).
 
 ## 6. Status
 
 | Piece | Status |
 | --- | --- |
 | Circuit generator from `qdk-chemistry` (`--nx/--ny`, `h=0.5`) | Available |
-| `run_qir(type="mps")` | Available |
-| 4x4 general contraction, validated against an independent CPU state (private, native) | Done ([Appendix A](#appendix-a--validation-history)) |
-| Shared contraction interfaces and reusable inputs | Done |
-| Sampling interface and cuTensorNet general-network sampler | ⏳ First version |
-| General contraction through `run_qir` | ⏳ First version |
-| `--field`, `run.py`, near-critical 4x4 reference | ⏳ First version |
-| Measured MPS vs general-contraction results | ⏳ First version |
-| Further samplers, public MPS truncation settings, more gates | On request |
+| 4x4 exact contraction, validated against an independent CPU state | Done ([Appendix A](#appendix-a--validation-history)) |
+| `tensornetwork_qir` API; contraction `Probability` and `Cost` (QEC demo) | Available (preview) |
+| MPS and exact `Expectation` over Pauli sums; MPS `Cost` | ⏳ Demo |
+| `--field`, `run.py` χ sweep, generated circuits, 4x4 `h=3.03` CPU reference | ⏳ Demo |
+| Measured error-against-χ and χ-needed results | ⏳ Demo |
 
 ## 7. What could come next
 
-If the demo is useful to you, these are directions we could take. None is
-planned yet; your feedback decides which come first.
+None of these is planned; your feedback decides which, if any, come first.
 
 | Possible addition | What it would enable |
 | --- | --- |
-| **Noise** through `run_qir(noise=...)` for the tensor-network methods | Noisy Ising dynamics and noisy QEC rounds; both methods are noiseless today |
-| **Expectation values without shots** | Contract $\langle Z_i\rangle$, $\langle Z_i Z_j\rangle$ or energies directly, with no shot noise |
-| **Probabilities of chosen outcomes** | Exact probability of a bitstring or of fixed measurement outcomes (for example postselection or acceptance probabilities) |
-| **Mid-circuit measurement, reset and feedforward** | Repeated-round programs such as syndrome extraction; the methods accept terminal-measurement (Base-profile) programs today |
-| **More gates** | Circuits beyond the current `Rx`/`Rzz` (contraction) and `X, H, Rx, Rz, CNOT, Rzz` (MPS) sets, for example `T` or general rotations |
-| **Accuracy controls** | Choose MPS bond dimension, cutoffs and precision yourself |
-| **Larger contractions** | Splitting one contraction into slices across time or several GPUs |
-| **Other samplers and backends** | The alternatives listed in [§5.1](#51-one-program-pluggable-samplers) |
+| **A `qdk-chemistry` integration** through the seam you prefer ([§5.4](#54-how-its-done-two-qdk-chemistry-seams)) | Tensor-network backends behind your algorithms, without explicit QIR calls |
+| **An optimized MPS site order** | Lower χ for 2D lattices ([§5.2](#52-why-mps-finds-2d-hard)) |
+| **Accuracy controls in `run_qir(type="mps")`** | Bond dimension and cutoffs for shots, as for `tensornetwork_qir` |
+| **More gates** | Circuits beyond `Rx`/`Rzz`, for other chemistry models |
+| **Noise** | Noisy dynamics; both methods are noiseless today |
 
-**A QEC demo is next.** It will use the same pattern (one QIR program,
-several methods, current QDK simulators as references for small cases) on
-error-correction circuits. Its questions are different: does contraction cost
-stay bounded as rounds are added, what are the exact event and acceptance
-probabilities, and what happens with non-Clifford content such as coherent
-over-rotation. Programs come from Stim circuits through the existing
-`qdk.stim` compiler, so QEC tools that export Stim can feed it directly. It
-needs several of the additions above, starting with outcome probabilities and
-mid-circuit measurement.
+The walk-through of other chemistry examples that suit MPS is planned for
+after the demo.
 
 ## 8. Feedback wanted
 
-- Are the Ising examples the right ones? Which sizes, fields or times matter to you?
-- Are `m_z` and `C_ZZ` useful, or do you need other observables (for example single-site $\langle Z_i\rangle$ or correlations at a distance)?
-- Would you want to tune MPS accuracy (bond dimension, cutoffs) yourself?
-- Which other circuits would you run: other chemistry models, QEC circuits, your own?
-- Which of the additions in [§7](#7-what-could-come-next) would you need first?
-- How should the method be selected in `run_qir`? (See the
-  [`type=` naming discussion](../mps_trotter_quench_demo/DEMO.md#t17-in-detail--the-type-selector-conflates-two-axes).)
+- **Which seam fits your algorithms better**: a drop-in `CircuitExecutor`, or
+  a tensor-network `ExpectationEstimator` ([§5.4](#54-how-its-done-two-qdk-chemistry-seams))?
+- Are `m_z` and `C_ZZ` the right observables, or do you need others, for
+  example the energy or longer-range correlations?
+- Is the `10⁻³` threshold for "χ needed" meaningful for your use, or is
+  another accuracy target more useful?
+- Which models, sizes or times would you run next?
 
-**Feedback that shaped this demo.** A `qdk-chemistry` team member wrote, on the
-1D demo (2026-09-08):
+**Feedback that shaped this demo.** On the 1D demo, a `qdk-chemistry` team
+member pointed out that 2D is the canonical hard case for MPS, that `J=1,
+h=3.03` is the square lattice's critical point, and that their builders
+already provide the circuits. That is why the demo uses those circuits and
+compares the two fields.
 
-> This is a good start - 1D has an analytical solution. 2D is canonically hard for MPS. Depending
-> on the parameterization. If you take J=1 and h=3.03, that's the quantum critical point on a
-> square lattice. Moving away from that will make the problem easier.
->
-> Per the above - you don't need to stand up these circuits yourself. They're in QDK-chemistry. If
-> you'd like a run through, let me know.
-
-That is why the demo uses the chemistry circuits, includes MPS, and adds the
-`h=3.03` field. A later review pointed out that approximate tensor-network
-methods can trade a little accuracy for a lot of speed, which is why the demo
-compares accuracy against cost rather than treating "no truncation" as the
-goal.
+After we proposed this accuracy-against-cost study, they found it worth
+seeing, while expecting MPS to fail at the critical point. They asked whether
+we had extended this to general tensor networks and how well that is tested,
+and wanted to see how it is done: they would rather add a proper
+`CircuitExecutor` to `qdk-chemistry` than call QIR and cuQuantum explicitly.
+Arbitrary contraction is a good-quality prototype, well tested in a few
+scenarios ([Appendix A](#appendix-a--validation-history)); the QEC demo is
+where it is used. [§5.4](#54-how-its-done-two-qdk-chemistry-seams) shows how
+it is done and asks which seam fits.
 
 ---
 
