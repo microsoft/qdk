@@ -131,11 +131,11 @@ block_24:
   br label %block_29
 block_25:
   %var_132 = load i64, ptr %var_37
-  %var_39_offset_chk = icmp slt i64 %var_132, 0
-  %var_39_offset = select i1 %var_39_offset_chk, i64 1, i64 0
-  %var_39 = getelementptr [3 x ptr], ptr @array0, i64 %var_39_offset, i64 %var_132
-  %var_133 = load ptr, ptr %var_39
-  call void @Reset(ptr %var_133)
+  %var_133_offset_chk = icmp slt i64 %var_132, 0
+  %var_133_offset = select i1 %var_133_offset_chk, i64 1, i64 0
+  %var_133 = getelementptr [3 x ptr], ptr @array0, i64 %var_133_offset, i64 %var_132
+  %var_39 = load ptr, ptr %var_133
+  call void @Reset(ptr %var_39)
   %var_42 = add i64 %var_132, 1
   store i64 %var_42, ptr %var_37
   br label %block_20
@@ -169,11 +169,11 @@ block_33:
   br label %block_38
 block_34:
   %var_123 = load i64, ptr %var_45
-  %var_47_offset_chk = icmp slt i64 %var_123, 0
-  %var_47_offset = select i1 %var_47_offset_chk, i64 1, i64 0
-  %var_47 = getelementptr [4 x ptr], ptr @array1, i64 %var_47_offset, i64 %var_123
-  %var_124 = load ptr, ptr %var_47
-  store ptr %var_124, ptr %var_48
+  %var_124_offset_chk = icmp slt i64 %var_123, 0
+  %var_124_offset = select i1 %var_124_offset_chk, i64 1, i64 0
+  %var_124 = getelementptr [4 x ptr], ptr @array1, i64 %var_124_offset, i64 %var_123
+  %var_47 = load ptr, ptr %var_124
+  store ptr %var_47, ptr %var_48
   %var_126 = load i64, ptr %var_44
   %var_49 = and i64 %var_126, 1
   %var_50 = icmp eq i64 %var_49, 1
@@ -311,11 +311,11 @@ block_70:
   br i1 %var_87, label %block_76, label %block_77
 block_71:
   %var_118 = load i64, ptr %var_92
-  %var_94_offset_chk = icmp slt i64 %var_118, 0
-  %var_94_offset = select i1 %var_94_offset_chk, i64 1, i64 0
-  %var_94 = getelementptr [4 x ptr], ptr @array1, i64 %var_94_offset, i64 %var_118
-  %var_119 = load ptr, ptr %var_94
-  call void @Reset(ptr %var_119)
+  %var_119_offset_chk = icmp slt i64 %var_118, 0
+  %var_119_offset = select i1 %var_119_offset_chk, i64 1, i64 0
+  %var_119 = getelementptr [4 x ptr], ptr @array1, i64 %var_119_offset, i64 %var_118
+  %var_94 = load ptr, ptr %var_119
+  call void @Reset(ptr %var_94)
   %var_96 = add i64 %var_118, 1
   store i64 %var_96, ptr %var_92
   br label %block_66
