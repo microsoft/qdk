@@ -8,14 +8,14 @@ use expect_test::{Expect, expect};
 // fail to compile until the new expect strings are added.
 pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
-pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 29822"];
+pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 45044"];
 pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 20277"];
 pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 19421"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
-    expect!["generated circuit of length 2914"];
+    expect!["generated circuit of length 4620"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 4194"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_QIR_ADAPTIVE: Expect =
