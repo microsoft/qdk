@@ -5,6 +5,8 @@ from itertools import product
 import pytest
 from qodec import Reference
 
+from ec_tests.testing.optional import requires_stim
+
 
 def test_prepared_terminal_readout_table_matches_all_repetition_measurements():
     from qodec import Qodec
@@ -520,7 +522,9 @@ def test_failed_explicit_frame_correction_does_not_commit_output_state():
         "circuit.readouts[9]",
     ],
 )
-@pytest.mark.parametrize("decoder", ["syndrome", "frame"])
+@pytest.mark.parametrize(
+    "decoder", ["syndrome", pytest.param("frame", marks=requires_stim)]
+)
 def test_decoders_leave_unbound_parity_references_unresolved(
     reference: str, decoder: str
 ) -> None:

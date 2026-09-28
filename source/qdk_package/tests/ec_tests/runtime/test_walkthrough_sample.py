@@ -10,19 +10,22 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import pyqir
-import stim
 
 from qdk import Result, TargetProfile, ec, qsharp
 from qdk.simulation import NoiseConfig, run_qir
 from qdk.simulation.decoders import prepare_deq_decoder
+
+# The walkthrough builds its gadgets from Stim sources.
+stim = pytest.importorskip("stim")
 
 SAMPLE = Path(__file__).resolve().parents[5] / "samples/notebooks/qdk_ec"
 
 
 @pytest.fixture(scope="module")
 def walkthrough():
-    notebook = json.loads((SAMPLE / "qdk_ec_walkthrough.ipynb").read_text())
+    notebook = json.loads(
+        (SAMPLE / "qdk_ec_walkthrough.ipynb").read_text(encoding="utf-8")
+    )
     sources = [
         "".join(cell["source"])
         for cell in notebook["cells"]
@@ -176,45 +179,26 @@ def test_walkthrough_sweep_cells_run_without_editing_the_protocol(
     assert not ec.audit(protocol).diagnostics
 
 
-def test_walkthrough_serial_example_calls_run_qir_and_matches_the_helper(
-    walkthrough, simulation, benchmark_programs, monkeypatch
-):
-    import qdk.simulation as qdk_simulation
-    from deq import runtime as deq_runtime
-
-    protocol, sources = walkthrough
-    original = protocol.dumps()
-    (source,) = [source for source in sources if "\nrun_qir(" in source]
-    runtime_options = []
-    calls = []
-    original_runtime = deq_runtime.Runtime
-
-    def runtime(**options):
-        runtime_options.append(options)
-        return original_runtime(**options)
-
-    def sample(program, **options):
-        samples = run_qir(program, **options)
-        calls.append((str(program), options, samples))
-        return samples
-
-    monkeypatch.setattr(deq_runtime, "Runtime", runtime)
-    monkeypatch.setattr(qdk_simulation, "run_qir", sample)
-    namespace = {"protocol": protocol, "benchmarks": benchmark_programs}
-    exec(compile(source, "qdk_ec_walkthrough.ipynb:serial-samples", "exec"), namespace)
-    ((program, options, samples),) = calls
-    assert program == benchmark_programs["SPAM Z"]
-    assert options["shots"] == 8 and options["seed"] == 42
-    assert options["qodec"] is protocol
-    assert options["type"] == "stabilizer"
-    assert options["on_shot_failure"] == "discard"
-    assert runtime_options == [
-        {
-            "decoder": "black-box-relay-bp",
-            "decoder_config": {"parallel": 1, "seed": 42},
-            "coordinator": "monolithic",
-            "controller": "jit",
-        }
+def test_walkthrough_spam_diagram_renders_existing_gadgets_with_qdk(walkthrough):
+    pytest.importorskip("qsharp_widgets")
+    protocol, _ = walkthrough
+    baseline = protocol.dumps()
+    notebook = json.loads(
+        (SAMPLE / "qdk_ec_walkthrough.ipynb").read_text(encoding="utf-8")
+    )
+    source = next(
+        "".join(cell["source"])
+        for cell in notebook["cells"]
+        if "".join(cell["source"]).startswith("from qdk import openqasm")
+    )
+    namespace = {"gadgets": protocol.layers[0].gadgets, "stim": stim}
+    exec(compile(source, "qdk_ec_walkthrough.ipynb:spam-circuit", "exec"), namespace)
+    diagram = json.loads(namespace["spam_diagram"].json())
+    assert len(diagram["qubits"]) == 5
+    components = [
+        component
+        for column in diagram["componentGrid"]
+        for component in column["components"]
     ]
     assert len(samples) == 8
     assert all(len(flags) == 1 and len(logical) == 2 for flags, logical in samples)
