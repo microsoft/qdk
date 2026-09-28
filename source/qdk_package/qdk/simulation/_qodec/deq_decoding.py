@@ -7,7 +7,7 @@ This module owns instances, sample/result routing, and bounded deq execution.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from functools import partial
@@ -59,6 +59,16 @@ from .selection import Selection
 _COMPOSITE_SIZE = 1024
 
 
+def _default_runtime(seed: int) -> Runtime:
+    return Runtime(
+        decoder="black-box-relay-bp",
+        decoder_config={"parallel": 1, "seed": seed},
+        coordinator="window",
+        coordinator_config={"buffer_radius": 1, "lookahead_radius": 1},
+        controller="jit",
+    )
+
+
 @dataclass(frozen=True)
 class _Instance:
     """Map one compiled gadget to physical records and QDK readout slots."""
@@ -88,8 +98,13 @@ class _ReadoutPlan:
 
 
 class DeqModel:
-    def __init__(self, layer: Layer) -> None:
+    def __init__(
+        self, layer: Layer, *, runtime_factory: Callable[[int], Runtime] | None = None
+    ) -> None:
         self.layer_plan = LayerPlan(layer)
+        self.runtime_factory = (
+            _default_runtime if runtime_factory is None else runtime_factory
+        )
 
     def record_circuit(
         self,
@@ -111,7 +126,14 @@ class DeqModel:
         source, artifacts = builder.build()
         library, composites = _compose_gadgets(source, artifacts, instances)
         samples = replace(trace, events=(), sources=(), outputs=())
-        return DeqBatch(samples, readouts, library, _noise_key(noise), composites)
+        return DeqBatch(
+            samples,
+            readouts,
+            library,
+            _noise_key(noise),
+            composites,
+            self.runtime_factory,
+        )
 
 
 def _connect_gadgets(
@@ -366,6 +388,7 @@ class DeqBatch:
     library: jit.JitLibrary
     noise_key: tuple[float, ...]
     composites: tuple[_Composite, ...]
+    runtime_factory: Callable[[int], Runtime] = _default_runtime
 
     def run(
         self,
@@ -406,13 +429,7 @@ class DeqBatch:
         weight_per_shot = sum(weights[chunk.gtype] for chunk in self.composites)
         batch_size = max(1, min(256, 262144 // weight_per_shot))
         results = []
-        async with Runtime(
-            decoder="black-box-relay-bp",
-            decoder_config={"parallel": 1, "seed": seed},
-            coordinator="window",
-            coordinator_config={"buffer_radius": 1, "lookahead_radius": 1},
-            controller="jit",
-        ) as runtime:
+        async with self.runtime_factory(seed) as runtime:
             service = runtime.jit_controller
             await service.load_library(self.library)
             for start in range(0, len(records), batch_size):

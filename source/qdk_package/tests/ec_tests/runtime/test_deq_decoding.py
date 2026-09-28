@@ -1,6 +1,7 @@
 """Exercise deq through run_qir; use internal seams for model and fault assertions."""
 
 import asyncio
+from functools import partial
 from itertools import product
 from typing import Literal
 
@@ -44,6 +45,7 @@ def simulate(circuit_decoder):
         noise=None,
         shots=3,
         seed=42,
+        runtime_factory=None,
         on_shot_failure: Literal["raise", "discard"] = "raise",
     ):
         if codec is None:
@@ -55,7 +57,7 @@ def simulate(circuit_decoder):
         return run_qir(
             program,
             qodec=codec,
-            decoder=circuit_decoder,
+            decoder=partial(circuit_decoder, runtime_factory=runtime_factory),
             noise=noise,
             shots=shots,
             seed=seed,
@@ -2064,13 +2066,128 @@ def test_deq_releases_worker_after_runtime_failure(simulate, monkeypatch, failur
     assert workers and all(not worker.is_alive() for worker in workers)
 
 
-def test_deq_factory_has_only_a_layer_parameter():
+def test_deq_factory_accepts_keyword_only_runtime_factory():
     from inspect import Parameter, signature
 
     parameters = signature(prepare_deq_decoder).parameters
-    assert tuple(parameters) == ("layer",)
+    assert tuple(parameters) == ("layer", "runtime_factory")
     assert parameters["layer"].kind is Parameter.POSITIONAL_OR_KEYWORD
     assert parameters["layer"].default is Parameter.empty
+    assert parameters["runtime_factory"].kind is Parameter.KEYWORD_ONLY
+    assert parameters["runtime_factory"].default is None
+
+
+def test_runtime_factory_is_lazy_seeded_and_owned_by_the_worker(simulate):
+    from threading import current_thread, main_thread
+    from deq.runtime import Runtime
+
+    created, closed, workers, seeds = [], [], [], []
+
+    class TrackedRuntime(Runtime):
+        async def shutdown(self):
+            closed.append(self)
+            await super().shutdown()
+
+    def make_runtime(seed):
+        assert asyncio.get_running_loop().is_running()
+        assert current_thread() is not main_thread()
+        workers.append(current_thread())
+        seeds.append(seed)
+        runtime = TrackedRuntime(
+            decoder="black-box-relay-bp",
+            decoder_config={"parallel": 1, "seed": seed},
+            coordinator="monolithic",
+            controller="jit",
+        )
+        created.append(runtime)
+        return runtime
+
+    codec = qodec.Qodec.load(FIXTURES / "repetition3.qodec.yaml")
+    prepare_deq_decoder(codec.layers[0], runtime_factory=make_runtime)
+    assert not created
+    for shots, seed in ((257, 7), (3, 8)):
+        assert (
+            simulate(codec=codec, shots=shots, seed=seed, runtime_factory=make_runtime)
+            == [[Result.Zero]] * shots
+        )
+    assert seeds == [7, 8]
+    assert len(created) == 2 and created[0] is not created[1]
+    assert closed == created
+    assert all(not worker.is_alive() for worker in workers)
+
+
+@pytest.mark.parametrize("failure", ["factory", "decode", "shutdown"])
+def test_runtime_factory_errors_propagate_and_release_resources(
+    simulate, monkeypatch, failure
+):
+    from threading import current_thread
+    from deq.runtime import Runtime
+
+    error = RuntimeError(f"{failure} failed")
+    closed, workers = [], []
+
+    class TrackedRuntime(Runtime):
+        async def shutdown(self):
+            closed.append(self)
+            await super().shutdown()
+            if failure == "shutdown":
+                raise error
+
+    async def fail_decode(outcomes):
+        raise error
+
+    def make_runtime(seed):
+        workers.append(current_thread())
+        if failure == "factory":
+            raise error
+        runtime = TrackedRuntime(
+            decoder="black-box-relay-bp",
+            decoder_config={"parallel": 1, "seed": seed},
+            coordinator="monolithic",
+            controller="jit",
+        )
+        if failure == "decode":
+            monkeypatch.setattr(runtime.jit_controller, "batch_decode", fail_decode)
+        return runtime
+
+    with pytest.raises(RuntimeError) as raised:
+        simulate(shots=1, runtime_factory=make_runtime)
+    assert raised.value is error
+    assert len(closed) == (0 if failure == "factory" else 1)
+    assert all(not worker.is_alive() for worker in workers)
+
+
+def test_runtime_factory_without_jit_is_rejected_and_closed(simulate):
+    from deq.runtime import Runtime
+
+    closed = []
+
+    class TrackedRuntime(Runtime):
+        async def shutdown(self):
+            closed.append(self)
+            await super().shutdown()
+
+    def make_runtime(seed):
+        return TrackedRuntime(
+            decoder="black-box-relay-bp",
+            decoder_config={"parallel": 1, "seed": seed},
+            coordinator="monolithic",
+        )
+
+    with pytest.raises(AttributeError, match='controller="jit"'):
+        simulate(shots=1, runtime_factory=make_runtime)
+    assert len(closed) == 1
+
+
+def test_runtime_factory_must_be_callable(circuit_decoder):
+    codec = qodec.Qodec.load(FIXTURES / "repetition3.qodec.yaml")
+    with pytest.raises(TypeError, match="runtime_factory must be callable"):
+        circuit_decoder(codec.layers[0], runtime_factory=object())
+
+
+def test_runtime_factory_invalid_result_is_not_replaced_by_a_default(simulate):
+    with pytest.raises(TypeError, match="asynchronous context manager"):
+        simulate(shots=1, runtime_factory=lambda seed: None)
 
 
 @pytest.mark.parametrize(

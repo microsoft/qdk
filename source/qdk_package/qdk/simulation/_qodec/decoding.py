@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 from paulimer import DensePauli
@@ -30,6 +31,9 @@ from .readout_equations import (
     expression,
     prepare_frames,
 )
+
+if TYPE_CHECKING:
+    from deq.runtime import Runtime
 
 
 class CodeDecoder:
@@ -113,12 +117,25 @@ def prepare_syndrome_decoder(layer: Layer) -> DecoderFactory:
     return SyndromeModel(layer)
 
 
-def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
+def prepare_deq_decoder(
+    layer: Layer, *, runtime_factory: Callable[[int], Runtime] | None = None
+) -> DecoderFactory:
     """Prepare a circuit-level deq decoder for a Qodec layer.
 
     Requires ``pip install deq deq-runtime``. The decoder composes bounded
     groups of local Clifford gadgets using the ``run_qir`` noise model and
-    deq's window coordinator with relay-BP decoding.
+    deq's window coordinator with relay-BP decoding by default.
+
+    ``runtime_factory(seed)`` may instead construct a fresh ``deq.runtime.Runtime``
+    with caller-selected decoder/coordinator settings and ``controller="jit"``.
+    It is called once when a nonempty run needs decoding, inside the worker's
+    asyncio event loop, not during layer preparation or for each shot. The integer
+    argument is that run's seed; the factory decides how to configure decoder
+    seeding. QDK enters and closes the returned runtime, including on decoding
+    errors. Do not return a shared runtime or reuse one between calls.
+    With no factory, the existing seeded, single-worker relay-BP runtime and
+    radius-one window settings are retained.
+
     Gadget models are converted independently of the program trace. The trace
     supplies connected top-level ISA calls and native physical samples; deq
     owns frame propagation through explicit PROPAGATE statements derived from
@@ -140,6 +157,10 @@ def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
     Circuit fault probabilities are passed to deq without complementing values
     above one half. deq 0.5.7 can miss corrections for such faults at zero syndrome.
     """
+    if runtime_factory is not None and not callable(runtime_factory):
+        raise TypeError(
+            "runtime_factory must be callable and return a fresh deq Runtime"
+        )
     try:
         from .deq_decoding import DeqModel
     except ModuleNotFoundError as error:
@@ -149,7 +170,7 @@ def prepare_deq_decoder(layer: Layer) -> DecoderFactory:
                 "Install them with: pip install deq deq-runtime"
             ) from error
         raise
-    return DeqModel(layer)
+    return DeqModel(layer, runtime_factory=runtime_factory)
 
 
 class SyndromeModel:

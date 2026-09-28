@@ -93,8 +93,9 @@ def test_decoder_requires_a_qodec():
 
 
 @pytest.mark.parametrize("missing_dependency", ["deq", "deq_runtime"])
+@pytest.mark.parametrize("custom_factory", [False, True])
 def test_deq_missing_dependency_has_install_instructions(
-    monkeypatch, missing_dependency
+    monkeypatch, missing_dependency, custom_factory
 ):
     pytest.importorskip("qodec")
     from qdk.simulation.decoders import prepare_deq_decoder
@@ -106,8 +107,15 @@ def test_deq_missing_dependency_has_install_instructions(
         if name == "deq" or name.startswith("deq."):
             monkeypatch.delitem(sys.modules, name)
     monkeypatch.setitem(sys.modules, missing_dependency, None)
+
+    def unused_factory(seed):
+        pytest.fail("The runtime factory must not run while preparing a layer")
+
     with pytest.raises(ImportError, match="pip install deq deq-runtime"):
-        prepare_deq_decoder(cast("Layer", object()))
+        prepare_deq_decoder(
+            cast("Layer", object()),
+            runtime_factory=unused_factory if custom_factory else None,
+        )
 
 
 @pytest.mark.parametrize("failure", [None, "start", "execute"])

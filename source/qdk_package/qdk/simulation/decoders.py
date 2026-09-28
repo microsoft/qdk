@@ -7,8 +7,9 @@ fresh, seeded shot sessions; deq prepares a model from the complete circuit trac
 
 ``prepare_syndrome_decoder`` is the default minimum-weight Pauli decoder.
 ``prepare_frame_decoder`` tracks noiseless frames without inferring faults.
-``prepare_deq_decoder`` uses deq relay-BP for circuit-level decoding of complete
+``prepare_deq_decoder`` uses deq for circuit-level decoding of complete
 measurement-independent shots, with fault probabilities derived from ``noise``.
+Its default runtime uses relay-BP.
 
 Built-in decoders evaluate gadget equations as supplied, without auditing their
 correctness or completeness. Use :func:`qdk.ec.audit` to check the declarations
@@ -44,6 +45,31 @@ To decode the physical circuit with deq::
         qir, shots=1000, qodec=codec, decoder=prepare_deq_decoder, noise=noise
     )
 
+To configure deq directly, supply a runtime factory::
+
+    from functools import partial
+    from deq.runtime import Runtime
+
+    def make_runtime(seed: int) -> Runtime:
+        return Runtime(
+            decoder="black-box-relay-bp",
+            decoder_config={"parallel": 1, "seed": seed},
+            coordinator="monolithic",
+            controller="jit",
+        )
+
+    results = run_qir(
+        qir, shots=1000, qodec=codec, noise=noise,
+        decoder=partial(prepare_deq_decoder, runtime_factory=make_runtime),
+    )
+
+The factory receives the run seed inside the decoding worker's asyncio loop.
+Return a fresh runtime for each call; QDK owns its async context and closes it
+on success or decoding failure. The JIT controller is required. Decoder,
+coordinator, and other deq settings belong to the returned runtime, not to
+additional QDK tuning parameters. The name ``runtime_factory`` distinguishes
+creation from borrowing a shared ``runtime``.
+
 deq decoding keeps native physical sampling. A conversion module compiles Qodec
 gadgets independently of the program, using their local circuits, declared
 actions, equations, and noise model. An execution module connects those models
@@ -53,7 +79,11 @@ counting measurements, finished and unfinished checks, errors, and one entry per
 source gadget. An individually larger gadget remains intact. Grouping uses no
 instruction names or code-specific rules. Instances connect through their encoded
 block ports. deq propagates circuit faults across those connections and uses
-its window coordinator with buffer and lookahead radii of one composite each.
+the selected coordinator. Without a runtime factory, the existing window
+coordinator uses buffer and lookahead radii of one composite each. These fixed
+defaults are not derived from code distance and can fail to correct low-weight
+fault patterns. A monolithic runtime instead decodes each complete connected
+component, trading window bounds for potentially larger decoding graphs.
 All instances and outcomes are submitted before waiting for decoded readouts;
 discarded and still-live output ports receive explicit terminators.
 
