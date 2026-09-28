@@ -1534,7 +1534,7 @@ pub(crate) struct CircuitConfig {
 #[pymethods]
 impl CircuitConfig {
     #[new]
-    #[pyo3(signature=(*,max_operations=None, max_loop_iterations=100, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false))]
+    #[pyo3(signature=(*,max_operations=None, max_loop_iterations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false))]
     fn new(
         max_operations: Option<usize>,
         max_loop_iterations: Option<usize>,
