@@ -22,11 +22,11 @@ block_1:
   br i1 %var_2, label %block_2, label %block_3
 block_2:
   %var_48 = load i64, ptr %var_1
-  %var_3_offset_chk = icmp slt i64 %var_48, 0
-  %var_3_offset = select i1 %var_3_offset_chk, i64 1, i64 0
-  %var_3 = getelementptr [3 x ptr], ptr @array0, i64 %var_3_offset, i64 %var_48
-  %var_49 = load ptr, ptr %var_3
-  call void @X(ptr %var_49)
+  %var_49_offset_chk = icmp slt i64 %var_48, 0
+  %var_49_offset = select i1 %var_49_offset_chk, i64 1, i64 0
+  %var_49 = getelementptr [3 x ptr], ptr @array0, i64 %var_49_offset, i64 %var_48
+  %var_3 = load ptr, ptr %var_49
+  call void @X(ptr %var_3)
   %var_6 = add i64 %var_48, 1
   store i64 %var_6, ptr %var_1
   br label %block_1
@@ -68,15 +68,15 @@ block_7:
   %var_42 = load i64, ptr %var_17
   %var_20 = add i64 %var_42, 1
   store i64 %var_20, ptr %var_21
-  %var_22_offset_chk = icmp slt i64 %var_42, 0
-  %var_22_offset = select i1 %var_22_offset_chk, i64 1, i64 0
-  %var_22 = getelementptr [3 x i1], ptr %var_16, i64 %var_22_offset, i64 %var_42
-  %var_44 = load i1, ptr %var_22
+  %var_44_offset_chk = icmp slt i64 %var_42, 0
+  %var_44_offset = select i1 %var_44_offset_chk, i64 1, i64 0
+  %var_44 = getelementptr [3 x i1], ptr %var_16, i64 %var_44_offset, i64 %var_42
+  %var_22 = load i1, ptr %var_44
   %var_45 = load i64, ptr %var_21
   %var_46_offset_chk = icmp slt i64 %var_45, 0
   %var_46_offset = select i1 %var_46_offset_chk, i64 1, i64 0
   %var_46 = getelementptr [4 x i1], ptr %var_7, i64 %var_46_offset, i64 %var_45
-  store i1 %var_44, ptr %var_46
+  store i1 %var_22, ptr %var_46
   %var_23 = add i64 %var_42, 1
   store i64 %var_23, ptr %var_17
   br label %block_4
@@ -91,17 +91,17 @@ block_8:
   store i1 %var_24_1, ptr %var_24_1_dst
   %var_38 = load [2 x i1], ptr %var_24
   store [2 x i1] %var_38, ptr %var_25
-  %var_26_offset_chk = icmp slt i64 0, 0
-  %var_26_offset = select i1 %var_26_offset_chk, i64 1, i64 0
-  %var_26 = getelementptr [2 x i1], ptr %var_25, i64 %var_26_offset, i64 0
-  %var_40 = load i1, ptr %var_26
-  %var_27_offset_chk = icmp slt i64 1, 0
-  %var_27_offset = select i1 %var_27_offset_chk, i64 1, i64 0
-  %var_27 = getelementptr [2 x i1], ptr %var_25, i64 %var_27_offset, i64 1
-  %var_41 = load i1, ptr %var_27
+  %var_40_offset_chk = icmp slt i64 0, 0
+  %var_40_offset = select i1 %var_40_offset_chk, i64 1, i64 0
+  %var_40 = getelementptr [2 x i1], ptr %var_25, i64 %var_40_offset, i64 0
+  %var_26 = load i1, ptr %var_40
+  %var_41_offset_chk = icmp slt i64 1, 0
+  %var_41_offset = select i1 %var_41_offset_chk, i64 1, i64 0
+  %var_41 = getelementptr [2 x i1], ptr %var_25, i64 %var_41_offset, i64 1
+  %var_27 = load i1, ptr %var_41
   call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-  call void @__quantum__rt__bool_record_output(i1 %var_40, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 %var_41, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 %var_26, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 %var_27, ptr @2)
   ret i64 0
 }
 
