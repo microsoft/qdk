@@ -7,20 +7,25 @@ import {
   qsharpLibraryUriScheme,
 } from "qsharp-lang";
 import * as vscode from "vscode";
-import { toVsCodeRange } from "../common";
+import { isOpenQasmDocument, toVsCodeRange } from "../common";
+import { getOpenQasmModeService } from "./openqasmMode.js";
 
 export function createQdkCodeLensProvider(languageService: ILanguageService) {
   return new CodeLensProvider(languageService, mapCodeLens);
 }
 
 class CodeLensProvider implements vscode.CodeLensProvider {
+  private readonly changedEmitter = new vscode.EventEmitter<void>();
+  readonly onDidChangeCodeLenses = this.changedEmitter.event;
+
   constructor(
     public languageService: ILanguageService,
     private commandMapper: (value: ICodeLens) => vscode.CodeLens,
-  ) {}
-  // We could raise events when code lenses change,
-  // but there's no need as the editor seems to query often enough.
-  // onDidChangeCodeLenses?: vscode.Event<void> | undefined;
+  ) {
+    getOpenQasmModeService()?.onDidResolveMode(() =>
+      this.changedEmitter.fire(),
+    );
+  }
   async provideCodeLenses(
     document: vscode.TextDocument,
   ): Promise<vscode.CodeLens[]> {
@@ -33,6 +38,18 @@ class CodeLensProvider implements vscode.CodeLensProvider {
     const codeLenses = await this.languageService.getCodeLenses(
       document.uri.toString(),
     );
+
+    if (
+      isOpenQasmDocument(document) &&
+      (await getOpenQasmModeService()?.getMode(document.uri)) === "spec"
+    ) {
+      return [
+        new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
+          title: "QDK features are disabled in spec mode. Switch to QDK mode",
+          command: "qsharp-vscode.openqasmSwitchToQdk",
+        }),
+      ];
+    }
 
     return codeLenses.map((cl) => this.commandMapper(cl));
   }

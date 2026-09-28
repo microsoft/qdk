@@ -232,6 +232,7 @@ export type {
   ILanguageServiceWorker,
   LanguageServiceDiagnosticEvent,
   LanguageServiceEvent,
+  LanguageServiceModeResolvedEvent,
   LanguageServiceTestCallablesEvent,
 } from "./language-service/language-service.js";
 export type { DiagnosticsPublisherImpl } from "./language-service/diagnosticsPublisher.js";

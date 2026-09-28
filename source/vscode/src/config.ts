@@ -47,6 +47,23 @@ export function getShowDevDiagnostics(): boolean {
     .get<boolean>("dev.showDevDiagnostics", false);
 }
 
+export type OpenQasmMode = "auto" | "qdk" | "spec";
+
+export function getOpenQasmMode(): OpenQasmMode {
+  const mode = vscode.workspace
+    .getConfiguration("qdk")
+    .get<string>("openqasm.mode", "auto");
+  switch (mode) {
+    case "auto":
+    case "qdk":
+    case "spec":
+      return mode;
+    default:
+      log.error("invalid OpenQASM mode found: {}", mode);
+      return "auto";
+  }
+}
+
 export function getUploadSupplementalData(): boolean {
   return vscode.workspace
     .getConfiguration("Q#")
