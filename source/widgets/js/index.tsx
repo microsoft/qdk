@@ -311,6 +311,15 @@ function renderCircuit({ model, el }: RenderArgs) {
       });
     });
 
+    // Host MathJax fonts can map ordinary Unicode characters to different glyphs.
+    clone.querySelectorAll<SVGElement>(".qs-maintext").forEach((element) => {
+      element.style.fontFamily = '"KaTeX_Main", serif';
+    });
+    clone.querySelectorAll<SVGElement>(".qs-mathtext").forEach((element) => {
+      element.style.fontFamily = '"KaTeX_Math", serif';
+      element.style.fontStyle = "italic";
+    });
+
     const circuitContainer = svg.closest<HTMLElement>(".qs-circuit");
     if (circuitContainer) {
       clone.style.backgroundColor =
