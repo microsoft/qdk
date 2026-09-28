@@ -10,10 +10,7 @@ mod tests;
 
 /// Transforms result literals in the program.
 /// Since result literals are not supported in QIR, this function attempts to handle them as best as possible.
-/// A result literal of `Zero` (or false) will be replaced with an additional result id that is never measured into,
-/// which defaults to returning false or 0 if read or recorded.
-/// A result literal of `One` cannot be handled and is left un-transformed so that later checks on the program can
-/// reject it as incompatible.
+/// Result literals are replaced with new result ids that are explicitly set via calls to the `write_result` function.
 pub fn transform_result_literals(program: &mut Program) {
     let result_zero_id = program.num_results;
     let result_one_id = program.num_results + 1;
