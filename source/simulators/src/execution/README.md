@@ -270,6 +270,60 @@ The private `_fixed_outcome_network_probe(program, outcomes)` returns only
 the network's shape (node axis ids and output axis ids; every axis has
 dimension two), for host width estimates with external optimizers.
 
+### Closed-amplitude orchestration
+
+```text
+FixedOutcomeCircuit -> CircuitTensorNetwork -> reject open output_qubits()
+  -> planner(context, query) -> plan + report + limits -> context.prepare()
+       Cost only: close ---------------------------------> cost reports
+       Amplitude: register each coefficient buffer once, Immutable
+                  -> select inputs by node_buffer_ids -> execute -> scalar A -> close
+
+P_pass(r) = |A(r)|^2
+width = log2(largest intermediate elements)
+workspace_bytes = minimum device scratch needed, not allocated bytes
+```
+
+`contract_amplitude` and `contraction_cost` own this sequence in the shared
+execution layer. A planning closure borrows the same context used to prepare
+the executable, because a backend optimizer may need that session without
+holding it across preparation. Reports survive preparation/execution failures;
+execution and cleanup errors are both retained. Cost-only never registers
+coefficients or executes a contraction. Open qubits are reported before
+planning: an amplitude with open axes is a vector, not the scalar needed for
+a fixed-record probability. `closed_amplitude_query` is that check, public so
+a backend can apply it before acquiring a device.
+
+The thin cuTensorNet entry takes a built `CircuitTensorNetwork`, rejects
+invalid settings and open networks before discovery, and owns discovery,
+session lifetime and policy.
+Preparation uses the optimizer's effective workspace budget; an over-budget
+`Cost` returns the partial minimum-workspace report, whereas `Probability`
+raises `ValueError` with required and allowed bytes. Other failures are not
+cost results, and cleanup failures always propagate. Availability/native
+failures become `OSError`; invalid or unsupported programs become `ValueError`.
+Host fakes cover orchestration, reports, buffer selection and failures; native
+numerical qualification requires an NVIDIA GPU.
+
+The Python preview accepts `ContractionOptions` only with
+`method="contraction"` (`MpsOptions` only with `"mps"`). Defaults are 8
+hyper-samples, seed 17, all available CPU threads and an automatic budget of
+half the free device memory. Python fills the defaults; the native functions
+require every option key. The seed fixes the search's random choices, but the
+thread count follows the host, so results record it. The SDK's 500 reconfiguration iterations refine
+local sub-orderings; rank simplification stays enabled because the numerous
+rank-one boundaries should not inflate the search. Neither field is a public
+option. Plans are unsliced: supporting slicing needs portable sliced indices,
+adapter import/export, and a slice count in `Cost`.
+
+`Probability` is the single-pass `P_pass`, not normalized for selection
+acceptance (see `TODO(selection-normalization)` below). Records failing a
+selection check raise `ValueError` naming the repeated result.
+`_fixed_outcome_contraction_probe(program, outcomes, flip_result_id, options)`
+instead keeps the accepted path and flips just that measurement cap, so a
+deterministic cap can be checked for zero amplitude without restarting the
+program. Both routes use the same shared contraction chain.
+
 ### Shared contraction contracts (I3)
 
 **Implemented in slice 3b; tiny supplied-plan reuse is GPU-qualified:** preparation

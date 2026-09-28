@@ -75,6 +75,38 @@ class MpsOptions:
             raise ValueError("max_bond_dimension must be a positive integer or None")
 
 
+@dataclass(frozen=True)
+class ContractionOptions:
+    """Options for exact, unsliced contraction on NVIDIA cuTensorNet.
+
+    Used by ``tensornetwork_qir(method="contraction")``.
+    Preview: these options may change.
+
+    :param device: ``"nvidia"`` or ``None``; both select NVIDIA cuTensorNet.
+    :param hyper_samples: Positive number of optimizer trials. More trials
+        take longer but may find a smaller intermediate tensor and workspace.
+        ``None`` selects 8. The backend requires a value below 2**31.
+    :param seed: Optimizer seed in [0, 2**31). ``None`` selects 17.
+        This controls path search, not measurement outcomes.
+    """
+
+    device: Optional[Literal["nvidia"]] = None
+    hyper_samples: Optional[int] = None
+    seed: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        samples = self.hyper_samples
+        if samples is not None and (
+            isinstance(samples, bool) or not isinstance(samples, int) or samples < 1
+        ):
+            raise ValueError("hyper_samples must be a positive integer or None")
+        seed = self.seed
+        if seed is not None and (
+            isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**31
+        ):
+            raise ValueError("seed must be an integer in [0, 2**31) or None")
+
+
 class AggregateGatesPass(pyqir.QirModuleVisitor):
     def __init__(self) -> None:
         super().__init__()

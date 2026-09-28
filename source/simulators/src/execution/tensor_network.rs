@@ -35,6 +35,7 @@ pub struct CircuitTensorNetwork {
     buffers: Vec<Box<[Complex64]>>,
     node_buffer_ids: Vec<usize>,
     output_axes: Indices,
+    output_qubits: Vec<QubitID>,
 }
 
 impl CircuitTensorNetwork {
@@ -85,7 +86,7 @@ impl CircuitTensorNetwork {
                 _ => unreachable!("operations were validated before constructing the network"),
             }
         }
-        builder.finish(wires)
+        builder.finish(wires, (0..qubit_count).collect())
     }
 
     /// Builds the closed amplitude network of one fixed-outcome path.
@@ -176,7 +177,8 @@ impl CircuitTensorNetwork {
                 }
             }
         }
-        builder.finish(wires.open.into_values().collect())
+        let (output_qubits, output_axes) = wires.open.into_iter().unzip();
+        builder.finish(output_axes, output_qubits)
     }
 
     #[must_use]
@@ -199,6 +201,13 @@ impl CircuitTensorNetwork {
     #[must_use]
     pub fn output_axes(&self) -> &Indices {
         &self.output_axes
+    }
+
+    /// The qubit of each output axis, in the same order: the qubits whose
+    /// wires stay open. Empty exactly when the network is closed (a scalar).
+    #[must_use]
+    pub fn output_qubits(&self) -> &[QubitID] {
+        &self.output_qubits
     }
 
     /// Borrows the owned network; does not allocate or evaluate amplitudes.
@@ -248,12 +257,15 @@ impl NetworkBuilder {
     fn finish(
         self,
         output_axes: Vec<Index>,
+        output_qubits: Vec<QubitID>,
     ) -> Result<CircuitTensorNetwork, TensorNetworkBuildError> {
+        debug_assert_eq!(output_axes.len(), output_qubits.len());
         let result = CircuitTensorNetwork {
             network: TensorNetwork::new(self.nodes).map_err(TensorNetworkBuildError::Network)?,
             buffers: self.buffers,
             node_buffer_ids: self.node_buffer_ids,
             output_axes: Indices::new(output_axes).map_err(TensorNetworkBuildError::Network)?,
+            output_qubits,
         };
         let query = result
             .query()

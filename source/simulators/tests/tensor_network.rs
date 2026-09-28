@@ -81,6 +81,7 @@ fn zero_boundaries_share_storage_and_retain_every_qubit() {
             &[circuit.output_axes().as_slice()[qubit]]
         );
     }
+    assert_eq!(circuit.output_qubits(), &[0, 1, 2]);
     let query = circuit.query().expect("valid query");
     assert_eq!(query.keep(), circuit.output_axes());
     assert_eq!(query.keep().strides(), Some(vec![1, 2, 4]));
@@ -93,6 +94,7 @@ fn zero_qubit_identity_is_scalar_without_a_buffer() {
     assert_bindings(&circuit);
     assert!(circuit.network().nodes().is_empty());
     assert!(circuit.buffers().is_empty());
+    assert!(circuit.output_qubits().is_empty());
     assert_eq!(
         circuit
             .query()
@@ -775,6 +777,8 @@ fn idle_wires_have_no_nodes_and_unmeasured_wires_stay_open() {
     // no gate, so its start and cap remain.
     assert_eq!(nodes.len(), 7);
     assert_eq!(network.output_axes().as_slice(), &[nodes[6].as_slice()[0]]);
+    // An identity-only qubit has no node and so no output axis.
+    assert_eq!(network.output_qubits(), &[2]);
     let amplitudes = contract(&network);
     let sx1 = Complex64::new(0.5, -0.5);
     assert_close(amplitudes[0], sx1 * Complex64::new(0.5, 0.5));
@@ -783,6 +787,39 @@ fn idle_wires_have_no_nodes_and_unmeasured_wires_stay_open() {
     let empty = build_fixed(&fixed(usize::MAX, vec![]));
     assert!(empty.network().nodes().is_empty());
     assert_eq!(contract(&empty), [Complex64::new(1.0, 0.0)]);
+}
+
+#[test]
+fn output_qubits_name_each_open_axis_and_a_trailing_identity_stays_closed() {
+    // q3 is added first and ends in |1⟩ (Sx·Sx = X); q1 ends in Sx|0⟩.
+    let circuit = fixed(
+        4,
+        vec![
+            gate(UnitaryOperation::Sx { target: 3 }),
+            gate(UnitaryOperation::Sx { target: 3 }),
+            gate(UnitaryOperation::Sx { target: 1 }),
+            measure(0, 0, false, false),
+            gate(UnitaryOperation::I { target: 0 }),
+        ],
+    );
+    let network = build_fixed(&circuit);
+    assert_eq!(network.output_qubits(), &[1, 3]);
+    // Column-major output: the first axis (q1) varies fastest.
+    let sx = [Complex64::new(0.5, 0.5), Complex64::new(0.5, -0.5)];
+    let expected = [Complex64::default(), Complex64::default(), sx[0], sx[1]];
+    for (actual, expected) in contract(&network).into_iter().zip(expected) {
+        assert_close(actual, expected);
+    }
+
+    let closed = build_fixed(&fixed(
+        1,
+        vec![
+            measure(0, 0, true, false),
+            gate(UnitaryOperation::I { target: 0 }),
+        ],
+    ));
+    assert!(closed.output_qubits().is_empty());
+    assert!(closed.output_axes().as_slice().is_empty());
 }
 
 #[test]

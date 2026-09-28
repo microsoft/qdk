@@ -1245,11 +1245,25 @@ def _fixed_outcome_network_probe(
 def _tensor_network_contraction_query(
     input: dict,
     queries: List[dict],
-    outcomes: Optional[List[bool]] = None,
+    outcomes: Optional[List[bool]],
+    options: Dict[str, int],
 ) -> List[object]:
     """Evaluate probability and cost queries by general contraction.
 
     Backs ``qdk.simulation.tensornetwork_qir``; returns one value per query.
+    ``options`` must hold every key of ``_contraction_options_dict``.
+    """
+    ...
+
+def _fixed_outcome_contraction_probe(
+    input: dict,
+    outcomes: List[bool],
+    flip_result_id: int,
+    options: Dict[str, int],
+) -> float:
+    """Contract after flipping one cap, retaining the accepted path of outcomes.
+
+    ``options`` must hold every key of ``_contraction_options_dict``.
     """
     ...
 

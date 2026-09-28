@@ -35,7 +35,7 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 """
 
 from .._device._atom import NeutralAtomDevice
-from ._simulation import LossPolicy, MpsOptions, NoiseConfig, run_qir
+from ._simulation import ContractionOptions, LossPolicy, MpsOptions, NoiseConfig, run_qir
 from ._tensor_network import Cost, Expectation, Probability, tensornetwork_qir
 from ._noisy_simulator import (
     NoisySimulatorError,
@@ -52,6 +52,7 @@ __all__ = [
     "NoiseConfig",
     "LossPolicy",
     "MpsOptions",
+    "ContractionOptions",
     "run_qir",
     "tensornetwork_qir",
     "Expectation",

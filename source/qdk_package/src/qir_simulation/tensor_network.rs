@@ -4,12 +4,16 @@
 use std::collections::BTreeMap;
 
 use pyo3::{
-    exceptions::{PyNotImplementedError, PyValueError},
+    exceptions::{PyOSError, PyValueError},
     prelude::*,
     types::{PyDict, PyList},
 };
+use qdk_cutensornet::{
+    ContractionExecutionError, ContractionSettings, closed_amplitude_cost,
+    contract_closed_amplitude,
+};
 use qdk_simulators::execution::{
-    AdaptiveCommand, AdaptiveExecution, AdaptiveResponse, CircuitTensorNetwork,
+    AdaptiveCommand, AdaptiveExecution, AdaptiveResponse, CircuitTensorNetwork, ContractionCost,
     FixedOutcomeCircuit, FixedOutcomeOperation, PreparedAdaptiveProgram,
 };
 
@@ -64,13 +68,8 @@ pub(crate) fn _fixed_outcome_network_probe<'py>(
     input: &Bound<'py, PyDict>,
     outcomes: Vec<bool>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let program = adaptive_program_from_pydict::<u64>(input)?;
-    let prepared = PreparedAdaptiveProgram::new(program)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let circuit = FixedOutcomeCircuit::from_prepared_program(&prepared, &outcomes)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let built = CircuitTensorNetwork::from_fixed_outcome_circuit(&circuit)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let circuit = fixed_outcome_circuit(input, &outcomes)?;
+    let built = amplitude_network(&circuit)?;
     let report = PyDict::new(py);
     report.set_item(
         "nodes",
@@ -164,17 +163,136 @@ pub(crate) fn _tensor_network_build_probe<'py>(
 /// `queries` holds the dicts built by `qdk.simulation.tensornetwork_qir`;
 /// `outcomes[i]` fixes QIR result `i`. Returns one value per query, in order.
 #[pyfunction]
-#[pyo3(signature = (input, queries, outcomes=None))]
+#[pyo3(signature = (input, queries, outcomes, options))]
 pub(crate) fn _tensor_network_contraction_query<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyDict>,
     queries: &Bound<'py, PyList>,
     outcomes: Option<Vec<bool>>,
+    options: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyList>> {
-    let _ = (py, input, queries, outcomes);
-    Err(PyNotImplementedError::new_err(
-        "tensor-network contraction queries are not implemented yet",
-    ))
+    let outcomes =
+        outcomes.ok_or_else(|| PyValueError::new_err("contraction requires outcomes"))?;
+    let mut probability_queries = Vec::with_capacity(queries.len());
+    for query in queries {
+        let kind: String = query.get_item("kind")?.extract()?;
+        probability_queries.push(match kind.as_str() {
+            "probability" => true,
+            "cost" => false,
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unsupported contraction query: {kind}"
+                )));
+            }
+        });
+    }
+    if probability_queries.is_empty() {
+        return Err(PyValueError::new_err(
+            "queries must contain at least one query",
+        ));
+    }
+    let network = amplitude_network(&fixed_outcome_circuit(input, &outcomes)?)?;
+    let settings = contraction_settings(options)?;
+    let (probability, cost) = if probability_queries.contains(&true) {
+        let result = contract_closed_amplitude(&network, settings).map_err(contraction_error)?;
+        // TODO(selection-normalization): this is P_pass, not P_selected.
+        // Plan section 5.2: SELECT on one Bell outcome accepts with probability
+        // 1/2; the accepted record has P_pass = 1/2 but P_selected = 1.
+        // Normalization needs acceptance marginals, not this single amplitude.
+        (Some(result.amplitude.norm_sqr()), result.cost)
+    } else {
+        (
+            None,
+            closed_amplitude_cost(&network, settings).map_err(contraction_error)?,
+        )
+    };
+    let results = PyList::empty(py);
+    for is_probability in probability_queries {
+        if is_probability {
+            results.append(probability.expect("probability was evaluated"))?;
+        } else {
+            results.append(contraction_cost_dict(py, cost)?)?;
+        }
+    }
+    Ok(results)
+}
+
+/// Flips one cap without changing the accepted control-flow path. This is
+/// deliberately separate from supplying a record that fails a selection check.
+#[pyfunction]
+#[pyo3(signature = (input, outcomes, flip_result_id, options))]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn _fixed_outcome_contraction_probe(
+    input: &Bound<'_, PyDict>,
+    outcomes: Vec<bool>,
+    flip_result_id: usize,
+    options: &Bound<'_, PyDict>,
+) -> PyResult<f64> {
+    let circuit = fixed_outcome_circuit(input, &outcomes)?;
+    let current = outcomes
+        .get(flip_result_id)
+        .ok_or_else(|| PyValueError::new_err(format!("unknown result {flip_result_id}")))?;
+    let flipped = circuit
+        .with_outcome(flip_result_id, !current)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let result = contract_closed_amplitude(
+        &amplitude_network(&flipped)?,
+        contraction_settings(options)?,
+    )
+    .map_err(contraction_error)?;
+    Ok(result.amplitude.norm_sqr())
+}
+
+fn fixed_outcome_circuit(
+    input: &Bound<'_, PyDict>,
+    outcomes: &[bool],
+) -> PyResult<FixedOutcomeCircuit> {
+    let program = adaptive_program_from_pydict::<u64>(input)?;
+    let prepared = PreparedAdaptiveProgram::new(program)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    FixedOutcomeCircuit::from_prepared_program(&prepared, outcomes)
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
+fn amplitude_network(circuit: &FixedOutcomeCircuit) -> PyResult<CircuitTensorNetwork> {
+    CircuitTensorNetwork::from_fixed_outcome_circuit(circuit)
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
+/// Python fills every default (`_contraction_options_dict`); a missing key is
+/// a caller error, so defaults are defined in one place.
+fn contraction_settings(options: &Bound<'_, PyDict>) -> PyResult<ContractionSettings> {
+    let get = |name: &str| -> PyResult<u32> {
+        options
+            .get_item(name)?
+            .ok_or_else(|| PyValueError::new_err(format!("options must include {name}")))?
+            .extract()
+            .map_err(|error| PyValueError::new_err(format!("{name}: {error}")))
+    };
+    Ok(ContractionSettings {
+        hyper_samples: get("hyper_samples")?,
+        seed: get("seed")?,
+    })
+}
+
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "used directly with Result::map_err"
+)]
+fn contraction_error(error: ContractionExecutionError) -> PyErr {
+    if error.is_environment_error() {
+        PyOSError::new_err(error.to_string())
+    } else {
+        PyValueError::new_err(error.to_string())
+    }
+}
+
+fn contraction_cost_dict(py: Python<'_>, cost: ContractionCost) -> PyResult<Bound<'_, PyDict>> {
+    let report = PyDict::new(py);
+    report.set_item("width", cost.width)?;
+    report.set_item("flops", cost.flops)?;
+    report.set_item("workspace_bytes", cost.workspace_bytes)?;
+    Ok(report)
 }
 
 fn describe_network<'py>(

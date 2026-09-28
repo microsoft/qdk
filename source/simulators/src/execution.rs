@@ -4,6 +4,7 @@
 //! Public facade for shared simulator execution contracts and Adaptive control.
 
 mod adaptive;
+mod amplitude_contraction;
 mod contraction;
 mod fixed_outcome;
 mod immediate;
@@ -15,6 +16,11 @@ mod unitary;
 pub use adaptive::{
     AdaptiveExecution, AdaptiveExecutionError, MeasuredQubit, MeasurementMetadataError,
     PreparedAdaptiveProgram, RegionPartitionError, RegionSite, partition_unitary_regions,
+};
+pub use amplitude_contraction::{
+    AmplitudeContractionError, ContractedAmplitude, ContractionCost, ContractionReports,
+    ExecutionFailure, PlannedContraction, closed_amplitude_query, contract_amplitude,
+    contraction_cost,
 };
 pub use contraction::{
     ContractionContext, ContractionOptimizer, CostEstimate, EstimateKind, ExecutableContraction,

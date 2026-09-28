@@ -13,7 +13,12 @@ from typing import Any, Iterable, List, Literal, Optional, Sequence, Tuple, Unio
 from .._adaptive_pass import AdaptiveProfilePass, Bytecode
 from .._native import Result
 from .._types import QirInputData
-from ._simulation import DecomposeCcxPass, MpsOptions, preprocess_simulation_input
+from ._simulation import (
+    ContractionOptions,
+    DecomposeCcxPass,
+    MpsOptions,
+    preprocess_simulation_input,
+)
 
 PauliTerm = Tuple[str, Tuple[int, ...], complex]
 
@@ -42,8 +47,10 @@ class Expectation:
 class Probability:
     """Query the probability of the ``outcomes`` given to ``tensornetwork_qir``.
 
-    The result is a float: the probability that the program produces exactly
-    those outcomes for every measurement.
+    The result is a float: the single-pass probability P_pass of those outcomes,
+    without dividing by the acceptance probability of selection checks. It is
+    the program-output probability only when every selection check passes with
+    probability one. A record that fails a selection check raises ValueError.
     """
 
 
@@ -54,7 +61,10 @@ class Cost:
     The result is a dict whose keys depend on the method. For
     ``method="contraction"`` it describes the network that ``Probability``
     contracts: ``"width"`` (log₂ of the largest intermediate tensor's element
-    count), ``"flops"``, ``"slices"`` and ``"workspace_bytes"``. For
+    count), ``"flops"`` and ``"workspace_bytes"`` (minimum device scratch,
+    not the allocated amount). Unreported quantities are ``None``. A Cost-only
+    call plans and prepares but never contracts; an over-budget plan still
+    reports the workspace it would need. Plans are currently unsliced. For
     ``method="mps"``: ``"max_bond_dimension"`` (largest bond reached),
     ``"state_bytes"`` and ``"workspace_bytes"``.
     """
@@ -68,7 +78,7 @@ def tensornetwork_qir(
     queries: Sequence[Query],
     *,
     method: Literal["mps", "contraction"],
-    options: Optional[MpsOptions] = None,
+    options: Optional[Union[MpsOptions, ContractionOptions]] = None,
     outcomes: Optional[Sequence[Union[Result, int, bool]]] = None,
 ) -> List[Any]:
     """Evaluate queries on the tensor network of a QIR program.
@@ -85,7 +95,8 @@ def tensornetwork_qir(
     :param method: ``"contraction"`` evaluates exactly with NVIDIA cuTensorNet.
         ``"mps"`` approximates the state as a matrix product state whose bond
         dimension is capped by ``options.max_bond_dimension``.
-    :param options: :class:`MpsOptions`, only for ``method="mps"``.
+    :param options: :class:`MpsOptions` for ``method="mps"``, or
+        :class:`ContractionOptions` for ``method="contraction"``.
     :param outcomes: ``outcomes[i]`` fixes the outcome of QIR result ``i``, which
         selects one path through mid-circuit measurements and branches.
         Required by :class:`Probability`, and by :class:`Cost` with
@@ -98,14 +109,15 @@ def tensornetwork_qir(
         raise ValueError(
             f'Invalid method: {method!r}. Use "mps" or "contraction".'
         )
-    if method == "contraction" and options is not None:
-        raise ValueError('options can only be used with method="mps"')
-    if options is not None and not isinstance(options, MpsOptions):
-        raise TypeError("options must be an MpsOptions instance")
-    mps_options = options if options is not None else MpsOptions()
-    if mps_options.device not in (None, "nvidia"):
+    expected_options = MpsOptions if method == "mps" else ContractionOptions
+    if options is not None and not isinstance(options, expected_options):
+        raise TypeError(
+            f'options must be a {expected_options.__name__} instance for method="{method}"'
+        )
+    if options is not None and options.device not in (None, "nvidia"):
+        device_kind = "MPS" if method == "mps" else "contraction"
         raise ValueError(
-            f"Unsupported MPS device: {mps_options.device!r}. "
+            f"Unsupported {device_kind} device: {options.device!r}. "
             'Only device="nvidia" is accepted.'
         )
 
@@ -137,6 +149,7 @@ def tensornetwork_qir(
     encoded = [_encode_query(query) for query in queries]
 
     if method == "mps":
+        mps_options = options if isinstance(options, MpsOptions) else MpsOptions()
         mps = {"max_bond_dimension": mps_options.max_bond_dimension}
         return list(
             _native._tensor_network_state_query(program, encoded, fixed_outcomes, mps)
@@ -157,7 +170,10 @@ def tensornetwork_qir(
     ]
     if network_positions:
         values = _native._tensor_network_contraction_query(
-            program, [encoded[position] for position in network_positions], fixed_outcomes
+            program, [encoded[position] for position in network_positions], fixed_outcomes,
+            _contraction_options_dict(
+                options if isinstance(options, ContractionOptions) else None
+            ),
         )
         for position, value in zip(network_positions, values, strict=True):
             results[position] = value
@@ -168,6 +184,18 @@ def tensornetwork_qir(
         for position, value in zip(state_positions, values, strict=True):
             results[position] = value
     return results
+
+
+def _contraction_options_dict(options: Optional[ContractionOptions]) -> dict[str, int]:
+    options = options if options is not None else ContractionOptions()
+    # The only place contraction defaults are filled; native code requires every
+    # key. Eight trials match the state-query search effort; the tiny
+    # qualification's single trial is too weak for large networks. Seed 17 fixes
+    # the search's random choices; threads follow the host's cores.
+    return {
+        "hyper_samples": 8 if options.hyper_samples is None else options.hyper_samples,
+        "seed": 17 if options.seed is None else options.seed,
+    }
 
 
 def _pauli_term(term: Any) -> PauliTerm:

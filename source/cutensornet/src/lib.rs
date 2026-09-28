@@ -5,6 +5,7 @@
     reason = "the approved versioned FFI layout groups generated bindings under bindings/mod.rs"
 )]
 mod bindings;
+mod closed_amplitude;
 mod error;
 mod execution;
 pub mod generator;
@@ -14,6 +15,11 @@ mod simulation;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 mod version;
 
+#[doc(hidden)]
+pub use closed_amplitude::{
+    ClosedAmplitude, ContractionExecutionError, ContractionSettings, closed_amplitude_cost,
+    contract_closed_amplitude,
+};
 pub use error::AvailabilityError;
 #[doc(hidden)]
 pub use execution::{MpsExecutionError, run_mps_shots};
