@@ -1226,6 +1226,22 @@ def _fixed_outcome_probe(input: dict, outcomes: List[bool]) -> _FixedOutcomeRepo
     """
     ...
 
+class _FixedOutcomeNetworkReport(TypedDict):
+    nodes: List[List[int]]
+    output_axes: List[int]
+
+def _fixed_outcome_network_probe(
+    input: dict, outcomes: List[bool]
+) -> _FixedOutcomeNetworkReport:
+    """Describe the shape of the fixed-outcome circuit's amplitude network.
+
+    Input is AdaptiveProfilePass 64-bit bytecode; ``outcomes[i]`` fixes QIR
+    result ``i``. Returns each node's axis ids and the output axis ids; every
+    axis has dimension two. For host width estimates only; copies no
+    coefficients and contracts nothing.
+    """
+    ...
+
 def _tensor_network_contraction_query(
     input: dict,
     queries: List[dict],

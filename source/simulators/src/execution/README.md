@@ -231,6 +231,45 @@ Public Rust API tests cover the owner and binding contracts; the sample's
 Python tests lower actual QIR and use NumPy `einsum` only for tiny analytic
 checks. See [I2 reproduction and evidence](../../../../samples/python_interop/ising2d_tensor_network_demo/Ising2D.md#i2-neutral-network-and-shared-coefficient-buffers).
 
+### Fixed-outcome amplitude network
+
+`CircuitTensorNetwork::from_fixed_outcome_circuit(&circuit)` builds the
+amplitude network of one `FixedOutcomeCircuit` path. With every measured wire
+capped, the network is closed and its contraction is one scalar:
+
+```text
+ q0: |0⟩─[Sx]──●──[S]──⟨b₀|  |b₀⟩─[Sx]─     reuse: a new wire from |b⟩, or |0⟩ if reset
+ q1: |0⟩───────●──────⟨b₁|                  never used again: no node
+ q2:                                        never used: no node
+
+ A(r) = ⟨r| C |0…0⟩ = contraction of the closed network,   P(r) = |A(r)|²
+```
+
+| Operation                | Node axes and coefficients            | Wire behavior                                           |
+| ------------------------ | ------------------------------------- | ------------------------------------------------------- |
+| Wire start               | `[wire(q)]`, `\|b⟩`                   | Created at the qubit's first use (`\|0⟩` initially)     |
+| `I`                      | No node, operand still validated      | Unchanged                                               |
+| `Rx(theta)`, `Sx`        | `[output,input]`, `U[out,in]`         | Fresh output index                                      |
+| `S`                      | `[current(q)]`, `[1, i]`              | Unchanged; diagonal factor                              |
+| `Rzz(theta)`, `Cz`       | `[current(q1),current(q2)]`, diagonal | Both indices unchanged; diagonal hyperedge factor       |
+| `Measure { outcome: b }` | `[current(q)]`, `⟨b\|`                | Closed; next use starts from `\|b⟩`, or `\|0⟩` if reset |
+
+After a rank-one projection the qubit is exactly a basis state, so each reuse
+starts a fresh wire. A start with nothing after it would multiply every
+amplitude by ⟨b|b⟩ = 1, so wires start lazily and idle qubits get no node;
+per-qubit state is kept in maps, so memory follows the qubits used, not the
+declared count. A qubit measured with no gate keeps both nodes, since ⟨b|0⟩
+can be zero. Wires with operations after their last `Measure`, or never
+measured, stay open output axes in qubit order. Starts |b⟩ and caps ⟨b| have
+the same real coefficients and share one buffer per bit. Supported gates are
+I, Rx, Rzz, S, Sx and Cz; `from_zero_state` keeps its I, Rx, Rzz set. Public
+tests contract small networks by brute force and compare open outputs with
+the CPU full-state simulator.
+
+The private `_fixed_outcome_network_probe(program, outcomes)` returns only
+the network's shape (node axis ids and output axis ids; every axis has
+dimension two), for host width estimates with external optimizers.
+
 ### Shared contraction contracts (I3)
 
 **Implemented in slice 3b; tiny supplied-plan reuse is GPU-qualified:** preparation

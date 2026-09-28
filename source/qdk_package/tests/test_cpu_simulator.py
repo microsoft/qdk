@@ -3,7 +3,7 @@
 
 from collections import Counter
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, List, Sequence, cast
 import math
 import os
 import random
@@ -16,9 +16,12 @@ from qdk import qsharp
 from qdk import TargetProfile
 from qdk import openqasm
 
+from qdk._adaptive_pass import AdaptiveProfilePass, Bytecode
 from qdk.simulation import MpsOptions, NoiseConfig, run_qir
 from qdk.simulation._simulation import (
+    DecomposeCcxPass,
     _shared_execution_base_profile_probe,
+    preprocess_simulation_input,
     run_qir_cpu,
 )
 
@@ -163,6 +166,32 @@ attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubi
 """
 
 
+# Sx on two qubits, Cz, then measure-and-reset both; qubit 2 is never used.
+SX_CZ_MRESETZ_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="2" }
+"""
+
+
 UNSUPPORTED_SHARED_EXECUTION_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -259,6 +288,40 @@ def test_mps_rejects_reset_with_a_clear_error_before_device_discovery():
         ValueError, match="reset is not supported by cuTensorNet MPS batch sampling"
     ):
         run_qir(X_RESET_MEASURE_BASE_QIR, shots=1, seed=42, type="mps")
+
+
+def _adaptive_program(qir: str) -> dict:
+    mod, _, _, _ = preprocess_simulation_input(qir, 1, None, 0)
+    DecomposeCcxPass().run(mod)
+    return AdaptiveProfilePass(Bytecode.Bit64).run(mod).as_dict()
+
+
+@pytest.mark.parametrize("outcomes", [[False, False], [True, False], [True, True]])
+def test_fixed_outcome_network_probe_describes_a_closed_network(
+    outcomes: List[bool],
+):
+    from qdk import _native
+
+    report = _native._fixed_outcome_network_probe(
+        _adaptive_program(SX_CZ_MRESETZ_BASE_QIR), outcomes
+    )
+
+    # Two starts, two Sx, one Cz and two caps; the unused qubit has no node.
+    assert len(report["nodes"]) == 7
+    assert sorted(len(node) for node in report["nodes"]) == [1, 1, 1, 1, 2, 2, 2]
+    assert report["output_axes"] == []
+    incidence = Counter(axis for node in report["nodes"] for axis in node)
+    assert len(incidence) == 4
+    assert all(count >= 2 for count in incidence.values())
+
+
+def test_fixed_outcome_network_probe_rejects_unsupported_gates():
+    from qdk import _native
+
+    with pytest.raises(ValueError, match="unsupported"):
+        _native._fixed_outcome_network_probe(
+            _adaptive_program(SINGLE_MEASUREMENT_BASE_QIR), [True]
+        )
 
 
 @pytest.mark.parametrize(

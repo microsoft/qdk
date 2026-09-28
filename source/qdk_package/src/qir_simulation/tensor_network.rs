@@ -53,6 +53,46 @@ pub(crate) fn _fixed_outcome_probe<'py>(
     Ok(report)
 }
 
+/// Describes the shape of the amplitude network of the fixed-outcome circuit
+/// that `outcomes` selects, for host width estimates: each node's axis ids and
+/// the output axis ids. Every axis has dimension two; no coefficients are
+/// copied and nothing is contracted.
+#[pyfunction]
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn _fixed_outcome_network_probe<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    outcomes: Vec<bool>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let program = adaptive_program_from_pydict::<u64>(input)?;
+    let prepared = PreparedAdaptiveProgram::new(program)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let circuit = FixedOutcomeCircuit::from_prepared_program(&prepared, &outcomes)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let built = CircuitTensorNetwork::from_fixed_outcome_circuit(&circuit)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let report = PyDict::new(py);
+    report.set_item(
+        "nodes",
+        built
+            .network()
+            .nodes()
+            .iter()
+            .map(|node| node.as_slice().iter().map(|axis| axis.id()).collect())
+            .collect::<Vec<Vec<_>>>(),
+    )?;
+    report.set_item(
+        "output_axes",
+        built
+            .output_axes()
+            .as_slice()
+            .iter()
+            .map(|axis| axis.id())
+            .collect::<Vec<_>>(),
+    )?;
+    Ok(report)
+}
+
 /// Builds a single leading region for host qualification, without executing
 /// measurements, contracting tensors, or validating the terminal suffix.
 #[pyfunction]
