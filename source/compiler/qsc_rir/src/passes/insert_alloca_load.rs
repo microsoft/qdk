@@ -199,10 +199,13 @@ fn add_alloca_load_to_block(
                     next_var_id,
                     should_load_operand(operand, vars_to_alloca),
                 );
-                block
-                    .0
-                    .push(Instruction::Index(*array, *operand, *variable));
-                load_from_variable(variable, &mut var_map, &mut block.0, next_var_id);
+                let temp_var = Variable {
+                    variable_id: *next_var_id,
+                    ty: variable.ty,
+                };
+                *next_var_id = next_var_id.successor();
+                block.0.push(Instruction::Index(*array, *operand, temp_var));
+                block.0.push(Instruction::Load(temp_var, *variable));
                 // Continue here to avoid pushing the instruction again below.
                 continue;
             }
