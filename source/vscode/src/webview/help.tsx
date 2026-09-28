@@ -3,8 +3,6 @@
 
 import { useEffect, useRef } from "preact/hooks";
 
-declare const resourcesUri: string; // Set by the HTML in the window
-
 let svgPromise: Promise<Response>;
 
 export function HelpPage() {
@@ -14,6 +12,7 @@ export function HelpPage() {
 
   // Ensure that the fetch is kicked off once for the module
   if (!svgPromise) {
+    const resourcesUri = document.body.dataset.resourcesUri ?? "";
     svgPromise = fetch(`${resourcesUri}/DebugDropDown.svg`);
   }
 

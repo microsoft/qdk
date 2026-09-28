@@ -19,7 +19,7 @@ pub const OPENQASMHELLOWORLD_EXPECT_QIR_ADAPTIVE_RIF: Expect =
 pub const OPENQASMHELLOWORLD_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1450"];
 pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
-pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4341"];
+pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 5808"];
 pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 4548"];
 pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 5968"];
