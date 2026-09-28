@@ -825,6 +825,9 @@ class Context:
         source_locations: bool = False,
         group_by_scope: bool = True,
         prune_classical_qubits: bool = False,
+        noise_config: NoiseConfig | None = None,
+        gate_errors: Literal["loss", "all"] | None = None,
+        qubit_errors: Literal["loss"] | None = None,
     ) -> Circuit:
         """
         Synthesizes a circuit for a Q# program. Either an entry
@@ -867,6 +870,24 @@ class Context:
             in a quantum gate (e.g. qubits only used as classical controls).
         :kwtype prune_classical_qubits: bool
 
+        :keyword noise_config: Per-gate noise configuration. This is supported only when
+            ``generation_method`` is :attr:`~qdk.qsharp.CircuitGenerationMethod.Static`.
+        :kwtype noise_config: :class:`~qdk.simulation.NoiseConfig`
+
+        :keyword gate_errors: Specifies whether gate errors are shown and how they
+            are computed:
+            - None - don't show any gate errors.
+            - "loss" - show probability of loss at this gate.
+            - "all" - show probability of any error at this gate.
+        :kwtype gate_errors: str | None
+
+        :keyword qubit_errors: Specifies whether qubit errors are shown and how
+            they are computed:
+            - None - don't show qubit errors.
+            - "loss" - show probability that qubit is lost. Displayed only after gates
+                where loss of the given qubit might have occurred.
+        :kwtype qubit_errors: str | None
+
         :return: The synthesized circuit.
         :rtype: Circuit
         :raises QSharpError: If there is an error synthesizing the circuit.
@@ -880,6 +901,9 @@ class Context:
             source_locations=source_locations,
             group_by_scope=group_by_scope,
             prune_classical_qubits=prune_classical_qubits,
+            noise_config=noise_config,
+            gate_errors=gate_errors,
+            qubit_errors=qubit_errors,
         )
 
         if isinstance(entry_expr, Callable) and hasattr(
@@ -899,7 +923,9 @@ class Context:
             )
         else:
             assert entry_expr is None or isinstance(entry_expr, str)
-            res = self._interpreter.circuit(config, entry_expr, operation=operation)
+            res = self._interpreter.circuit(
+                config, entry_expr, operation=operation
+            )
 
         durationMs = (monotonic() - start) * 1000
         telemetry_events.on_circuit_end(durationMs)

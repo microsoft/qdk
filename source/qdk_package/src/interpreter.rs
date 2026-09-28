@@ -953,10 +953,21 @@ impl Interpreter {
             qsc::interpret::CircuitGenerationMethod::ClassicalEval
         };
 
-        match self
-            .interpreter
-            .circuit(entrypoint, generation_method, tracer_config)
+        if config.noise_config.is_some()
+            && generation_method != qsc::interpret::CircuitGenerationMethod::Static
         {
+            return Err(PyValueError::new_err(
+                "noise is supported only with static circuit generation",
+            ));
+        }
+
+        match self.interpreter.circuit_with_noise(
+            entrypoint,
+            generation_method,
+            tracer_config,
+            config.noise_config.as_ref(),
+            config.error_display,
+        ) {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }
@@ -1525,26 +1536,57 @@ pub(crate) struct CircuitConfig {
     pub(crate) group_by_scope: bool,
     #[pyo3(get, set)]
     pub(crate) prune_classical_qubits: bool,
+    noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>>,
+    error_display: qsc::circuit::ErrorDisplayConfig,
 }
 
 #[pymethods]
 impl CircuitConfig {
     #[new]
-    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false))]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false, noise_config=None, gate_errors=None, qubit_errors=None))]
     fn new(
+        py: Python,
         max_operations: Option<usize>,
         generation_method: Option<CircuitGenerationMethod>,
         source_locations: bool,
         group_by_scope: bool,
         prune_classical_qubits: bool,
-    ) -> Self {
-        Self {
+        noise_config: Option<&Bound<NoiseConfig>>,
+        gate_errors: Option<&str>,
+        qubit_errors: Option<&str>,
+    ) -> PyResult<Self> {
+        let gate_errors = match gate_errors {
+            None => None,
+            Some("all") => Some(qsc::circuit::GateErrorMode::All),
+            Some("loss") => Some(qsc::circuit::GateErrorMode::Loss),
+            Some(value) => {
+                return Err(PyValueError::new_err(format!(
+                    "invalid gate_errors value: {value:?}, accepted values: all,loss"
+                )));
+            }
+        };
+        let qubit_errors = match qubit_errors {
+            None => false,
+            Some("loss") => true,
+            Some(value) => {
+                return Err(PyValueError::new_err(format!(
+                    "invalid qubit_errors value: {value:?}, accepted values: loss"
+                )));
+            }
+        };
+
+        Ok(Self {
             max_operations,
             generation_method,
             source_locations,
             group_by_scope,
             prune_classical_qubits,
-        }
+            noise_config: noise_config.map(|config| unbind_noise_config(py, config)),
+            error_display: qsc::circuit::ErrorDisplayConfig {
+                gate_errors,
+                qubit_errors,
+            },
+        })
     }
 }
 

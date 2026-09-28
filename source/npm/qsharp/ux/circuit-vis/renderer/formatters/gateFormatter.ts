@@ -118,6 +118,7 @@ const _createGate = (
   svgElems: SVGElement[],
   renderData: GateRenderData,
 ): SVGElement => {
+  svgElems = svgElems.concat(_errorBadges(renderData));
   const { dataAttributes } = renderData || {};
   const expanded = renderData.isExpanded;
   const attributes: { [attr: string]: string } = { class: "gate" };
@@ -576,9 +577,9 @@ const _controlledGate = (renderData: GateRenderData): SVGElement => {
   // Get SVG for target gates
   switch (type) {
     case GateType.Cnot:
-      (targetsY as number[]).forEach((y) =>
-        targetGateSvgs.push(_oplus(x, y, [y])),
-      );
+      (targetsY as number[]).forEach((y) => {
+        targetGateSvgs.push(_oplus(x, y, [y]));
+      });
       break;
     case GateType.Swap:
       (targetsY as number[]).forEach((y) => targetGateSvgs.push(_cross(x, y)));
@@ -613,6 +614,73 @@ const _controlledGate = (renderData: GateRenderData): SVGElement => {
     renderData,
   );
   return svg;
+};
+
+const errorBadgeHeight = 12;
+
+const _errorBadge = (
+  errorProbability: number,
+  x: number,
+  y: number,
+): SVGElement => {
+  const label = _formatErrorProbability(errorProbability);
+  const horizontalPadding = 2;
+  const width = label.length * 5 + horizontalPadding * 2;
+  const background = box(
+    x - width / 2,
+    y - errorBadgeHeight / 2,
+    width,
+    errorBadgeHeight,
+    "gate-error-badge",
+  );
+  background.setAttribute("rx", "6");
+
+  const labelText = text(label, x, y, argsFontSize);
+  labelText.setAttribute("class", "gate-error-label");
+
+  return group([background, labelText], { class: "gate-error" });
+};
+
+/** Creates badges for output errors. */
+const _outputErrorBadges = (renderData: GateRenderData): SVGElement[] =>
+  (renderData.outputErrors ?? []).map(({ y, probability }) => {
+    const badge = _errorBadge(
+      probability,
+      renderData.x + renderData.width / 2 + 8,
+      y,
+    );
+    badge.classList.add("output-error");
+    return badge;
+  });
+
+/** Creates badges for gate error and output errors. */
+const _errorBadges = (renderData: GateRenderData): SVGElement[] => {
+  const badges = _outputErrorBadges(renderData);
+  if (renderData.gateError !== undefined) {
+    const quantumControlsY = _getQuantumControlYs(renderData);
+    const targetsY = renderData.targetsY.flat() as number[];
+    const isSingleControlledTarget =
+      quantumControlsY.length === 1 && targetsY.length === 1;
+
+    const x = renderData.x;
+    const y = isSingleControlledTarget
+      ? (quantumControlsY[0] + targetsY[0]) / 2
+      : _gateBoundingBox(renderData).y - errorBadgeHeight / 2 - 2;
+    const badge = _errorBadge(renderData.gateError, x, y);
+    badge.classList.add("gate-operation-error");
+    badges.push(badge);
+  }
+  return badges;
+};
+
+const _formatErrorProbability = (probability: number): string => {
+  if (probability < 1e-5) return "0%";
+
+  const percentage = probability * 100;
+  const integerDigits =
+    percentage >= 1 ? Math.floor(Math.log10(percentage)) + 1 : 0;
+  const decimalPlaces = Math.max(0, Math.min(3, 3 - integerDigits));
+  return `${Number(percentage.toFixed(decimalPlaces))}%`;
 };
 
 /**
@@ -906,6 +974,7 @@ function _labelText(label: string, x: number, y: number): SVGTextElement {
 export {
   formatGates,
   formatGate,
+  _formatErrorProbability,
   // Internal helpers exposed for direct unit testing. The leading underscore signals "test-only
   // export"; matches the `_isMultiTargetOrGroup` convention in `actions/circuitActions.ts`.
   _createGate,

@@ -12,6 +12,7 @@ export {
   type DataAttributes,
   type Operation,
   type Unitary,
+  type GateErrorInfo,
   type Parameter,
   type Qubit,
   type SourceLocation,

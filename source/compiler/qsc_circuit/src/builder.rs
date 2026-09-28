@@ -92,6 +92,7 @@ impl Tracer for CircuitTracer {
                 classical_controls: &[],
             },
             display_args,
+            None,
             called_at,
         );
     }
@@ -156,6 +157,7 @@ impl Tracer for CircuitTracer {
             } else {
                 vec![classical_args]
             },
+            None,
             LogicalStack::from_evaluator_trace(stack),
         );
     }
@@ -1245,6 +1247,7 @@ impl OperationOrGroup {
         targets: &[QubitWire],
         controls: Vec<ControlRegister>,
         args: Vec<String>,
+        error: Option<crate::circuit::GateErrorInfo>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
             gate: name.to_string(),
@@ -1261,6 +1264,7 @@ impl OperationOrGroup {
             is_adjoint,
             is_conditional: false,
             metadata: None,
+            error,
         }))
     }
 
@@ -1415,6 +1419,7 @@ impl OperationOrGroup {
                 is_adjoint: false,
                 metadata,
                 is_conditional: false,
+                error: None,
             }),
             location: None,
         }
@@ -1645,6 +1650,7 @@ pub(crate) struct ClassicalControlInput {
 /// Trait representing a receiver of circuit operations that can accept
 /// gates, measurements, and resets into an internal operation list.
 pub(crate) trait OperationReceiver {
+    #[allow(clippy::too_many_arguments)]
     fn gate(
         &mut self,
         wire_map: &WireMap,
@@ -1652,6 +1658,7 @@ pub(crate) trait OperationReceiver {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
+        error: Option<crate::circuit::GateErrorInfo>,
         call_stack: LogicalStack,
     );
 
@@ -1668,6 +1675,7 @@ pub(crate) trait OperationReceiver {
 }
 
 impl OperationReceiver for OperationListBuilder {
+    #[allow(clippy::too_many_arguments)]
     fn gate(
         &mut self,
         wire_map: &WireMap,
@@ -1675,6 +1683,7 @@ impl OperationReceiver for OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
+        error: Option<crate::circuit::GateErrorInfo>,
         call_stack: LogicalStack,
     ) {
         let targets = inputs
@@ -1698,7 +1707,7 @@ impl OperationReceiver for OperationListBuilder {
             }))
             .collect::<Vec<_>>();
         self.push_op(
-            OperationOrGroup::new_unitary(name, is_adjoint, &targets, controls, args),
+            OperationOrGroup::new_unitary(name, is_adjoint, &targets, controls, args, error),
             call_stack,
             wire_map,
         );
