@@ -78,28 +78,28 @@ qodec.yaml:
     codes:
       c4c6_block: c6.code.yaml
     gadgets:
-      controlled_x_all: c6\controlled_x_all.gadget.yaml
-      hadamard_all: c6\hadamard_all.gadget.yaml
-      idle: c6\idle.gadget.yaml
-      measure_x_all: c6\measure_x_all.gadget.yaml
-      measure_z_all: c6\measure_z_all.gadget.yaml
-      mul_u: c6\mul_u.gadget.yaml
-      mul_u_sq: c6\mul_u_sq.gadget.yaml
-      prepare_x_all: c6\prepare_x_all.gadget.yaml
-      prepare_z_all: c6\prepare_z_all.gadget.yaml
+      controlled_x_all: c6/controlled_x_all.gadget.yaml
+      hadamard_all: c6/hadamard_all.gadget.yaml
+      idle: c6/idle.gadget.yaml
+      measure_x_all: c6/measure_x_all.gadget.yaml
+      measure_z_all: c6/measure_z_all.gadget.yaml
+      mul_u: c6/mul_u.gadget.yaml
+      mul_u_sq: c6/mul_u_sq.gadget.yaml
+      prepare_x_all: c6/prepare_x_all.gadget.yaml
+      prepare_z_all: c6/prepare_z_all.gadget.yaml
   - instruction_set: c4c6.isa.yaml
     codes:
       c4c6_block: c4.code.yaml
     gadgets:
-      controlled_x_all: c4\controlled_x_all.gadget.yaml
-      hadamard_all: c4\hadamard_all.gadget.yaml
-      idle: c4\idle.gadget.yaml
-      measure_x_all: c4\measure_x_all.gadget.yaml
-      measure_z_all: c4\measure_z_all.gadget.yaml
-      mul_u: c4\mul_u.gadget.yaml
-      mul_u_sq: c4\mul_u_sq.gadget.yaml
-      prepare_x_all: c4\prepare_x_all.gadget.yaml
-      prepare_z_all: c4\prepare_z_all.gadget.yaml
+      controlled_x_all: c4/controlled_x_all.gadget.yaml
+      hadamard_all: c4/hadamard_all.gadget.yaml
+      idle: c4/idle.gadget.yaml
+      measure_x_all: c4/measure_x_all.gadget.yaml
+      measure_z_all: c4/measure_z_all.gadget.yaml
+      mul_u: c4/mul_u.gadget.yaml
+      mul_u_sq: c4/mul_u_sq.gadget.yaml
+      prepare_x_all: c4/prepare_x_all.gadget.yaml
+      prepare_z_all: c4/prepare_z_all.gadget.yaml
   - instruction_set: stim.isa.yaml
 ---
 c4c6.isa.yaml:
@@ -397,7 +397,7 @@ c6.code.yaml:
   x: [X_1 X_2, X_0 X_2 X_3]
   z: [Z_2 Z_3 Z_5, Z_3 Z_4]
 ---
-c4\controlled_x_all.gadget.yaml:
+c4/controlled_x_all.gadget.yaml:
   circuit:
     source: |
       # Transversal block CNOT: physical CX between corresponding qubits.
@@ -411,7 +411,7 @@ c4\controlled_x_all.gadget.yaml:
   - ['out[1].stabilizers[0]', 'in[1].stabilizers[0]']
   - ['out[1].stabilizers[1]', 'in[0].stabilizers[1]', 'in[1].stabilizers[1]']
 ---
-c4\hadamard_all.gadget.yaml:
+c4/hadamard_all.gadget.yaml:
   circuit:
     source: |
       # Encoded H_L ⊗ H_S on a Knill C4 [[4,2,2]] block (Fig 12 top of
@@ -433,7 +433,7 @@ c4\hadamard_all.gadget.yaml:
   - ['out[0].stabilizers[0]', 'in[0].stabilizers[1]']
   - ['out[0].stabilizers[1]', 'in[0].stabilizers[0]']
 ---
-c4\idle.gadget.yaml:
+c4/idle.gadget.yaml:
   circuit:
     source: |
       # C4-level idle: trivial pass-through.
@@ -451,8 +451,8 @@ c4\idle.gadget.yaml:
   - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]']
   - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
 ---
-c4\measure_x_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#measure_x_all
+c4/measure_x_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#measure_x_all
   circuit:
     source: |
       # Destructive X-basis measurement: rotate then measure in Z.
@@ -469,8 +469,8 @@ c4\measure_x_all.gadget.yaml:
   - ['circuit.readouts[0]', 'circuit.readouts[1]', 'in[0].x[0]']
   - ['circuit.readouts[1]', 'circuit.readouts[3]', 'in[0].x[1]']
 ---
-c4\measure_z_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#measure_z_all
+c4/measure_z_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#measure_z_all
   circuit:
     source: |
       # Destructive Z-basis measurement of all four physical qubits.
@@ -486,7 +486,7 @@ c4\measure_z_all.gadget.yaml:
   - ['circuit.readouts[0]', 'circuit.readouts[2]', 'in[0].z[0]']
   - ['circuit.readouts[2]', 'circuit.readouts[3]', 'in[0].z[1]']
 ---
-c4\mul_u.gadget.yaml:
+c4/mul_u.gadget.yaml:
   circuit:
     source: |
       # *u on a Knill C4 block = cyclic permutation of physical qubits 1 → 2 → 3 → 1
@@ -508,7 +508,7 @@ c4\mul_u.gadget.yaml:
   - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]']
   - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
 ---
-c4\mul_u_sq.gadget.yaml:
+c4/mul_u_sq.gadget.yaml:
   circuit:
     source: |
       # *u² on a Knill C4 block = inverse cyclic permutation 1 → 3 → 2 → 1.
@@ -527,8 +527,8 @@ c4\mul_u_sq.gadget.yaml:
   - ['out[0].stabilizers[0]', 'in[0].stabilizers[0]']
   - ['out[0].stabilizers[1]', 'in[0].stabilizers[1]']
 ---
-c4\prepare_x_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#prepare_x_all
+c4/prepare_x_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#prepare_x_all
   circuit:
   - R: [0]
   - R: [1]
@@ -567,8 +567,8 @@ c4\prepare_x_all.gadget.yaml:
     out[0].x[0]: ['circuit.readouts[0]']
     out[0].x[1]: ['circuit.readouts[1]', 'circuit.readouts[2]']
 ---
-c4\prepare_z_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#prepare_z_all
+c4/prepare_z_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#prepare_z_all
   circuit:
   - R: [0]
   - R: [1]
@@ -603,10 +603,10 @@ c4\prepare_z_all.gadget.yaml:
     out[0].z[0]: ['circuit.readouts[1]', 'circuit.readouts[2]']
     out[0].z[1]: ['circuit.readouts[0]', 'circuit.readouts[1]', 'circuit.readouts[2]']
 ---
-c6\controlled_x_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#controlled_x_all
+c6/controlled_x_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#controlled_x_all
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - controlled_x_all: [0, 3]
     - controlled_x_all: [1, 4]
@@ -627,10 +627,10 @@ c6\controlled_x_all.gadget.yaml:
   - ['out[1].stabilizers[2]', 'in[0].stabilizers[2]', 'in[1].stabilizers[2]']
   - ['out[1].stabilizers[3]', 'in[0].stabilizers[3]', 'in[1].stabilizers[3]']
 ---
-c6\hadamard_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#hadamard_all
+c6/hadamard_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#hadamard_all
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - hadamard_all: [0]
     - hadamard_all: [1]
@@ -648,10 +648,10 @@ c6\hadamard_all.gadget.yaml:
   - ['out[0].stabilizers[2]', 'in[0].stabilizers[1]']
   - ['out[0].stabilizers[3]', 'in[0].stabilizers[0]', 'in[0].stabilizers[1]']
 ---
-c6\idle.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#idle
+c6/idle.gadget.yaml:
+  implements: ../c4c6.isa.yaml#idle
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - prepare_x_all:
         operands: [3]
@@ -704,10 +704,10 @@ c6\idle.gadget.yaml:
     out[0].z[0]: ['circuit.readouts[14]', 'circuit.readouts[15]', 'circuit.readouts[17]']
     out[0].z[1]: ['circuit.readouts[15]', 'circuit.readouts[16]']
 ---
-c6\measure_x_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#measure_x_all
+c6/measure_x_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#measure_x_all
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - measure_x_all: [0]
     - measure_x_all: [1]
@@ -721,10 +721,10 @@ c6\measure_x_all.gadget.yaml:
   - ['circuit.readouts[1]', 'circuit.readouts[2]', 'in[0].x[0]']
   - ['circuit.readouts[0]', 'circuit.readouts[2]', 'circuit.readouts[3]', 'in[0].x[1]']
 ---
-c6\measure_z_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#measure_z_all
+c6/measure_z_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#measure_z_all
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - measure_z_all: [0]
     - measure_z_all: [1]
@@ -738,10 +738,10 @@ c6\measure_z_all.gadget.yaml:
   - ['circuit.readouts[2]', 'circuit.readouts[3]', 'circuit.readouts[5]', 'in[0].z[0]']
   - ['circuit.readouts[3]', 'circuit.readouts[4]', 'in[0].z[1]']
 ---
-c6\mul_u.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#mul_u
+c6/mul_u.gadget.yaml:
+  implements: ../c4c6.isa.yaml#mul_u
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - mul_u_sq: [0]
     - mul_u_sq: [1]
@@ -756,10 +756,10 @@ c6\mul_u.gadget.yaml:
   - ['out[0].stabilizers[2]', 'in[0].stabilizers[3]']
   - ['out[0].stabilizers[3]', 'in[0].stabilizers[2]', 'in[0].stabilizers[3]']
 ---
-c6\mul_u_sq.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#mul_u_sq
+c6/mul_u_sq.gadget.yaml:
+  implements: ../c4c6.isa.yaml#mul_u_sq
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - mul_u: [0]
     - mul_u: [1]
@@ -774,10 +774,10 @@ c6\mul_u_sq.gadget.yaml:
   - ['out[0].stabilizers[2]', 'in[0].stabilizers[2]', 'in[0].stabilizers[3]']
   - ['out[0].stabilizers[3]', 'in[0].stabilizers[2]']
 ---
-c6\prepare_x_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#prepare_x_all
+c6/prepare_x_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#prepare_x_all
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - prepare_x_all:
         operands: [0]
@@ -827,10 +827,10 @@ c6\prepare_x_all.gadget.yaml:
     out[0].x[0]: ['circuit.readouts[7]']
     out[0].x[1]: ['circuit.readouts[6]']
 ---
-c6\prepare_z_all.gadget.yaml:
-  implements: ..\c4c6.isa.yaml#prepare_z_all
+c6/prepare_z_all.gadget.yaml:
+  implements: ../c4c6.isa.yaml#prepare_z_all
   circuit:
-    instruction_set: ..\c4c6.isa.yaml
+    instruction_set: ../c4c6.isa.yaml
     source:
     - prepare_x_all:
         operands: [3]
