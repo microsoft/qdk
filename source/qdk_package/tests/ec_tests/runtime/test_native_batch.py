@@ -594,6 +594,7 @@ def test_native_batch_does_not_probe_non_batch_decoder_sessions():
     )
 
 
+@requires_stim
 def test_native_batch_replays_fixed_parameterized_gadgets():
     from qodec.instructions import Parameter
     from qdk.simulation._qodec.bytecode import compile
@@ -625,6 +626,7 @@ def test_native_batch_replays_fixed_parameterized_gadgets():
     assert factory.build_pipeline().run(program) == [Result.Zero]
 
 
+@requires_stim
 def test_other_circuit_decoders_keep_implicit_pauli_support():
     from qdk.simulation._qodec.native_batch import ReplayBatch, prepare_batch
     from .test_deq_decoding import unencoded_codec

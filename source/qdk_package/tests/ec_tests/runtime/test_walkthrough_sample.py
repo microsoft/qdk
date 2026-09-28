@@ -6,18 +6,22 @@ import json
 from pathlib import Path
 
 import pytest
-import stim
 
 from qdk import Result, TargetProfile, ec, qsharp
 from qdk.simulation import NoiseConfig, run_qir
 from qdk.simulation.decoders import prepare_deq_decoder
+
+# The walkthrough builds its gadgets from Stim sources.
+stim = pytest.importorskip("stim")
 
 SAMPLE = Path(__file__).resolve().parents[5] / "samples/notebooks/qdk_ec"
 
 
 @pytest.fixture(scope="module")
 def walkthrough():
-    notebook = json.loads((SAMPLE / "qdk_ec_walkthrough.ipynb").read_text())
+    notebook = json.loads(
+        (SAMPLE / "qdk_ec_walkthrough.ipynb").read_text(encoding="utf-8")
+    )
     sources = [
         "".join(cell["source"])
         for cell in notebook["cells"]
@@ -88,7 +92,9 @@ def test_walkthrough_spam_diagram_renders_existing_gadgets_with_qdk(walkthrough)
     pytest.importorskip("qsharp_widgets")
     protocol, _ = walkthrough
     baseline = protocol.dumps()
-    notebook = json.loads((SAMPLE / "qdk_ec_walkthrough.ipynb").read_text())
+    notebook = json.loads(
+        (SAMPLE / "qdk_ec_walkthrough.ipynb").read_text(encoding="utf-8")
+    )
     source = next(
         "".join(cell["source"])
         for cell in notebook["cells"]

@@ -278,6 +278,7 @@ def test_generated_qodec_runs_without_serialization(complete):
 )
 def test_quantum_calls_require_an_instruction_of_the_same_name(program, callee):
     qodec = pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from ec_tests.runtime import FIXTURES
     from qdk import TargetProfile, qsharp
     from qdk.simulation._qodec.bytecode import UnknownInstruction
@@ -310,6 +311,7 @@ _REPETITION3_FRAME_X = (
 
 def test_program_intrinsics_invoke_instructions_by_name(tmp_path):
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from qdk import Result, TargetProfile, qsharp
 
     # ``flip`` is the fixture's logical X under a name only a Q# intrinsic uses.
@@ -335,6 +337,7 @@ def test_program_intrinsics_invoke_instructions_by_name(tmp_path):
 
 def test_measurement_intrinsics_return_instruction_outcomes(tmp_path):
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from qdk import Result, TargetProfile, qsharp
 
     codec = _repetition3_variant(
@@ -618,6 +621,7 @@ _REPETITION3_PREPARE = (
 
 def test_inconsistent_syndromes_on_dependent_stabilizers_fail_the_shot(tmp_path):
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from qdk import TargetProfile, qsharp
     from qdk.simulation._qodec.readout_equations import InconsistentParity
 
@@ -652,6 +656,7 @@ def test_inconsistent_syndromes_on_dependent_stabilizers_fail_the_shot(tmp_path)
 @pytest.mark.parametrize("fault", ["", "X 0\\n", "X 1\\n", "X 2\\n"])
 def test_preparation_syndromes_correct_faults_on_unframed_logicals(tmp_path, fault):
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from qdk import Result, TargetProfile, qsharp
 
     # The preparation measures its stabilizers after a possible data fault and
@@ -688,6 +693,7 @@ _EXECUTION_PATHS = [
 @pytest.mark.parametrize("options", _EXECUTION_PATHS)
 def test_decoder_corrections_are_noiseless_frame_updates(tmp_path, options):
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from qdk import Result, TargetProfile, qsharp
 
     # The preparation leaves a Y fault on qubit 0 that the decoder corrects with
@@ -719,6 +725,7 @@ def test_decoder_corrections_are_noiseless_frame_updates(tmp_path, options):
 @pytest.mark.parametrize("options", _EXECUTION_PATHS)
 def test_frame_gadgets_apply_logical_paulis_noiselessly(tmp_path, options):
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from qdk import Result, TargetProfile, qsharp
 
     # Every physical X gate loses its qubit, so only a frame update keeps the data.
