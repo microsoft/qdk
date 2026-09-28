@@ -1,11 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""C4 walkthrough support: add flags, sample QIR with deq, and plot shot counts."""
+"""C4 walkthrough support: sample QIR with deq and plot shot counts."""
 
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
-from copy import deepcopy
 from itertools import cycle, islice
 import multiprocessing
 
@@ -17,23 +16,6 @@ from qdk.simulation.decoders import prepare_deq_decoder
 _SHOTS_PER_CHUNK = 1_000
 _codec: qodec.Qodec | None = None
 _Sweep = dict[str, list[tuple[float, Counter[str]]]]
-
-
-def add_flags(
-    codec: qodec.Qodec, mnemonic: str, equations: dict[str, list[str]]
-) -> None:
-    """Append raw-readout XOR flags without changing circuits or existing flags."""
-    layer = codec.layers[0]
-    gadget = layer.gadgets[mnemonic]
-    if gadget.implements.flags:
-        raise ValueError(f"{mnemonic} already declares flags.")
-    gadget.implements.flags = list(equations)
-    gadget.readouts = [
-        *gadget.readouts,
-        *({flag: terms} for flag, terms in equations.items()),
-    ]
-    layer.gadgets[mnemonic] = gadget
-    layer.instruction_set.instructions[mnemonic] = deepcopy(gadget.implements)
 
 
 def _initialize_worker(bundle: str) -> None:
