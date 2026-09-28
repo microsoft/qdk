@@ -266,15 +266,6 @@ function renderHistogram({ model, el }: RenderArgs) {
   model.on("change:sort", onChange);
 }
 
-function encodeNonAsciiCharacters(value: string) {
-  return Array.from(value, (character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && codePoint > 0x7f
-      ? `&#x${codePoint.toString(16)};`
-      : character;
-  }).join("");
-}
-
 function renderCircuit({ model, el }: RenderArgs) {
   const staticStyleProperties = [
     "color",
@@ -335,10 +326,7 @@ function renderCircuit({ model, el }: RenderArgs) {
         window.getComputedStyle(circuitContainer).backgroundColor;
     }
 
-    // GitHub's notebook renderer can expose UTF-8 bytes in inline SVG text.
-    const serialized = encodeNonAsciiCharacters(
-      new XMLSerializer().serializeToString(clone),
-    );
+    const serialized = new XMLSerializer().serializeToString(clone);
     if (model.get("svg") !== serialized) {
       model.set("svg", serialized);
       void model.save_changes();
