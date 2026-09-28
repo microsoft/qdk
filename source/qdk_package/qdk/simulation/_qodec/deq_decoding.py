@@ -30,9 +30,9 @@ from deq.transpiler.compose_builder import (  # pyright: ignore[reportMissingImp
 from deq.transpiler.jit_library_builder import (  # pyright: ignore[reportMissingImports]
     JitLibraryArtifacts,
 )
-from deq.transpiler.loss.model_none import (
+from deq.transpiler.loss.model_none import (  # pyright: ignore[reportMissingImports]
     NoLossModel,
-)  # pyright: ignore[reportMissingImports]
+)
 
 from qdk import Result
 from .. import NoiseConfig

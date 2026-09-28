@@ -33,7 +33,7 @@ from .readout_equations import (
 )
 
 if TYPE_CHECKING:
-    from deq.runtime import Runtime
+    from deq.runtime import Runtime  # pyright: ignore[reportMissingImports]
 
 
 class CodeDecoder:
