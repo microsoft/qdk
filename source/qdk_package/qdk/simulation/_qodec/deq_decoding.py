@@ -52,6 +52,7 @@ from .layer_runtime import LayerPlan
 from .protocols import (
     BlockReference,
     DecoderSession,
+    ExecutionRejected,
     ExecutionUnresolved,
 )
 from .selection import Selection
@@ -59,12 +60,15 @@ from .selection import Selection
 _COMPOSITE_SIZE = 1024
 
 
-def _default_runtime(seed: int) -> Runtime:
+def _default_runtime(seed: int, *, forced_gap: bool = False) -> Runtime:
+    coordinator_config = {"buffer_radius": 1, "lookahead_radius": 1}
+    if forced_gap:
+        coordinator_config["forced_gap"] = True
     return Runtime(
         decoder="black-box-relay-bp",
         decoder_config={"parallel": 1, "seed": seed},
         coordinator="window",
-        coordinator_config={"buffer_radius": 1, "lookahead_radius": 1},
+        coordinator_config=coordinator_config,
         controller="jit",
     )
 
@@ -96,15 +100,33 @@ class _ReadoutPlan:
     outputs: tuple[OutputRecordValue | _Readout, ...]
     decoded_destinations: tuple[int, ...]
 
+    @property
+    def returned_logical_positions(self) -> tuple[int, ...]:
+        returned = {
+            value.index for value in self.outputs if isinstance(value, _Readout)
+        }
+        return tuple(
+            index
+            for index, destination in enumerate(self.decoded_destinations)
+            if destination in returned
+        )
+
 
 class DeqModel:
     def __init__(
-        self, layer: Layer, *, runtime_factory: Callable[[int], Runtime] | None = None
+        self,
+        layer: Layer,
+        *,
+        runtime_factory: Callable[[int], Runtime] | None = None,
+        max_readout_score: float | None = None,
     ) -> None:
         self.layer_plan = LayerPlan(layer)
         self.runtime_factory = (
-            _default_runtime if runtime_factory is None else runtime_factory
+            partial(_default_runtime, forced_gap=max_readout_score is not None)
+            if runtime_factory is None
+            else runtime_factory
         )
+        self.max_readout_score = max_readout_score
 
     def record_circuit(
         self,
@@ -123,6 +145,11 @@ class DeqModel:
     ) -> DeqBatch:
         builder = _LibraryBuilder(self.layer_plan, noise)
         instances, readouts = _connect_gadgets(trace, builder)
+        if (
+            self.max_readout_score is not None
+            and not readouts.returned_logical_positions
+        ):
+            raise ValueError("max_readout_score requires a returned logical readout")
         source, artifacts = builder.build()
         library, composites = _compose_gadgets(source, artifacts, instances)
         samples = replace(trace, events=(), sources=(), outputs=())
@@ -133,6 +160,7 @@ class DeqModel:
             _noise_key(noise),
             composites,
             self.runtime_factory,
+            self.max_readout_score,
         )
 
 
@@ -381,6 +409,25 @@ def _unpack_readouts(
     return unpacked
 
 
+def _unpack_scores(
+    replies: Sequence[coordinator.Readouts], widths: Sequence[int]
+) -> np.ndarray:
+    scores = []
+    for reply, size in zip(replies, widths, strict=True):
+        values = np.asarray(reply.probabilities, dtype=float)
+        if len(values) != size:
+            raise RuntimeError(
+                "deq must return one score per logical readout; "
+                'enable coordinator_config={"forced_gap": True} in runtime_factory'
+            )
+        if not np.all(np.isfinite(values) & (values >= 0) & (values <= 1)):
+            raise RuntimeError(
+                "deq returned invalid readout scores; expected finite values in [0, 1]"
+            )
+        scores.append(values)
+    return np.concatenate(scores)
+
+
 @dataclass(frozen=True)
 class DeqBatch:
     trace: CircuitTrace
@@ -389,6 +436,7 @@ class DeqBatch:
     noise_key: tuple[float, ...]
     composites: tuple[_Composite, ...]
     runtime_factory: Callable[[int], Runtime] = _default_runtime
+    max_readout_score: float | None = None
 
     def run(
         self,
@@ -442,8 +490,15 @@ class DeqBatch:
                     self._batch_outcomes(records[start:stop])
                 )
                 unpacked = _unpack_readouts(replies, widths * (stop - start))
+                scores = (
+                    _unpack_scores(replies, widths * (stop - start))
+                    if self.max_readout_score is not None
+                    else None
+                )
                 results.extend(
-                    self._reconstruct_outputs(unpacked, readouts[start:stop], policy)
+                    self._reconstruct_outputs(
+                        unpacked, readouts[start:stop], policy, scores=scores
+                    )
                 )
                 if stop < len(records):
                     await service.reset(
@@ -514,17 +569,39 @@ class DeqBatch:
         unpacked: Sequence[np.ndarray],
         readouts: np.ndarray,
         policy: Literal["raise", "discard"],
+        *,
+        scores: np.ndarray | None = None,
     ) -> list[list[OutputRecordValue]]:
         decoded = np.concatenate(unpacked).reshape(len(readouts), -1)
         plan = self.readout_plan
         readouts = readouts.copy()
         readouts[:, plan.decoded_destinations] = decoded
+        if self.max_readout_score is not None:
+            if scores is None:
+                raise RuntimeError("deq returned no readout scores")
+            scores = scores.reshape(len(readouts), -1)[
+                :, plan.returned_logical_positions
+            ]
         results = []
-        for row in readouts:
+        for shot, row in enumerate(readouts):
             # Discard-mode selections were applied before decoding.
             if policy == "raise":
                 for selection, indices in plan.selections:
                     selection.require(tuple(bool(row[index]) for index in indices))
+            if scores is not None and self.max_readout_score is not None:
+                worst_position = int(np.argmax(scores[shot]))
+                worst = float(scores[shot, worst_position])
+                if worst > self.max_readout_score:
+                    if policy == "raise":
+                        destination = plan.decoded_destinations[
+                            plan.returned_logical_positions[worst_position]
+                        ]
+                        output = plan.outputs.index(_Readout(destination))
+                        raise ExecutionRejected(
+                            f"Logical readout at output position {output} has score {worst:g}, which exceeds "
+                            f"max_readout_score={self.max_readout_score:g}"
+                        )
+                    continue
             results.append(
                 [
                     (

@@ -3,15 +3,22 @@
 
 """C4 walkthrough support: sample QIR with deq and plot shot counts."""
 
+from __future__ import annotations
+
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from itertools import cycle, islice
 import multiprocessing
+from typing import TYPE_CHECKING
 
 import qodec
 from qdk import Result
 from qdk.simulation import NoiseConfig, run_qir
 from qdk.simulation.decoders import prepare_deq_decoder
+
+if TYPE_CHECKING:
+    from deq.runtime import Runtime
 
 _SHOTS_PER_CHUNK = 1_000
 _codec: qodec.Qodec | None = None
@@ -23,8 +30,20 @@ def _initialize_worker(bundle: str) -> None:
     _codec = qodec.Qodec.loads(bundle)
 
 
-def _sample_chunk(chunk: tuple[str, float, int, int]) -> Counter[str]:
-    program, probability, shots, seed = chunk
+def _runtime(seed: int, *, forced_gap: bool) -> Runtime:
+    from deq.runtime import Runtime
+
+    return Runtime(
+        decoder="black-box-relay-bp",
+        decoder_config={"parallel": 1, "seed": seed},
+        coordinator="monolithic",
+        coordinator_config={"forced_gap": forced_gap},
+        controller="jit",
+    )
+
+
+def _sample_chunk(chunk: tuple[str, float, int, int, float | None]) -> Counter[str]:
+    program, probability, shots, seed, max_readout_score = chunk
     if _codec is None:
         raise RuntimeError("Initialize the worker with a qodec bundle before sampling.")
     noise = NoiseConfig()
@@ -34,7 +53,11 @@ def _sample_chunk(chunk: tuple[str, float, int, int]) -> Counter[str]:
     rows = run_qir(
         program,
         qodec=_codec,
-        decoder=prepare_deq_decoder,
+        decoder=partial(
+            prepare_deq_decoder,
+            runtime_factory=partial(_runtime, forced_gap=max_readout_score is not None),
+            max_readout_score=max_readout_score,
+        ),
         noise=noise,
         shots=shots,
         seed=seed,
@@ -55,11 +78,14 @@ def sample_sweep(
     *,
     shots: int,
     workers: int,
+    max_readout_score: float | None = None,
 ) -> _Sweep:
     """Return benchmark -> (probability, attempted/accepted/wrong counts) pairs.
 
     Fixed chunks and seeds do not depend on worker count. Each process loads
     one codec; only counts come back. Failures propagate without partial sweeps.
+    An optional maximum deq readout score postselects decoded logical results.
+    Preparation rejection flags are checked independently.
     """
     if shots < 1 or workers < 1 or not benchmarks or not probabilities:
         raise ValueError("Use positive shots and workers, and a nonempty sweep.")
@@ -69,7 +95,7 @@ def sample_sweep(
     ]
     cases = [(name, p) for p in probabilities for name in benchmarks]
     jobs = [
-        (benchmarks[name], p, size, 42 + i + j * len(cases))
+        (benchmarks[name], p, size, 42 + i + j * len(cases), max_readout_score)
         for i, (name, p) in enumerate(cases)
         for j, size in enumerate(sizes)
     ]

@@ -70,6 +70,26 @@ coordinator, and other deq settings belong to the returned runtime, not to
 additional QDK tuning parameters. The name ``runtime_factory`` distinguishes
 creation from borrowing a shared ``runtime``.
 
+For score-based postselection, pass ``max_readout_score`` to
+``prepare_deq_decoder``. The default runtime then enables deq's ``forced_gap``
+scoring. A custom runtime factory must enable it explicitly with
+``coordinator_config={"forced_gap": True}``; QDK never changes its configuration.
+deq reports a score in [0, 1] comparing the chosen correction with an alternative
+that changes a readout. Lower is more confident, but these scores are not
+calibrated error probabilities. ``max_readout_score`` names the same score and
+direction as deq; ``min_confidence`` would invert it and suggest calibration.
+
+With a threshold, a shot is accepted only when every returned logical readout's
+score is at or below it. Raw flags, constant outputs, and unused intermediate
+readouts do not participate. At least one logical readout must be returned.
+``on_shot_failure="discard"`` omits low-confidence shots; ``"raise"`` raises
+``ExecutionRejected``. Existing raw-flag selections still apply. Missing or
+malformed scores and deq service failures always propagate, even under discard.
+The return shape is unchanged and ``shots`` still counts attempted shots.
+The threshold is per readout, not a bound on whole-shot failure probability.
+``None`` preserves decoding without score filtering. Scoring may add several
+alternative decoder solves per shot; retry remains unsupported.
+
 deq decoding keeps native physical sampling. A conversion module compiles Qodec
 gadgets independently of the program, using their local circuits, declared
 actions, equations, and noise model. An execution module connects those models

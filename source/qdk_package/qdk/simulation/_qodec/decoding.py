@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from math import isfinite
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -118,7 +119,10 @@ def prepare_syndrome_decoder(layer: Layer) -> DecoderFactory:
 
 
 def prepare_deq_decoder(
-    layer: Layer, *, runtime_factory: Callable[[int], Runtime] | None = None
+    layer: Layer,
+    *,
+    runtime_factory: Callable[[int], Runtime] | None = None,
+    max_readout_score: float | None = None,
 ) -> DecoderFactory:
     """Prepare a circuit-level deq decoder for a Qodec layer.
 
@@ -135,6 +139,17 @@ def prepare_deq_decoder(
     errors. Do not return a shared runtime or reuse one between calls.
     With no factory, the existing seeded, single-worker relay-BP runtime and
     radius-one window settings are retained.
+
+    ``max_readout_score`` optionally accepts only shots whose returned logical
+    readouts all have deq scores at or below this threshold, in [0, 1].
+    Smaller scores mean greater confidence; these are not calibrated error
+    probabilities or a bound on whole-shot failure. Raw flags and unused
+    intermediate readouts are excluded. The program must return at least one
+    logical readout. ``discard`` omits failing shots; ``raise`` raises
+    ``ExecutionRejected``. Missing or malformed scores raise an error under
+    either policy. No filtering is performed when the threshold is ``None``.
+    A threshold enables ``forced_gap`` in the default runtime. A custom
+    factory must enable scoring itself; its settings are never modified.
 
     Gadget models are converted independently of the program trace. The trace
     supplies connected top-level ISA calls and native physical samples; deq
@@ -161,6 +176,13 @@ def prepare_deq_decoder(
         raise TypeError(
             "runtime_factory must be callable and return a fresh deq Runtime"
         )
+    if max_readout_score is not None and (
+        isinstance(max_readout_score, bool)
+        or not isinstance(max_readout_score, (int, float))
+        or not isfinite(max_readout_score)
+        or not 0 <= max_readout_score <= 1
+    ):
+        raise ValueError("max_readout_score must be a finite number in [0, 1]")
     try:
         from .deq_decoding import DeqModel
     except ModuleNotFoundError as error:
@@ -170,7 +192,11 @@ def prepare_deq_decoder(
                 "Install them with: pip install deq deq-runtime"
             ) from error
         raise
-    return DeqModel(layer, runtime_factory=runtime_factory)
+    return DeqModel(
+        layer,
+        runtime_factory=runtime_factory,
+        max_readout_score=max_readout_score,
+    )
 
 
 class SyndromeModel:

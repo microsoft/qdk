@@ -46,6 +46,7 @@ def simulate(circuit_decoder):
         shots=3,
         seed=42,
         runtime_factory=None,
+        max_readout_score=None,
         on_shot_failure: Literal["raise", "discard"] = "raise",
     ):
         if codec is None:
@@ -57,7 +58,11 @@ def simulate(circuit_decoder):
         return run_qir(
             program,
             qodec=codec,
-            decoder=partial(circuit_decoder, runtime_factory=runtime_factory),
+            decoder=partial(
+                circuit_decoder,
+                runtime_factory=runtime_factory,
+                max_readout_score=max_readout_score,
+            ),
             noise=noise,
             shots=shots,
             seed=seed,
@@ -96,6 +101,42 @@ def physical_samples(monkeypatch):
 
     monkeypatch.setattr(CircuitTrace, "sample", record)
     return rows
+
+
+@pytest.fixture
+def replace_scores(monkeypatch):
+    """Control scores while retaining real compilation, decoding and bit routing."""
+    from contextlib import asynccontextmanager
+    from qdk.simulation._qodec import deq_decoding
+
+    original_runtime = deq_decoding.Runtime
+    closed = []
+
+    def install(scores):
+        @asynccontextmanager
+        async def runtime(**kwargs):
+            try:
+                async with original_runtime(**kwargs) as instance:
+                    service = instance.jit_controller
+                    original_decode = service.batch_decode
+
+                    async def decode(outcomes):
+                        replies = await original_decode(outcomes)
+                        for reply in replies:
+                            reply.probabilities[:] = (
+                                scores(reply) if reply.readouts.size else []
+                            )
+                        return replies
+
+                    service.batch_decode = decode
+                    yield instance
+            finally:
+                closed.append(True)
+
+        monkeypatch.setattr(deq_decoding, "Runtime", runtime)
+        return closed
+
+    return install
 
 
 @pytest.fixture
@@ -2070,11 +2111,192 @@ def test_deq_factory_accepts_keyword_only_runtime_factory():
     from inspect import Parameter, signature
 
     parameters = signature(prepare_deq_decoder).parameters
-    assert tuple(parameters) == ("layer", "runtime_factory")
+    assert tuple(parameters) == ("layer", "runtime_factory", "max_readout_score")
     assert parameters["layer"].kind is Parameter.POSITIONAL_OR_KEYWORD
     assert parameters["layer"].default is Parameter.empty
     assert parameters["runtime_factory"].kind is Parameter.KEYWORD_ONLY
     assert parameters["runtime_factory"].default is None
+    assert parameters["max_readout_score"].kind is Parameter.KEYWORD_ONLY
+    assert parameters["max_readout_score"].default is None
+
+
+@pytest.mark.parametrize(
+    "threshold", [-0.1, 1.1, float("nan"), float("inf"), -float("inf"), True, "0.1"]
+)
+def test_deq_rejects_invalid_score_thresholds(circuit_decoder, threshold):
+    codec = qodec.Qodec.load(FIXTURES / "repetition3.qodec.yaml")
+    with pytest.raises(ValueError, match=r"max_readout_score.*finite.*\[0, 1\]"):
+        circuit_decoder(codec.layers[0], max_readout_score=threshold)
+
+
+def test_deq_score_threshold_enables_default_scoring(simulate, sample_records):
+    sample_records([[Result.Zero] * 3, [Result.One, Result.Zero, Result.Zero]])
+    noise = NoiseConfig()
+    noise.mresetz.x = 0.01
+    assert simulate(noise=noise, shots=2) == [[Result.Zero], [Result.Zero]]
+    assert simulate(
+        noise=noise, shots=2, max_readout_score=0.001, on_shot_failure="discard"
+    ) == [[Result.Zero]]
+    with pytest.raises(ExecutionRejected, match="score.*exceeds.*max_readout_score"):
+        simulate(noise=noise, shots=2, max_readout_score=0.001)
+
+
+@pytest.mark.parametrize(
+    "score,threshold,accepted",
+    [(0.0, 0.0, True), (0.5, 0.5, True), (0.500001, 0.5, False), (1.0, 1.0, True)],
+)
+def test_deq_score_threshold_is_inclusive(
+    simulate, replace_scores, score, threshold, accepted
+):
+    closed = replace_scores(lambda reply: [score] * reply.readouts.size)
+    assert simulate(
+        shots=1, max_readout_score=threshold, on_shot_failure="discard"
+    ) == ([[Result.Zero]] if accepted else [])
+    assert closed == [True]
+
+
+@pytest.mark.parametrize(
+    "scores", [[], [0.1, 0.2], [float("nan")], [float("inf")], [-0.1], [1.1]]
+)
+@pytest.mark.parametrize("policy", ["discard", "raise"])
+def test_deq_score_validation_errors_are_never_postselected(
+    simulate, replace_scores, scores, policy
+):
+    closed = replace_scores(lambda reply: scores)
+    with pytest.raises(RuntimeError, match="score") as error:
+        simulate(shots=1, max_readout_score=0.1, on_shot_failure=policy)
+    assert not isinstance(error.value, ExecutionRejected)
+    assert closed == [True]
+
+
+def test_deq_disabled_score_filter_preserves_existing_behavior(
+    simulate, replace_scores
+):
+    replace_scores(lambda reply: [float("nan")])
+    assert simulate(shots=1) == [[Result.Zero]]
+
+
+@pytest.mark.parametrize(
+    "outputs,accepted", [([0], False), ([1], True), ([1, 1], True), ([0, 1], False)]
+)
+def test_deq_scores_only_returned_logical_readouts(
+    simulate, replace_scores, outputs, accepted
+):
+    codec = unencoded_codec(width=2)
+    program = qir_program([("prepare", [0], []), ("measure", [0], [0, 1])], outputs)
+    replace_scores(lambda reply: [0.9, 0.01])
+    assert simulate(
+        program, codec=codec, shots=1, max_readout_score=0.1, on_shot_failure="discard"
+    ) == ([[Result.Zero] * len(outputs)] if accepted else [])
+
+
+def test_deq_score_filter_ignores_returned_raw_flags(
+    simulate, replace_scores, sample_records
+):
+    codec = repetition_with_parity_flag()
+    program = qir_program(
+        [("prepare_z", [0], []), ("__quantum__qis__m__body", [0], [0, 1])],
+        [1, 0, 0],
+    )
+    sample_records([[Result.One, Result.Zero, Result.Zero]])
+    replace_scores(lambda reply: [0.01])
+    noise = NoiseConfig()
+    noise.mresetz.x = 0.01
+    assert simulate(
+        program, codec=codec, noise=noise, shots=1, max_readout_score=0.1
+    ) == [[Result.One, Result.Zero, Result.Zero]]
+
+
+def test_deq_score_filter_and_raw_flag_selection_remain_aligned_across_batches(
+    simulate, replace_scores, sample_records
+):
+    codec = repetition_with_parity_flag()
+    sample_records(
+        [
+            [Result.Zero] * 3,
+            [Result.One, Result.Zero, Result.Zero],
+            [Result.One] * 3,
+        ]
+        * 257
+    )
+    replace_scores(lambda reply: [0.9 if reply.readouts.data[0] & 128 else 0.01])
+    noise = NoiseConfig()
+    noise.mresetz.x = 0.01
+    assert (
+        simulate(
+            codec=codec,
+            noise=noise,
+            shots=771,
+            max_readout_score=0.1,
+            on_shot_failure="discard",
+        )
+        == [[Result.Zero]] * 257
+    )
+
+
+def test_deq_scores_remain_aligned_across_composites(
+    simulate, replace_scores, monkeypatch, prepared_batches
+):
+    from qdk.simulation._qodec import deq_decoding
+
+    monkeypatch.setattr(deq_decoding, "_COMPOSITE_SIZE", 1)
+    seen = []
+
+    def scores(reply):
+        seen.append(reply.gid)
+        return [0.9 if len(seen) % 2 == 0 else 0.01] * reply.readouts.size
+
+    replace_scores(scores)
+    assert (
+        simulate(
+            memory_program(), shots=2, max_readout_score=0.1, on_shot_failure="discard"
+        )
+        == []
+    )
+    (batch,) = prepared_batches
+    assert len(batch.composites) > 2
+    assert len(seen) == 4
+
+
+def test_deq_score_threshold_does_not_retry_rejected_shots(simulate):
+    with pytest.raises(NotImplementedError, match="retry"):
+        simulate(shots=1, max_readout_score=0.1, on_shot_failure="retry")
+
+
+@pytest.mark.parametrize("returned", [[], [1]])
+def test_deq_score_threshold_requires_a_returned_logical_readout(simulate, returned):
+    codec = repetition_with_parity_flag()
+    program = qir_program(
+        [("prepare_z", [0], []), ("__quantum__qis__m__body", [0], [0, 1])], returned
+    )
+    with pytest.raises(ValueError, match="requires a returned logical readout"):
+        simulate(program, codec=codec, max_readout_score=0.1)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_deq_score_filter_does_not_modify_custom_runtime_settings(simulate, enabled):
+    from deq.runtime import Runtime
+
+    seeds = []
+
+    def make_runtime(seed):
+        seeds.append(seed)
+        return Runtime(
+            decoder="black-box-relay-bp",
+            decoder_config={"parallel": 1, "seed": seed},
+            coordinator="monolithic",
+            coordinator_config={"forced_gap": enabled},
+            controller="jit",
+        )
+
+    if enabled:
+        assert simulate(
+            shots=1, max_readout_score=0.1, runtime_factory=make_runtime
+        ) == [[Result.Zero]]
+    else:
+        with pytest.raises(RuntimeError, match="enable.*forced_gap"):
+            simulate(shots=1, max_readout_score=0.1, runtime_factory=make_runtime)
+    assert seeds == [42]
 
 
 def test_runtime_factory_is_lazy_seeded_and_owned_by_the_worker(simulate):

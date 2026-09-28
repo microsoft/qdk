@@ -848,9 +848,11 @@ def run_qir(
         See :mod:`qdk.simulation.decoders` for built-in preparation functions and
         the optional :func:`~qdk.simulation.decoders.prepare_deq_decoder` adapter.
         The deq adapter derives connected gadget fault models
-        from ``noise`` and uses bounded compositions with deq's window coordinator
-        for supported non-adaptive Clifford programs, without changing the default
-        QDK decoder.
+        from ``noise`` and uses bounded compositions with the selected deq
+        coordinator (window by default) for supported non-adaptive Clifford
+        programs, without changing the default QDK decoder. Its optional
+        ``max_readout_score`` threshold uses this run's shot-failure policy
+        for confidence-based selection without changing the output shape.
     :param on_shot_failure: EXPERIMENTAL
         Qodec shot policy: ``"discard"`` (default) returns only successes,
         ``"raise"`` stops on the first failure, and ``"retry"`` restarts failed shots.
