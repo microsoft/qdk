@@ -288,7 +288,7 @@ fn circuit_with_options(
 pub(crate) fn default_test_tracer_config() -> TracerConfig {
     TracerConfig {
         max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
-        max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+        max_loop_iterations: None,
         source_locations: true,
         group_by_scope: true,
         prune_classical_qubits: false,
@@ -686,7 +686,7 @@ fn dynamic_for_loop_is_grouped() {
         CircuitGenerationMethod::Simulate,
         TracerConfig {
             max_operations: 1000,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -907,7 +907,7 @@ fn for_loop_nested() {
         CircuitGenerationMethod::ClassicalEval,
         TracerConfig {
             max_operations: 1000,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: true,
             group_by_scope: true,
             prune_classical_qubits: false,
@@ -1877,7 +1877,7 @@ fn operation_declared_in_eval() {
             CircuitGenerationMethod::ClassicalEval,
             TracerConfig {
                 max_operations: usize::MAX,
-                max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+                max_loop_iterations: None,
                 source_locations: false,
                 group_by_scope: true,
                 ..default_test_tracer_config()
@@ -2563,7 +2563,7 @@ fn long_loop_omits_middle_iterations() {
         CircuitEntryPoint::EntryPoint,
         CircuitGenerationMethod::Static,
         TracerConfig {
-            max_loop_iterations: 4,
+            max_loop_iterations: Some(4),
             ..default_test_tracer_config()
         },
     );
@@ -2592,4 +2592,35 @@ fn long_loop_omits_middle_iterations() {
 
     let text = circuit.to_string();
     assert!(text.contains("...(9)"), "{text}");
+}
+
+#[test]
+fn long_loop_is_not_truncated_without_iteration_limit() {
+    let circuit = circuit_with_options_success(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    for _ in 1..13 {
+                        H(q);
+                    }
+                }
+            }
+        ",
+        Profile::AdaptiveRIF,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_loop_iterations: None,
+            ..default_test_tracer_config()
+        },
+    );
+
+    let loop_children = first_loop_children(&circuit);
+
+    assert_eq!(loop_children.len(), 13);
+    for (index, iteration) in loop_children.iter().enumerate() {
+        assert_eq!(iteration.gate(), format!("({})", index + 1));
+    }
 }

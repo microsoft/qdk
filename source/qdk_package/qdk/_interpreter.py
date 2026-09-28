@@ -311,7 +311,7 @@ def circuit(
     operation: Optional[str] = None,
     generation_method: Optional[CircuitGenerationMethod] = None,
     max_operations: Optional[int] = None,
-    max_loop_iterations: int = 100,
+    max_loop_iterations: Optional[int] = 100,
     source_locations: bool = False,
     group_by_scope: bool = True,
     prune_classical_qubits: bool = False,
@@ -346,8 +346,8 @@ def circuit(
     :kwtype max_operations: int
 
     :keyword max_loop_iterations: The maximum number of loop iterations to render in
-        full. Defaults to ``100``.
-    :kwtype max_loop_iterations: int
+        full. Defaults to ``100``. If ``None``, loops are not truncated.
+    :kwtype max_loop_iterations: int or None
 
     :keyword source_locations: If ``True``, annotates each gate with its source location.
     :kwtype source_locations: bool

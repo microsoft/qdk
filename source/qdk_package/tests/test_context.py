@@ -60,7 +60,23 @@ def test_circuit() -> None:
     assert "H" in str(circuit)
 
 
-def test_circuit_max_loop_iterations() -> None:
+@pytest.mark.parametrize(
+    ("max_loop_iterations", "expected_iteration_labels", "expected_omitted_args"),
+    [
+        pytest.param(3, ["(1)", "(2)", "(6)"], ["3"], id="truncated"),
+        pytest.param(
+            None,
+            ["(1)", "(2)", "(3)", "(4)", "(5)", "(6)"],
+            None,
+            id="not-truncated",
+        ),
+    ],
+)
+def test_circuit_max_loop_iterations(
+    max_loop_iterations: int | None,
+    expected_iteration_labels: list[str],
+    expected_omitted_args: list[str] | None,
+) -> None:
     ctx = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RIF)
     ctx.eval(
         """
@@ -76,7 +92,7 @@ def test_circuit_max_loop_iterations() -> None:
     circuit = ctx.circuit(
         "Program()",
         generation_method=qsharp.CircuitGenerationMethod.Static,
-        max_loop_iterations=3,
+        max_loop_iterations=max_loop_iterations,
     )
     circuit_data = json.loads(circuit.json())
 
@@ -92,14 +108,18 @@ def test_circuit_max_loop_iterations() -> None:
         for operation in operations
         if operation["gate"].startswith("(")
     ]
-    assert iteration_labels == ["(1)", "(2)", "(6)"]
+    assert iteration_labels == expected_iteration_labels
 
-    [omitted] = [
+    omitted = [
         operation
         for operation in operations
         if operation["gate"] == "..."
     ]
-    assert omitted["args"] == ["3"]
+    if expected_omitted_args is None:
+        assert omitted == []
+    else:
+        assert len(omitted) == 1
+        assert omitted[0]["args"] == expected_omitted_args
 
 
 def test_logical_counts() -> None:

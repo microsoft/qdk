@@ -511,7 +511,7 @@ impl CircuitTracer {
 /// Constructs the final circuit representation from operations and qubits.
 ///
 /// This function:
-/// - Truncates oversized loops to the configured maximum number of rendered iterations,
+/// - Truncates oversized loops when a maximum number of rendered iterations is configured,
 ///   enforcing a minimum of two iterations
 /// - Optionally collapses unnecessary scope groups based on user/library package origin
 /// - Lays out operations into columns for circuit visualization
@@ -521,9 +521,11 @@ pub(crate) fn finish_circuit(
     mut operations: Vec<OperationOrGroup>,
     qubits: Vec<Qubit>,
     collapse_trivial_groups: bool,
-    max_loop_iterations: usize,
+    max_loop_iterations: Option<usize>,
 ) -> Circuit {
-    truncate_loop_iterations(&mut operations, max_loop_iterations.max(2));
+    if let Some(max_loop_iterations) = max_loop_iterations {
+        truncate_loop_iterations(&mut operations, max_loop_iterations.max(2));
+    }
     if collapse_trivial_groups {
         collapse_unnecessary_scopes(&mut operations, source_lookup);
     }
@@ -1098,8 +1100,8 @@ fn get_loop_by_expr_id(
 pub struct TracerConfig {
     /// Maximum number of operations the builder will add to the circuit
     pub max_operations: usize,
-    /// Maximum number of loop iterations rendered in full.
-    pub max_loop_iterations: usize,
+    /// Maximum number of loop iterations rendered in full, or `None` for no limit.
+    pub max_loop_iterations: Option<usize>,
     /// Capture the source code locations of operations and qubit declarations
     /// in the circuit diagram
     pub source_locations: bool,
@@ -1117,8 +1119,6 @@ impl TracerConfig {
     /// A more refined way to do this might be to communicate the
     /// "limit exceeded" state up to the UI somehow.
     pub const DEFAULT_MAX_OPERATIONS: usize = 10001;
-    /// Default maximum number of loop iterations rendered in full.
-    pub const DEFAULT_MAX_LOOP_ITERATIONS: usize = 100;
 }
 
 /// Maps qubit IDs to their corresponding wire IDs and tracks measurement results

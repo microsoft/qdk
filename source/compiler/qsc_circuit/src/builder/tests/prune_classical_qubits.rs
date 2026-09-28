@@ -11,7 +11,7 @@ fn circuit_trimmed_stays_the_same() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -43,7 +43,7 @@ fn circuit_trims_unused_qubit() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -77,7 +77,7 @@ fn circuit_trims_unused_qubit_with_grouping() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: true,
@@ -133,7 +133,7 @@ fn circuit_trims_classical_qubit() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -168,7 +168,7 @@ fn circuit_trims_classical_control_qubit() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -203,7 +203,7 @@ fn circuit_trims_classical_qubit_when_2q_precedes_superposition() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -238,7 +238,7 @@ fn target_qubit_trimmed_when_only_one_control_non_classical() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -276,7 +276,7 @@ fn controlled_paulis_become_uncontrolled_when_control_is_known_classical_one() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -312,7 +312,7 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: false,
             prune_classical_qubits: true,
@@ -344,7 +344,7 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one_with_grouping() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: true,
@@ -407,7 +407,7 @@ fn group_with_no_remaining_operations_is_pruned() {
     let mut builder = CircuitTracer::new(
         TracerConfig {
             max_operations: 100,
-            max_loop_iterations: TracerConfig::DEFAULT_MAX_LOOP_ITERATIONS,
+            max_loop_iterations: None,
             source_locations: false,
             group_by_scope: true,
             prune_classical_qubits: true,
