@@ -20,7 +20,7 @@ from qdk.simulation import run_qir
 from qdk.simulation._simulation import Result
 from typing import Literal
 
-SIM_TYPES = ["cpu", "clifford"]
+SIM_TYPES = ["cpu", "stabilizer"]
 
 
 # ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ def _run(
     qir: str,
     shots: int,
     seed: int = 42,
-    sim_type: Literal["clifford", "cpu"] = "cpu",
+    sim_type: Literal["stabilizer", "cpu"] = "cpu",
 ):
     """Run *qir* on the given simulator and return shot results as a list of strings."""
     results = run_qir(qir, shots, seed=seed, type=sim_type)
@@ -434,9 +434,7 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_dynamic_rotation_angle(sim_type):
-    results = _run(
-        DYNAMIC_ROTATION_ANGLE_QIR, shots=10_000, seed=42, sim_type=sim_type
-    )
+    results = _run(DYNAMIC_ROTATION_ANGLE_QIR, shots=10_000, seed=42, sim_type=sim_type)
     assert len(results) == 10_000
 
     counts = Counter(results)
@@ -617,16 +615,18 @@ def test_teleported_t_distribution_matches_full_state():
 
         for result in results:
             assert len(result) == 20
-            assert all(bit == "0" for i, bit in enumerate(result) if i not in target_bits)
+            assert all(
+                bit == "0" for i, bit in enumerate(result) if i not in target_bits
+            )
 
         for bit in target_bits:
             probability = sum(result[bit] == "1" for result in results) / shots
             assert abs(probability - expected_one_probability) < 0.07
 
-    support = set(histograms["cpu"]) | set(histograms["clifford"])
+    support = set(histograms["cpu"]) | set(histograms["stabilizer"])
     total_variation_distance = (
         sum(
-            abs(histograms["cpu"][result] - histograms["clifford"][result])
+            abs(histograms["cpu"][result] - histograms["stabilizer"][result])
             for result in support
         )
         / shots

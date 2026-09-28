@@ -24,6 +24,7 @@ pip install "qdk[jupyter,qiskit,azure]"
 | Extra     | Command                      | What It Adds                                                             |
 | --------- | ---------------------------- | ------------------------------------------------------------------------ |
 | `jupyter` | `pip install "qdk[jupyter]"` | Jupyter widgets                                                          |
+| `qre`     | `pip install "qdk[qre]"`     | Quantum Resource Estimation v3 and pandas result tables                  |
 | `azure`   | `pip install "qdk[azure]"`   | Azure Quantum workspace connectivity and job submission                  |
 | `qiskit`  | `pip install "qdk[qiskit]"`  | Qiskit interop — run Qiskit circuits on QDK simulators and Azure Quantum |
 | `cirq`    | `pip install "qdk[cirq]"`    | Cirq interop — run Cirq circuits on QDK simulators and Azure Quantum     |
@@ -33,14 +34,13 @@ pip install "qdk[jupyter,qiskit,azure]"
 
 These QDK packages are versioned together and must be kept in sync:
 
-- `qdk` (metapackage)
-- `qsharp` (core compiler/simulator)
+- `qdk`
 - `qsharp-widgets`
 - `qsharp-jupyterlab`
 
 They share the same version number (e.g., `1.26.1234`). **Never mix versions** across these packages.
 
-Third-party dependencies (`azure-quantum`, `qiskit`, `cirq-core`, `pyqir`) have their own versioning. The `qdk` metapackage pins compatible ranges, so installing via `qdk` ensures compatibility.
+Third-party dependencies (`azure-quantum`, `qiskit`, `cirq-core`, `pyqir`) have their own versioning. The `qdk` package pins compatible ranges, so installing via `qdk` ensures compatibility.
 
 When upgrading:
 
@@ -48,22 +48,30 @@ When upgrading:
 pip install --upgrade "qdk[jupyter,azure]"
 ```
 
-Always upgrade via the `qdk` metapackage to keep versions aligned.
+Always upgrade via the `qdk` package to keep versions aligned.
+
+The legacy `qsharp` Python package is deprecated and no longer receives updates. Install
+`qdk` and import Q# APIs from `qdk.qsharp` instead.
 
 ## Package Layout
 
 ```text
 qdk                          # top-level package — pip install qdk
+├── qdk.Context              # isolated compiler and simulator state
 ├── qdk.qsharp               # eval, run, compile, estimate, circuit, ...
 ├── qdk.code                  # dynamic namespace for Q# callables (see below)
 ├── qdk.openqasm              # run, compile, estimate, import_openqasm
-├── qdk.estimator             # EstimatorParams, QubitParams, QECScheme, ...
-├── qdk.simulation            # NeutralAtomDevice, NoiseConfig
-├── qdk.widgets               # requires qdk[jupyter]: Circuit, Histogram, EstimateDetails, ...
+├── qdk.stim                  # experimental Stim-like compilation and simulation
+├── qdk.qre                   # requires qdk[qre]: current resource estimation API
+├── qdk.estimator             # deprecated resource estimation API
+├── qdk.simulation            # run_qir, NeutralAtomDevice, NoiseConfig, LossPolicy
+├── qdk.test_utils            # Q# test discovery and operation test helpers
+├── qdk.widgets               # requires qdk[jupyter]: Circuit, BlochSphere, Histogram, ...
 ├── qdk.azure                 # requires qdk[azure]: Workspace, Target, Job
 ├── qdk.azure.qiskit          # requires qdk[azure,qiskit]: AzureQuantumProvider
 ├── qdk.azure.cirq            # requires qdk[azure,cirq]: AzureQuantumService
-└── qdk.qiskit                # requires qdk[qiskit]: QSharpBackend, ResourceEstimatorBackend
+├── qdk.qiskit                # requires qdk[qiskit]: QSharpBackend, NeutralAtomBackend
+└── qdk.cirq                  # requires qdk[cirq]: NeutralAtomSampler
 ```
 
 ## Working with Q# and OpenQASM
@@ -84,6 +92,44 @@ qsharp.init(target_profile=qsharp.TargetProfile.Base)
 
 # With a Q# project (looks for qsharp.json in the given directory)
 qsharp.init(project_root="./my_project")
+
+# With compile-time values available through Std.Core.ConfigValue in Q#
+qsharp.init(qdk_config={"size": 10, "angle": 2.0})
+```
+
+`qdk_config` values may be `int`, `float`, `str`, or `bool`. Q# reads them with
+`Std.Core.ConfigValue(name, defaultValue)`; the default value determines the expected type.
+
+### Isolated Contexts
+
+The module-level APIs use one global compiler and simulator context. Create `qdk.Context`
+instances when independent state, projects, target profiles, or configuration maps are needed.
+
+```python
+import qdk
+
+context = qdk.Context(qdk_config={"experiment": "baseline"})
+context.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+
+assert context.run("Main()", 2) == [qdk.Result.One, qdk.Result.One]
+assert context.code.Main() == qdk.Result.One
+```
+
+Contexts expose `eval`, `run`, `compile`, `circuit`, `logical_counts`, `dump_machine`,
+`import_openqasm`, and `import_circuit`. Callables under `context.code` belong to that context
+and cannot be passed to another context.
+
+```python
+# Import a .qsc visual circuit as a self-contained callable.
+visual_circuit = context.import_circuit("circuit.qsc", name="MyCircuit")
+result = visual_circuit()
+
+# Or import an operation that accepts its qubits from Q# code.
+operation = context.import_circuit(
+    "circuit.qsc",
+    name="MyOperation",
+    program_type=qdk.ProgramType.Operation,
+)
 ```
 
 ### Target Profiles
@@ -96,7 +142,7 @@ qsharp.init(project_root="./my_project")
 | `TargetProfile.Adaptive_RI`  | Adaptive profile with integer computation extension                   |
 | `TargetProfile.Base`         | Minimal capabilities required to run a quantum program (Base Profile) |
 
-## Q#
+## Q\#
 
 For Q# language syntax details, see [qsharp.md](./qsharp.md).
 
@@ -230,6 +276,39 @@ result = code.GenerateRandomBits(5)  # pass Q# function arguments directly
 | `Array`  | `list`                                     |
 | `Tuple`  | `tuple`                                    |
 
+## Testing Q# from Python
+
+`run_tests` discovers and runs Q# operations marked with `@Test` in the global or an isolated
+context. It raises `RuntimeError` when any test fails.
+
+```python
+from qdk import qsharp
+from qdk.test_utils import run_tests
+
+qsharp.eval("""
+import Std.Diagnostics.Fact;
+
+@Test()
+operation AdditionTest() : Unit {
+    Fact(2 + 2 == 4, "assertion failed");
+}
+""")
+
+run_tests(seed=42, regex="AdditionTest")
+```
+
+Use `ArithmeticOpTester` to run in-place Q# arithmetic operations on classical integer inputs:
+
+```python
+from qdk.test_utils import ArithmeticOpTester
+
+tester = ArithmeticOpTester("Std.Arithmetic.IncByLE", [8, 8])
+assert tester.run([5, 7]) == [5, 12]
+```
+
+`qdk.test_utils.dump_operation_on_state` returns the state vector produced by an operation
+with signature `(Qubit[] => Unit)`.
+
 ## OpenQASM
 
 For OpenQASM syntax details, see [openqasm.md](./openqasm.md).
@@ -347,7 +426,7 @@ assert parser.dumps(program) == "OPENQASM 3.0;\nqubit q;\nx q;\ny q;\n"
 invalid strings, and non-finite floats. `parser.dump` writes once to a text
 stream, propagates writer exceptions, and does not flush or close the stream.
 
-### Multishot Simulation
+### OpenQASM Multishot Simulation
 
 ```python
 from qdk.openqasm import run, import_openqasm, ProgramType
@@ -358,6 +437,9 @@ results = run(source, shots=100, as_bitstring=True)
 # With noise
 results = run(source, shots=1000, noise=qsharp.DepolarizingNoise(0.01))
 
+# Use the scalable stabilizer simulator
+results = run(source, shots=1000, type="clifford", num_qubits=100)
+
 # Import as a standalone file (manages its own qubits)
 import_openqasm(source, name="Bell", program_type=ProgramType.File)
 from qdk import code
@@ -367,6 +449,27 @@ result = code.qasm_import.Bell()
 import_openqasm(source, name="MyGate", program_type=ProgramType.Operation)
 qsharp.eval("{ use q = Qubit(); MyGate(q); Reset(q) }")
 ```
+
+## QDK-Stim (Experimental)
+
+`qdk.stim` compiles a Stim-like language to QIR and runs it on the QDK's Clifford, CPU,
+or GPU simulators. It includes Stim instructions, non-Clifford operations, and QDK-specific
+instructions for post-selection and qubit-loss handling. The API is experimental and may change.
+
+```python
+import qdk.stim as stim
+
+source = "H 0\nT 0\nH 0\nM(0.01) 0"
+
+# M(0.01) applies 1% readout noise to the measurement result.
+results = stim.run(source, shots=1000, seed=42, type="clifford")
+
+# Compile separately when another QIR-consuming simulator or service will run it.
+qir, noise = stim.compile(source)
+```
+
+The QDK-specific `SELECT`, `REQUIRE`, and `NOTLEAKED` instructions support post-selection
+and repeat-until-success patterns. `PEEK_LOSS` and `LOSS_ERROR` support qubit-loss modeling.
 
 ## Simulation
 
@@ -400,9 +503,28 @@ for r in results:
         print("Qubit lost!")
 ```
 
+### Direct QIR Simulation
+
+`run_qir` accepts a `QirInputData` object, QIR text, or LLVM bitcode. It supports Base and
+Adaptive Profile programs, including mid-circuit measurements, branching, and loops.
+
+```python
+from qdk import qsharp
+from qdk.simulation import run_qir
+
+qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+qir = qsharp.compile("Main()")
+
+results = run_qir(qir, shots=1000, seed=42, type="cpu")
+```
+
+Set `type` to `"cpu"`, `"gpu"`, or `"clifford"`. If omitted, `run_qir` tries the GPU and
+falls back to the CPU. For lower-level, gate-by-gate simulation, `qdk.simulation` also exports
+the experimental `DensityMatrixSimulator` and `StateVectorSimulator` classes.
+
 ### Neutral Atom Device Simulation
 
-#### Q#
+#### Q\# Programs
 
 ```python
 from qdk.simulation import NeutralAtomDevice
@@ -415,13 +537,13 @@ qsharp.init(target_profile=qsharp.TargetProfile.Base)
 qir = qsharp.compile("Main()")
 
 # Noiseless Clifford simulation
-results = device.simulate(qir, shots=1000, type="clifford")
+results = device.simulate(qir, shots=1000, type="stabilizer")
 
 # View device-level gate decomposition and scheduling
 device.show_trace(qir)
 ```
 
-#### OpenQASM
+#### OpenQASM Programs
 
 ```python
 from qdk.openqasm import compile
@@ -429,31 +551,50 @@ from qdk.simulation import NeutralAtomDevice
 
 qir = compile(source, target_profile=qsharp.TargetProfile.Base)
 device = NeutralAtomDevice()
-results = device.simulate(qir, shots=1000, type="clifford")
+results = device.simulate(qir, shots=1000, type="stabilizer")
 ```
 
-#### With Noise Configuration
+### Per-Gate Noise and Loss Policies
 
 ```python
-from qdk.simulation import NoiseConfig
+from qdk.simulation import LossPolicy, NoiseConfig
 
 noise = NoiseConfig()
 
 # Single-qubit gate noise
-noise.sx.loss = 0.001
+noise.sx.set_pauli_noise("L", 0.001)
 noise.sx.set_bitflip(0.01)
 noise.sx.set_depolarizing(0.002)
 
 # Two-qubit gate noise
 noise.cz.set_depolarizing(0.01)
-noise.cz.loss = 0.003
+noise.cz.set_pauli_noise("IL", 0.003)
+noise.cz.on_loss = LossPolicy.PROPAGATE
 
 # Movement noise
 noise.mov.z = 1e-3
-noise.mov.loss = 0.0005
+noise.mov.set_pauli_noise("L", 0.0005)
 
-results = device.simulate(qir, shots=1000, noise=noise, type="clifford")
+results = device.simulate(qir, shots=1000, noise=noise, type="stabilizer")
 ```
+
+Loss fault strings use `L` for a lost qubit, such as `L`, `IL`, or `XL`. `LossPolicy`
+controls what a multi-qubit gate does when an operand is already lost: `SKIP`, `PROPAGATE`,
+`DEGRADE`, `RESIDUAL_S_DAGGER`, or `APPLY_ANYWAY`. The older `NoiseTable.loss` property is
+deprecated; use loss fault strings with `set_pauli_noise`.
+
+### Stabilizer Simulation
+
+Select the stabilizer simulator with `type="clifford"`. Stabilizer branching allows it to
+run programs containing a small number of non-Clifford operations, such as T gates and arbitrary
+rotations. Runtime and memory grow exponentially with the number of non-Clifford operations.
+
+```python
+results = qsharp.run("Main()", 1000, type="clifford")
+```
+
+The same `type="clifford"` option is available on `qdk.openqasm.run`; direct QIR simulation
+uses `qdk.simulation.run_qir(..., type="clifford")`.
 
 ### Sparse Simulation (Default)
 
@@ -487,25 +628,10 @@ job = backend.run(qiskit_circuit, shots=1024)
 counts = job.result().get_counts()
 ```
 
-### Resource Estimation
+### Resource Estimation (Deprecated)
 
-```python
-from qdk.qiskit import ResourceEstimatorBackend, estimate
-from qdk.estimator import EstimatorParams, QubitParams
-
-# Quick: convenience function
-result = estimate(qiskit_circuit)
-
-# With parameters
-params = EstimatorParams()
-params.qubit_params.name = QubitParams.GATE_NS_E3
-result = estimate(qiskit_circuit, params)
-
-# Or use the backend directly
-backend = ResourceEstimatorBackend()
-job = backend.run(qiskit_circuit, params=params)
-result = job.result()
-```
+`qdk.qiskit.estimate` and `ResourceEstimatorBackend` use the deprecated resource estimator.
+Use `qdk.qre` for new resource-estimation workflows.
 
 ### Neutral Atom Simulation
 
@@ -571,7 +697,7 @@ result = simulator.run(cirq_circuit, repetitions=100).measurements
 
 Compile to Quantum Intermediate Representation for hardware submission.
 
-### Q#
+### Q\# Compilation
 
 ```python
 qsharp.init(target_profile=qsharp.TargetProfile.Base)
@@ -586,7 +712,7 @@ from qdk import code
 qir = qsharp.compile(code.RunExperiment, 100, qsharp.Pauli.Z)
 ```
 
-### OpenQASM
+### OpenQASM Compilation
 
 ```python
 from qdk.openqasm import compile
@@ -596,7 +722,7 @@ qir = compile(source, target_profile=qsharp.TargetProfile.Base)
 
 ## Circuit Diagram Generation
 
-### Q#
+### Q\# Circuits
 
 ```python
 # From a Q# expression
@@ -605,9 +731,12 @@ print(circuit)  # text representation
 
 # From an operation that takes a qubit array
 circuit = qsharp.circuit(operation="PrepareCatState")
+
+# Include source locations on circuit operations
+circuit = qsharp.circuit("GHZSample(3)", source_locations=True)
 ```
 
-### OpenQASM
+### OpenQASM Circuits
 
 Import an OpenQASM program, then generate a circuit diagram via the Q# circuit API:
 
@@ -648,62 +777,54 @@ qsharp.eval("operation Foo() : Unit { use q = Qubit(); H(q); if M(q) == One { X(
 circuit = qsharp.circuit(qdk.code.Foo, generation_method=CircuitGenerationMethod.Static)
 ```
 
+Circuit generation honors the Q# `@CircuitRenderingOptions` attribute. Use `hideBox=true` to
+render an operation's contents without its wrapper, and `inputSizes=[...]` to set the displayed
+sizes of qubit-array arguments. Common rotation angles are rendered as fractions of pi automatically.
+
 ## Resource Estimation
 
-Estimate the physical resources needed to run a quantum algorithm on fault-tolerant hardware.
-
-### Q#
-
-```python
-result = qsharp.estimate("Main()")
-```
-
-### OpenQASM
+Install `qdk[qre]` to estimate physical resources and explore Pareto-optimal tradeoffs between
+physical qubits and runtime.
 
 ```python
-from qdk.openqasm import estimate
+from qdk.qre import estimate
+from qdk.qre.application import QSharpApplication
+from qdk.qre.models import GateBased, RoundBasedFactory, SurfaceCode
 
-result = estimate(source, {"qubitParams": {"name": "qubit_gate_ns_e3"}})
+application = QSharpApplication("Main()")
+architecture = GateBased(error_rate=1e-4, gate_time=50, measurement_time=100)
+
+results = estimate(
+    application,
+    architecture,
+    SurfaceCode.q() * RoundBasedFactory.q(),
+    max_error=0.01,
+)
+
+print(results)
+for result in results:
+    print(result.qubits, result.runtime, result.error)
 ```
 
-### Basic Estimation
+Application adapters are available for Q#, OpenQASM, QIR, and Cirq as `QSharpApplication`,
+`OpenQASMApplication`, `QIRApplication`, and `CirqApplication`. Built-in architecture models
+include `GateBased`, `Majorana`, and `NeutralAtom`. `estimate` returns an `EstimationTable`;
+use `results.as_frame()` for a pandas DataFrame or `qdk.qre.plot_estimates(results)` to plot
+the Pareto frontier.
 
-```python
-# Access results
-logical_qubits = result["physicalCounts"]["breakdown"]["algorithmicLogicalQubits"]
-runtime_ns = result["physicalCounts"]["runtime"]
-```
-
-### With Parameters
-
-```python
-from qdk.estimator import EstimatorParams, QubitParams, QECScheme
-
-params = EstimatorParams()
-params.error_budget = 0.01
-params.qubit_params.name = QubitParams.GATE_NS_E3
-params.qec_scheme.name = QECScheme.SURFACE_CODE
-
-result = qsharp.estimate("Main()", params)
-```
-
-### Predefined Qubit Models
-
-| Name               | Description                              |
-| ------------------ | ---------------------------------------- |
-| `qubit_gate_ns_e3` | Gate-based, nanosecond, 10⁻³ error rate  |
-| `qubit_gate_ns_e4` | Gate-based, nanosecond, 10⁻⁴ error rate  |
-| `qubit_gate_us_e3` | Gate-based, microsecond, 10⁻³ error rate |
-| `qubit_gate_us_e4` | Gate-based, microsecond, 10⁻⁴ error rate |
-| `qubit_maj_ns_e4`  | Majorana, nanosecond, 10⁻⁴ error rate    |
-| `qubit_maj_ns_e6`  | Majorana, nanosecond, 10⁻⁶ error rate    |
+The older `qsharp.estimate`, `qdk.openqasm.estimate`, `qdk.estimator`, and Qiskit resource
+estimator APIs are deprecated and will be removed in a future release.
 
 ## Visualizations (Jupyter)
 
 Requires `pip install "qdk[jupyter]"`.
 
 ```python
-from qdk.widgets import Circuit, Histogram, EstimateDetails, SpaceChart, EstimatesOverview, EstimatesPanel
+from qdk.widgets import BlochSphere, Circuit, Entanglement, Histogram
+
+# Interactive single-qubit state and gate explorer
+BlochSphere("H T H")
+BlochSphere("H Rx(1.5708) S'")
 
 # Circuit diagram
 Circuit(qsharp.circuit("GHZSample(3)"))
@@ -711,9 +832,13 @@ Circuit(qsharp.circuit("GHZSample(3)"))
 # Histogram with ket labels
 Histogram(qsharp.run("Main()", 1000), labels="kets")
 
-# Resource estimation widgets
-EstimateDetails(result)       # interactive result table
-SpaceChart(result)            # physical qubit distribution
-EstimatesOverview(result)     # compare multiple estimates
-EstimatesPanel(result)        # full interactive panel
+# Orbital entanglement diagram from entropy and mutual-information data
+Entanglement(
+    s1_entropies=[0.2, 0.4],
+    mutual_information=[[0.0, 0.1], [0.1, 0.0]],
+    labels=["1", "2"],
+)
 ```
+
+`EstimateDetails`, `SpaceChart`, `EstimatesOverview`, and `EstimatesPanel` remain available
+for results from the deprecated resource estimator. Use `qdk.qre.plot_estimates` for QRE v3.

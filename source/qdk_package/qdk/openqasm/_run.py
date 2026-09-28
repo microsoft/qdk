@@ -42,7 +42,7 @@ def run(
     ] = None,
     qubit_loss: Optional[float] = None,
     as_bitstring: bool = False,
-    type: Optional[Literal["sparse", "clifford"]] = None,
+    type: Optional[Literal["sparse", "stabilizer", "clifford"]] = None,
     num_qubits: Optional[int] = None,
     **kwargs: Any,
 ) -> List[Any] | str:
@@ -77,8 +77,9 @@ def run(
         is preserved.
     :type as_bitstring: bool
     :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
-    :param num_qubits: The number of qubits to use for the simulation type "clifford".
-        If not specified, the Clifford simulator assumes a default of 1000 qubits.
+        Note that "stabilizer" replaces "clifford", but "clifford" is still supported for backward compatibility.
+    :param num_qubits: The number of qubits to use for the simulation type "stabilizer".
+        If not specified, the Stabilizer simulator assumes a default of 1000 qubits.
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
         - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
@@ -128,6 +129,9 @@ def run(
         callable = getattr(source, "__global_callable")
     elif isinstance(source, str):
         source_str = source
+
+    if type == "stabilizer":
+        type = "clifford"
 
     if type is not None and type == "clifford":
         if noise is not None and not isinstance(noise, NoiseConfig):

@@ -25,7 +25,8 @@
 				"vadimcn.vscode-lldb",
 				"swellaby.workspace-config-plus",
 				"revng.llvm-ir",
-				"colejcummins.llvm-syntax-highlighting"
+				"colejcummins.llvm-syntax-highlighting",
+				"quantum.qsharp-lang-vscode"
 			]
 		}
 	}

@@ -68,9 +68,9 @@ pub const CATSTATES_EXPECT_DEBUG: Expect = expect![[r#"
     |00000⟩: 0.7071+0.0000𝑖
     |11111⟩: 0.7071+0.0000𝑖
     [Zero, Zero, Zero, Zero, Zero]"#]];
-pub const CATSTATES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 1807"];
+pub const CATSTATES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3172"];
 pub const CATSTATES_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3311"];
-pub const CATSTATES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3480"];
+pub const CATSTATES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3484"];
 pub const RANDOMBITS_EXPECT: Expect = expect!["[Zero, Zero, One, One, One]"];
 pub const RANDOMBITS_EXPECT_DEBUG: Expect = expect!["[Zero, Zero, One, One, One]"];
 pub const RANDOMBITS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3486"];
@@ -130,7 +130,7 @@ pub const JOINTMEASUREMENT_EXPECT_DEBUG: Expect = expect![[r#"
 pub const JOINTMEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 959"];
 pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 3259"];
-pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3842"];
+pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3846"];
 pub const MEASUREMENT_EXPECT: Expect = expect!["(One, [Zero, Zero])"];
 pub const MEASUREMENT_EXPECT_DEBUG: Expect = expect!["(One, [Zero, Zero])"];
 pub const MEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 613"];

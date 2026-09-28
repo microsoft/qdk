@@ -57,7 +57,7 @@ def gpu_param():
     )
 
 
-SIM_TYPES = ["cpu", "clifford", gpu_param()]
+SIM_TYPES = ["cpu", "stabilizer", gpu_param()]
 NON_CLIFFORD_SIM_TYPES = ["cpu", gpu_param()]
 
 
@@ -66,7 +66,7 @@ NON_CLIFFORD_SIM_TYPES = ["cpu", gpu_param()]
 # ---------------------------------------------------------------------------
 
 
-SimType: TypeAlias = Literal["clifford", "cpu", "gpu"]
+SimType: TypeAlias = Literal["stabilizer", "cpu", "gpu"]
 
 
 def str_to_result(str):

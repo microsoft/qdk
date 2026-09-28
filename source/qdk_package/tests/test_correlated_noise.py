@@ -29,7 +29,7 @@ def gpu_param():
     )
 
 
-SIM_TYPES = ["cpu", "clifford", gpu_param()]
+SIM_TYPES = ["cpu", "stabilizer", gpu_param()]
 
 
 QASM_WITH_CORRELATED_NOISE = """

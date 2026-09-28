@@ -72,11 +72,11 @@ fn nested_for_over_qubit_slice_succeeds() {
           br i1 %var_6, label %block_7, label %block_8
         block_7:
           %var_22 = load i64, ptr %var_5
-          %var_7_offset_chk = icmp slt i64 %var_22, 0
-          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
-          %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_22
-          %var_23 = load ptr, ptr %var_7
-          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_23)
+          %var_23_offset_chk = icmp slt i64 %var_22, 0
+          %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
+          %var_23 = getelementptr [2 x ptr], ptr @array0, i64 %var_23_offset, i64 %var_22
+          %var_7 = load ptr, ptr %var_23
+          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_7)
           %var_11 = add i64 %var_22, 1
           store i64 %var_11, ptr %var_5
           br label %block_6
@@ -191,11 +191,11 @@ fn constant_folding_pattern_succeeds() {
           br i1 %var_6, label %block_7, label %block_8
         block_7:
           %var_22 = load i64, ptr %var_5
-          %var_7_offset_chk = icmp slt i64 %var_22, 0
-          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
-          %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_22
-          %var_23 = load ptr, ptr %var_7
-          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_23)
+          %var_23_offset_chk = icmp slt i64 %var_22, 0
+          %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
+          %var_23 = getelementptr [2 x ptr], ptr @array0, i64 %var_23_offset, i64 %var_22
+          %var_7 = load ptr, ptr %var_23
+          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_7)
           %var_11 = add i64 %var_22, 1
           store i64 %var_11, ptr %var_5
           br label %block_6
@@ -323,11 +323,11 @@ fn three_qubit_repetition_code_pattern_succeeds() {
           br i1 %var_6, label %block_7, label %block_8
         block_7:
           %var_34 = load i64, ptr %var_5
-          %var_7_offset_chk = icmp slt i64 %var_34, 0
-          %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
-          %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_34
-          %var_35 = load ptr, ptr %var_7
-          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_35)
+          %var_35_offset_chk = icmp slt i64 %var_34, 0
+          %var_35_offset = select i1 %var_35_offset_chk, i64 1, i64 0
+          %var_35 = getelementptr [2 x ptr], ptr @array0, i64 %var_35_offset, i64 %var_34
+          %var_7 = load ptr, ptr %var_35
+          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_7)
           %var_11 = add i64 %var_34, 1
           store i64 %var_11, ptr %var_5
           br label %block_6
@@ -340,11 +340,11 @@ fn three_qubit_repetition_code_pattern_succeeds() {
           br i1 %var_13, label %block_10, label %block_11
         block_10:
           %var_31 = load i64, ptr %var_12
-          %var_14_offset_chk = icmp slt i64 %var_31, 0
-          %var_14_offset = select i1 %var_14_offset_chk, i64 1, i64 0
-          %var_14 = getelementptr [3 x ptr], ptr @array1, i64 %var_14_offset, i64 %var_31
-          %var_32 = load ptr, ptr %var_14
-          call void @Rx(double 6.2831853, ptr %var_32)
+          %var_32_offset_chk = icmp slt i64 %var_31, 0
+          %var_32_offset = select i1 %var_32_offset_chk, i64 1, i64 0
+          %var_32 = getelementptr [3 x ptr], ptr @array1, i64 %var_32_offset, i64 %var_31
+          %var_14 = load ptr, ptr %var_32
+          call void @Rx(double 6.2831853, ptr %var_14)
           %var_18 = add i64 %var_31, 1
           store i64 %var_18, ptr %var_12
           br label %block_9
@@ -452,11 +452,11 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
           br i1 %var_4, label %block_5, label %block_6
         block_5:
           %var_16 = load i64, ptr %var_3
-          %var_5_offset_chk = icmp slt i64 %var_16, 0
-          %var_5_offset = select i1 %var_5_offset_chk, i64 1, i64 0
-          %var_5 = getelementptr [2 x ptr], ptr @array0, i64 %var_5_offset, i64 %var_16
-          %var_17 = load ptr, ptr %var_5
-          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_17)
+          %var_17_offset_chk = icmp slt i64 %var_16, 0
+          %var_17_offset = select i1 %var_17_offset_chk, i64 1, i64 0
+          %var_17 = getelementptr [2 x ptr], ptr @array0, i64 %var_17_offset, i64 %var_16
+          %var_5 = load ptr, ptr %var_17
+          call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_5)
           %var_9 = add i64 %var_16, 1
           store i64 %var_9, ptr %var_3
           br label %block_4
@@ -774,11 +774,11 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
           br i1 %var_2, label %block_2, label %block_3
         block_2:
           %var_20 = load i64, ptr %var_1
-          %var_3_offset_chk = icmp slt i64 %var_20, 0
-          %var_3_offset = select i1 %var_3_offset_chk, i64 1, i64 0
-          %var_3 = getelementptr [4 x ptr], ptr @array0, i64 %var_3_offset, i64 %var_20
-          %var_21 = load ptr, ptr %var_3
-          call void @H(ptr %var_21)
+          %var_21_offset_chk = icmp slt i64 %var_20, 0
+          %var_21_offset = select i1 %var_21_offset_chk, i64 1, i64 0
+          %var_21 = getelementptr [4 x ptr], ptr @array0, i64 %var_21_offset, i64 %var_20
+          %var_3 = load ptr, ptr %var_21
+          call void @H(ptr %var_3)
           %var_6 = add i64 %var_20, 1
           store i64 %var_6, ptr %var_1
           br label %block_1
@@ -792,11 +792,11 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
           br i1 %var_8, label %block_5, label %block_6
         block_5:
           %var_17 = load i64, ptr %var_7
-          %var_9_offset_chk = icmp slt i64 %var_17, 0
-          %var_9_offset = select i1 %var_9_offset_chk, i64 1, i64 0
-          %var_9 = getelementptr [3 x ptr], ptr @array1, i64 %var_9_offset, i64 %var_17
-          %var_18 = load ptr, ptr %var_9
-          call void @Reset(ptr %var_18)
+          %var_18_offset_chk = icmp slt i64 %var_17, 0
+          %var_18_offset = select i1 %var_18_offset_chk, i64 1, i64 0
+          %var_18 = getelementptr [3 x ptr], ptr @array1, i64 %var_18_offset, i64 %var_17
+          %var_9 = load ptr, ptr %var_18
+          call void @Reset(ptr %var_9)
           %var_12 = add i64 %var_17, 1
           store i64 %var_12, ptr %var_7
           br label %block_4
@@ -1143,12 +1143,12 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
           br i1 %var_4, label %block_2, label %block_3
         block_2:
           %var_16 = load i64, ptr %var_3
-          %var_5_offset_chk = icmp slt i64 %var_16, 0
-          %var_5_offset = select i1 %var_5_offset_chk, i64 1, i64 0
-          %var_5 = getelementptr [3 x ptr], ptr @array0, i64 %var_5_offset, i64 %var_16
-          %var_17 = load ptr, ptr %var_5
-          call void @H(ptr %var_17)
-          call void @__quantum__qis__mresetz__body(ptr %var_17, ptr inttoptr (i64 0 to ptr))
+          %var_17_offset_chk = icmp slt i64 %var_16, 0
+          %var_17_offset = select i1 %var_17_offset_chk, i64 1, i64 0
+          %var_17 = getelementptr [3 x ptr], ptr @array0, i64 %var_17_offset, i64 %var_16
+          %var_5 = load ptr, ptr %var_17
+          call void @H(ptr %var_5)
+          call void @__quantum__qis__mresetz__body(ptr %var_5, ptr inttoptr (i64 0 to ptr))
           %var_8 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           store i1 %var_8, ptr %var_0
           %var_19 = load i1, ptr %var_0

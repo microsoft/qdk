@@ -210,7 +210,7 @@ class Context:
             to use the ``set`` keyword for mutable variable assignments.
 
         :keyword qdk_config: configuration parameters that will be accessible in Q#
-            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of 
+            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of
             type `int`, `float`, `str`, or `bool`.
         """
         self._disposed = False
@@ -641,7 +641,7 @@ class Context:
         ] = None,
         qubit_loss: Optional[float] = None,
         seed: Optional[int] = None,
-        type: Optional[Literal["sparse", "clifford"]] = None,
+        type: Optional[Literal["sparse", "stabilizer", "clifford"]] = None,
         num_qubits: Optional[int] = None,
     ) -> List[Any]:
         """
@@ -660,8 +660,9 @@ class Context:
         :param qubit_loss: The probability of qubit loss in simulation.
         :param seed: The seed to use for the random number generator in simulation, if any.
         :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
-        :param num_qubits: The number of qubits to use for the simulation type "clifford".
-            If not specified, the Clifford simulator assumes a default of 1000 qubits.
+            Note that the "stabilizer" simulator has replaced the type "clifford", but the "clifford" type is still available for backward compatibility.
+        :param num_qubits: The number of qubits to use for the simulation type "stabilizer".
+            If not specified, the stabilizer simulator assumes a default of 1000 qubits.
 
         :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` is returned.
         :rtype: List[Any]
@@ -692,6 +693,9 @@ class Context:
                 results[-1]["dumps"].append(StateDump(dump_data))
             elif output.is_message():
                 results[-1]["messages"].append(str(output))
+
+        if type == "stabilizer":
+            type = "clifford"
 
         if type == "clifford":
             if noise is not None and not isinstance(noise, NoiseConfig):

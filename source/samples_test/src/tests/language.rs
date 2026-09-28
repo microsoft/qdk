@@ -225,7 +225,7 @@ pub const DIAGNOSTICS_EXPECT_DEBUG: Expect = expect![[r#"
     ()"#]];
 pub const DIAGNOSTICS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 215"];
 pub const DIAGNOSTICS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1463"];
-pub const DIAGNOSTICS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2365"];
+pub const DIAGNOSTICS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2369"];
 pub const DOUBLE_EXPECT: Expect = expect!["0.1973269804"];
 pub const DOUBLE_EXPECT_DEBUG: Expect = expect!["0.1973269804"];
 pub const DOUBLE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
@@ -320,7 +320,7 @@ pub const OPERATIONS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of
 pub const OPERATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1648"];
 pub const PARALLEL_EXPECT: Expect = expect!["()"];
 pub const PARALLEL_EXPECT_DEBUG: Expect = expect!["()"];
-pub const PARALLEL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 22638"];
+pub const PARALLEL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 28160"];
 pub const PARALLEL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 7028"];
 pub const PARALLEL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6425"];
 pub const PARTIALAPPLICATION_EXPECT: Expect = expect![[r#"
@@ -367,7 +367,7 @@ pub const QUBIT_EXPECT_DEBUG: Expect = expect![[r#"
     ()"#]];
 pub const QUBIT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 449"];
 pub const QUBIT_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1819"];
-pub const QUBIT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2690"];
+pub const QUBIT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2694"];
 pub const RANGE_EXPECT: Expect = expect![[r#"
     Range: 1..3
     Range: 2..2..5
