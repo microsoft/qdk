@@ -868,6 +868,7 @@ def test_deq_dependency_is_only_required_when_selected(missing_dependency):
     from textwrap import dedent
 
     pytest.importorskip("qodec")
+    pytest.importorskip("stim")
     from ec_tests.runtime import FIXTURES
 
     code = dedent('''
