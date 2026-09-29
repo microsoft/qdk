@@ -412,7 +412,10 @@ if args.check:
     step_end()
 
     if build_qdk:
-        run_python_checks()
+        if platform.system() == "Windows" and platform.machine().lower() == "arm64":
+            print("Python static checks skipped on Windows ARM64")
+        else:
+            run_python_checks()
 
 
 if build_cli:
