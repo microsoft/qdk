@@ -1275,7 +1275,12 @@ def _tensor_network_state_query(
 ) -> List[object]:
     """Evaluate queries on a cuTensorNet state, exact when ``mps`` is None.
 
-    Backs ``qdk.simulation.tensornetwork_qir``; returns one value per query.
+    The state is the program's quantum state before its terminal measurements,
+    so ``outcomes`` is ignored. ``mps`` holds ``max_bond_dimension`` (None for
+    the default). Expectation returns a complex value; Cost, MPS only, returns
+    ``max_bond_dimension``, ``state_bytes`` and ``workspace_bytes``. Probability
+    raises NotImplementedError. Backs ``qdk.simulation.tensornetwork_qir``;
+    returns one value per query.
     """
     ...
 

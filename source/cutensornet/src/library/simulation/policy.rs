@@ -59,6 +59,12 @@ impl ExecutionPolicy {
         }
     }
 
+    /// The same policy with a caller-chosen bond cap χ; `validate` still
+    /// rejects χ ≤ 0.
+    pub(crate) const fn with_bond_cap(self, bond_cap: i64) -> Self {
+        Self { bond_cap, ..self }
+    }
+
     pub(super) const fn b3_matched_bond_qualification() -> Self {
         Self {
             absolute_cutoff: 1.0e-12,

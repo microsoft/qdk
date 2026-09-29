@@ -20,6 +20,12 @@ impl From<Complex64Abi> for Complex64 {
     }
 }
 
+impl From<Complex64> for Complex64Abi {
+    fn from(value: Complex64) -> Self {
+        Self::new(value.re, value.im)
+    }
+}
+
 const _: () = assert!(size_of::<Complex64Abi>() == 16);
 const _: () = assert!(align_of::<Complex64Abi>() == 16);
 const _: () = assert!(offset_of!(Complex64Abi, re) == 0);

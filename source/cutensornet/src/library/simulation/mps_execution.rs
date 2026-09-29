@@ -22,10 +22,14 @@ use super::{
     },
     sampler::{FullBitstringSamples, PreparedSampler, SamplerApi, SamplerContext, SamplingRequest},
 };
+use crate::execution::MpsCost;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use crate::library::MpsSession;
 use num_complex::Complex64;
-use qdk_simulators::QubitID;
+use qdk_simulators::{
+    QubitID,
+    execution::{Pauli, PauliSum},
+};
 use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, time::Instant};
 use tensornet::{Mps, MpsError};
 
@@ -36,6 +40,33 @@ mod tests;
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
 #[path = "mps_execution/qualification.rs"]
 mod qualification;
+
+/// Expectation values of the observables, in order, and the MPS Cost when
+/// the state was an MPS.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct StateQueryResult {
+    pub(crate) expectations: Vec<Complex64>,
+    pub(crate) cost: Option<MpsCost>,
+}
+
+/// One Query's device tensors, one per Pauli kind, uploaded on first use and
+/// shared by every factor of that kind.
+#[derive(Default)]
+struct PauliTensors {
+    x: Option<OpaqueHandle>,
+    y: Option<OpaqueHandle>,
+    z: Option<OpaqueHandle>,
+}
+
+impl PauliTensors {
+    const fn slot(&mut self, pauli: Pauli) -> &mut Option<OpaqueHandle> {
+        match pauli {
+            Pauli::X => &mut self.x,
+            Pauli::Y => &mut self.y,
+            Pauli::Z => &mut self.z,
+        }
+    }
+}
 
 /// The MPS shape a simulation asks the library to produce, and the FFI
 /// scaffolding that shape needs.
@@ -280,6 +311,25 @@ pub(crate) trait MpsExecutionApi: super::memory_workspace::MemoryWorkspaceApi {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl MpsSession {
+    /// See [`MpsExecution::evaluate_observables`].
+    pub(crate) fn evaluate_observables(
+        &mut self,
+        circuit: &Circuit,
+        observables: &[PauliSum],
+        mps: bool,
+    ) -> Result<StateQueryResult, SimulationError> {
+        let mut mps_execution = MpsExecution::new(
+            self.api(),
+            self.handle(),
+            self.stream(),
+            circuit,
+            self.policy(),
+        )?;
+        let execution = mps_execution.evaluate_observables(circuit, observables, mps);
+        let cleanup = mps_execution.close();
+        combine_execution_and_cleanup(execution, cleanup)
+    }
+
     pub(crate) fn sample(
         &mut self,
         circuit: &Circuit,
@@ -858,15 +908,126 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
         self.register_operator(operator, timings)
     }
 
+    /// Evaluates each observable on the circuit's state, in order.
+    ///
+    /// With `mps`, the state is finalized as a bond-capped MPS and computed
+    /// once, which yields the Cost; every observable then reads that truncated
+    /// state. Without it, the gates stay a lazy network that each expectation
+    /// contracts exactly, so there is no MPS and no Cost. Each Query's
+    /// descriptors and device buffers are released before the next one, so
+    /// device memory does not grow with the number of observables.
+    fn evaluate_observables(
+        &mut self,
+        circuit: &Circuit,
+        observables: &[PauliSum],
+        mps: bool,
+    ) -> Result<StateQueryResult, SimulationError> {
+        let mut timings = StatePhaseTimings::default();
+        let mut cost = if mps {
+            self.finalize_initial(circuit, &mut timings)?;
+            let state = self.materialize_current_state(StateReadout::MetadataOnly, timings)?;
+            let report = &state.report;
+            let state_elements = report
+                .realized_extents
+                .iter()
+                .map(|extents| extents.iter().product::<usize>())
+                .try_fold(0_usize, usize::checked_add)
+                .ok_or(SimulationError::ResourceSizeOverflow {
+                    resource: "MPS state bytes",
+                })?;
+            Some(MpsCost {
+                max_bond_dimension: report.maximum_bond,
+                state_bytes: state_elements
+                    .checked_mul(size_of::<Complex64Abi>())
+                    .ok_or(SimulationError::ResourceSizeOverflow {
+                        resource: "MPS state bytes",
+                    })?,
+                workspace_bytes: report.workspace.native_recommended_bytes,
+            })
+        } else {
+            for gate in circuit.gates() {
+                self.register_gate(*gate, &mut timings)?;
+            }
+            None
+        };
+        let mut expectations = Vec::with_capacity(observables.len());
+        for observable in observables {
+            let mut value = observable.identity_coefficient();
+            if !observable.terms().is_empty() {
+                let mark = self.allocations.len();
+                let query = self.execute_pauli_query(observable);
+                let release = self.release_query(mark);
+                let query = combine_execution_and_cleanup(query, release)?;
+                value += query.normalized_expectation;
+                if let Some(cost) = &mut cost {
+                    cost.workspace_bytes = cost
+                        .workspace_bytes
+                        .max(query.workspace.native_recommended_bytes);
+                }
+            }
+            expectations.push(value);
+        }
+        Ok(StateQueryResult { expectations, cost })
+    }
+
+    /// Closes the Query lifecycle, then frees the allocations made since
+    /// `mark`, newest first. The Query has synchronized, so no device work
+    /// still reads them.
+    fn release_query(&mut self, mark: usize) -> Result<(), SimulationError> {
+        let mut first_error = self.close_query_lifecycle().err();
+        while self.allocations.len() > mark {
+            let allocation = self
+                .allocations
+                .pop()
+                .expect("allocations above the mark exist");
+            if let Err(error) = self.api.free(allocation)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn execute_query(&mut self, query: &AdjacentZQuery) -> Result<QueryResult, SimulationError> {
+        if usize::try_from(query.width).ok() != Some(self.state_extents.len()) {
+            return Err(SimulationError::InvalidCircuit {
+                reason: "Query width does not match the native state".to_string(),
+            });
+        }
+        self.execute_pauli_query(&query.pauli_sum())
+    }
+
+    /// Evaluates `Σₖ cₖ⟨ψ|Pₖ|ψ⟩ / ⟨ψ|ψ⟩` over the non-identity terms; the
+    /// caller adds the identity coefficient. Leaves the Query lifecycle and
+    /// its allocations open, so the caller decides when to release them.
+    ///
+    /// Each factor is a one-mode tensor. For one mode, `AppendProduct`'s
+    /// forward mode order and `ApplyTensorOperator`'s reversed order coincide,
+    /// so the textbook row-major matrix is read as `⟨i|P|j⟩`; this matters
+    /// for Y, the only non-symmetric Pauli.
     #[allow(
         clippy::too_many_lines,
         reason = "the separate Query lifecycle is one failure and timing transaction"
     )]
-    fn execute_query(&mut self, query: &AdjacentZQuery) -> Result<QueryResult, SimulationError> {
+    fn execute_pauli_query(
+        &mut self,
+        observable: &PauliSum,
+    ) -> Result<QueryResult, SimulationError> {
         let mut timings = QueryPhaseTimings::default();
-        if usize::try_from(query.width).ok() != Some(self.state_extents.len()) {
+        if observable.terms().is_empty() {
             return Err(SimulationError::InvalidCircuit {
-                reason: "Query width does not match the native state".to_string(),
+                reason: "a Query needs at least one non-identity Pauli term".to_string(),
+            });
+        }
+        if let Some(qubit) = observable.max_qubit()
+            && qubit >= self.state_extents.len()
+        {
+            return Err(SimulationError::InvalidCircuit {
+                reason: format!(
+                    "Query acts on qubit {qubit} of a {}-qubit state",
+                    self.state_extents.len()
+                ),
             });
         }
         if self.network_operator.is_some()
@@ -883,25 +1044,29 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
             .api
             .create_network_operator(self.handle, self.state_extents.as_ref())?;
         self.network_operator = Some(operator);
-        let z_matrix = [
-            Complex64Abi::new(1.0, 0.0),
-            Complex64Abi::new(0.0, 0.0),
-            Complex64Abi::new(0.0, 0.0),
-            Complex64Abi::new(-1.0, 0.0),
-        ];
-        let z_tensor = self.allocate_complex(z_matrix.len(), "Query Z tensor")?;
-        self.api.copy_to_device(z_tensor, &z_matrix)?;
-        for [left, right] in &query.terms {
-            let factor_modes = vec![
-                vec![mode_id(*left)?].into_boxed_slice(),
-                vec![mode_id(*right)?].into_boxed_slice(),
-            ];
+        let mut pauli_tensors = PauliTensors::default();
+        for term in observable.terms() {
+            let mut factor_modes = Vec::with_capacity(term.factors().len());
+            let mut factor_tensors = Vec::with_capacity(term.factors().len());
+            for &(qubit, pauli) in term.factors() {
+                let tensor = if let Some(tensor) = *pauli_tensors.slot(pauli) {
+                    tensor
+                } else {
+                    let matrix = pauli.matrix().map(Complex64Abi::from);
+                    let tensor = self.allocate_complex(matrix.len(), "Query Pauli tensor")?;
+                    self.api.copy_to_device(tensor, &matrix)?;
+                    *pauli_tensors.slot(pauli) = Some(tensor);
+                    tensor
+                };
+                factor_modes.push(vec![qubit_mode_id(qubit)?].into_boxed_slice());
+                factor_tensors.push(tensor);
+            }
             self.api.append_product(
                 self.handle,
                 operator,
-                Complex64::new(1.0, 0.0),
+                term.coefficient(),
                 &factor_modes,
-                &[z_tensor, z_tensor],
+                &factor_tensors,
             )?;
         }
 
@@ -1480,6 +1645,12 @@ fn validate_workspace_size(
 }
 
 fn mode_id(qubit: u32) -> Result<i32, SimulationError> {
+    i32::try_from(qubit).map_err(|_| SimulationError::InvalidCircuit {
+        reason: format!("qubit {qubit} does not fit the native mode identifier"),
+    })
+}
+
+fn qubit_mode_id(qubit: QubitID) -> Result<i32, SimulationError> {
     i32::try_from(qubit).map_err(|_| SimulationError::InvalidCircuit {
         reason: format!("qubit {qubit} does not fit the native mode identifier"),
     })

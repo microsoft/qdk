@@ -2,6 +2,10 @@ use super::SimulationError;
 use super::SimulationResult;
 use super::circuit::WorkspaceReport;
 use num_complex::Complex64;
+use qdk_simulators::{
+    QubitID,
+    execution::{Pauli, PauliSum},
+};
 
 pub(super) const B2_EXPECTATION_HYPER_SAMPLES: i32 = 8;
 
@@ -22,6 +26,19 @@ impl AdjacentZQuery {
             width,
             terms: (0..width - 1).map(|left| [left, left + 1]).collect(),
         })
+    }
+
+    /// `Σᵢ ZᵢZᵢ₊₁` as a general Pauli sum, one product per bond, in order.
+    pub(super) fn pauli_sum(&self) -> PauliSum {
+        let mut sum = PauliSum::new();
+        for &[left, right] in &self.terms {
+            sum.push(
+                Complex64::new(1.0, 0.0),
+                [(left as QubitID, Pauli::Z), (right as QubitID, Pauli::Z)],
+            )
+            .expect("adjacent qubits are distinct and the coefficient is finite");
+        }
+        sum
     }
 }
 

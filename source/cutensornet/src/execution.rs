@@ -2,7 +2,7 @@ use crate::{
     AvailabilityError, discover,
     simulation::{
         Circuit, CuTensorNetMpsConsumerError, CuTensorNetSampleMatrix, Gate, SamplingRequest,
-        SimulationError, UnitaryOperationConversionError,
+        SimulationError, StateQueryResult, UnitaryOperationConversionError,
     },
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -10,11 +10,12 @@ use crate::{
     library::MpsSession,
     simulation::{ExecutionPolicy, collect_sampled_shots},
 };
+use num_complex::Complex64;
 use qdk_simulators::{
     MeasurementResult, OutputRecord, QubitID,
     execution::{
-        MeasurementRequest, PreparedAdaptiveProgram, QuantumEvolutionRegion, RegionConsumer,
-        drive_prepared_shot,
+        MeasurementRequest, PauliSum, PreparedAdaptiveProgram, QuantumEvolutionRegion,
+        RegionConsumer, drive_prepared_shot,
     },
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
@@ -156,6 +157,37 @@ fn prepare_mps_run(
     shots: u32,
     seed: Option<u32>,
 ) -> Result<PreparedMpsRun, MpsExecutionError> {
+    let circuit = prepare_circuit(prepared_program)?;
+    let measured_qubits = prepared_program.measured_qubits().map_err(|error| {
+        MpsExecutionError::program(CuTensorNetMpsConsumerError::InvalidMeasurementMetadata {
+            error,
+        })
+    })?;
+    let sampled_qubits = CuTensorNetSampleMatrix::sampled_qubits(measured_qubits);
+    let shot_count =
+        usize::try_from(shots).map_err(|error| MpsExecutionError::program(error.to_string()))?;
+    let derived_seed = derive_sampler_seed(seed);
+    let sampling_request = SamplingRequest::new(
+        shot_count,
+        SAMPLER_HYPER_SAMPLES,
+        Some(derived_seed),
+        derived_seed,
+    )
+    .map_err(MpsExecutionError::program)?;
+
+    Ok(PreparedMpsRun {
+        circuit,
+        sampled_qubits,
+        shot_count,
+        sampling_request,
+    })
+}
+
+/// Resolves the program's single unitary region into a circuit, rejecting
+/// more regions, feedforward and reset on the host, before device discovery.
+fn prepare_circuit(
+    prepared_program: &PreparedAdaptiveProgram<u64>,
+) -> Result<Circuit, MpsExecutionError> {
     let region_count = prepared_program.regions().len();
     if region_count > 1 {
         return Err(MpsExecutionError::program(
@@ -175,30 +207,141 @@ fn prepare_mps_run(
             },
         ));
     }
+    Ok(consumer.circuit)
+}
 
-    let measured_qubits = prepared_program.measured_qubits().map_err(|error| {
-        MpsExecutionError::program(CuTensorNetMpsConsumerError::InvalidMeasurementMetadata {
-            error,
+/// How a state query represents ψ.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StateMethod {
+    /// The gates stay a lazy network; each expectation contracts it exactly.
+    Exact,
+    /// ψ is a matrix product state with bonds capped at χ; `None` keeps the
+    /// backend default.
+    Mps { max_bond_dimension: Option<u32> },
+}
+
+/// One query on ψ, the state before the program's terminal measurements.
+#[doc(hidden)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum StateQuery {
+    /// `⟨ψ|O|ψ⟩ / ⟨ψ|ψ⟩`.
+    Expectation(PauliSum),
+    /// The MPS resources; only for [`StateMethod::Mps`].
+    Cost,
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum StateQueryValue {
+    Expectation(Complex64),
+    Cost(MpsCost),
+}
+
+/// Resources of one MPS evaluation.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MpsCost {
+    /// The largest bond the truncated state reached, at most χ.
+    pub max_bond_dimension: usize,
+    /// Device bytes of the realized site tensors.
+    pub state_bytes: usize,
+    /// The largest device scratch any step of this evaluation requested:
+    /// computing the state, or any expectation evaluated with it.
+    pub workspace_bytes: usize,
+}
+
+/// Evaluates `queries` on the state a prepared Base-profile program reaches
+/// before its terminal measurements, through one cuTensorNet session.
+///
+/// Program errors (more than one region, feedforward, reset, a query on an
+/// absent qubit, Cost without an MPS) are reported before device discovery.
+///
+/// This is an internal cross-crate entrypoint for the Python native module.
+#[doc(hidden)]
+pub fn evaluate_state_queries(
+    prepared_program: &PreparedAdaptiveProgram<u64>,
+    queries: &[StateQuery],
+    method: StateMethod,
+) -> Result<Vec<StateQueryValue>, MpsExecutionError> {
+    if queries.is_empty() {
+        return Err(MpsExecutionError::program(
+            "queries must contain at least one query",
+        ));
+    }
+    if method == StateMethod::Exact && queries.contains(&StateQuery::Cost) {
+        return Err(MpsExecutionError::program(
+            "Cost on a cuTensorNet state requires an MPS",
+        ));
+    }
+    let circuit = prepare_circuit(prepared_program)?;
+    let qubit_count = circuit.qubit_count() as QubitID;
+    for query in queries {
+        if let StateQuery::Expectation(observable) = query
+            && let Some(qubit) = observable.max_qubit()
+            && qubit >= qubit_count
+        {
+            return Err(MpsExecutionError::program(format_args!(
+                "Expectation acts on qubit {qubit}, but the program has {qubit_count} qubits"
+            )));
+        }
+    }
+    let observables = queries
+        .iter()
+        .filter_map(|query| match query {
+            StateQuery::Expectation(observable) => Some(observable.clone()),
+            StateQuery::Cost => None,
         })
-    })?;
-    let sampled_qubits = CuTensorNetSampleMatrix::sampled_qubits(measured_qubits);
-    let shot_count =
-        usize::try_from(shots).map_err(|error| MpsExecutionError::program(error.to_string()))?;
-    let derived_seed = derive_sampler_seed(seed);
-    let sampling_request = SamplingRequest::new(
-        shot_count,
-        SAMPLER_HYPER_SAMPLES,
-        Some(derived_seed),
-        derived_seed,
-    )
-    .map_err(MpsExecutionError::program)?;
+        .collect::<Vec<_>>();
+    let result = evaluate_observables(&circuit, &observables, method)?;
+    let mut expectations = result.expectations.into_iter();
+    queries
+        .iter()
+        .map(|query| match query {
+            StateQuery::Expectation(_) => Ok(StateQueryValue::Expectation(
+                expectations
+                    .next()
+                    .expect("one expectation per Expectation query"),
+            )),
+            StateQuery::Cost => result
+                .cost
+                .map(StateQueryValue::Cost)
+                .ok_or_else(|| MpsExecutionError::program("an MPS evaluation reported no Cost")),
+        })
+        .collect()
+}
 
-    Ok(PreparedMpsRun {
-        circuit: consumer.circuit,
-        sampled_qubits,
-        shot_count,
-        sampling_request,
-    })
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn evaluate_observables(
+    circuit: &Circuit,
+    observables: &[PauliSum],
+    method: StateMethod,
+) -> Result<StateQueryResult, MpsExecutionError> {
+    let base = ExecutionPolicy::base_qualification();
+    let (policy, mps) = match method {
+        StateMethod::Exact => (base, false),
+        StateMethod::Mps { max_bond_dimension } => (
+            max_bond_dimension.map_or(base, |chi| base.with_bond_cap(chi.into())),
+            true,
+        ),
+    };
+    let availability = discover().map_err(MpsExecutionError::environment)?;
+    let mut session =
+        MpsSession::new(availability.libraries, policy).map_err(MpsExecutionError::environment)?;
+    let execution = session
+        .evaluate_observables(circuit, observables, mps)
+        .map_err(MpsExecutionError::environment);
+    combine_execution_and_session_cleanup(execution, session.close())
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+fn evaluate_observables(
+    _circuit: &Circuit,
+    _observables: &[PauliSum],
+    _method: StateMethod,
+) -> Result<StateQueryResult, MpsExecutionError> {
+    let error = discover().expect_err("cuTensorNet discovery is unsupported on this target");
+    Err(MpsExecutionError::environment(error))
 }
 
 fn derive_sampler_seed(seed: Option<u32>) -> i32 {
@@ -268,10 +411,11 @@ impl From<AvailabilityError> for MpsExecutionError {
 
 #[cfg(test)]
 mod tests {
-    use super::prepare_mps_run;
+    use super::{StateMethod, StateQuery, evaluate_state_queries, prepare_mps_run};
+    use num_complex::Complex64;
     use qdk_simulators::{
         bytecode::{AdaptiveProgram, Block, Instruction, Op},
-        execution::PreparedAdaptiveProgram,
+        execution::{PauliSum, PreparedAdaptiveProgram},
     };
 
     const IMMEDIATE_AUX1: u64 = 1 << 20;
@@ -334,6 +478,68 @@ mod tests {
             opcode: 0x02,
             ..Instruction::default()
         }
+    }
+
+    #[test]
+    fn state_queries_reject_program_errors_before_device_discovery() {
+        let program = prepared_program(
+            vec![gate(0), measure(0), ret()],
+            vec![operation(5), operation(21)],
+        );
+        let mut absent_qubit = PauliSum::new();
+        absent_qubit
+            .push_labels(Complex64::new(1.0, 0.0), "Z", &[2])
+            .expect("the term is well formed");
+        let mut present_qubit = PauliSum::new();
+        present_qubit
+            .push_labels(Complex64::new(1.0, 0.0), "Z", &[1])
+            .expect("the term is well formed");
+        let mps = StateMethod::Mps {
+            max_bond_dimension: None,
+        };
+        let cases = [
+            (Vec::new(), mps, "queries must contain at least one query"),
+            (
+                vec![StateQuery::Cost],
+                StateMethod::Exact,
+                "Cost on a cuTensorNet state requires an MPS",
+            ),
+            (
+                vec![
+                    StateQuery::Expectation(present_qubit),
+                    StateQuery::Expectation(absent_qubit),
+                ],
+                mps,
+                "Expectation acts on qubit 2, but the program has 2 qubits",
+            ),
+        ];
+
+        for (queries, method, message) in cases {
+            let error = evaluate_state_queries(&program, &queries, method)
+                .expect_err("the program error should be rejected");
+            assert_eq!(error.to_string(), message);
+            assert!(!error.is_environment_error());
+        }
+    }
+
+    #[test]
+    fn state_queries_share_the_circuit_preflight() {
+        let program = prepared_program(
+            vec![measure(0), gate(1), ret()],
+            vec![operation(5), operation(21)],
+        );
+
+        let error = evaluate_state_queries(
+            &program,
+            &[StateQuery::Cost],
+            StateMethod::Mps {
+                max_bond_dimension: Some(4),
+            },
+        )
+        .expect_err("feedforward should be rejected");
+
+        assert!(error.to_string().contains("after measuring qubit 0"));
+        assert!(!error.is_environment_error());
     }
 
     #[test]

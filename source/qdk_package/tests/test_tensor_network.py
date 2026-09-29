@@ -27,12 +27,38 @@ from test_cpu_simulator import (
     NVIDIA_MPS_AVAILABLE,
     NVIDIA_MPS_SKIP_REASON,
     SX_CZ_MRESETZ_BASE_QIR,
+    X_RESET_MEASURE_BASE_QIR,
     _adaptive_program,
 )
 
 # Arguments are validated before the program is parsed, so these tests need no
 # valid program.
 QIR = "not parsed"
+
+# Rx(π/2) on qubit 0 and H on qubit 1: ⟨Y₀⟩ = -sin(π/2) = -1 and ⟨X₁⟩ = 1.
+# Y is the only non-symmetric Pauli, so a transposed Y would read ⟨Y₀⟩ = +1.
+RX_H_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__rx__body(double, %Qubit*)
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
+"""
 
 
 def test_queries_are_publicly_exported():
@@ -257,6 +283,122 @@ for queries in ([Cost()], [Probability()], [Probability(), Cost()]):
         env={**os.environ, "QDK_CUTENSORNET_LIBRARY": str(tmp_path / "not-installed.so")},
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_state_query_rejects_invalid_native_terms_before_discovery():
+    with pytest.raises(ValueError, match="unknown Pauli label"):
+        _native._tensor_network_state_query(
+            _adaptive_program(BELL_BASE_QIR),
+            [{"kind": "expectation", "terms": [("ZQ", [0, 1], 1 + 0j)]}],
+            None, {"max_bond_dimension": None},
+        )
+
+
+def test_state_native_cost_requires_mps():
+    with pytest.raises(ValueError, match="requires an MPS"):
+        _native._tensor_network_state_query(
+            _adaptive_program(BELL_BASE_QIR), [{"kind": "cost"}], None, None
+        )
+
+
+def test_mps_probability_is_not_implemented():
+    with pytest.raises(NotImplementedError, match="Probability"):
+        tensornetwork_qir(BELL_BASE_QIR, [Probability()], method="mps", outcomes=[0, 0])
+
+
+@pytest.mark.parametrize("method", ["mps", "contraction"])
+def test_expectation_rejects_an_absent_qubit_before_discovery(
+    method: Literal["mps", "contraction"],
+):
+    with pytest.raises(ValueError, match="qubit 5, but the program has 2 qubits"):
+        tensornetwork_qir(BELL_BASE_QIR, [Expectation([("Z", [5], 1)])], method=method)
+
+
+@pytest.mark.parametrize("method", ["mps", "contraction"])
+def test_expectation_rejects_reset_before_discovery(method: Literal["mps", "contraction"]):
+    with pytest.raises(ValueError, match="reset"):
+        tensornetwork_qir(
+            X_RESET_MEASURE_BASE_QIR, [Expectation([("Z", [0], 1)])], method=method
+        )
+
+
+def test_state_queries_report_unavailable_libraries_as_oserror(tmp_path: Path):
+    # Same discovery override as the contraction test above, in a child process.
+    script = """
+import platform
+import sys
+from qdk.simulation import Cost, Expectation, tensornetwork_qir
+qir = sys.stdin.read()
+zz = Expectation([("ZZ", [0, 1], 1)])
+for queries, method in (([zz], "mps"), ([Cost()], "mps"), ([zz], "contraction")):
+    try:
+        tensornetwork_qir(qir, queries, method=method)
+    except OSError as error:
+        expected = ("QDK_CUTENSORNET_LIBRARY"
+                    if sys.platform == "linux" and platform.machine() == "x86_64"
+                    else "unsupported on")
+        assert expected in str(error), str(error)
+    else:
+        raise AssertionError("missing library must not be a successful query")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        input=BELL_BASE_QIR,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "QDK_CUTENSORNET_LIBRARY": str(tmp_path / "not-installed.so")},
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+@pytest.mark.parametrize("method", ["mps", "contraction"])
+def test_expectations_match_bell_and_single_qubit_states(
+    method: Literal["mps", "contraction"],
+):
+    zz, xx, yy, z0, weighted = tensornetwork_qir(
+        BELL_BASE_QIR,
+        [
+            Expectation([("ZZ", [0, 1], 1)]),
+            Expectation([("XX", [0, 1], 1)]),
+            Expectation([("YY", [0, 1], 1)]),
+            Expectation([("Z", [0], 1)]),
+            Expectation([("II", [0, 1], 0.5), ("ZZ", [0, 1], 2j)]),
+        ],
+        method=method,
+    )
+    assert zz == pytest.approx(1)
+    assert xx == pytest.approx(1)
+    assert yy == pytest.approx(-1)
+    assert z0 == pytest.approx(0, abs=1e-12)
+    assert weighted == pytest.approx(0.5 + 2j)
+    y0, x1 = tensornetwork_qir(
+        RX_H_BASE_QIR,
+        [Expectation([("Y", [0], 1)]), Expectation([("X", [1], 1)])],
+        method=method,
+    )
+    assert y0 == pytest.approx(-1)
+    assert x1 == pytest.approx(1)
+
+
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+def test_mps_cost_reports_the_realized_bond_and_preserves_query_order():
+    cost, zz, cost_again = tensornetwork_qir(
+        BELL_BASE_QIR,
+        [Cost(), Expectation([("ZZ", [0, 1], 1)]), Cost()],
+        method="mps", options=MpsOptions(max_bond_dimension=4),
+    )
+    assert zz == pytest.approx(1)
+    assert cost == cost_again
+    assert set(cost) == {"max_bond_dimension", "state_bytes", "workspace_bytes"}
+    # Two sites of extents [2, 2] at 16 bytes per complex128 element.
+    assert cost["max_bond_dimension"] == 2
+    assert cost["state_bytes"] == 128
+    assert cost["workspace_bytes"] > 0
+    capped, = tensornetwork_qir(
+        BELL_BASE_QIR, [Cost()], method="mps", options=MpsOptions(max_bond_dimension=1)
+    )
+    assert capped["max_bond_dimension"] == 1
 
 
 @pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)

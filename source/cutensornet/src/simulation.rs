@@ -45,6 +45,7 @@ pub(super) use consumer::{
 pub(super) use error::SimulationError;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) use ffi::Complex64Abi;
+pub(super) use mps_execution::StateQueryResult;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) use mps_execution::{
     MpsExecutionApi, MpsTarget, OutputMetadata, StateF64Attribute, StateU32Configuration,

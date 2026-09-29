@@ -16,10 +16,13 @@ use crate::simulation::{
 };
 use std::{cell::RefCell, collections::VecDeque, ffi::c_void, ptr::NonNull};
 
+use crate::execution::MpsCost;
 use crate::simulation::memory_workspace::{
     MemorySpace, MemoryWorkspaceApi, WorkspaceKind, WorkspacePreference,
 };
 use num_complex::Complex64;
+use qdk_simulators::execution::{Pauli, PauliSum};
+use std::mem::size_of;
 use tensornet::Mps;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -129,6 +132,8 @@ struct FakeState {
     prepare_maximum_workspace_bytes: Vec<usize>,
     append_count: usize,
     appended_modes: Vec<Vec<Vec<i32>>>,
+    appended_coefficients: Vec<Complex64>,
+    appended_tensors: Vec<Vec<usize>>,
     expectation_hyper_samples: Vec<i32>,
     state_workspace_handle: Option<usize>,
     workspace_handles: Vec<usize>,
@@ -556,13 +561,19 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
     ) -> Result<(), SimulationError> {
-        assert!((coefficient.re - 1.0).abs() <= f64::EPSILON);
-        assert!(coefficient.im.abs() <= f64::EPSILON);
         assert_eq!(factor_modes.len(), factor_tensors.len());
-        self.state
-            .borrow_mut()
+        let mut state = self.state.borrow_mut();
+        state
             .appended_modes
             .push(factor_modes.iter().map(|modes| modes.to_vec()).collect());
+        state.appended_coefficients.push(coefficient);
+        state.appended_tensors.push(
+            factor_tensors
+                .iter()
+                .map(|tensor| tensor.as_ptr() as usize)
+                .collect(),
+        );
+        drop(state);
         self.record(self.next_append())
     }
 
@@ -1254,6 +1265,7 @@ fn query_uses_ordered_product_terms_and_separate_synchronized_lifecycle() {
     assert_eq!(result.hyper_samples, B2_EXPECTATION_HYPER_SAMPLES);
     let state = api.state.borrow();
     assert_eq!(state.appended_modes, [vec![vec![0], vec![1]]]);
+    assert_eq!(state.appended_coefficients, [Complex64::new(1.0, 0.0)]);
     assert_eq!(
         state.expectation_hyper_samples,
         [B2_EXPECTATION_HYPER_SAMPLES]
@@ -1284,6 +1296,177 @@ fn query_uses_ordered_product_terms_and_separate_synchronized_lifecycle() {
     assert!(query_workspace_destroy < expectation_destroy);
     assert!(expectation_destroy < operator_destroy);
     assert!(operator_destroy < state_destroy);
+}
+
+fn pauli_sum(terms: &[(Complex64, &str, &[usize])]) -> PauliSum {
+    let mut sum = PauliSum::new();
+    for &(coefficient, labels, qubits) in terms {
+        sum.push_labels(coefficient, labels, qubits)
+            .expect("test Pauli terms should be valid");
+    }
+    sum
+}
+
+#[test]
+fn pauli_query_uploads_one_tensor_per_kind_and_passes_modes_and_coefficients() {
+    let api = TestDoubleMpsExecutionApi::new([]);
+    let circuit = circuit();
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
+    mps_execution
+        .execute(&circuit, StateReadout::MetadataOnly)
+        .expect("state execution should succeed");
+    let uploads_before = api.uploaded_tensors().len();
+
+    let observable = pauli_sum(&[
+        (Complex64::new(0.5, 0.0), "XY", &[0, 1]),
+        (Complex64::new(0.0, -2.0), "ZX", &[1, 0]),
+    ]);
+    let result = mps_execution
+        .execute_pauli_query(&observable)
+        .expect("Query should succeed");
+    mps_execution.close().expect("cleanup should succeed");
+
+    assert_eq!(result.normalized_expectation, Complex64::new(3.0, 0.0));
+    assert_eq!(
+        api.uploaded_tensors()[uploads_before..],
+        [Pauli::X, Pauli::Y, Pauli::Z].map(|pauli| pauli.matrix().map(Complex64Abi::from).to_vec())
+    );
+    let state = api.state.borrow();
+    assert_eq!(
+        state.appended_modes,
+        [vec![vec![0], vec![1]], vec![vec![1], vec![0]]]
+    );
+    assert_eq!(
+        state.appended_coefficients,
+        [Complex64::new(0.5, 0.0), Complex64::new(0.0, -2.0)]
+    );
+    let [first, second] = state.appended_tensors.as_slice() else {
+        panic!("expected two appended products");
+    };
+    assert_eq!(first[0], second[1], "both X factors share one tensor");
+    assert_ne!(first[0], first[1]);
+    assert_ne!(first[1], second[0]);
+}
+
+#[test]
+fn pauli_query_rejects_an_absent_qubit_before_native_query_calls() {
+    let api = TestDoubleMpsExecutionApi::new([]);
+    let circuit = circuit();
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
+    mps_execution
+        .execute(&circuit, StateReadout::MetadataOnly)
+        .expect("state execution should succeed");
+
+    let observable = pauli_sum(&[(Complex64::new(1.0, 0.0), "Z", &[2])]);
+    let error = mps_execution
+        .execute_pauli_query(&observable)
+        .expect_err("qubit 2 is outside a two-qubit state");
+    mps_execution.close().expect("cleanup should succeed");
+
+    assert!(matches!(error, SimulationError::InvalidCircuit { .. }));
+    assert!(!api.events().contains(&Event::CreateNetworkOperator));
+}
+
+#[test]
+fn exact_observables_skip_mps_finalization_and_report_no_cost() {
+    let api = TestDoubleMpsExecutionApi::new([])
+        .with_expectations([(Complex64::new(2.0, 0.0), Complex64::new(2.0, 0.0))]);
+    let circuit = circuit();
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
+
+    let observable = pauli_sum(&[(Complex64::new(1.0, 0.0), "ZZ", &[0, 1])]);
+    let result = mps_execution
+        .evaluate_observables(&circuit, &[observable], false)
+        .expect("exact evaluation should succeed");
+    mps_execution.close().expect("cleanup should succeed");
+
+    assert_eq!(result.expectations, [Complex64::new(1.0, 0.0)]);
+    assert_eq!(result.cost, None);
+    let events = api.events();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::ApplyUnitary(_)))
+            .count(),
+        2
+    );
+    assert!(events.iter().all(|event| !matches!(
+        event,
+        Event::FinalizeMps
+            | Event::ConfigureF64(_)
+            | Event::ConfigureU32(_)
+            | Event::PrepareState
+            | Event::ComputeState
+    )));
+    assert!(events.contains(&Event::ComputeExpectation));
+}
+
+#[test]
+fn mps_observables_add_identity_release_each_query_and_report_cost() {
+    let api = TestDoubleMpsExecutionApi::new([]).with_expectations([
+        (Complex64::new(1.2, 0.0), Complex64::new(2.0, 0.0)),
+        (Complex64::new(-0.5, 0.0), Complex64::new(1.0, 0.0)),
+    ]);
+    let circuit = circuit();
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit).expect("MPS execution should be created");
+
+    let observables = [
+        pauli_sum(&[
+            (Complex64::new(0.25, 0.0), "II", &[0, 1]),
+            (Complex64::new(1.0, 0.0), "ZZ", &[0, 1]),
+        ]),
+        pauli_sum(&[(Complex64::new(3.0, 0.0), "I", &[0])]),
+        pauli_sum(&[(Complex64::new(1.0, 0.0), "X", &[0])]),
+    ];
+    let result = mps_execution
+        .evaluate_observables(&circuit, &observables, true)
+        .expect("MPS evaluation should succeed");
+    let events_before_close = api.events();
+    mps_execution.close().expect("cleanup should succeed");
+
+    assert_eq!(
+        result.expectations,
+        [
+            Complex64::new(0.85, 0.0),
+            Complex64::new(3.0, 0.0),
+            Complex64::new(-0.5, 0.0)
+        ]
+    );
+    // The test double realizes a two-site chain with extents [2, 2] per site.
+    assert_eq!(
+        result.cost,
+        Some(MpsCost {
+            max_bond_dimension: 2,
+            state_bytes: 8 * size_of::<Complex64Abi>(),
+            workspace_bytes: 256,
+        })
+    );
+    assert_eq!(
+        positions(&events_before_close, Event::ComputeExpectation).len(),
+        2,
+        "an identity-only observable needs no native Query"
+    );
+    let operator_creations = positions(&events_before_close, Event::CreateNetworkOperator);
+    let operator_destructions = positions(&events_before_close, Event::DestroyNetworkOperator);
+    assert_eq!(operator_destructions.len(), 2);
+    assert!(operator_destructions[0] < operator_creations[1]);
+    let frees_before_second_query = events_before_close[..operator_creations[1]]
+        .iter()
+        .filter(|event| matches!(event, Event::Free(_)))
+        .count();
+    assert_eq!(
+        frees_before_second_query, 2,
+        "the first Query's Z tensor and workspace are freed before the next Query"
+    );
+    let mut allocated = api.allocation_handles();
+    let mut freed = api.freed_handles();
+    allocated.sort_unstable();
+    freed.sort_unstable();
+    assert_eq!(allocated, freed);
 }
 
 #[test]

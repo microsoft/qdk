@@ -22,7 +22,10 @@ pub use closed_amplitude::{
 };
 pub use error::AvailabilityError;
 #[doc(hidden)]
-pub use execution::{MpsExecutionError, run_mps_shots};
+pub use execution::{
+    MpsCost, MpsExecutionError, StateMethod, StateQuery, StateQueryValue, evaluate_state_queries,
+    run_mps_shots,
+};
 
 use std::{fmt, path::PathBuf};
 
