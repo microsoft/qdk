@@ -122,8 +122,8 @@ def verify_conversion(unmeasured: str, measured: str, parsed: ParsedCircuit) -> 
     }
 
 
-def check_case_a_schedule(parsed: ParsedCircuit, nx: int, ny: int) -> dict:
-    """Check layer order and coefficients against the hand-derived Suzuki schedule."""
+def check_case_a_schedule(parsed: ParsedCircuit, nx: int, ny: int, h: float = 0.5) -> dict:
+    """Check layer order and coefficients against the hand-derived Suzuki schedule (J = 1, field h)."""
     if parsed.num_qubits != nx * ny:
         raise ValueError("Incorrect Case A width")
     edges = {
@@ -138,9 +138,10 @@ def check_case_a_schedule(parsed: ParsedCircuit, nx: int, ny: int) -> dict:
         raise ValueError("The actual lattice differs from the qualified open row-major grid")
     p = 1 / (4 - 4 ** (1 / 3))
     steps = [p / 2, p / 2, (1 - 4 * p) / 2, p / 2, p / 2]
-    rx_angles = [0.5 * steps[0]]
-    rx_angles += [0.5 * (left + right) for left, right in zip(steps, steps[1:])]
-    rx_angles += [0.5 * steps[-1]]
+    # Rx(θ) = exp(-iθX/2): the field acts for half of each adjacent step, so θ = 2h·(s/2) = h·s.
+    rx_angles = [h * steps[0]]
+    rx_angles += [h * (left + right) for left, right in zip(steps, steps[1:])]
+    rx_angles += [h * steps[-1]]
     sites = {(qubit,) for qubit in range(parsed.num_qubits)}
     layers = []
     for rx_angle, step in zip(rx_angles, steps):

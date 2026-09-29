@@ -1,0 +1,181 @@
+{
+  "case_a_4x4": "fixtures/case_a_4x4/measured.ll is the size=4, h=0.5 circuit; --field 0.5 reproduces it byte for byte",
+  "case_a_provenance_sha256": "b3a97e69605b5ef8691e38f807a6170e38f23221b04126be09b3cf8be43811c3",
+  "circuits": {
+    "ising_10x10_h0.5.ll": {
+      "J": 1.0,
+      "args": "--nx 10 --ny 10 --field 0.5",
+      "bonds": 180,
+      "field": 0.5,
+      "gate_counts": {
+        "rx": 1200,
+        "rzz": 1800
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 100,
+      "size": 10,
+      "unmeasured_sha256": "2c2e866378c34a4439e5e539cfc7faf0e1c8abc5259ffd5cbe12cac6a088ece7"
+    },
+    "ising_10x10_h3.03.ll": {
+      "J": 1.0,
+      "args": "--nx 10 --ny 10 --field 3.03",
+      "bonds": 180,
+      "field": 3.03,
+      "gate_counts": {
+        "rx": 1200,
+        "rzz": 1800
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 100,
+      "size": 10,
+      "unmeasured_sha256": "33a7d048019ab8b39b595f44483c1ed45650a94a6b683b2f07615439172a3885"
+    },
+    "ising_4x4_h3.03.ll": {
+      "J": 1.0,
+      "args": "--nx 4 --ny 4 --field 3.03",
+      "bonds": 24,
+      "field": 3.03,
+      "gate_counts": {
+        "rx": 192,
+        "rzz": 240
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 16,
+      "size": 4,
+      "unmeasured_sha256": "3cfadff6632b38aea2f211f7d56ae830ef7780e4e56ffb2d3953f4f8c547be40"
+    },
+    "ising_5x5_h0.5.ll": {
+      "J": 1.0,
+      "args": "--nx 5 --ny 5 --field 0.5",
+      "bonds": 40,
+      "field": 0.5,
+      "gate_counts": {
+        "rx": 300,
+        "rzz": 400
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 25,
+      "size": 5,
+      "unmeasured_sha256": "5ead8e2c014fed711327481f0220883cbb10bf21e1b8f72d8fccbe113a1d1717"
+    },
+    "ising_5x5_h3.03.ll": {
+      "J": 1.0,
+      "args": "--nx 5 --ny 5 --field 3.03",
+      "bonds": 40,
+      "field": 3.03,
+      "gate_counts": {
+        "rx": 300,
+        "rzz": 400
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 25,
+      "size": 5,
+      "unmeasured_sha256": "93756b5eaf7790641c3fa299c661bfb646cc2eca67fbdaffeb785b0c038107d8"
+    },
+    "ising_6x6_h0.5.ll": {
+      "J": 1.0,
+      "args": "--nx 6 --ny 6 --field 0.5",
+      "bonds": 60,
+      "field": 0.5,
+      "gate_counts": {
+        "rx": 432,
+        "rzz": 600
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 36,
+      "size": 6,
+      "unmeasured_sha256": "915b498cc341cded8f3136f617b5f0eba96f312c704b726adbcdb02946ee7f18"
+    },
+    "ising_6x6_h3.03.ll": {
+      "J": 1.0,
+      "args": "--nx 6 --ny 6 --field 3.03",
+      "bonds": 60,
+      "field": 3.03,
+      "gate_counts": {
+        "rx": 432,
+        "rzz": 600
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 36,
+      "size": 6,
+      "unmeasured_sha256": "0e662ee6f360ab2c36b529dd92612e4b3d14b0b0d2ed3284715b48f8c51266c1"
+    },
+    "ising_8x8_h0.5.ll": {
+      "J": 1.0,
+      "args": "--nx 8 --ny 8 --field 0.5",
+      "bonds": 112,
+      "field": 0.5,
+      "gate_counts": {
+        "rx": 768,
+        "rzz": 1120
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 64,
+      "size": 8,
+      "unmeasured_sha256": "555f96ff826b4b41eb010ca4dedd64fb85dda8e0b4abda28ae357780cc39195f"
+    },
+    "ising_8x8_h3.03.ll": {
+      "J": 1.0,
+      "args": "--nx 8 --ny 8 --field 3.03",
+      "bonds": 112,
+      "field": 3.03,
+      "gate_counts": {
+        "rx": 768,
+        "rzz": 1120
+      },
+      "maximum_coefficient_error": 0.0,
+      "qubits": 64,
+      "size": 8,
+      "unmeasured_sha256": "b04def5c046d5823c476af42560fa49fe0ad4051f710408156ffd1fb312df3bf"
+    }
+  },
+  "generated_at_utc": "2026-09-29T01:42:02.161522+00:00",
+  "generation_seconds": 11.04058913292829,
+  "native_binary_sha256": {
+    "qdk-chemistry/qdk_chemistry/_core.cpython-311-aarch64-linux-gnu.so": "01ff06e3c72f4942f8a1aa47d7d86102290b83f3214f1e01a1d85594b518d8e6",
+    "qdk/qdk/_native.abi3.so": "9dfd78d65dd2650797fda71192bd2b4a4d6491b5c23b244485262710de8d0979"
+  },
+  "not_shipped": "unmeasured chemistry QIR; regenerate it with build_ising_2d_qir and compare unmeasured_sha256",
+  "packages": {
+    "numpy": "2.3.5",
+    "pyqir": "0.12.5",
+    "qdk": "1.32.3",
+    "qdk-chemistry": "2.2.1"
+  },
+  "platform": {
+    "machine": "aarch64",
+    "python": "3.11.15",
+    "system": "Linux"
+  },
+  "recipe": {
+    "J": 1.0,
+    "num_divisions": 2,
+    "order": 4,
+    "preparation": "identity / |0...0>",
+    "site_index": "q = y * N + x",
+    "total_time": 1.0
+  },
+  "reproduce": "python circuits.py generate --output <new-directory>",
+  "scope": "Frozen \u03c7-sweep circuits and 4\u00d74 CPU references; no TN or GPU execution",
+  "script_sha256": {
+    "build_measured_circuit.py": "c13d3c2814b96a8f39a65feadce85a7b30184c9bdebe81620ca4b400ad207f6e",
+    "circuits.py": "b57699873d7bb8df5d0286c535d679e28495d117efaaab8925062786c7649c72",
+    "ising.py": "4d8c4017b997b6f5a655b6671010b1fafb6a005ad1c0663ad57c4ebb98bc7893",
+    "reference.py": "b5870f98f7b0dc3014e6b9c8bdcdc278577531fe1bb3002c96633b4d25d961f0",
+    "requirements-reference.txt": "4db27d0c4d242d02946d18f55d1b61c3d12c84ab556a842dab8f50d4ac85c41a"
+  },
+  "sha256": {
+    "cpu_reference.json": "1f800a2c97480d5b2ea7325642e428be4b9ea4774f052aa1aa6062e66a5558dc",
+    "ising_10x10_h0.5.ll": "9edca2e9a8851e76471b79c7fd1168c5adcf3479bcb9834e98f72d926bbb50cd",
+    "ising_10x10_h3.03.ll": "732e68f8600be6cd0f0cdcdb817fb8da048570738c73726882116cad97818429",
+    "ising_4x4_h3.03.ll": "93d42f40f05278ea694cb76378288dd3c1b8da9736eccf26193a78c61c43ef61",
+    "ising_5x5_h0.5.ll": "5505ecc63b2ad0ffa35b3aca0139edd22f14cf8a7f17bd68042f49e091c6cf2f",
+    "ising_5x5_h3.03.ll": "d46f9a2657fc69c56751a2f95fb13834bab0a97487ed4096c9fed9c8a4b19eca",
+    "ising_6x6_h0.5.ll": "2d41b58903f68f1f011cd854eaf80f28ad542a70114cbedbd5af859fcc484f1f",
+    "ising_6x6_h3.03.ll": "a4048d37a532c7fac0212d0f12d03b26f93b62a0dc2b8fe2d34efcc3b2b2ce6d",
+    "ising_8x8_h0.5.ll": "03bf2d4472436dd2e1fbeedf54d0eebca6fd1d9bdf062c3792f1f7fdb9d728a0",
+    "ising_8x8_h3.03.ll": "ce9de32868c4b1c9f88d9ea7371711514abfbcdf2417f0307e869c7dcb20f8c2"
+  },
+  "source_base_commit": "bd5c879f858e9838a243242d0d71bdee19e983ba",
+  "verify": "python circuits.py verify --input fixtures/ising_circuits"
+}

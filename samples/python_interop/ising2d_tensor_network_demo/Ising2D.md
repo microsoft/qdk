@@ -104,12 +104,16 @@ always shown.
 
 Linux x86_64, an NVIDIA GPU, cuQuantum `libcutensornet.so.2`, and the preview
 `qdk` build. `qdk-chemistry==2.2.1` is needed only to generate new circuits;
-the circuits the demo uses ship with the sample. ⏳
+the circuits the demo uses ship with the sample, in
+[`fixtures/ising_circuits/`](fixtures/ising_circuits/): `N = 4, 5, 6, 8, 10`
+at `h = 0.5` and `h = 3.03`. The 4x4 `h=0.5` circuit is the validated
+[I1 input](#i1-retained-input-and-cpu-reference). Rendering results needs
+neither the GPU nor `qdk`; plots also need `matplotlib`.
 
 ### 2.2 Step 1: generate a circuit
 
 ```bash
-python build_measured_circuit.py --nx 4 --ny 4 --field 3.03 --output ising-4x4-h3.03.ll   # ⏳ --field
+python build_measured_circuit.py --nx 4 --ny 4 --field 3.03 --output ising-4x4-h3.03.ll
 ```
 
 The output is an ordinary Base-profile QIR program. `tensornetwork_qir`
@@ -130,10 +134,10 @@ c_zz = Expectation([("ZZ", [i, j], 1 / len(bonds)) for i, j in bonds])
 
 qir = open("ising-4x4-h3.03.ll").read()
 
-# ⏳ Exact reference: cuTensorNet's state API, no truncation.
+# Exact reference: cuTensorNet's state API, no truncation.
 exact = tensornetwork_qir(qir, [m_z, c_zz], method="contraction")
 
-# ⏳ MPS with bond-dimension cap χ = 16.
+# MPS with bond-dimension cap χ = 16.
 approx = tensornetwork_qir(qir, [m_z, c_zz, Cost()], method="mps",
                            options=MpsOptions(max_bond_dimension=16))
 # approx[2] == {"max_bond_dimension": ..., "state_bytes": ..., "workspace_bytes": ...}
@@ -143,16 +147,28 @@ Each `Expectation` result is complex, real up to rounding for these
 observables. `Cost()` reports the largest bond the MPS actually reached, its
 size and the workspace it needed.
 
-### 2.4 Step 3: the χ sweep ⏳
+### 2.4 Step 3: the χ sweep
 
-`run.py` runs Step 2 for a list of χ values and sizes, writes one results
-file, and renders tables and plots from it. Measuring needs the GPU;
-rendering does not. Proposed usage:
+[`run.py`](run.py) runs Step 2 on the shipped circuits for a list of χ values,
+sizes and fields, writes one results file, and renders tables and plots from
+it. Measuring needs the GPU; rendering does not.
 
 ```bash
-python run.py measure --size 4 --field 3.03 --chi 2 4 8 16 32 64 128 --output results.json
-python run.py render results.json
+python run.py measure --size 4 5 6 --field 0.5 3.03 --chi 2 4 8 16 32 64 128 --output results.json
+python run.py render results.json   # tables; results.ising2d-*.png plots
 ```
+
+- Each `(size, field)` run records the exact reference, then per χ the MPS
+  values, `Cost` and wall time, and is saved as soon as it finishes.
+- If the exact reference runs out of GPU resources, the run records the error
+  and the largest-χ MPS result becomes the reference, labelled `MPS χ=…`.
+  `--no-exact` skips it for sizes where it cannot fit.
+- The results file may hold other demos' sections; `measure` replaces only
+  its own runs.
+- At 4x4 the exact result is checked against the frozen CPU reference.
+
+`python circuits.py verify` rechecks the shipped circuits and CPU references
+in the pinned environment of `requirements-reference.txt`.
 
 ## 3. What the demo shows
 
@@ -160,7 +176,8 @@ python run.py render results.json
 
 Error against χ, with time and memory, at 4×4 and at larger sizes while the
 exact reference fits. At 4×4 the reference is also checked against an
-independent CPU state: for `h=0.5`, **$m_z = 0.9508364$, $C_{ZZ} = 0.9326830$**.
+independent CPU state: for `h=0.5`, **$m_z = 0.9508364$, $C_{ZZ} = 0.9326830$**;
+for `h=3.03`, **$m_z = 0.4937060$, $C_{ZZ} = 0.5523722$**.
 
 ```text
 ising2d | size=4 J=1 h=3.03 | reference: exact (… s)
@@ -340,11 +357,11 @@ at small sizes, as in [Appendix A](#appendix-a--validation-history).
 
 | Piece | Status |
 | --- | --- |
-| Circuit generator from `qdk-chemistry` (`--nx/--ny`, `h=0.5`) | Available |
+| Circuit generator from `qdk-chemistry` (`--nx/--ny/--field`) | Available |
 | 4x4 exact contraction, validated against an independent CPU state | Done ([Appendix A](#appendix-a--validation-history)) |
 | `tensornetwork_qir` API; contraction `Probability` and `Cost` (QEC demo) | Available (preview) |
-| MPS and exact `Expectation` over Pauli sums; MPS `Cost` | ⏳ Demo |
-| `--field`, `run.py` χ sweep, generated circuits, 4x4 `h=3.03` CPU reference | ⏳ Demo |
+| MPS and exact `Expectation` over Pauli sums; MPS `Cost` | Available (preview) |
+| `run.py` χ sweep, shipped circuits (`N = 4…10`, both fields), 4x4 `h=3.03` CPU reference | Available (host-tested; not yet run on a GPU) |
 | Measured error-against-χ and χ-needed results | ⏳ Demo |
 
 ## 7. What could come next

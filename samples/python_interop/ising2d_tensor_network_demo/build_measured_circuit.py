@@ -72,8 +72,10 @@ def shared_buffer_diagnostic() -> ParsedCircuit:
     ])
 
 
-def build_ising_2d_qir(nx: int, ny: int, total_time: float, order: int, num_divisions: int) -> str:
-    """Reproduce the estimation_ising_2d.ipynb recipe and return its QIR (unmeasured)."""
+def build_ising_2d_qir(
+    nx: int, ny: int, total_time: float, order: int, num_divisions: int, h: float = 0.5
+) -> str:
+    """Reproduce the estimation_ising_2d.ipynb recipe (J = 1, field h) and return its QIR (unmeasured)."""
     from qdk_chemistry.algorithms import create
     from qdk_chemistry.algorithms.state_preparation import identity_state_prep
     from qdk_chemistry.data import AlgorithmRef, DrivenQubitHamiltonian
@@ -84,7 +86,7 @@ def build_ising_2d_qir(nx: int, ny: int, total_time: float, order: int, num_divi
 
     lattice = ising_lattice(nx, ny)
     h0 = create_ising_hamiltonian(lattice, j=1.0, h=0.0)  # ZZ interaction (with term grouping)
-    h1 = create_ising_hamiltonian(lattice, j=0.0, h=0.5)  # Transverse X field
+    h1 = create_ising_hamiltonian(lattice, j=0.0, h=h)  # Transverse X field
     td_hamiltonian = DrivenQubitHamiltonian(h0, h1, drive=lambda t: 1.0)
 
     evolution_builder = AlgorithmRef("hamiltonian_unitary_builder", "trotter", order=order, num_divisions=num_divisions)
@@ -176,9 +178,11 @@ def compile_measured_qir(source: str) -> str:
     return str(program)
 
 
-def build_measured_qir(nx: int, ny: int, total_time: float, order: int, num_divisions: int) -> str:
+def build_measured_qir(
+    nx: int, ny: int, total_time: float, order: int, num_divisions: int, h: float = 0.5
+) -> str:
     """Full pipeline: chemistry recipe -> parsed gates -> measured Q# -> Base QIR."""
-    unmeasured_qir = build_ising_2d_qir(nx, ny, total_time, order, num_divisions)
+    unmeasured_qir = build_ising_2d_qir(nx, ny, total_time, order, num_divisions, h)
     return compile_measured_qir(qsharp_source(parse_gates(unmeasured_qir)))
 
 
@@ -189,10 +193,11 @@ def main() -> None:
     parser.add_argument("--time", type=float, default=1.0, help="Total simulation time")
     parser.add_argument("--order", type=int, default=4, help="Trotter-Suzuki product formula order")
     parser.add_argument("--num-divisions", type=int, default=2, help="Number of Trotter sub-divisions")
+    parser.add_argument("--field", type=float, default=0.5, help="Transverse field h (J = 1)")
     parser.add_argument("--output", required=True, help="Path to write the resulting base_profile QIR")
     args = parser.parse_args()
 
-    qir = build_measured_qir(args.nx, args.ny, args.time, args.order, args.num_divisions)
+    qir = build_measured_qir(args.nx, args.ny, args.time, args.order, args.num_divisions, args.field)
     with open(args.output, "w") as f:
         f.write(qir)
 
