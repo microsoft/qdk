@@ -519,6 +519,67 @@ width before native work. The ignored `s8_a100_fixed_outcome_probability_qualifi
 test pins analytic cases on the GPU, from Bell outcomes (P = ½, and a
 contradictory P = 0) to 2⁻⁸⁰ over 80 qubits.
 
+##### From `tensornetwork_qir(method="mps")`: route, errors, one state per call
+
+```text
+queries without Probability ─► ψ = U|0…0⟩   (one region, no feedforward, no reset)
+                               Expectation, Cost
+queries with Probability    ─► ψ̃ on the path `outcomes` fixes (mid-circuit
+                               measurement, reset and branches allowed)
+                               Probability, Cost
+
+preflight (ValueError, before discovery)          device (OSError)
+  MPS method, outcomes given, no Expectation        discover ─► MpsSession
+  FixedOutcomeCircuit::from_prepared_program          ─► evaluate_probability
+  ProjectedCircuit::from_fixed_outcome                ─► close
+```
+
+`evaluate_state_queries` sends a call with a `Probability` query to the ψ̃
+route. Everything that depends only on the program and the outcomes is
+checked on the host first and raises `ValueError`: `Probability` without an
+MPS (exact Probability is `method="contraction"`), without outcomes, or with
+an `Expectation` in the same call; an outcome count that does not match the
+program's results; a record that fails a selection check
+(`ResultMeasuredAgain`); a reset of a qubit that is not in a known basis
+state; and the first unsupported gate. Only then is cuTensorNet discovered;
+discovery, native and cleanup failures raise `OSError`. `Probability` is
+`P_pass`, as for contraction (`TODO(selection-normalization)` in the
+execution README).
+
+**One state per call.** A call computes exactly one MPS, and `Cost` reports
+that MPS: ψ̃ when the call has a `Probability`, otherwise ψ. `Probability`
+and `Expectation` read different states, so a call that mixes them is
+rejected instead of computing two MPSs behind one `Cost`. To lift the rule,
+evaluate ψ and ψ̃ separately in one session and give `Cost` a per-state
+shape (for example one report per state, or per query); that changes the
+`Cost` result, which is why it is not done implicitly.
+
+##### Convergence in χ
+
+```text
+ε(χ) = |P̃(χ) − P| / P                     known P, e.g. 2⁻ᵐ
+δ(χ) = |P̃(χ) − P̃(2χ)| / P̃(2χ)             no known P
+χ*   = min { χ ∈ 16, 64, 256, 1024, … : ε(χ) ≤ 10⁻⁶ }
+state_bytes ≤ 32 · n · χ²                  n sites, complex128, physical dimension 2
+```
+
+- **Why two-sided.** Truncation removes a component δ orthogonal to the kept
+  state, but a later |r⟩⟨b| can map δ and the kept state onto overlapping
+  vectors. ‖Π(ψ − δ)‖² then differs from ‖Πψ‖² by a cross term of either
+  sign, so P̃(χ) may be above or below P and is not a bound.
+- **Reference.** For a Clifford circuit that applies the same gates whatever
+  the outcomes (Pauli corrections aside), every possible record has
+  P = 2⁻ᵐ, where m is the number of measurements with a random outcome. That
+  gives a reference independent of the MPS.
+- **Tolerance.** 10⁻⁶ is far above floating-point rounding (the norm itself
+  is checked to 1e-12), so a larger ε is truncation error. P̃(χ) = 0 against
+  a positive P means ε = 1: the truncated state lost the path entirely.
+- **Stopping.** Raise `max_bond_dimension` until ε(χ) ≤ 10⁻⁶ (report χ\*), or
+  until the state and workspace no longer fit the device (report the largest
+  χ that fits and its ε). If `Cost["max_bond_dimension"]` < χ, the cap was
+  never reached, so any truncation came from the relative cutoff and raising
+  χ changes nothing.
+
 ### Private general-network metadata
 
 The reusable metadata layer accepts the existing `tensornet::ContractionQuery`.

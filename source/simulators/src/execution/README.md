@@ -350,6 +350,17 @@ instead keeps the accepted path and flips just that measurement cap, so a
 deterministic cap can be checked for zero amplitude without restarting the
 program. Both routes use the same shared contraction chain.
 
+With `method="mps"`, `Probability` is the squared norm P̃(χ) of a bond-capped
+MPS reached by applying each gate and each measurement's |r⟩⟨b| from the
+shared operator table, never renormalized. It uses the same
+`FixedOutcomeCircuit`, so the same outcome errors apply before discovery, and
+it is also `P_pass`. One MPS call reads one state, so it cannot mix
+`Probability` and `Expectation`; its `Cost` describes that state. The
+cuTensorNet README ("MPS fixed-outcome Probability") documents the route, the
+rule and how to lift it, and the convergence criterion P̃(χ) → P (2⁻ᵐ for a
+Clifford circuit with m random measurements that applies the same gates
+whatever the outcomes).
+
 ### Shared contraction contracts (I3)
 
 **Implemented in slice 3b; tiny supplied-plan reuse is GPU-qualified:** preparation
