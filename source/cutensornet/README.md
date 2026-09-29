@@ -579,6 +579,20 @@ state_bytes ≤ 32 · n · χ²                  n sites, complex128, physical d
   χ that fits and its ε). If `Cost["max_bond_dimension"]` < χ, the cap was
   never reached, so any truncation came from the relative cutoff and raising
   χ changes nothing.
+- **The cap also truncates gate application.** For a Clifford circuit the
+  state's own bound is χ_exact = 2^S_max, where S_max is the largest
+  stabilizer entanglement across any cut of the site order at any step
+  (computable on the host from the stabilizer tableau). The MPS can need
+  more: cuTensorNet applies a gate on non-adjacent sites by MPS-MPO
+  multiplication with swaps, and in the default
+  `CUTENSORNET_STATE_MPO_APPLICATION_INEXACT` mode each of those
+  decompositions is truncated to the cap. A CZ's MPO carries bond 2 across
+  every cut it spans, which suggests up to 2·χ_exact. On an A100, a 12-qubit
+  Clifford test circuit with χ_exact = 16 had ε = 0.85 at χ = 16 and was
+  exact at χ = 64 with a realized bond of 32; the 78-qubit Fire-and-Ice k=1
+  circuit (χ_exact = 256) still had ε ≈ 0.99 at χ = 256. χ_exact is therefore
+  a lower bound for the ladder, not a stopping point; see
+  **TODO: exact MPO application for non-adjacent gates**.
 
 ### Private general-network metadata
 
@@ -1347,3 +1361,45 @@ that needs no GPU and no x86-64 host. Each piece has a precedent to copy:
 
 Not started, and it does not block current work: the version policy accepts one
 exact runtime, so a library that resolves today is the audited one.
+
+## TODO: exact MPO application for non-adjacent gates
+
+`MpsExecution::configure` leaves `CUTENSORNET_STATE_CONFIG_MPS_MPO_APPLICATION`
+at the library default, `CUTENSORNET_STATE_MPO_APPLICATION_INEXACT`: the swaps
+and decompositions that apply a gate on non-adjacent sites honor the SVD
+configuration and the χ cap, so they truncate (see **Convergence in χ**).
+NVIDIA documents the alternative, `CUTENSORNET_STATE_MPO_APPLICATION_EXACT`:
+every swap and decomposition in MPS-MPO multiplication is exact, with the SVD
+configuration and the target extents dismissed, and it "shall only be used
+when exact MPS computation is required".
+
+```text
+             INEXACT (today)                    EXACT
+χ cap        honored: memory bounded by χ       ignored
+result       truncated when χ < χ needed        exact, no χ ladder
+risk         a silently wrong P̃ (ε ≈ 1)         bond growth bounded only by the device,
+                                                if zero singular values are not dropped
+```
+
+It matters because an exact Probability, for example a Clifford reference
+check, would no longer need a χ ladder guessed from 2^S_max. What is needed:
+
+- **Binding.** The attribute constant is in `bindings/v2_13.rs`, but
+  `cutensornetStateMPOApplication_t` is absent from the reduced bindings.
+  Allowlist it and regenerate (see `scripts/README.md`), or spell it out by
+  hand as for `SvdNormalizationNone`, and add a `StateU32Configuration`
+  variant for it.
+- **API.** A preview `MpsOptions` field (for example
+  `mpo_application="exact"`). It must state that `max_bond_dimension` is
+  ignored in that mode, because the library dismisses the target extents;
+  `Cost["max_bond_dimension"]` should then report the bond the exact
+  computation reached.
+- **Qualification before any default changes.** First the small Clifford
+  test circuits: a realized bond of χ_exact or 2·χ_exact means EXACT still
+  drops zero singular values; a much larger one means it does not, which
+  would make EXACT infeasible beyond small widths. Then the 78-qubit
+  Fire-and-Ice k=1 circuit (χ_exact = 256), under a timeout and with
+  device-memory sampling.
+
+Not started, and it does not block current work: INEXACT is exact once the
+cap is at least the bond the gate application needs.

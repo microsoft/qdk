@@ -359,7 +359,9 @@ it is also `P_pass`. One MPS call reads one state, so it cannot mix
 cuTensorNet README ("MPS fixed-outcome Probability") documents the route, the
 rule and how to lift it, and the convergence criterion P̃(χ) → P (2⁻ᵐ for a
 Clifford circuit with m random measurements that applies the same gates
-whatever the outcomes).
+whatever the outcomes). Gate application is truncated to the χ cap too, so a
+state's stabilizer bound 2^S_max is only a lower bound for χ; exact MPO
+application is a TODO there.
 
 ### Shared contraction contracts (I3)
 
