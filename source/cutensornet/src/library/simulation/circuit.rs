@@ -1,7 +1,10 @@
 use super::SimulationError;
 use super::policy::ExecutionPolicy;
 use num_complex::Complex64;
-use qdk_simulators::execution::UnitaryOperation;
+use qdk_simulators::{
+    MeasurementResult,
+    execution::{FixedOutcomeCircuit, FixedOutcomeOperation, UnitaryOperation},
+};
 use tensornet::Mps;
 use thiserror::Error;
 
@@ -174,51 +177,7 @@ impl Circuit {
     }
 
     pub fn push(&mut self, gate: Gate) -> Result<(), SimulationError> {
-        match gate {
-            Gate::X { target } | Gate::H { target } | Gate::S { target } | Gate::Sx { target } => {
-                self.validate_qubit(target)?;
-            }
-            Gate::Rx { theta, target } | Gate::Rz { theta, target } => {
-                self.validate_qubit(target)?;
-                if !theta.is_finite() {
-                    return Err(SimulationError::InvalidCircuit {
-                        reason: "rotation angle must be finite".to_string(),
-                    });
-                }
-            }
-            Gate::Cnot { control, target } => {
-                self.validate_qubit(control)?;
-                self.validate_qubit(target)?;
-                if control == target {
-                    return Err(SimulationError::InvalidCircuit {
-                        reason: "CNOT control and target must be different qubits".to_string(),
-                    });
-                }
-            }
-            Gate::Cz { control, target } => {
-                self.validate_qubit(control)?;
-                self.validate_qubit(target)?;
-                if control == target {
-                    return Err(SimulationError::InvalidCircuit {
-                        reason: "CZ control and target must be different qubits".to_string(),
-                    });
-                }
-            }
-            Gate::Rzz { theta, q1, q2 } => {
-                self.validate_qubit(q1)?;
-                self.validate_qubit(q2)?;
-                if q1 == q2 {
-                    return Err(SimulationError::InvalidCircuit {
-                        reason: "Rzz requires two different qubits".to_string(),
-                    });
-                }
-                if !theta.is_finite() {
-                    return Err(SimulationError::InvalidCircuit {
-                        reason: "rotation angle must be finite".to_string(),
-                    });
-                }
-            }
-        }
+        validate_gate(self.qubit_count, gate)?;
         self.gates.push(gate);
         Ok(())
     }
@@ -286,18 +245,168 @@ impl Circuit {
         }
         description
     }
+}
 
-    fn validate_qubit(&self, qubit: u32) -> Result<(), SimulationError> {
-        if qubit >= self.qubit_count {
-            Err(SimulationError::InvalidCircuit {
-                reason: format!(
-                    "qubit {qubit} is outside a {}-qubit circuit",
-                    self.qubit_count
-                ),
-            })
-        } else {
-            Ok(())
+/// Checks `gate` against a register of `qubit_count` qubits: operands in
+/// range and distinct, rotation angles finite.
+fn validate_gate(qubit_count: u32, gate: Gate) -> Result<(), SimulationError> {
+    match gate {
+        Gate::X { target } | Gate::H { target } | Gate::S { target } | Gate::Sx { target } => {
+            validate_qubit(qubit_count, target)?;
         }
+        Gate::Rx { theta, target } | Gate::Rz { theta, target } => {
+            validate_qubit(qubit_count, target)?;
+            if !theta.is_finite() {
+                return Err(SimulationError::InvalidCircuit {
+                    reason: "rotation angle must be finite".to_string(),
+                });
+            }
+        }
+        Gate::Cnot { control, target } => {
+            validate_qubit(qubit_count, control)?;
+            validate_qubit(qubit_count, target)?;
+            if control == target {
+                return Err(SimulationError::InvalidCircuit {
+                    reason: "CNOT control and target must be different qubits".to_string(),
+                });
+            }
+        }
+        Gate::Cz { control, target } => {
+            validate_qubit(qubit_count, control)?;
+            validate_qubit(qubit_count, target)?;
+            if control == target {
+                return Err(SimulationError::InvalidCircuit {
+                    reason: "CZ control and target must be different qubits".to_string(),
+                });
+            }
+        }
+        Gate::Rzz { theta, q1, q2 } => {
+            validate_qubit(qubit_count, q1)?;
+            validate_qubit(qubit_count, q2)?;
+            if q1 == q2 {
+                return Err(SimulationError::InvalidCircuit {
+                    reason: "Rzz requires two different qubits".to_string(),
+                });
+            }
+            if !theta.is_finite() {
+                return Err(SimulationError::InvalidCircuit {
+                    reason: "rotation angle must be finite".to_string(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_qubit(qubit_count: u32, qubit: u32) -> Result<(), SimulationError> {
+    if qubit >= qubit_count {
+        Err(SimulationError::InvalidCircuit {
+            reason: format!("qubit {qubit} is outside a {qubit_count}-qubit circuit"),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+/// One operation of a [`ProjectedCircuit`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum ProjectedOperation {
+    Gate(Gate),
+    /// The rank-one operator |result⟩⟨basis| on `target`, from the shared
+    /// operator table. `basis` is the fixed measurement outcome and `result`
+    /// the state the qubit is left in: the outcome itself, or |0⟩ after a
+    /// reset. It is not unitary, so the state loses norm.
+    BasisOperator {
+        target: u32,
+        result: bool,
+        basis: bool,
+    },
+}
+
+/// A fixed-outcome path as cuTensorNet operations on |0…0⟩.
+///
+/// Applying the operations in order gives the unnormalized state |ψ̃⟩, whose
+/// squared norm ⟨ψ̃|ψ̃⟩ is the probability of the fixed outcomes. Nothing
+/// here renormalizes, because that norm is the result.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ProjectedCircuit {
+    qubit_count: u32,
+    operations: Vec<ProjectedOperation>,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum ProjectedCircuitError {
+    #[error(transparent)]
+    Conversion(#[from] UnitaryOperationConversionError),
+
+    #[error(transparent)]
+    Circuit(#[from] SimulationError),
+}
+
+impl ProjectedCircuit {
+    /// Converts `circuit` operation by operation, in order. Identities are
+    /// dropped; the first unsupported gate is reported by name.
+    pub(crate) fn from_fixed_outcome(
+        circuit: &FixedOutcomeCircuit,
+    ) -> Result<Self, ProjectedCircuitError> {
+        let qubit_count =
+            u32::try_from(circuit.qubit_count()).map_err(|_| SimulationError::InvalidCircuit {
+                reason: format!(
+                    "a {}-qubit circuit exceeds the cuTensorNet u32 range",
+                    circuit.qubit_count()
+                ),
+            })?;
+        if qubit_count == 0 {
+            return Err(SimulationError::InvalidCircuit {
+                reason: "a circuit must contain at least one qubit".to_string(),
+            }
+            .into());
+        }
+        let mut operations = Vec::with_capacity(circuit.operations().len());
+        for &operation in circuit.operations() {
+            match operation {
+                FixedOutcomeOperation::Unitary(operation) => {
+                    if let Some(gate) = Gate::from_unitary_operation(operation)? {
+                        validate_gate(qubit_count, gate)?;
+                        operations.push(ProjectedOperation::Gate(gate));
+                    }
+                }
+                FixedOutcomeOperation::Measure {
+                    qubit,
+                    outcome,
+                    reset,
+                    ..
+                } => {
+                    let basis = match outcome {
+                        MeasurementResult::Zero => false,
+                        MeasurementResult::One => true,
+                        MeasurementResult::Loss => {
+                            unreachable!("fixed-outcome circuits reject loss outcomes")
+                        }
+                    };
+                    operations.push(ProjectedOperation::BasisOperator {
+                        target: u32::try_from(qubit)
+                            .expect("measured qubits are below the u32 register width"),
+                        result: basis && !reset,
+                        basis,
+                    });
+                }
+            }
+        }
+        Ok(Self {
+            qubit_count,
+            operations,
+        })
+    }
+
+    #[must_use]
+    pub(crate) fn qubit_count(&self) -> u32 {
+        self.qubit_count
+    }
+
+    #[must_use]
+    pub(crate) fn operations(&self) -> &[ProjectedOperation] {
+        &self.operations
     }
 }
 
@@ -485,9 +594,15 @@ fn validate_storage(
 #[cfg(test)]
 mod tests {
     use super::SimulationError;
-    use super::{Circuit, Gate, UnitaryOperationConversionError, contract_open_mps};
+    use super::{
+        Circuit, Gate, ProjectedCircuit, ProjectedCircuitError, ProjectedOperation,
+        UnitaryOperationConversionError, contract_open_mps,
+    };
     use num_complex::Complex64;
-    use qdk_simulators::{SparseStateSim, execution::UnitaryOperation};
+    use qdk_simulators::{
+        MeasurementResult, SparseStateSim,
+        execution::{FixedOutcomeCircuit, FixedOutcomeOperation, UnitaryOperation},
+    };
     use std::f64::consts::FRAC_1_SQRT_2;
     use tensornet::{Mps, MpsError};
 
@@ -711,6 +826,145 @@ mod tests {
             Err(SimulationError::InvalidCircuit { .. })
         ));
         assert!(circuit.gates().is_empty());
+    }
+
+    fn measure(
+        qubit: usize,
+        result_id: usize,
+        outcome: MeasurementResult,
+        reset: bool,
+    ) -> FixedOutcomeOperation {
+        FixedOutcomeOperation::Measure {
+            qubit,
+            result_id,
+            outcome,
+            reset,
+        }
+    }
+
+    fn fixed_outcome(
+        qubit_count: usize,
+        operations: Vec<FixedOutcomeOperation>,
+    ) -> FixedOutcomeCircuit {
+        FixedOutcomeCircuit::new(qubit_count, operations)
+            .expect("fixed-outcome fixture should be valid")
+    }
+
+    #[test]
+    fn fixed_outcome_circuit_projects_in_order_and_drops_identities() {
+        let circuit = fixed_outcome(
+            2,
+            vec![
+                FixedOutcomeOperation::Unitary(UnitaryOperation::H { target: 0 }),
+                FixedOutcomeOperation::Unitary(UnitaryOperation::I { target: 1 }),
+                FixedOutcomeOperation::Unitary(UnitaryOperation::Cx {
+                    control: 0,
+                    target: 1,
+                }),
+                measure(0, 0, MeasurementResult::Zero, false),
+                measure(1, 1, MeasurementResult::One, false),
+                measure(0, 2, MeasurementResult::Zero, true),
+                measure(1, 3, MeasurementResult::One, true),
+            ],
+        );
+
+        let projected =
+            ProjectedCircuit::from_fixed_outcome(&circuit).expect("the circuit should convert");
+
+        assert_eq!(projected.qubit_count(), 2);
+        assert_eq!(
+            projected.operations(),
+            [
+                ProjectedOperation::Gate(Gate::H { target: 0 }),
+                ProjectedOperation::Gate(Gate::Cnot {
+                    control: 0,
+                    target: 1,
+                }),
+                // |b⟩⟨b| keeps the measured outcome.
+                ProjectedOperation::BasisOperator {
+                    target: 0,
+                    result: false,
+                    basis: false,
+                },
+                ProjectedOperation::BasisOperator {
+                    target: 1,
+                    result: true,
+                    basis: true,
+                },
+                // A reset leaves |0⟩ whatever was measured: |0⟩⟨b|.
+                ProjectedOperation::BasisOperator {
+                    target: 0,
+                    result: false,
+                    basis: false,
+                },
+                ProjectedOperation::BasisOperator {
+                    target: 1,
+                    result: false,
+                    basis: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn fixed_outcome_conversion_names_the_first_unsupported_operation() {
+        let circuit = fixed_outcome(
+            1,
+            vec![
+                FixedOutcomeOperation::Unitary(UnitaryOperation::H { target: 0 }),
+                FixedOutcomeOperation::Unitary(UnitaryOperation::T { target: 0 }),
+                FixedOutcomeOperation::Unitary(UnitaryOperation::Y { target: 0 }),
+            ],
+        );
+
+        let error =
+            ProjectedCircuit::from_fixed_outcome(&circuit).expect_err("T has no cuTensorNet gate");
+
+        assert!(matches!(
+            error,
+            ProjectedCircuitError::Conversion(
+                UnitaryOperationConversionError::UnsupportedOperation { operation: "T" }
+            )
+        ));
+        assert_eq!(
+            error.to_string(),
+            "unitary operation T is not supported by cuTensorNet"
+        );
+    }
+
+    #[test]
+    fn fixed_outcome_conversion_validates_gates_against_the_register() {
+        // Fixed-outcome circuits leave unitary operands to their consumers.
+        let out_of_range = fixed_outcome(
+            2,
+            vec![FixedOutcomeOperation::Unitary(UnitaryOperation::X {
+                target: 2,
+            })],
+        );
+        let coincident = fixed_outcome(
+            2,
+            vec![FixedOutcomeOperation::Unitary(UnitaryOperation::Cz {
+                control: 1,
+                target: 1,
+            })],
+        );
+        let empty = fixed_outcome(0, Vec::new());
+
+        for (circuit, reason) in [
+            (&out_of_range, "qubit 2 is outside a 2-qubit circuit"),
+            (
+                &coincident,
+                "CZ control and target must be different qubits",
+            ),
+            (&empty, "a circuit must contain at least one qubit"),
+        ] {
+            match ProjectedCircuit::from_fixed_outcome(circuit) {
+                Err(ProjectedCircuitError::Circuit(SimulationError::InvalidCircuit {
+                    reason: actual,
+                })) => assert_eq!(actual, reason),
+                other => panic!("expected an invalid circuit, got {other:?}"),
+            }
+        }
     }
 
     #[test]

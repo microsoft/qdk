@@ -65,6 +65,20 @@ impl ExecutionPolicy {
         Self { bond_cap, ..self }
     }
 
+    /// The same policy with no absolute SVD cutoff, for Probability.
+    ///
+    /// A fixed-outcome state is unnormalized: its largest singular value is
+    /// about √P, and P can be as small as 2⁻ᵐ after m projections. An absolute
+    /// cutoff of 10⁻¹⁰ would therefore discard the whole state once m ≳ 66 and
+    /// report P = 0. The relative cutoff is measured against the largest
+    /// singular value, so it scales with the state and is kept.
+    pub(crate) const fn without_absolute_cutoff(self) -> Self {
+        Self {
+            absolute_cutoff: 0.0,
+            ..self
+        }
+    }
+
     pub(super) const fn b3_matched_bond_qualification() -> Self {
         Self {
             absolute_cutoff: 1.0e-12,
@@ -173,6 +187,22 @@ mod tests {
             assert_eq!(policy.bond_cap, bond_cap);
             assert_eq!(policy, ExecutionPolicy { bond_cap, ..b3 });
         }
+    }
+
+    #[test]
+    fn probability_policy_drops_only_the_absolute_cutoff() {
+        let base = ExecutionPolicy::base_qualification().with_bond_cap(64);
+        let policy = base.without_absolute_cutoff();
+
+        assert_eq!(policy.validate().expect("policy should be valid"), policy);
+        assert_eq!(policy.absolute_cutoff.to_bits(), 0.0_f64.to_bits());
+        assert_eq!(
+            policy,
+            ExecutionPolicy {
+                absolute_cutoff: 0.0,
+                ..base
+            }
+        );
     }
 
     #[test]

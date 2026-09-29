@@ -476,6 +476,49 @@ This boundary follows the evidence:
   its handle, state, scratch memory, cache, and PRNG, and deletes copy and move
   construction.
 
+#### MPS fixed-outcome Probability
+
+```text
+FixedOutcomeCircuit ──ProjectedCircuit::from_fixed_outcome──▶ gates + |r⟩⟨b|
+                                                               │ MpsExecution::evaluate_probability
+|ψ̃⟩ = Πₖ Oₖ |0…0⟩,  Oₖ ∈ {U, |r⟩⟨b|}                        ▼
+P̃ = ⟨ψ̃|ψ̃⟩ = ⟨ψ̃|I₀|ψ̃⟩      (r = b, or r = 0 after a reset)
+```
+
+`ProjectedCircuit` converts one fixed-outcome path in order: supported
+unitaries become `Gate`s (`I` is dropped, the first unsupported gate is
+named), and each measurement becomes the rank-one operator |r⟩⟨b| from the
+shared `basis_operator` table, applied as a non-unitary tensor operator.
+Nothing renormalizes, so the state's norm is the Probability. It is read
+once from the expectation of the identity on site 0, which must agree with
+the norm cuTensorNet reports beside it (relative tolerance 1e-12; finite, real,
+non-negative). P̃ = 0 is a valid result. The Cost is the computed MPS's
+largest bond, realized state bytes and the larger of the state and norm
+workspaces.
+
+Two MPS settings exist because the norm is the result:
+
+- **No singular-value normalization, pinned.** `NONE` is the library
+  default, but it is configured explicitly on every MPS state so the
+  retained weight survives truncation whatever a later release defaults to.
+  `cutensornetTensorSVDNormalization_t` is absent from the reduced bindings,
+  so `NONE = 0` (its first enumerator in `cutensornet/types.h`) is spelled
+  out by hand; regenerating the bindings with that enum allowlisted is a
+  follow-up.
+- **Relative-only truncation.** The largest singular value tracks √P̃, and
+  P̃ can be 2⁻ᵐ after m measurements. Any fixed absolute cutoff would discard
+  every singular value once m ≳ 66 (for 1e-10) and report P̃ = 0, so the
+  Probability evaluation drops the policy's absolute cutoff and keeps the
+  relative one.
+
+Every operator, including the branch projector, reaches the state through
+`register_operator`, which rejects modes outside the state before allocating.
+`MpsExecution::new` takes its width from the program it will run, and each
+run method, the branch continuation included, rejects a program of another
+width before native work. The ignored `s8_a100_fixed_outcome_probability_qualification`
+test pins analytic cases on the GPU, from Bell outcomes (P = ½, and a
+contradictory P = 0) to 2⁻⁸⁰ over 80 qubits.
+
 ### Private general-network metadata
 
 The reusable metadata layer accepts the existing `tensornet::ContractionQuery`.

@@ -34,6 +34,13 @@ use std::{
     ptr::NonNull,
 };
 
+/// `CUTENSORNET_TENSOR_SVD_NORMALIZATION_NONE`, the first enumerator of
+/// `cutensornetTensorSVDNormalization_t` in `cutensornet/types.h`. The reduced
+/// bindings do not include that enum, so its value is spelled out here rather
+/// than in the generated file; regenerating the bindings with the enum
+/// allowlisted would replace this constant.
+const SVD_NORMALIZATION_NONE: u32 = 0;
+
 impl CuTensorNetApi {
     fn cuda_message(&self, status: cudart_12::CudaError) -> String {
         // SAFETY: the pointer was resolved with the audited CUDA signature and
@@ -1267,6 +1274,10 @@ impl MpsExecutionApi for CuTensorNetApi {
         configuration: StateU32Configuration,
     ) -> Result<(), SimulationError> {
         let (attribute, value) = match configuration {
+            StateU32Configuration::SvdNormalizationNone => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_S_NORMALIZATION,
+                SVD_NORMALIZATION_NONE,
+            ),
             StateU32Configuration::SvdAlgorithmGesvd => (
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
                 v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD,

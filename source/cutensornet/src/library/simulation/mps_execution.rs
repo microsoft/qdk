@@ -9,7 +9,8 @@ use super::memory_workspace::MemoryWorkspaceApi;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use super::query::BaseQueryResult;
 use super::{
-    Circuit, Gate, OpaqueHandle, SimulationError, SimulationResult, Stream, branch,
+    Circuit, Gate, OpaqueHandle, ProjectedCircuit, ProjectedOperation, SimulationError,
+    SimulationResult, Stream, branch,
     circuit::{
         ExecutionReport, StatePhaseTimings, StateReadout, WorkspaceReport, contract_open_mps,
     },
@@ -28,7 +29,7 @@ use crate::library::MpsSession;
 use num_complex::Complex64;
 use qdk_simulators::{
     QubitID,
-    execution::{Pauli, PauliSum, unitary_matrix},
+    execution::{OperatorMatrix, Pauli, PauliSum, basis_operator, unitary_matrix},
 };
 use std::{mem::size_of, time::Instant};
 use tensornet::{Mps, MpsError};
@@ -171,6 +172,9 @@ pub(crate) enum StateF64Attribute {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StateU32Configuration {
+    /// Kept singular values are not rescaled after truncation, so the norm
+    /// is the weight actually retained; that norm is the Probability.
+    SvdNormalizationNone,
     SvdAlgorithmGesvd,
     MpsGaugeSimple,
 }
@@ -330,6 +334,23 @@ impl MpsSession {
         combine_execution_and_cleanup(execution, cleanup)
     }
 
+    /// See [`MpsExecution::evaluate_probability`].
+    pub(crate) fn evaluate_probability(
+        &mut self,
+        program: &ProjectedCircuit,
+    ) -> Result<ProbabilityResult, SimulationError> {
+        let mut mps_execution = MpsExecution::new(
+            self.api(),
+            self.handle(),
+            self.stream(),
+            program,
+            self.policy(),
+        )?;
+        let execution = mps_execution.evaluate_probability(program);
+        let cleanup = mps_execution.close();
+        combine_execution_and_cleanup(execution, cleanup)
+    }
+
     pub(crate) fn sample(
         &mut self,
         circuit: &Circuit,
@@ -451,6 +472,35 @@ impl MpsSession {
     }
 }
 
+/// Unnormalized probability of one fixed-outcome path, and the MPS Cost of
+/// computing it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ProbabilityResult {
+    /// ⟨ψ̃|ψ̃⟩ of the truncated MPS, never renormalized.
+    pub(crate) probability: f64,
+    pub(crate) cost: MpsCost,
+}
+
+/// A program an [`MpsExecution`] evolves, and the only source of its width.
+///
+/// The execution is created from the program it will run, so the state has
+/// exactly the program's qubits; no width is ever passed on its own.
+trait MpsProgram {
+    fn qubit_count(&self) -> u32;
+}
+
+impl MpsProgram for Circuit {
+    fn qubit_count(&self) -> u32 {
+        Circuit::qubit_count(self)
+    }
+}
+
+impl MpsProgram for ProjectedCircuit {
+    fn qubit_count(&self) -> u32 {
+        ProjectedCircuit::qubit_count(self)
+    }
+}
+
 /// One GPU-resident MPS state and the resources for its evolution and readout.
 ///
 /// Borrows the API; the caller must keep the parent context and stream alive
@@ -473,6 +523,14 @@ struct MpsExecution<'api, Api: MpsExecutionApi + ?Sized> {
     target: MpsTarget,
     policy: ExecutionPolicy,
     closed: bool,
+}
+
+/// One single-site expectation and what computing it took.
+struct ProjectorExpectation {
+    value: Complex64,
+    squared_norm: Complex64,
+    synchronization_seconds: f64,
+    workspace_bytes: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -512,15 +570,17 @@ fn invalid_operator(reason: &'static str) -> SimulationError {
 }
 
 impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
+    /// Creates the |0…0⟩ state of `program`'s qubits. Pass the same program
+    /// to the run method; operators outside the state are rejected there.
     fn new(
         api: &'api Api,
         handle: OpaqueHandle,
         stream: Stream,
-        circuit: &Circuit,
+        program: &impl MpsProgram,
         policy: ExecutionPolicy,
     ) -> Result<Self, SimulationError> {
         let policy = policy.validate()?;
-        let qubit_count = usize::try_from(circuit.qubit_count()).map_err(|_| {
+        let qubit_count = usize::try_from(program.qubit_count()).map_err(|_| {
             SimulationError::ResourceSizeOverflow {
                 resource: "state mode count",
             }
@@ -566,6 +626,9 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
     ) -> Result<branch::BranchSimulationResult, SimulationError> {
         use branch::{BranchPhaseTimings, BranchReport, BranchSimulationResult, SelectedBranch};
 
+        // The continuation is registered only after the projection, so a
+        // mismatch is rejected here, before any native work.
+        self.check_width(continuation_circuit)?;
         let mut timings = BranchPhaseTimings::default();
         let phase_started = Instant::now();
         let initial_state = self.execute(initial_circuit, StateReadout::FullAmplitudes)?;
@@ -622,9 +685,7 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
 
         let phase_started = Instant::now();
         let mut continuation_timings = StatePhaseTimings::default();
-        for gate in continuation_circuit.gates() {
-            self.register_gate(*gate, &mut continuation_timings)?;
-        }
+        self.register_circuit(continuation_circuit, &mut continuation_timings)?;
         timings.continuation_registration_seconds = phase_started.elapsed().as_secs_f64();
         let continuation_state =
             self.materialize_current_state(StateReadout::FullAmplitudes, continuation_timings)?;
@@ -762,15 +823,49 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
         circuit: &Circuit,
         timings: &mut StatePhaseTimings,
     ) -> Result<(), SimulationError> {
-        for gate in circuit.gates() {
-            self.register_gate(*gate, timings)?;
-        }
+        self.register_circuit(circuit, timings)?;
+        self.finalize(timings)
+    }
+
+    /// Finalizes the registered operators as a bond-capped MPS and applies
+    /// the truncation configuration.
+    fn finalize(&mut self, timings: &mut StatePhaseTimings) -> Result<(), SimulationError> {
         let state = self.state();
         let phase_started = Instant::now();
         self.api.finalize_mps(self.handle, state, &self.target)?;
         self.configure(state)?;
         timings.finalization_configuration_seconds = phase_started.elapsed().as_secs_f64();
         Ok(())
+    }
+
+    /// Registers `circuit`'s gates in order, after checking that it has the
+    /// state's width.
+    fn register_circuit(
+        &mut self,
+        circuit: &Circuit,
+        timings: &mut StatePhaseTimings,
+    ) -> Result<(), SimulationError> {
+        self.check_width(circuit)?;
+        for gate in circuit.gates() {
+            self.register_gate(*gate, timings)?;
+        }
+        Ok(())
+    }
+
+    /// Rejects a program whose width differs from the state's, before any
+    /// of its operators reaches the state.
+    fn check_width(&self, program: &impl MpsProgram) -> Result<(), SimulationError> {
+        if usize::try_from(program.qubit_count()).ok() == Some(self.state_extents.len()) {
+            Ok(())
+        } else {
+            Err(SimulationError::InvalidCircuit {
+                reason: format!(
+                    "a {}-qubit program does not match the {}-qubit native state",
+                    program.qubit_count(),
+                    self.state_extents.len()
+                ),
+            })
+        }
     }
 
     #[allow(
@@ -905,7 +1000,7 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
         let phase_started = Instant::now();
         let operator = fixture_operator(gate)?;
         timings.matrix_construction_seconds += phase_started.elapsed().as_secs_f64();
-        self.register_operator(operator, timings)
+        self.register_operator(operator, true, timings)
     }
 
     /// Evaluates each observable on the circuit's state, in order.
@@ -926,28 +1021,9 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
         let mut cost = if mps {
             self.finalize_initial(circuit, &mut timings)?;
             let state = self.materialize_current_state(StateReadout::MetadataOnly, timings)?;
-            let report = &state.report;
-            let state_elements = report
-                .realized_extents
-                .iter()
-                .map(|extents| extents.iter().product::<usize>())
-                .try_fold(0_usize, usize::checked_add)
-                .ok_or(SimulationError::ResourceSizeOverflow {
-                    resource: "MPS state bytes",
-                })?;
-            Some(MpsCost {
-                max_bond_dimension: report.maximum_bond,
-                state_bytes: state_elements
-                    .checked_mul(size_of::<Complex64Abi>())
-                    .ok_or(SimulationError::ResourceSizeOverflow {
-                        resource: "MPS state bytes",
-                    })?,
-                workspace_bytes: report.workspace.native_recommended_bytes,
-            })
+            Some(mps_cost(&state.report)?)
         } else {
-            for gate in circuit.gates() {
-                self.register_gate(*gate, &mut timings)?;
-            }
+            self.register_circuit(circuit, &mut timings)?;
             None
         };
         let mut expectations = Vec::with_capacity(observables.len());
@@ -968,6 +1044,53 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
             expectations.push(value);
         }
         Ok(StateQueryResult { expectations, cost })
+    }
+
+    /// Evaluates the unnormalized probability P̃ = ⟨ψ̃|ψ̃⟩ of `program`'s
+    /// fixed outcomes.
+    ///
+    /// Gates and basis operators are registered in order, then the state is
+    /// finalized as a bond-capped MPS and computed once, which yields the
+    /// Cost. Basis operators are not unitary, so |ψ̃⟩ carries the probability
+    /// as its norm, and nothing rescales it. The norm is read from the
+    /// expectation of the identity on site 0, whose value ⟨ψ̃|I|ψ̃⟩ must agree
+    /// with the norm reported beside it. Truncation is relative only: the
+    /// absolute cutoff of the policy is dropped for this evaluation.
+    fn evaluate_probability(
+        &mut self,
+        program: &ProjectedCircuit,
+    ) -> Result<ProbabilityResult, SimulationError> {
+        self.check_width(program)?;
+        // An absolute cutoff would discard every singular value once the
+        // retained weight falls below it; see
+        // [`ExecutionPolicy::without_absolute_cutoff`].
+        self.policy = self.policy.without_absolute_cutoff();
+        let mut timings = StatePhaseTimings::default();
+        for &operation in program.operations() {
+            match operation {
+                ProjectedOperation::Gate(gate) => self.register_gate(gate, &mut timings)?,
+                ProjectedOperation::BasisOperator {
+                    target,
+                    result,
+                    basis,
+                } => {
+                    let phase_started = Instant::now();
+                    let operator =
+                        table_operator(vec![mode_id(target)?], &basis_operator(result, basis))?;
+                    timings.matrix_construction_seconds += phase_started.elapsed().as_secs_f64();
+                    self.register_operator(operator, false, &mut timings)?;
+                }
+            }
+        }
+        self.finalize(&mut timings)?;
+        let state = self.materialize_current_state(StateReadout::MetadataOnly, timings)?;
+        let mut cost = mps_cost(&state.report)?;
+        let norm = self.execute_projector_expectation(0, [1.0, 1.0])?;
+        cost.workspace_bytes = cost.workspace_bytes.max(norm.workspace_bytes);
+        Ok(ProbabilityResult {
+            probability: unnormalized_probability(norm.value, norm.squared_norm)?,
+            cost,
+        })
     }
 
     /// Closes the Query lifecycle, then frees the allocations made since
@@ -1149,11 +1272,14 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
         Ok(result)
     }
 
+    /// Evaluates the one-site diagonal operator `diagonal` on `mode` in its
+    /// own Query lifecycle, closed before returning.
     fn execute_projector_expectation(
         &mut self,
         mode: i32,
         diagonal: [f64; 2],
-    ) -> Result<(Complex64, Complex64, f64), SimulationError> {
+    ) -> Result<ProjectorExpectation, SimulationError> {
+        self.check_modes(&[mode])?;
         if self.network_operator.is_some()
             || self.expectation.is_some()
             || self.query_workspace.is_some()
@@ -1228,26 +1354,32 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
                 self.api
                     .set_workspace(self.handle, workspace, scratch, workspace_bytes)?;
             }
-            let values =
+            let (value, squared_norm) =
                 self.api
                     .compute_expectation(self.handle, expectation, workspace, self.stream)?;
             let synchronization_started = Instant::now();
             self.api.synchronize_stream(self.stream)?;
-            Ok((
-                values.0,
-                values.1,
-                synchronization_started.elapsed().as_secs_f64(),
-            ))
+            Ok(ProjectorExpectation {
+                value,
+                squared_norm,
+                synchronization_seconds: synchronization_started.elapsed().as_secs_f64(),
+                workspace_bytes: workspace_size,
+            })
         })();
         let cleanup = self.close_query_lifecycle();
         combine_execution_and_cleanup(execution, cleanup)
     }
 
+    /// Uploads `operator` and applies it to the state. Every operator reaches
+    /// the state here, so this is where its modes are checked against the
+    /// state, before any allocation.
     fn register_operator(
         &mut self,
         operator: OwnedOperator,
+        unitary: bool,
         timings: &mut StatePhaseTimings,
     ) -> Result<(), SimulationError> {
+        self.check_modes(&operator.modes)?;
         let phase_started = Instant::now();
         let tensor = self.allocate_complex(operator.matrix.len(), "operator tensor")?;
         self.api.copy_to_device(tensor, &operator.matrix)?;
@@ -1258,11 +1390,26 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
             .last()
             .expect("registered operator modes were just retained");
         let phase_started = Instant::now();
-        let result = self
-            .api
-            .apply_tensor_operator(self.handle, self.state(), modes, tensor, true);
+        let result =
+            self.api
+                .apply_tensor_operator(self.handle, self.state(), modes, tensor, unitary);
         timings.operator_registration_seconds += phase_started.elapsed().as_secs_f64();
         result
+    }
+
+    /// Rejects modes outside the state; the library would otherwise index
+    /// past its mode extents.
+    fn check_modes(&self, modes: &[i32]) -> Result<(), SimulationError> {
+        let width = self.state_extents.len();
+        match modes
+            .iter()
+            .find(|&&mode| usize::try_from(mode).map_or(true, |mode| mode >= width))
+        {
+            Some(mode) => Err(SimulationError::InvalidCircuit {
+                reason: format!("operator mode {mode} is outside the {width}-qubit native state"),
+            }),
+            None => Ok(()),
+        }
     }
 
     fn configure(&self, state: OpaqueHandle) -> Result<(), SimulationError> {
@@ -1277,6 +1424,13 @@ impl<'api, Api: MpsExecutionApi + ?Sized> MpsExecution<'api, Api> {
             state,
             StateF64Attribute::SvdRelativeCutoff,
             self.policy.relative_cutoff,
+        )?;
+        // No normalization is the library default, pinned so the norm stays
+        // the retained weight whichever default a future release picks.
+        self.api.configure_state_u32(
+            self.handle,
+            state,
+            StateU32Configuration::SvdNormalizationNone,
         )?;
         self.api.configure_state_u32(
             self.handle,
@@ -1386,12 +1540,18 @@ fn compute_branch_masses<Api: MpsExecutionApi + ?Sized>(
     mode: u32,
 ) -> Result<(branch::BranchMasses, f64), SimulationError> {
     let mode_id = mode_id(mode)?;
-    let (raw_p0, norm_p0, sync_p0) =
-        mps_execution.execute_projector_expectation(mode_id, [1.0, 0.0])?;
-    let (raw_p1, norm_p1, sync_p1) =
-        mps_execution.execute_projector_expectation(mode_id, [0.0, 1.0])?;
-    let masses = branch::BranchMasses::from_expectations(raw_p0, norm_p0, raw_p1, norm_p1)?;
-    Ok((masses, sync_p0 + sync_p1))
+    let p0 = mps_execution.execute_projector_expectation(mode_id, [1.0, 0.0])?;
+    let p1 = mps_execution.execute_projector_expectation(mode_id, [0.0, 1.0])?;
+    let masses = branch::BranchMasses::from_expectations(
+        p0.value,
+        p0.squared_norm,
+        p1.value,
+        p1.squared_norm,
+    )?;
+    Ok((
+        masses,
+        p0.synchronization_seconds + p1.synchronization_seconds,
+    ))
 }
 
 fn apply_projection<Api: MpsExecutionApi + ?Sized>(
@@ -1421,14 +1581,10 @@ fn apply_projection<Api: MpsExecutionApi + ?Sized>(
             Complex64Abi::new(scale, 0.0),
         ],
     };
-    let tensor = mps_execution.allocate_complex(projector.len(), "projection operator")?;
-    mps_execution.api.copy_to_device(tensor, &projector)?;
-    mps_execution.api.apply_tensor_operator(
-        mps_execution.handle,
-        mps_execution.state(),
-        &[mode_id],
-        tensor,
+    mps_execution.register_operator(
+        OwnedOperator::new(vec![mode_id], projector)?,
         false,
+        &mut StatePhaseTimings::default(),
     )
 }
 
@@ -1456,6 +1612,14 @@ fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
     };
     let matrix = unitary_matrix(gate.into())
         .expect("the shared operator table defines every cuTensorNet gate");
+    table_operator(modes, &matrix)
+}
+
+/// A shared-table matrix on `modes`, copied verbatim (see [`fixture_operator`]).
+fn table_operator(
+    modes: Vec<i32>,
+    matrix: &OperatorMatrix,
+) -> Result<OwnedOperator, SimulationError> {
     OwnedOperator::new(
         modes,
         matrix
@@ -1465,6 +1629,65 @@ fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
             .map(Complex64Abi::from)
             .collect(),
     )
+}
+
+/// The MPS Cost of a computed state: its largest bond, the bytes of its
+/// realized tensors and the state workspace.
+fn mps_cost(report: &ExecutionReport) -> Result<MpsCost, SimulationError> {
+    let overflow = || SimulationError::ResourceSizeOverflow {
+        resource: "MPS state bytes",
+    };
+    let state_elements = report
+        .realized_extents
+        .iter()
+        .map(|extents| extents.iter().product::<usize>())
+        .try_fold(0_usize, usize::checked_add)
+        .ok_or_else(overflow)?;
+    Ok(MpsCost {
+        max_bond_dimension: report.maximum_bond,
+        state_bytes: state_elements
+            .checked_mul(size_of::<Complex64Abi>())
+            .ok_or_else(overflow)?,
+        workspace_bytes: report.workspace.native_recommended_bytes,
+    })
+}
+
+/// Relative tolerance on the Probability norm's imaginary part and on its
+/// agreement with ⟨ψ̃|I|ψ̃⟩. Relative, because P can be as small as 2⁻ᵐ.
+const PROBABILITY_RELATIVE_TOLERANCE: f64 = 1.0e-12;
+
+/// The Probability ⟨ψ̃|ψ̃⟩ from the identity expectation `value` and the norm
+/// reported beside it. Zero is a valid Probability; a non-finite, complex or
+/// negative norm, or one the identity expectation disagrees with, is not.
+fn unnormalized_probability(
+    value: Complex64,
+    squared_norm: Complex64,
+) -> Result<f64, SimulationError> {
+    let invalid = |reason: String| Err(SimulationError::InvalidNativeResult { reason });
+    if ![value.re, value.im, squared_norm.re, squared_norm.im]
+        .iter()
+        .all(|part| part.is_finite())
+    {
+        return invalid(format!(
+            "Probability norm {squared_norm} or identity expectation {value} is not finite"
+        ));
+    }
+    let probability = squared_norm.re;
+    let tolerance = PROBABILITY_RELATIVE_TOLERANCE * probability.abs();
+    if squared_norm.im.abs() > tolerance {
+        return invalid(format!(
+            "Probability norm {squared_norm} has a material imaginary part"
+        ));
+    }
+    if probability < 0.0 {
+        return invalid(format!("Probability norm {probability:e} is negative"));
+    }
+    if (value - squared_norm).norm() > tolerance {
+        return invalid(format!(
+            "identity expectation {value} does not match the Probability norm {squared_norm}"
+        ));
+    }
+    Ok(probability)
 }
 
 impl<Api: MpsExecutionApi + ?Sized> Drop for MpsExecution<'_, Api> {

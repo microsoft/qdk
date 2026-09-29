@@ -285,7 +285,9 @@ select the other branch. Backends consume it without re-deriving values:
   and Cz, which the table confirms with `is_diagonal`;
 - cuTensorNet copies the row-major data verbatim, because
   `cutensornetStateApplyTensorOperator` reads the textbook matrix correctly
-  with default (null) strides, operands in gate order.
+  with default (null) strides, operands in gate order. Its MPS fixed-outcome
+  Probability applies `basis_operator(r, b)` for each measurement the same
+  way, as a non-unitary operator (see the cuTensorNet README).
 
 Each backend still decides which gates it accepts. Public tests pin every
 exact-network buffer and cuTensorNet operator bit for bit.

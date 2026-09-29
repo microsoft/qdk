@@ -20,8 +20,8 @@
 use super::{MpsTarget, convert_layout};
 use crate::library::MpsSession;
 use crate::simulation::{
-    Circuit, Gate, SimulationResult, branch, circuit::StateReadout, policy::ExecutionPolicy,
-    query::AdjacentZQuery,
+    Circuit, Gate, ProjectedCircuit, SimulationResult, branch, circuit::StateReadout,
+    policy::ExecutionPolicy, query::AdjacentZQuery,
 };
 use num_complex::Complex64;
 use std::{f64::consts::FRAC_1_SQRT_2, sync::Arc, time::Instant};
@@ -568,8 +568,18 @@ fn apply_sparse_circuit(simulator: &mut qdk_simulators::SparseStateSim, circuit:
             Gate::H { target } => simulator.h(target as usize),
             Gate::Rx { theta, target } => simulator.rx(theta, target as usize),
             Gate::Rz { theta, target } => simulator.rz(theta, target as usize),
+            Gate::S { target } => simulator.s(target as usize),
+            Gate::Sx { target } => {
+                // SX = H . S . H exactly: (1/2)[[1+i, 1-i], [1-i, 1+i]].
+                simulator.h(target as usize);
+                simulator.s(target as usize);
+                simulator.h(target as usize);
+            }
             Gate::Cnot { control, target } => {
                 simulator.mcx(&[control as usize], target as usize);
+            }
+            Gate::Cz { control, target } => {
+                simulator.mcz(&[control as usize], target as usize);
             }
             Gate::Rzz { theta, q1, q2 } => {
                 // Rzz(theta) = CNOT(q1, q2) . (I (x) Rz(theta)) . CNOT(q1, q2)
@@ -999,4 +1009,138 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
         println!("b5_query_workspace={:?}", result.query.workspace);
         println!("b5_session_cleanup=ok");
     }
+}
+
+/// One fixed-outcome case: its name, qubit count, operations and analytic P.
+type ProbabilityCase = (
+    &'static str,
+    usize,
+    Vec<qdk_simulators::execution::FixedOutcomeOperation>,
+    f64,
+);
+
+fn s8_probability_cases() -> Vec<ProbabilityCase> {
+    use qdk_simulators::{
+        MeasurementResult::{One, Zero},
+        execution::{FixedOutcomeOperation, UnitaryOperation},
+    };
+    let h = |target| FixedOutcomeOperation::Unitary(UnitaryOperation::H { target });
+    let cx =
+        |control, target| FixedOutcomeOperation::Unitary(UnitaryOperation::Cx { control, target });
+    let measure = |qubit, result_id, outcome, reset| FixedOutcomeOperation::Measure {
+        qubit,
+        result_id,
+        outcome,
+        reset,
+    };
+
+    let mut ghz = vec![h(0)];
+    ghz.extend((1..40).map(|target| cx(target - 1, target)));
+    ghz.extend((0..40).map(|qubit| measure(qubit, qubit, Zero, false)));
+    // Each qubit is |+⟩ measured once, then reset, so P = 2⁻⁸⁰ exactly.
+    let product = (0..80)
+        .flat_map(|qubit| {
+            let outcome = if qubit % 2 == 0 { Zero } else { One };
+            [h(qubit), measure(qubit, qubit, outcome, true)]
+        })
+        .collect();
+
+    vec![
+        (
+            "bell_q0_zero",
+            2,
+            vec![h(0), cx(0, 1), measure(0, 0, Zero, false)],
+            0.5,
+        ),
+        (
+            "bell_consistent_pair",
+            2,
+            vec![
+                h(0),
+                cx(0, 1),
+                measure(0, 0, One, false),
+                measure(1, 1, One, false),
+            ],
+            0.5,
+        ),
+        (
+            "bell_contradictory_pair",
+            2,
+            vec![
+                h(0),
+                cx(0, 1),
+                measure(0, 0, Zero, false),
+                measure(1, 1, One, false),
+            ],
+            0.0,
+        ),
+        (
+            "mid_circuit_reset_then_reuse",
+            2,
+            vec![
+                h(0),
+                measure(0, 0, One, true),
+                h(0),
+                measure(0, 1, One, false),
+            ],
+            0.25,
+        ),
+        ("ghz40_all_zero", 40, ghz, 0.5),
+        (
+            "product80_alternating_outcomes",
+            80,
+            product,
+            2.0_f64.powi(-80),
+        ),
+    ]
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+#[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
+fn s8_a100_fixed_outcome_probability_qualification() {
+    /// Analytic cases: P is exact up to double round-off, relative even at 2⁻⁸⁰.
+    const RELATIVE_LIMIT: f64 = 1.0e-12;
+
+    let availability = crate::discover().expect("native libraries should be available");
+    // The base policy's absolute cutoff (1e-10) is dropped by the Probability
+    // evaluation; without that, 2⁻⁸⁰ would truncate to zero.
+    let policy = ExecutionPolicy::base_qualification();
+    let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
+        .expect("native session should be created");
+
+    for (name, qubit_count, operations, expected) in s8_probability_cases() {
+        let circuit = qdk_simulators::execution::FixedOutcomeCircuit::new(qubit_count, operations)
+            .expect("qualification path should be valid");
+        let program =
+            ProjectedCircuit::from_fixed_outcome(&circuit).expect("qualification path converts");
+        let started = Instant::now();
+        let result = session
+            .evaluate_probability(&program)
+            .unwrap_or_else(|error| panic!("{name} failed: {error}"));
+        let elapsed = started.elapsed();
+        let error = (result.probability - expected).abs();
+
+        println!("case={name}");
+        println!("qubit_count={qubit_count}");
+        println!("probability={:e}", result.probability);
+        println!("expected={expected:e}");
+        println!("absolute_error={error:.17e}");
+        println!("cost={:?}", result.cost);
+        println!("elapsed_seconds={:.9}", elapsed.as_secs_f64());
+        if expected == 0.0 {
+            assert!(error <= 1.0e-24, "{name}: P = {:e}", result.probability);
+        } else {
+            let relative_error = error / expected;
+            println!("relative_error={relative_error:.17e}");
+            assert!(
+                relative_error <= RELATIVE_LIMIT,
+                "{name}: {relative_error:e}"
+            );
+        }
+    }
+
+    let cleanup = session.close();
+    println!("cleanup={cleanup:?}");
+    cleanup.expect("native session cleanup should succeed");
 }

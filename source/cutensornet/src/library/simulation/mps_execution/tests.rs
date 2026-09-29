@@ -1,12 +1,13 @@
 //! Host coverage of MPS state ownership and failure propagation.
 
 use super::{
-    MpsExecution, MpsExecutionApi, MpsTarget, OutputMetadata, OwnedOperator,
+    MpsExecution, MpsExecutionApi, MpsProgram, MpsTarget, OutputMetadata, OwnedOperator,
+    ProbabilityResult, StateF64Attribute, StatePhaseTimings, StateU32Configuration,
     combine_execution_and_cleanup, convert_layout, fixture_operator, saturating_power_of_two,
-    target_bond_extent, validate_realized_chain,
+    target_bond_extent, unnormalized_probability, validate_realized_chain,
 };
 use crate::simulation::{
-    Circuit, Gate, OpaqueHandle, SimulationError, Stream,
+    Circuit, Gate, OpaqueHandle, ProjectedCircuit, SimulationError, Stream,
     branch::{BranchRequest, BranchSimulationResult, SelectedBranch},
     circuit::StateReadout,
     ffi::Complex64Abi,
@@ -21,7 +22,13 @@ use crate::simulation::memory_workspace::{
     MemorySpace, MemoryWorkspaceApi, WorkspaceKind, WorkspacePreference,
 };
 use num_complex::Complex64;
-use qdk_simulators::execution::{Pauli, PauliSum, unitary_matrix};
+use qdk_simulators::{
+    MeasurementResult,
+    execution::{
+        FixedOutcomeCircuit, FixedOutcomeOperation, OperatorMatrix, Pauli, PauliSum,
+        UnitaryOperation, basis_operator, unitary_matrix,
+    },
+};
 use std::mem::size_of;
 use tensornet::Mps;
 
@@ -112,8 +119,17 @@ impl Event {
     }
 }
 
+/// An operator as the test double saw it applied: its modes, whether it
+/// was declared unitary, and the device data its tensor held.
+#[derive(Clone, Debug, PartialEq)]
+struct AppliedOperator {
+    modes: Vec<i32>,
+    unitary: bool,
+    matrix: Vec<Complex64Abi>,
+}
+
 #[derive(Default)]
-struct FakeState {
+struct TestDoubleCallLog {
     events: Vec<Event>,
     next_handle: usize,
     allocate_count: usize,
@@ -128,6 +144,11 @@ struct FakeState {
     allocation_handles: Vec<usize>,
     allocation_sizes: Vec<usize>,
     uploaded_tensors: Vec<Vec<Complex64Abi>>,
+    /// Device allocation address and the data last copied into it.
+    device_tensors: Vec<(usize, Vec<Complex64Abi>)>,
+    applied_operators: Vec<AppliedOperator>,
+    configured_f64: Vec<(StateF64Attribute, f64)>,
+    configured_u32: Vec<StateU32Configuration>,
     freed_handles: Vec<usize>,
     prepare_maximum_workspace_bytes: Vec<usize>,
     append_count: usize,
@@ -143,23 +164,25 @@ struct FakeState {
 }
 
 struct TestDoubleMpsExecutionApi {
-    state: RefCell<FakeState>,
+    state: RefCell<TestDoubleCallLog>,
     failures: Vec<Event>,
     memory_info: (usize, usize),
     workspace_size: i64,
+    workspace_sizes: RefCell<VecDeque<i64>>,
     expectation_outputs: RefCell<VecDeque<(Complex64, Complex64)>>,
 }
 
 impl TestDoubleMpsExecutionApi {
     fn new(failures: impl IntoIterator<Item = Event>) -> Self {
         Self {
-            state: RefCell::new(FakeState {
+            state: RefCell::new(TestDoubleCallLog {
                 next_handle: 0x100,
-                ..FakeState::default()
+                ..TestDoubleCallLog::default()
             }),
             failures: failures.into_iter().collect(),
             memory_info: (64 * 1024 * 1024, 80 * 1024 * 1024),
             workspace_size: 256,
+            workspace_sizes: RefCell::new(VecDeque::new()),
             expectation_outputs: RefCell::new(VecDeque::new()),
         }
     }
@@ -167,6 +190,13 @@ impl TestDoubleMpsExecutionApi {
     fn with_workspace(mut self, free_bytes: usize, workspace_size: i64) -> Self {
         self.memory_info = (free_bytes, 80 * 1024 * 1024 * 1024);
         self.workspace_size = workspace_size;
+        self
+    }
+
+    /// Workspace recommendations returned in call order, before falling back
+    /// to the fixed `workspace_size`.
+    fn with_workspace_sizes(self, sizes: impl IntoIterator<Item = i64>) -> Self {
+        self.workspace_sizes.replace(sizes.into_iter().collect());
         self
     }
 
@@ -194,6 +224,37 @@ impl TestDoubleMpsExecutionApi {
 
     fn uploaded_tensors(&self) -> Vec<Vec<Complex64Abi>> {
         self.state.borrow().uploaded_tensors.clone()
+    }
+
+    fn applied_operators(&self) -> Vec<AppliedOperator> {
+        self.state.borrow().applied_operators.clone()
+    }
+
+    fn configured_f64(&self) -> Vec<(StateF64Attribute, f64)> {
+        self.state.borrow().configured_f64.clone()
+    }
+
+    fn configured_u32(&self) -> Vec<StateU32Configuration> {
+        self.state.borrow().configured_u32.clone()
+    }
+
+    fn device_tensor(&self, tensor: usize) -> Vec<Complex64Abi> {
+        self.state
+            .borrow()
+            .device_tensors
+            .iter()
+            .rev()
+            .find(|(address, _)| *address == tensor)
+            .map(|(_, data)| data.clone())
+            .expect("the tensor was copied to the device before use")
+    }
+
+    fn appended_tensors(&self) -> Vec<Vec<usize>> {
+        self.state.borrow().appended_tensors.clone()
+    }
+
+    fn appended_modes(&self) -> Vec<Vec<Vec<i32>>> {
+        self.state.borrow().appended_modes.clone()
     }
 
     fn prepare_maximum_workspace_bytes(&self) -> Vec<usize> {
@@ -330,13 +391,15 @@ impl MemoryWorkspaceApi for TestDoubleMpsExecutionApi {
 
     fn copy_to_device(
         &self,
-        _destination: OpaqueHandle,
+        destination: OpaqueHandle,
         source: &[Complex64Abi],
     ) -> Result<(), SimulationError> {
-        self.state
-            .borrow_mut()
-            .uploaded_tensors
-            .push(source.to_vec());
+        let mut state = self.state.borrow_mut();
+        state.uploaded_tensors.push(source.to_vec());
+        state
+            .device_tensors
+            .push((destination.as_ptr() as usize, source.to_vec()));
+        drop(state);
         self.record(self.next_copy_to_device())
     }
 
@@ -414,7 +477,11 @@ impl MemoryWorkspaceApi for TestDoubleMpsExecutionApi {
             event
         };
         self.record(event)?;
-        Ok(self.workspace_size)
+        Ok(self
+            .workspace_sizes
+            .borrow_mut()
+            .pop_front()
+            .unwrap_or(self.workspace_size))
     }
 
     fn set_workspace_memory(
@@ -461,10 +528,19 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
         &self,
         _handle: OpaqueHandle,
         _state: OpaqueHandle,
-        _modes: &[i32],
-        _tensor: OpaqueHandle,
+        modes: &[i32],
+        tensor: OpaqueHandle,
         unitary: bool,
     ) -> Result<(), SimulationError> {
+        let matrix = self.device_tensor(tensor.as_ptr() as usize);
+        self.state
+            .borrow_mut()
+            .applied_operators
+            .push(AppliedOperator {
+                modes: modes.to_vec(),
+                unitary,
+                matrix,
+            });
         self.record(self.next_apply(unitary))
     }
 
@@ -489,9 +565,13 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
         &self,
         _handle: OpaqueHandle,
         _state: OpaqueHandle,
-        _attribute: super::StateF64Attribute,
-        _value: f64,
+        attribute: StateF64Attribute,
+        value: f64,
     ) -> Result<(), SimulationError> {
+        self.state
+            .borrow_mut()
+            .configured_f64
+            .push((attribute, value));
         self.record(self.next_configure_f64())
     }
 
@@ -499,8 +579,9 @@ impl MpsExecutionApi for TestDoubleMpsExecutionApi {
         &self,
         _handle: OpaqueHandle,
         _state: OpaqueHandle,
-        _configuration: super::StateU32Configuration,
+        configuration: StateU32Configuration,
     ) -> Result<(), SimulationError> {
+        self.state.borrow_mut().configured_u32.push(configuration);
         self.record(self.next_configure_u32())
     }
 
@@ -739,7 +820,7 @@ fn run(api: &TestDoubleMpsExecutionApi) -> Result<(), SimulationError> {
 
 fn new_mps_execution<'api>(
     api: &'api TestDoubleMpsExecutionApi,
-    circuit: &Circuit,
+    program: &impl MpsProgram,
 ) -> Result<MpsExecution<'api, TestDoubleMpsExecutionApi>, SimulationError> {
     let handle = NonNull::new(0x1000_usize as *mut c_void).expect("handle is non-null");
     let stream = NonNull::dangling();
@@ -747,9 +828,67 @@ fn new_mps_execution<'api>(
         api,
         handle,
         stream,
-        circuit,
+        program,
         ExecutionPolicy::bell_regression(),
     )
+}
+
+fn projected(qubit_count: usize, operations: Vec<FixedOutcomeOperation>) -> ProjectedCircuit {
+    let circuit = FixedOutcomeCircuit::new(qubit_count, operations)
+        .expect("fixed-outcome fixture should be valid");
+    ProjectedCircuit::from_fixed_outcome(&circuit).expect("fixture should convert")
+}
+
+/// H(0), CNOT(0, 1), then outcome 0 on qubit 0 and outcome 1 on qubit 1
+/// with a reset: |0⟩⟨0| on mode 0, then |0⟩⟨1| on mode 1.
+fn bell_outcomes() -> ProjectedCircuit {
+    projected(
+        2,
+        vec![
+            FixedOutcomeOperation::Unitary(UnitaryOperation::H { target: 0 }),
+            FixedOutcomeOperation::Unitary(UnitaryOperation::Cx {
+                control: 0,
+                target: 1,
+            }),
+            FixedOutcomeOperation::Measure {
+                qubit: 0,
+                result_id: 0,
+                outcome: MeasurementResult::Zero,
+                reset: false,
+            },
+            FixedOutcomeOperation::Measure {
+                qubit: 1,
+                result_id: 1,
+                outcome: MeasurementResult::One,
+                reset: true,
+            },
+        ],
+    )
+}
+
+fn run_probability(
+    api: &TestDoubleMpsExecutionApi,
+    program: &ProjectedCircuit,
+) -> Result<ProbabilityResult, SimulationError> {
+    let mut mps_execution = new_mps_execution(api, program)?;
+    let execution = mps_execution.evaluate_probability(program);
+    let cleanup = mps_execution.close();
+    combine_execution_and_cleanup(execution, cleanup)
+}
+
+/// A test double whose identity expectation agrees with its norm, 1/2.
+fn probability_api(failures: impl IntoIterator<Item = Event>) -> TestDoubleMpsExecutionApi {
+    let half = Complex64::new(0.5, 0.0);
+    TestDoubleMpsExecutionApi::new(failures).with_expectations([(half, half)])
+}
+
+fn table_values(matrix: &OperatorMatrix) -> Vec<Complex64Abi> {
+    matrix
+        .row_major()
+        .iter()
+        .copied()
+        .map(Complex64Abi::from)
+        .collect()
 }
 
 fn continuation_circuit() -> Circuit {
@@ -1187,6 +1326,7 @@ fn successful_mps_execution_cleans_up_in_dependency_order() {
             Event::ConfigureF64(1),
             Event::ConfigureU32(0),
             Event::ConfigureU32(1),
+            Event::ConfigureU32(2),
             Event::Allocate(2),
             Event::Allocate(3),
             Event::MemoryInfo,
@@ -1976,6 +2116,7 @@ fn every_construction_and_execution_call_is_fallible_and_cleans_up() {
         Event::ConfigureF64(1),
         Event::ConfigureU32(0),
         Event::ConfigureU32(1),
+        Event::ConfigureU32(2),
         Event::Allocate(2),
         Event::Allocate(3),
         Event::MemoryInfo,
@@ -2063,4 +2204,270 @@ fn simultaneous_construction_and_cleanup_failures_are_both_retained() {
             Event::DestroyState,
         ]
     );
+}
+
+#[test]
+fn probability_applies_the_shared_table_in_order_and_reads_the_identity_norm() {
+    let api = probability_api([]);
+
+    let result = run_probability(&api, &bell_outcomes()).expect("Probability should succeed");
+
+    let expected = [
+        (
+            vec![0],
+            true,
+            unitary_matrix(UnitaryOperation::H { target: 0 }),
+        ),
+        (
+            vec![0, 1],
+            true,
+            unitary_matrix(UnitaryOperation::Cx {
+                control: 0,
+                target: 1,
+            }),
+        ),
+        (vec![0], false, Some(basis_operator(false, false))),
+        (vec![1], false, Some(basis_operator(false, true))),
+    ];
+    let applied = api.applied_operators();
+    assert_eq!(applied.len(), expected.len());
+    for (applied, (modes, unitary, matrix)) in applied.iter().zip(expected) {
+        let matrix = table_values(&matrix.expect("tabulated operator"));
+        assert_eq!(applied.modes, modes);
+        assert_eq!(applied.unitary, unitary);
+        assert_eq!(operator_bits(&applied.matrix), operator_bits(&matrix));
+    }
+    // The norm is the expectation of one identity factor on mode 0.
+    assert_eq!(api.appended_modes(), [vec![vec![0]]]);
+    let one = Complex64Abi::new(1.0, 0.0);
+    let zero = Complex64Abi::new(0.0, 0.0);
+    assert_eq!(
+        operator_bits(&api.device_tensor(api.appended_tensors()[0][0])),
+        operator_bits(&[one, zero, zero, one])
+    );
+    // The test double realizes a two-site chain with extents [2, 2] per site.
+    assert_eq!(
+        result,
+        ProbabilityResult {
+            probability: 0.5,
+            cost: MpsCost {
+                max_bond_dimension: 2,
+                state_bytes: 8 * size_of::<Complex64Abi>(),
+                workspace_bytes: 256,
+            },
+        }
+    );
+}
+
+#[test]
+fn probability_truncates_relatively_without_renormalizing() {
+    let api = probability_api([]);
+    run_probability(&api, &bell_outcomes()).expect("Probability should succeed");
+
+    let policy = ExecutionPolicy::bell_regression();
+    assert_eq!(
+        api.configured_f64(),
+        [
+            (StateF64Attribute::SvdAbsoluteCutoff, 0.0),
+            (StateF64Attribute::SvdRelativeCutoff, policy.relative_cutoff),
+        ]
+    );
+    assert_eq!(
+        api.configured_u32(),
+        [
+            StateU32Configuration::SvdNormalizationNone,
+            StateU32Configuration::SvdAlgorithmGesvd,
+            StateU32Configuration::MpsGaugeSimple,
+        ]
+    );
+}
+
+#[test]
+fn state_executions_keep_the_policy_cutoffs_and_pin_no_normalization() {
+    let api = TestDoubleMpsExecutionApi::new([]);
+    run(&api).expect("MPS execution should succeed");
+
+    let policy = ExecutionPolicy::bell_regression();
+    assert_eq!(
+        api.configured_f64(),
+        [
+            (StateF64Attribute::SvdAbsoluteCutoff, policy.absolute_cutoff),
+            (StateF64Attribute::SvdRelativeCutoff, policy.relative_cutoff),
+        ]
+    );
+    assert_eq!(
+        api.configured_u32()[0],
+        StateU32Configuration::SvdNormalizationNone
+    );
+}
+
+#[test]
+fn probability_is_returned_without_renormalization_including_zero() {
+    for probability in [2.0_f64.powi(-40), 0.0] {
+        let norm = Complex64::new(probability, 0.0);
+        let api = TestDoubleMpsExecutionApi::new([]).with_expectations([(norm, norm)]);
+
+        let result = run_probability(&api, &bell_outcomes()).expect("Probability should succeed");
+
+        assert_eq!(result.probability.to_bits(), probability.to_bits());
+    }
+}
+
+#[test]
+fn probability_cost_reports_the_larger_of_state_and_norm_workspaces() {
+    for sizes in [[256, 1024], [1024, 256]] {
+        let api = probability_api([]).with_workspace_sizes(sizes);
+
+        let result = run_probability(&api, &bell_outcomes()).expect("Probability should succeed");
+
+        assert_eq!(result.cost.workspace_bytes, 1024, "{sizes:?}");
+    }
+}
+
+#[test]
+fn invalid_probability_norms_are_rejected() {
+    let real = |value: f64| Complex64::new(value, 0.0);
+    let invalid = [
+        (real(f64::NAN), real(f64::NAN)),
+        (real(0.5), real(f64::INFINITY)),
+        (real(0.5), Complex64::new(0.5, 1.0e-6)),
+        (real(-0.25), real(-0.25)),
+        (real(0.5), real(0.25)),
+        (Complex64::new(0.5, 1.0e-6), real(0.5)),
+    ];
+    for (value, squared_norm) in invalid {
+        assert!(
+            matches!(
+                unnormalized_probability(value, squared_norm),
+                Err(SimulationError::InvalidNativeResult { .. })
+            ),
+            "{value} / {squared_norm}"
+        );
+    }
+    // Round-off far below the relative tolerance is accepted, even at 2⁻⁸⁰.
+    let norm = 2.0_f64.powi(-80);
+    assert_eq!(
+        unnormalized_probability(
+            Complex64::new(norm * (1.0 + 1.0e-14), 0.0),
+            Complex64::new(norm, norm * 1.0e-14)
+        )
+        .expect("round-off should be accepted")
+        .to_bits(),
+        norm.to_bits()
+    );
+}
+
+#[test]
+fn every_probability_call_is_fallible_and_releases_every_allocation() {
+    let failure_points = [
+        Event::ApplyUnitary(0),
+        Event::ApplyProjection,
+        Event::FinalizeMps,
+        Event::ConfigureU32(0),
+        Event::ComputeState,
+        Event::CreateNetworkOperator,
+        Event::ComputeExpectation,
+        Event::Synchronize(1),
+    ];
+
+    for failure in failure_points {
+        let api = probability_api([failure]);
+        let error = run_probability(&api, &bell_outcomes())
+            .expect_err("the selected Probability call should fail");
+        assert_native_operation(&error, failure.operation());
+        let events = api.events();
+        assert!(events.contains(&Event::DestroyState), "{failure:?}");
+        assert!(events.contains(&Event::DestroyWorkspace), "{failure:?}");
+        let mut allocated = api.allocation_handles();
+        let mut freed = api.freed_handles();
+        allocated.sort_unstable();
+        freed.sort_unstable();
+        assert_eq!(allocated, freed, "{failure:?}");
+    }
+}
+
+#[test]
+fn a_program_of_another_width_is_rejected_before_native_work() {
+    let wider = projected(
+        3,
+        vec![FixedOutcomeOperation::Unitary(UnitaryOperation::H {
+            target: 2,
+        })],
+    );
+    let mut wider_circuit = Circuit::new(3).expect("three-qubit circuit should be valid");
+    wider_circuit
+        .push(Gate::H { target: 2 })
+        .expect("in-range gate should be valid");
+    let api = TestDoubleMpsExecutionApi::new([]);
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit()).expect("MPS execution should be created");
+
+    let probability = mps_execution.evaluate_probability(&wider).map(|_| ());
+    let execution = mps_execution
+        .execute(&wider_circuit, StateReadout::MetadataOnly)
+        .map(|_| ());
+    assert_eq!(api.events(), [Event::CreateState, Event::CreateWorkspace]);
+    mps_execution.close().expect("cleanup should succeed");
+
+    for error in [probability, execution] {
+        assert!(
+            matches!(
+                &error,
+                Err(SimulationError::InvalidCircuit { reason })
+                    if reason == "a 3-qubit program does not match the 2-qubit native state"
+            ),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn a_branch_continuation_of_another_width_is_rejected_before_native_work() {
+    let api = branch_api([], 0.8, 0.2);
+    let initial = circuit();
+    let continuation = Circuit::new(3).expect("three-qubit continuation should be valid");
+    let query = AdjacentZQuery::new(2).expect("Query should be valid");
+    let mut mps_execution =
+        new_mps_execution(&api, &initial).expect("MPS execution should be created");
+
+    let error = mps_execution
+        .execute_branch(
+            &initial,
+            BranchRequest {
+                mode: 0,
+                selected: SelectedBranch::Zero,
+            },
+            &continuation,
+            &query,
+        )
+        .expect_err("the continuation width differs from the state");
+    assert_eq!(api.events(), [Event::CreateState, Event::CreateWorkspace]);
+    mps_execution.close().expect("cleanup should succeed");
+
+    assert!(matches!(
+        error,
+        SimulationError::InvalidCircuit { reason }
+            if reason == "a 3-qubit program does not match the 2-qubit native state"
+    ));
+}
+
+#[test]
+fn an_operator_mode_outside_the_state_is_rejected_before_allocation() {
+    let api = TestDoubleMpsExecutionApi::new([]);
+    let mut mps_execution =
+        new_mps_execution(&api, &circuit()).expect("MPS execution should be created");
+    let operator = OwnedOperator::new(vec![2], vec![Complex64Abi::new(1.0, 0.0); 4])
+        .expect("the operator itself is well formed");
+
+    let error = mps_execution
+        .register_operator(operator, false, &mut StatePhaseTimings::default())
+        .expect_err("mode 2 is outside a two-qubit state");
+    assert_eq!(api.events(), [Event::CreateState, Event::CreateWorkspace]);
+    mps_execution.close().expect("cleanup should succeed");
+
+    assert!(matches!(
+        error,
+        SimulationError::InvalidCircuit { reason }
+            if reason == "operator mode 2 is outside the 2-qubit native state"
+    ));
 }

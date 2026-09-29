@@ -33,7 +33,10 @@ pub(crate) use contraction::ContractionApi;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use sampler::SamplerApi;
 
-pub(super) use circuit::{Circuit, Gate, SimulationResult, UnitaryOperationConversionError};
+pub(super) use circuit::{
+    Circuit, Gate, ProjectedCircuit, ProjectedOperation, SimulationResult,
+    UnitaryOperationConversionError,
+};
 #[allow(
     unused_imports,
     reason = "crate-private integration surface for the MPS shot loop"
