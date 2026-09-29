@@ -8,6 +8,7 @@ mod amplitude_contraction;
 mod contraction;
 mod fixed_outcome;
 mod immediate;
+mod operator_matrix;
 mod pauli_sum;
 mod protocol;
 mod region;
@@ -36,6 +37,7 @@ pub use immediate::{
     ImmediateSimulatorConsumer, ShotExecutionError, ShotExecutionOutput, ShotExecutionResult,
     drive_prepared_shot, run_prepared_shot,
 };
+pub use operator_matrix::{OperatorMatrix, basis_operator, unitary_matrix};
 pub use pauli_sum::{Pauli, PauliSum, PauliSumError, PauliTerm};
 pub use protocol::{
     AdaptiveCommand, AdaptiveResponse, MeasurementKind, MeasurementRequest, RegionId,

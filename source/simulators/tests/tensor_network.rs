@@ -921,3 +921,88 @@ fn fixed_outcome_builder_rejects_unsupported_and_invalid_gates() {
         TensorNetworkBuildError::NonfiniteAngle { operation_index: 0 }
     );
 }
+
+/// The `(re, im)` bit patterns of a buffer, so signed zeros count.
+fn bits(values: &[Complex64]) -> Vec<(u64, u64)> {
+    values
+        .iter()
+        .map(|value| (value.re.to_bits(), value.im.to_bits()))
+        .collect()
+}
+
+#[test]
+fn every_buffer_kind_is_pinned_bit_for_bit() {
+    let (rx_angle, rzz_angle) = (0.3_f64, 1.1_f64);
+    let (rx_sin, rx_cos) = (rx_angle / 2.0).sin_cos();
+    let (rzz_sin, rzz_cos) = (rzz_angle / 2.0).sin_cos();
+    let c = Complex64::new;
+    let zero = c(0.0, 0.0);
+    let one = c(1.0, 0.0);
+    // Column-major: `[output, input]` for Rx and Sx, `[first, second]`
+    // operand for the diagonal Rzz and Cz.
+    let basis_zero = vec![one, zero];
+    let basis_one = vec![zero, one];
+    let rx = vec![
+        c(rx_cos, 0.0),
+        c(0.0, -rx_sin),
+        c(0.0, -rx_sin),
+        c(rx_cos, 0.0),
+    ];
+    let rzz = vec![
+        c(rzz_cos, -rzz_sin),
+        c(rzz_cos, rzz_sin),
+        c(rzz_cos, rzz_sin),
+        c(rzz_cos, -rzz_sin),
+    ];
+    let sx = vec![c(0.5, 0.5), c(0.5, -0.5), c(0.5, -0.5), c(0.5, 0.5)];
+    let s = vec![one, c(0.0, 1.0)];
+    let cz = vec![one, one, one, c(-1.0, 0.0)];
+
+    let zero_state = build(
+        2,
+        vec![
+            UnitaryOperation::Rx {
+                angle: rx_angle,
+                target: 0,
+            },
+            UnitaryOperation::Rzz {
+                angle: rzz_angle,
+                q1: 0,
+                q2: 1,
+            },
+        ],
+    );
+    let actual: Vec<_> = zero_state.buffers().iter().map(|b| bits(b)).collect();
+    assert_eq!(actual, [&basis_zero, &rx, &rzz].map(|b| bits(b)).to_vec());
+
+    let circuit = fixed(
+        2,
+        vec![
+            gate(UnitaryOperation::Rx {
+                angle: rx_angle,
+                target: 0,
+            }),
+            gate(UnitaryOperation::Sx { target: 1 }),
+            gate(UnitaryOperation::S { target: 0 }),
+            gate(UnitaryOperation::Rzz {
+                angle: rzz_angle,
+                q1: 0,
+                q2: 1,
+            }),
+            gate(UnitaryOperation::Cz {
+                control: 0,
+                target: 1,
+            }),
+            measure(0, 0, true, false),
+            measure(1, 1, false, false),
+        ],
+    );
+    let network = build_fixed(&circuit);
+    let actual: Vec<_> = network.buffers().iter().map(|b| bits(b)).collect();
+    assert_eq!(
+        actual,
+        [&basis_zero, &rx, &sx, &s, &rzz, &cz, &basis_one]
+            .map(|b| bits(b))
+            .to_vec()
+    );
+}

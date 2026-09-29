@@ -9,9 +9,12 @@ use thiserror::Error;
 pub enum Gate {
     X { target: u32 },
     H { target: u32 },
+    S { target: u32 },
+    Sx { target: u32 },
     Rx { theta: f64, target: u32 },
     Rz { theta: f64, target: u32 },
     Cnot { control: u32, target: u32 },
+    Cz { control: u32, target: u32 },
     Rzz { theta: f64, q1: u32, q2: u32 },
 }
 
@@ -41,6 +44,12 @@ impl Gate {
             UnitaryOperation::H { target } => Self::H {
                 target: gate_qubit("H", target)?,
             },
+            UnitaryOperation::S { target } => Self::S {
+                target: gate_qubit("S", target)?,
+            },
+            UnitaryOperation::Sx { target } => Self::Sx {
+                target: gate_qubit("Sx", target)?,
+            },
             UnitaryOperation::Rx { angle, target } => Self::Rx {
                 theta: angle,
                 target: gate_qubit("Rx", target)?,
@@ -53,6 +62,10 @@ impl Gate {
                 control: gate_qubit("Cx", control)?,
                 target: gate_qubit("Cx", target)?,
             },
+            UnitaryOperation::Cz { control, target } => Self::Cz {
+                control: gate_qubit("Cz", control)?,
+                target: gate_qubit("Cz", target)?,
+            },
             UnitaryOperation::Rzz { angle, q1, q2 } => Self::Rzz {
                 theta: angle,
                 q1: gate_qubit("Rzz", q1)?,
@@ -60,20 +73,60 @@ impl Gate {
             },
             UnitaryOperation::Y { .. } => return unsupported_operation("Y"),
             UnitaryOperation::Z { .. } => return unsupported_operation("Z"),
-            UnitaryOperation::S { .. } => return unsupported_operation("S"),
             UnitaryOperation::SAdj { .. } => return unsupported_operation("SAdj"),
-            UnitaryOperation::Sx { .. } => return unsupported_operation("Sx"),
             UnitaryOperation::SxAdj { .. } => return unsupported_operation("SxAdj"),
             UnitaryOperation::T { .. } => return unsupported_operation("T"),
             UnitaryOperation::TAdj { .. } => return unsupported_operation("TAdj"),
             UnitaryOperation::Ry { .. } => return unsupported_operation("Ry"),
             UnitaryOperation::Cy { .. } => return unsupported_operation("Cy"),
-            UnitaryOperation::Cz { .. } => return unsupported_operation("Cz"),
             UnitaryOperation::Rxx { .. } => return unsupported_operation("Rxx"),
             UnitaryOperation::Ryy { .. } => return unsupported_operation("Ryy"),
             UnitaryOperation::Swap { .. } => return unsupported_operation("Swap"),
         };
         Ok(Some(gate))
+    }
+}
+
+impl From<Gate> for UnitaryOperation {
+    /// The operation with the same matrix and operand order, so `Gate` values
+    /// come from the shared operator table.
+    fn from(gate: Gate) -> Self {
+        let qubit = |index: u32| usize::try_from(index).expect("u32 qubit indices fit in usize");
+        match gate {
+            Gate::X { target } => Self::X {
+                target: qubit(target),
+            },
+            Gate::H { target } => Self::H {
+                target: qubit(target),
+            },
+            Gate::S { target } => Self::S {
+                target: qubit(target),
+            },
+            Gate::Sx { target } => Self::Sx {
+                target: qubit(target),
+            },
+            Gate::Rx { theta, target } => Self::Rx {
+                angle: theta,
+                target: qubit(target),
+            },
+            Gate::Rz { theta, target } => Self::Rz {
+                angle: theta,
+                target: qubit(target),
+            },
+            Gate::Cnot { control, target } => Self::Cx {
+                control: qubit(control),
+                target: qubit(target),
+            },
+            Gate::Cz { control, target } => Self::Cz {
+                control: qubit(control),
+                target: qubit(target),
+            },
+            Gate::Rzz { theta, q1, q2 } => Self::Rzz {
+                angle: theta,
+                q1: qubit(q1),
+                q2: qubit(q2),
+            },
+        }
     }
 }
 
@@ -122,7 +175,9 @@ impl Circuit {
 
     pub fn push(&mut self, gate: Gate) -> Result<(), SimulationError> {
         match gate {
-            Gate::X { target } | Gate::H { target } => self.validate_qubit(target)?,
+            Gate::X { target } | Gate::H { target } | Gate::S { target } | Gate::Sx { target } => {
+                self.validate_qubit(target)?;
+            }
             Gate::Rx { theta, target } | Gate::Rz { theta, target } => {
                 self.validate_qubit(target)?;
                 if !theta.is_finite() {
@@ -137,6 +192,15 @@ impl Circuit {
                 if control == target {
                     return Err(SimulationError::InvalidCircuit {
                         reason: "CNOT control and target must be different qubits".to_string(),
+                    });
+                }
+            }
+            Gate::Cz { control, target } => {
+                self.validate_qubit(control)?;
+                self.validate_qubit(target)?;
+                if control == target {
+                    return Err(SimulationError::InvalidCircuit {
+                        reason: "CZ control and target must be different qubits".to_string(),
                     });
                 }
             }
@@ -196,6 +260,8 @@ impl Circuit {
             match gate {
                 Gate::X { target } => write!(description, "x:{target};"),
                 Gate::H { target } => write!(description, "h:{target};"),
+                Gate::S { target } => write!(description, "s:{target};"),
+                Gate::Sx { target } => write!(description, "sx:{target};"),
                 Gate::Rx { theta, target } => {
                     write!(description, "rx:{target}:{};", canonical_angle_bits(*theta))
                 }
@@ -204,6 +270,9 @@ impl Circuit {
                 }
                 Gate::Cnot { control, target } => {
                     write!(description, "cx:{control}:{target};")
+                }
+                Gate::Cz { control, target } => {
+                    write!(description, "cz:{control}:{target};")
                 }
                 Gate::Rzz { theta, q1, q2 } => {
                     write!(
@@ -427,6 +496,18 @@ mod tests {
         let operations = [
             (UnitaryOperation::X { target: 3 }, Gate::X { target: 3 }),
             (UnitaryOperation::H { target: 4 }, Gate::H { target: 4 }),
+            (UnitaryOperation::S { target: 11 }, Gate::S { target: 11 }),
+            (UnitaryOperation::Sx { target: 12 }, Gate::Sx { target: 12 }),
+            (
+                UnitaryOperation::Cz {
+                    control: 13,
+                    target: 14,
+                },
+                Gate::Cz {
+                    control: 13,
+                    target: 14,
+                },
+            ),
             (
                 UnitaryOperation::Rx {
                     angle: 0.25,
@@ -473,6 +554,7 @@ mod tests {
 
         for (operation, expected) in operations {
             assert_eq!(Gate::from_unitary_operation(operation), Ok(Some(expected)));
+            assert_eq!(UnitaryOperation::from(expected), operation);
         }
     }
 
@@ -489,9 +571,7 @@ mod tests {
         let operations = [
             (UnitaryOperation::Y { target: 0 }, "Y"),
             (UnitaryOperation::Z { target: 0 }, "Z"),
-            (UnitaryOperation::S { target: 0 }, "S"),
             (UnitaryOperation::SAdj { target: 0 }, "SAdj"),
-            (UnitaryOperation::Sx { target: 0 }, "Sx"),
             (UnitaryOperation::SxAdj { target: 0 }, "SxAdj"),
             (UnitaryOperation::T { target: 0 }, "T"),
             (UnitaryOperation::TAdj { target: 0 }, "TAdj"),
@@ -508,13 +588,6 @@ mod tests {
                     target: 1,
                 },
                 "Cy",
-            ),
-            (
-                UnitaryOperation::Cz {
-                    control: 0,
-                    target: 1,
-                },
-                "Cz",
             ),
             (
                 UnitaryOperation::Rxx {
@@ -580,7 +653,43 @@ mod tests {
             }),
             Err(SimulationError::InvalidCircuit { .. })
         ));
+        for gate in [
+            Gate::S { target: 2 },
+            Gate::Sx { target: 2 },
+            Gate::Cz {
+                control: 0,
+                target: 2,
+            },
+            Gate::Cz {
+                control: 1,
+                target: 1,
+            },
+        ] {
+            assert!(
+                matches!(
+                    circuit.push(gate),
+                    Err(SimulationError::InvalidCircuit { .. })
+                ),
+                "{gate:?}"
+            );
+        }
         assert_eq!(circuit.gates(), [Gate::X { target: 0 }]);
+    }
+
+    #[test]
+    fn s_sx_and_cz_are_accepted_and_described_in_operand_order() {
+        let mut circuit = Circuit::new(2).expect("two-qubit circuit should be valid");
+        for gate in [
+            Gate::S { target: 0 },
+            Gate::Sx { target: 1 },
+            Gate::Cz {
+                control: 1,
+                target: 0,
+            },
+        ] {
+            circuit.push(gate).expect("in-range gate should be valid");
+        }
+        assert_eq!(circuit.canonical_description(), "width=2;s:0;sx:1;cz:1:0;");
     }
 
     #[test]
@@ -743,8 +852,13 @@ mod tests {
                 Gate::Cnot { control, target } => {
                     simulator.mcx(&[control as usize], target as usize);
                 }
-                Gate::H { .. } => panic!("the Trotter fixture contains no Hadamard gates"),
-                Gate::Rzz { .. } => panic!("the Trotter fixture contains no Rzz gates"),
+                Gate::H { .. }
+                | Gate::S { .. }
+                | Gate::Sx { .. }
+                | Gate::Cz { .. }
+                | Gate::Rzz { .. } => {
+                    panic!("the Trotter fixture contains only X, Rx, Rz and CNOT gates: {gate:?}")
+                }
             }
         }
         let query = (0..usize::try_from(width - 1).expect("width should fit usize"))

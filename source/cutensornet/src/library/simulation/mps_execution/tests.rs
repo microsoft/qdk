@@ -21,7 +21,7 @@ use crate::simulation::memory_workspace::{
     MemorySpace, MemoryWorkspaceApi, WorkspaceKind, WorkspacePreference,
 };
 use num_complex::Complex64;
-use qdk_simulators::execution::{Pauli, PauliSum};
+use qdk_simulators::execution::{Pauli, PauliSum, unitary_matrix};
 use std::mem::size_of;
 use tensornet::Mps;
 
@@ -1018,6 +1018,137 @@ fn rz_phase_interferes_with_the_expected_sign() {
 
     assert_complex_close(output[0], Complex64::new(cosine, 0.0));
     assert_complex_close(output[1], Complex64::new(0.0, -sine));
+}
+
+/// The `(re, im)` bit patterns of an operator, so signed zeros count.
+fn operator_bits(matrix: &[Complex64Abi]) -> Vec<(u64, u64)> {
+    matrix
+        .iter()
+        .map(|&value| {
+            let value = Complex64::from(value);
+            (value.re.to_bits(), value.im.to_bits())
+        })
+        .collect()
+}
+
+#[test]
+fn operator_data_is_pinned_bit_for_bit() {
+    let theta = 0.731_f64;
+    let (sine, cosine) = (theta / 2.0).sin_cos();
+    let c = Complex64::new;
+    let (o, l) = (c(0.0, 0.0), c(1.0, 0.0));
+    let h = std::f64::consts::FRAC_1_SQRT_2;
+    let (minus, plus) = (c(cosine, -sine), c(cosine, sine));
+    let cases = [
+        (Gate::X { target: 0 }, vec![o, l, l, o]),
+        (
+            Gate::H { target: 0 },
+            vec![c(h, 0.0), c(h, 0.0), c(h, 0.0), c(-h, 0.0)],
+        ),
+        (
+            Gate::Rx { theta, target: 0 },
+            vec![c(cosine, 0.0), c(0.0, -sine), c(0.0, -sine), c(cosine, 0.0)],
+        ),
+        (Gate::Rz { theta, target: 0 }, vec![minus, o, o, plus]),
+        (Gate::S { target: 0 }, vec![l, o, o, c(0.0, 1.0)]),
+        (
+            Gate::Sx { target: 0 },
+            vec![c(0.5, 0.5), c(0.5, -0.5), c(0.5, -0.5), c(0.5, 0.5)],
+        ),
+        (
+            Gate::Cz {
+                control: 0,
+                target: 1,
+            },
+            vec![l, o, o, o, o, l, o, o, o, o, l, o, o, o, o, c(-1.0, 0.0)],
+        ),
+        (
+            Gate::Cnot {
+                control: 0,
+                target: 1,
+            },
+            vec![l, o, o, o, o, l, o, o, o, o, o, l, o, o, l, o],
+        ),
+        (
+            Gate::Rzz {
+                theta,
+                q1: 0,
+                q2: 1,
+            },
+            vec![minus, o, o, o, o, plus, o, o, o, o, plus, o, o, o, o, minus],
+        ),
+    ];
+    for (gate, expected) in cases {
+        let operator = fixture_operator(gate).expect("valid gate");
+        let expected: Vec<_> = expected.into_iter().map(Complex64Abi::from).collect();
+        assert_eq!(
+            operator_bits(&operator.matrix),
+            operator_bits(&expected),
+            "{gate:?}"
+        );
+    }
+}
+
+#[test]
+fn operators_copy_the_shared_table_on_their_operands_in_gate_order() {
+    let gates = [
+        (Gate::X { target: 2 }, vec![2]),
+        (Gate::H { target: 2 }, vec![2]),
+        (Gate::S { target: 2 }, vec![2]),
+        (Gate::Sx { target: 2 }, vec![2]),
+        (
+            Gate::Rx {
+                theta: 0.4,
+                target: 2,
+            },
+            vec![2],
+        ),
+        (
+            Gate::Rz {
+                theta: 0.4,
+                target: 2,
+            },
+            vec![2],
+        ),
+        (
+            Gate::Cnot {
+                control: 3,
+                target: 1,
+            },
+            vec![3, 1],
+        ),
+        (
+            Gate::Cz {
+                control: 3,
+                target: 1,
+            },
+            vec![3, 1],
+        ),
+        (
+            Gate::Rzz {
+                theta: 0.4,
+                q1: 3,
+                q2: 1,
+            },
+            vec![3, 1],
+        ),
+    ];
+    for (gate, modes) in gates {
+        let operator = fixture_operator(gate).expect("valid gate");
+        let expected = unitary_matrix(gate.into()).expect("tabulated gate");
+        let expected: Vec<_> = expected
+            .row_major()
+            .iter()
+            .copied()
+            .map(Complex64Abi::from)
+            .collect();
+        assert_eq!(&*operator.modes, modes, "{gate:?}");
+        assert_eq!(
+            operator_bits(&operator.matrix),
+            operator_bits(&expected),
+            "{gate:?}"
+        );
+    }
 }
 
 #[test]

@@ -13,7 +13,10 @@ use tensornet::{ContractionError, ContractionQuery, Index, Indices, NetworkError
 
 use crate::{MeasurementResult, QubitID};
 
-use super::{FixedOutcomeCircuit, FixedOutcomeOperation, QuantumEvolutionRegion, UnitaryOperation};
+use super::{
+    FixedOutcomeCircuit, FixedOutcomeOperation, OperatorMatrix, QuantumEvolutionRegion,
+    UnitaryOperation, unitary_matrix,
+};
 
 /// A circuit's tensor shapes, coefficient bank, and amplitude output axes.
 ///
@@ -354,21 +357,30 @@ fn coefficients(key: BufferKey, axes: &Indices) -> Box<[Complex64]> {
         axes.element_count()
             .expect("one or two qubit axes fit in usize")
     ];
+    let mut set = |coords: &[usize], value| {
+        values[axes.offset_of(coords).expect("valid gate coordinate")] = value;
+    };
     match key {
-        BufferKey::Basis(one) => {
-            values[axes
-                .offset_of(&[usize::from(one)])
-                .expect("valid basis coordinate")] = Complex64::new(1.0, 0.0);
+        BufferKey::Basis(one) => set(&[usize::from(one)], Complex64::new(1.0, 0.0)),
+        // Diagonal gates bind only their diagonal, over the operands' current
+        // wires: axes `[first, second]` for basis index `2 · first + second`.
+        BufferKey::S | BufferKey::Rzz(_) | BufferKey::Cz => {
+            let matrix = gate_matrix(key);
+            assert!(matrix.is_diagonal(), "{key:?} must be diagonal");
+            for index in 0..matrix.dimension() {
+                let coords = (0..matrix.qubit_count())
+                    .rev()
+                    .map(|bit| (index >> bit) & 1)
+                    .collect::<Vec<_>>();
+                set(&coords, matrix.entry(index, index));
+            }
         }
-        BufferKey::S => {
-            values[axes.offset_of(&[0]).expect("valid S coordinate")] = Complex64::new(1.0, 0.0);
-            values[axes.offset_of(&[1]).expect("valid S coordinate")] = Complex64::new(0.0, 1.0);
-        }
-        BufferKey::Rx(_) | BufferKey::Rzz(_) | BufferKey::Sx | BufferKey::Cz => {
-            for a in 0..2 {
-                for b in 0..2 {
-                    values[axes.offset_of(&[a, b]).expect("valid gate coordinate")] =
-                        two_axis_coefficient(key, a, b);
+        // Other gates bind `[output, input]`.
+        BufferKey::Rx(_) | BufferKey::Sx => {
+            let matrix = gate_matrix(key);
+            for output in 0..2 {
+                for input in 0..2 {
+                    set(&[output, input], matrix.entry(output, input));
                 }
             }
         }
@@ -376,26 +388,27 @@ fn coefficients(key: BufferKey, axes: &Indices) -> Box<[Complex64]> {
     values.into_boxed_slice()
 }
 
-/// The coefficient at `[a, b]`: `[output, input]` for Rx and Sx, and the
-/// operands' basis values for the diagonal Rzz and Cz.
-fn two_axis_coefficient(key: BufferKey, a: usize, b: usize) -> Complex64 {
-    match key {
-        BufferKey::Rx(bits) | BufferKey::Rzz(bits) => {
-            let (sine, cosine) = (f64::from_bits(bits) / 2.0).sin_cos();
-            match key {
-                BufferKey::Rx(_) if a == b => Complex64::new(cosine, 0.0),
-                BufferKey::Rx(_) => Complex64::new(0.0, -sine),
-                _ => Complex64::new(cosine, if a == b { -sine } else { sine }),
-            }
-        }
-        // SX = ((1 + i) I + (1 - i) X) / 2, the square root of X that QIR's
-        // `sx` and the QDK simulators apply.
-        BufferKey::Sx if a == b => Complex64::new(0.5, 0.5),
-        BufferKey::Sx => Complex64::new(0.5, -0.5),
-        BufferKey::Cz if a == 1 && b == 1 => Complex64::new(-1.0, 0.0),
-        BufferKey::Cz => Complex64::new(1.0, 0.0),
-        BufferKey::Basis(_) | BufferKey::S => unreachable!("one-axis coefficients"),
-    }
+/// The shared-table matrix of a gate buffer, in the key's operand order.
+fn gate_matrix(key: BufferKey) -> OperatorMatrix {
+    let operation = match key {
+        BufferKey::Rx(bits) => UnitaryOperation::Rx {
+            angle: f64::from_bits(bits),
+            target: 0,
+        },
+        BufferKey::Rzz(bits) => UnitaryOperation::Rzz {
+            angle: f64::from_bits(bits),
+            q1: 0,
+            q2: 1,
+        },
+        BufferKey::S => UnitaryOperation::S { target: 0 },
+        BufferKey::Sx => UnitaryOperation::Sx { target: 0 },
+        BufferKey::Cz => UnitaryOperation::Cz {
+            control: 0,
+            target: 1,
+        },
+        BufferKey::Basis(_) => unreachable!("basis vectors are not gates"),
+    };
+    unitary_matrix(operation).expect("the shared table defines every exact-network gate")
 }
 
 /// The gates a builder supports; anything else is `UnsupportedOperation`.

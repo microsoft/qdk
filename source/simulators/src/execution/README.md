@@ -266,6 +266,30 @@ I, Rx, Rzz, S, Sx and Cz; `from_zero_state` keeps its I, Rx, Rzz set. Public
 tests contract small networks by brute force and compare open outputs with
 the CPU full-state simulator.
 
+#### Shared operator table
+
+```text
+M[out][in], row-major: entry at out·d + in
+two qubits (a, b): basis index 2a + b   (first operand most significant)
+|r⟩⟨b| = e_r e_bᵀ:   |0⟩⟨1| = [[0,1],[0,0]] = [0, 1, 0, 0]
+```
+
+`unitary_matrix(UnitaryOperation)` and `basis_operator(r, b)` define every
+gate value once (X, H, S, Sx, Rx, Rz, Cx, Cz, Rzz; `I` is omitted because
+backends drop it). The layout fixes orientation, not just entries: every
+tabulated unitary is symmetric, but |0⟩⟨1| is not, and its transpose would
+select the other branch. Backends consume it without re-deriving values:
+
+- the exact network binds `M[out][in]` at `[output, input]` through
+  `Indices::offset_of` (column-major), and binds only the diagonal of S, Rzz
+  and Cz, which the table confirms with `is_diagonal`;
+- cuTensorNet copies the row-major data verbatim, because
+  `cutensornetStateApplyTensorOperator` reads the textbook matrix correctly
+  with default (null) strides, operands in gate order.
+
+Each backend still decides which gates it accepts. Public tests pin every
+exact-network buffer and cuTensorNet operator bit for bit.
+
 The private `_fixed_outcome_network_probe(program, outcomes)` returns only
 the network's shape (node axis ids and output axis ids; every axis has
 dimension two), for host width estimates with external optimizers.

@@ -28,9 +28,9 @@ use crate::library::MpsSession;
 use num_complex::Complex64;
 use qdk_simulators::{
     QubitID,
-    execution::{Pauli, PauliSum},
+    execution::{Pauli, PauliSum, unitary_matrix},
 };
-use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, time::Instant};
+use std::{mem::size_of, time::Instant};
 use tensornet::{Mps, MpsError};
 
 #[cfg(test)]
@@ -1438,98 +1438,33 @@ fn preparation_compute_seconds(timings: &StatePhaseTimings) -> f64 {
         + timings.state_compute_call_seconds
 }
 
+/// The operator of `gate`: its shared-table matrix, copied verbatim because
+/// cuTensorNet reads the row-major `M[out][in]` layout with default strides,
+/// on its operands in gate order (first operand most significant).
 fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
-    let (modes, matrix) = match gate {
-        Gate::X { target } => (
-            vec![mode_id(target)?],
-            vec![
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(1.0, 0.0),
-                Complex64Abi::new(1.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-            ],
-        ),
-        Gate::H { target } => (
-            vec![mode_id(target)?],
-            vec![
-                Complex64Abi::new(FRAC_1_SQRT_2, 0.0),
-                Complex64Abi::new(FRAC_1_SQRT_2, 0.0),
-                Complex64Abi::new(FRAC_1_SQRT_2, 0.0),
-                Complex64Abi::new(-FRAC_1_SQRT_2, 0.0),
-            ],
-        ),
-        Gate::Rx { theta, target } => {
-            let (sine, cosine) = (theta / 2.0).sin_cos();
-            (
-                vec![mode_id(target)?],
-                vec![
-                    Complex64Abi::new(cosine, 0.0),
-                    Complex64Abi::new(0.0, -sine),
-                    Complex64Abi::new(0.0, -sine),
-                    Complex64Abi::new(cosine, 0.0),
-                ],
-            )
+    let modes = match gate {
+        Gate::X { target }
+        | Gate::H { target }
+        | Gate::S { target }
+        | Gate::Sx { target }
+        | Gate::Rx { target, .. }
+        | Gate::Rz { target, .. } => vec![mode_id(target)?],
+        Gate::Cnot { control, target } | Gate::Cz { control, target } => {
+            vec![mode_id(control)?, mode_id(target)?]
         }
-        Gate::Rz { theta, target } => {
-            let (sine, cosine) = (theta / 2.0).sin_cos();
-            (
-                vec![mode_id(target)?],
-                vec![
-                    Complex64Abi::new(cosine, -sine),
-                    Complex64Abi::new(0.0, 0.0),
-                    Complex64Abi::new(0.0, 0.0),
-                    Complex64Abi::new(cosine, sine),
-                ],
-            )
-        }
-        Gate::Cnot { control, target } => (
-            vec![mode_id(control)?, mode_id(target)?],
-            vec![
-                Complex64Abi::new(1.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(1.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(1.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-                Complex64Abi::new(1.0, 0.0),
-                Complex64Abi::new(0.0, 0.0),
-            ],
-        ),
-        Gate::Rzz { theta, q1, q2 } => {
-            let (sine, cosine) = (theta / 2.0).sin_cos();
-            let zero = Complex64Abi::new(0.0, 0.0);
-            (
-                vec![mode_id(q1)?, mode_id(q2)?],
-                vec![
-                    Complex64Abi::new(cosine, -sine),
-                    zero,
-                    zero,
-                    zero,
-                    zero,
-                    Complex64Abi::new(cosine, sine),
-                    zero,
-                    zero,
-                    zero,
-                    zero,
-                    Complex64Abi::new(cosine, sine),
-                    zero,
-                    zero,
-                    zero,
-                    zero,
-                    Complex64Abi::new(cosine, -sine),
-                ],
-            )
-        }
+        Gate::Rzz { q1, q2, .. } => vec![mode_id(q1)?, mode_id(q2)?],
     };
-    OwnedOperator::new(modes, matrix)
+    let matrix = unitary_matrix(gate.into())
+        .expect("the shared operator table defines every cuTensorNet gate");
+    OwnedOperator::new(
+        modes,
+        matrix
+            .row_major()
+            .iter()
+            .copied()
+            .map(Complex64Abi::from)
+            .collect(),
+    )
 }
 
 impl<Api: MpsExecutionApi + ?Sized> Drop for MpsExecution<'_, Api> {
