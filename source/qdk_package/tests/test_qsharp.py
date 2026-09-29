@@ -1190,3 +1190,14 @@ def test_swap_label_circuit_from_callable() -> None:
 def test_qdk_config() -> None:
     qsharp.init(qdk_config={"int_config": 123})
     assert qsharp.eval("""Std.Core.ConfigValue("int_config", 0)""") == 123
+
+
+def test_qsharp_input_arg_cannot_be_loss() -> None:
+    qsharp.init()
+    qsharp.eval("""
+    operation Foo(r : Result) : Result {
+        r
+    }
+    """)
+    with pytest.raises(TypeError):
+        qsharp.compile(qdk.code.Foo, qdk.Result.Loss)
