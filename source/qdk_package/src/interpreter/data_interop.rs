@@ -229,7 +229,13 @@ pub(super) fn pyobj_to_value(
             Prim::BigInt => Ok(Value::BigInt(extract_obj::<BigInt>(py, obj, ty)?)),
             Prim::Double => Ok(Value::Double(extract_obj::<f64>(py, obj, ty)?)),
             Prim::String => Ok(Value::String(extract_obj::<String>(py, obj, ty)?.into())),
-            Prim::Result => Ok(Value::Result(extract_obj::<Result>(py, obj, ty)?.into())),
+            Prim::Result => {
+                let result_value = extract_obj::<Result>(py, obj, ty)?;
+                if matches!(result_value, Result::Loss) {
+                    return Err(PyTypeError::new_err("input Result value cannot be `Loss`"));
+                }
+                Ok(Value::Result(result_value.into()))
+            }
             Prim::Pauli => Ok(Value::Pauli(extract_obj::<Pauli>(py, obj, ty)?.into())),
             Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
                 unimplemented!("primitive input type: {prim_ty:?}")
@@ -264,49 +270,7 @@ pub(super) fn pyobj_to_value(
             }
             Ok(Value::Array(array.into()))
         }
-        Ty::Udt(_, res) => {
-            let qsc::hir::Res::Item(item_id) = res else {
-                panic!("Udt should be an item");
-            };
-            let (udt, kind) = ctx.udt_ty_from_item_id(item_id);
-
-            match kind {
-                interpret::UdtKind::Angle => {
-                    let angle = extract_obj::<f64>(py, obj, ty)?;
-                    let angle =
-                        qsc::openqasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
-                    let value = i64::try_from(angle.value)
-                        .expect("angles built with `None` size have at most 53 bits");
-                    let size = i64::from(angle.size);
-                    Ok(Value::Tuple(
-                        Rc::new([Value::Int(value), Value::Int(size)]),
-                        Some(Rc::new(ctx.get_angle_id())),
-                    ))
-                }
-                interpret::UdtKind::Complex => {
-                    let val = extract_obj::<num_complex::Complex64>(py, obj, ty)?;
-                    Ok(Value::Tuple(
-                        Rc::new([Value::Double(val.re), Value::Double(val.im)]),
-                        Some(Rc::new(ctx.get_complex_id())),
-                    ))
-                }
-                interpret::UdtKind::Udt => {
-                    let udt_fields = extract_obj::<UdtFields>(py, obj, ty)?;
-
-                    let mut tuple = Vec::new();
-                    for (name, ty) in collect_udt_fields(udt)? {
-                        let Some(value) = udt_fields.get(&*name) else {
-                            return Err(PyTypeError::new_err(format!(
-                                "missing field {} in {}",
-                                name, udt.name,
-                            )));
-                        };
-                        tuple.push(pyobj_to_value(ctx, py, value, ty)?);
-                    }
-                    Ok(Value::Tuple(tuple.into(), None))
-                }
-            }
-        }
+        Ty::Udt(_, res) => pyobj_to_udt(ctx, py, obj, ty, res),
         Ty::Arrow(..) => {
             if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
                 return Ok(callable.into());
@@ -320,6 +284,55 @@ pub(super) fn pyobj_to_value(
             )))
         }
         _ => unimplemented!("input type: {ty}"),
+    }
+}
+
+fn pyobj_to_udt(
+    ctx: &interpret::Interpreter,
+    py: Python,
+    obj: &Py<PyAny>,
+    ty: &Ty,
+    res: &qsc::hir::Res,
+) -> PyResult<Value> {
+    let qsc::hir::Res::Item(item_id) = res else {
+        panic!("Udt should be an item");
+    };
+    let (udt, kind) = ctx.udt_ty_from_item_id(item_id);
+
+    match kind {
+        interpret::UdtKind::Angle => {
+            let angle = extract_obj::<f64>(py, obj, ty)?;
+            let angle = qsc::openqasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
+            let value = i64::try_from(angle.value)
+                .expect("angles built with `None` size have at most 53 bits");
+            let size = i64::from(angle.size);
+            Ok(Value::Tuple(
+                Rc::new([Value::Int(value), Value::Int(size)]),
+                Some(Rc::new(ctx.get_angle_id())),
+            ))
+        }
+        interpret::UdtKind::Complex => {
+            let val = extract_obj::<num_complex::Complex64>(py, obj, ty)?;
+            Ok(Value::Tuple(
+                Rc::new([Value::Double(val.re), Value::Double(val.im)]),
+                Some(Rc::new(ctx.get_complex_id())),
+            ))
+        }
+        interpret::UdtKind::Udt => {
+            let udt_fields = extract_obj::<UdtFields>(py, obj, ty)?;
+
+            let mut tuple = Vec::new();
+            for (name, ty) in collect_udt_fields(udt)? {
+                let Some(value) = udt_fields.get(&*name) else {
+                    return Err(PyTypeError::new_err(format!(
+                        "missing field {} in {}",
+                        name, udt.name,
+                    )));
+                };
+                tuple.push(pyobj_to_value(ctx, py, value, ty)?);
+            }
+            Ok(Value::Tuple(tuple.into(), None))
+        }
     }
 }
 
