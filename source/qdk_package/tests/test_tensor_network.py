@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from dataclasses import FrozenInstanceError
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -301,9 +302,44 @@ def test_state_native_cost_requires_mps():
         )
 
 
-def test_mps_probability_is_not_implemented():
-    with pytest.raises(NotImplementedError, match="Probability"):
-        tensornetwork_qir(BELL_BASE_QIR, [Probability()], method="mps", outcomes=[0, 0])
+def test_state_native_probability_requires_mps():
+    with pytest.raises(ValueError, match="Probability on a cuTensorNet state requires an MPS"):
+        _native._tensor_network_state_query(
+            _adaptive_program(BELL_BASE_QIR), [{"kind": "probability"}], [False, False], None
+        )
+
+
+def test_state_native_probability_requires_outcomes():
+    with pytest.raises(ValueError, match="Probability requires outcomes"):
+        _native._tensor_network_state_query(
+            _adaptive_program(BELL_BASE_QIR), [{"kind": "probability"}], None,
+            {"max_bond_dimension": None},
+        )
+
+
+@pytest.mark.parametrize(
+    "queries",
+    [
+        [Probability(), Expectation([("Z", [0], 1)])],
+        [Expectation([("Z", [0], 1)]), Cost(), Probability()],
+    ],
+)
+def test_mps_probability_rejects_expectation_in_the_same_call(queries):
+    with pytest.raises(ValueError, match="Probability and Expectation read different MPS states"):
+        tensornetwork_qir(BELL_BASE_QIR, queries, method="mps", outcomes=[0, 0])
+
+
+@pytest.mark.parametrize("queries", [[Probability()], [Probability(), Cost()]])
+def test_mps_probability_rejects_failing_selection_record_before_discovery(queries):
+    qir, _ = stim.compile("SELECT {\n M 0\n REQUIRE rec[-1]\n}\n")
+    with pytest.raises(ValueError, match="result 0"):
+        tensornetwork_qir(qir, queries, method="mps", outcomes=[1])
+
+
+def test_mps_probability_rejects_unsupported_gate_before_discovery():
+    qir = BELL_BASE_QIR.replace("__quantum__qis__h__body", "__quantum__qis__y__body")
+    with pytest.raises(ValueError, match="unitary operation Y is not supported"):
+        tensornetwork_qir(qir, [Probability()], method="mps", outcomes=[0, 0])
 
 
 @pytest.mark.parametrize("method", ["mps", "contraction"])
@@ -324,15 +360,30 @@ def test_expectation_rejects_reset_before_discovery(method: Literal["mps", "cont
 
 def test_state_queries_report_unavailable_libraries_as_oserror(tmp_path: Path):
     # Same discovery override as the contraction test above, in a child process.
+    # MPS Probability also runs on a program with measure-and-reset and on one
+    # with a selection branch, which the Expectation route rejects before
+    # discovery.
     script = """
+import json
 import platform
 import sys
-from qdk.simulation import Cost, Expectation, tensornetwork_qir
-qir = sys.stdin.read()
+from qdk import stim
+from qdk.simulation import Cost, Expectation, Probability, tensornetwork_qir
+programs = json.loads(sys.stdin.read())
+select, _ = stim.compile("SELECT {\\n M 0\\n REQUIRE rec[-1]\\n}\\n")
+bell, mresetz = programs["bell"], programs["mresetz"]
 zz = Expectation([("ZZ", [0, 1], 1)])
-for queries, method in (([zz], "mps"), ([Cost()], "mps"), ([zz], "contraction")):
+cases = (
+    (bell, [zz], "mps", None),
+    (bell, [Cost()], "mps", None),
+    (bell, [zz], "contraction", None),
+    (bell, [Probability()], "mps", [0, 0]),
+    (mresetz, [Probability(), Cost()], "mps", [0, 0]),
+    (select, [Cost(), Probability()], "mps", [0]),
+)
+for qir, queries, method, outcomes in cases:
     try:
-        tensornetwork_qir(qir, queries, method=method)
+        tensornetwork_qir(qir, queries, method=method, outcomes=outcomes)
     except OSError as error:
         expected = ("QDK_CUTENSORNET_LIBRARY"
                     if sys.platform == "linux" and platform.machine() == "x86_64"
@@ -343,7 +394,7 @@ for queries, method in (([zz], "mps"), ([Cost()], "mps"), ([zz], "contraction"))
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
-        input=BELL_BASE_QIR,
+        input=json.dumps({"bell": BELL_BASE_QIR, "mresetz": SX_CZ_MRESETZ_BASE_QIR}),
         text=True,
         capture_output=True,
         env={**os.environ, "QDK_CUTENSORNET_LIBRARY": str(tmp_path / "not-installed.so")},
@@ -399,6 +450,30 @@ def test_mps_cost_reports_the_realized_bond_and_preserves_query_order():
         BELL_BASE_QIR, [Cost()], method="mps", options=MpsOptions(max_bond_dimension=1)
     )
     assert capped["max_bond_dimension"] == 1
+
+
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+@pytest.mark.parametrize("outcomes", [[0, 0], [0, 1], [1, 0], [1, 1]])
+def test_mps_probability_and_cost_preserve_query_order(outcomes):
+    # Sx on both qubits and Cz leave every record equally likely, and both
+    # measurements reset: P = 1/4 through the |0⟩⟨b| operators.
+    first_cost, probability, second_cost, second_probability = tensornetwork_qir(
+        SX_CZ_MRESETZ_BASE_QIR,
+        [Cost(), Probability(), Cost(), Probability()],
+        method="mps", outcomes=outcomes, options=MpsOptions(max_bond_dimension=4),
+    )
+    assert probability == pytest.approx(0.25)
+    assert second_probability == probability
+    assert first_cost == second_cost
+    assert set(first_cost) == {"max_bond_dimension", "state_bytes", "workspace_bytes"}
+    assert 1 <= first_cost["max_bond_dimension"] <= 4
+
+
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+def test_mps_probability_follows_a_selection_branch():
+    qir, _ = stim.compile("SELECT {\n M 0\n REQUIRE rec[-1]\n}\n")
+    probability, = tensornetwork_qir(qir, [Probability()], method="mps", outcomes=[0])
+    assert probability == pytest.approx(1.0)
 
 
 @pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)

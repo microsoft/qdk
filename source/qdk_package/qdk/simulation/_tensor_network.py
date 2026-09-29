@@ -51,6 +51,15 @@ class Probability:
     without dividing by the acceptance probability of selection checks. It is
     the program-output probability only when every selection check passes with
     probability one. A record that fails a selection check raises ValueError.
+
+    With ``method="contraction"`` the result is exact. With ``method="mps"`` it
+    is the squared norm P̃(χ) of the MPS reached by applying each gate and, for
+    each measurement, the operator |r⟩⟨b| (outcome b, leaving r = b, or r = 0
+    after a reset), never renormalized. Truncation can move P̃(χ) above or below
+    P, so check convergence by increasing ``max_bond_dimension`` until P̃(χ)
+    agrees with a known value (for example 2⁻ᵐ) or stops changing. With
+    ``method="mps"``, Probability cannot be combined with :class:`Expectation`
+    in one call, because they read different states; see :class:`Cost`.
     """
 
 
@@ -66,7 +75,11 @@ class Cost:
     call plans and prepares but never contracts; an over-budget plan still
     reports the workspace it would need. Plans are currently unsliced. For
     ``method="mps"``: ``"max_bond_dimension"`` (largest bond reached),
-    ``"state_bytes"`` and ``"workspace_bytes"``.
+    ``"state_bytes"`` and ``"workspace_bytes"`` of the one MPS the call
+    computes: the fixed-outcome state when the call has a :class:`Probability`,
+    otherwise the state :class:`Expectation` reads. A call therefore cannot mix
+    Probability and Expectation with ``method="mps"``: one Cost could not
+    describe both states. Evaluate them in separate calls.
     """
 
 
@@ -94,7 +107,9 @@ def tensornetwork_qir(
     :param queries: The queries to evaluate.
     :param method: ``"contraction"`` evaluates exactly with NVIDIA cuTensorNet.
         ``"mps"`` approximates the state as a matrix product state whose bond
-        dimension is capped by ``options.max_bond_dimension``.
+        dimension is capped by ``options.max_bond_dimension``. With ``"mps"``,
+        a call evaluates either :class:`Probability` or :class:`Expectation`
+        queries (each optionally with :class:`Cost`), not both.
     :param options: :class:`MpsOptions` for ``method="mps"``, or
         :class:`ContractionOptions` for ``method="contraction"``.
     :param outcomes: ``outcomes[i]`` fixes the outcome of QIR result ``i``, which

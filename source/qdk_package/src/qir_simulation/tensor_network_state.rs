@@ -3,7 +3,7 @@
 
 use num_complex::Complex64;
 use pyo3::{
-    exceptions::{PyNotImplementedError, PyOSError, PyValueError},
+    exceptions::{PyOSError, PyValueError},
     prelude::*,
     types::{PyDict, PyList},
 };
@@ -19,19 +19,21 @@ use super::adaptive_program_from_pydict;
 ///
 /// `queries` holds the dicts built by `qdk.simulation.tensornetwork_qir`.
 /// Expectation and Cost read ψ, the state before the terminal measurements,
-/// which no outcome changes, so they ignore `outcomes`. Returns one value per
-/// query, in order.
+/// which no outcome changes, so they ignore `outcomes`. A call with a
+/// Probability query instead reads the unnormalized state on the path
+/// `outcomes` fixes (`outcomes[i]` is QIR result `i`), and its Cost describes
+/// that MPS; Probability and Expectation cannot share a call. Returns one
+/// value per query, in order.
 #[pyfunction]
 #[pyo3(signature = (input, queries, outcomes=None, mps=None))]
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn _tensor_network_state_query<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyDict>,
     queries: &Bound<'py, PyList>,
-    outcomes: Option<&Bound<'py, PyList>>,
+    outcomes: Option<Vec<bool>>,
     mps: Option<&Bound<'py, PyDict>>,
 ) -> PyResult<Bound<'py, PyList>> {
-    // Reserved for Probability on a state; Expectation and Cost ignore it.
-    let _ = outcomes;
     let method = match mps {
         None => StateMethod::Exact,
         Some(options) => StateMethod::Mps {
@@ -49,11 +51,7 @@ pub(crate) fn _tensor_network_state_query<'py>(
         state_queries.push(match kind.as_str() {
             "expectation" => StateQuery::Expectation(pauli_sum(&query)?),
             "cost" => StateQuery::Cost,
-            "probability" => {
-                return Err(PyNotImplementedError::new_err(
-                    "Probability on a cuTensorNet state is not implemented yet",
-                ));
-            }
+            "probability" => StateQuery::Probability,
             _ => {
                 return Err(PyValueError::new_err(format!(
                     "unsupported state query: {kind}"
@@ -65,7 +63,7 @@ pub(crate) fn _tensor_network_state_query<'py>(
     let program = adaptive_program_from_pydict::<u64>(input)?;
     let prepared = PreparedAdaptiveProgram::new(program)
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let values = evaluate_state_queries(&prepared, &state_queries, None, method)
+    let values = evaluate_state_queries(&prepared, &state_queries, outcomes.as_deref(), method)
         .map_err(state_query_error)?;
     let results = PyList::empty(py);
     for value in values {
