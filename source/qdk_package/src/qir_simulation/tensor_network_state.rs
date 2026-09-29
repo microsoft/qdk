@@ -65,12 +65,13 @@ pub(crate) fn _tensor_network_state_query<'py>(
     let program = adaptive_program_from_pydict::<u64>(input)?;
     let prepared = PreparedAdaptiveProgram::new(program)
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let values =
-        evaluate_state_queries(&prepared, &state_queries, method).map_err(state_query_error)?;
+    let values = evaluate_state_queries(&prepared, &state_queries, None, method)
+        .map_err(state_query_error)?;
     let results = PyList::empty(py);
     for value in values {
         match value {
             StateQueryValue::Expectation(value) => results.append(value)?,
+            StateQueryValue::Probability(probability) => results.append(probability)?,
             StateQueryValue::Cost(cost) => results.append(mps_cost_dict(py, cost)?)?,
         }
     }
