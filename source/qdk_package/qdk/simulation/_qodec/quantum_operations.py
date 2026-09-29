@@ -17,9 +17,17 @@ class RestoreMeasured:
 
 @dataclass(frozen=True)
 class Operation:
+    """A primitive physical operation.
+
+    ``noiseless`` marks gates the pipeline adds to implement an action, such as
+    the basis change around a non-Z measurement. They model no physical gate,
+    so backends apply them exactly and sample no noise for them.
+    """
+
     name: str
     targets: tuple[int | LogicalSlot, ...]
     angle: float | str | None = None
+    noiseless: bool = False
 
 
 @dataclass(frozen=True)

@@ -129,6 +129,15 @@ class PhysicalEngine:
         if target not in self._lost:
             self._inner.apply(pauli, (target,))
 
+    def apply_noiseless(
+        self, operation: str, targets: Sequence[int], *, angle: float | None = None
+    ) -> None:
+        """Apply a pipeline-internal gate exactly; it is skipped if any target is lost."""
+        if self._closed:
+            raise RuntimeError("physical engine is closed")
+        if not any(target in self._lost for target in targets):
+            self._inner.apply(operation, targets, angle=angle)
+
     def peek_loss(self, target: int) -> bool:
         return target in self._lost
 

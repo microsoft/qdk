@@ -24,13 +24,14 @@ def _basis(operator: DensePauli) -> tuple[Operation, ...]:
     operations = []
     for target in operator.support:
         if operator[target] == "Y":
-            operations.append(Operation("s_adj", (target,)))
+            operations.append(Operation("s_adj", (target,), noiseless=True))
         if operator[target] in ("X", "Y"):
-            operations.append(Operation("h", (target,)))
+            operations.append(Operation("h", (target,), noiseless=True))
     if operator.support:
         pivot = operator.support[-1]
         operations.extend(
-            Operation("cx", (target, pivot)) for target in operator.support[:-1]
+            Operation("cx", (target, pivot), noiseless=True)
+            for target in operator.support[:-1]
         )
     return tuple(operations)
 
@@ -38,7 +39,9 @@ def _basis(operator: DensePauli) -> tuple[Operation, ...]:
 def _undo(operations: Sequence[Operation]) -> Requests[None]:
     for operation in reversed(operations):
         yield Operation(
-            "s" if operation.name == "s_adj" else operation.name, operation.targets
+            "s" if operation.name == "s_adj" else operation.name,
+            operation.targets,
+            noiseless=True,
         )
 
 
@@ -70,7 +73,11 @@ def _recovery(
         x_bit, z_bit = values.get(2 * target, False), values.get(2 * target + 1, False)
         if x_bit or z_bit:
             operations.append(
-                Operation("y" if x_bit and z_bit else "x" if x_bit else "z", (target,))
+                Operation(
+                    "y" if x_bit and z_bit else "x" if x_bit else "z",
+                    (target,),
+                    noiseless=True,
+                )
             )
     return tuple(operations)
 
@@ -128,7 +135,7 @@ def lower_instrument(instrument: Instrument) -> Requests[Readouts]:
                 target = operator.support[0]
                 yield Operation("prepare", (target,))
                 if operator.phase == -1:
-                    yield Operation("x", (target,))
+                    yield Operation("x", (target,), noiseless=True)
             else:
                 (value,) = yield from lower_instrument(Observation(operator))
                 if value is None:
@@ -168,4 +175,5 @@ def lower_program(program: ActionProgram, qubits: Sequence[int]) -> Requests[Rea
                         operation.name,
                         tuple(qubits[index] for index in local_indices(operation)),
                         operation.angle,
+                        operation.noiseless,
                     )

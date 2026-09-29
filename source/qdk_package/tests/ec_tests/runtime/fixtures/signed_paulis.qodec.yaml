@@ -1,0 +1,106 @@
+# signed_paulis — single-file qodec bundle.
+#
+# One unencoded qubit whose physical instructions prepare and measure every
+# signed single-qubit Pauli. The runtime realizes them with noiseless basis
+# changes around its native Z-basis reset and measurement.
+---
+qodec.yaml:
+  name: signed_paulis
+  description: Unencoded qubit with signed single-qubit Pauli preparations and measurements.
+  layers:
+    - instruction_set: logical.isa.yaml
+      codes:
+        data: unencoded.code.yaml
+      gadgets:
+        prepare_z: prepare_z.gadget.yaml
+        prepare_x: prepare_x.gadget.yaml
+        prepare_minus_x: prepare_minus_x.gadget.yaml
+        prepare_y: prepare_y.gadget.yaml
+        prepare_minus_y: prepare_minus_y.gadget.yaml
+        measure_z: measure_z.gadget.yaml
+        measure_minus_z: measure_minus_z.gadget.yaml
+        measure_x: measure_x.gadget.yaml
+        measure_minus_x: measure_minus_x.gadget.yaml
+        measure_y: measure_y.gadget.yaml
+        measure_minus_y: measure_minus_y.gadget.yaml
+    - instruction_set: physical.isa.yaml
+---
+logical.isa.yaml:
+  name: logical
+  description: Signed single-qubit Pauli preparations and measurements.
+  blocks: {data: 1}
+  instructions:
+    - {mnemonic: prepare_z, description: Prepare |0>., out: [data], action: [stabilize: Z_0]}
+    - {mnemonic: prepare_x, description: Reset to |+>., in: [data], out: [data], action: [stabilize: X_0]}
+    - {mnemonic: prepare_minus_x, description: Reset to |->., in: [data], out: [data], action: [stabilize: -X_0]}
+    - {mnemonic: prepare_y, description: Reset to |+i>., in: [data], out: [data], action: [stabilize: Y_0]}
+    - {mnemonic: prepare_minus_y, description: Reset to |-i>., in: [data], out: [data], action: [stabilize: -Y_0]}
+    - {mnemonic: measure_z, description: Measure Z., in: [data], action: [observe: Z_0]}
+    - {mnemonic: measure_minus_z, description: Measure -Z., in: [data], action: [observe: -Z_0]}
+    - {mnemonic: measure_x, description: Measure X., in: [data], action: [observe: X_0]}
+    - {mnemonic: measure_minus_x, description: Measure -X., in: [data], action: [observe: -X_0]}
+    - {mnemonic: measure_y, description: Measure Y., in: [data], action: [observe: Y_0]}
+    - {mnemonic: measure_minus_y, description: Measure -Y., in: [data], action: [observe: -Y_0]}
+---
+physical.isa.yaml:
+  name: physical
+  description: Destructive signed single-qubit Pauli resets and measurements.
+  blocks: {qubit: 1}
+  instructions:
+    - {mnemonic: R, description: Reset to |0>., out: [qubit], action: [stabilize: Z_0]}
+    - {mnemonic: RX, description: Reset to |+>., out: [qubit], action: [stabilize: X_0]}
+    - {mnemonic: RX_NEG, description: Reset to |->., out: [qubit], action: [stabilize: -X_0]}
+    - {mnemonic: RY, description: Reset to |+i>., out: [qubit], action: [stabilize: Y_0]}
+    - {mnemonic: RY_NEG, description: Reset to |-i>., out: [qubit], action: [stabilize: -Y_0]}
+    - {mnemonic: M, description: Measure Z., in: [qubit], action: [observe: Z_0]}
+    - {mnemonic: M_NEG, description: Measure -Z., in: [qubit], action: [observe: -Z_0]}
+    - {mnemonic: MX, description: Measure X., in: [qubit], action: [observe: X_0]}
+    - {mnemonic: MX_NEG, description: Measure -X., in: [qubit], action: [observe: -X_0]}
+    - {mnemonic: MY, description: Measure Y., in: [qubit], action: [observe: Y_0]}
+    - {mnemonic: MY_NEG, description: Measure -Y., in: [qubit], action: [observe: -Y_0]}
+---
+unencoded.code.yaml:
+  name: unencoded
+  description: A single physical qubit.
+  stabilizers: []
+  x: [X_0]
+  z: [Z_0]
+---
+prepare_z.gadget.yaml:
+  circuit: {source: [{R: [0]}]}
+---
+prepare_x.gadget.yaml:
+  circuit: {source: [{RX: [0]}]}
+---
+prepare_minus_x.gadget.yaml:
+  circuit: {source: [{RX_NEG: [0]}]}
+---
+prepare_y.gadget.yaml:
+  circuit: {source: [{RY: [0]}]}
+---
+prepare_minus_y.gadget.yaml:
+  circuit: {source: [{RY_NEG: [0]}]}
+---
+measure_z.gadget.yaml:
+  circuit: {source: [{M: [0]}]}
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+---
+measure_minus_z.gadget.yaml:
+  circuit: {source: [{M_NEG: [0]}]}
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+---
+measure_x.gadget.yaml:
+  circuit: {source: [{MX: [0]}]}
+  readouts: [["circuit.readouts[0]", "in[0].x[0]"]]
+---
+measure_minus_x.gadget.yaml:
+  circuit: {source: [{MX_NEG: [0]}]}
+  readouts: [["circuit.readouts[0]", "in[0].x[0]"]]
+---
+measure_y.gadget.yaml:
+  circuit: {source: [{MY: [0]}]}
+  readouts: [["circuit.readouts[0]", "in[0].x[0]", "in[0].z[0]"]]
+---
+measure_minus_y.gadget.yaml:
+  circuit: {source: [{MY_NEG: [0]}]}
+  readouts: [["circuit.readouts[0]", "in[0].x[0]", "in[0].z[0]"]]

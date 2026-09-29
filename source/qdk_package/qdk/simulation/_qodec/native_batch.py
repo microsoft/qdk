@@ -19,6 +19,7 @@ from collections.abc import Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from itertools import product
+from math import pi
 from random import Random
 from typing import Literal, TypeVar, cast
 
@@ -104,6 +105,42 @@ _TABLE_WIDTHS = {
     name: 2 if name in ("cx", "cy", "cz", "swap") else 1 for name in _GATES
 }
 
+# The native simulator samples noise per instruction kind, so noiseless gates run
+# as rotations by multiples of pi/2, which the stabilizer simulator applies as
+# exact Cliffords. Traced physical gates never use rotations (the tracer rejects
+# angles) and `_native_noise` leaves the rotation tables empty. Each entry equals
+# its gate up to a global phase, in application order.
+_NOISELESS_GATES: dict[str, tuple[tuple[QirInstructionId, float], ...]] = {
+    "x": ((QirInstructionId.RX, pi),),
+    "y": ((QirInstructionId.RY, pi),),
+    "z": ((QirInstructionId.RZ, pi),),
+    "h": ((QirInstructionId.RZ, pi), (QirInstructionId.RY, pi / 2)),
+    "s": ((QirInstructionId.RZ, pi / 2),),
+    "s_adj": ((QirInstructionId.RZ, -pi / 2),),
+}
+
+
+def _native_instructions(
+    instructions: Sequence[tuple[object, ...]], noiseless: frozenset[int]
+) -> list[QirInstruction]:
+    """The traced instructions, with noiseless gates as exact rotations."""
+    if not noiseless:
+        return cast(list[QirInstruction], list(instructions))
+    native: list[tuple[object, ...]] = []
+    for position, instruction in enumerate(instructions):
+        if position not in noiseless:
+            native.append(instruction)
+            continue
+        opcode, target = instruction
+        rotations = next(
+            rotations
+            for name, rotations in _NOISELESS_GATES.items()
+            if _GATES[name] == opcode
+        )
+        native.extend((rotation, angle, target) for rotation, angle in rotations)
+    return cast(list[QirInstruction], native)
+
+
 # Bounds the native qubits added to stand in for discarded qubits reused
 # without a preparation under reset noise.
 _MAX_FRESH_QUBITS = 1024
@@ -161,6 +198,7 @@ class NativeBatch:
     decoders: tuple[_DecodingTable, ...]
     outputs: tuple[OutputRecordValue | _Readout, ...]
     frames: tuple[tuple[int, int, str], ...] = ()
+    noiseless: frozenset[int] = frozenset()
 
     def run(
         self,
@@ -173,7 +211,7 @@ class NativeBatch:
         physical = cast(
             list[list[Result]],
             run_clifford(
-                cast(list[QirInstruction], list(self.instructions)),
+                _native_instructions(self.instructions, self.noiseless),
                 self.num_qubits,
                 self.num_measurements,
                 shots,
@@ -234,6 +272,8 @@ class _RecordingBackend:
     def __init__(self, noise: NoiseConfig | None) -> None:
         self.noise = noise
         self.instructions: list[tuple[object, ...]] = []
+        # Positions of pipeline-internal gates, which run without noise.
+        self.noiseless: set[int] = set()
         # Frame updates reached during tracing, as (position, qubit, pauli).
         self.frames: list[tuple[int, int, str]] = []
         self.num_qubits = 0
@@ -278,6 +318,8 @@ class _RecordingBackend:
             raise _NotBatchable
         if len(self.instructions) >= 100_000 or request.angle is not None:
             raise _NotBatchable
+        if request.noiseless and request.name in ("prepare", "measure", "discard"):
+            raise ValueError(f"Operation {request.name!r} cannot be noiseless")
         targets = local_indices(request)
         if request.name == "discard" and self.noisy_reset:
             self.pending.add(targets[0])
@@ -295,7 +337,12 @@ class _RecordingBackend:
         else:
             if request.name not in _GATES:
                 raise _NotBatchable
-            self._check_noise(request.name, len(targets))
+            if request.noiseless:
+                if request.name not in _NOISELESS_GATES:
+                    raise _NotBatchable
+                self.noiseless.add(len(self.instructions))
+            else:
+                self._check_noise(request.name, len(targets))
             self.instructions.append(
                 (_GATES[request.name], *(self._target(target) for target in targets))
             )
@@ -722,6 +769,7 @@ class CircuitTrace:
     sources: tuple[tuple[int, int], ...]
     outputs: tuple[OutputRecordValue | _Readout, ...]
     frames: tuple[tuple[int, int, str], ...] = ()
+    noiseless: frozenset[int] = frozenset()
 
     def sample(
         self, shots: int, noise: NoiseConfig | None, *, seed: int
@@ -730,7 +778,7 @@ class CircuitTrace:
         return cast(
             list[list[Result]],
             run_clifford(
-                cast(list[QirInstruction], list(self.instructions)),
+                _native_instructions(self.instructions, self.noiseless),
                 self.num_qubits,
                 self.num_measurements,
                 shots,
@@ -963,6 +1011,7 @@ def _trace_tables(
         tuple(decoder.decoders),
         _outputs(*traced, resolve),
         tuple(backend.frames),
+        frozenset(backend.noiseless),
     )
 
 
@@ -988,4 +1037,5 @@ def _trace_circuit(
         tuple(layer.sources),
         _outputs(*traced, range(len(layer.sources))),
         tuple(backend.frames),
+        frozenset(backend.noiseless),
     )

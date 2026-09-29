@@ -167,3 +167,70 @@ def test_trace_out_does_not_export_a_measurement_or_preserve_entanglement():
         finally:
             engine.close()
     assert outcomes == {0, 1}
+
+
+@pytest.mark.parametrize("operator", ["X_0", "-X_0", "Y_0", "-Y_0", "Z_0", "-Z_0"])
+def test_single_qubit_pauli_actions_lower_to_noiseless_basis_changes(operator):
+    import qodec
+    from qodec.actions import Observe, Stabilize
+    from qodec.instructions import BlockOperand
+
+    from qdk.simulation._qodec.instruction_set import action_operations
+
+    qubit = BlockOperand("qubit")
+    negated = operator[1:] if operator.startswith("-") else f"-{operator}"
+    prepare = action_operations(
+        qodec.Instruction("prepare", outputs=[qubit], action=[Stabilize([operator])])
+    )
+    observe = {
+        observable: action_operations(
+            qodec.Instruction(
+                "observe",
+                inputs=[qubit],
+                outputs=[qubit],
+                action=[Observe([observable])],
+            )
+        )
+        for observable in (operator, negated)
+    }
+    for operation in (*prepare, *observe[operator], *observe[negated]):
+        assert operation.noiseless == (operation.name not in ("prepare", "measure"))
+
+    engine = FullStateEngine(1, seed=7)
+    try:
+        engine.apply("ry", (0,), angle=0.37)
+        for operation in prepare:
+            execute(engine, operation)
+        state = np.asarray(engine.state())
+        assert np.allclose(pauli_matrix(pauli(operator, 1)) @ state, state)
+        for observable, outcome in ((operator, False), (negated, True)):
+            readouts = [
+                readout
+                for operation in observe[observable]
+                for readout in execute(engine, operation)
+            ]
+            assert readouts == [outcome]
+    finally:
+        engine.close()
+
+
+def test_instrument_lowering_draws_noise_only_from_preparations_and_measurements():
+    from qdk.simulation._qodec.quantum_lowering import lower_instrument
+
+    operations = []
+    for seed in range(10):
+        engine = FullStateEngine(3, seed=seed)
+        try:
+
+            def respond(operation):
+                operations.append(operation)
+                return execute(engine, operation)
+
+            drive(lower_instrument(Observation(pauli("-X_0 Y_1", 3))), respond)
+            stabilizers = (pauli("X_0 X_1", 3), pauli("-Z_0 Z_1", 3))
+            drive(lower_instrument(Stabilization(stabilizers)), respond)
+        finally:
+            engine.close()
+    assert {op.name for op in operations if not op.noiseless} == {"measure"}
+    # Some seeds need a recovery, which must be noiseless as well.
+    assert any(op.name in ("x", "y", "z") for op in operations)

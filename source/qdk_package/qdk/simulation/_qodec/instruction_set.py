@@ -43,78 +43,136 @@ def action_semantics(
 ) -> tuple[Operation | CliffordUnitary, ...]:
     if width is None:
         width = max(len(instruction.inputs), len(instruction.outputs))
+    _require_static_parameters(instruction)
+    return tuple(
+        step
+        for action in instruction.action
+        for step in _action_semantics(action, width)
+    )
+
+
+def _require_static_parameters(instruction: Instruction) -> None:
     if any(parameter.kind.value == "pauli" for parameter in instruction.parameters):
         raise NotImplementedError(
             "Parameterized Pauli actions require call-time interpretation"
         )
+
+
+def _action_semantics(
+    action: object, width: int
+) -> tuple[Operation | CliffordUnitary, ...]:
     operations: list[Operation | CliffordUnitary] = []
-    for action in instruction.action:
-        if getattr(action, "condition", None) is not None:
-            raise NotImplementedError(
-                "Conditional ISA actions need a classical action runtime"
-            )
-        if isinstance(action, actions.Clifford):
-            operations.append(clifford_tableau(action.generators, width))
-        elif isinstance(action, actions.Pauli):
-            operator = pauli(action.operator)
-            operations.extend(
-                Operation(operator[index].lower(), (index,))
-                for index in operator.support
-            )
-        elif isinstance(action, (actions.Stabilize, actions.Observe)):
-            preparing = isinstance(action, actions.Stabilize)
-            operators = (
-                action.operators
-                if isinstance(action, actions.Stabilize)
-                else action.observables
-            )
-            for expression in operators:
-                operator = pauli(expression)
-                targets = tuple(operator.support)
-                if isinstance(action, actions.Stabilize) and any(
-                    target >= width for target in targets
-                ):
-                    raise NotImplementedError(
-                        "Semantic temporaries require the action runtime"
-                    )
-                if (
-                    len(targets) != 1
-                    or operator[targets[0]] != "Z"
-                    or operator.phase != 1
-                ):
-                    raise NotImplementedError(
-                        "Preparation and observation require a single positive Z operator"
-                    )
-                operations.append(
-                    Operation("prepare" if preparing else "measure", targets)
-                )
-        elif isinstance(action, actions.Rotate):
-            operator = pauli(action.pauli)
+    if getattr(action, "condition", None) is not None:
+        raise NotImplementedError(
+            "Conditional ISA actions need a classical action runtime"
+        )
+    if isinstance(action, actions.Clifford):
+        operations.append(clifford_tableau(action.generators, width))
+    elif isinstance(action, actions.Pauli):
+        operator = pauli(action.operator)
+        operations.extend(
+            Operation(operator[index].lower(), (index,)) for index in operator.support
+        )
+    elif isinstance(action, (actions.Stabilize, actions.Observe)):
+        preparing = isinstance(action, actions.Stabilize)
+        operators = (
+            action.operators
+            if isinstance(action, actions.Stabilize)
+            else action.observables
+        )
+        for expression in operators:
+            operator = pauli(expression)
             targets = tuple(operator.support)
-            bases = {operator[index] for index in targets}
-            if len(targets) not in (1, 2) or len(bases) != 1 or operator.phase != 1:
+            if isinstance(action, actions.Stabilize) and any(
+                target >= width for target in targets
+            ):
                 raise NotImplementedError(
-                    "Rotations require one or two equal positive Pauli axes"
+                    "Semantic temporaries require the action runtime"
                 )
-            axis = operator[targets[0]].lower()
-            operations.append(
-                Operation("r" + axis * len(targets), targets, action.angle)
-            )
-        else:
+            if len(targets) != 1 or operator[targets[0]] != "Z" or operator.phase != 1:
+                raise NotImplementedError(
+                    "Preparation and observation require a single positive Z operator"
+                )
+            operations.append(Operation("prepare" if preparing else "measure", targets))
+    elif isinstance(action, actions.Rotate):
+        operator = pauli(action.pauli)
+        targets = tuple(operator.support)
+        bases = {operator[index] for index in targets}
+        if len(targets) not in (1, 2) or len(bases) != 1 or operator.phase != 1:
             raise NotImplementedError(
-                f"Unsupported ISA action: {type(action).__name__}"
+                "Rotations require one or two equal positive Pauli axes"
             )
+        axis = operator[targets[0]].lower()
+        operations.append(Operation("r" + axis * len(targets), targets, action.angle))
+    else:
+        raise NotImplementedError(f"Unsupported ISA action: {type(action).__name__}")
+    return tuple(operations)
+
+
+# Noiseless gates mapping each single-qubit Pauli axis to Z, before a Z measurement.
+_TO_Z_BASIS = {"X": ("h",), "Y": ("s_adj", "h"), "Z": ()}
+_ADJOINTS = {"h": "h", "s_adj": "s", "s": "s_adj"}
+
+
+def _single_qubit_pauli_operations(
+    action: object, width: int
+) -> tuple[Operation, ...] | None:
+    """Lower preparations and measurements of signed single-qubit Paulis.
+
+    The native preparation and measurement act in the Z basis. A noiseless
+    basis change and, for a negative sign, a noiseless X around them realize
+    any other single-qubit Pauli, so only the native operation samples noise.
+    Returns ``None`` for actions this lowering does not cover.
+    """
+    if not isinstance(action, (actions.Stabilize, actions.Observe)):
+        return None
+    if getattr(action, "condition", None) is not None:
+        return None
+    preparing = isinstance(action, actions.Stabilize)
+    expressions = action.operators if preparing else action.observables
+    operations: list[Operation] = []
+    prepared: set[int] = set()
+    for expression in expressions:
+        operator = pauli(expression)
+        if len(operator.support) != 1 or operator.phase not in (1, -1):
+            return None
+        (target,) = operator.support
+        if target >= width or target in prepared:
+            return None
+        to_z = [
+            Operation(name, (target,), noiseless=True)
+            for name in _TO_Z_BASIS[operator[target]]
+        ]
+        from_z = [
+            Operation(_ADJOINTS[step.name], step.targets, noiseless=True)
+            for step in reversed(to_z)
+        ]
+        sign = (
+            [Operation("x", (target,), noiseless=True)] if operator.phase == -1 else []
+        )
+        if preparing:
+            prepared.add(target)
+            operations += [Operation("prepare", (target,)), *sign, *from_z]
+        else:
+            operations += [*to_z, *sign, Operation("measure", (target,)), *sign]
+            operations += from_z
     return tuple(operations)
 
 
 def action_operations(instruction: Instruction) -> tuple[Operation, ...]:
-    return tuple(
-        operation
-        for step in action_semantics(instruction)
-        for operation in (
-            lower_clifford(step) if isinstance(step, CliffordUnitary) else (step,)
-        )
-    )
+    width = max(len(instruction.inputs), len(instruction.outputs))
+    _require_static_parameters(instruction)
+    operations: list[Operation] = []
+    for action in instruction.action:
+        lowered = _single_qubit_pauli_operations(action, width)
+        if lowered is not None:
+            operations.extend(lowered)
+            continue
+        for step in _action_semantics(action, width):
+            operations.extend(
+                lower_clifford(step) if isinstance(step, CliffordUnitary) else (step,)
+            )
+    return tuple(operations)
 
 
 class InstructionSet:
@@ -492,7 +550,9 @@ class InstructionRuntime:
                 targets.append(block.qubits[slot.index])
             if request.name == "discard":
                 return ()
-            readouts = yield Operation(request.name, tuple(targets), request.angle)
+            readouts = yield Operation(
+                request.name, tuple(targets), request.angle, request.noiseless
+            )
             if readouts is None:
                 raise TypeError("Instruction execution must return a readout tuple")
             return readouts
@@ -553,7 +613,9 @@ class InstructionRuntime:
                     )
                     if angle is not None and not isinstance(angle, (int, float)):
                         raise TypeError("Physical rotation angles must be numeric")
-                    readouts = yield Operation(operation.name, operands, angle)
+                    readouts = yield Operation(
+                        operation.name, operands, angle, operation.noiseless
+                    )
                     if readouts is None:
                         raise TypeError(
                             "Instruction execution must return a readout tuple"

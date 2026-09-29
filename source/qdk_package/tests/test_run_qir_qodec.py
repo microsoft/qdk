@@ -741,6 +741,105 @@ def test_frame_gadgets_apply_logical_paulis_noiselessly(tmp_path, options):
     )
 
 
+# (program, whether the final measurement reports One)
+_SIGNED_PAULIS = [
+    ("measure_z(q)", False),
+    ("measure_minus_z(q)", True),
+    ("prepare_x(q); measure_x(q)", False),
+    ("prepare_x(q); measure_minus_x(q)", True),
+    ("prepare_minus_x(q); measure_x(q)", True),
+    ("prepare_minus_x(q); measure_minus_x(q)", False),
+    ("prepare_y(q); measure_y(q)", False),
+    ("prepare_y(q); measure_minus_y(q)", True),
+    ("prepare_minus_y(q); measure_y(q)", True),
+    ("prepare_minus_y(q); measure_minus_y(q)", False),
+]
+
+
+def _signed_pauli_qir(program):
+    from qdk import TargetProfile, qsharp
+
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    for basis in ("x", "minus_x", "y", "minus_y"):
+        qsharp.eval(
+            f"operation prepare_{basis}(q : Qubit) : Unit {{ body intrinsic; }}"
+        )
+    for basis in ("z", "minus_z", "x", "minus_x", "y", "minus_y"):
+        qsharp.eval(
+            "@Measurement() "
+            f"operation measure_{basis}(q : Qubit) : Result {{ body intrinsic; }}"
+        )
+    return qsharp.compile(f"{{ use q = Qubit(); {program} }}")
+
+
+def _basis_change_detecting_noise():
+    # Every noisy basis change or sign flip would lose its qubit.
+    noise = NoiseConfig()
+    for table in (noise.h, noise.s, noise.s_adj, noise.x):
+        table.loss = 1
+    return noise
+
+
+@pytest.mark.parametrize("options", _EXECUTION_PATHS)
+@pytest.mark.parametrize("program, one", _SIGNED_PAULIS)
+def test_signed_single_qubit_paulis_use_noiseless_basis_changes(program, one, options):
+    qodec = pytest.importorskip("qodec")
+    from ec_tests.runtime import FIXTURES
+    from qdk import Result
+
+    codec = qodec.Qodec.load(str(FIXTURES / "signed_paulis.qodec.yaml"))
+    qir = _signed_pauli_qir(program)
+    noise = _basis_change_detecting_noise()
+
+    assert (
+        run_qir(qir, shots=5, seed=7, noise=noise, qodec=codec, **options)
+        == [Result.One if one else Result.Zero] * 5
+    )
+
+
+@pytest.mark.parametrize("program, one", _SIGNED_PAULIS)
+def test_deq_decodes_signed_single_qubit_pauli_measurements(program, one):
+    qodec = pytest.importorskip("qodec")
+    pytest.importorskip("deq")
+    pytest.importorskip("deq_runtime")
+    from ec_tests.runtime import FIXTURES
+    from qdk import Result
+    from qdk.simulation.decoders import prepare_deq_decoder
+
+    codec = qodec.Qodec.load(str(FIXTURES / "signed_paulis.qodec.yaml"))
+    qir = _signed_pauli_qir(program)
+
+    assert (
+        run_qir(
+            qir,
+            shots=5,
+            seed=7,
+            noise=_basis_change_detecting_noise(),
+            qodec=codec,
+            decoder=prepare_deq_decoder,
+            on_shot_failure="raise",
+        )
+        == [Result.One if one else Result.Zero] * 5
+    )
+
+
+def test_single_qubit_pauli_measurements_skip_the_per_shot_interpreter(monkeypatch):
+    qodec = pytest.importorskip("qodec")
+    from ec_tests.runtime import FIXTURES
+    from qdk import Result
+    from qdk.simulation._qodec._run import run_qir_with_qodec
+    from qdk.simulation._qodec.executor import Executor
+
+    def unexpected_shot(*args):
+        pytest.fail("Eligible shots must not enter the per-shot Python interpreter")
+
+    monkeypatch.setattr(Executor, "run", unexpected_shot)
+    codec = qodec.Qodec.load(str(FIXTURES / "signed_paulis.qodec.yaml"))
+    qir = _signed_pauli_qir("prepare_y(q); measure_minus_y(q)")
+
+    assert run_qir_with_qodec(qir, codec, None, shots=10, seed=7) == [Result.One] * 10
+
+
 def test_custom_decoder_changes_public_results_and_closes_each_shot():
     qodec = pytest.importorskip("qodec")
     pytest.importorskip("stim")

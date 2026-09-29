@@ -7,7 +7,7 @@ Flags use only local physical measurements and never receive frame corrections.
 
 from __future__ import annotations
 
-from collections.abc import Hashable, Iterable, Mapping, Sequence
+from collections.abc import Collection, Hashable, Iterable, Mapping, Sequence
 from contextlib import closing
 from dataclasses import dataclass
 from itertools import product
@@ -207,7 +207,9 @@ class _LibraryBuilder:
                     for qubit in range(backend.num_qubits)
                     if qubit not in occupied
                 ),
-                *_physical_instructions(backend.instructions, self.noise),
+                *_physical_instructions(
+                    backend.instructions, self.noise, backend.noiseless
+                ),
                 *(
                     circuit.OutputPort(code, port)
                     for code, port in zip(output_codes, outputs)
@@ -233,10 +235,12 @@ def _record_operations(
 
 
 def _physical_instructions(
-    instructions: Sequence[tuple[object, ...]], noise: NoiseConfig | None
+    instructions: Sequence[tuple[object, ...]],
+    noise: NoiseConfig | None,
+    noiseless: Collection[int] = (),
 ) -> Iterable[circuit.Instruction]:
     names = {"s_adj": "S_DAG", "sx": "SQRT_X", "sx_adj": "SQRT_X_DAG"}
-    for opcode, *operands in instructions:
+    for position, (opcode, *operands) in enumerate(instructions):
         if opcode in (QirInstructionId.MZ, QirInstructionId.RESET):
             gate = "M" if opcode == QirInstructionId.MZ else "R"
             name, targets = "mresetz", cast(list[int], operands[:1])
@@ -246,7 +250,7 @@ def _physical_instructions(
         yield circuit.Instruction(
             gate, targets=[circuit.QubitTarget(target) for target in targets]
         )
-        if noise is not None:
+        if noise is not None and position not in noiseless:
             for axes, probability in _channel(noise, name, len(targets)):
                 yield circuit.Instruction(
                     "CORRELATED_ERROR",

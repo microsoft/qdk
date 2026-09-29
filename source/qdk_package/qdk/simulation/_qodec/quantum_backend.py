@@ -57,7 +57,11 @@ class QuantumBackend:
         targets = local_indices(request)
         if isinstance(request.angle, str):
             raise TypeError("Physical operation angles must be numeric")
-        if request.name == "prepare":
+        if request.noiseless:
+            if request.name in ("prepare", "measure", "discard"):
+                raise ValueError(f"Operation {request.name!r} cannot be noiseless")
+            self.engine.apply_noiseless(request.name, targets, angle=request.angle)
+        elif request.name == "prepare":
             self.prepare(targets[0])
         elif request.name == "measure":
             return (self.measure(targets[0]),)
