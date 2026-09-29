@@ -21,7 +21,6 @@ if QISKIT_AVAILABLE:
     from qiskit.circuit import QuantumCircuit, Parameter
     from qiskit.circuit.library import RGQFTMultiplier
     from qdk.qiskit import ResourceEstimatorBackend
-    from qiskit.version import __version__ as QISKIT_VERSION
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -65,32 +64,17 @@ def test_estimate_qiskit_rgqft_multiplier() -> None:
     res = job.result()
     assert res["status"] == "success"
 
-    if QISKIT_VERSION.startswith("1."):
-        assert res.logical_counts == LogicalCounts(
-            {
-                "numQubits": 16,
-                "tCount": 90,
-                "rotationCount": 972,
-                "rotationDepth": 666,
-                "cczCount": 0,
-                "ccixCount": 0,
-                "measurementCount": 0,
-            }
-        )
-    elif QISKIT_VERSION.startswith("2."):
-        assert res.logical_counts == LogicalCounts(
-            {
-                "numQubits": 16,
-                "tCount": 154,
-                "rotationCount": 574,
-                "rotationDepth": 374,
-                "cczCount": 0,
-                "ccixCount": 0,
-                "measurementCount": 0,
-            }
-        )
-    else:
-        assert False, f"Unsupported Qiskit version {QISKIT_VERSION}."
+    assert res.logical_counts == LogicalCounts(
+        {
+            "numQubits": 16,
+            "tCount": 154,
+            "rotationCount": 574,
+            "rotationDepth": 374,
+            "cczCount": 0,
+            "ccixCount": 0,
+            "measurementCount": 0,
+        }
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -103,32 +87,17 @@ def test_estimate_qiskit_rgqft_multiplier_without_tranpspile() -> None:
     res = job.result()
     assert res["status"] == "success"
 
-    if QISKIT_VERSION.startswith("1."):
-        assert res.logical_counts == LogicalCounts(
-            {
-                "numQubits": 16,
-                "tCount": 76,
-                "rotationCount": 936,
-                "rotationDepth": 665,
-                "cczCount": 0,
-                "ccixCount": 0,
-                "measurementCount": 0,
-            }
-        )
-    elif QISKIT_VERSION.startswith("2."):
-        assert res.logical_counts == LogicalCounts(
-            {
-                "numQubits": 16,
-                "tCount": 140,
-                "rotationCount": 532,
-                "rotationDepth": 369,
-                "cczCount": 0,
-                "ccixCount": 0,
-                "measurementCount": 0,
-            }
-        )
-    else:
-        assert False, f"Unsupported Qiskit version {QISKIT_VERSION}."
+    assert res.logical_counts == LogicalCounts(
+        {
+            "numQubits": 16,
+            "tCount": 140,
+            "rotationCount": 532,
+            "rotationDepth": 369,
+            "cczCount": 0,
+            "ccixCount": 0,
+            "measurementCount": 0,
+        }
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -142,32 +111,17 @@ def test_estimate_qiskit_rgqft_multiplier_in_threadpool() -> None:
     res = job.result()
     assert res["status"] == "success"
 
-    if QISKIT_VERSION.startswith("1."):
-        assert res.logical_counts == LogicalCounts(
-            {
-                "numQubits": 16,
-                "tCount": 76,
-                "rotationCount": 936,
-                "rotationDepth": 665,
-                "cczCount": 0,
-                "ccixCount": 0,
-                "measurementCount": 0,
-            }
-        )
-    elif QISKIT_VERSION.startswith("2."):
-        assert res.logical_counts == LogicalCounts(
-            {
-                "numQubits": 16,
-                "tCount": 140,
-                "rotationCount": 532,
-                "rotationDepth": 369,
-                "cczCount": 0,
-                "ccixCount": 0,
-                "measurementCount": 0,
-            }
-        )
-    else:
-        assert False, f"Unsupported Qiskit version {QISKIT_VERSION}."
+    assert res.logical_counts == LogicalCounts(
+        {
+            "numQubits": 16,
+            "tCount": 140,
+            "rotationCount": 532,
+            "rotationDepth": 369,
+            "cczCount": 0,
+            "ccixCount": 0,
+            "measurementCount": 0,
+        }
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)

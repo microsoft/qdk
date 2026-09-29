@@ -189,17 +189,6 @@ course_notebook_tests_dir = os.path.join(
     qdk_src_dir, "vscode", "test", "course-notebooks"
 )
 
-QISKIT_VERSION_MATRIX = [
-    {
-        "label": "qiskit>=1.3.0,<2.0.0",
-        "requirements": ["qiskit>=1.3.0,<2.0.0"],
-    },
-    {
-        "label": "qiskit>=2.0.0,<3.0.0",
-        "requirements": ["qiskit>=2.0.0,<3.0.0"],
-    },
-]
-
 
 def run(cmd, cwd, env=None):
     subprocess.run(cmd, check=True, text=True, cwd=cwd, env=env)
@@ -444,7 +433,7 @@ if build_cli:
 def install_python_test_requirements(cwd, interpreter, check: bool = True):
     requirements_file_path = os.path.join(cwd, "test_requirements.txt")
     with open(requirements_file_path, "r", encoding="utf-8") as f:
-        # Skip empty or commented lines so version-specific packages can be injected separately.
+        # Skip empty or commented lines
         requirements = [
             line.strip()
             for line in f
@@ -589,25 +578,9 @@ if build_qdk:
             install_from_wheels(python_bin, "qdk", cwd=test_dir)
         step_end()
 
-        for version in QISKIT_VERSION_MATRIX:
-            step_start(
-                f"Running integration tests for the qdk package ({version['label']})"
-            )
-
-            version_install_args = [
-                python_bin,
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "--upgrade-strategy",
-                "eager",
-            ] + version["requirements"]
-            subprocess.run(version_install_args, check=True, text=True, cwd=test_dir)
-
-            run_python_integration_tests(test_dir, python_bin)
-
-            step_end()
+        step_start("Running integration tests for the qdk package")
+        run_python_integration_tests(test_dir, python_bin)
+        step_end()
 
 
 if args.course_notebook_tests:
@@ -794,72 +767,38 @@ if build_widgets and build_qdk and args.integration_tests:
         "pandas",
         "qutip",
         "pyqir",
+        "qiskit>=2.0.0,<3.0.0",
         cwd=root_dir,
         env=pip_env,
     )
 
-    qiskit_notebooks = [
-        notebook
-        for notebook in notebook_files
-        if (
-            "qiskit" in os.path.basename(notebook).lower()
-            or "estimation-openqasm" in os.path.basename(notebook).lower()
-        )
-    ]
-    other_notebooks = [
-        notebook for notebook in notebook_files if notebook not in qiskit_notebooks
-    ]
-
-    def _run_notebooks(files):
-        for notebook in files:
-            print(f"Running {notebook}")
-            # Run the notebook process, capturing stdout and only displaying it if there is an error
-            result = subprocess.run(
-                [
-                    python_bin,
-                    "-m",
-                    "nbconvert",
-                    "--to",
-                    "notebook",
-                    "--stdout",
-                    "--ExecutePreprocessor.timeout=90",
-                    "--sanitize-html",
-                    "--execute",
-                    notebook,
-                ],
-                check=False,
-                text=True,
-                cwd=root_dir,
-                env=pip_env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-            )
-            if result.returncode != 0:
-                print(result.stdout)
-                raise Exception(f"Error running {notebook}")
-
-    if other_notebooks:
-        print("Executing notebooks")
-        _run_notebooks(other_notebooks)
-
-    if qiskit_notebooks:
-        for version in QISKIT_VERSION_MATRIX:
-            print(f"Executing Qiskit notebooks with {version['label']}")
-            version_install_args = [
+    for notebook in notebook_files:
+        print(f"Running {notebook}")
+        # Run the notebook process, capturing stdout and only displaying it if there is an error
+        result = subprocess.run(
+            [
                 python_bin,
                 "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "--upgrade-strategy",
-                "eager",
-            ] + version["requirements"]
-            subprocess.run(
-                version_install_args, check=True, text=True, cwd=root_dir, env=pip_env
-            )
-
-            _run_notebooks(qiskit_notebooks)
+                "nbconvert",
+                "--to",
+                "notebook",
+                "--stdout",
+                "--ExecutePreprocessor.timeout=90",
+                "--sanitize-html",
+                "--execute",
+                notebook,
+            ],
+            check=False,
+            text=True,
+            cwd=root_dir,
+            env=pip_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            encoding="utf-8",
+        )
+        if result.returncode != 0:
+            print(result.stdout)
+            raise Exception(f"Error running {notebook}")
 
     step_end()
 
