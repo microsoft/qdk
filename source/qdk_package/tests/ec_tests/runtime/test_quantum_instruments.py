@@ -234,3 +234,85 @@ def test_instrument_lowering_draws_noise_only_from_preparations_and_measurements
     assert {op.name for op in operations if not op.noiseless} == {"measure"}
     # Some seeds need a recovery, which must be noiseless as well.
     assert any(op.name in ("x", "y", "z") for op in operations)
+
+
+def entangled_start(seed):
+    engine = FullStateEngine(3, seed=seed)
+    for target in range(3):
+        engine.apply("ry", (target,), angle=0.37 + target * 0.2)
+    engine.apply("cx", (1, 2))
+    return engine
+
+
+@pytest.mark.parametrize(
+    "axis", ["X_0 X_1", "-X_0 Y_1", "Y_0 Z_2", "-Z_0 Z_1 Z_2", "Y_2"]
+)
+def test_static_observations_match_projective_measurement(axis):
+    from qdk.simulation._qodec.quantum_lowering import static_observation
+
+    operator = pauli(axis, 3)
+    operations = static_observation(operator)
+    assert all(op.noiseless == (op.name != "measure") for op in operations)
+    for seed in range(5):
+        engine = entangled_start(seed)
+        try:
+            before = np.asarray(engine.state())
+            (outcome,) = [
+                readout
+                for operation in operations
+                for readout in execute(engine, operation)
+            ]
+            projected = (
+                before + (-1 if outcome else 1) * (pauli_matrix(operator) @ before)
+            ) / 2
+            assert np.linalg.norm(projected) > 0
+            assert_same_state(engine.state(), projected / np.linalg.norm(projected))
+        finally:
+            engine.close()
+
+
+@pytest.mark.parametrize(
+    "operators",
+    [
+        ("X_0 X_1", "Z_0 Z_1"),
+        ("X_0 X_1 X_2", "Z_0 Z_1", "Z_1 Z_2"),
+        ("X_0 Z_1", "Z_0 X_1 Z_2", "Z_1 X_2"),
+        ("-Y_0 Y_1", "Z_0 Z_1"),
+        ("-Z_0", "X_1"),
+        # Z_1 has Z on the pivot of X_0 Z_1, so its recovery is solved for.
+        ("Z_1", "X_0 Z_1"),
+        ("X_0 Z_1", "Z_1"),
+        ("X_0 X_1",),
+    ],
+)
+def test_static_stabilizations_prepare_every_constraint(operators):
+    from qdk.simulation._qodec.quantum_lowering import static_stabilization
+
+    prepared = tuple(pauli(operator, 3) for operator in operators)
+    operations = static_stabilization(prepared)
+    assert all(op.noiseless == (op.name != "prepare") for op in operations)
+    for seed in range(10):
+        engine = entangled_start(seed)
+        try:
+            assert all(execute(engine, op) == () for op in operations)
+            state = np.asarray(engine.state())
+            for operator in prepared:
+                assert np.allclose(pauli_matrix(operator) @ state, state)
+        finally:
+            engine.close()
+
+
+def test_static_stabilization_preserves_what_it_does_not_constrain():
+    from qdk.simulation._qodec.quantum_lowering import static_stabilization
+
+    # Projecting |+>|+> onto XX = +1 leaves it unchanged, so X_0 stays +1.
+    engine = FullStateEngine(2, seed=7)
+    try:
+        engine.apply("h", (0,))
+        engine.apply("h", (1,))
+        for operation in static_stabilization((pauli("X_0 X_1", 2),)):
+            execute(engine, operation)
+        state = np.asarray(engine.state())
+        assert np.allclose(pauli_matrix(pauli("X_0", 2)) @ state, state)
+    finally:
+        engine.close()

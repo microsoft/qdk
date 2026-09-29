@@ -30,7 +30,7 @@ from .protocols import Readouts, Request, Requests, Resources
 from .action_runtime import ActionProgram, prepare_actions, temporary_count
 from .call_binding import BoundCall, InstructionBinding
 from .physical_layout import PhysicalLayout
-from .quantum_lowering import lower_program
+from .quantum_lowering import lower_program, static_observation, static_stabilization
 from .selection import prepare_selection
 
 
@@ -109,20 +109,13 @@ def _action_semantics(
     return tuple(operations)
 
 
-# Noiseless gates mapping each single-qubit Pauli axis to Z, before a Z measurement.
-_TO_Z_BASIS = {"X": ("h",), "Y": ("s_adj", "h"), "Z": ()}
-_ADJOINTS = {"h": "h", "s_adj": "s", "s": "s_adj"}
+def _pauli_operations(action: object, width: int) -> tuple[Operation, ...] | None:
+    """Lower preparations and measurements of signed Pauli operators.
 
-
-def _single_qubit_pauli_operations(
-    action: object, width: int
-) -> tuple[Operation, ...] | None:
-    """Lower preparations and measurements of signed single-qubit Paulis.
-
-    The native preparation and measurement act in the Z basis. A noiseless
-    basis change and, for a negative sign, a noiseless X around them realize
-    any other single-qubit Pauli, so only the native operation samples noise.
-    Returns ``None`` for actions this lowering does not cover.
+    The native preparation and measurement act on one qubit in the Z basis.
+    Noiseless gates around them realize any other Pauli, so only the native
+    operation samples noise. Returns ``None`` for actions this lowering does not
+    cover, such as conditional actions, identities, and semantic temporaries.
     """
     if not isinstance(action, (actions.Stabilize, actions.Observe)):
         return None
@@ -130,33 +123,19 @@ def _single_qubit_pauli_operations(
         return None
     preparing = isinstance(action, actions.Stabilize)
     expressions = action.operators if preparing else action.observables
-    operations: list[Operation] = []
-    prepared: set[int] = set()
-    for expression in expressions:
-        operator = pauli(expression)
-        if len(operator.support) != 1 or operator.phase not in (1, -1):
-            return None
-        (target,) = operator.support
-        if target >= width or target in prepared:
-            return None
-        to_z = [
-            Operation(name, (target,), noiseless=True)
-            for name in _TO_Z_BASIS[operator[target]]
-        ]
-        from_z = [
-            Operation(_ADJOINTS[step.name], step.targets, noiseless=True)
-            for step in reversed(to_z)
-        ]
-        sign = (
-            [Operation("x", (target,), noiseless=True)] if operator.phase == -1 else []
-        )
-        if preparing:
-            prepared.add(target)
-            operations += [Operation("prepare", (target,)), *sign, *from_z]
-        else:
-            operations += [*to_z, *sign, Operation("measure", (target,)), *sign]
-            operations += from_z
-    return tuple(operations)
+    operators = [pauli(expression, width) for expression in expressions]
+    if any(
+        not operator.support or operator.phase not in (1, -1) or operator.size != width
+        for operator in operators
+    ):
+        return None
+    if preparing:
+        return static_stabilization(operators)
+    return tuple(
+        operation
+        for operator in operators
+        for operation in static_observation(operator)
+    )
 
 
 def action_operations(instruction: Instruction) -> tuple[Operation, ...]:
@@ -164,7 +143,7 @@ def action_operations(instruction: Instruction) -> tuple[Operation, ...]:
     _require_static_parameters(instruction)
     operations: list[Operation] = []
     for action in instruction.action:
-        lowered = _single_qubit_pauli_operations(action, width)
+        lowered = _pauli_operations(action, width)
         if lowered is not None:
             operations.extend(lowered)
             continue

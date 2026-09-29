@@ -36,13 +36,20 @@ def _basis(operator: DensePauli) -> tuple[Operation, ...]:
     return tuple(operations)
 
 
-def _undo(operations: Sequence[Operation]) -> Requests[None]:
-    for operation in reversed(operations):
-        yield Operation(
+def _adjoint(operations: Sequence[Operation]) -> tuple[Operation, ...]:
+    return tuple(
+        Operation(
             "s" if operation.name == "s_adj" else operation.name,
             operation.targets,
             noiseless=True,
         )
+        for operation in reversed(operations)
+    )
+
+
+def _undo(operations: Sequence[Operation]) -> Requests[None]:
+    for operation in _adjoint(operations):
+        yield operation
 
 
 def _commutation(operator: DensePauli, constant: bool = False) -> Parity:
@@ -79,6 +86,116 @@ def _recovery(
                     noiseless=True,
                 )
             )
+    return tuple(operations)
+
+
+_Bits = dict[int, tuple[bool, bool]]
+
+
+def _pauli_bits(operator: DensePauli) -> _Bits:
+    return {
+        target: (operator[target] in ("X", "Y"), operator[target] in ("Y", "Z"))
+        for target in operator.support
+    }
+
+
+def _correction_bits(correction: Sequence[Operation]) -> _Bits:
+    return {
+        local_indices(operation)[0]: (
+            operation.name in ("x", "y"),
+            operation.name in ("y", "z"),
+        )
+        for operation in correction
+    }
+
+
+def _conjugate(bits: _Bits, basis: Sequence[Operation]) -> _Bits:
+    """The (X, Z) bits of a Pauli after the basis change, up to sign."""
+    bits = dict(bits)
+    for operation in basis:
+        if operation.name == "cx":
+            control, target = local_indices(operation)
+            control_x, control_z = bits.get(control, (False, False))
+            target_x, target_z = bits.get(target, (False, False))
+            bits[control] = (control_x, control_z != target_z)
+            bits[target] = (target_x != control_x, target_z)
+            continue
+        (target,) = local_indices(operation)
+        x_bit, z_bit = bits.get(target, (False, False))
+        if operation.name == "h":
+            bits[target] = (z_bit, x_bit)
+        elif operation.name in ("s", "s_adj"):
+            bits[target] = (x_bit, z_bit != x_bit)
+        else:
+            raise ValueError(f"Unexpected basis change {operation.name!r}")
+    return bits
+
+
+def static_observation(operator: DensePauli) -> tuple[Operation, ...]:
+    """Measure a Hermitian Pauli with one Z measurement between noiseless gates.
+
+    A basis change maps the Pauli to Z on its last qubit, which is then measured;
+    a negative sign flips that qubit around the measurement.
+    """
+    if not operator.support or operator.phase not in (1, -1):
+        raise ValueError("A static observation requires a nonidentity Hermitian Pauli")
+    basis = _basis(operator)
+    pivot = operator.support[-1]
+    sign = (Operation("x", (pivot,), noiseless=True),) if operator.phase == -1 else ()
+    return (
+        *basis,
+        *sign,
+        Operation("measure", (pivot,)),
+        *sign,
+        *_adjoint(basis),
+    )
+
+
+def static_stabilization(operators: Sequence[DensePauli]) -> tuple[Operation, ...]:
+    """Prepare each Pauli's +1 eigenspace without branching on an outcome.
+
+    Measuring a Pauli and applying a recovery when its outcome is -1 equals, as a
+    channel, the following fixed sequence: map the Pauli to Z on its last qubit,
+    apply the rest of the recovery controlled on that qubit, and reset it. Every
+    gate is noiseless, so only the reset samples noise.
+    """
+    operations: list[Operation] = []
+    previous: list[DensePauli] = []
+    for operator in operators:
+        if not operator.support or operator.phase not in (1, -1):
+            raise ValueError(
+                "A static stabilization requires nonidentity Hermitian Paulis"
+            )
+        basis = _basis(operator)
+        pivot = operator.support[-1]
+        # X on the pivot recovers unless it would disturb an earlier stabilizer.
+        correction: _Bits = {pivot: (True, False)}
+        if any(
+            constraint.commutes_with(operator)
+            and _conjugate(_pauli_bits(constraint), basis).get(pivot, (False, False))[1]
+            for constraint in previous
+        ):
+            correction = _conjugate(
+                _correction_bits(_recovery(operator, previous)), basis
+            )
+        if not correction.get(pivot, (False, False))[0]:
+            raise AssertionError("A recovery must anticommute with its Pauli")
+        controlled = [
+            Operation(
+                {(True, False): "cx", (False, True): "cz", (True, True): "cy"}[bits],
+                (pivot, target),
+                noiseless=True,
+            )
+            for target, bits in sorted(correction.items())
+            if target != pivot and any(bits)
+        ]
+        # A negative sign makes the pivot's |0> the outcome that needs recovery.
+        sign = (
+            [Operation("x", (pivot,), noiseless=True)] if operator.phase == -1 else []
+        )
+        operations += [*basis, *sign, *controlled, Operation("prepare", (pivot,))]
+        operations += [*sign, *_adjoint(basis)]
+        previous.append(operator)
     return tuple(operations)
 
 

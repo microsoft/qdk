@@ -1,12 +1,12 @@
 # signed_paulis — single-file qodec bundle.
 #
-# One unencoded qubit whose physical instructions prepare and measure every
-# signed single-qubit Pauli. The runtime realizes them with noiseless basis
+# Unencoded qubits whose physical instructions prepare and measure signed Pauli
+# products on up to three qubits. The runtime realizes them with noiseless basis
 # changes around its native Z-basis reset and measurement.
 ---
 qodec.yaml:
   name: signed_paulis
-  description: Unencoded qubit with signed single-qubit Pauli preparations and measurements.
+  description: Unencoded qubits with signed Pauli-product preparations and measurements.
   layers:
     - instruction_set: logical.isa.yaml
       codes:
@@ -23,11 +23,20 @@ qodec.yaml:
         measure_minus_x: measure_minus_x.gadget.yaml
         measure_y: measure_y.gadget.yaml
         measure_minus_y: measure_minus_y.gadget.yaml
+        measure_xx: measure_xx.gadget.yaml
+        measure_yy: measure_yy.gadget.yaml
+        measure_zz: measure_zz.gadget.yaml
+        measure_minus_xz: measure_minus_xz.gadget.yaml
+        measure_yyx: measure_yyx.gadget.yaml
+        prepare_bell: prepare_bell.gadget.yaml
+        prepare_ghz: prepare_ghz.gadget.yaml
+        project_xx: project_xx.gadget.yaml
+        prepare_plus_zero: prepare_plus_zero.gadget.yaml
     - instruction_set: physical.isa.yaml
 ---
 logical.isa.yaml:
   name: logical
-  description: Signed single-qubit Pauli preparations and measurements.
+  description: Signed Pauli-product preparations and measurements.
   blocks: {data: 1}
   instructions:
     - {mnemonic: prepare_z, description: Prepare |0>., out: [data], action: [stabilize: Z_0]}
@@ -41,6 +50,15 @@ logical.isa.yaml:
     - {mnemonic: measure_minus_x, description: Measure -X., in: [data], action: [observe: -X_0]}
     - {mnemonic: measure_y, description: Measure Y., in: [data], action: [observe: Y_0]}
     - {mnemonic: measure_minus_y, description: Measure -Y., in: [data], action: [observe: -Y_0]}
+    - {mnemonic: measure_xx, description: Measure XX., in: [data, data], action: [observe: X_0 X_1]}
+    - {mnemonic: measure_yy, description: Measure YY., in: [data, data], action: [observe: Y_0 Y_1]}
+    - {mnemonic: measure_zz, description: Measure ZZ., in: [data, data], action: [observe: Z_0 Z_1]}
+    - {mnemonic: measure_minus_xz, description: Measure -XZ., in: [data, data], action: [observe: -X_0 Z_1]}
+    - {mnemonic: measure_yyx, description: Measure YYX., in: [data, data, data], action: [observe: Y_0 Y_1 X_2]}
+    - {mnemonic: prepare_bell, description: Reset to a Bell state., in: [data, data], out: [data, data], action: [stabilize: [X_0 X_1, Z_0 Z_1]]}
+    - {mnemonic: prepare_ghz, description: Reset to a GHZ state., in: [data, data, data], out: [data, data, data], action: [stabilize: [X_0 X_1 X_2, Z_0 Z_1, Z_1 Z_2]]}
+    - {mnemonic: project_xx, description: Project onto XX = +1., in: [data, data], out: [data, data], action: [stabilize: X_0 X_1]}
+    - {mnemonic: prepare_plus_zero, description: Reset to |+0>., in: [data, data], out: [data, data], action: [stabilize: [Z_1, X_0 Z_1]]}
 ---
 physical.isa.yaml:
   name: physical
@@ -58,6 +76,15 @@ physical.isa.yaml:
     - {mnemonic: MX_NEG, description: Measure -X., in: [qubit], action: [observe: -X_0]}
     - {mnemonic: MY, description: Measure Y., in: [qubit], action: [observe: Y_0]}
     - {mnemonic: MY_NEG, description: Measure -Y., in: [qubit], action: [observe: -Y_0]}
+    - {mnemonic: MXX, description: Measure XX., in: [qubit, qubit], action: [observe: X_0 X_1]}
+    - {mnemonic: MYY, description: Measure YY., in: [qubit, qubit], action: [observe: Y_0 Y_1]}
+    - {mnemonic: MZZ, description: Measure ZZ., in: [qubit, qubit], action: [observe: Z_0 Z_1]}
+    - {mnemonic: MXZ_NEG, description: Measure -XZ., in: [qubit, qubit], action: [observe: -X_0 Z_1]}
+    - {mnemonic: MYYX, description: Measure YYX., in: [qubit, qubit, qubit], action: [observe: Y_0 Y_1 X_2]}
+    - {mnemonic: RBELL, description: Reset to a Bell state., in: [qubit, qubit], out: [qubit, qubit], action: [stabilize: [X_0 X_1, Z_0 Z_1]]}
+    - {mnemonic: RGHZ, description: Reset to a GHZ state., in: [qubit, qubit, qubit], out: [qubit, qubit, qubit], action: [stabilize: [X_0 X_1 X_2, Z_0 Z_1, Z_1 Z_2]]}
+    - {mnemonic: PXX, description: Project onto XX = +1., in: [qubit, qubit], out: [qubit, qubit], action: [stabilize: X_0 X_1]}
+    - {mnemonic: RPZ, description: Reset to |+0>., in: [qubit, qubit], out: [qubit, qubit], action: [stabilize: [Z_1, X_0 Z_1]]}
 ---
 unencoded.code.yaml:
   name: unencoded
@@ -104,3 +131,37 @@ measure_y.gadget.yaml:
 measure_minus_y.gadget.yaml:
   circuit: {source: [{MY_NEG: [0]}]}
   readouts: [["circuit.readouts[0]", "in[0].x[0]", "in[0].z[0]"]]
+---
+measure_xx.gadget.yaml:
+  circuit: {source: [{MXX: [0, 1]}]}
+  readouts: [["circuit.readouts[0]", "in[0].x[0]", "in[1].x[0]"]]
+---
+measure_yy.gadget.yaml:
+  circuit: {source: [{MYY: [0, 1]}]}
+  readouts:
+    - ["circuit.readouts[0]", "in[0].x[0]", "in[0].z[0]", "in[1].x[0]", "in[1].z[0]"]
+---
+measure_zz.gadget.yaml:
+  circuit: {source: [{MZZ: [0, 1]}]}
+  readouts: [["circuit.readouts[0]", "in[0].z[0]", "in[1].z[0]"]]
+---
+measure_minus_xz.gadget.yaml:
+  circuit: {source: [{MXZ_NEG: [0, 1]}]}
+  readouts: [["circuit.readouts[0]", "in[0].x[0]", "in[1].z[0]"]]
+---
+measure_yyx.gadget.yaml:
+  circuit: {source: [{MYYX: [0, 1, 2]}]}
+  readouts:
+    - ["circuit.readouts[0]", "in[0].x[0]", "in[0].z[0]", "in[1].x[0]", "in[1].z[0]", "in[2].x[0]"]
+---
+prepare_bell.gadget.yaml:
+  circuit: {source: [{RBELL: [0, 1]}]}
+---
+prepare_ghz.gadget.yaml:
+  circuit: {source: [{RGHZ: [0, 1, 2]}]}
+---
+project_xx.gadget.yaml:
+  circuit: {source: [{PXX: [0, 1]}]}
+---
+prepare_plus_zero.gadget.yaml:
+  circuit: {source: [{RPZ: [0, 1]}]}

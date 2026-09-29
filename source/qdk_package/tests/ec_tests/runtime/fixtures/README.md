@@ -20,10 +20,10 @@ The [C4 fixture](c4.qodec.yaml) extends the vendored C4 test qodec with
 `__quantum__qis__mresetz__body`, and its copy in the qdk_ec sample notebooks
 matches it.
 
-The [signed Pauli fixture](signed_paulis.qodec.yaml) is an unencoded qubit whose
-physical instructions reset to and measure each signed single-qubit Pauli. The
-runtime realizes them with noiseless basis changes around its native Z-basis
-reset and measurement, and tests check this on every execution path.
+The [signed Pauli fixture](signed_paulis.qodec.yaml) holds unencoded qubits whose
+physical instructions reset to and measure signed Pauli products on up to three
+qubits. The runtime realizes them with noiseless basis changes around its native
+Z-basis reset and measurement, and tests check this on every execution path.
 
 ## QIR instruction names
 

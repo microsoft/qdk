@@ -109,15 +109,38 @@ _TABLE_WIDTHS = {
 # as rotations by multiples of pi/2, which the stabilizer simulator applies as
 # exact Cliffords. Traced physical gates never use rotations (the tracer rejects
 # angles) and `_native_noise` leaves the rotation tables empty. Each entry equals
-# its gate up to a global phase, in application order.
-_NOISELESS_GATES: dict[str, tuple[tuple[QirInstructionId, float], ...]] = {
-    "x": ((QirInstructionId.RX, pi),),
-    "y": ((QirInstructionId.RY, pi),),
-    "z": ((QirInstructionId.RZ, pi),),
-    "h": ((QirInstructionId.RZ, pi), (QirInstructionId.RY, pi / 2)),
-    "s": ((QirInstructionId.RZ, pi / 2),),
-    "s_adj": ((QirInstructionId.RZ, -pi / 2),),
+# its gate up to a global phase, as (rotation, angle, operand indices) in
+# application order.
+_Rotations = tuple[tuple[QirInstructionId, float, tuple[int, ...]], ...]
+_NOISELESS_GATES: dict[str, _Rotations] = {
+    "x": ((QirInstructionId.RX, pi, (0,)),),
+    "y": ((QirInstructionId.RY, pi, (0,)),),
+    "z": ((QirInstructionId.RZ, pi, (0,)),),
+    "h": ((QirInstructionId.RZ, pi, (0,)), (QirInstructionId.RY, pi / 2, (0,))),
+    "s": ((QirInstructionId.RZ, pi / 2, (0,)),),
+    "s_adj": ((QirInstructionId.RZ, -pi / 2, (0,)),),
+    "cz": (
+        (QirInstructionId.RZ, pi / 2, (0,)),
+        (QirInstructionId.RZ, pi / 2, (1,)),
+        (QirInstructionId.RZZ, -pi / 2, (0, 1)),
+    ),
 }
+
+
+def _on_target(gate: str) -> _Rotations:
+    """A single-qubit noiseless gate applied to a two-qubit gate's target."""
+    return tuple(
+        (rotation, angle, (1,)) for rotation, angle, _ in _NOISELESS_GATES[gate]
+    )
+
+
+# CX = H_t CZ H_t and CY = S_t CX S_t^dagger.
+_NOISELESS_GATES["cx"] = (*_on_target("h"), *_NOISELESS_GATES["cz"], *_on_target("h"))
+_NOISELESS_GATES["cy"] = (
+    *_on_target("s_adj"),
+    *_NOISELESS_GATES["cx"],
+    *_on_target("s"),
+)
 
 
 def _native_instructions(
@@ -131,13 +154,16 @@ def _native_instructions(
         if position not in noiseless:
             native.append(instruction)
             continue
-        opcode, target = instruction
+        opcode, *targets = instruction
         rotations = next(
             rotations
             for name, rotations in _NOISELESS_GATES.items()
             if _GATES[name] == opcode
         )
-        native.extend((rotation, angle, target) for rotation, angle in rotations)
+        native.extend(
+            (rotation, angle, *(targets[index] for index in operands))
+            for rotation, angle, operands in rotations
+        )
     return cast(list[QirInstruction], native)
 
 

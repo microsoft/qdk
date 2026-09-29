@@ -741,48 +741,92 @@ def test_frame_gadgets_apply_logical_paulis_noiselessly(tmp_path, options):
     )
 
 
-# (program, whether the final measurement reports One)
+# (program on qubits a, b, c; whether the final measurement reports One)
 _SIGNED_PAULIS = [
-    ("measure_z(q)", False),
-    ("measure_minus_z(q)", True),
-    ("prepare_x(q); measure_x(q)", False),
-    ("prepare_x(q); measure_minus_x(q)", True),
-    ("prepare_minus_x(q); measure_x(q)", True),
-    ("prepare_minus_x(q); measure_minus_x(q)", False),
-    ("prepare_y(q); measure_y(q)", False),
-    ("prepare_y(q); measure_minus_y(q)", True),
-    ("prepare_minus_y(q); measure_y(q)", True),
-    ("prepare_minus_y(q); measure_minus_y(q)", False),
+    ("measure_z(a)", False),
+    ("measure_minus_z(a)", True),
+    ("prepare_x(a); measure_x(a)", False),
+    ("prepare_x(a); measure_minus_x(a)", True),
+    ("prepare_minus_x(a); measure_x(a)", True),
+    ("prepare_minus_x(a); measure_minus_x(a)", False),
+    ("prepare_y(a); measure_y(a)", False),
+    ("prepare_y(a); measure_minus_y(a)", True),
+    ("prepare_minus_y(a); measure_y(a)", True),
+    ("prepare_minus_y(a); measure_minus_y(a)", False),
+    ("prepare_x(a); prepare_minus_x(b); measure_xx(a, b)", True),
+    ("prepare_y(a); prepare_y(b); measure_yy(a, b)", False),
+    ("prepare_x(a); measure_minus_xz(a, b)", True),
+    ("prepare_bell(a, b); measure_zz(a, b)", False),
+    # XX = ZZ = +1 makes YY = -1.
+    ("prepare_bell(a, b); measure_yy(a, b)", True),
+    # XXX = Z0 Z1 = +1 makes Y0 Y1 X2 = -1.
+    ("prepare_ghz(a, b, c); measure_yyx(a, b, c)", True),
+    ("prepare_minus_x(a); prepare_x(b); project_xx(a, b); measure_xx(a, b)", False),
+    # Z1 has Z on the pivot of X0 Z1, so the recovery must be solved for.
+    ("prepare_minus_x(a); prepare_plus_zero(a, b); measure_x(a)", False),
 ]
+
+# Intrinsic name -> number of qubits.
+_PAULI_INTRINSICS = {
+    **dict.fromkeys(
+        ["prepare_x", "prepare_minus_x", "prepare_y", "prepare_minus_y"], 1
+    ),
+    **dict.fromkeys(
+        [
+            "measure_z",
+            "measure_minus_z",
+            "measure_x",
+            "measure_minus_x",
+            "measure_y",
+            "measure_minus_y",
+        ],
+        1,
+    ),
+    **dict.fromkeys(
+        [
+            "measure_xx",
+            "measure_yy",
+            "measure_zz",
+            "measure_minus_xz",
+            "prepare_bell",
+            "project_xx",
+            "prepare_plus_zero",
+        ],
+        2,
+    ),
+    **dict.fromkeys(["measure_yyx", "prepare_ghz"], 3),
+}
 
 
 def _signed_pauli_qir(program):
     from qdk import TargetProfile, qsharp
 
     qsharp.init(target_profile=TargetProfile.Adaptive)
-    for basis in ("x", "minus_x", "y", "minus_y"):
-        qsharp.eval(
-            f"operation prepare_{basis}(q : Qubit) : Unit {{ body intrinsic; }}"
-        )
-    for basis in ("z", "minus_z", "x", "minus_x", "y", "minus_y"):
-        qsharp.eval(
-            "@Measurement() "
-            f"operation measure_{basis}(q : Qubit) : Result {{ body intrinsic; }}"
-        )
-    return qsharp.compile(f"{{ use q = Qubit(); {program} }}")
+    for name, arity in _PAULI_INTRINSICS.items():
+        qubits = ", ".join(f"q{index} : Qubit" for index in range(arity))
+        if name.startswith("measure"):
+            qsharp.eval(
+                "@Measurement() "
+                f"operation {name}({qubits}) : Result {{ body intrinsic; }}"
+            )
+        else:
+            qsharp.eval(f"operation {name}({qubits}) : Unit {{ body intrinsic; }}")
+    return qsharp.compile(
+        f"{{ use (a, b, c) = (Qubit(), Qubit(), Qubit()); {program} }}"
+    )
 
 
 def _basis_change_detecting_noise():
-    # Every noisy basis change or sign flip would lose its qubit.
+    # Every noisy basis change, sign flip, or controlled recovery would lose a qubit.
     noise = NoiseConfig()
-    for table in (noise.h, noise.s, noise.s_adj, noise.x):
+    for table in (noise.h, noise.s, noise.s_adj, noise.x, noise.cx, noise.cy, noise.cz):
         table.loss = 1
     return noise
 
 
 @pytest.mark.parametrize("options", _EXECUTION_PATHS)
 @pytest.mark.parametrize("program, one", _SIGNED_PAULIS)
-def test_signed_single_qubit_paulis_use_noiseless_basis_changes(program, one, options):
+def test_signed_paulis_use_noiseless_basis_changes(program, one, options):
     qodec = pytest.importorskip("qodec")
     from ec_tests.runtime import FIXTURES
     from qdk import Result
@@ -798,7 +842,7 @@ def test_signed_single_qubit_paulis_use_noiseless_basis_changes(program, one, op
 
 
 @pytest.mark.parametrize("program, one", _SIGNED_PAULIS)
-def test_deq_decodes_signed_single_qubit_pauli_measurements(program, one):
+def test_deq_decodes_signed_pauli_measurements(program, one):
     qodec = pytest.importorskip("qodec")
     pytest.importorskip("deq")
     pytest.importorskip("deq_runtime")
@@ -823,7 +867,14 @@ def test_deq_decodes_signed_single_qubit_pauli_measurements(program, one):
     )
 
 
-def test_single_qubit_pauli_measurements_skip_the_per_shot_interpreter(monkeypatch):
+@pytest.mark.parametrize(
+    "program",
+    [
+        "prepare_y(a); measure_minus_y(a)",
+        "prepare_ghz(a, b, c); measure_yyx(a, b, c)",
+    ],
+)
+def test_pauli_measurements_skip_the_per_shot_interpreter(monkeypatch, program):
     qodec = pytest.importorskip("qodec")
     from ec_tests.runtime import FIXTURES
     from qdk import Result
@@ -835,7 +886,7 @@ def test_single_qubit_pauli_measurements_skip_the_per_shot_interpreter(monkeypat
 
     monkeypatch.setattr(Executor, "run", unexpected_shot)
     codec = qodec.Qodec.load(str(FIXTURES / "signed_paulis.qodec.yaml"))
-    qir = _signed_pauli_qir("prepare_y(q); measure_minus_y(q)")
+    qir = _signed_pauli_qir(program)
 
     assert run_qir_with_qodec(qir, codec, None, shots=10, seed=7) == [Result.One] * 10
 
