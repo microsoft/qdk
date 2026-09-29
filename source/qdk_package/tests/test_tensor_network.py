@@ -471,8 +471,9 @@ def test_mps_probability_and_cost_preserve_query_order(outcomes):
 
 @pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
 def test_mps_probability_follows_a_selection_branch():
-    qir, _ = stim.compile("SELECT {\n M 0\n REQUIRE rec[-1]\n}\n")
-    probability, = tensornetwork_qir(qir, [Probability()], method="mps", outcomes=[0])
+    # The MPS route needs at least two qubits, so qubit 1 is measured too.
+    qir, _ = stim.compile("SELECT {\n M 0\n REQUIRE rec[-1]\n}\nM 1\n")
+    probability, = tensornetwork_qir(qir, [Probability()], method="mps", outcomes=[0, 0])
     assert probability == pytest.approx(1.0)
 
 
