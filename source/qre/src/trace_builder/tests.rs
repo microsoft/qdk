@@ -5,13 +5,14 @@ use indoc::indoc;
 use miette::Report;
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
-    interpret::Interpreter, target::Profile,
+    interpret::{Interpreter, Value},
+    target::Profile,
 };
 
 use crate::{
     instruction_ids::*,
     trace::Gate,
-    trace_builder::{TraceBuilder, trace_expr},
+    trace_builder::{TraceBuilder, trace_call, trace_expr},
 };
 
 fn build_interpreter(source: &str) -> Result<Interpreter, String> {
@@ -244,6 +245,42 @@ fn measurement_branch_is_observed_both_ways_over_multiple_runs() {
 }
 
 #[test]
+fn measurement_branches_are_repeatable_with_seed() {
+    let mut interpreter = build_interpreter(indoc! {
+        "
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for _ in 1..100 {
+                    H(q);
+                    if M(q) == One {
+                        X(q);
+                    }
+                }
+            }
+        }
+        "
+    })
+    .expect("interpreter should build");
+    interpreter.set_quantum_seed(Some(42));
+    let main = interpreter
+        .source_globals()
+        .into_iter()
+        .find_map(|global| (global.name.as_ref() == "Main").then_some(global.value))
+        .expect("Main should be a source global");
+
+    // Both entry points draw measurement outcomes from the interpreter's
+    // quantum seed, and the gate sequence records every outcome.
+    let gate_ids = |trace: crate::Trace| trace.walk_iter().map(Gate::id).collect::<Vec<_>>();
+    let from_expr = trace_expr(&mut interpreter, "Test.Main()")
+        .unwrap_or_else(|err| panic!("failed to build trace: {}", format_errors(err)));
+    let from_call = trace_call(&mut interpreter, main, Value::unit())
+        .unwrap_or_else(|err| panic!("failed to build trace: {}", format_errors(err)));
+    assert_eq!(gate_ids(from_expr), gate_ids(from_call));
+}
+
+#[test]
 fn repeat_estimates_creates_repeated_block() {
     let trace = run_trace(indoc! {
         "
@@ -299,6 +336,28 @@ fn estimate_caching_is_a_no_op() {
 
     let ids: Vec<u64> = trace.walk_iter().map(Gate::id).collect();
     assert_eq!(ids, vec![PAULI_X]);
+}
+
+#[test]
+fn is_resource_estimating_is_true() {
+    let trace = run_trace(indoc! {
+        "
+        namespace Test {
+            import Std.ResourceEstimation.*;
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                if IsResourceEstimating() {
+                    T(q);
+                }
+            }
+        }
+        "
+    });
+
+    let ids: Vec<u64> = trace.walk_iter().map(Gate::id).collect();
+    assert_eq!(ids, vec![T]);
 }
 
 #[test]

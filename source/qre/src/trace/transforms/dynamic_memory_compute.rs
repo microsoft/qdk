@@ -5,8 +5,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 
 use crate::{
-    Error, Trace, TraceTransform,
+    Error, Property, Trace, TraceTransform,
     instruction_ids::{MEMORY, READ_FROM_MEMORY, WRITE_TO_MEMORY},
+    property_keys::{ALGORITHM_COMPUTE_QUBITS, ALGORITHM_MEMORY_QUBITS},
     trace::{Block, Operation},
 };
 
@@ -248,6 +249,15 @@ impl TraceTransform for DynamicMemoryCompute {
         if num_known > capacity {
             transformed.set_memory_qubits(num_known - capacity);
         }
+        // Replace the pre-placement values copied by `clone_empty`.
+        transformed.set_property(
+            ALGORITHM_COMPUTE_QUBITS,
+            Property::Int(capacity.cast_signed()),
+        );
+        transformed.set_property(
+            ALGORITHM_MEMORY_QUBITS,
+            Property::Int(transformed.memory_qubits().unwrap_or(0).cast_signed()),
+        );
 
         Ok(transformed)
     }
@@ -341,80 +351,27 @@ fn process_block(
             }
 
             Operation::BlockOperation(inner) => {
-                // For blocks with repetitions > 1 we save the entry state,
-                // process the body once, then append restore operations so
-                // the compute/memory layout matches the entry state at the
-                // end of every iteration.
-                //
-                // NOTE: This approach uses lazy placement even inside
-                // repeated blocks, which means the first iteration may
-                // skip a READ_FROM_MEMORY that subsequent iterations would
-                // need.  This undercounts memory reads by roughly
-                // `repetitions - 1` per lazily-placed qubit.  Two
-                // alternative approaches could improve accuracy:
-                //
-                // 1. **Pre-scan**: Before processing the body, scan it to
-                //    discover which qubits will be encountered for the
-                //    first time.  Pre-allocate memory slots for them and
-                //    mark them as known so the body always emits a
-                //    READ_FROM_MEMORY.  Every iteration then executes
-                //    identical operations, producing exact counts.
-                //
-                // 2. **Prologue + steady-state split**: Emit two blocks —
-                //    a `repetitions = 1` prologue with lazy placement, and
-                //    a `repetitions = N - 1` steady-state block where all
-                //    qubits are read from memory.  This preserves the
-                //    compact block representation while producing accurate
-                //    per-iteration counts.
-                let entry = if inner.repetitions > 1 {
-                    Some(state.clone())
-                } else {
-                    None
-                };
-
-                let out_inner = output.add_block(inner.repetitions);
-                process_block(state, inner, out_inner, capacity)?;
-
-                if let Some(entry) = entry {
-                    // Append restore operations *inside* the repeated block so
-                    // they execute at the end of every iteration.
-                    emit_restore(state, &entry, out_inner, capacity);
-
-                    // Collect memory locations for qubits first encountered
-                    // inside this block (they were written to memory during
-                    // restore).
-                    let new_qubit_memory: Vec<(u64, u64)> = state
-                        .known_qubits
-                        .iter()
-                        .filter(|q| !entry.known_qubits.contains(q))
-                        .filter_map(|q| state.qubit_to_memory.get(q).map(|m| (*q, *m)))
-                        .collect();
-
-                    let accumulated_known = state.known_qubits.clone();
-                    let high_water_id = state.next_memory_id;
-
-                    // Reset compute / memory layout to entry state.
-                    state.slot_to_qubit.clone_from(&entry.slot_to_qubit);
-                    state.qubit_to_slot.clone_from(&entry.qubit_to_slot);
-                    state.qubit_to_memory.clone_from(&entry.qubit_to_memory);
-                    state.eviction_tracker.clone_from(&entry.eviction_tracker);
-                    state.known_qubits = accumulated_known;
-                    state.next_memory_id = high_water_id;
-
-                    // Persist memory locations for newly introduced qubits so
-                    // they remain reachable after the block.
-                    for (q, mem) in &new_qubit_memory {
-                        state.qubit_to_memory.insert(*q, *mem);
-                    }
-
-                    // Rebuild free list to maintain the invariant that no
-                    // occupied memory location appears in the free pool.
-                    let occupied: FxHashSet<u64> =
-                        state.qubit_to_memory.values().copied().collect();
-                    state.free_memory_slots = (capacity..state.next_memory_id)
-                        .filter(|id| !occupied.contains(id))
-                        .collect();
+                // A block that never runs must not change placement.
+                if inner.repetitions == 0 {
+                    continue;
                 }
+
+                // The first iteration of a repeated block starts from the
+                // state before the block and brings the body's qubits into
+                // compute, so it is emitted on its own.  Under LRU eviction
+                // every later iteration then starts with the same qubits
+                // resident in the same recency order, so one copy of the body
+                // reproduces the unrolled memory traffic exactly.
+                // Compute-slot and memory-location labels can still permute
+                // between iterations, so label-based metrics such as
+                // per-qubit depth are approximate; apply `Unroll` first to
+                // avoid this.
+                let mut repetitions = inner.repetitions;
+                if repetitions > 1 {
+                    process_block(state, inner, output.add_block(1), capacity)?;
+                    repetitions -= 1;
+                }
+                process_block(state, inner, output.add_block(repetitions), capacity)?;
             }
         }
     }
@@ -430,6 +387,7 @@ fn process_block(
 ///
 /// Phase 2 reads every entry qubit that is missing from its slot back from
 /// wherever it currently resides in memory.
+#[allow(unused)]
 #[expect(clippy::cast_possible_truncation)]
 fn emit_restore(
     state: &mut TransformState,

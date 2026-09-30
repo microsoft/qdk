@@ -31,6 +31,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<LatticeSurgery>()?;
     m.add_class::<DynamicMemoryCompute>()?;
     m.add_class::<Unmemory>()?;
+    m.add_class::<Unroll>()?;
     m.add_class::<EstimationResult>()?;
     m.add_class::<ErrorComposition>()?;
     m.add_class::<EstimationCollection>()?;
@@ -1612,6 +1613,25 @@ pub struct Unmemory(qre::Unmemory);
 
 #[pymethods]
 impl Unmemory {
+    #[new]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
+        self.0
+            .transform(&trace.0)
+            .map(Trace)
+            .map_err(|e| EstimationError::new_err(format!("{e}")))
+    }
+}
+
+#[derive(Default)]
+#[pyclass]
+pub struct Unroll(qre::Unroll);
+
+#[pymethods]
+impl Unroll {
     #[new]
     pub fn new() -> Self {
         Self::default()

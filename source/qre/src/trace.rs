@@ -29,7 +29,7 @@ mod tests;
 mod transforms;
 pub use transforms::{
     ComputeCapacity, DynamicMemoryCompute, EvictionStrategy, LatticeSurgery, PSSPC, TraceTransform,
-    Unmemory,
+    Unmemory, Unroll,
 };
 
 #[derive(Clone, Default, Serialize, Deserialize)]

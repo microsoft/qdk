@@ -2,9 +2,10 @@
 // Licensed under the MIT License.
 
 use crate::instruction_ids::{CX, H, READ_FROM_MEMORY, WRITE_TO_MEMORY};
+use crate::property_keys::{ALGORITHM_COMPUTE_QUBITS, ALGORITHM_MEMORY_QUBITS};
 use crate::trace::{
-    Block, Gate, Operation, Trace,
-    transforms::{DynamicMemoryCompute, TraceTransform},
+    Block, Gate, Operation, Property, Trace,
+    transforms::{DynamicMemoryCompute, TraceTransform, Unroll},
 };
 
 /// Collect all gates from a trace into a vec of (id, qubits, params).
@@ -30,6 +31,29 @@ fn child_blocks(block: &Block) -> Vec<&Block> {
             Operation::GateOperation(..) => None,
         })
         .collect()
+}
+
+/// Assert that transforming `trace` gives the same instruction counts and
+/// memory size as transforming its fully unrolled equivalent.
+fn assert_matches_unrolled(trace: &Trace, capacity: u64) {
+    let unrolled = Unroll.transform(trace).expect("transform should succeed");
+    let transform = DynamicMemoryCompute::new(capacity);
+    let compact = transform
+        .transform(trace)
+        .expect("transform should succeed");
+    let expected = transform
+        .transform(&unrolled)
+        .expect("transform should succeed");
+    assert_eq!(
+        compact.gate_counts(),
+        expected.gate_counts(),
+        "capacity {capacity}"
+    );
+    assert_eq!(
+        compact.memory_qubits(),
+        expected.memory_qubits(),
+        "capacity {capacity}"
+    );
 }
 
 // ---------- Flat trace tests ----------
@@ -91,6 +115,26 @@ fn single_eviction_and_load() {
     assert_eq!(gates[1].0, H);
     assert_eq!(gates[2].0, WRITE_TO_MEMORY);
     assert_eq!(gates[3].0, H);
+}
+
+#[test]
+fn replaces_algorithm_qubit_properties() {
+    // Traces from Q# record the pre-placement split, which placement changes.
+    let mut trace = Trace::new(3);
+    trace.set_property(ALGORITHM_COMPUTE_QUBITS, Property::Int(3));
+    trace.set_property(ALGORITHM_MEMORY_QUBITS, Property::Int(0));
+    trace.add_operation(H, vec![0], vec![]);
+    trace.add_operation(H, vec![1], vec![]);
+    trace.add_operation(H, vec![2], vec![]); // evicts q0
+
+    let transform = DynamicMemoryCompute::new(2);
+    let result = transform
+        .transform(&trace)
+        .expect("transform should succeed");
+
+    let property = |key| result.get_property(key).and_then(Property::as_int);
+    assert_eq!(property(ALGORITHM_COMPUTE_QUBITS), Some(2));
+    assert_eq!(property(ALGORITHM_MEMORY_QUBITS), Some(1));
 }
 
 #[test]
@@ -292,9 +336,8 @@ fn block_with_single_repetition_no_restore() {
 
 #[test]
 fn repeated_block_adds_restore_ops() {
-    // Capacity 2, 3 qubits.  A repeated block evicts a qubit, so restore
-    // operations must be appended to bring the compute area back to the
-    // entry state.
+    // Capacity 2, 3 qubits.  Only the first iteration of the repeated block
+    // evicts a qubit; later iterations find q2 in compute.
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]); // lazy place q0
     trace.add_operation(H, vec![1], vec![]); // lazy place q1
@@ -308,25 +351,13 @@ fn repeated_block_adds_restore_ops() {
 
     assert!(result.has_memory_qubits());
 
-    // Block structure preserved: root has one child block with reps=5.
+    // The first iteration is emitted separately; the remaining four share
+    // one body.
     let blocks = child_blocks(&result.block);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 5);
-    // The block body contains the eviction, the H, and the restore ops.
-    assert!(blocks[0].operations.len() >= 3);
-
-    // collect_gates via deep_iter yields each gate position once (ignoring
-    // the repetition multiplier).
-    let gates = collect_gates(&result);
-
-    // Outside: H(q0), H(q1) = 2 positions.
-    // Block body: WRITE(evict q0), H(q2), WRITE(restore q2), READ(restore q0) = 4 positions.
-    // Total unique gate positions: 6.
-    let total_h = gates.iter().filter(|(id, _, _)| *id == H).count();
-    assert_eq!(total_h, 3); // 2 outside + 1 inside
-
-    assert_eq!(count_instruction(&gates, WRITE_TO_MEMORY), 2); // 1 evict + 1 restore
-    assert_eq!(count_instruction(&gates, READ_FROM_MEMORY), 1); // 1 restore
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].repetitions, 1);
+    assert_eq!(blocks[1].repetitions, 4);
+    assert_matches_unrolled(&trace, 2);
 }
 
 #[test]
@@ -343,50 +374,59 @@ fn repeated_block_no_change_no_restore() {
         .transform(&trace)
         .expect("transform should succeed");
 
-    // Block structure preserved with reps=10.
+    // The first iteration is emitted separately; the remaining nine share
+    // one body.
     let blocks = child_blocks(&result.block);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 10);
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].repetitions, 1);
+    assert_eq!(blocks[1].repetitions, 9);
     // Body has only the H gate (no restore ops since state unchanged).
-    assert_eq!(blocks[0].operations.len(), 1);
+    assert_eq!(blocks[1].operations.len(), 1);
 
     let gates = collect_gates(&result);
-    assert_eq!(gates.iter().filter(|(id, _, _)| *id == H).count(), 2);
+    assert_eq!(gates.iter().filter(|(id, _, _)| *id == H).count(), 3);
     assert_eq!(count_instruction(&gates, WRITE_TO_MEMORY), 0);
     assert_eq!(count_instruction(&gates, READ_FROM_MEMORY), 0);
 }
 
 #[test]
 fn repeated_block_state_restored_for_subsequent_ops() {
-    // After a repeated block, the compute area state is restored to the entry
-    // state, so subsequent operations can find qubits in their original slots.
+    // After a repeated block, the compute area holds what the unrolled loop
+    // leaves behind, so the final H(q0) reads q0 back from memory.
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(H, vec![1], vec![]);
     let block = trace.add_block(3);
     block.add_operation(H, vec![2], vec![]); // evicts q0 inside block
-    // After the block, q0 should be back in compute (restored).
-    trace.add_operation(H, vec![0], vec![]); // should NOT need a read
+    trace.add_operation(H, vec![0], vec![]);
 
     let transform = DynamicMemoryCompute::new(2);
     let result = transform
         .transform(&trace)
         .expect("transform should succeed");
 
-    // Block structure preserved with reps=3.
+    // The first iteration is emitted separately; the remaining two share one
+    // body.
     let blocks = child_blocks(&result.block);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 3);
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].repetitions, 1);
+    assert_eq!(blocks[1].repetitions, 2);
+    assert_matches_unrolled(&trace, 2);
+}
 
-    let gates = collect_gates(&result);
-    let h_gates = gates.iter().filter(|(id, _, _)| *id == H).count();
-    assert_eq!(h_gates, 4);
+#[test]
+fn zero_repetition_block_does_not_change_placement() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(H, vec![0], vec![]);
+    trace.add_block(0).add_operation(H, vec![1], vec![]);
+    trace.add_operation(H, vec![0], vec![]);
+
+    assert_matches_unrolled(&trace, 1);
 }
 
 #[test]
 fn nested_repeated_blocks() {
-    // A repeated block inside another repeated block.  The inner block
-    // restores its own state, so the outer block sees no change.
+    // A repeated block inside another repeated block.
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(H, vec![1], vec![]);
@@ -400,31 +440,31 @@ fn nested_repeated_blocks() {
         .expect("transform should succeed");
 
     assert!(result.has_memory_qubits());
+    assert_matches_unrolled(&trace, 2);
+}
 
-    // Outer block (reps=2) preserved in root.
-    let outer_blocks = child_blocks(&result.block);
-    assert_eq!(outer_blocks.len(), 1);
-    assert_eq!(outer_blocks[0].repetitions, 2);
+#[test]
+fn repeated_blocks_match_fully_unrolled_lru_traffic() {
+    // At most of these capacities, compute slots permute between iterations.
+    let mut trace = Trace::new(6);
+    trace.add_operation(H, vec![0], vec![]);
+    trace.add_operation(H, vec![1], vec![]);
+    let outer = trace.add_block(5);
+    outer.add_operation(CX, vec![2, 3], vec![]);
+    let inner = outer.add_block(3);
+    inner.add_operation(H, vec![4], vec![]);
+    inner.add_operation(CX, vec![4, 5], vec![]);
+    outer.add_operation(H, vec![0], vec![]);
 
-    // Inner block (reps=3) preserved inside outer.
-    let inner_blocks = child_blocks(outer_blocks[0]);
-    assert_eq!(inner_blocks.len(), 1);
-    assert_eq!(inner_blocks[0].repetitions, 3);
-
-    let gates = collect_gates(&result);
-    let h_count = gates.iter().filter(|(id, _, _)| *id == H).count();
-    assert_eq!(h_count, 3);
+    for capacity in 2..6 {
+        assert_matches_unrolled(&trace, capacity);
+    }
 }
 
 #[test]
 fn restore_does_not_clobber_memory() {
-    // Regression test: restore Phase 1 writes must not overwrite memory
-    // locations needed by Phase 2 reads.
-    //
-    // Entry: slot[0]=q0, slot[1]=q1, memory: {q2: M}
-    // Body: read q2 from M (frees M), evict q1 to M (reuses freed M),
-    //       now slot[0]=q0, slot[1]=q2, memory: {q1: M}
-    // Restore must write q2 out and read q1 back without clobbering.
+    // A repeated block that reads an evicted qubit back and reuses its freed
+    // memory location.
     let mut trace = Trace::new(4);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(H, vec![1], vec![]);
@@ -435,19 +475,7 @@ fn restore_does_not_clobber_memory() {
     block.add_operation(H, vec![0], vec![]);
     block.add_operation(CX, vec![0, 1], vec![]); // uses q2 and q1 (both in compute)
 
-    let transform = DynamicMemoryCompute::new(2);
-    let result = transform
-        .transform(&trace)
-        .expect("transform should succeed");
-
-    // Block structure preserved with reps=2.
-    let blocks = child_blocks(&result.block);
-    assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 2);
-
-    // Verify it produces a valid trace with operations.
-    let gates = collect_gates(&result);
-    assert!(!gates.is_empty());
+    assert_matches_unrolled(&trace, 2);
 }
 
 // ---------- Percentage-based capacity tests ----------

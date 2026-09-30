@@ -187,8 +187,7 @@ fn round_trip_with_repeated_block() {
     // All gates should be H on the original logical qubit IDs.
     assert!(gates.iter().all(|(id, _)| *id == H));
 
-    // The unique H positions: 2 outside + 1 inside block = 3 unique.
-    assert_eq!(gates.len(), 3);
+    assert_eq!(unmemorized.gate_counts(), trace.gate_counts());
 }
 
 #[test]
@@ -217,6 +216,7 @@ fn preserves_block_structure() {
             Operation::GateOperation(..) => None,
         })
         .collect();
-    assert_eq!(child_blocks.len(), 1);
-    assert_eq!(child_blocks[0].repetitions, 10);
+    assert_eq!(child_blocks.len(), 2);
+    assert_eq!(child_blocks[0].repetitions, 1);
+    assert_eq!(child_blocks[1].repetitions, 9);
 }

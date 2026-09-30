@@ -8,7 +8,7 @@ use qsc::{
     Backend, BackendResult,
     interpret::{self, GenericReceiver, Interpreter, Value},
 };
-use rand::RngExt;
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 
 use crate::{Trace, instruction_ids};
@@ -23,6 +23,7 @@ pub struct TraceBuilder {
     next_free: usize,
     live_qubits: usize,
     max_live_qubits: usize,
+    rng: Option<StdRng>,
 }
 
 enum PendingOperation {
@@ -115,7 +116,10 @@ impl TraceBuilder {
     fn measurement_result(&mut self, q: usize) -> bool {
         self.post_select_measurements
             .remove(&q)
-            .unwrap_or_else(|| rand::rng().random_bool(0.5))
+            .unwrap_or_else(|| match &mut self.rng {
+                Some(rng) => rng.random_bool(0.5),
+                None => rand::rng().random_bool(0.5),
+            })
     }
 }
 
@@ -349,7 +353,7 @@ impl Backend for TraceBuilder {
 
                 Some(Ok(Value::unit()))
             }
-            "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+            "BeginEstimateCaching" | "IsResourceEstimating" => Some(Ok(Value::Bool(true))),
             "EndEstimateCaching"
             | "GlobalPhase"
             | "ConfigurePauliNoise"
@@ -383,6 +387,10 @@ impl Backend for TraceBuilder {
             _ => None,
         }
     }
+
+    fn set_seed(&mut self, seed: Option<u64>) {
+        self.rng = seed.map(StdRng::seed_from_u64);
+    }
 }
 
 pub fn trace_expr(
@@ -406,6 +414,9 @@ pub fn trace_call(
     args: Value,
 ) -> Result<Trace, Vec<interpret::Error>> {
     let mut builder = TraceBuilder::default();
+    // Unlike `run_with_sim`, `invoke_with_sim` does not pass the interpreter's
+    // quantum seed to the backend.
+    builder.set_seed(interpreter.quantum_seed());
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
 

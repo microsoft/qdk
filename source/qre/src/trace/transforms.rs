@@ -5,11 +5,13 @@ mod dynamic_memory_compute;
 mod lattice_surgery;
 mod psspc;
 mod unmemory;
+mod unroll;
 
 pub use dynamic_memory_compute::{ComputeCapacity, DynamicMemoryCompute, EvictionStrategy};
 pub use lattice_surgery::LatticeSurgery;
 pub use psspc::PSSPC;
 pub use unmemory::Unmemory;
+pub use unroll::Unroll;
 
 use crate::{Error, Trace};
 

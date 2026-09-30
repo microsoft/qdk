@@ -54,6 +54,7 @@ from ._trace import (
     EvictionStrategy,
     DynamicMemoryCompute,
     Unmemory,
+    Unroll,
 )
 
 # Extend Rust Python types with additional Python-side functionality
@@ -108,6 +109,7 @@ __all__ = [
     "TraceQuery",
     "TraceTransform",
     "Unmemory",
+    "Unroll",
     "LOGICAL",
     "PHYSICAL",
     "QUBIT_MODELS",
