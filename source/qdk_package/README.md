@@ -557,11 +557,18 @@ structural errors. An omitted flag equation is undefined; an explicit `[]`
 equation declares zero. The audit does not invent flag equations: noiseless
 consistency alone does not determine which faults a flag should detect.
 
-Parity verification assumes valid noiseless input
-codewords with arbitrary incoming Pauli frames. A measurement readout that
-omits a required logical-frame correction is an error even if it works for a
-zero-frame input. The authored C4 example currently has such omissions; the
-audit reports them without changing the protocol.
+Checks, logical readout equations, and frame transformations are verified on
+valid noiseless input codewords with arbitrary incoming Pauli frames. A
+measurement readout that omits a required logical-frame correction is an error
+even if it works for a zero-frame input. The authored C4 example currently has
+such omissions; the audit reports them without changing the protocol.
+
+Flags instead must be zero for every valid logical input state with a trivial
+incoming Pauli frame. A raw stabilizer measurement can therefore serve as a
+rejection flag: it is zero on a noiseless codeword but may fire for an incoming
+error. Flag equations must still be well-defined and consistent under arbitrary
+incoming frames; only the zero-value requirement is restricted to a trivial
+frame.
 
 Readout messages distinguish an incorrect equation from a result the circuit
 does not provide. A recoverable mismatch shows only the declared and verified
@@ -569,7 +576,8 @@ equations. Otherwise, a short explanation identifies missing information,
 a required constant inversion, or contradictory/undetermined definitions.
 Readout messages do not include counterexamples. Check and flag failures retain
 term values when needed to demonstrate firing without a fault, and label the
-required noiseless value as zero.
+required noiseless value as zero. Flag counterexamples use a trivial incoming
+frame; check counterexamples may use an arbitrary incoming frame.
 
 Readout references are solved as binary linear equations, including cycles
 with unique consistent solutions. A group of contradictory equations is reported
@@ -584,8 +592,9 @@ tolerance or verify a particular fault model.
 
 `gadget/missing-check` is informational. It reports an independent noiseless
 measurement check that is available but not implied by valid declared checks,
-readout definitions, and verified zero-valued flags. Candidates combine circuit
-bits and incoming stabilizer signs, under the same arbitrary-frame contract.
+readout definitions, and flags verified to be zero under arbitrary incoming
+frames. Candidates combine circuit bits and incoming stabilizer signs, under
+the same arbitrary-frame contract.
 Equivalent XOR bases are accepted; duplicate and invalid checks do not hide
 omissions. Each finding includes a copyable equation. Unsupported discovery
 produces an informational notice, never an invented equation. Authors may

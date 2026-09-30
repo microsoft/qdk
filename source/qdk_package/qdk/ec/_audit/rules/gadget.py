@@ -238,11 +238,15 @@ def _zero_parity_diagnostic(
     label: str,
     declared: str,
     path: str,
+    *,
+    trivial_input_frame: bool = False,
 ) -> Iterator[Diagnostic]:
     if not equation:
         return
     try:
         value = analysis.value(equation)
+        if trivial_input_frame:
+            value = analysis.without_input_frame(value)
         if value.is_zero:
             return
         if not any(value[index] for index in range(len(value) - 1)):
@@ -252,8 +256,13 @@ def _zero_parity_diagnostic(
             )
         else:
             summary = f"{label} can fire without a fault"
+            frame = (
+                "a trivial incoming frame"
+                if trivial_input_frame
+                else "arbitrary incoming frames"
+            )
             evidence = (
-                "Counterexample from noiseless execution with arbitrary incoming frames:\n"
+                f"Counterexample from noiseless execution with {frame}:\n"
                 f"Equation term values: {analysis.witness(equation, value)}\n"
                 "Declared equation produces: 1\nRequired noiseless value: 0"
             )
@@ -279,6 +288,8 @@ def _zero_parity_diagnostic(
 
 @dataclass(frozen=True)
 class FlagMismatchRule:
+    """Flags must vanish for all noiseless logical inputs with a trivial input frame."""
+
     name: str = "gadget/flag-mismatch"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.SEMANTIC
@@ -341,6 +352,7 @@ class FlagMismatchRule:
                     label,
                     _equation(gadget.readouts[slot.position].equation),
                     f"readouts[{slot.position}].equation",
+                    trivial_input_frame=True,
                 )
 
 

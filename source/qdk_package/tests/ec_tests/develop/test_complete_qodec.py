@@ -29,7 +29,9 @@ def _stripped(qodec: qc.Qodec) -> qc.Qodec:
             )
             for gadget in layer.gadgets.values()
         ]
-        layers.append(qc.Layer(layer.instruction_set, gadgets=drafts))
+        layers.append(
+            qc.Layer(layer.instruction_set, gadgets=drafts, codes=dict(layer.codes))
+        )
     return qc.Qodec(layers, name=qodec.name, description=qodec.description)
 
 
@@ -77,6 +79,29 @@ def test_complete_qodec_preserves_the_layer_chain_and_identity() -> None:
     assert [sorted(layer.gadgets) for layer in completed.layers] == [
         sorted(layer.gadgets) for layer in qodec.layers
     ]
+    assert [dict(layer.codes) for layer in completed.layers] == [
+        dict(layer.codes) for layer in qodec.layers
+    ]
+
+
+def test_filled_preserves_code_bindings_without_gadgets() -> None:
+    code = qc.Code("bare", stabilizers=[], x=["X_0"], z=["Z_0"])
+    logical = qc.InstructionSet(
+        "logical", blocks=[qc.instructions.Block("data", encodes=1)]
+    )
+    protocol = qc.Qodec(
+        [
+            qc.Layer(logical, codes={"data": code}),
+            qc.Layer(qc.InstructionSet("physical")),
+        ]
+    )
+
+    completed = _fill.filled(protocol)
+
+    assert dict(completed.layers[0].codes) == {"data": code}
+    assert dict(completed.layers[1].codes) == {}
+    completed.layers[0].codes.clear()
+    assert dict(protocol.layers[0].codes) == {"data": code}
 
 
 @requires_stim

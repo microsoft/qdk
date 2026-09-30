@@ -170,6 +170,58 @@ def test_short_layer_lists_can_be_saved_but_audit_is_incomplete() -> None:
         )
 
 
+@pytest.mark.parametrize("remove_gadgets", [False, True])
+def test_encoded_layers_require_explicit_code_bindings(
+    rep3_qodec: qc.Qodec, remove_gadgets: bool
+) -> None:
+    layer = rep3_qodec.layers[0]
+    layer.codes.clear()
+    if remove_gadgets:
+        layer.gadgets.clear()
+    else:
+        assert list(structural_issues(layer.gadgets["idle"])) == []
+
+    errors = [
+        item
+        for item in audit(rep3_qodec).errors
+        if item.rule == "qodec/invalid-structure"
+    ]
+    assert len(errors) == 1
+    assert errors[0].where.startswith("layers[0] (")
+    assert errors[0].summary == (
+        "block 'repetition3' has no code binding in the layer"
+    )
+
+
+def test_physical_layer_requires_no_code_bindings(rep3_qodec: qc.Qodec) -> None:
+    assert dict(rep3_qodec.layers[-1].codes) == {}
+    assert list(structural_issues(rep3_qodec)) == []
+
+
+def test_explicit_code_bindings_must_match_every_gadget_encoding(
+    rep3_qodec: qc.Qodec,
+) -> None:
+    layer = rep3_qodec.layers[0]
+    code = layer.codes["repetition3"]
+    layer.codes["repetition3"] = qc.Code(
+        "other", stabilizers=code.stabilizers, x=code.x, z=code.z
+    )
+
+    paths = {
+        path
+        for path, message in structural_issues(rep3_qodec)
+        if message == "block 'repetition3' is bound to different codes in the layer"
+    }
+    assert paths == {
+        f"layers[0].gadgets[{json.dumps(mnemonic)}]" for mnemonic in layer.gadgets
+    }
+    assert any(
+        item.rule == "qodec/invalid-structure"
+        and "bound to different codes" in item.summary
+        for item in audit(rep3_qodec).errors
+    )
+
+
 @pytest.mark.parametrize(
     "kind,value,expected",
     [

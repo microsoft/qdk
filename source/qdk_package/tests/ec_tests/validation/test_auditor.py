@@ -391,7 +391,12 @@ def test_reset_of_declared_input_is_checked_against_instruction() -> None:
             inputs=[encoding],
             outputs=[encoding],
         )
-        protocol = qc.Qodec([qc.Layer(logical, gadgets=[gadget]), qc.Layer(physical)])
+        protocol = qc.Qodec(
+            [
+                qc.Layer(logical, gadgets=[gadget], codes={"qubit": encoding.code}),
+                qc.Layer(physical),
+            ]
+        )
         protocol.validate()
 
         report = audit(protocol)

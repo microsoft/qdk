@@ -629,7 +629,10 @@ def _build(
     }
 
     built = qc.Qodec(
-        [qc.Layer(logical, gadgets=gadgets), qc.Layer(physical)],
+        [
+            qc.Layer(logical, gadgets=gadgets, codes={resolved_name: code}),
+            qc.Layer(physical),
+        ],
         name=resolved_name,
         description=(
             description
@@ -666,6 +669,8 @@ def build_qodec(
     even with ``strict=False``. A failed final audit raises ValueError rather
     than returning inconsistent declarations. Passing this audit does not
     establish fault tolerance; evaluate circuit fault distance separately.
+    The logical layer explicitly binds its block type to the code in
+    ``layer.codes``; no save/load round trip is needed to supply the binding.
 
     ``strategy="flagged-css/v1"`` (the default) uses flag qubits during syndrome
     extraction. ``strategy="bare-css/v1"`` omits those flags and is not fault

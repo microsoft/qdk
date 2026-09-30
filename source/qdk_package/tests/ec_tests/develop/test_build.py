@@ -108,6 +108,21 @@ def test_the_code_is_carried_through(steane: qc.Qodec) -> None:
 
 
 @requires_stim
+@pytest.mark.parametrize("strategy", ["bare-css/v1", "flagged-css/v1"])
+@pytest.mark.parametrize("name", [None, "renamed_c4"])
+def test_built_layer_binds_code_by_block_name(
+    strategy: str, name: str | None
+) -> None:
+    code = c4().codes["C4"]
+    built = build_qodec(code, name=name, strategy=strategy, strict=False)
+    expected = {name or code.name: code}
+
+    assert dict(built.layers[0].codes) == expected
+    assert dict(built.layers[1].codes) == {}
+    assert dict(qc.Qodec.loads(built.dumps()).layers[0].codes) == expected
+
+
+@requires_stim
 @pytest.mark.parametrize(
     ("layer", "mnemonic", "description"),
     [

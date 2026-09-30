@@ -45,6 +45,8 @@ ec = [
   "binar>=0.1.2",
   "more-itertools>=10.0",
   "highspy>=1.11,<2",
+  "numpy>=1.24",
+  "scipy>=1.9",
 ]
 all = [
   "qsharp-widgets==0.0.0",
@@ -61,6 +63,8 @@ all = [
   "binar>=0.1.2",
   "more-itertools>=10.0",
   "highspy>=1.11,<2",
+  "numpy>=1.24",
+  "scipy>=1.9",
 ]
 
 [tool.pytest.ini_options]

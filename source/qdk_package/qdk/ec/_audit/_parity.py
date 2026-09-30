@@ -96,6 +96,25 @@ class ParityAnalysis:
         self.checks = tuple(terms_of(check) for check in gadget.checks)
         self.readouts = tuple(terms_of(readout.equation) for readout in gadget.readouts)
 
+    @cached_property
+    def _input_qubits(self) -> list[int]:
+        return sorted(
+            {
+                qubit
+                for encoding in self.gadget.inputs
+                for qubit in encoding_qubit_relocation(encoding).values()
+            }
+        )
+
+    def without_input_frame(self, value: BitVector) -> BitVector:
+        """Set incoming X/Z frame coefficients to zero, retaining logical variation."""
+        result = value.copy()
+        # Signatures end with two frame coefficients per input qubit, then a constant.
+        frame_start = len(result) - 2 * len(self._input_qubits) - 1
+        for index in range(frame_start, len(result) - 1):
+            result[index] = False
+        return result
+
     def _rotation_invariants_only(self) -> bool:
         """Replacing pure rotations by identity is exact for commuting stabilizers only."""
         program = self.gadget.circuit
@@ -154,13 +173,7 @@ class ParityAnalysis:
                     "conditional circuit actions are not supported by parity verification"
                 )
         simulation = choi_prepare(gadget)
-        input_qubits = sorted(
-            {
-                qubit
-                for encoding in gadget.inputs
-                for qubit in encoding_qubit_relocation(encoding).values()
-            }
-        )
+        input_qubits = self._input_qubits
         auxiliary_origin = simulation.qubit_count - len(input_qubits)
         partners = {
             qubit: auxiliary_origin + offset
