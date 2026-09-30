@@ -43,45 +43,49 @@ GPU memory), a time-against-k plot, the path-search effort table, and MPS χ swe
 
 ## 1. What P(r) is
 
-A record r has one bit per QIR result, in result order, and SELECT acceptance is
-included. P(r) is the probability that the circuit produces exactly r:
+A record $r$ has one bit per QIR result, in result order, and SELECT acceptance is
+included. $P(r)$ is the probability that the circuit $U$ produces exactly $r$:
 
-```text
-P(r) = ‖ Π_r U |0…0⟩ ‖²,   Π_r = projector onto the outcomes fixed by r
-```
+$$
+P(r) = \bigl\lVert \Pi_r\, U \lvert 0\cdots 0\rangle \bigr\rVert^2 ,
+$$
 
-For a stabilizer QEC circuit without noise, each measurement is either random
-(probability 1/2 for each outcome) or deterministic. With m random outcomes:
+where $\Pi_r$ projects onto the outcomes fixed by $r$. For a stabilizer QEC circuit
+without noise, each measurement is either random (probability $1/2$ for each
+outcome) or deterministic. With $m$ random outcomes:
 
-```text
-valid record r              ─►  P(r) = 2^-m
-r with one deterministic
-bit flipped                 ─►  P(r) = 0
-```
+$$
+P(r) =
+\begin{cases}
+2^{-m} & \text{valid record } r \\
+0 & r \text{ with one deterministic bit flipped}
+\end{cases}
+$$
 
 Valid records come from a Clifford run (`run_qir(type="clifford")`), and a
 flipped record flips one deterministic bit. A value is judged exact when its
-relative error is ≤ 1e-9 or, for P = 0, when |P| ≤ 1e-9 · 2^-m. These numbers are
+relative error is $\le 10^{-9}$ or, for $P = 0$, when $\lvert P\rvert \le 10^{-9}\cdot 2^{-m}$. These numbers are
 the cost of **one probability**, not of sampling.
 
 ## 2. Why memory, not time, is the limit
 
-A contraction plan has a width w: log₂ of the largest intermediate tensor. The
-workspace cuTensorNet asks for grows as 2^w:
+A contraction plan has a width $w$: $\log_2$ of the largest intermediate tensor. The
+workspace cuTensorNet asks for grows as $2^w$ (measured; complex128 plus buffers):
 
-```text
-workspace ≈ 24–32 B · 2^w       (measured; complex128 plus buffers)
-fits an 80 GiB GPU  ⇔  w ≤ 31
-```
+$$
+\text{workspace} \approx (24\text{–}32\ \text{B})\cdot 2^{w},
+\qquad
+\text{fits an } 80\ \text{GiB GPU} \iff w \le 31 .
+$$
 
 `Cost()` alone plans and prepares but never contracts, so w is known even when the
 contraction cannot run. The table marks those rows "not run: workspace > GPU".
 More search effort (`ContractionOptions(hyper_samples=…, seed=…)`) trades
-planning time for a possibly smaller w; the path-search table shows whether it helps.
+planning time for a possibly smaller $w$; the path-search table shows whether it helps.
 
-An MPS keeps memory polynomial by capping the bond dimension χ. Its state grows
-linearly with the number of qubits at fixed χ. It is exact only when χ is at
-least the bond the circuit needs; below that the error shows as a wrong P(r).
+An MPS keeps memory polynomial by capping the bond dimension $\chi$. Its state grows
+linearly with the number of qubits at fixed $\chi$. It is exact only when $\chi$ is at
+least the bond the circuit needs; below that the error shows as a wrong $P(r)$.
 
 ## 3. Running it
 
