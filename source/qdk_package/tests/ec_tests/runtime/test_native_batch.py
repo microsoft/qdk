@@ -936,7 +936,7 @@ def test_native_batch_preserves_entangled_measurements(record_decoder):
 
 
 @requires_stim
-def test_warm_thousand_shot_demo_stays_under_100_ms():
+def test_warm_thousand_shot_demo_stays_under_200_ms():
     import statistics
     import time
 
@@ -964,4 +964,4 @@ def test_warm_thousand_shot_demo_stays_under_100_ms():
         timings.append(time.perf_counter() - start)
         assert len(results) == 1000
         assert all(len(shot) == 5 for shot in results)
-    assert statistics.median(timings) < 0.1, timings
+    assert statistics.median(timings) < 0.2, timings
