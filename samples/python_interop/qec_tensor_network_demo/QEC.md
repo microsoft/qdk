@@ -62,8 +62,10 @@ P(r) =
 \end{cases}
 $$
 
-Valid records come from a Clifford run (`run_qir(type="clifford")`), and a
-flipped record flips one deterministic bit. A value is judged exact when its
+A record is written as a string of `0`/`1`, result 0 first. A valid record comes
+from a noiseless stabilizer walk of the same circuit: each random measurement takes a
+random bit, each deterministic one its forced value, and each SELECT read the
+accepting branch. A flipped record flips one deterministic bit. A value is judged exact when its
 relative error is $\le 10^{-9}$ or, for $P = 0$, when $\lvert P\rvert \le 10^{-9}\cdot 2^{-m}$. These numbers are
 the cost of **one probability**, not of sampling.
 
@@ -93,11 +95,13 @@ The API, directly (`run_qir` returns shots; `tensornetwork_qir` returns one valu
 per query, without shot noise):
 
 ```python
+import json
 import qdk.stim
 from qdk.simulation import tensornetwork_qir, Probability, Cost, ContractionOptions, MpsOptions
 
 qir, _ = qdk.stim.compile(stim_text)
-r = [bit == "1" for bit in record]               # one bit per QIR result
+records = json.load(open("records.json"))["records"]   # {"r0": "0110…", …}
+r = [bit == "1" for bit in records["r0"]]        # outcome of QIR result i = r[i]
 
 p, cost = tensornetwork_qir(qir, [Probability(), Cost()], method="contraction",
                             outcomes=r, options=ContractionOptions(hyper_samples=8, seed=17))
