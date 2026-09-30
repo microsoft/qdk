@@ -296,9 +296,10 @@ pub(super) struct FlagContext<'a> {
 ///   [`FinalTrailingExprStrategy::Lazy`], or under `Preserve` but the trailing
 ///   expression itself still contains a `return`.
 ///
-/// Under `FinalTrailingExprStrategy::Preserve` with no nested return, the
-/// trailing expression is left untouched so a block that already produces its
-/// value can keep it verbatim.
+/// Under [`FinalTrailingExprStrategy::Preserve`] with no nested return, only
+/// trailing values accepted by [`expr_is_safe_to_discard`] are kept verbatim.
+/// Potentially effectful or failing tails are guarded so an earlier return
+/// suppresses their evaluation without changing the block's output type.
 ///
 /// # Transformation
 ///

@@ -302,7 +302,13 @@ pub enum InstantiationError {
     Bound(ParamId),
 }
 
-fn instantiate_ty<'a>(
+/// Substitutes generic arguments in a type, preserving parameters absent from the mapping.
+/// This performs substitution only, not class or functor constraint validation.
+///
+/// # Errors
+///
+/// Returns an error when a supplied argument has the wrong kind.
+pub fn instantiate_ty<'a>(
     arg: impl Fn(&ParamId) -> Option<&'a GenericArg> + Copy,
     ty: &Ty,
 ) -> Result<Ty, InstantiationError> {

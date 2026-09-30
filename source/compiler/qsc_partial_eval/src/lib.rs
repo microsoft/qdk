@@ -90,6 +90,7 @@ pub fn partially_evaluate_call(
     package_store: &PackageStore,
     compute_properties: &PackageStoreComputeProperties,
     callable: StoreItemId,
+    functor: FunctorApp,
     args: Value,
     capabilities: TargetCapabilityFlags,
     config: PartialEvalConfig,
@@ -101,7 +102,7 @@ pub fn partially_evaluate_call(
         capabilities,
         config,
     );
-    partial_evaluator.invoke(callable, args)
+    partial_evaluator.invoke(callable, functor, args)
 }
 
 /// A partial evaluation error.
@@ -549,9 +550,13 @@ impl<'a> PartialEvaluator<'a> {
         self.extract_program(ret_val, output_ty, output_span)
     }
 
-    fn invoke(mut self, callable: StoreItemId, args: Value) -> Result<Program, Error> {
-        // Evaluate the callalbe.
-        let ret_val = self.eval_global_call(callable, args)?.into_value();
+    fn invoke(
+        mut self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+        args: Value,
+    ) -> Result<Program, Error> {
+        let ret_val = self.eval_global_call(callable, functor, args)?.into_value();
         let global = self
             .package_store
             .get_global(callable)
@@ -605,10 +610,75 @@ impl<'a> PartialEvaluator<'a> {
                 update_value,
                 index_expr_package_span,
             ),
+            Value::Var(index) if index.ty == VarTy::Integer => {
+                return self.eval_runtime_array_update(
+                    array,
+                    index,
+                    &update_value,
+                    index_expr_package_span,
+                );
+            }
             _ => panic!("invalid kind of value for index"),
         };
         let updated_array = update_result.map_err(Error::from)?;
         Ok(updated_array)
+    }
+
+    /// Selects replacement elements into fresh variables, leaving aliases of the
+    /// original array unchanged. Runtime indices are assumed in bounds; these
+    /// branches select values and do not implement a bounds check.
+    fn eval_runtime_array_update(
+        &mut self,
+        array: &[Value],
+        index: Var,
+        replacement: &Value,
+        span: PackageSpan,
+    ) -> Result<Value, Error> {
+        self.fail_if_in_parallel_expr(span)?;
+        let ty = try_get_eval_var_type(replacement).ok_or_else(|| {
+            Error::Unimplemented(
+                format!("runtime array update of {}", replacement.type_name()),
+                span,
+            )
+        })?;
+        let replacement = self.map_eval_value_to_rir_operand(replacement);
+        let mut updated = Vec::with_capacity(array.len());
+        for (position, original) in array.iter().enumerate() {
+            let result = Var {
+                id: self.resource_manager.next_var().into(),
+                ty,
+            };
+            let result_var = map_eval_var_to_rir_var(result);
+            let original = self.map_eval_value_to_rir_operand(original);
+            self.get_current_rir_block_mut()
+                .0
+                .push(Instruction::Store(original, result_var));
+            let condition = rir::Variable::new_boolean(self.resource_manager.next_var());
+            self.get_current_rir_block_mut().0.push(Instruction::Icmp(
+                ConditionCode::Eq,
+                Operand::Variable(map_eval_var_to_rir_var(index)),
+                Operand::Literal(Literal::Integer(
+                    i64::try_from(position).expect("array index fits i64"),
+                )),
+                condition,
+            ));
+            let current = self.eval_context.pop_block_node();
+            let continuation = self.create_program_block();
+            let selected = self.create_program_block();
+            self.get_program_block_mut(current.id)
+                .0
+                .push(Instruction::Branch(condition, selected, continuation, None));
+            self.get_program_block_mut(selected).0.extend([
+                Instruction::Store(replacement, result_var),
+                Instruction::Jump(continuation),
+            ]);
+            self.eval_context.push_block_node(BlockNode {
+                id: continuation,
+                successor: current.successor,
+            });
+            updated.push(Value::Var(result));
+        }
+        Ok(Value::Array(Rc::new(updated)))
     }
 
     fn eval_bin_op(
@@ -1804,6 +1874,7 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_global_call(
         &mut self,
         store_item_id: StoreItemId,
+        functor: FunctorApp,
         args: Value,
     ) -> Result<EvalControlFlow, Error> {
         let global = self
@@ -1818,21 +1889,27 @@ impl<'a> PartialEvaluator<'a> {
         // Set up the scope for the call, which allows additional error checking if the callable was
         // previously unresolved.
         let spec_decl = if let CallableImpl::Spec(spec_impl) = &callable_decl.implementation {
-            get_spec_decl(spec_impl, FunctorApp::default())
+            get_spec_decl(spec_impl, functor)
         } else {
             panic!("global call to intrinsic function not supported");
         };
 
+        let controls = spec_decl.input.map(|input| {
+            (
+                StorePatId::from((store_item_id.package, input)),
+                functor.controlled,
+            )
+        });
         let (args, ctls_arg, arrays) = self.resolve_args(
             (store_item_id.package, callable_decl.input).into(),
             args,
-            None,
-            None,
+            Some(map_fir_package_span_to_hir(callable_decl.span)),
+            controls,
             None,
         )?;
         let call_scope = Scope::new(
             store_item_id.package,
-            Some((store_item_id.item, FunctorApp::default())),
+            Some((store_item_id.item, functor)),
             args,
             ctls_arg,
             false,
@@ -1841,12 +1918,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
-        let value = self.eval_expr_call_to_spec(
-            call_scope,
-            store_item_id,
-            FunctorApp::default(),
-            spec_decl,
-        )?;
+        let value = self.eval_expr_call_to_spec(call_scope, store_item_id, functor, spec_decl)?;
         Ok(EvalControlFlow::Continue(value))
     }
 

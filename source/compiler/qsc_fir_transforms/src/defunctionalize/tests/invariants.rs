@@ -625,11 +625,11 @@ fn deferrable_residue_preserves_local_binding_type_checks() {
 
     let mut assigners = PackageAssigners::new(&store, package_id);
     assigners.seed_all(&store);
-    let (errors, return_unify_items) =
+    let (errors, return_unify_skipped_items) =
         crate::return_unify::unify_returns(&mut store, package_id, &mut assigners);
     assert!(errors.is_empty());
     let mut exemptions = fir_invariants::InvariantExemptions {
-        return_unify_items,
+        return_unify_skipped_items,
         ..Default::default()
     };
     crate::cond_normalize::normalize_conditions(&mut store, package_id, &mut assigners);
@@ -667,8 +667,8 @@ fn deferrable_residue_preserves_local_binding_type_checks() {
             .contains(&StoreItemId::from((package_id, unrelated_item))),
         "residue discovery must include the unrelated closure"
     );
-    exemptions.defunc_items = outcome.residue_items;
-    exemptions.defunc_entry = outcome.entry_has_residue;
+    exemptions.defunc_residual_items = outcome.residue_items;
+    exemptions.entry_has_defunc_residue = outcome.entry_has_residue;
     fir_invariants::check_with_exemptions(
         &store,
         package_id,
@@ -2147,7 +2147,10 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     qubitIndices = [0],
                     signs = [1]
                 };
-                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(1, 1, params);
+                {
+                    let __capture : __UDT_Item_1__Package_2_ = params;
+                    MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(1, 1, __capture)
+                };
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {

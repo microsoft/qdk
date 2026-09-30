@@ -6,6 +6,658 @@ use expect_test::expect;
 use super::check;
 
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keeps the labelled source/validator parity matrix in one contract test."
+)]
+fn concrete_instantiation_matches_source_constraints() {
+    use crate::{
+        compile::{self, PackageStore},
+        typeck::validate_instantiation,
+    };
+    use miette::Diagnostic;
+    use qsc_data_structures::{
+        language_features::LanguageFeatures, source::SourceMap, span::Span,
+        target::TargetCapabilityFlags,
+    };
+    use qsc_hir::{
+        hir::{ItemId, ItemKind},
+        ty::{FunctorSet, GenericArg, ParamId, Ty, TypeParameter},
+    };
+    use rustc_hash::FxHashMap;
+
+    let store = PackageStore::new(compile::core());
+    let compile = |source: &str, expr: &str| {
+        compile::compile(
+            &store,
+            &[],
+            SourceMap::new([("test".into(), source.into())], Some(expr.into())),
+            TargetCapabilityFlags::all(),
+            LanguageFeatures::default(),
+        )
+    };
+    let prefix = r#"
+        namespace Test {
+            newtype Wrapper = (Double, Double);
+            newtype Complex = (Double, Double);
+            operation Plain() : Unit {}
+            operation AdjOnly() : Unit is Adj {}
+            operation CtlOnly() : Unit is Ctl {}
+            operation Both() : Unit is Adj + Ctl {}
+            function Helper<'T: Add>(x: 'T) : 'T { x }
+    "#;
+    let identity = |bounds: &str| format!("function Target<'T: {bounds}>(x: 'T) : Unit {{}}");
+    let cases = [
+        ("bool eq/show", identity("Eq + Show"), "true", vec![]),
+        (
+            "bool add",
+            identity("Add"),
+            "true",
+            vec![("MissingClassAdd", "type Bool does not support plus")],
+        ),
+        ("int add", identity("Add"), "1", vec![]),
+        ("bigint add", identity("Add"), "1L", vec![]),
+        ("double add", identity("Add"), "1.0", vec![]),
+        ("string add", identity("Add"), "\"s\"", vec![]),
+        (
+            "array add needs no element class",
+            identity("Add"),
+            "[Test.Plain]",
+            vec![],
+        ),
+        (
+            "nominal complex add",
+            identity("Add"),
+            "new Std.Core.Complex { Real = 1.0, Imag = 2.0 }",
+            vec![],
+        ),
+        (
+            "complex-shaped tuple is not complex",
+            identity("Add"),
+            "(1.0, 2.0)",
+            vec![(
+                "MissingClassAdd",
+                "type (Double, Double) does not support plus",
+            )],
+        ),
+        (
+            "same-named nominal is not complex",
+            identity("Add"),
+            "Test.Complex(1.0, 2.0)",
+            vec![("MissingClassAdd", "type Complex does not support plus")],
+        ),
+        (
+            "other nominal is not complex",
+            identity("Add"),
+            "Test.Wrapper(1.0, 2.0)",
+            vec![("MissingClassAdd", "type Wrapper does not support plus")],
+        ),
+        (
+            "nominal complex eq",
+            identity("Eq"),
+            "new Std.Core.Complex { Real = 1.0, Imag = 2.0 }",
+            vec![],
+        ),
+        (
+            "nominal complex show",
+            identity("Show"),
+            "new Std.Core.Complex { Real = 1.0, Imag = 2.0 }",
+            vec![(
+                "MissingClassShow",
+                "type Complex cannot be converted into a string",
+            )],
+        ),
+        (
+            "recursive eq/show",
+            identity("Eq + Show"),
+            "([true], (1, \"s\"))",
+            vec![],
+        ),
+        (
+            "recursive eq failure",
+            identity("Eq"),
+            "([Test.Plain], true)",
+            vec![(
+                "MissingClassEq",
+                "type (Unit => Unit) does not support equality",
+            )],
+        ),
+        (
+            "recursive show failure",
+            identity("Show"),
+            "(true, [Test.Plain])",
+            vec![(
+                "MissingClassShow",
+                "type (Unit => Unit) cannot be converted into a string",
+            )],
+        ),
+        ("multiple bounds", identity("Add + Integral"), "1", vec![]),
+        (
+            "multiple bounds failure",
+            identity("Add + Integral"),
+            "\"s\"",
+            vec![("MissingClassInteger", "type String is not an integer")],
+        ),
+        (
+            "numeric class conjunction",
+            identity("Sub + Mul + Div + Mod + Signed"),
+            "1",
+            vec![],
+        ),
+        (
+            "all bounds checked",
+            identity("Add + Integral"),
+            "true",
+            vec![
+                ("MissingClassAdd", "type Bool does not support plus"),
+                ("MissingClassInteger", "type Bool is not an integer"),
+            ],
+        ),
+        (
+            "transitive bounds",
+            "function Target<'T: Add + Show>(x: 'T) : 'T { Helper(x) }".into(),
+            "1",
+            vec![],
+        ),
+        (
+            "transitive bounds failure",
+            "function Target<'T: Add + Show>(x: 'T) : 'T { Helper(x) }".into(),
+            "true",
+            vec![("MissingClassAdd", "type Bool does not support plus")],
+        ),
+        ("bigint exponent", identity("Exp[Int]"), "1L", vec![]),
+        ("double exponent", identity("Exp[Double]"), "1.0", vec![]),
+        (
+            "wrong exponent",
+            identity("Exp[Int]"),
+            "1.0",
+            vec![("TyMismatch", "expected Double, found Int")],
+        ),
+        (
+            "unsupported exponent base",
+            identity("Exp[Int]"),
+            "true",
+            vec![(
+                "MissingClassExp",
+                "type Bool does not support exponentiation",
+            )],
+        ),
+        (
+            "iterable element",
+            identity("Iterable[Bool]"),
+            "[true]",
+            vec![],
+        ),
+        ("iterable range", identity("Iterable[Int]"), "0..2", vec![]),
+        (
+            "wrong iterable element",
+            identity("Iterable[Bool]"),
+            "[1]",
+            vec![("TyMismatch", "expected Int, found Bool")],
+        ),
+        (
+            "non iterable",
+            identity("Iterable[Bool]"),
+            "true",
+            vec![("MissingClassIterable", "type Bool is not iterable")],
+        ),
+        (
+            "functor superset",
+            "function Target(op: (Unit => Unit is Adj)) : Unit {}".into(),
+            "Test.Both",
+            vec![],
+        ),
+        (
+            "exact functor",
+            "function Target(op: (Unit => Unit is Adj)) : Unit {}".into(),
+            "Test.AdjOnly",
+            vec![],
+        ),
+        (
+            "missing functor",
+            "function Target(op: (Unit => Unit is Adj)) : Unit {}".into(),
+            "Test.Plain",
+            vec![(
+                "MissingFunctor",
+                "expected superset of Adj, found empty set",
+            )],
+        ),
+        (
+            "wrong functor",
+            "function Target(op: (Unit => Unit is Adj)) : Unit {}".into(),
+            "Test.CtlOnly",
+            vec![("MissingFunctor", "expected superset of Adj, found Ctl")],
+        ),
+    ];
+    for (label, declaration, expression, expected) in cases {
+        let source = format!("{prefix}{declaration}}}");
+        let unit = compile(&source, expression);
+        assert!(unit.errors.is_empty(), "{label}: {:?}", unit.errors);
+        let target = unit
+            .package
+            .items
+            .iter()
+            .find_map(|(_, item)| match &item.kind {
+                ItemKind::Callable(callable) if callable.name.name.as_ref() == "Target" => {
+                    Some(callable)
+                }
+                _ => None,
+            })
+            .expect("compiled target");
+        let parameters: Vec<_> = target
+            .generics
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(id, parameter)| (ParamId::from(id), parameter))
+            .collect();
+        assert_eq!(parameters.len(), 1, "{label}");
+        let candidate_ty = &unit
+            .package
+            .entry
+            .as_ref()
+            .expect("candidate expression")
+            .ty;
+        let candidate = match &parameters[0].1 {
+            TypeParameter::Ty { .. } => GenericArg::Ty(candidate_ty.clone()),
+            TypeParameter::Functor(_) => {
+                let Ty::Arrow(arrow) = candidate_ty else {
+                    panic!("{label}: expected arrow")
+                };
+                GenericArg::Functor(*arrow.functors.borrow())
+            }
+        };
+        let candidates = FxHashMap::from_iter([(parameters[0].0, candidate)]);
+        let udts: FxHashMap<_, _> = store
+            .iter()
+            .map(|(id, unit)| (id, &unit.package))
+            .chain([(unit.package.package_id, &unit.package)])
+            .flat_map(|(package, unit)| {
+                unit.items.iter().filter_map(move |(item_id, item)| {
+                    if let ItemKind::Ty(_, udt) = &item.kind {
+                        Some((
+                            ItemId {
+                                package,
+                                item: item_id,
+                            },
+                            udt.clone(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        let span = unit.package.entry.as_ref().expect("entry").span;
+        let errors = validate_instantiation(&parameters, &candidates, &udts, span)
+            .err()
+            .unwrap_or_default();
+        if label == "nominal complex add" {
+            let missing =
+                validate_instantiation(&parameters, &candidates, &FxHashMap::default(), span)
+                    .expect_err("nominal identity requires its owning definition");
+            assert_eq!(missing.len(), 1);
+            assert_eq!(
+                missing[0].code().expect("code").to_string(),
+                "Qdk.Qsc.TypeCk.MissingTypeDefinition"
+            );
+            assert_eq!(
+                missing[0].to_string(),
+                format!("missing definition for nominal type {}", ItemId::complex())
+            );
+        }
+        let actual: Vec<_> = errors
+            .iter()
+            .map(|error| {
+                assert_eq!(error.parameter, Some(parameters[0].0), "{label}");
+                let labels: Vec<_> = error.labels().expect("diagnostic location").collect();
+                assert_eq!(labels.len(), 1, "{label}");
+                assert_eq!(labels[0].offset(), span.lo as usize, "{label}");
+                assert_eq!(labels[0].len(), (span.hi - span.lo) as usize, "{label}");
+                (
+                    error.code().expect("diagnostic code").to_string(),
+                    error.to_string(),
+                )
+            })
+            .collect();
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|(code, message)| (format!("Qdk.Qsc.TypeCk.{code}"), (*message).to_string()))
+            .collect();
+        assert_eq!(actual, expected, "{label}: shared validator");
+        let source_call = compile(&source, &format!("Test.Target({expression})"));
+        let source_errors: Vec<_> = source_call
+            .errors
+            .iter()
+            .map(|error| {
+                (
+                    error.code().expect("source diagnostic code").to_string(),
+                    std::error::Error::source(error)
+                        .expect("type diagnostic")
+                        .to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(source_errors, expected, "{label}: source call");
+    }
+
+    // Dependent payloads are compared to source calls with the same concrete bound.
+    // Source generic inference does not substitute parameters inside class payloads.
+    for (label, bound, concrete_bound, expression, expected) in [
+        ("dependent exponent", "Exp['P]", "Exp[Int]", "(2, 1L)", None),
+        (
+            "dependent exponent mismatch",
+            "Exp['P]",
+            "Exp[Bool]",
+            "(true, 1L)",
+            Some("expected Int, found Bool"),
+        ),
+        (
+            "dependent iterable",
+            "Iterable['P]",
+            "Iterable[Bool]",
+            "(true, [true])",
+            None,
+        ),
+        (
+            "dependent iterable mismatch",
+            "Iterable['P]",
+            "Iterable[Bool]",
+            "(true, [1])",
+            Some("expected Int, found Bool"),
+        ),
+    ] {
+        let declaration = |bound| {
+            format!("{prefix}function Target<'P, 'T: {bound}>(p: 'P, x: 'T) : Unit {{}} }}")
+        };
+        let unit = compile(&declaration(bound), expression);
+        assert!(unit.errors.is_empty(), "{label}: {:?}", unit.errors);
+        let target = unit
+            .package
+            .items
+            .iter()
+            .find_map(|(_, item)| match &item.kind {
+                ItemKind::Callable(callable) if callable.name.name.as_ref() == "Target" => {
+                    Some(callable)
+                }
+                _ => None,
+            })
+            .expect("compiled target");
+        let parameters: Vec<_> = target
+            .generics
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(id, parameter)| (ParamId::from(id), parameter))
+            .collect();
+        let Ty::Tuple(types) = &unit.package.entry.as_ref().expect("candidate").ty else {
+            panic!("candidate tuple")
+        };
+        let candidates = types
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(id, ty)| (ParamId::from(id), GenericArg::Ty(ty)))
+            .collect();
+        let errors = validate_instantiation(
+            &parameters,
+            &candidates,
+            &FxHashMap::default(),
+            Span::default(),
+        )
+        .err()
+        .unwrap_or_default();
+        assert_eq!(
+            errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            expected.into_iter().collect::<Vec<_>>(),
+            "{label}"
+        );
+        for error in &errors {
+            assert_eq!(error.parameter, Some(ParamId::from(1)));
+            assert_eq!(
+                error.code().expect("code").to_string(),
+                "Qdk.Qsc.TypeCk.TyMismatch"
+            );
+        }
+        let source_call = compile(
+            &declaration(concrete_bound),
+            &format!("Test.Target{expression}"),
+        );
+        assert_eq!(
+            source_call
+                .errors
+                .iter()
+                .map(|error| std::error::Error::source(error)
+                    .expect("type diagnostic")
+                    .to_string())
+                .collect::<Vec<_>>(),
+            expected.into_iter().collect::<Vec<_>>(),
+            "{label}: concrete source bound"
+        );
+    }
+
+    let source = format!("{prefix}{}}}", identity("Eq"));
+    let unit = compile(&source, "true");
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let target = unit
+        .package
+        .items
+        .iter()
+        .find_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(callable) if callable.name.name.as_ref() == "Target" => {
+                Some(callable)
+            }
+            _ => None,
+        })
+        .expect("compiled target");
+    let id = ParamId::from(7);
+    let parameters = [(id, target.generics[0].clone())];
+    let candidate = GenericArg::Ty(unit.package.entry.as_ref().expect("candidate").ty.clone());
+    let candidates = FxHashMap::from_iter([(id, candidate.clone())]);
+    assert!(
+        validate_instantiation(
+            &parameters,
+            &candidates,
+            &FxHashMap::default(),
+            Span::default()
+        )
+        .is_ok(),
+        "sparse inherited IDs do not need local declaration slots"
+    );
+    let arrow_unit = compile(&source, "Test.Plain");
+    assert!(arrow_unit.errors.is_empty(), "{:?}", arrow_unit.errors);
+    let arrow_ty = arrow_unit.package.entry.expect("candidate arrow").ty;
+    let inherited_failure = validate_instantiation(
+        &parameters,
+        &FxHashMap::from_iter([(id, GenericArg::Ty(arrow_ty.clone()))]),
+        &FxHashMap::default(),
+        Span::default(),
+    )
+    .expect_err("inherited bounds are checked");
+    assert_eq!(inherited_failure.len(), 1);
+    assert_eq!(inherited_failure[0].parameter, Some(id));
+    assert_eq!(
+        inherited_failure[0].code().expect("code").to_string(),
+        "Qdk.Qsc.TypeCk.MissingClassEq"
+    );
+    assert_eq!(
+        inherited_failure[0].to_string(),
+        "type (Unit => Unit) does not support equality"
+    );
+    let Ty::Arrow(arrow) = &arrow_ty else {
+        panic!("candidate arrow")
+    };
+    let unknown_functors = FunctorSet::Infer(Default::default());
+    *arrow.functors.borrow_mut() = unknown_functors;
+    let incomplete = validate_instantiation(
+        &parameters,
+        &FxHashMap::from_iter([(id, GenericArg::Ty(arrow_ty))]),
+        &FxHashMap::default(),
+        Span::default(),
+    )
+    .expect_err("nested unresolved functors are not concrete");
+    assert_eq!(incomplete.len(), 1);
+    assert_eq!(
+        incomplete[0].code().expect("code").to_string(),
+        "Qdk.Qsc.TypeCk.NonConcreteFunctor"
+    );
+    assert_eq!(
+        incomplete[0].to_string(),
+        format!("expected concrete functors, found {unknown_functors}")
+    );
+    for (label, parameters, candidates, expected) in [
+        (
+            "arity",
+            parameters.to_vec(),
+            FxHashMap::default(),
+            vec![
+                "expected 1 generic arguments, found 0",
+                "no candidate was supplied for generic parameter 7",
+            ],
+        ),
+        (
+            "missing ID",
+            parameters.to_vec(),
+            FxHashMap::from_iter([(ParamId::from(8), candidate.clone())]),
+            vec!["no candidate was supplied for generic parameter 7"],
+        ),
+        (
+            "duplicate ID",
+            vec![parameters[0].clone(), parameters[0].clone()],
+            FxHashMap::from_iter([
+                (id, candidate.clone()),
+                (ParamId::from(8), candidate.clone()),
+            ]),
+            vec!["generic parameter 7 is declared more than once"],
+        ),
+        (
+            "wrong kind",
+            parameters.to_vec(),
+            FxHashMap::from_iter([(
+                id,
+                GenericArg::Functor(FunctorSet::Value(Default::default())),
+            )]),
+            vec!["generic argument has the wrong kind for parameter 7"],
+        ),
+        (
+            "unresolved parameter",
+            parameters.to_vec(),
+            FxHashMap::from_iter([(id, GenericArg::Ty(target.input.ty.clone()))]),
+            vec!["expected a concrete type, found 'T"],
+        ),
+        (
+            "unresolved inference",
+            parameters.to_vec(),
+            FxHashMap::from_iter([(id, GenericArg::Ty(Ty::Infer(Default::default())))]),
+            vec!["expected a concrete type, found ?"],
+        ),
+        (
+            "error type",
+            parameters.to_vec(),
+            FxHashMap::from_iter([(id, GenericArg::Ty(Ty::Err))]),
+            vec!["expected a concrete type, found ?"],
+        ),
+        (
+            "nested error type",
+            parameters.to_vec(),
+            FxHashMap::from_iter([(id, GenericArg::Ty(Ty::Array(Box::new(Ty::Err))))]),
+            vec!["expected a concrete type, found ?"],
+        ),
+    ] {
+        let errors = validate_instantiation(
+            &parameters,
+            &candidates,
+            &FxHashMap::default(),
+            Span::default(),
+        )
+        .expect_err(label);
+        assert_eq!(
+            errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            expected,
+            "{label}"
+        );
+    }
+
+    let unit = compile(
+        &format!("{prefix}function Target(op: (Unit => Unit is Adj)) : Unit {{}} }}"),
+        "Test.Both",
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let target = unit
+        .package
+        .items
+        .iter()
+        .find_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(callable) if callable.name.name.as_ref() == "Target" => {
+                Some(callable)
+            }
+            _ => None,
+        })
+        .expect("compiled target");
+    let parameters = [(id, target.generics[0].clone())];
+    for functors in [
+        FunctorSet::Infer(Default::default()),
+        match &target.input.ty {
+            Ty::Arrow(arrow) => *arrow.functors.borrow(),
+            _ => panic!("operation parameter"),
+        },
+    ] {
+        let candidates = FxHashMap::from_iter([(id, GenericArg::Functor(functors))]);
+        let errors = validate_instantiation(
+            &parameters,
+            &candidates,
+            &FxHashMap::default(),
+            Span::default(),
+        )
+        .expect_err("unresolved functor");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(
+            errors[0].code().expect("code").to_string(),
+            "Qdk.Qsc.TypeCk.NonConcreteFunctor"
+        );
+        assert_eq!(
+            errors[0].to_string(),
+            format!("expected concrete functors, found {functors}")
+        );
+    }
+
+    let unit = compile(
+        &format!("{prefix}function Target<'P, 'T: Exp['P]>(p: 'P, x: 'T) : Unit {{}} }}"),
+        "1L",
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let target = unit
+        .package
+        .items
+        .iter()
+        .find_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(callable) if callable.name.name.as_ref() == "Target" => {
+                Some(callable)
+            }
+            _ => None,
+        })
+        .expect("compiled target");
+    let parameters = [(ParamId::from(1), target.generics[1].clone())];
+    let candidates = FxHashMap::from_iter([(
+        ParamId::from(1),
+        GenericArg::Ty(unit.package.entry.expect("candidate").ty),
+    )]);
+    let errors = validate_instantiation(
+        &parameters,
+        &candidates,
+        &FxHashMap::default(),
+        Span::default(),
+    )
+    .expect_err("missing dependent payload candidate");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(
+        errors[0].code().expect("code").to_string(),
+        "Qdk.Qsc.TypeCk.NonConcreteType"
+    );
+    assert_eq!(errors[0].to_string(), "expected a concrete type, found 'P");
+}
+
+#[test]
 fn eq() {
     check(
         r#"

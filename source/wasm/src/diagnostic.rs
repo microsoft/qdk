@@ -315,6 +315,10 @@ fn interpret_error_labels(err: &interpret::Error) -> Vec<Label> {
         interpret::Error::Pass(e) => error_labels(e),
         interpret::Error::PartialEvaluation(e) => error_labels(e),
         interpret::Error::FirTransform(e) => error_labels(e),
+        interpret::Error::RuntimeCallableConstraint { error, .. }
+        | interpret::Error::RuntimeCallableInsufficientEvidence { error, .. } => {
+            error_labels(error)
+        }
         interpret::Error::NoEntryPoint
         | interpret::Error::UnsupportedRuntimeCapabilities
         | interpret::Error::Circuit(_)

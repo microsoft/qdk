@@ -1241,11 +1241,8 @@ fn call_to_unresolved_callee_with_classical_arg_allowed() {
 
 #[test]
 fn call_to_loop_reassigned_local_callable_resolves_to_concrete_global() {
-    // `f` is reassigned inside a classical loop, so defunctionalization
-    // over-approximates it to a dynamic callable and defers the convergence
-    // failure instead of raising a fatal error. Partial evaluation resolves the
-    // residual arrow to the concrete `Bar` global (provably its value after the
-    // loop), lowering to a plain `X` call on the qubit.
+    // This helper lowers directly to FIR without running defunctionalization.
+    // Partial evaluation resolves the loop-reassigned `f` to `Bar` and emits X.
     let program = get_rir_program(indoc! {r#"
         namespace Test {
             operation Foo(q : Qubit) : Unit { H(q); }

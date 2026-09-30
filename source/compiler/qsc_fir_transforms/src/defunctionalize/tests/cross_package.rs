@@ -1037,6 +1037,26 @@ fn analysis_apply_operation_power_ca_consumer() {
                 Consume_AdjCtl__closure_(qs);
                 ReleaseQubitArray(qs);
             }
+            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole_1 : Qubit[])) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole_1)
+                }
+                adjoint ... {
+                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole_1)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole_1))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole_1))
+                }
+            }
+            operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
+                apply_power_of_u(1, target);
+            }
+            operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
+                _lambda_4(1, target);
+            }
             operation _lambda_4(hole : Int, hole_1 : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
@@ -1050,12 +1070,6 @@ fn analysis_apply_operation_power_ca_consumer() {
                 controlled adjoint (ctls, ...) {
                     Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole_1))
                 }
-            }
-            operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
-                apply_power_of_u(1, target);
-            }
-            operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
-                _lambda_4(1, target);
             }
             operation ApplyOperationPowerCA__Qubit_____AdjCtl__U_(power : Int, target : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
@@ -1331,7 +1345,10 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     mutable _index_id_216 : Int = 0;
                     while _index_id_216 < _len_id_211 {
                         let integer : Int = _array_id_207[_index_id_216];
-                        let _ : Result[] = BernsteinVazirani_Empty__closure_(nQubits, integer);
+                        let _ : Result[] = {
+                            let __capture : Int = integer;
+                            BernsteinVazirani_Empty__closure_(nQubits, __capture)
+                        };
                         _index_id_216 += 1;
                     }
 

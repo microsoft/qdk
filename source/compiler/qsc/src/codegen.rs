@@ -60,6 +60,7 @@ pub mod qir {
         SyntheticEntry,
         ReinvokeOriginal {
             callable: qsc_fir::fir::StoreItemId,
+            functor: FunctorApp,
             args: Value,
         },
     }
@@ -70,19 +71,343 @@ pub mod qir {
     /// from the type expected at that site.
     #[derive(Clone)]
     struct CallableValueInfo {
+        /// Semantic declaration, retaining nominal identity until admission.
         formal_ty: qsc_fir::ty::Ty,
+        /// Declaration with unresolved functors resolved to their
+        /// declared lower bounds (and only unconstrained functors to `Empty`).
         ty: qsc_fir::ty::Ty,
         generics: Vec<qsc_fir::ty::TypeParameter>,
+        parameters: Vec<(qsc_hir::ty::ParamId, qsc_hir::ty::TypeParameter)>,
+        nominal_types: std::rc::Rc<NominalTypes>,
+        span: qsc_data_structures::span::Span,
+        sources: SourceMap,
+    }
+
+    type NominalTypes =
+        rustc_hash::FxHashMap<qsc_fir::fir::ItemId, (qsc_hir::ty::Udt, qsc_fir::ty::Ty)>;
+
+    #[derive(Default)]
+    struct RuntimeParameters(
+        std::collections::BTreeMap<qsc_hir::ty::ParamId, qsc_hir::ty::TypeParameter>,
+    );
+
+    impl RuntimeParameters {
+        fn ty(&mut self, ty: &qsc_hir::ty::Ty) {
+            use qsc_hir::ty::{ClassConstraint, FunctorSet, Ty, TypeParameter};
+            match ty {
+                Ty::Param { id, name, bounds } => {
+                    let parameter = self.0.entry(*id).or_insert_with(|| TypeParameter::Ty {
+                        name: name.clone(),
+                        bounds: Default::default(),
+                    });
+                    let TypeParameter::Ty {
+                        bounds: collected, ..
+                    } = parameter
+                    else {
+                        return;
+                    };
+                    let mut added = Vec::new();
+                    for bound in &bounds.0 {
+                        if !collected.0.contains(bound) {
+                            added.push(bound.clone());
+                        }
+                    }
+                    collected.0 = collected
+                        .0
+                        .iter()
+                        .cloned()
+                        .chain(added.iter().cloned())
+                        .collect();
+                    for bound in added {
+                        match bound {
+                            ClassConstraint::Exp { power } => self.ty(&power),
+                            ClassConstraint::Iterable { item } => self.ty(&item),
+                            _ => {}
+                        }
+                    }
+                }
+                Ty::Array(item) => self.ty(item),
+                Ty::Tuple(items) => items.iter().for_each(|item| self.ty(item)),
+                Ty::Arrow(arrow) => {
+                    self.ty(&arrow.input.borrow());
+                    self.ty(&arrow.output.borrow());
+                    if let FunctorSet::Param(id, required) = *arrow.functors.borrow() {
+                        self.0
+                            .entry(id)
+                            .and_modify(|parameter| {
+                                if let TypeParameter::Functor(bound) = parameter {
+                                    *bound = bound.union(&required);
+                                }
+                            })
+                            .or_insert(TypeParameter::Functor(required));
+                    }
+                }
+                Ty::Prim(_) | Ty::Udt(_, _) | Ty::Infer(_) | Ty::Err => {}
+            }
+        }
+    }
+
+    impl<'a> qsc_hir::visit::Visitor<'a> for RuntimeParameters {
+        fn visit_callable_decl(&mut self, decl: &'a qsc_hir::hir::CallableDecl) {
+            for (index, parameter) in decl.generics.iter().enumerate() {
+                let id = qsc_hir::ty::ParamId::from(index);
+                match parameter {
+                    qsc_hir::ty::TypeParameter::Ty { name, bounds } => {
+                        self.ty(&qsc_hir::ty::Ty::Param {
+                            id,
+                            name: name.clone(),
+                            bounds: bounds.clone(),
+                        });
+                    }
+                    qsc_hir::ty::TypeParameter::Functor(_) => {
+                        self.0.insert(id, parameter.clone());
+                    }
+                }
+            }
+            self.ty(&decl.output);
+            qsc_hir::visit::walk_callable_decl(self, decl);
+        }
+
+        fn visit_expr(&mut self, expr: &'a qsc_hir::hir::Expr) {
+            self.ty(&expr.ty);
+            if let qsc_hir::hir::ExprKind::Var(_, args) = &expr.kind {
+                for arg in args {
+                    if let qsc_hir::ty::GenericArg::Ty(ty) = arg {
+                        self.ty(ty);
+                    }
+                }
+            }
+            qsc_hir::visit::walk_expr(self, expr);
+        }
+
+        fn visit_pat(&mut self, pat: &'a qsc_hir::hir::Pat) {
+            self.ty(&pat.ty);
+            qsc_hir::visit::walk_pat(self, pat);
+        }
+
+        fn visit_block(&mut self, block: &'a qsc_hir::hir::Block) {
+            self.ty(&block.ty);
+            qsc_hir::visit::walk_block(self, block);
+        }
     }
 
     type RuntimeCallableResult<T> = Result<T, Box<Error>>;
+    type RuntimeTypeArgs = rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>;
 
-    type SyntheticTargetArrow = (
-        Vec<qsc_fir::ty::GenericArg>,
-        qsc_fir::ty::Ty,
-        qsc_fir::ty::Ty,
-        qsc_fir::ty::Ty,
-    );
+    fn hir_runtime_ty(ty: &qsc_fir::ty::Ty, info: &CallableValueInfo) -> qsc_hir::ty::Ty {
+        use qsc_fir::ty::{FunctorSet, Prim, Ty};
+        match ty {
+            Ty::Array(item) => qsc_hir::ty::Ty::Array(Box::new(hir_runtime_ty(item, info))),
+            Ty::Tuple(items) => qsc_hir::ty::Ty::Tuple(
+                items
+                    .iter()
+                    .map(|item| hir_runtime_ty(item, info))
+                    .collect(),
+            ),
+            Ty::Arrow(arrow) => qsc_hir::ty::Ty::Arrow(std::rc::Rc::new(qsc_hir::ty::Arrow {
+                kind: match arrow.kind {
+                    qsc_fir::fir::CallableKind::Function => qsc_hir::hir::CallableKind::Function,
+                    qsc_fir::fir::CallableKind::Operation => qsc_hir::hir::CallableKind::Operation,
+                },
+                input: std::cell::RefCell::new(hir_runtime_ty(&arrow.input, info)),
+                output: std::cell::RefCell::new(hir_runtime_ty(&arrow.output, info)),
+                functors: std::cell::RefCell::new(match arrow.functors {
+                    FunctorSet::Value(value) => {
+                        qsc_hir::ty::FunctorSet::Value(hir_runtime_functors(value))
+                    }
+                    _ => qsc_hir::ty::FunctorSet::Infer(Default::default()),
+                }),
+            })),
+            Ty::Prim(prim) => qsc_hir::ty::Ty::Prim(match prim {
+                Prim::BigInt => qsc_hir::ty::Prim::BigInt,
+                Prim::Bool => qsc_hir::ty::Prim::Bool,
+                Prim::Double => qsc_hir::ty::Prim::Double,
+                Prim::Int => qsc_hir::ty::Prim::Int,
+                Prim::Pauli => qsc_hir::ty::Prim::Pauli,
+                Prim::Qubit => qsc_hir::ty::Prim::Qubit,
+                Prim::Range => qsc_hir::ty::Prim::Range,
+                Prim::RangeFrom => qsc_hir::ty::Prim::RangeFrom,
+                Prim::RangeTo => qsc_hir::ty::Prim::RangeTo,
+                Prim::RangeFull => qsc_hir::ty::Prim::RangeFull,
+                Prim::Result => qsc_hir::ty::Prim::Result,
+                Prim::String => qsc_hir::ty::Prim::String,
+            }),
+            Ty::Udt(qsc_fir::fir::Res::Item(id)) => qsc_hir::ty::Ty::Udt(
+                info.nominal_types
+                    .get(id)
+                    .map_or_else(|| "unknown".into(), |(udt, _)| udt.name.clone()),
+                qsc_hir::hir::Res::Item(qsc_hir::hir::ItemId {
+                    package: qsc_lowerer::map_fir_package_to_hir(id.package),
+                    item: qsc_lowerer::map_fir_local_item_to_hir(id.item),
+                }),
+            ),
+            Ty::Infer(_) | Ty::Param(_) => qsc_hir::ty::Ty::Infer(Default::default()),
+            Ty::Err | Ty::Udt(_) => qsc_hir::ty::Ty::Err,
+        }
+    }
+
+    fn hir_runtime_functors(value: qsc_fir::ty::FunctorSetValue) -> qsc_hir::ty::FunctorSetValue {
+        match value {
+            qsc_fir::ty::FunctorSetValue::Empty => qsc_hir::ty::FunctorSetValue::Empty,
+            qsc_fir::ty::FunctorSetValue::Adj => qsc_hir::ty::FunctorSetValue::Adj,
+            qsc_fir::ty::FunctorSetValue::Ctl => qsc_hir::ty::FunctorSetValue::Ctl,
+            qsc_fir::ty::FunctorSetValue::CtlAdj => qsc_hir::ty::FunctorSetValue::CtlAdj,
+        }
+    }
+
+    fn finalize_runtime_type_args(
+        callable: qsc_fir::fir::StoreItemId,
+        info: &CallableValueInfo,
+        mut inferred: RuntimeTypeArgs,
+    ) -> RuntimeCallableResult<RuntimeTypeArgs> {
+        use qsc_fir::ty::{FunctorSet, GenericArg};
+        let mut defaulted = FxHashSet::default();
+        let mut candidates = rustc_hash::FxHashMap::default();
+        for (id, parameter) in &info.parameters {
+            let fir_id = qsc_fir::ty::ParamId::from(usize::from(*id));
+            let arg = inferred.entry(fir_id).or_insert_with(|| {
+                defaulted.insert(*id);
+                match parameter {
+                    qsc_hir::ty::TypeParameter::Ty { .. } => GenericArg::Ty(qsc_fir::ty::Ty::UNIT),
+                    qsc_hir::ty::TypeParameter::Functor(required) => {
+                        GenericArg::Functor(FunctorSet::Value(lower_runtime_functors(*required)))
+                    }
+                }
+            });
+            let before = arg.clone();
+            default_unresolved_generic_arg(arg);
+            if before != *arg {
+                defaulted.insert(*id);
+            }
+            candidates.insert(
+                *id,
+                match arg {
+                    GenericArg::Ty(ty) => qsc_hir::ty::GenericArg::Ty(hir_runtime_ty(ty, info)),
+                    GenericArg::Functor(FunctorSet::Value(value)) => {
+                        qsc_hir::ty::GenericArg::Functor(qsc_hir::ty::FunctorSet::Value(
+                            hir_runtime_functors(*value),
+                        ))
+                    }
+                    GenericArg::Functor(_) => qsc_hir::ty::GenericArg::Functor(
+                        qsc_hir::ty::FunctorSet::Infer(Default::default()),
+                    ),
+                },
+            );
+        }
+        let udts = info
+            .nominal_types
+            .iter()
+            .map(|(id, (udt, _))| {
+                (
+                    qsc_hir::hir::ItemId {
+                        package: qsc_lowerer::map_fir_package_to_hir(id.package),
+                        item: qsc_lowerer::map_fir_local_item_to_hir(id.item),
+                    },
+                    udt.clone(),
+                )
+            })
+            .collect();
+        if let Err(errors) = qsc_frontend::typeck::validate_instantiation(
+            &info.parameters,
+            &candidates,
+            &udts,
+            info.span,
+        ) {
+            let Some(error) = errors.into_iter().next() else {
+                return Err(Box::new(Error::InvalidRuntimeCallable(callable)));
+            };
+            let insufficient = error.parameter.is_some_and(|id| {
+                let mut dependencies = RuntimeParameters::default();
+                if let Some((_, qsc_hir::ty::TypeParameter::Ty { name, bounds })) = info
+                    .parameters
+                    .iter()
+                    .find(|(parameter, _)| *parameter == id)
+                {
+                    dependencies.ty(&qsc_hir::ty::Ty::Param {
+                        id,
+                        name: name.clone(),
+                        bounds: bounds.clone(),
+                    });
+                }
+                defaulted.contains(&id) || dependencies.0.keys().any(|id| defaulted.contains(id))
+            });
+            let error = WithSource::from_map(&info.sources, error);
+            return Err(Box::new(if insufficient {
+                Error::RuntimeCallableInsufficientEvidence { callable, error }
+            } else {
+                Error::RuntimeCallableConstraint { callable, error }
+            }));
+        }
+        Ok(inferred)
+    }
+
+    fn validate_concrete_runtime_type(
+        callable: qsc_fir::fir::StoreItemId,
+        info: &CallableValueInfo,
+        ty: &qsc_fir::ty::Ty,
+    ) -> RuntimeCallableResult<()> {
+        use qsc_hir::ty::{GenericArg, ParamId, TypeParameter};
+        let id = ParamId::default();
+        let parameters = [(
+            id,
+            TypeParameter::Ty {
+                name: "callable".into(),
+                bounds: Default::default(),
+            },
+        )];
+        let candidates =
+            rustc_hash::FxHashMap::from_iter([(id, GenericArg::Ty(hir_runtime_ty(ty, info)))]);
+        let udts = info
+            .nominal_types
+            .iter()
+            .map(|(id, (udt, _))| {
+                (
+                    qsc_hir::hir::ItemId {
+                        package: qsc_lowerer::map_fir_package_to_hir(id.package),
+                        item: qsc_lowerer::map_fir_local_item_to_hir(id.item),
+                    },
+                    udt.clone(),
+                )
+            })
+            .collect();
+        if let Err(errors) =
+            qsc_frontend::typeck::validate_instantiation(&parameters, &candidates, &udts, info.span)
+        {
+            let Some(mut error) = errors.into_iter().next() else {
+                return Err(Box::new(Error::InvalidRuntimeCallable(callable)));
+            };
+            error.parameter = None;
+            return Err(Box::new(Error::RuntimeCallableConstraint {
+                callable,
+                error: WithSource::from_map(&info.sources, error),
+            }));
+        }
+        Ok(())
+    }
+
+    fn fir_callable_id(item: qsc_hir::hir::ItemId) -> qsc_fir::fir::StoreItemId {
+        qsc_fir::fir::StoreItemId {
+            package: qsc_lowerer::map_hir_package_to_fir(item.package),
+            item: qsc_lowerer::map_hir_local_item_to_fir(item.item),
+        }
+    }
+
+    fn lower_runtime_functors(
+        functors: qsc_hir::ty::FunctorSetValue,
+    ) -> qsc_fir::ty::FunctorSetValue {
+        match functors {
+            qsc_hir::ty::FunctorSetValue::Empty => qsc_fir::ty::FunctorSetValue::Empty,
+            qsc_hir::ty::FunctorSetValue::Adj => qsc_fir::ty::FunctorSetValue::Adj,
+            qsc_hir::ty::FunctorSetValue::Ctl => qsc_fir::ty::FunctorSetValue::Ctl,
+            qsc_hir::ty::FunctorSetValue::CtlAdj => qsc_fir::ty::FunctorSetValue::CtlAdj,
+        }
+    }
+
+    struct ConcreteTargetSignature {
+        generic_args: Vec<qsc_fir::ty::GenericArg>,
+        inferred: RuntimeTypeArgs,
+        arrow: qsc_fir::ty::Arrow,
+    }
 
     /// Extracts the entry point expression from codegen FIR.
     ///
@@ -515,15 +840,47 @@ pub mod qir {
     /// This allows `lower_value_to_expr` to look up arrow types without holding an immutable
     /// reference to the package store while also mutating a package.
     fn build_callable_type_map(
+        package_store: &PackageStore,
         fir_store: &qsc_fir::fir::PackageStore,
         callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
+        target: qsc_fir::fir::StoreItemId,
     ) -> RuntimeCallableResult<rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>>
     {
         use qsc_fir::fir::{Global, PackageLookup};
+        use qsc_hir::visit::Visitor;
 
+        let nominal_types = std::rc::Rc::new(
+            package_store
+                .iter()
+                .flat_map(|(package, unit)| {
+                    unit.package
+                        .items
+                        .iter()
+                        .filter_map(move |(item, declaration)| {
+                            if let qsc_hir::hir::ItemKind::Ty(_, udt) = &declaration.kind {
+                                let id = qsc_fir::fir::ItemId {
+                                    package: qsc_lowerer::map_hir_package_to_fir(package),
+                                    item: qsc_lowerer::map_hir_local_item_to_fir(item),
+                                };
+                                let qsc_fir::fir::ItemKind::Ty(_, lowered) =
+                                    &fir_store.get(id.package).items.get(id.item)?.kind
+                                else {
+                                    return None;
+                                };
+                                let structural = lowered.get_pure_ty();
+                                Some((id, (udt.clone(), structural)))
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .collect(),
+        );
+
+        let callables: FxHashSet<_> = callables.iter().copied().chain([target]).collect();
         let mut map =
             rustc_hash::FxHashMap::with_capacity_and_hasher(callables.len(), Default::default());
-        for id in callables {
+        for id in &callables {
             let Some(package) = fir_store
                 .iter()
                 .find_map(|(package_id, package)| (package_id == id.package).then_some(package))
@@ -534,18 +891,89 @@ pub mod qir {
                 return Err(Box::new(Error::InvalidRuntimeCallable(*id)));
             };
             let (_, ty) = callable_expr_span_and_ty(fir_store, *id);
-            let formal_ty = resolve_udt_ty(fir_store, &ty);
-            let normalized_ty = resolve_functor_params(&formal_ty);
+            let Some(qsc_hir::hir::Item {
+                kind: qsc_hir::hir::ItemKind::Callable(declaration),
+                ..
+            }) = package_store
+                .get(qsc_lowerer::map_fir_package_to_hir(id.package))
+                .and_then(|unit| {
+                    unit.package
+                        .items
+                        .get(qsc_lowerer::map_fir_local_item_to_hir(id.item))
+                })
+            else {
+                return Err(Box::new(Error::InvalidRuntimeCallable(*id)));
+            };
+            let mut parameters = RuntimeParameters::default();
+            parameters.visit_callable_decl(declaration);
+            let parameters: Vec<_> = parameters.0.into_iter().collect();
+            let formal_ty = ty;
+            let declared_functors = parameters
+                .iter()
+                .filter_map(|(id, parameter)| {
+                    if let qsc_hir::ty::TypeParameter::Functor(required) = parameter {
+                        Some((
+                            qsc_fir::ty::ParamId::from(usize::from(*id)),
+                            qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(
+                                lower_runtime_functors(*required),
+                            )),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let normalized_ty = resolve_params_with_inferred(&formal_ty, &declared_functors);
             map.insert(
                 *id,
                 CallableValueInfo {
                     formal_ty,
                     ty: normalized_ty,
                     generics: callable_decl.generics.clone(),
+                    parameters,
+                    nominal_types: std::rc::Rc::clone(&nominal_types),
+                    span: declaration.name.span,
+                    sources: package_store
+                        .get(qsc_lowerer::map_fir_package_to_hir(id.package))
+                        .map_or_else(SourceMap::default, |unit| unit.sources.clone()),
                 },
             );
         }
         Ok(map)
+    }
+
+    fn nominal_structural_ty<'a>(
+        ty: &qsc_fir::ty::Ty,
+        callable_types: &'a rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> Option<&'a qsc_fir::ty::Ty> {
+        let qsc_fir::ty::Ty::Udt(qsc_fir::fir::Res::Item(id)) = ty else {
+            return None;
+        };
+        callable_types
+            .values()
+            .next()?
+            .nominal_types
+            .get(id)
+            .map(|(_, ty)| ty)
+    }
+
+    fn erase_runtime_type_evidence(
+        store: &qsc_fir::fir::PackageStore,
+        callable_types: &mut rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+        signature: &mut ConcreteTargetSignature,
+    ) {
+        for info in callable_types.values_mut() {
+            info.formal_ty = resolve_udt_ty(store, &info.formal_ty);
+            info.ty = resolve_udt_ty(store, &info.ty);
+            info.nominal_types = Default::default();
+        }
+        *signature.arrow.input = resolve_udt_ty(store, &signature.arrow.input);
+        *signature.arrow.output = resolve_udt_ty(store, &signature.arrow.output);
+        for arg in &mut signature.generic_args {
+            if let qsc_fir::ty::GenericArg::Ty(ty) = arg {
+                *ty = resolve_udt_ty(store, ty);
+            }
+        }
     }
 
     /// Normalizes concrete runtime callable type copies before synthetic-entry lowering.
@@ -578,7 +1006,12 @@ pub mod qir {
                     None
                 };
                 let mut inferred = rustc_hash::FxHashMap::default();
-                let _ = infer_generic_ty_args(&info.formal_ty, &info.ty, &mut inferred);
+                let _ = infer_generic_ty_args(
+                    &info.formal_ty,
+                    &info.ty,
+                    &mut inferred,
+                    GenericInferenceSource::RuntimeValue,
+                );
                 (*id, callable_decl.input, normalized_signature, inferred)
             })
             .collect();
@@ -621,35 +1054,11 @@ pub mod qir {
         }
     }
 
-    fn closure_callable_ty(
-        closure: &qsc_eval::val::Closure,
-        expected_ty: Option<&qsc_fir::ty::Ty>,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> qsc_fir::ty::Ty {
-        let info = callable_types
-            .get(&closure.id)
-            .expect("closure callable type should be pre-computed");
-        if info.generics.is_empty() {
-            return info.ty.clone();
-        }
-
-        let mut inferred = infer_closure_generic_args(closure, expected_ty, callable_types);
-        for (idx, param) in info.generics.iter().enumerate() {
-            inferred
-                .entry(qsc_fir::ty::ParamId::from(idx))
-                .or_insert_with(|| default_generic_arg(param));
-        }
-
-        let concrete_ty = resolve_params_with_inferred(&info.formal_ty, &inferred);
-        debug_assert!(!ty_contains_param(&concrete_ty));
-        concrete_ty
-    }
-
     fn infer_closure_generic_args(
         closure: &qsc_eval::val::Closure,
         expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg> {
+    ) -> RuntimeCallableResult<RuntimeTypeArgs> {
         let info = callable_types
             .get(&closure.id)
             .expect("closure callable type should be pre-computed");
@@ -661,12 +1070,25 @@ pub mod qir {
                 let Some(actual_ty) =
                     value_ty_for_inference(capture, Some(formal_ty), callable_types)
                 else {
-                    continue;
+                    return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                        expected: Box::new(formal_ty.clone()),
+                        actual: Box::new(qsc_fir::ty::Ty::Err),
+                    }));
                 };
                 let mut candidate = inferred.clone();
-                if infer_generic_ty_args(formal_ty, &actual_ty, &mut candidate) {
-                    inferred = candidate;
+                let actual_ty = align_runtime_callable_input(formal_ty, &actual_ty);
+                if !infer_generic_ty_args(
+                    formal_ty,
+                    &actual_ty,
+                    &mut candidate,
+                    GenericInferenceSource::RuntimeValue,
+                ) {
+                    return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                        expected: Box::new(formal_ty.clone()),
+                        actual: Box::new(actual_ty),
+                    }));
                 }
+                inferred = candidate;
             }
         }
 
@@ -676,33 +1098,46 @@ pub mod qir {
         if let Some(expected_ty) = expected_base_ty.as_ref() {
             let formal_closure_ty =
                 partial_applied_closure_ty(&info.formal_ty, closure.fixed_args.len());
+            let aligned_expected = align_runtime_callable_input(&formal_closure_ty, expected_ty);
             let mut candidate = inferred.clone();
-            if let Some(expected_ty) =
-                align_callable_functors_for_inference(&formal_closure_ty, expected_ty)
-                && infer_generic_ty_args(&formal_closure_ty, &expected_ty, &mut candidate)
-            {
-                inferred = candidate;
+            if !infer_generic_ty_args(
+                &formal_closure_ty,
+                &aligned_expected,
+                &mut candidate,
+                GenericInferenceSource::ExpectedType,
+            ) {
+                return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                    expected: Box::new(expected_ty.clone()),
+                    actual: Box::new(resolve_params_preserving_uninferred(
+                        &formal_closure_ty,
+                        &inferred,
+                    )),
+                }));
             }
+            inferred = candidate;
         }
-        inferred
+        Ok(inferred)
     }
 
     fn closure_ty_for_inference(
         closure: &qsc_eval::val::Closure,
         expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> qsc_fir::ty::Ty {
+    ) -> Option<qsc_fir::ty::Ty> {
         let info = callable_types
             .get(&closure.id)
             .expect("closure callable type should be pre-computed");
-        let full_ty = if info.generics.is_empty() {
+        let full_ty = if info.parameters.is_empty() {
             info.ty.clone()
         } else {
-            let inferred = infer_closure_generic_args(closure, expected_ty, callable_types);
+            let inferred = infer_closure_generic_args(closure, expected_ty, callable_types).ok()?;
             resolve_params_preserving_uninferred(&info.formal_ty, &inferred)
         };
         let partial_ty = partial_applied_closure_ty(&full_ty, closure.fixed_args.len());
-        callable_ty_with_runtime_functor(&partial_ty, closure.functor)
+        Some(callable_ty_with_runtime_functor(
+            &partial_ty,
+            closure.functor,
+        ))
     }
 
     fn resolve_params_with_inferred(
@@ -764,6 +1199,7 @@ pub mod qir {
                 Some(GenericArg::Ty(ty)) => ty.clone(),
                 _ => ty.clone(),
             },
+            Ty::Infer(_) if matches!(policy, UninferredFunctorPolicy::Empty) => Ty::UNIT,
             Ty::Err | Ty::Infer(_) | Ty::Prim(_) | Ty::Udt(_) => ty.clone(),
         }
     }
@@ -867,6 +1303,21 @@ pub mod qir {
                 .get_mut(expr_id)
                 .expect("callable expression should exist");
             expr.ty = resolve_params_with_inferred(&expr.ty, inferred);
+            if let qsc_fir::fir::ExprKind::Var(_, generic_args) = &mut expr.kind {
+                for arg in generic_args {
+                    match arg {
+                        qsc_fir::ty::GenericArg::Ty(ty) => {
+                            *ty = resolve_params_with_inferred(ty, inferred);
+                        }
+                        qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Param(param)) => {
+                            if let Some(inferred) = inferred.get(param) {
+                                *arg = inferred.clone();
+                            }
+                        }
+                        qsc_fir::ty::GenericArg::Functor(_) => {}
+                    }
+                }
+            }
             child_nodes_for_expr_kind(&expr.kind)
         };
 
@@ -956,9 +1407,10 @@ pub mod qir {
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         target_callable: qsc_fir::fir::StoreItemId,
+        functor: FunctorApp,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-        target_arrow: SyntheticTargetArrow,
+        signature: ConcreteTargetSignature,
     ) {
         use qsc_fir::fir::{Global, PackageLookup};
 
@@ -967,7 +1419,12 @@ pub mod qir {
             panic!("target callable must exist in lowered package");
         };
         let span = callable_decl.span;
-        let (generic_args, input_ty, output_ty, arrow_ty) = target_arrow;
+        let ConcreteTargetSignature {
+            generic_args,
+            arrow,
+            ..
+        } = signature;
+        let output_ty = *arrow.output.clone();
 
         // Build assigner from the package's current ID counters.
         let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_package_id));
@@ -980,20 +1437,24 @@ pub mod qir {
         let args_expr_id = build_synthetic_args(
             package,
             &mut assigner,
-            &input_ty,
+            &arrow.input,
             args,
             callable_types,
             &mut pending_stmts,
         );
 
-        // Create callee Var expression referencing the target callable.
+        let invoked_ty = qsc_fir::ty::Ty::Arrow(Box::new(arrow));
+        let base_ty = callable_ty_before_runtime_functor(&invoked_ty, functor)
+            .expect("validated controlled target signature");
+        // The item reference has the original input; the wrappers supply the
+        // target's controlled layers rather than those of any callable argument.
         let callee_expr_id = assigner.next_expr();
         package.exprs.insert(
             callee_expr_id,
             qsc_fir::fir::Expr {
                 id: callee_expr_id,
                 span,
-                ty: arrow_ty,
+                ty: base_ty.clone(),
                 kind: qsc_fir::fir::ExprKind::Var(
                     qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
                         package: target_callable.package,
@@ -1005,6 +1466,8 @@ pub mod qir {
                     ..qsc_fir::fir::ExecGraphIdx::ZERO,
             },
         );
+        let callee_expr_id =
+            wrap_expr_with_functor_app(package, &mut assigner, callee_expr_id, &base_ty, functor);
 
         // Create Call expression: Call(callee, args) with output type.
         let call_expr_id = assigner.next_expr();
@@ -1074,29 +1537,79 @@ pub mod qir {
     fn validate_runtime_callable_values_for_target(
         fir_store: &qsc_fir::fir::PackageStore,
         target_callable: qsc_fir::fir::StoreItemId,
+        functor: FunctorApp,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> RuntimeCallableResult<SyntheticTargetArrow> {
+    ) -> RuntimeCallableResult<ConcreteTargetSignature> {
         use qsc_fir::fir::{Global, PackageLookup};
 
         let package = fir_store.get(target_callable.package);
         let Some(Global::Callable(callable_decl)) = package.get_global(target_callable.item) else {
             return Err(Box::new(Error::InvalidRuntimeCallable(target_callable)));
         };
-        let formal_input_ty = resolve_udt_ty(fir_store, &package.get_pat(callable_decl.input).ty);
-        let formal_output_ty = resolve_udt_ty(fir_store, &callable_decl.output);
+        let required = match (functor.adjoint, functor.controlled > 0) {
+            (false, false) => qsc_fir::ty::FunctorSetValue::Empty,
+            (true, false) => qsc_fir::ty::FunctorSetValue::Adj,
+            (false, true) => qsc_fir::ty::FunctorSetValue::Ctl,
+            (true, true) => qsc_fir::ty::FunctorSetValue::CtlAdj,
+        };
+        if callable_decl.functors.intersect(&required) != required {
+            return Err(Box::new(Error::InvalidRuntimeCallableFunctor {
+                callable: target_callable,
+                functor,
+            }));
+        }
+        let mut formal_input_ty = package.get_pat(callable_decl.input).ty.clone();
+        for _ in 0..functor.controlled {
+            formal_input_ty = qsc_fir::ty::Ty::Tuple(vec![
+                qsc_fir::ty::Ty::Array(Box::new(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit))),
+                formal_input_ty,
+            ]);
+        }
+        let formal_output_ty = callable_decl.output.clone();
         validate_runtime_callable_shapes(args, callable_types)?;
+        validate_runtime_argument_structure(args, &formal_input_ty, callable_types)?;
         let target_arrow = instantiate_synthetic_target_arrow(
-            callable_decl.generics.as_slice(),
-            callable_decl.kind,
-            callable_decl.functors,
-            &formal_input_ty,
-            &formal_output_ty,
+            target_callable,
+            &callable_types[&target_callable],
+            &qsc_fir::ty::Arrow {
+                kind: callable_decl.kind,
+                functors: qsc_fir::ty::FunctorSet::Value(callable_decl.functors),
+                input: Box::new(formal_input_ty),
+                output: Box::new(formal_output_ty),
+            },
             args,
             callable_types,
-        );
-        validate_runtime_callable_args(args, &target_arrow.1, callable_types)?;
+        )?;
+        validate_runtime_callable_args(args, &target_arrow.arrow.input, callable_types)?;
         Ok(target_arrow)
+    }
+
+    /// Preserves the ordinary shape and concrete-slot diagnostics before generic
+    /// inference examines the complete argument tree.
+    fn validate_runtime_argument_structure(
+        value: &Value,
+        formal_ty: &qsc_fir::ty::Ty,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> RuntimeCallableResult<()> {
+        use qsc_fir::ty::Ty;
+        match (value, formal_ty) {
+            (Value::Tuple(values, _), Ty::Tuple(items)) if values.len() == items.len() => {
+                for (value, item) in values.iter().zip(items) {
+                    validate_runtime_argument_structure(value, item, callable_types)?;
+                }
+            }
+            (Value::Array(values), Ty::Array(item)) => {
+                for value in values.iter() {
+                    validate_runtime_argument_structure(value, item, callable_types)?;
+                }
+            }
+            (_, Ty::Tuple(_) | Ty::Array(_) | Ty::Prim(_)) => {
+                validate_runtime_callable_args(value, formal_ty, callable_types)?;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn validate_runtime_callable_shapes(
@@ -1173,7 +1686,12 @@ pub mod qir {
             };
             let mut candidate = inferred.clone();
             let aligned_actual_ty = align_runtime_callable_input(formal_ty, &actual_ty);
-            if !infer_generic_ty_args(formal_ty, &aligned_actual_ty, &mut candidate) {
+            if !infer_generic_ty_args(
+                formal_ty,
+                &aligned_actual_ty,
+                &mut candidate,
+                GenericInferenceSource::RuntimeValue,
+            ) {
                 return Err(Box::new(Error::RuntimeCallableTypeMismatch {
                     expected: Box::new(formal_ty.clone()),
                     actual: Box::new(actual_ty),
@@ -1221,7 +1739,32 @@ pub mod qir {
     ) -> RuntimeCallableResult<()> {
         use qsc_fir::ty::Ty;
 
+        if let Some(structural) = nominal_structural_ty(expected_ty, callable_types) {
+            let actual =
+                value_ty_for_inference(value, Some(expected_ty), callable_types).unwrap_or(Ty::Err);
+            if actual != *expected_ty {
+                return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                    expected: Box::new(expected_ty.clone()),
+                    actual: Box::new(actual),
+                }));
+            }
+            let unwrapped;
+            let value = if let Value::Tuple(values, Some(_)) = value {
+                unwrapped = Value::Tuple(values.clone(), None);
+                &unwrapped
+            } else {
+                value
+            };
+            return validate_runtime_callable_args(value, structural, callable_types);
+        }
         if let Ty::Tuple(items) = expected_ty {
+            if let Value::Tuple(_, Some(_)) = value {
+                let actual = value_ty_for_inference(value, None, callable_types).unwrap_or(Ty::Err);
+                return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                    expected: Box::new(expected_ty.clone()),
+                    actual: Box::new(actual),
+                }));
+            }
             let Value::Tuple(values, _) = value else {
                 return Err(Box::new(Error::RuntimeCallableArgumentShapeMismatch {
                     expected: Box::new(expected_ty.clone()),
@@ -1310,13 +1853,23 @@ pub mod qir {
         expected_ty: &qsc_fir::ty::Ty,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) -> RuntimeCallableResult<()> {
-        let actual_ty = value_ty_for_inference(value, Some(expected_ty), callable_types)
-            .ok_or_else(|| {
-                Box::new(Error::RuntimeCallableTypeMismatch {
-                    expected: Box::new(expected_ty.clone()),
-                    actual: Box::new(qsc_fir::ty::Ty::Err),
-                })
-            })?;
+        let (full_ty, _) = runtime_callable_instantiation(value, expected_ty, callable_types)?;
+        let (actual_ty, functor) = match value {
+            Value::Closure(closure) => {
+                let hints = closure_capture_ty_hints(&full_ty, closure.fixed_args.len())
+                    .unwrap_or_default();
+                for (capture, hint) in closure.fixed_args.iter().zip(&hints) {
+                    validate_runtime_callable_args(capture, hint, callable_types)?;
+                }
+                (
+                    partial_applied_closure_ty(&full_ty, closure.fixed_args.len()),
+                    closure.functor,
+                )
+            }
+            Value::Global(_, functor) => (full_ty, *functor),
+            _ => return Err(Box::new(Error::NotACallable)),
+        };
+        let actual_ty = callable_ty_with_runtime_functor(&actual_ty, functor);
         if callable_ty_satisfies_expected(&actual_ty, expected_ty) {
             Ok(())
         } else {
@@ -1327,25 +1880,80 @@ pub mod qir {
         }
     }
 
+    fn runtime_callable_instantiation(
+        value: &Value,
+        expected_ty: &qsc_fir::ty::Ty,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> RuntimeCallableResult<(qsc_fir::ty::Ty, RuntimeTypeArgs)> {
+        let (id, functor) = match value {
+            Value::Global(id, functor) => (*id, *functor),
+            Value::Closure(closure) => (closure.id, closure.functor),
+            _ => return Err(Box::new(Error::NotACallable)),
+        };
+        let info = callable_types
+            .get(&id)
+            .ok_or_else(|| Box::new(Error::InvalidRuntimeCallable(id)))?;
+        let inferred = if let Value::Closure(closure) = value {
+            infer_closure_generic_args(closure, Some(expected_ty), callable_types)?
+        } else {
+            let expected_base = callable_ty_before_runtime_functor(expected_ty, functor)
+                .ok_or_else(|| {
+                    Box::new(Error::RuntimeCallableTypeMismatch {
+                        expected: Box::new(expected_ty.clone()),
+                        actual: Box::new(info.ty.clone()),
+                    })
+                })?;
+            let expected_base = align_runtime_callable_input(&info.formal_ty, &expected_base);
+            let mut inferred = RuntimeTypeArgs::default();
+            if !infer_generic_ty_args(
+                &info.formal_ty,
+                &expected_base,
+                &mut inferred,
+                GenericInferenceSource::ExpectedType,
+            ) {
+                return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                    expected: Box::new(expected_ty.clone()),
+                    actual: Box::new(info.ty.clone()),
+                }));
+            }
+            inferred
+        };
+        let inferred = finalize_runtime_type_args(id, info, inferred)?;
+        let full_ty = resolve_params_with_inferred(&info.formal_ty, &inferred);
+        validate_concrete_runtime_type(id, info, &full_ty)?;
+        Ok((full_ty, inferred))
+    }
+
+    /// Follows frontend unification's expected/actual direction recursively,
+    /// including within callable inputs (rather than introducing variance).
     fn callable_ty_satisfies_expected(
         actual_ty: &qsc_fir::ty::Ty,
         expected_ty: &qsc_fir::ty::Ty,
     ) -> bool {
-        let aligned_actual_ty = align_runtime_callable_input(expected_ty, actual_ty);
-        let (qsc_fir::ty::Ty::Arrow(actual), qsc_fir::ty::Ty::Arrow(expected)) =
-            (&aligned_actual_ty, expected_ty)
-        else {
-            return false;
-        };
-        if actual.kind != expected.kind
-            || actual.input != expected.input
-            || actual.output != expected.output
-        {
-            return false;
-        }
-        match (actual.functors, expected.functors) {
-            (qsc_fir::ty::FunctorSet::Value(actual), qsc_fir::ty::FunctorSet::Value(expected)) => {
-                actual.intersect(&expected) == expected
+        use qsc_fir::ty::{FunctorSet, Ty};
+
+        let actual_ty = align_runtime_callable_input(expected_ty, actual_ty);
+        match (&actual_ty, expected_ty) {
+            (Ty::Arrow(actual), Ty::Arrow(expected)) => {
+                actual.kind == expected.kind
+                    && callable_ty_satisfies_expected(&actual.input, &expected.input)
+                    && callable_ty_satisfies_expected(&actual.output, &expected.output)
+                    && match (actual.functors, expected.functors) {
+                        (FunctorSet::Value(actual), FunctorSet::Value(expected)) => {
+                            actual.intersect(&expected) == expected
+                        }
+                        (actual, expected) => actual == expected,
+                    }
+            }
+            (Ty::Array(actual), Ty::Array(expected)) => {
+                callable_ty_satisfies_expected(actual, expected)
+            }
+            (Ty::Tuple(actual), Ty::Tuple(expected)) => {
+                actual.len() == expected.len()
+                    && actual
+                        .iter()
+                        .zip(expected)
+                        .all(|(actual, expected)| callable_ty_satisfies_expected(actual, expected))
             }
             (actual, expected) => actual == expected,
         }
@@ -1382,42 +1990,42 @@ pub mod qir {
     }
 
     /// Infers concrete generic arguments for the synthetic target invocation and
-    /// returns the target's instantiated input, output, and arrow types.
+    /// returns the target's concrete signature.
     ///
     /// The synthetic entry is built before the normal monomorphization pass can
     /// specialize the target for these runtime arguments. Instantiating the
     /// arrow here keeps the synthetic call structurally concrete, so later FIR
     /// passes do not see unresolved type or functor parameters.
     fn instantiate_synthetic_target_arrow(
-        generics: &[qsc_fir::ty::TypeParameter],
-        kind: qsc_fir::fir::CallableKind,
-        functors: qsc_fir::ty::FunctorSetValue,
-        formal_input_ty: &qsc_fir::ty::Ty,
-        formal_output_ty: &qsc_fir::ty::Ty,
+        callable: qsc_fir::fir::StoreItemId,
+        info: &CallableValueInfo,
+        formal_arrow: &qsc_fir::ty::Arrow,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> SyntheticTargetArrow {
-        let generic_args =
-            infer_target_generic_args(generics, formal_input_ty, args, callable_types);
-        let formal_arrow = qsc_fir::ty::Arrow {
-            kind,
-            input: Box::new(formal_input_ty.clone()),
-            output: Box::new(formal_output_ty.clone()),
-            functors: qsc_fir::ty::FunctorSet::Value(functors),
+    ) -> RuntimeCallableResult<ConcreteTargetSignature> {
+        let inferred =
+            infer_target_generic_args(callable, info, &formal_arrow.input, args, callable_types)?;
+        let generic_args = (0..info.generics.len())
+            .map(|idx| inferred[&qsc_fir::ty::ParamId::from(idx)].clone())
+            .collect();
+        let instantiated_arrow = qsc_fir::ty::Arrow {
+            input: Box::new(resolve_params_with_inferred(&formal_arrow.input, &inferred)),
+            output: Box::new(resolve_params_with_inferred(
+                &formal_arrow.output,
+                &inferred,
+            )),
+            ..*formal_arrow
         };
-        let instantiated_arrow =
-            qsc_fir::ty::Scheme::new(generics.to_vec(), Box::new(formal_arrow.clone()))
-                .instantiate(&generic_args)
-                .unwrap_or(formal_arrow);
-        let input_ty = resolve_functor_params(&instantiated_arrow.input);
-        let output_ty = resolve_functor_params(&instantiated_arrow.output);
-        let arrow_ty = qsc_fir::ty::Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
-            kind: instantiated_arrow.kind,
-            input: Box::new(input_ty.clone()),
-            output: Box::new(output_ty.clone()),
-            functors: instantiated_arrow.functors,
-        }));
-        (generic_args, input_ty, output_ty, arrow_ty)
+        validate_concrete_runtime_type(
+            callable,
+            info,
+            &qsc_fir::ty::Ty::Arrow(Box::new(instantiated_arrow.clone())),
+        )?;
+        Ok(ConcreteTargetSignature {
+            generic_args,
+            inferred,
+            arrow: instantiated_arrow,
+        })
     }
 
     /// Builds an args expression matching the target's input type.
@@ -1530,123 +2138,123 @@ pub mod qir {
         }
     }
 
-    /// Resolves `FunctorSet::Param` to `FunctorSet::Value(Empty)` recursively in a type.
-    ///
-    /// The lowerer may produce parametric functor sets for arrow-typed inputs. The synthetic
-    /// Call uses concrete types to satisfy post-mono invariants without requiring actual
-    /// monomorphization specialization of the pinned target.
-    fn resolve_functor_params(ty: &qsc_fir::ty::Ty) -> qsc_fir::ty::Ty {
-        match ty {
-            qsc_fir::ty::Ty::Arrow(arrow) => {
-                let functors = match arrow.functors {
-                    qsc_fir::ty::FunctorSet::Param(_) | qsc_fir::ty::FunctorSet::Infer(_) => {
-                        qsc_fir::ty::FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty)
-                    }
-                    other @ qsc_fir::ty::FunctorSet::Value(_) => other,
-                };
-                qsc_fir::ty::Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
-                    kind: arrow.kind,
-                    input: Box::new(resolve_functor_params(&arrow.input)),
-                    output: Box::new(resolve_functor_params(&arrow.output)),
-                    functors,
-                }))
-            }
-            qsc_fir::ty::Ty::Tuple(elems) => {
-                qsc_fir::ty::Ty::Tuple(elems.iter().map(resolve_functor_params).collect())
-            }
-            qsc_fir::ty::Ty::Array(inner) => {
-                qsc_fir::ty::Ty::Array(Box::new(resolve_functor_params(inner)))
-            }
-            other => other.clone(),
-        }
-    }
-
     /// Builds concrete generic args from a target callable's input and the
     /// runtime argument values supplied to the synthetic entry.
     ///
-    /// Any parameter that cannot be inferred from the argument value tree falls
-    /// back to the same concrete defaults used before synthetic-entry inference:
-    /// type parameters become `Unit`, and functor parameters become `Empty`.
+    /// After merging available evidence, unobserved type leaves default to `Unit`
+    /// and functor parameters retain their declared lower bounds. Admission fails
+    /// if the resulting candidates do not satisfy every retained constraint.
     fn infer_target_generic_args(
-        generics: &[qsc_fir::ty::TypeParameter],
+        callable: qsc_fir::fir::StoreItemId,
+        info: &CallableValueInfo,
         formal_input_ty: &qsc_fir::ty::Ty,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) -> Vec<qsc_fir::ty::GenericArg> {
+    ) -> RuntimeCallableResult<RuntimeTypeArgs> {
+        if info.parameters.is_empty() {
+            return Ok(Default::default());
+        }
         let mut arg_map = rustc_hash::FxHashMap::default();
-        if let Some(actual_input_ty) =
-            value_ty_for_inference(args, Some(formal_input_ty), callable_types)
-        {
-            let _ = infer_generic_ty_args(formal_input_ty, &actual_input_ty, &mut arg_map);
+        let actual_input_ty = value_ty_for_inference(args, Some(formal_input_ty), callable_types)
+            .unwrap_or(qsc_fir::ty::Ty::Err);
+        if !infer_generic_ty_args(
+            formal_input_ty,
+            &actual_input_ty,
+            &mut arg_map,
+            GenericInferenceSource::RuntimeValue,
+        ) {
+            return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                expected: Box::new(formal_input_ty.clone()),
+                actual: Box::new(actual_input_ty),
+            }));
+        }
+        for (idx, param) in info.generics.iter().enumerate() {
+            let id = qsc_fir::ty::ParamId::from(idx);
+            if let (
+                qsc_fir::ty::TypeParameter::Functor(required),
+                Some(qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(actual))),
+            ) = (param, arg_map.get(&id))
+                && actual.intersect(required) != *required
+            {
+                let mut required_args = arg_map.clone();
+                required_args.insert(
+                    id,
+                    qsc_fir::ty::GenericArg::Functor(qsc_fir::ty::FunctorSet::Value(*required)),
+                );
+                return Err(Box::new(Error::RuntimeCallableTypeMismatch {
+                    expected: Box::new(resolve_params_with_inferred(
+                        formal_input_ty,
+                        &required_args,
+                    )),
+                    actual: Box::new(actual_input_ty),
+                }));
+            }
         }
 
-        generics
-            .iter()
-            .enumerate()
-            .map(|(idx, param)| {
-                let inferred = arg_map.get(&qsc_fir::ty::ParamId::from(idx));
-                match (param, inferred) {
-                    (
-                        qsc_fir::ty::TypeParameter::Ty { .. },
-                        Some(qsc_fir::ty::GenericArg::Ty(ty)),
-                    ) if !ty_contains_param(ty) => qsc_fir::ty::GenericArg::Ty(ty.clone()),
-                    (
-                        qsc_fir::ty::TypeParameter::Functor(_),
-                        Some(qsc_fir::ty::GenericArg::Functor(functors)),
-                    ) if matches!(functors, qsc_fir::ty::FunctorSet::Value(_)) => {
-                        qsc_fir::ty::GenericArg::Functor(*functors)
+        finalize_runtime_type_args(callable, info, arg_map)
+    }
+
+    /// Defaults only the unobserved leaves, after evidence from the whole value
+    /// tree has been merged. `Infer` is a local placeholder for an empty array's
+    /// unknown element type and must never reach the synthetic FIR.
+    fn default_unresolved_generic_arg(arg: &mut qsc_fir::ty::GenericArg) {
+        fn default_ty(ty: &mut qsc_fir::ty::Ty) {
+            use qsc_fir::ty::{FunctorSet, FunctorSetValue, Ty};
+            match ty {
+                Ty::Param(_) | Ty::Infer(_) => *ty = Ty::UNIT,
+                Ty::Array(item) => default_ty(item),
+                Ty::Tuple(items) => items.iter_mut().for_each(default_ty),
+                Ty::Arrow(arrow) => {
+                    default_ty(&mut arrow.input);
+                    default_ty(&mut arrow.output);
+                    if !matches!(arrow.functors, FunctorSet::Value(_)) {
+                        arrow.functors = FunctorSet::Value(FunctorSetValue::Empty);
                     }
-                    _ => default_generic_arg(param),
                 }
-            })
-            .collect()
-    }
-
-    /// Produces the concrete fallback used when an individual generic parameter
-    /// cannot be inferred from the runtime argument value.
-    fn default_generic_arg(param: &qsc_fir::ty::TypeParameter) -> qsc_fir::ty::GenericArg {
-        match param {
-            qsc_fir::ty::TypeParameter::Functor(_) => qsc_fir::ty::GenericArg::Functor(
-                qsc_fir::ty::FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty),
-            ),
-            qsc_fir::ty::TypeParameter::Ty { .. } => {
-                qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Tuple(Vec::new()))
+                Ty::Err | Ty::Prim(_) | Ty::Udt(_) => {}
             }
+        }
+        if let qsc_fir::ty::GenericArg::Ty(ty) = arg {
+            default_ty(ty);
         }
     }
 
-    /// Returns true when a type still contains an unresolved type parameter or
-    /// parametric functor set.
-    fn ty_contains_param(ty: &qsc_fir::ty::Ty) -> bool {
+    /// Returns true when a type contains unresolved or error leaves.
+    fn ty_contains_unresolved(ty: &qsc_fir::ty::Ty) -> bool {
         match ty {
-            qsc_fir::ty::Ty::Param(_) => true,
-            qsc_fir::ty::Ty::Array(item) => ty_contains_param(item),
+            qsc_fir::ty::Ty::Param(_) | qsc_fir::ty::Ty::Infer(_) | qsc_fir::ty::Ty::Err => true,
+            qsc_fir::ty::Ty::Array(item) => ty_contains_unresolved(item),
             qsc_fir::ty::Ty::Arrow(arrow) => {
-                matches!(arrow.functors, qsc_fir::ty::FunctorSet::Param(_))
-                    || ty_contains_param(&arrow.input)
-                    || ty_contains_param(&arrow.output)
+                !matches!(arrow.functors, qsc_fir::ty::FunctorSet::Value(_))
+                    || ty_contains_unresolved(&arrow.input)
+                    || ty_contains_unresolved(&arrow.output)
             }
-            qsc_fir::ty::Ty::Tuple(items) => items.iter().any(ty_contains_param),
-            qsc_fir::ty::Ty::Err
-            | qsc_fir::ty::Ty::Infer(_)
-            | qsc_fir::ty::Ty::Prim(_)
-            | qsc_fir::ty::Ty::Udt(_) => false,
+            qsc_fir::ty::Ty::Tuple(items) => items.iter().any(ty_contains_unresolved),
+            qsc_fir::ty::Ty::Prim(_) | qsc_fir::ty::Ty::Udt(_) => false,
         }
     }
 
     /// Reconstructs the best FIR type shape available from an interpreter value.
     ///
-    /// This is used only for generic inference. Runtime identities that cannot
+    /// Supplies generic inference and runtime validation. Identities that cannot
     /// be lowered into synthetic FIR, such as qubits or dynamic variables, can
     /// still expose enough type information to instantiate the target arrow.
-    /// Callable values prefer the expected type when it is compatible with the
-    /// callable's declared generic scheme, preserving caller-provided concrete
-    /// arrow types for generic globals.
+    /// Callable values use the expected type as generic parameter evidence while
+    /// retaining declared concrete types and capabilities for validation.
     fn value_ty_for_inference(
         value: &Value,
         expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) -> Option<qsc_fir::ty::Ty> {
+        // Concrete declaration slots retain their nominal type even when the
+        // runtime representation has no tag. A generic slot cannot invent it.
+        if !matches!(value, Value::Tuple(_, Some(_)))
+            && let Some(expected) = expected_ty
+            && let Some(structural) = nominal_structural_ty(expected, callable_types)
+        {
+            let actual = value_ty_for_inference(value, Some(structural), callable_types)?;
+            return callable_ty_satisfies_expected(&actual, structural).then(|| expected.clone());
+        }
         match value {
             Value::Int(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int)),
             Value::Double(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Double)),
@@ -1657,7 +2265,19 @@ pub mod qir {
             Value::Range(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Range)),
             Value::Result(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Result)),
             Value::String(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::String)),
-            Value::Tuple(values, _) => {
+            Value::Tuple(values, nominal) => {
+                if let Some(id) = nominal {
+                    let ty = qsc_fir::ty::Ty::Udt(qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
+                        package: id.package,
+                        item: id.item,
+                    }));
+                    if callable_types
+                        .values()
+                        .any(|info| !info.nominal_types.is_empty())
+                    {
+                        return Some(ty);
+                    }
+                }
                 let expected_items = match expected_ty {
                     Some(qsc_fir::ty::Ty::Tuple(items)) if items.len() == values.len() => {
                         Some(items.as_slice())
@@ -1682,10 +2302,18 @@ pub mod qir {
                     Some(qsc_fir::ty::Ty::Array(item)) => Some(item.as_ref()),
                     _ => None,
                 };
-                let item_ty = values
-                    .first()
-                    .and_then(|value| value_ty_for_inference(value, expected_item, callable_types))
-                    .or_else(|| expected_item.cloned())?;
+                let mut item_ty = expected_item
+                    .cloned()
+                    .unwrap_or(qsc_fir::ty::Ty::Infer(Default::default()));
+                // An expected concrete type is a hint, not evidence: retain
+                // incompatible values so validation can report the mismatch.
+                if let Some((first, rest)) = values.split_first() {
+                    item_ty = value_ty_for_inference(first, expected_item, callable_types)?;
+                    for value in rest {
+                        let next = value_ty_for_inference(value, expected_item, callable_types)?;
+                        item_ty = merge_inferred_tys(&item_ty, &next)?;
+                    }
+                }
                 Some(qsc_fir::ty::Ty::Array(Box::new(item_ty)))
             }
             Value::Global(id, functor) => {
@@ -1694,21 +2322,20 @@ pub mod qir {
                     callable_ty_before_runtime_functor(expected_ty, *functor)
                 });
                 if let Some(expected_ty) = expected_base_ty.as_ref()
-                    && let Some(expected_ty) =
-                        align_callable_functors_for_inference(&info.ty, expected_ty)
-                    && let Some(generic_args) =
-                        infer_global_generic_args(&info.generics, &info.ty, &expected_ty)
+                    && let Some(generic_args) = infer_partial_global_generic_args(
+                        &info.generics,
+                        &info.formal_ty,
+                        expected_ty,
+                    )
                 {
                     let base_ty = instantiate_formal_ty(&info.formal_ty, &generic_args);
                     return Some(callable_ty_with_runtime_functor(&base_ty, *functor));
                 }
                 Some(callable_ty_with_runtime_functor(&info.ty, *functor))
             }
-            Value::Closure(closure) => Some(closure_ty_for_inference(
-                closure,
-                expected_ty,
-                callable_types,
-            )),
+            Value::Closure(closure) => {
+                closure_ty_for_inference(closure, expected_ty, callable_types)
+            }
             Value::Var(var) => Some(qsc_fir::ty::Ty::Prim(match var.ty {
                 qsc_eval::val::VarTy::Boolean => qsc_fir::ty::Prim::Bool,
                 qsc_eval::val::VarTy::Integer => qsc_fir::ty::Prim::Int,
@@ -1851,24 +2478,10 @@ pub mod qir {
                 )
             }
             Value::Global(id, functor) => {
-                return lower_global_to_expr(
-                    package,
-                    assigner,
-                    *id,
-                    *functor,
-                    expected_ty,
-                    callable_types,
-                );
+                return lower_global_to_expr(package, assigner, *id, *functor, callable_types);
             }
             Value::Closure(c) => {
-                return lower_closure_to_expr(
-                    package,
-                    assigner,
-                    c,
-                    expected_ty,
-                    callable_types,
-                    pending_stmts,
-                );
+                return lower_closure_to_expr(package, assigner, c, callable_types, pending_stmts);
             }
             _ => panic!("cannot lower {value:?} to FIR expression"),
         };
@@ -1897,24 +2510,13 @@ pub mod qir {
         assigner: &mut qsc_fir::assigner::Assigner,
         id: qsc_fir::fir::StoreItemId,
         functor: FunctorApp,
-        expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) -> qsc_fir::fir::ExprId {
-        let info = callable_types
+        let ty = callable_types
             .get(&id)
             .expect("Global callable type must be pre-computed")
+            .ty
             .clone();
-        let formal_ty = info.ty;
-        let expected_base_ty = expected_ty
-            .and_then(|expected_ty| callable_ty_before_runtime_functor(expected_ty, functor));
-        let inferred_generic_args = expected_base_ty.as_ref().and_then(|actual_ty| {
-            let actual_ty = align_callable_functors_for_inference(&formal_ty, actual_ty)?;
-            infer_global_generic_args(&info.generics, &formal_ty, &actual_ty).map(|generic_args| {
-                let base_ty = instantiate_formal_ty(&formal_ty, &generic_args);
-                (base_ty, generic_args)
-            })
-        });
-        let (ty, generic_args) = inferred_generic_args.unwrap_or_else(|| (formal_ty, Vec::new()));
         let expr_id = assigner.next_expr();
         package.exprs.insert(
             expr_id,
@@ -1927,7 +2529,7 @@ pub mod qir {
                         package: id.package,
                         item: id.item,
                     }),
-                    generic_args,
+                    Vec::new(),
                 ),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
                     ..qsc_fir::fir::ExecGraphIdx::ZERO,
@@ -1980,32 +2582,6 @@ pub mod qir {
         Some(current)
     }
 
-    fn align_callable_functors_for_inference(
-        formal: &qsc_fir::ty::Ty,
-        required: &qsc_fir::ty::Ty,
-    ) -> Option<qsc_fir::ty::Ty> {
-        let (qsc_fir::ty::Ty::Arrow(formal_arrow), qsc_fir::ty::Ty::Arrow(required_arrow)) =
-            (formal, required)
-        else {
-            return None;
-        };
-        let qsc_fir::ty::FunctorSet::Value(declared) = formal_arrow.functors else {
-            return Some(required.clone());
-        };
-        let qsc_fir::ty::FunctorSet::Value(required_functors) = required_arrow.functors else {
-            return Some(required.clone());
-        };
-        if declared.intersect(&required_functors) != required_functors {
-            return None;
-        }
-        Some(qsc_fir::ty::Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
-            kind: required_arrow.kind,
-            input: required_arrow.input.clone(),
-            output: required_arrow.output.clone(),
-            functors: qsc_fir::ty::FunctorSet::Value(declared),
-        })))
-    }
-
     fn callable_ty_with_runtime_functor(
         ty: &qsc_fir::ty::Ty,
         functor: FunctorApp,
@@ -2017,23 +2593,30 @@ pub mod qir {
         current
     }
 
-    /// Infers the concrete generic arguments for a reference to a generic global
-    /// callable by matching its formal type against the `actual_ty` expected at
+    /// Collects provisional generic arguments for a reference to a generic global
+    /// callable by matching its formal type against the type expected at
     /// the use site.
     ///
     /// Returns `None` when the callable is non-generic or the two types do not
-    /// unify; otherwise returns one `GenericArg` per declared parameter in
-    /// declaration order.
-    fn infer_global_generic_args(
+    /// structurally match; otherwise returns one `GenericArg` per declared
+    /// parameter in declaration order. Capability validation is performed on the
+    /// reconstructed callable, in the actual-to-expected direction. This is only
+    /// evidence gathering; `runtime_callable_instantiation` owns final admission.
+    fn infer_partial_global_generic_args(
         generics: &[qsc_fir::ty::TypeParameter],
         formal_ty: &qsc_fir::ty::Ty,
-        actual_ty: &qsc_fir::ty::Ty,
+        expected_ty: &qsc_fir::ty::Ty,
     ) -> Option<Vec<qsc_fir::ty::GenericArg>> {
         if generics.is_empty() {
             return None;
         }
         let mut arg_map = rustc_hash::FxHashMap::default();
-        if !infer_generic_ty_args(formal_ty, actual_ty, &mut arg_map) {
+        if !infer_generic_ty_args(
+            formal_ty,
+            expected_ty,
+            &mut arg_map,
+            GenericInferenceSource::ExpectedType,
+        ) {
             return None;
         }
         generics
@@ -2044,7 +2627,9 @@ pub mod qir {
                     (
                         qsc_fir::ty::TypeParameter::Ty { .. },
                         Some(qsc_fir::ty::GenericArg::Ty(ty)),
-                    ) => Some(qsc_fir::ty::GenericArg::Ty(ty.clone())),
+                    ) if !ty_contains_unresolved(ty) => {
+                        Some(qsc_fir::ty::GenericArg::Ty(ty.clone()))
+                    }
                     (
                         qsc_fir::ty::TypeParameter::Functor(_),
                         Some(qsc_fir::ty::GenericArg::Functor(functors)),
@@ -2055,8 +2640,17 @@ pub mod qir {
             .collect()
     }
 
-    /// Structurally unifies a formal type against an actual type, recording each
-    /// type/functor parameter binding in `arg_map`.
+    #[derive(Clone, Copy)]
+    enum GenericInferenceSource {
+        RuntimeValue,
+        /// Collect parameter evidence only; validate the reconstructed callable
+        /// separately instead of asking the expected type to supply its functors.
+        ExpectedType,
+    }
+
+    /// Structurally matches a formal type against evidence, recording each
+    /// type/functor parameter binding in `arg_map`. Runtime value evidence must
+    /// also supply concrete functors required by the formal type.
     ///
     /// Returns `false` on any structural mismatch or on conflicting bindings for
     /// the same parameter (see [`record_inferred_arg`]).
@@ -2064,20 +2658,28 @@ pub mod qir {
         formal: &qsc_fir::ty::Ty,
         actual: &qsc_fir::ty::Ty,
         arg_map: &mut rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+        source: GenericInferenceSource,
     ) -> bool {
+        if matches!(
+            actual,
+            qsc_fir::ty::Ty::Param(_) | qsc_fir::ty::Ty::Infer(_)
+        ) {
+            return true;
+        }
         match (formal, actual) {
-            (qsc_fir::ty::Ty::Param(_), actual) if ty_contains_param(actual) => true,
+            (qsc_fir::ty::Ty::Param(_), qsc_fir::ty::Ty::Param(_) | qsc_fir::ty::Ty::Infer(_))
+            | (qsc_fir::ty::Ty::Err, qsc_fir::ty::Ty::Err) => true,
             (qsc_fir::ty::Ty::Param(param), _) => {
                 record_inferred_arg(*param, qsc_fir::ty::GenericArg::Ty(actual.clone()), arg_map)
             }
             (qsc_fir::ty::Ty::Array(formal), qsc_fir::ty::Ty::Array(actual)) => {
-                infer_generic_ty_args(formal, actual, arg_map)
+                infer_generic_ty_args(formal, actual, arg_map, source)
             }
             (qsc_fir::ty::Ty::Arrow(formal), qsc_fir::ty::Ty::Arrow(actual)) => {
                 formal.kind == actual.kind
-                    && infer_generic_ty_args(&formal.input, &actual.input, arg_map)
-                    && infer_generic_ty_args(&formal.output, &actual.output, arg_map)
-                    && infer_generic_functor_args(formal.functors, actual.functors, arg_map)
+                    && infer_generic_ty_args(&formal.input, &actual.input, arg_map, source)
+                    && infer_generic_ty_args(&formal.output, &actual.output, arg_map, source)
+                    && infer_generic_functor_args(formal.functors, actual.functors, arg_map, source)
             }
             (qsc_fir::ty::Ty::Tuple(formal), qsc_fir::ty::Ty::Tuple(actual))
                 if formal.len() == actual.len() =>
@@ -2085,23 +2687,25 @@ pub mod qir {
                 formal
                     .iter()
                     .zip(actual)
-                    .all(|(formal, actual)| infer_generic_ty_args(formal, actual, arg_map))
+                    .all(|(formal, actual)| infer_generic_ty_args(formal, actual, arg_map, source))
             }
             (qsc_fir::ty::Ty::Prim(formal), qsc_fir::ty::Ty::Prim(actual)) => formal == actual,
             (qsc_fir::ty::Ty::Udt(formal), qsc_fir::ty::Ty::Udt(actual)) => formal == actual,
             (qsc_fir::ty::Ty::Infer(formal), qsc_fir::ty::Ty::Infer(actual)) => formal == actual,
-            (qsc_fir::ty::Ty::Err, qsc_fir::ty::Ty::Err) => true,
             _ => false,
         }
     }
 
     /// Unifies a formal functor set against an actual one, recording the binding
-    /// when the formal side is a functor parameter; otherwise requires the two
-    /// sets to be equal.
+    /// when the formal side is a functor parameter. Runtime value evidence must
+    /// include concrete functors required by the formal type; expected-type
+    /// evidence only binds parameters and does not validate capabilities.
+    /// An unresolved actual set supplies no evidence and does not bind a parameter.
     fn infer_generic_functor_args(
         formal: qsc_fir::ty::FunctorSet,
         actual: qsc_fir::ty::FunctorSet,
         arg_map: &mut rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+        source: GenericInferenceSource,
     ) -> bool {
         if matches!(
             actual,
@@ -2110,34 +2714,80 @@ pub mod qir {
             return true;
         }
         match formal {
-            qsc_fir::ty::FunctorSet::Param(_)
-                if matches!(
-                    actual,
-                    qsc_fir::ty::FunctorSet::Param(_) | qsc_fir::ty::FunctorSet::Infer(_)
-                ) =>
-            {
-                true
-            }
             qsc_fir::ty::FunctorSet::Param(param) => {
                 record_inferred_arg(param, qsc_fir::ty::GenericArg::Functor(actual), arg_map)
             }
-            _ => formal == actual,
+            qsc_fir::ty::FunctorSet::Value(required) => {
+                matches!(source, GenericInferenceSource::ExpectedType)
+                    || matches!(actual, qsc_fir::ty::FunctorSet::Value(actual)
+                        if actual.intersect(&required) == required)
+            }
+            qsc_fir::ty::FunctorSet::Infer(_) => formal == actual,
         }
     }
 
     /// Records the inferred argument for a generic parameter, returning whether
-    /// it is consistent: a first binding is inserted and accepted, while a
-    /// repeated binding must equal the one already recorded.
+    /// it is consistent. Repeated type bindings merge unobserved array elements
+    /// without discarding any concrete evidence.
     fn record_inferred_arg(
         param: qsc_fir::ty::ParamId,
         arg: qsc_fir::ty::GenericArg,
         arg_map: &mut rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
     ) -> bool {
-        if let Some(existing) = arg_map.get(&param) {
-            existing == &arg
+        if let Some(existing) = arg_map.get_mut(&param) {
+            if let (qsc_fir::ty::GenericArg::Ty(existing), qsc_fir::ty::GenericArg::Ty(ty)) =
+                (&mut *existing, &arg)
+            {
+                if let Some(merged) = merge_inferred_tys(existing, ty) {
+                    *existing = merged;
+                    return true;
+                }
+                return false;
+            }
+            *existing == arg
         } else {
             arg_map.insert(param, arg);
             true
+        }
+    }
+
+    /// Merges independent value evidence, distinguishing unknown leaves from
+    /// incompatible concrete shapes. Callable evidence retains only capabilities
+    /// shared by every value; required capabilities are validated separately.
+    fn merge_inferred_tys(
+        first: &qsc_fir::ty::Ty,
+        second: &qsc_fir::ty::Ty,
+    ) -> Option<qsc_fir::ty::Ty> {
+        use qsc_fir::ty::{Arrow, FunctorSet, Ty};
+        match (first, second) {
+            (Ty::Param(_) | Ty::Infer(_), _) => Some(second.clone()),
+            (_, Ty::Param(_) | Ty::Infer(_)) => Some(first.clone()),
+            (Ty::Array(first), Ty::Array(second)) => {
+                merge_inferred_tys(first, second).map(|item| Ty::Array(Box::new(item)))
+            }
+            (Ty::Arrow(first), Ty::Arrow(second)) if first.kind == second.kind => {
+                let functors = match (first.functors, second.functors) {
+                    (FunctorSet::Value(first), FunctorSet::Value(second)) => {
+                        FunctorSet::Value(first.intersect(&second))
+                    }
+                    (first, second) if first == second => first,
+                    _ => return None,
+                };
+                Some(Ty::Arrow(Box::new(Arrow {
+                    kind: first.kind,
+                    input: Box::new(merge_inferred_tys(&first.input, &second.input)?),
+                    output: Box::new(merge_inferred_tys(&first.output, &second.output)?),
+                    functors,
+                })))
+            }
+            (Ty::Tuple(first), Ty::Tuple(second)) if first.len() == second.len() => first
+                .iter()
+                .zip(second)
+                .map(|(first, second)| merge_inferred_tys(first, second))
+                .collect::<Option<Vec<_>>>()
+                .map(Ty::Tuple),
+            _ if first == second => Some(first.clone()),
+            _ => None,
         }
     }
 
@@ -2226,13 +2876,12 @@ pub mod qir {
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
         closure: &qsc_eval::val::Closure,
-        expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         // Full type of the underlying lifted callable, whose input is the tuple
         // `(captures.., explicit_input)` when the closure has captures.
-        let full_ty = closure_callable_ty(closure, expected_ty, callable_types);
+        let full_ty = callable_types[&closure.id].ty.clone();
 
         if closure.fixed_args.is_empty() {
             // Captureless closure: a direct `Var` reference to the callable suffices;
@@ -2470,8 +3119,10 @@ pub mod qir {
     /// Prepares codegen FIR when a callable is invoked with concrete argument values.
     ///
     /// Uses a synthetic `Call(Var(target), args)` entry expression when callable
-    /// args can be represented as FIR values, making the target and args
-    /// entry-reachable for full pipeline participation. Falls back to a
+    /// args or a generic target's args can be represented as FIR values, making
+    /// the concrete target signature and args entry-reachable for full pipeline
+    /// participation. Non-generic targets without callable args retain direct
+    /// reinvocation. Falls back to a
     /// pin-based approach when args contain runtime identities that cannot be
     /// represented as FIR values.
     ///
@@ -2483,18 +3134,45 @@ pub mod qir {
         args: &Value,
         capabilities: TargetCapabilityFlags,
     ) -> Result<(CodegenFir, CallableArgsBackend), Vec<Error>> {
+        prepare_codegen_fir_from_callable_args_with_functor(
+            package_store,
+            callable,
+            FunctorApp::default(),
+            args,
+            capabilities,
+        )
+    }
+
+    /// Prepares an invocation of the selected runtime specialization, preserving
+    /// its functors in either the synthetic entry or the reinvocation backend.
+    /// Semantic generic constraints are checked before either backend admits the
+    /// invocation; nominal erasure and concrete callable cloning cannot bypass them.
+    pub fn prepare_codegen_fir_from_callable_args_with_functor(
+        package_store: &PackageStore,
+        callable: qsc_hir::hir::ItemId,
+        functor: FunctorApp,
+        args: &Value,
+        capabilities: TargetCapabilityFlags,
+    ) -> Result<(CodegenFir, CallableArgsBackend), Vec<Error>> {
         let mut concrete_callables = FxHashSet::default();
         collect_concrete_qsharp_callables(args, &mut concrete_callables);
 
-        let target_callable = qsc_fir::fir::StoreItemId {
-            package: qsc_lowerer::map_hir_package_to_fir(callable.package),
-            item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
-        };
+        let target_callable = fir_callable_id(callable);
 
-        if concrete_callables.is_empty() {
+        let target_is_generic = package_store
+            .get(callable.package)
+            .and_then(|unit| unit.package.items.get(callable.item))
+            .is_some_and(|item| {
+                matches!(&item.kind, qsc_hir::hir::ItemKind::Callable(decl)
+                    if !decl.generics.is_empty())
+            });
+        // A generic target needs the inferred signature on an actual call site
+        // for monomorphization, even when no argument contains a callable value.
+        if concrete_callables.is_empty() && !target_is_generic {
             let codegen_fir = prepare_codegen_fir_from_callable_with_args(
                 package_store,
                 callable,
+                functor,
                 capabilities,
                 Some(args),
             )?;
@@ -2502,6 +3180,7 @@ pub mod qir {
                 codegen_fir,
                 CallableArgsBackend::ReinvokeOriginal {
                     callable: target_callable,
+                    functor,
                     args: args.clone(),
                 },
             ));
@@ -2513,9 +3192,10 @@ pub mod qir {
         // original values at QIR generation time. Fully lowerable values flow
         // into the self-contained synthetic entry below.
         if !value_is_fir_lowerable(args) {
-            let codegen_fir = prepare_codegen_fir_from_callable_args_pinned(
+            let (codegen_fir, callable, args) = prepare_codegen_fir_from_callable_args_pinned(
                 package_store,
                 callable,
+                functor,
                 capabilities,
                 args,
                 concrete_callables,
@@ -2523,8 +3203,9 @@ pub mod qir {
             return Ok((
                 codegen_fir,
                 CallableArgsBackend::ReinvokeOriginal {
-                    callable: target_callable,
-                    args: args.clone(),
+                    callable,
+                    functor,
+                    args,
                 },
             ));
         }
@@ -2535,15 +3216,30 @@ pub mod qir {
         // Pre-compute callable value types before normalizing concrete callable
         // bodies, so closure values still expose the original generic target
         // signatures needed by monomorphization.
-        let callable_types = build_callable_type_map(&fir_store, &concrete_callables)
-            .map_err(|error| vec![*error])?;
-        let target_arrow = validate_runtime_callable_values_for_target(
+        let mut callable_types = build_callable_type_map(
+            package_store,
+            &fir_store,
+            &concrete_callables,
+            target_callable,
+        )
+        .map_err(|error| vec![*error])?;
+        let mut target_arrow = validate_runtime_callable_values_for_target(
             &fir_store,
             target_callable,
+            functor,
             args,
             &callable_types,
         )
         .map_err(|error| vec![*error])?;
+        let args = concretize_runtime_closure_values(
+            &mut fir_store,
+            fir_package_id,
+            args,
+            &target_arrow.arrow.input,
+            &mut callable_types,
+        )
+        .map_err(|error| vec![*error])?;
+        erase_runtime_type_evidence(&fir_store, &mut callable_types, &mut target_arrow);
         normalize_callable_signatures(&mut fir_store, &callable_types);
 
         // Build synthetic Call(Var(target), args) as the entry expression.
@@ -2552,7 +3248,8 @@ pub mod qir {
             &mut fir_store,
             fir_package_id,
             target_callable,
-            args,
+            functor,
+            &args,
             &callable_types,
             target_arrow,
         );
@@ -2562,18 +3259,16 @@ pub mod qir {
         // synthetic entry that is evaluated directly. Field-typed callables hidden
         // inside a UDT collapse during defunctionalization and UDT erasure so the
         // entry's argument shape stays aligned with the specialized body.
-        let backend = CallableArgsBackend::SyntheticEntry;
 
         // The self-contained synthetic entry consumes the specialized clone
         // directly, so the original target is free to be removed by dead-code
         // elimination and does not need to be pinned.
-        let pinned_items: &[qsc_fir::fir::StoreItemId] = &[];
         let warnings = run_codegen_pipeline_to(
             package_store,
             &mut fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
-            pinned_items,
+            &[],
         )?;
 
         // Validate capabilities across the whole reachable program (the synthetic
@@ -2589,8 +3284,175 @@ pub mod qir {
                 compute_properties,
                 warnings,
             },
-            backend,
+            CallableArgsBackend::SyntheticEntry,
         ))
+    }
+
+    /// Materializes validated callable instances before erasure, including lifted
+    /// lambdas with inherited parameters. Each instance owns its concrete target;
+    /// values instantiated at different types never mutate a shared declaration.
+    fn concretize_runtime_closure_values(
+        store: &mut qsc_fir::fir::PackageStore,
+        destination: qsc_fir::fir::PackageId,
+        value: &Value,
+        expected: &qsc_fir::ty::Ty,
+        callable_types: &mut rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> RuntimeCallableResult<Value> {
+        use qsc_fir::ty::Ty;
+        if let Some(structural) = nominal_structural_ty(expected, callable_types).cloned() {
+            return concretize_runtime_closure_values(
+                store,
+                destination,
+                value,
+                &structural,
+                callable_types,
+            );
+        }
+        Ok(match (value, expected) {
+            (Value::Array(values), Ty::Array(element)) => Value::Array(std::rc::Rc::new(
+                values
+                    .iter()
+                    .map(|value| {
+                        concretize_runtime_closure_values(
+                            store,
+                            destination,
+                            value,
+                            element,
+                            callable_types,
+                        )
+                    })
+                    .collect::<RuntimeCallableResult<_>>()?,
+            )),
+            (Value::Tuple(values, udt), Ty::Tuple(elements)) => Value::Tuple(
+                values
+                    .iter()
+                    .zip(elements)
+                    .map(|(value, element)| {
+                        concretize_runtime_closure_values(
+                            store,
+                            destination,
+                            value,
+                            element,
+                            callable_types,
+                        )
+                    })
+                    .collect::<RuntimeCallableResult<_>>()?,
+                udt.clone(),
+            ),
+            (Value::Global(..) | Value::Closure(_), _) => concretize_runtime_callable_value(
+                store,
+                destination,
+                value,
+                expected,
+                callable_types,
+            )?,
+            _ => value.clone(),
+        })
+    }
+
+    fn concretize_runtime_callable_value(
+        store: &mut qsc_fir::fir::PackageStore,
+        destination: qsc_fir::fir::PackageId,
+        value: &Value,
+        expected: &qsc_fir::ty::Ty,
+        callable_types: &mut rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> RuntimeCallableResult<Value> {
+        let (original, functor, captures) = match value {
+            Value::Global(id, functor) => (*id, *functor, &[][..]),
+            Value::Closure(closure) => (closure.id, closure.functor, closure.fixed_args.as_ref()),
+            _ => return Err(Box::new(Error::NotACallable)),
+        };
+        let info = callable_types
+            .get(&original)
+            .expect("validated closure")
+            .clone();
+        let (full_ty, inferred) = runtime_callable_instantiation(value, expected, callable_types)?;
+        let capture_types = closure_capture_ty_hints(&full_ty, captures.len()).unwrap_or_default();
+        let fixed_args = captures
+            .iter()
+            .zip(&capture_types)
+            .map(|(value, ty)| {
+                concretize_runtime_closure_values(store, destination, value, ty, callable_types)
+            })
+            .collect::<RuntimeCallableResult<_>>()?;
+        let id = if !info.parameters.is_empty() || ty_contains_unresolved(&info.formal_ty) {
+            let id =
+                clone_concrete_runtime_callable(store, destination, original, &inferred, &full_ty);
+            callable_types.insert(
+                id,
+                CallableValueInfo {
+                    formal_ty: full_ty.clone(),
+                    ty: full_ty,
+                    generics: Vec::new(),
+                    parameters: Vec::new(),
+                    nominal_types: std::rc::Rc::clone(&info.nominal_types),
+                    span: info.span,
+                    sources: info.sources.clone(),
+                },
+            );
+            id
+        } else {
+            original
+        };
+        Ok(if matches!(value, Value::Global(..)) {
+            Value::Global(id, functor)
+        } else {
+            Value::Closure(Box::new(qsc_eval::val::Closure {
+                id,
+                fixed_args,
+                functor,
+            }))
+        })
+    }
+
+    fn clone_concrete_runtime_callable(
+        store: &mut qsc_fir::fir::PackageStore,
+        destination: qsc_fir::fir::PackageId,
+        original: qsc_fir::fir::StoreItemId,
+        inferred: &RuntimeTypeArgs,
+        concrete_ty: &qsc_fir::ty::Ty,
+    ) -> qsc_fir::fir::StoreItemId {
+        use qsc_fir::fir::{CallableImpl, ItemKind, PackageLookup, StoreItemId};
+        let source = store.get(original.package).clone();
+        let package = store.get_mut(destination);
+        let mut cloner = qsc_fir_transforms::FirCloner::from_assigner(
+            qsc_fir::assigner::Assigner::from_package(package),
+        );
+        let target = cloner.clone_nested_item(&source, original.item, package);
+        let ItemKind::Callable(decl) = &mut package
+            .items
+            .get_mut(target)
+            .expect("cloned closure target")
+            .kind
+        else {
+            unreachable!("validated callable");
+        };
+        decl.generics.clear();
+        decl.output = resolve_params_with_inferred(&decl.output, inferred);
+        let input = decl.input;
+        let implementation = decl.implementation.clone();
+        normalize_pat_node_types(package, input, inferred);
+        if let CallableImpl::Spec(specs) = implementation {
+            for spec in std::iter::once(&specs.body)
+                .chain(specs.adj.iter())
+                .chain(specs.ctl.iter())
+                .chain(specs.ctl_adj.iter())
+            {
+                if let Some(input) = spec.input {
+                    normalize_pat_node_types(package, input, inferred);
+                }
+                normalize_block_node_types(package, spec.block, inferred);
+            }
+        }
+        let qsc_fir::ty::Ty::Arrow(arrow) = concrete_ty else {
+            unreachable!("closure arrow")
+        };
+        let input_ty = package.get_pat(input).ty.clone();
+        assert_eq!(&input_ty, arrow.input.as_ref());
+        StoreItemId {
+            package: destination,
+            item: target,
+        }
     }
 
     /// Pin-based fallback for callable args containing non-lowerable closure captures.
@@ -2601,26 +3463,64 @@ pub mod qir {
     fn prepare_codegen_fir_from_callable_args_pinned(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
+        functor: FunctorApp,
         capabilities: TargetCapabilityFlags,
         args: &Value,
         mut concrete_callables: FxHashSet<qsc_fir::fir::StoreItemId>,
-    ) -> Result<CodegenFir, Vec<Error>> {
+    ) -> Result<(CodegenFir, qsc_fir::fir::StoreItemId, Value), Vec<Error>> {
         let (mut fir_store, fir_package_id, _assigner) =
             lower_to_fir(package_store, callable.package, None);
 
-        let target_callable = qsc_fir::fir::StoreItemId {
+        let mut target_callable = qsc_fir::fir::StoreItemId {
             package: qsc_lowerer::map_hir_package_to_fir(callable.package),
             item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
         };
-        let callable_types = build_callable_type_map(&fir_store, &concrete_callables)
-            .map_err(|error| vec![*error])?;
-        validate_runtime_callable_values_for_target(
+        let mut callable_types = build_callable_type_map(
+            package_store,
+            &fir_store,
+            &concrete_callables,
+            target_callable,
+        )
+        .map_err(|error| vec![*error])?;
+        let mut signature = validate_runtime_callable_values_for_target(
             &fir_store,
             target_callable,
+            functor,
             args,
             &callable_types,
         )
         .map_err(|error| vec![*error])?;
+        let args = concretize_runtime_closure_values(
+            &mut fir_store,
+            fir_package_id,
+            args,
+            &signature.arrow.input,
+            &mut callable_types,
+        )
+        .map_err(|error| vec![*error])?;
+        if !signature.inferred.is_empty() {
+            let base = callable_ty_before_runtime_functor(
+                &qsc_fir::ty::Ty::Arrow(Box::new(signature.arrow.clone())),
+                functor,
+            )
+            .ok_or_else(|| {
+                vec![Error::InvalidRuntimeCallableFunctor {
+                    callable: target_callable,
+                    functor,
+                }]
+            })?;
+            target_callable = clone_concrete_runtime_callable(
+                &mut fir_store,
+                fir_package_id,
+                target_callable,
+                &signature.inferred,
+                &base,
+            );
+        }
+        erase_runtime_type_evidence(&fir_store, &mut callable_types, &mut signature);
+        normalize_callable_signatures(&mut fir_store, &callable_types);
+        concrete_callables.clear();
+        collect_concrete_qsharp_callables(&args, &mut concrete_callables);
 
         let mut pinned_callables: Vec<qsc_fir::fir::StoreItemId> = Vec::new();
         concrete_callables.retain(|store_item_id| {
@@ -2668,12 +3568,16 @@ pub mod qir {
             capabilities,
         )?;
 
-        Ok(CodegenFir {
-            fir_store,
-            fir_package_id,
-            compute_properties,
-            warnings,
-        })
+        Ok((
+            CodegenFir {
+                fir_store,
+                fir_package_id,
+                compute_properties,
+                warnings,
+            },
+            target_callable,
+            args,
+        ))
     }
 
     /// Returns `true` if a value can be reconstructed inside the synthetic entry
@@ -2772,12 +3676,19 @@ pub mod qir {
         callable: qsc_hir::hir::ItemId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        prepare_codegen_fir_from_callable_with_args(package_store, callable, capabilities, None)
+        prepare_codegen_fir_from_callable_with_args(
+            package_store,
+            callable,
+            FunctorApp::default(),
+            capabilities,
+            None,
+        )
     }
 
     fn prepare_codegen_fir_from_callable_with_args(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
+        functor: FunctorApp,
         capabilities: TargetCapabilityFlags,
         args: Option<&Value>,
     ) -> Result<CodegenFir, Vec<Error>> {
@@ -2785,14 +3696,24 @@ pub mod qir {
             lower_to_fir(package_store, callable.package, None);
 
         if let Some(args) = args {
+            let target = qsc_fir::fir::StoreItemId {
+                package: qsc_lowerer::map_hir_package_to_fir(callable.package),
+                item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
+            };
+            let mut callables = FxHashSet::from_iter([target]);
+            collect_concrete_qsharp_callables(args, &mut callables);
+            let callable_types =
+                build_callable_type_map(package_store, &fir_store, &callables, target)
+                    .map_err(|error| vec![*error])?;
             validate_runtime_callable_values_for_target(
                 &fir_store,
                 qsc_fir::fir::StoreItemId {
                     package: qsc_lowerer::map_hir_package_to_fir(callable.package),
                     item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
                 },
+                functor,
                 args,
-                &rustc_hash::FxHashMap::default(),
+                &callable_types,
             )
             .map_err(|error| vec![*error])?;
         }
@@ -2981,200 +3902,5 @@ pub mod qir {
                 e,
             ))]
         })
-    }
-
-    #[cfg(test)]
-    mod runtime_functor_type_tests {
-        use super::{
-            align_callable_functors_for_inference, callable_ty_before_runtime_functor,
-            callable_ty_with_runtime_functor, controlled_callable_ty,
-            resolve_params_preserving_uninferred, resolve_params_with_inferred,
-        };
-        use qsc_data_structures::functors::FunctorApp;
-        use qsc_fir::fir::{CallableKind, Res};
-        use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, ParamId, Prim, Ty};
-        use rustc_hash::FxHashMap;
-
-        #[test]
-        #[allow(clippy::too_many_lines)]
-        fn controlled_callable_type_adds_one_input_layer_per_application() {
-            let base = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Operation,
-                input: Box::new(Ty::Prim(Prim::Qubit)),
-                output: Box::new(Ty::UNIT),
-                functors: FunctorSet::Value(FunctorSetValue::Ctl),
-            }));
-
-            let controlled = controlled_callable_ty(&base);
-            let doubly_controlled = controlled_callable_ty(&controlled);
-
-            let Ty::Arrow(controlled) = controlled else {
-                panic!("controlled type should be an arrow");
-            };
-            assert_eq!(
-                controlled.input.as_ref(),
-                &Ty::Tuple(vec![
-                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
-                    Ty::Prim(Prim::Qubit),
-                ])
-            );
-            let Ty::Arrow(doubly_controlled) = doubly_controlled else {
-                panic!("doubly controlled type should be an arrow");
-            };
-            assert_eq!(
-                doubly_controlled.input.as_ref(),
-                &Ty::Tuple(vec![
-                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
-                    Ty::Tuple(vec![
-                        Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
-                        Ty::Prim(Prim::Qubit),
-                    ]),
-                ])
-            );
-
-            let base = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Function,
-                input: Box::new(Ty::Prim(Prim::Int)),
-                output: Box::new(Ty::Prim(Prim::Result)),
-                functors: FunctorSet::Value(FunctorSetValue::CtlAdj),
-            }));
-            let runtime_functor = FunctorApp {
-                adjoint: true,
-                controlled: 2,
-            };
-            let wrapped = callable_ty_with_runtime_functor(&base, runtime_functor);
-            assert_eq!(
-                callable_ty_before_runtime_functor(&wrapped, runtime_functor),
-                Some(base.clone()),
-                "two control layers should round-trip without changing metadata"
-            );
-            assert!(callable_ty_before_runtime_functor(&Ty::UNIT, runtime_functor).is_none());
-            assert!(
-                callable_ty_before_runtime_functor(
-                    &controlled_callable_ty(&base),
-                    runtime_functor,
-                )
-                .is_none(),
-                "excess requested depth should be rejected"
-            );
-            let malformed_arity = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Function,
-                input: Box::new(Ty::Tuple(vec![Ty::Prim(Prim::Qubit)])),
-                output: Box::new(Ty::Prim(Prim::Result)),
-                functors: FunctorSet::Value(FunctorSetValue::CtlAdj),
-            }));
-            assert!(
-                callable_ty_before_runtime_functor(
-                    &malformed_arity,
-                    FunctorApp {
-                        adjoint: false,
-                        controlled: 1,
-                    },
-                )
-                .is_none()
-            );
-            let malformed_control = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Function,
-                input: Box::new(Ty::Tuple(vec![
-                    Ty::Array(Box::new(Ty::Prim(Prim::Int))),
-                    Ty::Prim(Prim::Int),
-                ])),
-                output: Box::new(Ty::Prim(Prim::Result)),
-                functors: FunctorSet::Value(FunctorSetValue::CtlAdj),
-            }));
-            assert!(
-                callable_ty_before_runtime_functor(
-                    &malformed_control,
-                    FunctorApp {
-                        adjoint: false,
-                        controlled: 1,
-                    },
-                )
-                .is_none()
-            );
-
-            let required_empty = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Operation,
-                input: Box::new(Ty::Prim(Prim::Int)),
-                output: Box::new(Ty::UNIT),
-                functors: FunctorSet::Value(FunctorSetValue::Empty),
-            }));
-            let declared_ctl = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Operation,
-                input: Box::new(Ty::Prim(Prim::Int)),
-                output: Box::new(Ty::UNIT),
-                functors: FunctorSet::Value(FunctorSetValue::Ctl),
-            }));
-            assert!(
-                align_callable_functors_for_inference(&declared_ctl, &required_empty).is_some()
-            );
-            let required_ctl = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Operation,
-                input: Box::new(Ty::Prim(Prim::Int)),
-                output: Box::new(Ty::UNIT),
-                functors: FunctorSet::Value(FunctorSetValue::Ctl),
-            }));
-            let declared_adj = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Operation,
-                input: Box::new(Ty::Prim(Prim::Int)),
-                output: Box::new(Ty::UNIT),
-                functors: FunctorSet::Value(FunctorSetValue::Adj),
-            }));
-            assert!(align_callable_functors_for_inference(&declared_adj, &required_ctl).is_none());
-            let unresolved_required = Ty::Arrow(Box::new(Arrow {
-                kind: CallableKind::Operation,
-                input: Box::new(Ty::Prim(Prim::Int)),
-                output: Box::new(Ty::UNIT),
-                functors: FunctorSet::Param(ParamId::from(2)),
-            }));
-            assert_eq!(
-                align_callable_functors_for_inference(&declared_ctl, &unresolved_required),
-                Some(unresolved_required)
-            );
-
-            let solved = ParamId::from(0);
-            let unsolved = ParamId::from(1);
-            let functor_param = ParamId::from(2);
-            let nested = Ty::Tuple(vec![
-                Ty::Array(Box::new(Ty::Param(solved))),
-                Ty::Arrow(Box::new(Arrow {
-                    kind: CallableKind::Function,
-                    input: Box::new(Ty::Param(unsolved)),
-                    output: Box::new(Ty::Tuple(vec![
-                        Ty::Infer(Default::default()),
-                        Ty::Prim(Prim::Bool),
-                        Ty::Udt(Res::Err),
-                        Ty::Err,
-                    ])),
-                    functors: FunctorSet::Param(functor_param),
-                })),
-            ]);
-            let partial_map = FxHashMap::from_iter([(solved, GenericArg::Ty(Ty::Prim(Prim::Int)))]);
-            let partial = resolve_params_preserving_uninferred(&nested, &partial_map);
-            let expected_partial = Ty::Tuple(vec![
-                Ty::Array(Box::new(Ty::Prim(Prim::Int))),
-                Ty::Arrow(Box::new(Arrow {
-                    kind: CallableKind::Function,
-                    input: Box::new(Ty::Param(unsolved)),
-                    output: Box::new(Ty::Tuple(vec![
-                        Ty::Infer(Default::default()),
-                        Ty::Prim(Prim::Bool),
-                        Ty::Udt(Res::Err),
-                        Ty::Err,
-                    ])),
-                    functors: FunctorSet::Param(functor_param),
-                })),
-            ]);
-            assert_eq!(partial, expected_partial);
-            let final_map = FxHashMap::from_iter([
-                (unsolved, GenericArg::Ty(Ty::UNIT)),
-                (
-                    functor_param,
-                    GenericArg::Functor(FunctorSet::Value(FunctorSetValue::Empty)),
-                ),
-            ]);
-            let final_ty = resolve_params_with_inferred(&partial, &final_map);
-            assert!(!super::ty_contains_param(&final_ty));
-        }
     }
 }

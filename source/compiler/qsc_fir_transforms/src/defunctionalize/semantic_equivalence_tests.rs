@@ -2,7 +2,1342 @@
 // Licensed under the MIT License.
 
 use indoc::formatdoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
+
+fn check_callable_result(source: &str, expected: i64) {
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(expected)));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn embedded_callable_identity_preserves_507_and_705_in_execution_and_qir() {
+    for (call, expected) in [
+        ("Apply(a, 3)*100+Apply(b, 3)", 507),
+        ("Apply(b, 3)*100+Apply(a, 3)", 705),
+        ("a(3)*100+b(3)", 507),
+        ("Apply(b, 3)", 7),
+        ("Both(a, b, 3)", 507),
+        ("Apply(a, 3)*100+Apply(a, 3)", 505),
+    ] {
+        eprintln!("embedded identity case: {call} => {expected}");
+        let source = formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x+1 }}
+            function Twice(x : Int) : Int {{ 2*x }}
+            function Wrap(f : Int -> Int) : Int -> Int {{ x -> f(x)+1 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function Both(f : Int -> Int, g : Int -> Int, x : Int) : Int {{ f(x)*100+g(x) }}
+            @EntryPoint() operation Main() : Int {{
+                let a = Wrap(Inc); let b = Wrap(Twice);
+                {call}
+            }}
+        "#};
+        check_callable_result(&source, expected);
+        let qir = crate::test_utils::generate_qir(&source);
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 1, "{call}: {qir}");
+        assert!(
+            records[0].contains(&format!("i64 {expected},")),
+            "{call}: {qir}"
+        );
+        if expected == 505 {
+            let (store, package) = crate::test_utils::compile_and_run_pipeline_to(
+                &source,
+                crate::PipelineStage::Defunc,
+            );
+            let count = store
+                .get(package)
+                .items
+                .values()
+                .filter(|item| {
+                    matches!(&item.kind, qsc_fir::fir::ItemKind::Callable(decl)
+                    if decl.name.name.starts_with("Apply{"))
+                })
+                .count();
+            assert_eq!(
+                count, 1,
+                "equivalent embedded callable identities deduplicate"
+            );
+            let rendered = crate::pretty::write_package_qsharp_parseable(&store, package);
+            let (second_store, second_package) = crate::test_utils::compile_and_run_pipeline_to(
+                &source,
+                crate::PipelineStage::Defunc,
+            );
+            assert_eq!(
+                rendered,
+                crate::pretty::write_package_qsharp_parseable(&second_store, second_package),
+                "specialization must be deterministic"
+            );
+        }
+    }
+}
+
+#[test]
+fn embedded_failing_callable_preserves_second_must_fail() {
+    let source = r#"
+        function Safe(x : Int) : Int { x+1 }
+        function Stop(x : Int) : Int { fail "second must fail"; }
+        function Wrap(f : Int -> Int) : Int -> Int { x -> f(x)+1 }
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        @EntryPoint() operation Main() : Int {
+            let a = Wrap(Safe); let b = Wrap(Stop);
+            Apply(a, 3)+Apply(b, 3)
+        }
+    "#;
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert!(
+        result
+            .expect_err("second capture must fail")
+            .contains("second must fail")
+    );
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn embedded_identity_keeps_runtime_scalars_and_transitive_recursion_distinct() {
+    for (declarations, call, expected) in [
+        (
+            "function Make(n : Int) : Int -> Int { x -> x+n }",
+            "Apply(Make(2), 1)*100+Apply(Make(5), 1)",
+            306,
+        ),
+        (
+            "function Make(n : Int) : Int -> Int { x -> x*n }\n\
+             function Wrap(f : Int -> Int, n : Int) : Int -> Int { x -> f(x)+n }",
+            "Apply(Wrap(Make(2), 1), 5)*100+Apply(Wrap(Make(3), 4), 5)",
+            1119,
+        ),
+        (
+            "function Make(n : Int) : Int -> Int { x -> x+n }\n\
+             function Rec(f : Int -> Int, n : Int) : Int {\n\
+                 if n == 0 { f(1) } else { f(n)*100+Rec(Make(n), n-1) }\n\
+             }",
+            "Rec(Make(5), 2)",
+            1002,
+        ),
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+            {declarations}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            @EntryPoint() operation Main() : Int {{ {call} }}
+        "#},
+            expected,
+        );
+    }
+    let source = r#"
+        operation Step(q : Qubit) : Unit is Adj {
+            body ... { X(q); }
+            adjoint ... { Z(q); }
+        }
+        function Wrap(f : Qubit => Unit is Adj) : Qubit => Unit is Adj { q => f(q) }
+        operation Apply(f : Qubit => Unit is Adj, q : Qubit) : Unit { f(q); }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit();
+            let first = Wrap(Step); let second = Wrap(Adjoint Step);
+            Apply(first, q); Apply(second, q); X(q);
+        }
+    "#;
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert!(result.is_ok(), "{result:?}");
+    expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Z", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, QubitRelease(0)]"#]]
+        .assert_eq(&format!("{trace:?}"));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn foreign_nested_callable_captures_return_613() {
+    let library = r#"
+        namespace Lib {
+            function Add(n : Int) : Int -> Int { x -> x+n }
+            function Wrap(f : Int -> Int, n : Int) : Int -> Int { x -> f(x)+n }
+            function Apply<'T,'U>(f : 'T -> 'U, x : 'T) : 'U { f(x) }
+            export Add, Wrap, Apply;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint() operation Main() : Int {
+            let first = Lib.Wrap(Lib.Add(2), 3);
+            let second = Lib.Wrap(Lib.Add(5), 7);
+            Lib.Apply(first, 1)*100 + Lib.Apply(second, 1)
+        }
+    "#;
+    assert_eq!(
+        crate::test_utils::eval_qsharp_original_with_library(library, source),
+        Ok(qsc_eval::val::Value::Int(613))
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+}
+
+#[test]
+fn foreign_capture_expression_collisions_preserve_613_in_both_declaration_orders() {
+    use qsc_fir::{
+        fir::{ExprKind, ItemKind, PackageLookup, Res},
+        ty::{Prim, Ty},
+    };
+    let declarations = [
+        "function Add(n : Int) : Int -> Int { x -> x+n }",
+        "function Wrap(f : Int -> Int, n : Int) : Int -> Int { x -> f(x)+n }",
+        "function Apply<'T,'U>(f : 'T -> 'U, x : 'T) : 'U { f(x) }",
+    ];
+    let padding = vec!["true"; 128].join(",");
+    let caller_padding = vec!["false"; 64].join(",");
+    for reversed in [false, true] {
+        let padding_decl = format!("function Padding() : Bool[] {{ [{padding}] }}");
+        let mut ordered = declarations
+            .iter()
+            .map(|decl| (*decl).to_string())
+            .collect::<Vec<_>>();
+        ordered.insert(0, padding_decl);
+        if reversed {
+            ordered.reverse();
+        }
+        let library = format!(
+            "namespace Lib {{ {} export Add, Wrap, Apply; }}",
+            ordered.join("\n")
+        );
+        let main = formatdoc! {r#"
+            @EntryPoint() operation Main() : Int {{
+                let padding = [{caller_padding}];
+                let first = Lib.Wrap(Lib.Add(2), 3);
+                let second = Lib.Wrap(Lib.Add(5), 7);
+                Lib.Apply(first, 1)*100 + Lib.Apply(second, 1)
+            }}
+        "#};
+        let other = "function Other() : Bool { true }";
+        let source = if reversed {
+            format!("{main}\n{other}")
+        } else {
+            format!("{other}\n{main}")
+        };
+        let (store, package_id) = crate::test_utils::compile_to_fir_with_library(&library, &source);
+        let package = store.get(package_id);
+        let mut collisions = 0;
+        for expr in package.exprs.values() {
+            let ExprKind::Call(callee, args) = expr.kind else {
+                continue;
+            };
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+                continue;
+            };
+            if item.package == package_id {
+                continue;
+            }
+            let foreign = store.get(item.package);
+            let ItemKind::Callable(decl) = &foreign.get_item(item.item).kind else {
+                continue;
+            };
+            if decl.name.name.as_ref() != "Wrap" {
+                continue;
+            }
+            let ExprKind::Tuple(args) = &package.get_expr(args).kind else {
+                panic!("Wrap tuple input")
+            };
+            let scalar_id = args[1];
+            assert_eq!(package.get_expr(scalar_id).ty, Ty::Prim(Prim::Int));
+            let collision = foreign
+                .exprs
+                .get(scalar_id)
+                .expect("source-created foreign ExprId overlap");
+            assert_eq!(collision.ty, Ty::Prim(Prim::Bool), "reversed={reversed}");
+            collisions += 1;
+        }
+        assert_eq!(
+            collisions, 2,
+            "both Wrap operands collide, reversed={reversed}"
+        );
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package_id),
+            Ok(qsc_eval::val::Value::Int(613))
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(&library, &source);
+    }
+}
+
+#[test]
+fn live_forwarded_producers_return_thirteen_without_consumed_standins() {
+    for (forward, assignment, direct, expected) in [
+        (
+            "Make(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "direct(0)*10+",
+            13,
+        ),
+        (
+            "Relay(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "direct(0)*10+",
+            13,
+        ),
+        ("Make(n)", "set deferred = Forward(3);", "direct(0)*10+", 13),
+        (
+            "Make(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "",
+            3,
+        ),
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+            function Make(n : Int) : Int -> Int {{ x -> x+n }}
+            function Relay(n : Int) : Int -> Int {{ Make(n) }}
+            function Forward(n : Int) : Int -> Int {{ {forward} }}
+            @EntryPoint() operation Main() : Int {{
+                let direct = Make(1);
+                mutable deferred = Forward(0);
+                {assignment}
+                {direct}deferred(0)
+            }}
+        "#},
+            expected,
+        );
+    }
+}
+
+#[test]
+fn live_aggregate_producers_preserve_sixteen_without_consumed_standins() {
+    for (declarations, result, expected) in [
+        (
+            "function Make(n : Int) : (Int -> Int, Int) { (x -> x+n, n) }",
+            "let (a, _) = direct; let (f, n) = deferred; a(0)*10+f(0)+n",
+            16,
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }\n\
+          function Make(n : Int) : Box { new Box { F = x -> x+n, N = n } }",
+            "direct::F(0)*10+deferred::F(0)+deferred::N",
+            16,
+        ),
+        (
+            "function Make(n : Int) : (Int -> Int)[] { [x -> x+n] }",
+            "direct[0](0)*10+deferred[0](0)",
+            13,
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }\n\
+             function Make(n : Int) : Box { new Box { F = x -> x+n, N = n } }",
+            "let dataOnly = Make(9); direct::F(0)*10+deferred::F(0)+deferred::N+dataOnly::N",
+            25,
+        ),
+        (
+            "function Produce(n : Int) : (Int -> Int, Int) { (x -> x+n, n) }\n\
+          function Relay(n : Int) : (Int -> Int, Int) { Produce(n) }\n\
+          function Make(n : Int) : (Int -> Int, Int) { Relay(n) }",
+            "let (a, _) = direct; let (f, n) = deferred; a(0)*10+f(0)+n",
+            16,
+        ),
+    ] {
+        for update in [
+            "for i in 0..0 { set deferred = Make(3); }",
+            "set deferred = Make(3);",
+        ] {
+            for consume_direct in [true, false] {
+                let result = if consume_direct {
+                    result.to_string()
+                } else {
+                    result
+                        .replace("a(0)*10+", "")
+                        .replace("direct::F(0)*10+", "")
+                        .replace("direct[0](0)*10+", "")
+                };
+                check_callable_result(
+                    &formatdoc! {r#"
+                {declarations}
+                @EntryPoint() operation Main() : Int {{
+                    let direct = Make(1);
+                    mutable deferred = Make(0);
+                    {update}
+                    {result}
+                }}
+            "#},
+                    if consume_direct {
+                        expected
+                    } else {
+                        expected - 10
+                    },
+                );
+            }
+        }
+    }
+}
+
+fn mixed_static_dispatch_source(prior: &str, reset: &str, run: &str) -> String {
+    formatdoc! {r#"
+        operation Run(first : Qubit => Unit is Ctl, second : Qubit => Unit is Ctl, target : Qubit) : Unit is Ctl {{
+            first(target); second(target);
+        }}
+        @EntryPoint() operation Main() : Unit {{
+            use q = Qubit(); use c = Qubit();
+            let angle = 0.25; let second = target => Rz(angle, target);
+            {prior}
+            let ops = [H, X];
+            for i in 0..1 {{ let first = ops[i]; {run} }}
+            {reset}
+        }}
+    "#}
+}
+
+#[test]
+fn mixed_static_dispatch_preserves_original_nonzero_release_failure() {
+    let source = mixed_static_dispatch_source(
+        "Controlled Run([c], (H, second, q));",
+        "",
+        "Run(first, second, q);",
+    );
+    let (store, package) = crate::test_utils::compile_to_fir(&source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert!(
+        result
+            .expect_err("original live qubit must not be silently reset")
+            .starts_with("ReleasedQubitNotZero(0, PackageSpan"),
+        "{source}"
+    );
+    crate::test_utils::check_semantic_equivalence(&source);
+}
+
+#[test]
+fn mixed_static_dispatch_reset_preserves_trace_and_controlled_input_shapes() {
+    use qsc_fir::{
+        fir::{ExprKind, ItemKind, PackageLookup, Res},
+        ty::Ty,
+    };
+    for (prior, call) in [
+        (
+            "Controlled Run([c], (H, second, q));",
+            "Run(first, second, q);",
+        ),
+        ("", "Controlled Run([c], (first, second, q));"),
+        (
+            "",
+            "Controlled Controlled Run([], ([c], (first, second, q)));",
+        ),
+        ("", "Run(first, second, q);"),
+        ("Run(H, second, q);", "Run(first, second, q);"),
+        (
+            "",
+            "set angle = 0.25; Run(first, { let saved = angle; target => Rz(saved, target) }, { set angle = 0.75; q });",
+        ),
+        (
+            "",
+            "Run({ let saved = Capture(q); target => Rz(saved, target) }, first, q);",
+        ),
+    ] {
+        let source = format!(
+            "operation Capture(q : Qubit) : Double {{ Z(q); 0.25 }}\n{}",
+            mixed_static_dispatch_source(prior, "ResetAll([q, c]);", call)
+        );
+        let source = if call.contains("set angle") {
+            source.replace("let angle = 0.25; let second = target => Rz(angle, target);",
+                "mutable angle = 0.25; let initial = angle; let second = target => Rz(initial, target);")
+        } else {
+            source
+        };
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        assert!(result.is_ok(), "{prior} {call}: {result:?}");
+        if prior.starts_with("Controlled") {
+            expect_test::expect![[r#"[QubitAllocate(0), QubitAllocate(1), Gate { name: "S", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "H", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "T", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [1], theta: None }, Gate { name: "T", is_adjoint: true, targets: [0], controls: [], theta: None }, Gate { name: "H", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "S", is_adjoint: true, targets: [0], controls: [], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(0.125) }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [1], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(-0.125) }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [1], theta: None }, Gate { name: "H", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(0.25) }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(0.25) }, Reset(0), Reset(1), QubitRelease(1), QubitRelease(0)]"#]]
+                .assert_eq(&format!("{trace:?}"));
+        }
+        crate::test_utils::check_semantic_equivalence(&source);
+        let (store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let package = store.get(package);
+        let mut checked = 0;
+        for expr in package.exprs.values() {
+            let ExprKind::Call(callee, args) = expr.kind else {
+                continue;
+            };
+            let (base, _) = super::peel_body_functors(package, callee);
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(base).kind else {
+                continue;
+            };
+            let owner = store.get(item.package);
+            let ItemKind::Callable(decl) = &owner.get_item(item.item).kind else {
+                continue;
+            };
+            if !decl.name.name.starts_with("Run") || !decl.name.name.contains('{') {
+                continue;
+            }
+            let Ty::Arrow(base_arrow) = &package.get_expr(base).ty else {
+                panic!("base callable type")
+            };
+            assert_eq!(
+                base_arrow.input.as_ref(),
+                &owner.get_pat(decl.input).ty,
+                "callee reference must agree with its actual package-owned declaration"
+            );
+            let Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                panic!("callable input")
+            };
+            assert_eq!(
+                arrow.input.as_ref(),
+                &package.get_expr(args).ty,
+                "{prior} {call}: specialized dispatch call must match its input"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "source-generated specialized calls must be checked"
+        );
+    }
+}
+
+#[test]
+fn composite_callee_before_argument_write_returns_three() {
+    for call in [
+        "({ f })({ set f = Times2; 2 })",
+        "(if true { f } else { Times2 })({ set f = Times2; 2 })",
+        "Identity(f)({ set f = Times2; 2 })",
+        "(new Holder { Op = f }).Op({ set f = Times2; 2 })",
+        "Apply(if true { f } else { Times2 }, { set f = Times2; 2 })",
+        "[f][0]({ set f = Times2; 2 })",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    struct Holder {{ Op : Int -> Int }}
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Identity(f : Int -> Int) : Int -> Int {{ f }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable f = Add1;
+                        {call}
+                    }}
+                }}
+            "#},
+            3,
+        );
+    }
+}
+
+#[test]
+fn self_mutating_branch_guard_preserves_taken_callable_returning_four() {
+    for branch in [
+        "if flag { set flag = false; set f = Times2; }",
+        "let unused = flag and { set flag = false; set f = Times2; true };",
+        "let unused = not flag or { set flag = false; set f = Times2; false };",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable flag = true;
+                        mutable f = Add1;
+                        {branch}
+                        f(2)
+                    }}
+                }}
+            "#},
+            4,
+        );
+    }
+}
+
+#[test]
+fn repeated_branch_selection_refreshes_guard_and_skips_inactive_effects() {
+    for branch in [
+        "if flag { set flag = false; set f = Times2; }",
+        "let unused = flag and { set flag = false; set f = Times2; true };",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable flag = true;
+                        mutable result = 0;
+                        for index in 0..1 {{
+                            mutable f = Add1;
+                            {branch}
+                            set result = result * 10 + f(2);
+                        }}
+                        result
+                    }}
+                }}
+            "#},
+            43,
+        );
+    }
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the callee evaluation-order matrix in its existing source regression."
+)]
+fn direct_callee_effects_run_once_before_arguments_and_conditional_dispatch() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            @EntryPoint()
+            operation Main() : Int {
+                mutable count = 0;
+                let answer = ({
+                    set count += 1;
+                    let n = { set count += 2; 1 };
+                    x -> x + n
+                })(2);
+                count * 100 + answer
+            }
+        "#},
+        303,
+    );
+    check_callable_result(
+        indoc::indoc! {r#"
+            @EntryPoint()
+            operation Main() : Int {
+                mutable count = 0;
+                let n = 1;
+                let answer = ({ set count += 1; x -> x + n })(2);
+                count * 100 + answer
+            }
+        "#},
+        103,
+    );
+    check_callable_result(
+        indoc::indoc! {r#"
+            function Add1(x : Int) : Int { x + 1 }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable order = 0;
+                let answer = ({ set order = order * 10 + 1; Add1 })(
+                    { set order = order * 10 + 2; 2 });
+                answer * 100 + order
+            }
+        "#},
+        312,
+    );
+    check_callable_result(
+        indoc::indoc! {r#"
+            function Add1(x : Int) : Int { x + 1 }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable count = 0;
+                let answer = ({ set count += 1; Add1 })(2);
+                count * 100 + answer
+            }
+        "#},
+        103,
+    );
+    for flag in [true, false] {
+        for (label, callee, expected) in [
+            (
+                "prefix",
+                "{ set count += 1; flag ? Add1 | Times2 }",
+                if flag { 103 } else { 104 },
+            ),
+            (
+                "nested prefix",
+                "{ { set count += 1; flag ? Add1 | Times2 } }",
+                if flag { 103 } else { 104 },
+            ),
+            (
+                "selected prefix",
+                "if flag { set count += 1; Add1 } else { set count += 2; Times2 }",
+                if flag { 103 } else { 204 },
+            ),
+            (
+                "inactive failure",
+                "if flag { set count += 1; Add1 } else { fail \"inactive callee\"; Times2 }",
+                103,
+            ),
+            (
+                "inactive then failure",
+                "if flag { fail \"inactive callee\"; Add1 } else { set count += 1; Times2 }",
+                104,
+            ),
+            (
+                "nested selection",
+                "{ set count += 1; if flag { if count == 1 { Add1 } else { fail \"inactive nested callee\"; Times2 } } else { Times2 } }",
+                if flag { 103 } else { 104 },
+            ),
+            (
+                "higher order control",
+                "{ set count += 1; flag ? Add1 | Times2 }",
+                if flag { 103 } else { 104 },
+            ),
+        ] {
+            if (label == "inactive failure" && !flag) || (label == "inactive then failure" && flag)
+            {
+                continue;
+            }
+            let call = if label == "higher order control" {
+                format!("Apply({callee}, 2)")
+            } else {
+                format!("({callee})(2)")
+            };
+            let source = formatdoc! {r#"
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable count = 0;
+                    mutable flag = {flag};
+                    let value = {call};
+                    count * 100 + value
+                }}
+            "#};
+            eprintln!("{label}, flag={flag}");
+            check_callable_result(&source, expected);
+            let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
+                &source,
+                crate::PipelineStage::Defunc,
+            );
+            crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+            assert_eq!(
+                crate::test_utils::try_eval_fir_entry(&store, package),
+                Ok(qsc_eval::val::Value::Int(expected)),
+                "{label}, flag={flag}",
+            );
+        }
+    }
+    for body in [
+        "for i in 0..2 { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); }",
+        "mutable i = 0; while i < 3 { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); set i += 1; }",
+        "mutable i = 0; repeat { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); set i += 1; } until i == 3;",
+    ] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable count = 0;
+                mutable flag = true;
+                mutable total = 0;
+                {body}
+                count * 100 + total
+            }}
+        "#};
+        eprintln!("repeated dispatch: {body}");
+        check_callable_result(&source, 310);
+        let (mut store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(310)),
+            "{body}",
+        );
+    }
+    let library = r#"
+        namespace Lib {
+            export Invoke;
+            function Times2(x : Int) : Int { 2 * x }
+            function Invoke(flag : Bool) : Int {
+                mutable count = 0;
+                let value = ({
+                    set count += 1;
+                    if flag { let n = count; x -> x + n } else { Times2 }
+                })({ set count += 10; 2 });
+                count * 100 + value
+            }
+        }
+    "#;
+    for (flag, expected) in [(true, 1103), (false, 1104)] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ Lib.Invoke({flag}) }}");
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(library, &source),
+            Ok(qsc_eval::val::Value::Int(expected)),
+        );
+        for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+            let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+                library, &source, stage,
+            );
+            crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+            assert_eq!(
+                crate::test_utils::try_eval_fir_entry(&store, package),
+                Ok(qsc_eval::val::Value::Int(expected)),
+                "foreign conditional callee, flag={flag}, {stage:?}",
+            );
+        }
+    }
+    for (flag, expected) in [(true, 4), (false, 8)] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable flag = {flag};
+                mutable f = Add1;
+                (if flag {{ set f = Add1; Add1 }} else {{ set f = Times2; Times2 }})(
+                    {{ let value = f(2); value }})
+            }}
+        "#};
+        check_callable_result(&source, expected);
+    }
+    for (flag, expected) in [(true, 33), (false, 44)] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable flag = {flag};
+                mutable f = Add1;
+                let value = (if flag {{ set f = Add1; Add1 }} else {{ set f = Times2; Times2 }})(
+                    {{ set flag = not flag; 2 }});
+                value * 10 + f(2)
+            }}
+        "#};
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn failing_direct_callee_and_factory_preserve_failure_before_argument() {
+    for callee in [
+        "{ fail \"callee evaluated\"; Add1 }",
+        "Make()",
+        "{ fail \"callee evaluated\"; let n = 1; x -> x + n }",
+        "{ fail \"callee evaluated\"; flag ? Add1 | Times2 }",
+        "{ { fail \"callee evaluated\"; flag ? Add1 | Times2 } }",
+        "if flag { fail \"callee evaluated\"; Add1 } else { Times2 }",
+    ] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            function Make() : Int -> Int {{ fail "callee evaluated"; Add1 }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable flag = true;
+                ({callee})({{ fail "argument evaluated"; 2 }})
+            }}
+        "#};
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        let failure = result.expect_err("callee must fail before the argument");
+        assert!(failure.contains("callee evaluated"), "{callee}: {failure}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+    for flag in [true, false] {
+        for callee in [
+            "{ X(q); fail \"callee prefix failed\"; flag ? Add1 | Times2 }",
+            "{ { X(q); fail \"callee prefix failed\"; flag ? Add1 | Times2 } }",
+            if flag {
+                "if flag { X(q); fail \"callee prefix failed\"; Add1 } else { Times2 }"
+            } else {
+                "if flag { Add1 } else { X(q); fail \"callee prefix failed\"; Times2 }"
+            },
+        ] {
+            let source = formatdoc! {r#"
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    use q = Qubit();
+                    mutable flag = {flag};
+                    ({callee})({{ Z(q); fail "argument failed"; 2 }})
+                }}
+            "#};
+            let (store, package) = crate::test_utils::compile_to_fir(&source);
+            let (expected, trace) =
+                crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+            assert!(
+                expected
+                    .as_ref()
+                    .expect_err("callee must fail")
+                    .contains("callee prefix failed"),
+                "{callee}, flag={flag}: {expected:?}",
+            );
+            expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }]"#]]
+                .assert_eq(&format!("{trace:?}"));
+            for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+                let (mut store, package) =
+                    crate::test_utils::compile_and_run_pipeline_to(&source, stage);
+                crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+                let (actual, actual_trace) =
+                    crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+                assert_eq!(actual, expected, "{callee}, flag={flag}, {stage:?}");
+                assert_eq!(actual_trace, trace, "{callee}, flag={flag}, {stage:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn later_callable_selection_observes_earlier_argument_write_returning_four() {
+    for selection in ["flag ? Add1 | Times2", "[Times2, Add1][index]"] {
+        for call in [
+            format!("ApplyAfter({{ set flag = false; set index = 0; 2 }}, {selection})"),
+            format!("ApplyNested(({{ set flag = false; set index = 0; 2 }}, {selection}))"),
+        ] {
+            check_callable_result(
+                &formatdoc! {r#"
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function ApplyAfter(x : Int, f : Int -> Int) : Int {{ f(x) }}
+                    function ApplyNested(pair : (Int, Int -> Int)) : Int {{
+                        let (x, f) = pair;
+                        f(x)
+                    }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable flag = true;
+                        mutable index = 1;
+                        {call}
+                    }}
+                "#},
+                4,
+            );
+        }
+    }
+}
+
+#[test]
+fn earlier_callable_capture_preserves_three_across_scalar_and_controlled_inputs() {
+    for call in [
+        "Apply({ let n = k; x -> x + n }, { set k = 7; 0 })",
+        "ApplyNested(({ let n = k; x -> x + n }, { set k = 7; 0 }))",
+        "({ let n = k; x -> x + n })({ set k = 7; 0 })",
+        "Apply(if true { let n = k; x -> x + n } else { x -> x }, { set k = 7; 0 })",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function ApplyNested(pair : (Int -> Int, Int)) : Int {{
+                    let (f, x) = pair;
+                    f(x)
+                }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    mutable k = 3;
+                    {call}
+                }}
+            "#},
+            3,
+        );
+    }
+    for call in [
+        "Apply({ let n = k; target => Target(n, target) }, { set k = 7; q });",
+        "Controlled Apply([], ({ let n = k; target => Target(n, target) }, { set k = 7; q }));",
+        "Controlled Adjoint Apply([], ({ let n = k; target => Target(n, target) }, { set k = 7; q }));",
+    ] {
+        let source = formatdoc! {r#"
+            operation Target(n : Int, q : Qubit) : Unit is Adj + Ctl {{
+                body (...) {{ fail $"captured {{n}}"; }}
+                adjoint self;
+                controlled (controls, ...) {{ fail $"captured {{n}}"; }}
+                controlled adjoint self;
+            }}
+            operation Apply(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+                op(q);
+            }}
+            @EntryPoint()
+            operation Main() : Unit {{
+                use q = Qubit();
+                mutable k = 3;
+                {call}
+            }}
+        "#};
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        let failure = result.expect_err("selected specialization reports its captured value");
+        assert!(failure.contains("captured 3"), "{call}: {failure}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep conditional and multiple-operand capture timing in the same source regression."
+)]
+fn callable_capture_timing_preserves_multiple_operands_and_failure_order() {
+    for flag in [true, false] {
+        for callee in [
+            "{ set count += 1; if flag { let n = count; x -> x + n } else { Times2 } }",
+            "{ { set count += 1; if flag { let n = count; x -> x + n } else { Times2 } } }",
+            "{ let n = { set count += 1; count }; if flag { x -> x + n } else { Times2 } }",
+            "if flag { let n = { set count += 1; count }; x -> x + n } else { set count += 1; Times2 }",
+        ] {
+            for (argument, count) in [
+                ("2", 1),
+                ("{ set count += 10; set flag = not flag; 2 }", 11),
+            ] {
+                let expected = count * 100 + if flag { 3 } else { 4 };
+                let source = formatdoc! {r#"
+                    function Times2(x : Int) : Int {{ 2 * x }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable count = 0;
+                        mutable flag = {flag};
+                        let value = ({callee})({argument});
+                        count * 100 + value
+                    }}
+                "#};
+                eprintln!("capture flag={flag}, callee={callee}, argument={argument}");
+                check_callable_result(&source, expected);
+                let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
+                    &source,
+                    crate::PipelineStage::Defunc,
+                );
+                crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+                assert_eq!(
+                    crate::test_utils::try_eval_fir_entry(&store, package),
+                    Ok(qsc_eval::val::Value::Int(expected)),
+                    "capture flag={flag}, callee={callee}, argument={argument}",
+                );
+            }
+        }
+    }
+    check_callable_result(
+        indoc::indoc! {r#"
+            function Apply(a : Int, f : Int -> Int, b : Int, g : Int -> Int, c : Int) : Int {
+                a * 1000 + f(0) * 100 + b * 10 + g(c)
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable k = 3;
+                Apply(
+                    { set k = 2; 1 },
+                    { let n = k; x -> x + n },
+                    { set k = 4; 3 },
+                    { let n = k; x -> x + n },
+                    { set k = 9; 0 })
+            }
+        "#},
+        1234,
+    );
+    for call in [
+        "Apply({ let n = Stop(); x -> x + n }, { fail \"later argument\"; 0 })",
+        "ApplyAfter({ fail \"earlier argument\"; 0 }, { let n = Stop(); x -> x + n })",
+    ] {
+        let source = formatdoc! {r#"
+            function Stop() : Int {{ fail "capture evaluated"; }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function ApplyAfter(x : Int, f : Int -> Int) : Int {{ f(x) }}
+            @EntryPoint() operation Main() : Int {{ {call} }}
+        "#};
+        let expected = if call.starts_with("ApplyAfter") {
+            "earlier argument"
+        } else {
+            "capture evaluated"
+        };
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        let failure = result.expect_err("ordered operand must fail");
+        assert!(failure.contains(expected), "{call}: {failure}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+    for (body, expected) in [
+        (
+            "let result = Apply({ let n = Capture(q); x -> x + n }, { Z(q); 0 }); X(q); result",
+            3,
+        ),
+        (
+            "ApplyTwo({ let n = Capture(q); x -> x + n }, { Z(q); 0 }, { let n = Capture(q); x -> x + n })",
+            33,
+        ),
+    ] {
+        let source = formatdoc! {r#"
+            operation Capture(q : Qubit) : Int {{ X(q); 3 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function ApplyTwo(f : Int -> Int, x : Int, g : Int -> Int) : Int {{ f(x) * 10 + g(x) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                use q = Qubit();
+                {body}
+            }}
+        "#};
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        assert_eq!(result, Ok(qsc_eval::val::Value::Int(expected)));
+        expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Z", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, QubitRelease(0)]"#]]
+            .assert_eq(&format!("{trace:?}"));
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn assigned_live_factory_returns_thirteen_with_either_initializer() {
+    for initializer in ["Add1", "Make(0)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Make(n : Int) : Int -> Int {{ x -> x + n }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        let direct = Make(1);
+                        mutable deferred = {initializer};
+                        for index in 0..0 {{ set deferred = Make(3); }}
+                        direct(0) * 10 + deferred(0)
+                    }}
+                }}
+            "#},
+            13,
+        );
+    }
+}
+
+#[test]
+fn tuple_loop_callable_writes_return_seven_for_direct_and_higher_order_calls() {
+    for call in ["f(2)", "Apply(f, 2)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable f = Add1;
+                        mutable index = 0;
+                        mutable result = 0;
+                        while index < 2 {{
+                            set result += {call};
+                            set (index, f) = (index + 1, Times2);
+                        }}
+                        result
+                    }}
+                }}
+            "#},
+            7,
+        );
+    }
+}
+
+#[test]
+fn scalar_loop_callable_write_returns_seven() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable f = Add1;
+                    mutable index = 0;
+                    mutable result = 0;
+                    while index < 2 {
+                        set result += f(2);
+                        set index += 1;
+                        set f = Times2;
+                    }
+                    result
+                }
+            }
+        "#},
+        7,
+    );
+}
+
+#[test]
+fn tuple_loop_guard_write_preserves_callable_snapshot_returning_six() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable flag = true;
+                    let f = flag ? Add1 | Times2;
+                    mutable index = 0;
+                    mutable result = 0;
+                    while index < 2 {
+                        set result += f(2);
+                        set (index, flag) = (index + 1, false);
+                    }
+                    result
+                }
+            }
+        "#},
+        6,
+    );
+}
+
+#[test]
+fn direct_callee_before_argument_write_preserves_selected_value_and_failure() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable f = Add1;
+                    f({ set f = Times2; 2 })
+                }
+            }
+        "#},
+        3,
+    );
+    check_wrapped_callable_before_write(false);
+}
+
+#[test]
+fn direct_callee_before_tuple_argument_write_returns_three() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable f = Add1;
+                    mutable n = 0;
+                    f({ set (f, n) = (Times2, 9); 2 })
+                }
+            }
+        "#},
+        3,
+    );
+}
+
+#[test]
+fn higher_order_callable_before_later_write_preserves_selected_value_and_failure() {
+    for assignment in ["set f = Times2;", "set (f, n) = (Times2, 9);"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable f = Add1;
+                        mutable n = 0;
+                        Apply(f, {{ {assignment} 2 }})
+                    }}
+                }}
+            "#},
+            3,
+        );
+    }
+    check_wrapped_callable_before_write(true);
+}
+
+fn check_wrapped_callable_before_write(higher_order: bool) {
+    for (functor, input, argument, specialization) in [
+        ("Adjoint", "Int", "value", "adjoint"),
+        ("Controlled", "(Qubit[], Int)", "([], value)", "controlled"),
+        (
+            "Controlled Adjoint",
+            "(Qubit[], Int)",
+            "([], value)",
+            "controlled adjoint",
+        ),
+        ("Adjoint Adjoint", "Int", "value", "body"),
+    ] {
+        let argument = argument.replace("value", "{ set calls += 1; set op = Second; calls }");
+        let call = if higher_order {
+            format!("Apply({functor} op, {argument});")
+        } else {
+            format!("{functor} op({argument});")
+        };
+        let source = formatdoc! {r#"
+            namespace Test {{
+                operation First(value : Int) : Unit is Adj + Ctl {{
+                    body (...) {{ fail $"first body {{value}}"; }}
+                    adjoint (...) {{ fail $"first adjoint {{value}}"; }}
+                    controlled (controls, ...) {{ fail $"first controlled {{value}}"; }}
+                    controlled adjoint (controls, ...) {{
+                        fail $"first controlled adjoint {{value}}";
+                    }}
+                }}
+                operation Second(value : Int) : Unit is Adj + Ctl {{
+                    body (...) {{ fail "second"; }}
+                    adjoint (...) {{ fail "second"; }}
+                    controlled (controls, ...) {{ fail "second"; }}
+                    controlled adjoint (controls, ...) {{ fail "second"; }}
+                }}
+                operation Apply(op : {input} => Unit, value : {input}) : Unit {{
+                    op(value);
+                }}
+                @EntryPoint()
+                operation Main() : Unit {{
+                    mutable calls = 0;
+                    mutable op = First;
+                    {call}
+                }}
+            }}
+        "#};
+        let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+        let error = result.expect_err("the originally selected specialization must fail");
+        assert!(
+            error.contains(&format!("first {specialization} 1")),
+            "unexpected failure for {functor}: {error}"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn indexed_call_after_earlier_operand_preserves_order_returning_1312() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable order = 0;
+                    let result = { set order = order * 10 + 1; 10 }
+                        + [Add1, Times2][{ set order = order * 10 + 2; 0 }](2);
+                    result * 100 + order
+                }
+            }
+        "#},
+        1312,
+    );
+}
+
+#[test]
+fn indexed_call_in_unselected_branch_does_not_evaluate_index() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable selected = false;
+                    mutable order = 0;
+                    let result = selected
+                        ? [Add1, Times2][{ set order += 1; 0 }](2)
+                        | 9;
+                    result * 10 + order
+                }
+            }
+        "#},
+        90,
+    );
+}
+
+#[test]
+fn identical_conditional_index_arms_return_four_for_direct_and_higher_order_calls() {
+    for call in ["f(2)", "Apply(f, 2)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        let fs = [Add1, Times2];
+                        mutable index = 1;
+                        mutable flag = true;
+                        let f = flag ? fs[index] | fs[index];
+                        {call}
+                    }}
+                }}
+            "#},
+            4,
+        );
+    }
+}
 
 #[test]
 fn deep_controlled_payload_preserves_active_inactive_controls_and_snapshot() {
@@ -318,7 +1653,7 @@ fn nested_recaptures_preserve_compatible_and_opaque_snapshots() {
     }
 }
 
-mod round8_effects {
+mod callable_evaluation_order {
     use qsc_eval::val::Value;
 
     use crate::test_utils::{
@@ -467,7 +1802,7 @@ mod round8_effects {
     }
 }
 
-mod round8_captures {
+mod nested_capture_snapshots {
     use crate::test_utils::{
         check_semantic_equivalence, compile_to_fir, try_eval_fir_entry_with_trace,
     };
@@ -1447,7 +2782,7 @@ fn check_tuple_assignment_result(body: &str, expected: i64) {
 }
 
 #[test]
-fn exploration_capture_nested_callable_producer_instances() {
+fn distinct_nested_closures_preserve_direct_and_forwarded_results() {
     crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
         namespace Test {
             function Make(offset : Int) : Int -> Int { value -> value + offset }
@@ -1465,7 +2800,7 @@ fn exploration_capture_nested_callable_producer_instances() {
     "#});
 }
 
-fn exploration_nested_source(body: &str) -> String {
+fn nested_closure_source(body: &str) -> String {
     formatdoc! {r#"
         namespace Test {{
             function Make(offset : Int) : Int -> Int {{ value -> value + offset }}
@@ -1483,29 +2818,29 @@ fn exploration_nested_source(body: &str) -> String {
 }
 
 #[test]
-fn exploration_capture_reduced_mixed() {
-    crate::test_utils::check_semantic_equivalence(&exploration_nested_source(
+fn nested_closure_preserves_mixed_direct_and_forwarded_results() {
+    crate::test_utils::check_semantic_equivalence(&nested_closure_source(
         "let first = Wrap(Make(3), 2); (first(1), Invoke(first, 3))",
     ));
 }
 
 #[test]
-fn exploration_capture_reduced_direct_only() {
-    crate::test_utils::check_semantic_equivalence(&exploration_nested_source(
+fn nested_closure_preserves_direct_call_results() {
+    crate::test_utils::check_semantic_equivalence(&nested_closure_source(
         "let first = Wrap(Make(3), 2); (first(1), first(3))",
     ));
 }
 
 #[test]
-fn exploration_capture_reduced_hof_only() {
-    crate::test_utils::check_semantic_equivalence(&exploration_nested_source(
+fn nested_closure_preserves_higher_order_call_results() {
+    crate::test_utils::check_semantic_equivalence(&nested_closure_source(
         "let first = Wrap(Make(3), 2); (Invoke(first, 1), Invoke(first, 3))",
     ));
 }
 
 #[test]
-fn exploration_capture_reduced_flat_control() {
-    crate::test_utils::check_semantic_equivalence(&exploration_nested_source(
+fn flat_closure_preserves_direct_and_forwarded_results() {
+    crate::test_utils::check_semantic_equivalence(&nested_closure_source(
         "let first = Flat(3, 2); (first(1), Invoke(first, 3))",
     ));
 }
@@ -2856,6 +4191,7 @@ fn recursive_self_call_slot_removal_preserves_recursion_count() {
 /// Generates syntactically valid Q# programs exercising defunctionalization's
 /// key code paths: lambda arguments, partial application, and direct callable
 /// references passed to higher-order functions.
+#[cfg(feature = "slow-proptest-tests")]
 fn defunc_pattern_strategy() -> impl Strategy<Value = String> {
     let val = || 0..50i64;
 
@@ -2905,6 +4241,7 @@ fn defunc_pattern_strategy() -> impl Strategy<Value = String> {
 /// Generates programs with multi-capture closures where the captures have
 /// distinct values and are used in non-commutative operations, ensuring
 /// capture ordering is exercised.
+#[cfg(feature = "slow-proptest-tests")]
 fn multi_capture_strategy() -> impl Strategy<Value = String> {
     // Use distinct non-zero values so swapped captures produce a different result.
     (2..20i64, 1..10i64)
@@ -2949,6 +4286,7 @@ fn multi_capture_strategy() -> impl Strategy<Value = String> {
         })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
     #[test]
@@ -2957,6 +4295,7 @@ proptest! {
     }
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(30))]
     #[test]
@@ -3158,9 +4497,8 @@ fn guard_var_never_reassigned_after_binding_is_equivalent() {
 /// rewrite dropped, duplicated, or reordered while relocating the capture would
 /// diverge.
 ///
-/// The decline side cannot have an equivalence test: a declined shape reports a
-/// fatal `DynamicCallable`, so there is no transformed program to compare. It is
-/// pinned by
+/// The decline side retains dynamic dispatch for downstream resolution. Its
+/// defunctionalization diagnostic contract is covered by
 /// `defunctionalize::tests::invariants::effectful_producer_returning_consumed_closure_declines_to_dynamic`.
 #[test]
 fn pure_producer_returned_closure_consumption_is_equivalent() {

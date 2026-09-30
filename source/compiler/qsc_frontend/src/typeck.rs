@@ -22,7 +22,7 @@ use qsc_ast::ast::NodeId;
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{CallableKind, ItemId},
-    ty::{FunctorSet, GenericArg, InferTyId, Prim, Ty, Udt},
+    ty::{FunctorSet, GenericArg, InferTyId, ParamId, Prim, Ty, TypeParameter, Udt},
 };
 use rustc_hash::FxHashMap;
 use std::fmt::Debug;
@@ -42,10 +42,48 @@ pub struct Table {
     pub generics: IndexMap<NodeId, Vec<GenericArg>>,
 }
 
+/// A source type-checking diagnostic.
 #[derive(Clone, Debug, Diagnostic, Error)]
 #[diagnostic(transparent)]
 #[error(transparent)]
-pub(super) struct Error(ErrorKind);
+pub struct Error(ErrorKind);
+
+/// A rejected concrete generic instantiation, with the responsible parameter when known.
+#[derive(Clone, Debug, Diagnostic, Error)]
+#[diagnostic(forward(error))]
+#[error("{error}")]
+pub struct InstantiationError {
+    /// The parameter whose candidate or bounds failed, absent for arity errors.
+    pub parameter: Option<ParamId>,
+    /// The underlying diagnostic, including type/bound details and source location.
+    #[source]
+    pub error: Error,
+}
+
+/// Validates concrete generic arguments using the source type checker's constraint solver.
+///
+/// Parameter IDs may be sparse and include inherited parameters not declared by a callable.
+/// Each parameter must have exactly one same-kind candidate. Candidates must already be
+/// concrete; this function neither infers nor defaults them. All bound payloads are
+/// substituted using the complete candidate map before checking. Nominal types require
+/// their owning definitions in `udts`, keyed by fully qualified item identity.
+///
+/// # Errors
+///
+/// Returns argument-shape, incomplete-type, or source class/functor diagnostics at `span`.
+/// Success means every obligation, including recursively derived obligations, was discharged.
+#[allow(
+    clippy::implicit_hasher,
+    reason = "Uses the frontend's semantic type table and solver representation."
+)]
+pub fn validate_instantiation(
+    parameters: &[(ParamId, TypeParameter)],
+    candidates: &FxHashMap<ParamId, GenericArg>,
+    udts: &FxHashMap<ItemId, Udt>,
+    span: Span,
+) -> Result<(), Vec<InstantiationError>> {
+    infer::validate_instantiation(parameters, candidates, udts, span)
+}
 
 /// Simplified type info for error reporting. Same shape as `Ty`, but without `Rc`
 /// so it can be included in `ErrorKind` (which must be `Send + Sync`).
@@ -113,6 +151,30 @@ impl From<Ty> for TyInfo {
 
 #[derive(Clone, Debug, Diagnostic, Error)]
 enum ErrorKind {
+    #[error("expected {0} generic arguments, found {1}")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.InstantiationArity"))]
+    InstantiationArity(usize, usize, #[label] Span),
+    #[error("generic parameter {0} is declared more than once")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.DuplicateParameter"))]
+    DuplicateParameter(ParamId, #[label] Span),
+    #[error("no candidate was supplied for generic parameter {0}")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingArgument"))]
+    MissingArgument(ParamId, #[label] Span),
+    #[error("generic argument has the wrong kind for parameter {0}")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.InstantiationKind"))]
+    InstantiationKind(ParamId, #[label] Span),
+    #[error("expected a concrete type, found {0}")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.NonConcreteType"))]
+    NonConcreteType(TyInfo, #[label] Span),
+    #[error("expected concrete functors, found {0}")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.NonConcreteFunctor"))]
+    NonConcreteFunctor(FunctorSet, #[label] Span),
+    #[error("missing definition for nominal type {0}")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingTypeDefinition"))]
+    MissingTypeDefinition(ItemId, #[label] Span),
+    #[error("generic constraints were not fully discharged")]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.UnresolvedConstraints"))]
+    UnresolvedConstraints(#[label] Span),
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qdk.Qsc.TypeCk.TyMismatch"))]
     TyMismatch(

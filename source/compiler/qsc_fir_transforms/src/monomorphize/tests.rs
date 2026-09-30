@@ -9,6 +9,167 @@ use crate::test_utils::{
 use expect_test::{Expect, expect};
 use indoc::indoc;
 
+#[test]
+fn mono_generic_dependencies_in_cloned_lambdas() {
+    for body in [
+        "let f = y -> Id(y); f(x)",
+        "let f = () -> Id(x); f()",
+        "let f = y -> { let g = z -> Id(z); g(y) }; f(x)",
+        "let f = y -> Id(y); let _ = f(x); f(x)",
+    ] {
+        let source = format!(
+            "function Id<'T>(x : 'T) : 'T {{ x }}
+             function Unused<'T>(x : 'T) : 'T {{ x }}
+             function Outer<'T>(x : 'T) : 'T {{ {body} }}
+             operation Main() : Int {{
+                 let _ = Outer(2.0);
+                 Outer(7)
+             }}"
+        );
+        let (store, package_id) = compile_and_monomorphize(&source);
+        let package = store.get(package_id);
+        for name in ["Id<Int>", "Id<Double>"] {
+            assert_eq!(
+                package
+                    .items
+                    .values()
+                    .filter(|item| matches!(&item.kind,
+                    ItemKind::Callable(decl) if decl.name.name.as_ref() == name))
+                    .count(),
+                1,
+                "{body}: {name} must be specialized exactly once"
+            );
+        }
+        assert!(package.items.values().any(|item| matches!(&item.kind,
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Unused" && decl.generics.len() == 1)));
+        for item in collect_reachable_from_entry(&store, package_id) {
+            let owner = store.get(item.package);
+            if let ItemKind::Callable(decl) = &owner.get_item(item.item).kind {
+                assert!(decl.generics.is_empty(), "{body}: {}", decl.name.name);
+            }
+        }
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn mono_cloned_lambda_dependencies_keep_foreign_specializations_in_their_owner() {
+    for (library, user) in [
+        (
+            "namespace Lib {
+                function Id<'T>(x : 'T) : 'T { x }
+                export Id;
+             }",
+            "function Outer<'T>(x : 'T) : 'T { let f = y -> Lib.Id(y); f(x) }
+             operation Main() : Int { Outer(7) }",
+        ),
+        (
+            "namespace Lib {
+                function Id<'T>(x : 'T) : 'T { x }
+                function Outer<'T>(x : 'T) : 'T { let f = y -> Id(y); f(x) }
+                export Outer;
+             }",
+            "operation Main() : Int { Lib.Outer(7) }",
+        ),
+    ] {
+        let (mut store, package_id) = crate::test_utils::compile_to_fir_with_library(library, user);
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        monomorphize(&mut store, package_id, &mut assigners);
+        let specializations: Vec<_> = collect_reachable_from_entry(&store, package_id)
+            .into_iter()
+            .filter(|item| {
+                matches!(&store.get(item.package).get_item(item.item).kind,
+                ItemKind::Callable(decl) if decl.name.name.as_ref() == "Id<Int>")
+            })
+            .collect();
+        assert_eq!(specializations.len(), 1);
+        assert_ne!(specializations[0].package, package_id);
+        crate::test_utils::check_semantic_equivalence_with_library(library, user);
+    }
+}
+
+#[test]
+fn generated_generic_roots_preserve_concrete_calls_captures_and_unreachable_generics() {
+    for (source, expected) in [
+        (
+            r#"
+            function Identity<'T>(value : 'T) : 'T { value }
+            function Rec<'T>(value : 'T, count : Int) : 'T {
+                if count == 0 { value } else { Rec(value, count-1) }
+            }
+            function Unused<'T>(value : 'T) : 'T { value }
+            @EntryPoint() operation Main<'T>() : Int { Identity(Rec(42, 3)) }
+        "#,
+            42,
+        ),
+        (
+            r#"
+            function Make<'T>(value : 'T) : Unit -> 'T { () -> value }
+            function Unused<'T>(value : 'T) : 'T { value }
+            function Main<'T>() : Int { let f = Make(40); f() }
+        "#,
+            40,
+        ),
+        (
+            r#"
+            operation ApplyAdj(op : Qubit => Unit is Adj, q : Qubit) : Unit {
+                op(q); Adjoint op(q);
+            }
+            function Unused<'T>(value : 'T) : 'T { value }
+            @EntryPoint() operation Main<'T>() : Int {
+                use q = Qubit(); ApplyAdj(S, q); 31
+            }
+        "#,
+            31,
+        ),
+    ] {
+        let (store, package) = compile_and_monomorphize(source);
+        let reachable = collect_reachable_from_entry(&store, package);
+        for item in &reachable {
+            let owner = store.get(item.package);
+            if let ItemKind::Callable(decl) = &owner.get_item(item.item).kind {
+                assert!(decl.generics.is_empty(), "{}", decl.name.name);
+                assert!(!ty_contains_param(&decl.output));
+                for_each_node_in_callable(owner, decl, &mut |node| {
+                    let ty = match node {
+                        CallableNode::Block(id) => &owner.get_block(id).ty,
+                        CallableNode::Pat(id) => &owner.get_pat(id).ty,
+                        CallableNode::Expr(id) => {
+                            let expr = owner.get_expr(id);
+                            if let ExprKind::Var(_, args) = &expr.kind {
+                                assert!(args.is_empty());
+                            }
+                            &expr.ty
+                        }
+                        CallableNode::Stmt(_) => return,
+                    };
+                    assert!(!ty_contains_param(ty), "{}: {ty}", decl.name.name);
+                });
+            }
+        }
+        assert!(store.get(package).items.values().any(|item| matches!(&item.kind,
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Unused" && !decl.generics.is_empty())));
+        let (store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(expected))
+        );
+    }
+    let library =
+        "namespace Lib { function Identity<'T>(value : 'T) : 'T { value } export Identity; }";
+    let source = "@EntryPoint() operation Main<'T>() : Int { Lib.Identity(42) }";
+    let (store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        library,
+        source,
+        crate::PipelineStage::Full,
+    );
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(42))
+    );
+}
+
 /// Compiles Q# source, runs monomorphization, and snapshots all callables
 /// in the user package showing name, generic-param count, input type, and
 /// output type. Sorted for determinism.

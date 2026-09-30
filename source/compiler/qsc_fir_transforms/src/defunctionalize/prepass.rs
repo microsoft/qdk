@@ -21,6 +21,8 @@
 //! - Run the adjacent aggregate-alias promotion that replaces
 //!   `let pair = aggregate; let (...) = pair;` with direct aggregate
 //!   destructuring when `pair` has a callable-typed field and no other uses.
+//! - Snapshot branch guards that their selected bodies can overwrite, keeping
+//!   later callable dispatch tied to the original branch decision.
 //! - Run the identity-closure peephole that replaces `(args) => f(args)`
 //!   closures with direct references to `f` (via
 //!   [`identity_closure_peephole`]).
@@ -29,7 +31,7 @@
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
+    BinOp, Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
     Mutability, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt,
     StmtId, StmtKind, UnOp,
 };
@@ -55,12 +57,143 @@ pub(super) fn run(
     reachable_expr_ids: &[ExprId],
     assigner: &mut Assigner,
 ) -> FxHashMap<ExprId, Span> {
+    snapshot_mutated_branch_guards(store.get_mut(package_id), assigner);
     normalize_closure_environments(store.get_mut(package_id), package_id, assigner);
     inline_static_closure_captures(store, package_id, reachable_expr_ids);
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
     decompose_assignment_tuple_aliases(store.get_mut(package_id), assigner);
     identity_closure_peephole(store, package_id, reachable_expr_ids)
+}
+
+/// Retains branch decisions whose selected body can overwrite a guard operand.
+/// The declaration dominates later dispatch; the assignment remains at the
+/// original evaluation point, including inside loops and short-circuit operands.
+pub(super) fn snapshot_mutated_branch_guards(pkg: &mut Package, assigner: &mut Assigner) {
+    use crate::fir_builder::{
+        alloc_assign_expr, alloc_block, alloc_bool_lit, alloc_expr, alloc_expr_stmt,
+        alloc_local_var, alloc_local_var_expr, alloc_semi_stmt, functored_specs,
+    };
+    use crate::walk_utils::{for_each_expr, for_each_expr_in_block};
+
+    let mut roots = Vec::new();
+    if let Some(entry) = pkg.entry {
+        let mut expressions = Vec::new();
+        for_each_expr(pkg, entry, &mut |id, _| expressions.push(id));
+        roots.push((None, expressions));
+    }
+    for (_, item) in &pkg.items {
+        if let ItemKind::Callable(decl) = &item.kind
+            && let CallableImpl::Spec(specs) = &decl.implementation
+        {
+            for spec in std::iter::once(&specs.body).chain(functored_specs(specs)) {
+                let mut expressions = Vec::new();
+                for_each_expr_in_block(pkg, spec.block, &mut |id, _| expressions.push(id));
+                roots.push((Some(spec.block), expressions));
+            }
+        }
+    }
+
+    for (root, expressions) in roots {
+        let mut declarations = Vec::new();
+        for id in expressions {
+            let expr = pkg.get_expr(id).clone();
+            let Some(condition) = overwritten_branch_condition(pkg, &expr) else {
+                continue;
+            };
+
+            let condition_ty = pkg.get_expr(condition).ty.clone();
+            let initial = alloc_bool_lit(pkg, assigner, false, expr.span);
+            let (local, declaration) = alloc_local_var(
+                pkg,
+                assigner,
+                "_.branch_guard",
+                &condition_ty,
+                initial,
+                Mutability::Mutable,
+            );
+            declarations.push(declaration);
+            let target =
+                alloc_local_var_expr(pkg, assigner, local, condition_ty.clone(), expr.span);
+            let assignment = alloc_assign_expr(pkg, assigner, target, condition, expr.span);
+            let save = alloc_semi_stmt(pkg, assigner, assignment, expr.span);
+            let read = alloc_local_var_expr(pkg, assigner, local, condition_ty.clone(), expr.span);
+            let kind = match expr.kind {
+                ExprKind::If(_, body, otherwise) => ExprKind::If(read, body, otherwise),
+                ExprKind::BinOp(op, _, rhs) => ExprKind::BinOp(op, read, rhs),
+                ExprKind::AssignOp(op, lhs, rhs) => {
+                    let value = alloc_expr(
+                        pkg,
+                        assigner,
+                        condition_ty,
+                        ExprKind::BinOp(op, read, rhs),
+                        expr.span,
+                    );
+                    ExprKind::Assign(lhs, value)
+                }
+                _ => unreachable!("only conditional expressions are selected"),
+            };
+            let selected = alloc_expr(pkg, assigner, expr.ty.clone(), kind, expr.span);
+            let tail = alloc_expr_stmt(pkg, assigner, selected, expr.span);
+            let block = alloc_block(pkg, assigner, vec![save, tail], expr.ty, expr.span);
+            pkg.exprs.get_mut(id).expect("guard expression exists").kind = ExprKind::Block(block);
+        }
+        if declarations.is_empty() {
+            continue;
+        }
+        if let Some(root) = root {
+            let block = pkg.blocks.get_mut(root).expect("root block exists");
+            declarations.append(&mut block.stmts);
+            block.stmts = declarations;
+        } else if let Some(entry) = pkg.entry {
+            let expr = pkg.get_expr(entry).clone();
+            let tail = alloc_expr_stmt(pkg, assigner, entry, expr.span);
+            declarations.push(tail);
+            let block = alloc_block(pkg, assigner, declarations, expr.ty.clone(), expr.span);
+            pkg.entry = Some(alloc_expr(
+                pkg,
+                assigner,
+                expr.ty,
+                ExprKind::Block(block),
+                expr.span,
+            ));
+        }
+    }
+}
+
+fn overwritten_branch_condition(pkg: &Package, expression: &Expr) -> Option<ExprId> {
+    let (condition, branches) = match &expression.kind {
+        ExprKind::If(condition, body, otherwise) => (
+            *condition,
+            std::iter::once(*body).chain(*otherwise).collect::<Vec<_>>(),
+        ),
+        ExprKind::BinOp(BinOp::AndL | BinOp::OrL, condition, rhs)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, condition, rhs) => (*condition, vec![*rhs]),
+        _ => return None,
+    };
+    let mut writes = FxHashSet::default();
+    let mut selects_callable = super::ty_contains_arrow(&expression.ty);
+    for branch in branches {
+        crate::walk_utils::for_each_expr(pkg, branch, &mut |_, expr| {
+            writes.extend(super::analysis::assignment_written_locals(pkg, expr));
+            if let ExprKind::Assign(_, value)
+            | ExprKind::AssignField(_, _, value)
+            | ExprKind::AssignIndex(_, _, value) = expr.kind
+            {
+                selects_callable |= super::ty_contains_arrow(&pkg.get_expr(value).ty);
+            }
+        });
+    }
+    if !selects_callable {
+        return None;
+    }
+    let mut overwritten = false;
+    crate::walk_utils::for_each_expr(pkg, condition, &mut |_, expr| {
+        if let ExprKind::Var(Res::Local(local), _) = expr.kind {
+            overwritten |= writes.contains(&local);
+        }
+    });
+    overwritten.then_some(condition)
 }
 
 /// The decomposable shape of one capture, preserving enough type information to
@@ -1261,7 +1394,7 @@ fn local_has_exactly_one_use_in_block(
 /// the pre-pass promotions are best-effort simplifications, not correctness
 /// requirements. A missed callable hidden behind a UDT wrapper is still
 /// handled correctly by the full analysis phase, which uses the heavier
-/// [`super::specialize::ty_contains_arrow_through_udts`] variant with store
+/// [`super::ty_contains_arrow_through_udts`] variant with store
 /// access.
 fn ty_contains_arrow(ty: &Ty) -> bool {
     match ty {

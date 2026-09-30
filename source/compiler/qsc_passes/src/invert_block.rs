@@ -101,6 +101,9 @@ impl BlockInverter<'_> {
                 );
             }
 
+            // A well-typed Unit iterable cannot produce a value to reverse.
+            Ty::Tuple(items) if items.is_empty() => return iterable.clone(),
+
             _ => panic!("iterable should be array or range"),
         }
 

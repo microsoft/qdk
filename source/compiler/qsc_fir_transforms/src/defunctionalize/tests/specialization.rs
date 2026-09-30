@@ -4175,7 +4175,10 @@ fn cross_function_closure_capture_threads_correct_value() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let amount : Int = 5;
-                Apply_Empty__closure_(q, amount);
+                {
+                    let __capture : Int = amount;
+                    Apply_Empty__closure_(q, __capture)
+                };
                 __quantum__rt__qubit_release(q);
             }
             operation _lambda_5(arg : Int, hole : Qubit) : Unit {
@@ -4508,7 +4511,10 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                     expansionOps = [],
                     numQubits = 1
                 };
-                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, params);
+                {
+                    let __capture : __UDT_Item_1__Package_2_ = params;
+                    MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, __capture)
+                };
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {

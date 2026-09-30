@@ -2518,7 +2518,10 @@ fn callable_returning_partial_application_resolves_statically() {
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty__closure_(register, target, [true]);
+                {
+                    let __capture : Bool[] = [true];
+                    ApplyOp_Empty__closure_(register, target, __capture)
+                };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
@@ -2627,7 +2630,10 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty__closure_(register, target, [true]);
+                {
+                    let __capture : Bool[] = [true];
+                    ApplyOp_Empty__closure_(register, target, __capture)
+                };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
@@ -2745,7 +2751,10 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
             }
             operation Main() : Unit {
                 let bits : Bool[] = [true];
-                UseOracle_Empty__closure_(Length(bits), bits);
+                {
+                    let __capture : Bool[] = bits;
+                    UseOracle_Empty__closure_(Length(bits), __capture)
+                };
             }
             operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole_1)
@@ -2909,7 +2918,10 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
                 let value : Int = 1;
-                ApplyOp_Empty__closure_(register, target, value);
+                {
+                    let __capture : Int = value;
+                    ApplyOp_Empty__closure_(register, target, __capture)
+                };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
@@ -3662,7 +3674,11 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
             operation Main() : Unit {
                 let first : Int = 1;
                 let second : Int = 2;
-                Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, first, second);
+                {
+                    let __capture : Int = first;
+                    let __capture_1 : Int = second;
+                    Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, __capture, __capture_1)
+                };
             }
             operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
                 ApplyParityOperation(arg, hole, hole_1)
@@ -4061,7 +4077,10 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                     mutable _index_id_127 : Int = 0;
                     while _index_id_127 < _len_id_122 {
                         let value : Int = _array_id_118[_index_id_127];
-                        ApplyOp_Empty__closure_(register, target, value);
+                        {
+                            let __capture : Int = value;
+                            ApplyOp_Empty__closure_(register, target, __capture)
+                        };
                         _index_id_127 += 1;
                     }
 

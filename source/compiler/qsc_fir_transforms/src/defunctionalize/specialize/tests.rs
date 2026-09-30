@@ -122,6 +122,7 @@ fn make_dispatch_layout_fixture() -> DispatchLayoutFixture {
             CapturedVar {
                 local: ScopedLocal::new(*local, destination),
                 ty: binding.ty.clone(),
+                static_callable: None,
                 expr: None,
                 caller_substitutions: Vec::new(),
             }

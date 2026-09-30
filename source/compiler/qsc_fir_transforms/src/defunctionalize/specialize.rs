@@ -98,6 +98,7 @@ type ClosureInfo = Option<ClosureSpecializationInfo>;
 /// closure's lifted-lambda target, the runtime captures threaded onto the
 /// specialized input as new leading parameters, and any captures that are
 /// themselves concrete callables to be baked directly into the target body.
+#[derive(Clone)]
 struct ClosureSpecializationInfo {
     target: LocalItemId,
     capture_bindings: Vec<CaptureBinding>,
@@ -114,6 +115,7 @@ struct CaptureBinding {
 /// closure target can be specialized for it — the callable is inlined into the
 /// target body and its capture slot removed — rather than threaded as a runtime
 /// operand.
+#[derive(Clone)]
 struct CapturedCallableSpecialization {
     capture_idx: usize,
     capture_ty: Ty,
@@ -326,9 +328,80 @@ pub(super) fn specialize(
         );
     }
 
+    refresh_materialized_call_outputs(store, dedup.values().copied().collect());
     report_excessive_specializations(store, &dedup, &mut errors);
 
     (dedup, errors)
+}
+
+/// Retargeting an indirect call can expose stronger output functors. Resolve
+/// declarations with package-qualified IDs, then run the existing retyping
+/// cascade so enclosing bindings and blocks retain the concrete result type.
+/// Follow referenced bodies as well, including lifted capture targets rewritten
+/// in place during specialization.
+fn refresh_materialized_call_outputs(store: &mut PackageStore, mut pending: Vec<StoreItemId>) {
+    let mut visited = FxHashSet::default();
+    while let Some(id) = pending.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        let package = store.get(id.package);
+        let Some(item) = package.items.get(id.item) else {
+            continue;
+        };
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        let implementation = decl.implementation.clone();
+        let mut updates = Vec::new();
+        for_each_expr_in_callable_impl(package, &implementation, &mut |expr_id, expr| {
+            match expr.kind {
+                ExprKind::Var(Res::Item(item), _) => {
+                    pending.push(StoreItemId::from((item.package, item.item)));
+                }
+                ExprKind::Closure(_, target) => {
+                    pending.push(StoreItemId::from((id.package, target)));
+                }
+                _ => {}
+            }
+            let ExprKind::Call(callee_id, _) = expr.kind else {
+                return;
+            };
+            let (base_id, _) = peel_body_functors(package, callee_id);
+            let target = match package.get_expr(base_id).kind {
+                ExprKind::Var(Res::Item(item), _) => StoreItemId::from((item.package, item.item)),
+                ExprKind::Closure(_, item) => StoreItemId::from((id.package, item)),
+                _ => return,
+            };
+            let Some(item) = store.get(target.package).items.get(target.item) else {
+                return;
+            };
+            let ItemKind::Callable(target) = &item.kind else {
+                return;
+            };
+            let Ty::Arrow(arrow) = &package.get_expr(callee_id).ty else {
+                return;
+            };
+            if target.output != expr.ty
+                && dispatch_layout_types_compatible(&target.output, &expr.ty)
+                && dispatch_layout_types_compatible(&target.output, &arrow.output)
+            {
+                updates.push((expr_id, callee_id, target.output.clone()));
+            }
+        });
+        if updates.is_empty() {
+            continue;
+        }
+        let package = store.get_mut(id.package);
+        for (expr_id, callee_id, output) in updates {
+            package.exprs.get_mut(expr_id).expect("call exists").ty = output.clone();
+            let callee = package.exprs.get_mut(callee_id).expect("callee exists");
+            if let Ty::Arrow(arrow) = &mut callee.ty {
+                *arrow.output = output;
+            }
+        }
+        refresh_rewritten_value_types(package, &implementation);
+    }
 }
 
 /// Groups analysis call sites by their originating `(package, call expression)`.
@@ -675,9 +748,28 @@ fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
             if matches!(pat_kind, PatKind::Bind(_) | PatKind::Discard) {
                 let pat = package.pats.get_mut(pat_id).expect("pat not found");
                 pat.ty = expr_ty;
+            } else if dispatch_layout_types_compatible(&expr_ty, &package.get_pat(pat_id).ty) {
+                refresh_tuple_pattern_types(package, pat_id, &expr_ty);
             }
         }
         qsc_fir::fir::StmtKind::Item(_) => {}
+    }
+}
+
+fn refresh_tuple_pattern_types(package: &mut Package, pat_id: PatId, ty: &Ty) {
+    let pat = package.get_pat(pat_id);
+    let children = match (&pat.kind, ty) {
+        (PatKind::Tuple(children), Ty::Tuple(items)) if children.len() == items.len() => children
+            .iter()
+            .copied()
+            .zip(items.iter().cloned())
+            .collect(),
+        (PatKind::Bind(_) | PatKind::Discard, _) => Vec::new(),
+        _ => return,
+    };
+    package.pats.get_mut(pat_id).expect("pattern exists").ty = ty.clone();
+    for (child, ty) in children {
+        refresh_tuple_pattern_types(package, child, &ty);
     }
 }
 
@@ -1099,6 +1191,12 @@ fn transform_combined_callable_body(
     assigner: &mut Assigner,
 ) {
     let impl_clone = callable_impl.clone();
+    let mut closure_infos = closure_infos.to_vec();
+    for info in closure_infos.iter_mut().flatten() {
+        if info.callable_capture.is_some() {
+            info.target = clone_closure_target(target, info.target, assigner);
+        }
+    }
     let mut specialized_capture_targets = CaptureSpecializations::default();
     let concrete_group = callable_array_position
         .map(|position| {
@@ -1114,10 +1212,7 @@ fn transform_combined_callable_body(
                 })
                 .map(|(((call_site, _), _), closure_info)| {
                     if let Some(info) = closure_info {
-                        concrete_with_threaded_captures(
-                            &call_site.callable_arg,
-                            &info.capture_bindings,
-                        )
+                        concrete_with_threaded_captures(&call_site.callable_arg, info)
                     } else {
                         call_site.callable_arg.clone()
                     }
@@ -1149,8 +1244,7 @@ fn transform_combined_callable_body(
             } else {
                 collect_calls_to_closure_target(target, &impl_clone, package_id, info.target)
             };
-            let concrete =
-                concrete_with_threaded_captures(&call_site.callable_arg, &info.capture_bindings);
+            let concrete = concrete_with_threaded_captures(&call_site.callable_arg, info);
             transform_callable_body(
                 target,
                 package_id,
@@ -1555,10 +1649,13 @@ fn apply_single_param_specialization(
     new_decl: &mut CallableDecl,
     remapped_param: &CallableParam,
     call_site: &CallSite,
-    closure_info: ClosureInfo,
+    mut closure_info: ClosureInfo,
     assigner: &mut Assigner,
 ) {
-    if let Some(info) = &closure_info {
+    if let Some(info) = &mut closure_info {
+        if info.callable_capture.is_some() {
+            info.target = clone_closure_target(target, info.target, assigner);
+        }
         specialize_closure_target_callable_capture(
             target,
             package_id,
@@ -1573,7 +1670,7 @@ fn apply_single_param_specialization(
     let impl_clone = new_decl.implementation.clone();
     let mut specialized_capture_targets = CaptureSpecializations::default();
     let concrete = if let Some(info) = &closure_info {
-        concrete_with_threaded_captures(&call_site.callable_arg, &info.capture_bindings)
+        concrete_with_threaded_captures(&call_site.callable_arg, info)
     } else {
         call_site.callable_arg.clone()
     };
@@ -1976,22 +2073,22 @@ fn unique_params_for_removal(params: &[CallableParam]) -> Vec<(&CallableParam, b
 /// unchanged.
 fn concrete_with_threaded_captures(
     concrete: &ConcreteCallable,
-    capture_bindings: &[CaptureBinding],
+    info: &ClosureSpecializationInfo,
 ) -> ConcreteCallable {
     match concrete {
-        ConcreteCallable::Closure {
-            target, functor, ..
-        } => {
+        ConcreteCallable::Closure { functor, .. } => {
             // Thread captures through the specialized callable input so a
             // forwarded closure keeps its runtime environment after the
             // callable parameter that carried it is removed.
             ConcreteCallable::Closure {
-                target: *target,
-                captures: capture_bindings
+                target: info.target,
+                captures: info
+                    .capture_bindings
                     .iter()
                     .map(|binding| CapturedVar {
                         local: binding.local,
                         ty: binding.ty.clone(),
+                        static_callable: None,
                         expr: None,
                         caller_substitutions: Vec::new(),
                     })
@@ -2011,73 +2108,34 @@ fn concrete_with_threaded_captures(
 /// concrete callable; any non-callable capture stays threaded as an ordinary
 /// runtime operand.
 fn captured_callable_specialization(
-    package: &Package,
+    _package: &Package,
     captures: &[CapturedVar],
 ) -> Option<CapturedCallableSpecialization> {
     if captures.len() != 1 {
         return None;
     }
     let capture = captures.first()?;
-    let expr_id = capture.expr?;
-    concrete_callable_from_capture_expr(package, expr_id).map(|concrete| {
-        CapturedCallableSpecialization {
+    capture
+        .static_callable
+        .map(|(item_id, functor)| CapturedCallableSpecialization {
             capture_idx: 0,
             capture_ty: capture.ty.clone(),
-            concrete,
-        }
-    })
+            concrete: ConcreteCallable::Global { item_id, functor },
+        })
 }
 
-/// Resolves a capture initializer expression to a [`ConcreteCallable`] when it
-/// is a statically-known callable value.
-///
-/// Returns a `Global` for a non-generic item reference and a `Closure` for a
-/// capture-free closure, in both cases only when the callable's own input does
-/// not still contain an arrow (see [`callable_input_contains_arrow`]); any
-/// other shape yields `None`. Functor wrappers on the capture are peeled and
-/// folded into the returned callable's functor.
-fn concrete_callable_from_capture_expr(
-    package: &Package,
-    expr_id: ExprId,
-) -> Option<ConcreteCallable> {
-    let (base_id, functor) = peel_body_functors(package, expr_id);
-    match &package.get_expr(base_id).kind {
-        ExprKind::Var(Res::Item(item_id), generic_args)
-            if generic_args.is_empty() && !callable_input_contains_arrow(package, item_id.item) =>
-        {
-            Some(ConcreteCallable::Global {
-                item_id: *item_id,
-                functor,
-            })
-        }
-        ExprKind::Closure(captures, target)
-            if captures.is_empty() && !callable_input_contains_arrow(package, *target) =>
-        {
-            Some(ConcreteCallable::Closure {
-                target: *target,
-                captures: Vec::new(),
-                functor,
-            })
-        }
-        _ => None,
-    }
-}
-
-/// Returns whether the callable's declared input type still contains an arrow
-/// (a callable-typed parameter), resolving UDT wrappers first.
-///
-/// Used as a conservative eligibility gate: a missing or non-callable item, or
-/// an unresolvable UDT, reports `true` so an ambiguous capture is left on the
-/// general dispatch path rather than baked in as a concrete callable.
-fn callable_input_contains_arrow(package: &Package, callable: LocalItemId) -> bool {
-    let Some(Item {
-        kind: ItemKind::Callable(decl),
-        ..
-    }) = package.items.get(callable)
-    else {
-        return true;
-    };
-    ty_contains_arrow_through_udts(package, &package.get_pat(decl.input).ty)
+/// Each specialization owns the lifted body it modifies. Other occurrences
+/// still refer to the original target and its unchanged capture signature.
+fn clone_closure_target(
+    package: &mut Package,
+    target: LocalItemId,
+    assigner: &mut Assigner,
+) -> LocalItemId {
+    let source = package.clone();
+    let mut cloner = FirCloner::from_assigner(std::mem::take(assigner));
+    let target = cloner.clone_nested_item(&source, target, package);
+    *assigner = cloner.into_assigner();
+    target
 }
 
 /// Recursively tests whether a type contains an arrow, expanding UDT wrappers
@@ -2088,7 +2146,7 @@ fn callable_input_contains_arrow(package: &Package, callable: LocalItemId) -> bo
 /// unknown shape is never misclassified as arrow-free.
 ///
 /// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
-fn ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
+pub(super) fn ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
     match resolve_udt_ty(package, ty) {
         Ty::Arrow(_) | Ty::Udt(_) => true,
         Ty::Array(elem) => ty_contains_arrow_through_udts(package, &elem),
@@ -3573,6 +3631,7 @@ fn rewrite_closure_target_args(
             .map(|binding| CapturedVar {
                 local: binding.local,
                 ty: binding.ty.clone(),
+                static_callable: None,
                 expr: None,
                 caller_substitutions: Vec::new(),
             })
@@ -3856,11 +3915,6 @@ fn dispatch_functors_compatible(actual: FunctorSet, expected: FunctorSet) -> boo
     }
 }
 
-/// Allocates one expression per captured variable, to be passed as leading
-/// arguments at a specialized call site.
-///
-/// A capture with a recorded initializer expression reuses it; otherwise a
-/// fresh `Var(Res::Local)` reference to the captured variable is synthesized.
 /// Builds the `ExprKind` and `Ty` for a tuple of the given elements, collapsing
 /// the degenerate cases: an empty list becomes `Unit`, and a single element is
 /// returned as-is rather than wrapped in a one-tuple.
@@ -4349,6 +4403,7 @@ fn rebind_concrete_captures_to_target_params(
         fresh_captures.push(CapturedVar {
             local: ScopedLocal::new(local_var, CaptureScope::Callable(closure_target)),
             ty: capture.ty.clone(),
+            static_callable: capture.static_callable,
             expr: None,
             caller_substitutions: Vec::new(),
         });

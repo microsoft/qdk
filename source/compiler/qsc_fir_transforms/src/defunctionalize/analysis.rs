@@ -62,6 +62,8 @@ pub(super) struct LocalState {
     owner: CaptureScope,
     clone_items: Rc<FxHashSet<StoreItemId>>,
     callable: FxHashMap<LocalVarId, CalleeLattice>,
+    /// Occurrence-local values already evaluated before later call operands.
+    evaluated_callables: FxHashMap<ExprId, CalleeLattice>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
     /// Bindings visible at the current program point. Unlike `exprs`, this is
@@ -407,6 +409,7 @@ fn collect_call_sites(
             owner: CaptureScope::Entry,
             clone_items,
             callable: FxHashMap::default(),
+            evaluated_callables: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
             visible_bindings: FxHashSet::default(),
@@ -725,8 +728,8 @@ fn is_preserved_direct_lifted_lambda_call(
 /// input path is resolved to its reaching-definitions lattice: a single
 /// concrete callable yields one unconditional call site, a `Multi` lattice
 /// yields one conditioned call site per candidate (the branch-split set), and a
-/// dynamic or bottom lattice yields a single dynamic call site so the pass
-/// surfaces an honest diagnostic later.
+/// dynamic or bottom lattice yields a dynamic call site for downstream
+/// capability analysis and partial evaluation.
 ///
 /// Specializing a call site deletes the callable argument expression from the
 /// call. The argument-removal family that performs that deletion —
@@ -738,8 +741,8 @@ fn is_preserved_direct_lifted_lambda_call(
 /// is therefore applied here, once, before the call site is accepted: an
 /// argument classified [`EvaluationDisposition::Retained`] is declined to
 /// `ConcreteCallable::Dynamic`, the pass's established "cannot specialize"
-/// signal, which keeps the original dynamic dispatch and reports an actionable
-/// `DynamicCallable` diagnostic instead of miscompiling.
+/// signal, which keeps the original dynamic dispatch for downstream resolution
+/// instead of deleting observable evaluation.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn record_hof_call_sites(
     store: &PackageStore,
@@ -773,6 +776,8 @@ fn record_hof_call_sites(
             // Rewriting would delete this expression outright, and its
             // evaluation is observable with nothing to reproduce it. Decline.
             CalleeLattice::Dynamic
+        } else if let Some(evaluated) = locals.evaluated_callables.get(&resolved_arg_id) {
+            evaluated.clone()
         } else {
             resolve_callee_at_path(
                 pkg,
@@ -900,30 +905,58 @@ fn inspect_direct_call_expr(
         return;
     }
 
-    let callee_local_var = if let ExprKind::Var(Res::Local(var), _) = callee_expr.kind {
-        Some(var)
-    } else {
-        None
-    };
+    let (callee_base_id, _) = peel_body_functors(pkg, callee_expr_id);
+    let callee_local_var =
+        if let ExprKind::Var(Res::Local(var), _) = pkg.get_expr(callee_base_id).kind {
+            Some(var)
+        } else {
+            None
+        };
 
-    let (resolved, def_span) = if let ExprKind::Var(Res::Local(var), _) = callee_expr.kind {
-        if let Some(&init_expr_id) = locals.exprs.get(&var) {
-            (
-                locals.callable.get(&var).cloned().unwrap_or_else(|| {
+    let (resolved, def_span) =
+        if let Some(evaluated) = locals.evaluated_callables.get(&callee_expr_id) {
+            let def_span = callee_local_var
+                .and_then(|var| locals.exprs.get(&var))
+                .and_then(|initializer| collapsed_spans.get(initializer))
+                .copied();
+            (evaluated.clone(), def_span)
+        } else if let ExprKind::Var(Res::Local(var), _) = callee_expr.kind {
+            if let Some(&init_expr_id) = locals.exprs.get(&var) {
+                (
+                    locals.callable.get(&var).cloned().unwrap_or_else(|| {
+                        resolve_callee(
+                            pkg,
+                            store,
+                            locals,
+                            init_expr_id,
+                            0,
+                            true,
+                            &FxHashSet::default(),
+                            package_id,
+                        )
+                    }),
+                    collapsed_spans.get(&init_expr_id).copied(),
+                )
+            } else {
+                (
                     resolve_callee(
                         pkg,
                         store,
                         locals,
-                        init_expr_id,
+                        callee_expr_id,
                         0,
-                        true,
+                        false,
                         &FxHashSet::default(),
                         package_id,
-                    )
-                }),
-                collapsed_spans.get(&init_expr_id).copied(),
-            )
+                    ),
+                    None,
+                )
+            }
         } else {
+            let allow_scoped_capture_exprs = matches!(
+                callee_expr.kind,
+                ExprKind::Block(_) | ExprKind::If(_, _, _) | ExprKind::UnOp(_, _)
+            );
             (
                 resolve_callee(
                     pkg,
@@ -931,32 +964,13 @@ fn inspect_direct_call_expr(
                     locals,
                     callee_expr_id,
                     0,
-                    false,
+                    allow_scoped_capture_exprs,
                     &FxHashSet::default(),
                     package_id,
                 ),
                 None,
             )
-        }
-    } else {
-        let allow_scoped_capture_exprs = matches!(
-            callee_expr.kind,
-            ExprKind::Block(_) | ExprKind::If(_, _, _) | ExprKind::UnOp(_, _)
-        );
-        (
-            resolve_callee(
-                pkg,
-                store,
-                locals,
-                callee_expr_id,
-                0,
-                allow_scoped_capture_exprs,
-                &FxHashSet::default(),
-                package_id,
-            ),
-            None,
-        )
-    };
+        };
 
     match resolved {
         CalleeLattice::Single(callable) => {
@@ -1396,6 +1410,12 @@ fn resolve_callee(
         return CalleeLattice::Dynamic;
     }
 
+    // Composite expressions must use the values of their evaluated children,
+    // not resolve those reads again in the state after later operands.
+    if let Some(evaluated) = locals.evaluated_callables.get(&expr_id) {
+        return evaluated.clone();
+    }
+
     let (base_id, outer_functor) = peel_body_functors(pkg, expr_id);
     let base_expr = pkg.get_expr(base_id);
 
@@ -1586,6 +1606,7 @@ fn resolve_callee(
                 owner: locals.owner,
                 clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
+                evaluated_callables: locals.evaluated_callables.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
                 visible_bindings: locals.visible_bindings.clone(),
@@ -1780,6 +1801,7 @@ fn resolve_callee_projection(
                 owner: locals.owner,
                 clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
+                evaluated_callables: FxHashMap::default(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
                 visible_bindings: locals.visible_bindings.clone(),
@@ -2070,6 +2092,7 @@ fn resolve_callable_return(
         },
         clone_items: Rc::clone(&caller_locals.clone_items),
         callable: FxHashMap::default(),
+        evaluated_callables: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         visible_bindings: {
@@ -2089,6 +2112,7 @@ fn resolve_callable_return(
         body_input,
         args_expr_id,
         package_id,
+        callee_pkg_id,
     );
     // Snapshot the parameter -> caller-argument expression map immediately
     // after seeding and before the body is analyzed. The body's own local
@@ -2166,7 +2190,7 @@ fn resolve_callable_return(
 /// The total-intrinsic set is collected here rather than threaded in from the
 /// pass driver because every function between `analyze` and this point would
 /// otherwise gain a parameter it does not use. The collection walks item
-/// headers only — [`extend_with_discardable_foreign_callables`], which walks
+/// headers only — [`crate::walk_utils::extend_with_discardable_foreign_callables`], which walks
 /// foreign bodies, is deliberately not run — and it runs only for a lattice
 /// that actually carries a producer-returned closure, which is a rare shape.
 fn decline_effectful_producer_closure(
@@ -2950,12 +2974,18 @@ fn seed_param_bindings_from_call(
     pat_id: PatId,
     arg_expr_id: ExprId,
     caller_package_id: PackageId,
+    hof_package_id: PackageId,
 ) {
     let pat = hof_package.get_pat(pat_id);
     match &pat.kind {
         PatKind::Bind(ident) => {
-            state.exprs.insert(ident.id, arg_expr_id);
-            state.condition_substitutions.insert(ident.id, arg_expr_id);
+            // These maps are package-local expression graphs. Foreign operands
+            // remain runtime parameters until specialization clones the body
+            // into their package; their raw IDs must never enter this graph.
+            if caller_package_id == hof_package_id {
+                state.exprs.insert(ident.id, arg_expr_id);
+                state.condition_substitutions.insert(ident.id, arg_expr_id);
+            }
             if matches!(pat.ty, Ty::Arrow(_)) {
                 let lattice = resolve_callee(
                     caller_package,
@@ -2967,6 +2997,16 @@ fn seed_param_bindings_from_call(
                     &FxHashSet::default(),
                     caller_package_id,
                 );
+                let lattice = if caller_package_id == hof_package_id
+                    || matches!(
+                        lattice,
+                        CalleeLattice::Single(ConcreteCallable::Global { .. })
+                    ) {
+                    lattice
+                } else {
+                    // Closures and branch guards carry package-local IDs.
+                    CalleeLattice::Dynamic
+                };
                 state.callable.insert(ident.id, lattice);
             }
         }
@@ -2985,6 +3025,7 @@ fn seed_param_bindings_from_call(
                         sub_pat_id,
                         arg_elem_id,
                         caller_package_id,
+                        hof_package_id,
                     );
                 }
             }
@@ -3324,9 +3365,19 @@ pub(super) fn resolve_captures(
             let ty = find_local_var_type(pkg, locals, var)?;
             let expr = resolve_known_callable_capture_expr(pkg, locals, var)
                 .or_else(|| resolve_scoped_capture_expr(pkg, locals, var, scoped_capture_vars));
+            let static_callable = match (&ty, locals.callable.get(&var)) {
+                (
+                    Ty::Arrow(arrow),
+                    Some(CalleeLattice::Single(ConcreteCallable::Global { item_id, functor })),
+                ) if !super::specialize::ty_contains_arrow_through_udts(pkg, &arrow.input) => {
+                    Some((*item_id, *functor))
+                }
+                _ => None,
+            };
             Some(CapturedVar {
                 local: ScopedLocal::new(var, locals.owner),
                 ty,
+                static_callable,
                 expr,
                 caller_substitutions: Vec::new(),
             })
@@ -3542,6 +3593,7 @@ fn build_callable_flow_state(
         owner,
         clone_items,
         callable: FxHashMap::default(),
+        evaluated_callables: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         visible_bindings: FxHashSet::default(),
@@ -4274,10 +4326,22 @@ fn analyze_expr_flow(
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 
-    // Post-order: record this expression against the running state. This is a
-    // no-op for non-`Call` expressions, so visiting every node exactly once
-    // resolves each call site against the state as of its evaluation point
-    // (operands, including any `set`, are visited before the call node).
+    if recorder.is_some() {
+        // Functor wrappers observe the same local read and must keep its value
+        // before later operands mutate it. Do not eagerly resolve producers.
+        let (base_id, functor) = peel_body_functors(pkg, expr_id);
+        if let ExprKind::Var(Res::Local(local), _) = pkg.get_expr(base_id).kind
+            && let Some(evaluated) = state.callable.get(&local)
+        {
+            state.evaluated_callables.insert(
+                expr_id,
+                apply_outer_functor_lattice(evaluated.clone(), functor),
+            );
+        }
+    }
+
+    // Call operands have finished, but their callable values were observed
+    // before any writes in later operands.
     if let Some(rec) = recorder {
         inspect_call_expr(
             store,
@@ -4355,10 +4419,30 @@ fn collect_written_vars_block(pkg: &Package, block_id: BlockId, vars: &mut Vec<L
 /// hidden in operand-position blocks are observed.
 fn collect_written_vars_expr(pkg: &Package, expr_id: ExprId, vars: &mut Vec<LocalVarId>) {
     crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_id, expr| {
-        if let Some(var) = assignment_written_local(pkg, expr) {
-            vars.push(var);
-        }
+        vars.extend(assignment_written_locals(pkg, expr));
     });
+}
+
+/// Collects every written base local, including nested tuple destinations.
+pub(super) fn assignment_written_locals(pkg: &Package, expr: &Expr) -> Vec<LocalVarId> {
+    let (ExprKind::Assign(lhs, _)
+    | ExprKind::AssignOp(_, lhs, _)
+    | ExprKind::AssignField(lhs, _, _)
+    | ExprKind::AssignIndex(lhs, _, _)) = expr.kind
+    else {
+        return Vec::new();
+    };
+    let mut pending = vec![lhs];
+    let mut locals = Vec::new();
+    while let Some(target) = pending.pop() {
+        match &pkg.get_expr(target).kind {
+            ExprKind::Tuple(elements) => pending.extend(elements),
+            ExprKind::Field(base, _) | ExprKind::Index(base, _) => pending.push(*base),
+            ExprKind::Var(Res::Local(local), _) => locals.push(*local),
+            _ => {}
+        }
+    }
+    locals
 }
 
 /// Resolves the base local of an assignment left-hand side, descending through

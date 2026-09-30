@@ -91,6 +91,567 @@ fn compile_source_to_qir_result(
     )
 }
 
+fn assert_single_integer_output(qir: &str, expected: i64) {
+    let records: Vec<_> = qir
+        .lines()
+        .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+        .collect();
+    assert_eq!(records.len(), 1, "{qir}");
+    assert!(records[0].contains(&format!("i64 {expected},")), "{qir}");
+}
+
+#[test]
+fn generic_lambda_dependencies_compile_through_executable_and_incremental_entries() {
+    let definitions = r#"
+        function Id<'T>(x : 'T) : 'T { x }
+        function Outer<'T>(x : 'T) : 'T {
+            let f = y -> Id(y);
+            f(x)
+        }
+    "#;
+    for (main, profile, expected) in [
+        (
+            "operation Main() : Unit { let _ = Outer(1); }",
+            Profile::Base,
+            None,
+        ),
+        (
+            "operation Main() : Int { Outer(7) }",
+            Profile::AdaptiveRIF,
+            Some(7),
+        ),
+    ] {
+        let source = format!("{definitions}\n{main}");
+        let executable = compile_source_to_qir(&source, profile.into());
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, &source);
+        let incremental = interpreter
+            .qirgen("Main()")
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        for qir in [executable, incremental] {
+            if let Some(expected) = expected {
+                assert_single_integer_output(&qir, expected);
+            } else {
+                assert!(
+                    qir.contains("call void @__quantum__rt__tuple_record_output(i64 0,"),
+                    "{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pipeline_snapshot_and_embedded_capture_identity_record_507() {
+    let source = r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Twice(x : Int) : Int { x * 2 }
+        function Wrap(f : Int -> Int) : Int -> Int { x -> f(x) + 1 }
+        @EntryPoint()
+        operation Main() : Int {
+            let first = Wrap(Inc);
+            let second = Wrap(Twice);
+            mutable selected = first;
+            let earlier = ({ selected })({ set selected = second; 3 });
+            earlier * 100 + selected(3)
+        }
+    "#;
+    let mut original = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut original, source);
+    assert_eq!(eval_fragments(&mut original, "Main()"), Value::Int(507));
+    assert_single_integer_output(
+        &compile_source_to_qir(source, Profile::AdaptiveRIF.into()),
+        507,
+    );
+}
+
+#[test]
+fn pipeline_foreign_forwarded_aggregate_producers_record_16() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : (Int -> Int, Int) { (x -> x + n, n) }
+            function Forward(n : Int) : (Int -> Int, Int) { Make(n) }
+            function Apply(pair : (Int -> Int, Int)) : Int {
+                let (f, n) = pair;
+                f(0) + n
+            }
+            export Make, Forward, Apply;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint()
+        operation Main() : Int {
+            let (first, _) = Lib.Make(1);
+            mutable deferred = Lib.Forward(0);
+            for index in 0..0 { set deferred = Lib.Forward(3); }
+            first(0) * 10 + Lib.Apply(deferred)
+        }
+    "#;
+    assert_single_integer_output(
+        &compile_source_to_qir_with_library(library, source, Profile::AdaptiveRIF.into()),
+        16,
+    );
+}
+
+#[test]
+fn pipeline_generic_entry_and_runtime_captured_closures_record_40() {
+    for (label, source, args) in [
+        (
+            "unconstrained captures",
+            r#"
+                function Make<'T>(value : 'T) : Unit -> 'T { () -> value }
+                operation Driver(fs : (Unit -> Int)[]) : Int { fs[0]() + fs[1]() }
+                @EntryPoint()
+                operation Main<'Unused>() : Int { Driver([Make(17), Make(23)]) }
+            "#,
+            "[Make(17), Make(23)]",
+        ),
+        (
+            "bounded captures and incoming global after conditional callee effects",
+            r#"
+                function Make<'T : Add>(value : 'T) : Unit -> 'T { () -> value }
+                function Sum<'T : Add>(a : 'T, b : 'T) : 'T { a + b }
+                operation Driver(fs : (Unit -> Int)[], add : (Int, Int) -> Int) : Int {
+                    mutable count = 0;
+                    mutable flag = true;
+                    let first = ({
+                        set count += 1;
+                        flag ? fs[0] | fs[1]
+                    })({ set flag = false; () });
+                    add(first, fs[1]()) + count - 1
+                }
+                @EntryPoint()
+                operation Main<'Unused : Eq + Show>() : Int {
+                    Driver([Make(17), Make(23)], Sum)
+                }
+            "#,
+            "{ let add : (Int, Int) -> Int = Sum; ([Make(17), Make(23)], add) }",
+        ),
+    ] {
+        let mut original = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut original, source);
+        assert_eq!(
+            eval_fragments(&mut original, &format!("Driver({args})")),
+            Value::Int(40),
+            "{label}"
+        );
+        assert_single_integer_output(
+            &compile_source_to_qir(source, Profile::AdaptiveRIF.into()),
+            40,
+        );
+        let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+        eval_fragments(&mut interpreter, source);
+        let target = eval_fragments(&mut interpreter, "Driver");
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{label}: {}", format_interpret_errors(errors)));
+        assert_single_integer_output(&qir, 40);
+    }
+}
+
+#[test]
+fn generated_generic_entry_qir_preserves_failure_and_explicit_call_diagnostics() {
+    use miette::Diagnostic;
+    let source = include_str!("../../test_data/generic_entry/src/Main.qs");
+    for profile in [Profile::Base, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let errors = compile_source_to_qir_result(source, profile.into())
+            .expect_err("always-failing generic entry must reach its user failure");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("{errors:?}")
+        };
+        assert!(error.to_string().contains("unreachable"), "{error}");
+        let label = error
+            .labels()
+            .expect("failure source")
+            .next()
+            .expect("failure label");
+        let (location, span) = error.resolve_span(label.inner());
+        assert_eq!(
+            &location.contents[span.offset()..span.offset() + span.len()],
+            "fail \"unreachable\""
+        );
+    }
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        "operation Main<'T>() : 'T { fail \"unreachable\" }",
+    );
+    let errors = interpreter
+        .qirgen("Main()")
+        .expect_err("ordinary explicit calls still need type evidence");
+    assert!(format!("{errors:?}").contains("AmbiguousTy"), "{errors:?}");
+    let conflicting = "function Same<'T>(a : 'T, b : 'T) : 'T { a } @EntryPoint() operation Main() : Int { Same(1, true) }";
+    assert!(matches!(
+        compile_source_to_qir_result(conflicting, Profile::AdaptiveRIF.into())
+            .expect_err("conflicting source type evidence remains invalid")
+            .as_slice(),
+        [crate::interpret::Error::Compile(_), ..]
+    ));
+}
+
+#[test]
+fn nested_allocate_release_matches_single_hoisted_allocation_and_release() {
+    for body in [
+        "QIR.Runtime.__quantum__rt__qubit_release(QIR.Runtime.__quantum__rt__qubit_allocate());",
+        "let q=QIR.Runtime.__quantum__rt__qubit_allocate(); QIR.Runtime.__quantum__rt__qubit_release(q);",
+        "let q={ QIR.Runtime.__quantum__rt__qubit_allocate() }; let alias={q}; QIR.Runtime.__quantum__rt__qubit_release(alias);",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Unit {{ {body} }}");
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        assert!(qir.contains(r#""required_num_qubits"="1""#), "{qir}");
+        let capabilities = TargetCapabilityFlags::from(Profile::Adaptive)
+            | TargetCapabilityFlags::DynamicQubitAllocation;
+        let qir = compile_source_to_qir(&source, capabilities);
+        assert_eq!(
+            qir.matches("call ptr @__quantum__rt__qubit_allocate()")
+                .count(),
+            1,
+            "{qir}"
+        );
+        assert_eq!(
+            qir.matches("call void @__quantum__rt__qubit_release(")
+                .count(),
+            1,
+            "{qir}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(
+            &mut interpreter,
+            &format!("operation Main() : Unit {{ {body} }}"),
+        );
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::unit());
+    }
+}
+
+#[test]
+fn controlled_tuple_values_and_aliases_match_literal_inputs_in_base_qir() {
+    let saved_case = "operation Target() : Unit is Ctl {} @EntryPoint(Base) operation Main() : Unit { let args : (Qubit[], Unit) = ([], ()); Controlled Target(args); }";
+    let qir = compile_source_to_qir(saved_case, Profile::Base.into());
+    let literal = "operation Target() : Unit is Ctl {} @EntryPoint(Base) operation Main() : Unit { Controlled Target([], ()); }";
+    assert_eq!(qir, compile_source_to_qir(literal, Profile::Base.into()));
+    assert!(!qir.contains("call void @__quantum__qis__"), "{qir}");
+    for call in [
+        "Controlled Target([], ());",
+        "let args : (Qubit[], Unit) = ([], ()); Controlled Target(args);",
+        "let args : (Qubit[], Unit) = ([], ()); let alias = args; Controlled Target(alias);",
+        "mutable args : (Qubit[], Unit) = ([], ()); Controlled Target(args);",
+        "let inner : (Qubit[], Unit) = ([], ()); let args : (Qubit[], (Qubit[], Unit)) = ([], inner); Controlled Controlled Target(args);",
+    ] {
+        let source = format!(
+            r#"
+            operation Target() : Unit is Ctl {{
+                body (...) {{ use q=Qubit(); X(q); X(q); }}
+                controlled (controls, ...) {{ use q=Qubit(); Controlled X(controls,q); Controlled X(controls,q); }}
+            }}
+            @EntryPoint() operation Main() : Unit {{ {call} }}
+        "#
+        );
+        let qir = compile_source_to_qir(&source, Profile::Base.into());
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__x__body").count(),
+            2,
+            "{call}: {qir}"
+        );
+        assert!(
+            qir.contains(r#""required_num_qubits"="1""#),
+            "{call}: {qir}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source.replace("@EntryPoint()", ""));
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::unit());
+    }
+}
+
+#[test]
+fn runtime_index_array_update_emits_three_one_two_and_zero_three_two() {
+    {
+        let capabilities = Profile::Adaptive.into();
+        let label = "adaptive";
+        for (prepare, outcome) in [("I(q);", 0), ("X(q);", 1)] {
+            let source = format!(
+                r#"
+                @EntryPoint() operation Main() : Int[] {{
+                    use q = Qubit(); {prepare}
+                    let index = MResetZ(q) == Zero ? 0 | 1;
+                    let values = [0, 1, 2];
+                    values w/ index <- 3
+                }}
+            "#
+            );
+            let qir = compile_source_to_qir(&source, capabilities);
+            assert_eq!(qir.matches("icmp eq i64").count(), 3, "{qir}");
+            assert_eq!(
+                qir.matches("call void @__quantum__rt__int_record_output")
+                    .count(),
+                3,
+                "{qir}"
+            );
+            assert!(qir.contains("!\"qir_major_version\", i32 2"), "{qir}");
+            assert!(
+                !qir.contains("icmp slt") && !qir.contains("icmp sge"),
+                "{qir}"
+            );
+            println!("BEGIN_RUNTIME_UPDATE literal_{label}_i{outcome}\n{qir}\nEND_RUNTIME_UPDATE");
+        }
+    }
+}
+
+#[test]
+fn runtime_index_updates_preserve_dynamic_replacements_aliases_and_operand_order() {
+    {
+        let profile = Profile::Adaptive;
+        for (prepare_index, index) in [("I(qi);", 0), ("X(qi);", 1)] {
+            for (prepare_value, value) in [("I(qv);", 10), ("X(qv);", 20)] {
+                let update = if index == 0 {
+                    "let second = first w/ (1-index) <- value+1;"
+                } else {
+                    "mutable second = first; set second w/= (1-index) <- value+1;"
+                };
+                let source = format!(
+                    r#"
+                    @EntryPoint() operation Main() : Int[] {{
+                        use order = Qubit(); use qi = Qubit(); use qv = Qubit();
+                        {prepare_index} {prepare_value}
+                        let index = MResetZ(qi) == Zero ? 0 | 1;
+                        let value = MResetZ(qv) == Zero ? 10 | 20;
+                        let original = {{ Z(order); [0, 1, 2] }};
+                        let first = original w/ {{ H(order); index }} <- {{ X(order); value }};
+                        let alias = first;
+                        {update}
+                        Reset(order);
+                        [original[0], original[1], original[2],
+                         alias[0], alias[1], alias[2],
+                         second[0], second[1], second[2]]
+                    }}
+                "#
+                );
+                let qir = compile_source_to_qir(&source, profile.into());
+                assert_eq!(qir.matches("icmp eq i64").count(), 6, "{qir}");
+                assert_eq!(
+                    qir.matches("call void @__quantum__rt__int_record_output")
+                        .count(),
+                    9,
+                    "{qir}"
+                );
+                let effects: Vec<_> = qir
+                    .lines()
+                    .filter(|line| {
+                        line.contains("call void @")
+                            && line.ends_with("(ptr inttoptr (i64 0 to ptr))")
+                    })
+                    .map(str::trim)
+                    .collect();
+                assert_eq!(
+                    effects,
+                    [
+                        "call void @Z(ptr inttoptr (i64 0 to ptr))",
+                        "call void @H(ptr inttoptr (i64 0 to ptr))",
+                        "call void @X(ptr inttoptr (i64 0 to ptr))",
+                        "call void @Reset(ptr inttoptr (i64 0 to ptr))",
+                    ],
+                    "{qir}"
+                );
+                assert!(!qir.contains("__quantum__rt__fail"), "{qir}");
+                println!(
+                    "BEGIN_RUNTIME_UPDATE repeated_i{index}_value{value}\n{qir}\nEND_RUNTIME_UPDATE"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_index_updates_preserve_primitive_types_and_static_index_errors() {
+    for (ty, original, replacement, label) in [
+        ("Bool", "[false, false]", "true", "bool"),
+        ("Double", "[0.5, 1.5]", "2.5", "double"),
+    ] {
+        for (prepare, index) in [("I(q);", 0), ("X(q);", 1)] {
+            let source = format!(
+                r#"
+                @EntryPoint() operation Main() : {ty}[] {{
+                    use q = Qubit(); {prepare}
+                    let index = MResetZ(q) == Zero ? 0 | 1;
+                    {original} w/ index <- {replacement}
+                }}
+            "#
+            );
+            let qir = compile_source_to_qir(&source, Profile::Adaptive.into());
+            assert_eq!(qir.matches("icmp eq i64").count(), 2, "{qir}");
+            println!("BEGIN_RUNTIME_UPDATE {label}_i{index}\n{qir}\nEND_RUNTIME_UPDATE");
+        }
+        let unsupported_profile = "@EntryPoint() operation Main() : Int[] { use q=Qubit(); let i=MResetZ(q)==Zero ? 0|1; [0,1,2] w/ i <- 3 }";
+        let errors = compile_source_to_qir_result(unsupported_profile, Profile::AdaptiveRIF.into())
+            .expect_err("profiles without static-sized arrays remain unsupported");
+        assert!(
+            format!("{errors:?}").contains("UseOfDynamicIndex"),
+            "{errors:?}"
+        );
+    }
+    for index in [-1, 3] {
+        let source =
+            format!("@EntryPoint() operation Main() : Int[] {{ [0,1,2] w/ {index} <- 3 }}");
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRIF.into())
+            .expect_err("compile-time invalid update index must remain an error");
+        let expected = if index < 0 {
+            "negative integers cannot be used here: -1"
+        } else {
+            "index out of range: 3"
+        };
+        assert!(format!("{errors:?}").contains(expected), "{errors:?}");
+    }
+}
+
+#[test]
+fn composite_callee_preserves_selection_effects_and_captures_in_qir() {
+    for call in [
+        "({ f })({ set f = Times2; 2 })",
+        "(if true { f } else { Times2 })({ set f = Times2; 2 })",
+        "Identity(f)({ set f = Times2; 2 })",
+        "(new Holder { Op = f }).Op({ set f = Times2; 2 })",
+        "Apply(if true { f } else { Times2 }, { set f = Times2; 2 })",
+    ] {
+        let source = format!(
+            "namespace Test {{
+                struct Holder {{ Op : Int -> Int }}
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ x * 2 }}
+                function Identity(f : Int -> Int) : Int -> Int {{ f }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable f = Add1;
+                    {call}
+                }}
+            }}"
+        );
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        let outputs: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(outputs.len(), 1, "{call}\n{qir}");
+        assert!(outputs[0].contains("(i64 3,"), "{call}\n{qir}");
+    }
+    for flag in [true, false] {
+        for callee in [
+            "{ set count += 1; flag ? Add1 | Times2 }",
+            "{ { set count += 1; flag ? Add1 | Times2 } }",
+            "if flag { set count += 1; Add1 } else { set count += 1; Times2 }",
+            "{ set count += 1; if flag { let n = count; x -> x + n } else { Times2 } }",
+            "{ let n = { set count += 1; count }; if flag { x -> x + n } else { Times2 } }",
+            if flag {
+                "if flag { set count += 1; Add1 } else { fail \"inactive callee\"; Times2 }"
+            } else {
+                "if flag { fail \"inactive callee\"; Add1 } else { set count += 1; Times2 }"
+            },
+        ] {
+            for (argument, count) in [
+                ("2", 1),
+                ("{ set count += 10; set flag = not flag; 2 }", 11),
+            ] {
+                let expected = count * 100 + if flag { 3 } else { 4 };
+                let source = format!(
+                    "namespace Test {{
+                        function Add1(x : Int) : Int {{ x + 1 }}
+                        function Times2(x : Int) : Int {{ 2 * x }}
+                        @EntryPoint() operation Main() : Int {{
+                            mutable count = 0;
+                            mutable flag = {flag};
+                            let value = ({callee})({argument});
+                            count * 100 + value
+                        }}
+                    }}"
+                );
+                let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+                let outputs: Vec<_> = qir
+                    .lines()
+                    .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+                    .collect();
+                assert_eq!(outputs.len(), 1, "{source}\n{qir}");
+                assert!(
+                    outputs[0].contains(&format!("(i64 {expected},")),
+                    "{source}\n{qir}"
+                );
+            }
+        }
+        let source = format!(
+            "namespace Test {{
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag = {flag};
+                    ({{ fail \"callee prefix failed\"; flag ? Add1 | Times2 }})(
+                        {{ fail \"argument failed\"; 2 }})
+                }}
+            }}"
+        );
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRIF.into())
+            .expect_err("callee failure must precede the argument");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("expected a partial-evaluation failure: {errors:?}");
+        };
+        let qsc_partial_eval::Error::EvaluationFailed(message, span) = error.error() else {
+            panic!("expected a source evaluation failure: {error:?}");
+        };
+        assert!(message.contains("callee prefix failed"), "{message}");
+        assert_eq!(
+            &source[span.span.lo as usize..span.span.hi as usize],
+            "fail \"callee prefix failed\"",
+        );
+    }
+    for body in [
+        "for i in 0..2 { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); }",
+        "mutable i = 0; repeat { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); set i += 1; } until i == 3;",
+    ] {
+        let source = format!(
+            "namespace Test {{
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable count = 0;
+                    mutable flag = true;
+                    mutable total = 0;
+                    {body}
+                    count * 100 + total
+                }}
+            }}"
+        );
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        let outputs: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(outputs.len(), 1, "{source}\n{qir}");
+        assert!(outputs[0].contains("(i64 310,"), "{source}\n{qir}");
+    }
+    for (flag, expected) in [(true, 33), (false, 44)] {
+        let source = format!(
+            "namespace Test {{
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag = {flag};
+                    mutable f = Add1;
+                    let value = (if flag {{ set f = Add1; Add1 }} else {{ set f = Times2; Times2 }})(
+                        {{ set flag = not flag; 2 }});
+                    value * 10 + f(2)
+                }}
+            }}"
+        );
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        let outputs: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(outputs.len(), 1, "{source}\n{qir}");
+        assert!(
+            outputs[0].contains(&format!("(i64 {expected},")),
+            "{source}\n{qir}"
+        );
+    }
+}
+
 #[test]
 fn divergent_unselected_helper_generates_qir() {
     let source = r#"
@@ -265,7 +826,7 @@ fn nested_wrapper_array_compiles_to_base_qir() {
 }
 
 #[test]
-fn fir_value_preservation_forward_base_qir() {
+fn forwarded_closure_preserves_captured_offset_in_base_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
             function Make(offset : Int) : Int -> Int { value -> value + offset }
@@ -277,12 +838,12 @@ fn fir_value_preservation_forward_base_qir() {
             }
         }
     "#};
-    let result = compile_source_to_qir_result(source, Profile::Base.into());
-    assert!(result.is_ok(), "forwarding must compile: {result:?}");
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
 }
 
 #[test]
-fn fir_value_preservation_copy_base_qir() {
+fn struct_copy_preserves_source_before_mutating_replacement_in_base_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
             struct Data { First : Int, Second : Int }
@@ -297,12 +858,12 @@ fn fir_value_preservation_copy_base_qir() {
             }
         }
     "#};
-    let result = compile_source_to_qir_result(source, Profile::Base.into());
-    assert!(result.is_ok(), "copy snapshot must compile: {result:?}");
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
 }
 
 #[test]
-fn fir_value_preservation_tuple_base_qir() {
+fn tuple_assignment_preserves_callable_and_value_in_base_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
             function Add11(value : Int) : Int { value + 11 }
@@ -318,12 +879,12 @@ fn fir_value_preservation_tuple_base_qir() {
             }
         }
     "#};
-    let result = compile_source_to_qir_result(source, Profile::Base.into());
-    assert!(result.is_ok(), "tuple assignment must compile: {result:?}");
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
 }
 
 #[test]
-fn exploration_structural_while_base_qir() {
+fn return_in_while_condition_preserves_value_in_base_qir() {
     let result = compile_source_to_qir_result(
         indoc::indoc! {r#"
             namespace Test {
@@ -346,7 +907,7 @@ fn exploration_structural_while_base_qir() {
 }
 
 #[test]
-fn exploration_capture_nested_base_qir() {
+fn nested_closure_captures_preserve_values_in_base_qir() {
     let result = compile_source_to_qir_result(
         indoc::indoc! {r#"
             namespace Test {
@@ -2928,21 +3489,24 @@ fn callable_args_to_qir(
             )
             .unwrap_or_else(|e| panic!("fir_to_qir failed: {e:?}"))
         }
-        CallableArgsBackend::ReinvokeOriginal { callable, args } => {
-            qsc_codegen::qir::fir_to_qir_from_callable(
-                &codegen_fir.fir_store,
-                capabilities,
-                &codegen_fir.compute_properties,
-                callable,
-                args,
-            )
-            .unwrap_or_else(|e| panic!("fir_to_qir_from_callable failed: {e:?}"))
-        }
+        CallableArgsBackend::ReinvokeOriginal {
+            callable,
+            functor,
+            args,
+        } => qsc_codegen::qir::fir_to_qir_from_callable(
+            &codegen_fir.fir_store,
+            capabilities,
+            &codegen_fir.compute_properties,
+            callable,
+            functor,
+            args,
+        )
+        .unwrap_or_else(|e| panic!("fir_to_qir_from_callable failed: {e:?}")),
     }
 }
 
 #[test]
-fn malformed_runtime_callable_signature_probe() {
+fn runtime_callable_signatures_reject_wrong_globals_closures_and_nested_values() {
     let source = indoc::indoc! {r#"
         namespace Test {
             operation Apply(op : Qubit => Unit) : Unit {
@@ -2956,31 +3520,13 @@ fn malformed_runtime_callable_signature_probe() {
                 op(q);
                 Reset(q);
             }
-            operation ApplyAdjoint(op : Qubit => Unit is Adj) : Unit {
-                use q = Qubit();
-                op(q);
-                Reset(q);
-            }
             operation Wrong(value : Int) : Unit {}
-            operation Capturing(captured : Int, q : Qubit) : Unit {}
-            operation CapturingWrong(captured : Bool, value : Int) : Unit {}
-            operation Plain(q : Qubit) : Unit {}
-            struct Config { Value : Int }
         }
     "#};
     let capabilities = Profile::AdaptiveRIF.into();
     let (store, package_id, items) = compile_and_locate_items(
         source,
-        &[
-            ("Apply", true),
-            ("ApplyNested", true),
-            ("ApplyAdjoint", true),
-            ("Wrong", true),
-            ("Capturing", true),
-            ("CapturingWrong", true),
-            ("Plain", true),
-            ("Config", false),
-        ],
+        &[("Apply", true), ("ApplyNested", true), ("Wrong", true)],
         capabilities,
     );
     let wrong = Value::Global(
@@ -3026,7 +3572,19 @@ fn malformed_runtime_callable_signature_probe() {
         errors.as_slice(),
         [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
     ));
+}
 
+#[test]
+fn runtime_callable_ids_reject_missing_and_non_callable_items() {
+    let capabilities = Profile::AdaptiveRIF.into();
+    let (store, package_id, items) = compile_and_locate_items(
+        r#"
+            operation Apply(op : Qubit => Unit) : Unit {}
+            struct Config { Value : Int }
+        "#,
+        &[("Apply", true), ("Config", false)],
+        capabilities,
+    );
     let missing = Value::Global(
         qsc_fir::fir::StoreItemId {
             package: qsc_fir::fir::PackageId::from(usize::MAX),
@@ -3063,7 +3621,19 @@ fn malformed_runtime_callable_signature_probe() {
         errors.as_slice(),
         [crate::interpret::Error::InvalidRuntimeCallable(_)]
     ));
+}
 
+#[test]
+fn runtime_closure_shapes_reject_excess_captures() {
+    let capabilities = Profile::AdaptiveRIF.into();
+    let (store, package_id, items) = compile_and_locate_items(
+        r#"
+            operation Apply(op : Qubit => Unit) : Unit {}
+            operation Capturing(captured : Int, q : Qubit) : Unit {}
+        "#,
+        &[("Apply", true), ("Capturing", true)],
+        capabilities,
+    );
     let malformed_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Int(0), Value::Int(1)].into(),
         id: fir_id_for(package_id, items["Capturing"]),
@@ -3081,7 +3651,28 @@ fn malformed_runtime_callable_signature_probe() {
         errors.as_slice(),
         [crate::interpret::Error::InvalidRuntimeClosure { .. }]
     ));
+}
 
+#[test]
+fn runtime_closure_type_mismatches_are_rejected_on_both_backends() {
+    let capabilities = Profile::AdaptiveRIF.into();
+    let (store, package_id, items) = compile_and_locate_items(
+        r#"
+            operation Apply(op : Qubit => Unit) : Unit {
+                use q = Qubit();
+                op(q);
+                Reset(q);
+            }
+            operation CapturingWrong(captured : Bool, value : Int) : Unit {}
+            operation Capturing(captured : Int, q : Qubit) : Unit {}
+        "#,
+        &[
+            ("Apply", true),
+            ("CapturingWrong", true),
+            ("Capturing", true),
+        ],
+        capabilities,
+    );
     let wrong_capture_type = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Int(0)].into(),
         id: fir_id_for(package_id, items["CapturingWrong"]),
@@ -3122,6 +3713,43 @@ fn malformed_runtime_callable_signature_probe() {
         [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
     ));
 
+    let mismatched_capture = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Var(qsc_eval::val::Var {
+            id: 0,
+            ty: qsc_eval::val::VarTy::Boolean,
+        })]
+        .into(),
+        id: fir_id_for(package_id, items["Capturing"]),
+        functor: FunctorApp::default(),
+    }));
+    let Err(errors) = prepare_codegen_fir_from_callable_args(
+        &store,
+        hir_id_for(package_id, items["Apply"]),
+        &mismatched_capture,
+        capabilities,
+    ) else {
+        panic!("mismatched dynamic capture was accepted");
+    };
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+        ),
+        "expected a capture type mismatch, got: {errors:?}"
+    );
+}
+
+#[test]
+fn runtime_callable_functors_reject_unsupported_adjoint() {
+    let capabilities = Profile::AdaptiveRIF.into();
+    let (store, package_id, items) = compile_and_locate_items(
+        r#"
+            operation ApplyAdjoint(op : Qubit => Unit is Adj) : Unit {}
+            operation Plain(q : Qubit) : Unit {}
+        "#,
+        &[("ApplyAdjoint", true), ("Plain", true)],
+        capabilities,
+    );
     let unsupported_adjoint = Value::Global(
         fir_id_for(package_id, items["Plain"]),
         FunctorApp {
@@ -3144,42 +3772,28 @@ fn malformed_runtime_callable_signature_probe() {
 }
 
 #[test]
-fn runtime_callable_argument_shape_and_dynamic_capture_probe() {
+fn runtime_callable_argument_shapes_reject_extra_and_missing_slots() {
     let source = indoc::indoc! {r#"
         namespace Test {
-            operation Apply(op : Qubit => Unit) : Unit {
-                use q = Qubit();
-                op(q);
-                Reset(q);
-            }
             operation ApplyNested(args : (Int, Qubit => Unit)) : Unit {
                 let (_, op) = args;
                 use q = Qubit();
                 op(q);
                 Reset(q);
             }
-            operation Capturing(captured : Int, q : Qubit) : Unit {}
             operation DoX(q : Qubit) : Unit { X(q); }
         }
     "#};
     let capabilities = Profile::AdaptiveRIF.into();
     let (store, package_id, items) = compile_and_locate_items(
         source,
-        &[
-            ("Apply", true),
-            ("ApplyNested", true),
-            ("Capturing", true),
-            ("DoX", true),
-        ],
+        &[("ApplyNested", true), ("DoX", true)],
         capabilities,
     );
 
     let do_x = Value::Global(fir_id_for(package_id, items["DoX"]), FunctorApp::default());
     let nested_target = hir_id_for(package_id, items["ApplyNested"]);
 
-    // A wrong-arity tuple containing a callable must be rejected before any FIR
-    // mutation. It previously bypassed expected-slot validation entirely and
-    // panicked during partial evaluation with `value is not callable`.
     let wrong_arity = Value::Tuple(
         vec![Value::Int(0), Value::Int(1), do_x.clone()].into(),
         None,
@@ -3192,14 +3806,17 @@ fn runtime_callable_argument_shape_and_dynamic_capture_probe() {
     assert!(
         matches!(
             errors.as_slice(),
-            [crate::interpret::Error::RuntimeCallableArgumentShapeMismatch { .. }]
+            [
+                crate::interpret::Error::RuntimeCallableArgumentShapeMismatch {
+                    expected_len: 2,
+                    actual_len: 3,
+                    ..
+                }
+            ]
         ),
         "expected an argument shape diagnostic, got: {errors:?}"
     );
 
-    // A bare callable supplied for a multi-slot target is an arity mismatch, not
-    // an arrow-versus-tuple type mismatch. Accepting it would fabricate the
-    // remaining operands, which are live values during partial evaluation.
     let Err(errors) =
         prepare_codegen_fir_from_callable_args(&store, nested_target, &do_x, capabilities)
     else {
@@ -3208,65 +3825,206 @@ fn runtime_callable_argument_shape_and_dynamic_capture_probe() {
     assert!(
         matches!(
             errors.as_slice(),
-            [crate::interpret::Error::RuntimeCallableArgumentShapeMismatch { .. }]
+            [
+                crate::interpret::Error::RuntimeCallableArgumentShapeMismatch {
+                    expected_len: 2,
+                    actual_len: 1,
+                    ..
+                }
+            ]
         ),
         "expected an argument shape diagnostic, got: {errors:?}"
     );
+}
 
-    // A dynamic capture whose `VarTy` contradicts its formal slot must be
-    // rejected. The remaining signature `Qubit => Unit` matches the target, so
-    // only capture typing can discriminate this case.
-    let apply_target = hir_id_for(package_id, items["Apply"]);
-    let mismatched_capture = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Var(qsc_eval::val::Var {
-            id: 0,
-            ty: qsc_eval::val::VarTy::Boolean,
-        })]
-        .into(),
-        id: fir_id_for(package_id, items["Capturing"]),
-        functor: FunctorApp::default(),
-    }));
-    let Err(errors) = prepare_codegen_fir_from_callable_args(
-        &store,
-        apply_target,
-        &mismatched_capture,
-        capabilities,
-    ) else {
-        panic!("mismatched dynamic capture was accepted");
-    };
-    assert!(
-        matches!(
-            errors.as_slice(),
-            [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
-        ),
-        "expected a capture type mismatch, got: {errors:?}"
+#[test]
+fn runtime_dynamic_integer_capture_generates_qir() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Capturing(captured : Int, q : Qubit) : Unit {}
+            operation Apply(op : Qubit => Unit) : Unit {
+                use q = Qubit();
+                op(q);
+                Reset(q);
+            }
+        "#,
     );
+    let target = eval_fragments(&mut interpreter, "Apply");
+    let mut args = eval_fragments(
+        &mut interpreter,
+        "{ let captured = 7; Capturing(captured, _) }",
+    );
+    let Value::Closure(closure) = &mut args else {
+        panic!("partial application should produce a closure");
+    };
+    assert_eq!(closure.fixed_args.len(), 1);
+    // Dynamic variables are host-only values; retain the source-created capture layout.
+    Rc::make_mut(&mut closure.fixed_args)[0] = Value::Var(qsc_eval::val::Var {
+        id: 0,
+        ty: qsc_eval::val::VarTy::Integer,
+    });
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    assert!(qir.contains("define i64 @ENTRYPOINT__main()"));
+}
 
-    // Control: a correctly typed dynamic capture must not produce a capture-typing
-    // diagnostic. A `Value::Var` capture is not FIR-lowerable, so this routes
-    // through the pin backend and runs the full pipeline after the contract under
-    // test; assert on the diagnostic class rather than overall success.
-    let valid_capture = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Var(qsc_eval::val::Var {
-            id: 0,
-            ty: qsc_eval::val::VarTy::Integer,
-        })]
-        .into(),
-        id: fir_id_for(package_id, items["Capturing"]),
-        functor: FunctorApp::default(),
-    }));
-    if let Err(errors) =
-        prepare_codegen_fir_from_callable_args(&store, apply_target, &valid_capture, capabilities)
-    {
+#[test]
+fn source_runtime_callables_preserve_control_depth_and_adjoint() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Available(q : Qubit) : Unit is Adj + Ctl { S(q); }
+            operation RunOne(op : (Qubit[], Qubit) => Unit) : Result {
+                use (control, target) = (Qubit(), Qubit());
+                op([control], target);
+                Reset(control);
+                MResetZ(target)
+            }
+            operation RunTwo(op : (Qubit[], (Qubit[], Qubit)) => Unit) : Result {
+                use (outer, inner, target) = (Qubit(), Qubit(), Qubit());
+                op([outer], ([inner], target));
+                Reset(outer);
+                Reset(inner);
+                MResetZ(target)
+            }
+        "#,
+    );
+    let mut outputs = Vec::new();
+    for (target, args, gate) in [
+        ("RunOne", "Controlled Available", "__quantum__qis__cx__body"),
+        (
+            "RunTwo",
+            "Controlled Controlled Available",
+            "__quantum__qis__ccx__body",
+        ),
+        (
+            "RunTwo",
+            "Controlled Controlled Adjoint Available",
+            "__quantum__qis__ccx__body",
+        ),
+    ] {
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
         assert!(
-            !errors.iter().any(|e| matches!(
-                e,
-                crate::interpret::Error::RuntimeCallableTypeMismatch { .. }
-                    | crate::interpret::Error::InvalidRuntimeClosure { .. }
-                    | crate::interpret::Error::RuntimeCallableArgumentShapeMismatch { .. }
-            )),
-            "valid dynamic capture must not produce a capture-typing diagnostic: {errors:?}"
+            qir.matches(&format!("call void @{gate}")).count() >= 2,
+            "expected controlled S structure:\n{qir}"
         );
+        outputs.push(qir);
+    }
+    assert_ne!(
+        outputs[1], outputs[2],
+        "adjoint must remain distinct under both control layers"
+    );
+}
+
+#[test]
+fn source_runtime_controlled_values_reject_incompatible_input_layers() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Available(q : Qubit) : Unit is Adj + Ctl {}
+            operation Scalar(value : Int) : Unit {}
+            operation OneLayer(op : (Qubit[], Qubit) => Unit) : Unit {}
+            operation WrongControls(op : (Int[], Qubit) => Unit) : Unit {}
+            operation WrongArity(op : (Qubit[], Qubit, Int) => Unit) : Unit {}
+        "#,
+    );
+    for (target, args) in [
+        ("Scalar", "Controlled Available"),
+        ("OneLayer", "Controlled Controlled Available"),
+        ("WrongControls", "Controlled Available"),
+        ("WrongArity", "Controlled Available"),
+    ] {
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let errors = interpreter
+            .qirgen_from_callable(&target, args)
+            .expect_err("incompatible control-layer input must be rejected");
+        assert!(
+            matches!(
+                errors.as_slice(),
+                [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+            ),
+            "expected typed control-shape mismatch, got: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn source_runtime_functor_requirements_accept_supersets_and_reject_missing_control() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Available(value : Int) : Unit is Ctl {}
+            operation AdjointOnly(value : Int) : Unit is Adj {}
+            operation RunPlain(op : Int => Unit) : Int { op(0); 42 }
+            operation RunControlled(op : Int => Unit is Ctl) : Int { op(0); 42 }
+        "#,
+    );
+    assert_eq!(
+        eval_fragments(&mut interpreter, "RunPlain(Available)"),
+        Value::Int(42)
+    );
+    let target = eval_fragments(&mut interpreter, "RunPlain");
+    let args = eval_fragments(&mut interpreter, "Available");
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+
+    let target = eval_fragments(&mut interpreter, "RunControlled");
+    let args = eval_fragments(&mut interpreter, "AdjointOnly");
+    let errors = interpreter
+        .qirgen_from_callable(&target, args)
+        .expect_err("adjoint support alone must not satisfy a controlled parameter");
+    assert!(matches!(
+        errors.as_slice(),
+        [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+    ));
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        operation Plain() : Unit {}
+        operation Both() : Unit is Adj + Ctl {}
+        operation NeedsAdj(f: Unit => Unit is Adj) : Int { Adjoint f(); 31 }
+        operation Driver(g: (Unit => Unit) => Int) : Int { g(Plain) }
+        operation Compatible(g: (Unit => Unit is Adj) => Int) : Int { g(Both) }
+        operation Stronger(g: (Unit => Unit is Adj + Ctl) => Int) : Int { g(Both) }
+    "#,
+    );
+    let target = eval_fragments(&mut interpreter, "Driver");
+    let args = eval_fragments(&mut interpreter, "NeedsAdj");
+    let errors = interpreter
+        .qirgen_from_callable(&target, args)
+        .expect_err("separately valid fragments have incompatible incoming bounds");
+    let [crate::interpret::Error::RuntimeCallableConstraint { error, .. }] = errors.as_slice()
+    else {
+        panic!("{errors:?}")
+    };
+    assert_eq!(
+        error.to_string(),
+        "expected superset of Adj, found empty set"
+    );
+    for target in ["Compatible", "Stronger"] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("{target}(NeedsAdj)")),
+            Value::Int(31)
+        );
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, "NeedsAdj");
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 31"));
     }
 }
 
@@ -3295,6 +4053,1020 @@ fn interpreter_with_capabilities(
         Default::default(),
     )
     .expect("interpreter should be created")
+}
+
+fn check_source_handle_integer_result(source: &str, args: &str, expected: i64) {
+    let mut original = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(&mut original, source);
+    assert_eq!(
+        eval_fragments(&mut original, &format!("Driver({args})")),
+        Value::Int(expected),
+        "{args}"
+    );
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Driver");
+    let values = eval_fragments(&mut interpreter, args);
+    let qir = interpreter
+        .qirgen_from_callable(&target, values)
+        .unwrap_or_else(|errors| panic!("{args}: {}", format_interpret_errors(errors)));
+    let records: Vec<_> = qir
+        .lines()
+        .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+        .collect();
+    assert_eq!(records.len(), 1, "{args}: {qir}");
+    assert!(
+        records[0].contains(&format!("i64 {expected},")),
+        "{args}: {qir}"
+    );
+}
+
+#[test]
+fn source_generic_captured_int_closure_arrays_record_forty() {
+    let source = r#"
+        function Make<'T>(a : 'T) : Unit -> 'T { () -> a }
+        function Driver(fs : (Unit -> Int)[]) : Int { fs[0]()+fs[1]() }
+    "#;
+    for args in ["[Make(17), Make(23)]", "[Make(23), Make(17)]"] {
+        check_source_handle_integer_result(source, args, 40);
+    }
+    let source = r#"
+        function Make<'T>(a : 'T) : Unit -> 'T { () -> a }
+        function Driver(fs : (Unit -> Int[])[]) : Int {
+            mutable result = 0;
+            for f in fs { for value in f() { set result += value; } }
+            result
+        }
+    "#;
+    for args in ["[Make([]), Make([17, 23])]", "[Make([17, 23]), Make([])]"] {
+        check_source_handle_integer_result(source, args, 40);
+    }
+}
+
+#[test]
+fn source_nested_adjoint_consumer_records_thirty_one() {
+    let source = r#"
+        operation ConsumeAdj(op : Qubit => Unit is Adj) : Int {
+            use q = Qubit(); op(q); Adjoint op(q); 31
+        }
+        operation Driver(h : (Qubit => Unit is Adj) => Int) : Int { h(X) }
+    "#;
+    check_source_handle_integer_result(source, "ConsumeAdj", 31);
+    check_source_handle_integer_result(
+        r#"
+        operation ConsumeCtl(op : Qubit => Unit is Ctl) : Int {
+            use q = Qubit(); op(q); Controlled op([], q); 31
+        }
+        operation Driver(h : (Qubit => Unit is Ctl) => Int) : Int { h(X) }
+    "#,
+        "ConsumeCtl",
+        31,
+    );
+}
+
+#[test]
+fn source_capture_evidence_distinguishes_instances_and_rejects_conflicts() {
+    check_source_handle_integer_result(
+        r#"
+            function Make<'U, 'T: Eq>(unused: 'U, value: 'T) : Unit -> 'T { () -> value }
+            function Driver(f: Unit -> Int, condition: Unit -> Bool) : Int {
+                if condition() { f() } else { 0 }
+            }
+        "#,
+        "(Make(0, 40), Make(0, true))",
+        40,
+    );
+    check_source_handle_integer_result(
+        r#"
+        function Make<'T>(a : 'T) : Unit -> 'T { () -> a }
+        function Driver(f : Unit -> Int, condition : Unit -> Bool) : Int {
+            if condition() { f() } else { 0 }
+        }
+    "#,
+        "(Make(40), Make(true))",
+        40,
+    );
+    check_source_handle_integer_result(
+        r#"
+            struct Box { Value : Int }
+            function Make<'T>(value : 'T) : Unit -> ('T, Box) {
+                let box = new Box { Value = 5 };
+                () -> (value, box)
+            }
+            function Driver(f : Unit -> (Int, Box)) : Int {
+                let (value, box) = f();
+                value + box::Value
+            }
+        "#,
+        "Make(35)",
+        40,
+    );
+    for (source, args) in [
+        (
+            r#"
+            struct Box { A: Double, B: Double }
+            function Driver(value: (Double, Double)) : Int { 40 }
+            "#,
+            "new Box { A = 1.0, B = 2.0 }",
+        ),
+        (
+            r#"
+            struct Box { Value: Int }
+            struct Other { Value: Int }
+            function Make<'T>(value: 'T) : Unit -> 'T { () -> value }
+            function Driver(f: Unit -> Box) : Int { f()::Value }
+            "#,
+            "Make(new Other { Value = 40 })",
+        ),
+        (
+            r#"
+            function Make<'T>(a : 'T) : Unit -> 'T { () -> a }
+            function Driver(f : Unit -> Int) : Int { f() }
+        "#,
+            "Make(true)",
+        ),
+        (
+            r#"
+            function Make<'T>(a : 'T) : Unit -> 'T { () -> a }
+            function Driver<'T>(f : Unit -> 'T, value : 'T) : Int { 40 }
+        "#,
+            "(Make(17), true)",
+        ),
+        (
+            r#"
+            operation Plain(q : Qubit) : Unit {}
+            operation Driver(op : Qubit => Unit is Adj) : Int {
+                use q = Qubit(); op(q); Adjoint op(q); 31
+            }
+        "#,
+            "Plain",
+        ),
+    ] {
+        let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+        eval_fragments(&mut interpreter, source);
+        let target = eval_fragments(
+            &mut interpreter,
+            if source.contains("Driver<'T>") {
+                "{ let driver : (Unit -> Int, Int) -> Int = Driver; driver }"
+            } else {
+                "Driver"
+            },
+        );
+        let values = eval_fragments(&mut interpreter, args);
+        let errors = interpreter
+            .qirgen_from_callable(&target, values)
+            .expect_err("known incompatible source value must not be defaulted");
+        assert!(
+            matches!(
+                errors.as_slice(),
+                [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+            ),
+            "{args}: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn runtime_factories_with_stronger_nested_functors_record_answer() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Available() : Unit is Adj + Ctl {}
+            function Factory() : Unit => Unit is Adj + Ctl { Available }
+            function GenericFactory<'T>(value : 'T) : Unit => Unit is Adj + Ctl { Available }
+            operation RunGeneric(factory : Int -> (Unit => Unit)) : Int {
+                factory(0)();
+                42
+            }
+            operation Run(factory : Unit -> (Unit => Unit)) : Int {
+                let op = factory();
+                op();
+                42
+            }
+            operation RunInline(factory : Unit -> (Unit => Unit)) : Int {
+                factory()();
+                42
+            }
+            operation RunAlias(factory : Unit -> (Unit => Unit)) : Int {
+                let alias = factory;
+                alias()();
+                42
+            }
+            operation RunArray(factories : (Unit -> (Unit => Unit))[]) : Int {
+                factories[0]()();
+                42
+            }
+        "#,
+    );
+    for (target, args) in [
+        ("Run", "Factory"),
+        ("RunInline", "Factory"),
+        ("RunAlias", "Factory"),
+        ("RunArray", "[Factory]"),
+        (
+            "RunGeneric",
+            "{ let factory : Int -> (Unit => Unit is Adj + Ctl) = GenericFactory; factory }",
+        ),
+    ] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("{target}({args})")),
+            Value::Int(42)
+        );
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+    }
+
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, dependency, _) = compile_and_locate_items(
+        r#"
+            namespace Dependency {
+                operation Available() : Unit is Adj + Ctl {}
+                function Factory() : Unit => Unit is Adj + Ctl { Available }
+                export Factory;
+            }
+        "#,
+        &[("Factory", true)],
+        caps,
+    );
+    let mut interpreter = crate::interpret::Interpreter::new(
+        SourceMap::default(),
+        PackageType::Lib,
+        caps,
+        LanguageFeatures::default(),
+        store,
+        &[(dependency, None)],
+        Default::default(),
+    )
+    .expect("interpreter with a factory dependency should be created");
+    eval_fragments(
+        &mut interpreter,
+        "operation Run(factory : Unit -> (Unit => Unit)) : Int { factory()(); 42 }",
+    );
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Run(Dependency.Factory)"),
+        Value::Int(42)
+    );
+    let target = eval_fragments(&mut interpreter, "Run");
+    let args = eval_fragments(&mut interpreter, "Dependency.Factory");
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+}
+
+#[test]
+fn runtime_callable_arrays_preserve_common_functor_capabilities() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Plain() : Unit {}
+            operation Available() : Unit is Adj + Ctl {}
+            operation AdjointOnly() : Unit is Adj {}
+            operation Run(ops : (Unit => Unit)[]) : Int {
+                ops[0]();
+                ops[1]();
+                42
+            }
+            operation RunAdjoint(ops : (Unit => Unit is Adj)[]) : Int {
+                Adjoint ops[0]();
+                Adjoint ops[1]();
+                42
+            }
+        "#,
+    );
+    for (target, args) in [
+        ("Run", "[Plain, Available]"),
+        ("Run", "Std.Arrays.Reversed([Plain, Available])"),
+        ("RunAdjoint", "[AdjointOnly, Available]"),
+        (
+            "RunAdjoint",
+            "Std.Arrays.Reversed([AdjointOnly, Available])",
+        ),
+    ] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("{target}({args})")),
+            Value::Int(42)
+        );
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+    }
+
+    for args in [
+        "[Plain, Available]",
+        "Std.Arrays.Reversed([Plain, Available])",
+    ] {
+        let target = eval_fragments(&mut interpreter, "RunAdjoint");
+        let args = eval_fragments(&mut interpreter, args);
+        let errors = interpreter
+            .qirgen_from_callable(&target, args)
+            .expect_err("all array elements must provide required functors");
+        assert!(matches!(
+            errors.as_slice(),
+            [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+        ));
+    }
+}
+
+#[test]
+fn runtime_factory_accepts_stronger_aggregate_output() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Available() : Unit is Adj + Ctl {}
+            function Factory() : ((Unit => Unit is Adj + Ctl), Int)[] { [(Available, 42)] }
+            function PairFactory() : (Unit => Unit is Adj + Ctl, Int) { (Available, 42) }
+            operation Run(factory : Unit -> ((Unit => Unit), Int)[]) : Int {
+                let values = factory();
+                let (op, answer) = values[0];
+                op();
+                answer
+            }
+            operation RunInline(factory : Unit -> ((Unit => Unit), Int)[]) : Int {
+                let (op, answer) = factory()[0];
+                op();
+                answer
+            }
+            operation RunPair(factory : Unit -> (Unit => Unit, Int)) : Int {
+                let (op, answer) = factory();
+                op();
+                answer
+            }
+        "#,
+    );
+    for (target, args) in [
+        ("Run", "Factory"),
+        ("RunInline", "Factory"),
+        ("RunPair", "PairFactory"),
+    ] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("{target}({args})")),
+            Value::Int(42)
+        );
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+    }
+}
+
+#[test]
+fn runtime_closure_capturing_stronger_functors_records_answer() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Available() : Unit is Adj + Ctl {}
+            function Wrap(op : Unit => Unit) : Unit => Unit { () => op() }
+            operation Run(op : Unit => Unit) : Int { op(); 42 }
+        "#,
+    );
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Run(Wrap(Available))"),
+        Value::Int(42)
+    );
+    let target = eval_fragments(&mut interpreter, "Run");
+    let args = eval_fragments(&mut interpreter, "Wrap(Available)");
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+}
+
+#[test]
+fn runtime_nested_callable_mismatches_return_typed_errors() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            operation Plain() : Unit {}
+            operation Available() : Unit is Adj + Ctl {}
+            function PlainFactory() : Unit => Unit { Plain }
+            function GenericPlainFactory<'T>(value : 'T) : Unit => Unit { Plain }
+            function InputFactory(value : Int) : Unit => Unit is Adj { Available }
+            function OutputFactory() : Int { 42 }
+            operation OperationFactory() : Unit => Unit is Adj { Available }
+            function FunctionFactory() : Unit -> Unit { () -> () }
+            function ArrayFactory() : (Unit => Unit)[] { [Plain] }
+            function ArrayShapeFactory() : (Unit => Unit is Adj)[][] { [[Available]] }
+            function TupleFactory() : (Unit => Unit, Int) { (Plain, 42) }
+            function TupleShapeFactory() : (Unit => Unit is Adj, Int, Bool) { (Available, 42, true) }
+            operation Run(factory : Unit -> (Unit => Unit is Adj)) : Int { 42 }
+            operation RunArray(factory : Unit -> (Unit => Unit is Adj)[]) : Int { 42 }
+            operation RunTuple(factory : Unit -> (Unit => Unit is Adj, Int)) : Int { 42 }
+            operation NeedAdj(op : Unit => Unit is Adj) : Int { 42 }
+        "#,
+    );
+    for (target, args) in [
+        ("Run", "PlainFactory"),
+        (
+            "Run",
+            "{ let factory : Unit -> (Unit => Unit) = GenericPlainFactory; factory }",
+        ),
+        ("Run", "InputFactory"),
+        ("Run", "OutputFactory"),
+        ("Run", "OperationFactory"),
+        ("Run", "FunctionFactory"),
+        ("RunArray", "ArrayFactory"),
+        ("RunArray", "ArrayShapeFactory"),
+        ("RunTuple", "TupleFactory"),
+        ("RunTuple", "TupleShapeFactory"),
+        ("NeedAdj", "Plain"),
+    ] {
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let errors = interpreter
+            .qirgen_from_callable(&target, args)
+            .expect_err("incompatible nested callable must be rejected");
+        assert!(
+            matches!(
+                errors.as_slice(),
+                [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+            ),
+            "expected typed mismatch, got: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn runtime_generic_inference_uses_all_elements_and_siblings() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            function Answer() : Int { 42 }
+            operation Run<'T>(values : 'T[][], answer : Unit -> Int) : Int { answer() }
+            operation Sibling<'T>(values : 'T[][], value : 'T, answer : Unit -> Int) : Int { answer() }
+            operation Pairs<'T>(values : 'T[], answer : Unit -> Int) : Int { answer() }
+            operation Same<'T>(first : 'T, second : 'T, answer : Unit -> Int) : Int { answer() }
+        "#,
+    );
+    for (target, args) in [
+        ("Run", "([[], [1]], Answer)"),
+        ("Run", "([[1], []], Answer)"),
+        (
+            "Sibling",
+            "({ let values : Int[][] = [[], []]; values }, 1, Answer)",
+        ),
+        ("Pairs", "([([], 1), ([true], 2)], Answer)"),
+        ("Pairs", "([([true], 2), ([], 1)], Answer)"),
+        ("Same", "({ let values : Int[] = []; values }, [1], Answer)"),
+        ("Same", "([1], { let values : Int[] = []; values }, Answer)"),
+    ] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("{target}{args}")),
+            Value::Int(42)
+        );
+        let target = eval_fragments(
+            &mut interpreter,
+            match target {
+                "Run" => "{ let run : (Int[][], Unit -> Int) => Int = Run; run }",
+                "Sibling" => "{ let run : (Int[][], Int, Unit -> Int) => Int = Sibling; run }",
+                "Pairs" => "{ let run : ((Bool[], Int)[], Unit -> Int) => Int = Pairs; run }",
+                _ => "{ let run : (Int[], Int[], Unit -> Int) => Int = Same; run }",
+            },
+        );
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+    }
+}
+
+#[test]
+fn runtime_bare_generic_target_records_answer_from_nested_array_evidence() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        "operation Run<'T>(values : 'T[][]) : Int { 42 }",
+    );
+    for args in ["[[], [1]]", "[[1], []]"] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, &format!("Run({args})")),
+            Value::Int(42)
+        );
+        let target = eval_fragments(&mut interpreter, "{ let run : Int[][] => Int = Run; run }");
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+    }
+}
+
+#[test]
+fn runtime_generic_conflicting_evidence_returns_typed_error() {
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            function Answer() : Int { 42 }
+            operation Run<'T>(values : 'T[][], value : 'T, answer : Unit -> Int) : Int { answer() }
+        "#,
+    );
+    let target = eval_fragments(
+        &mut interpreter,
+        "{ let run : (Int[][], Int, Unit -> Int) => Int = Run; run }",
+    );
+    let answer = eval_fragments(&mut interpreter, "Answer");
+    let ints = eval_fragments(&mut interpreter, "[1]");
+    let bools = eval_fragments(&mut interpreter, "[true]");
+    let empty = eval_fragments(&mut interpreter, "{ let values : Int[] = []; values }");
+    let contradictory_array = Value::Array(vec![empty, ints, bools].into());
+    let contradictory_sibling = eval_fragments(&mut interpreter, "[[], [1]]");
+    for (values, value) in [
+        (contradictory_array, Value::Int(1)),
+        (contradictory_sibling, Value::Bool(true)),
+    ] {
+        let args = Value::Tuple(vec![values, value, answer.clone()].into(), None);
+        let errors = interpreter
+            .qirgen_from_callable(&target, args)
+            .expect_err("contradictory host evidence must not use a default");
+        assert!(
+            matches!(
+                errors.as_slice(),
+                [crate::interpret::Error::RuntimeCallableTypeMismatch { .. }]
+            ),
+            "expected typed mismatch, got: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn runtime_constraint_valid_candidates_record_source_results() {
+    use crate::interpret::{CircuitEntryPoint, CircuitGenerationMethod};
+
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        function AddValues<'T: Add>(a: 'T, b: 'T) : 'T { a + b }
+        function Accept<'T: Add>(value: 'T) : Int { 31 }
+        function Comparable<'T: Eq + Show>(value: 'T) : Int { 31 }
+        function IntegralAdd<'T: Add + Integral>(value: 'T) : Int { 31 }
+        function Through<'T: Add + Show>(value: 'T) : Int { Accept(value) }
+        function IntPower<'T: Exp[Int]>(value: 'T) : Int { 31 }
+        function FloatPower<'T: Exp[Double]>(value: 'T) : Int { 31 }
+        function IterableBool<'T: Iterable[Bool]>(value: 'T) : Int { 31 }
+        function InvokeInt(f: Int -> Int) : Int { f(7) }
+        function InvokeBool(f: Bool -> Int) : Int { f(true) }
+        function Make<'T: Add>(values: 'T[]) : Unit -> 'T[] { () -> values }
+        function FromEmpty(f: Unit -> Int[]) : Int { Length(f()) + 31 }
+        function MakeUnused<'T: Eq + Show>(values: 'T[]) : Unit -> Int {
+            () -> Length(values) + 31
+        }
+        function MakeSibling<'T: Add>(values: 'T[], value: 'T) : Unit -> Int {
+            () -> Length(values) + Accept(value)
+        }
+        function Driver(f: Unit -> Int) : Int { f() }
+        operation Bound<'T: Add>(value: 'T) : Unit { use q = Qubit(); H(q); H(q); }
+        operation Pinned<'T: Add>(value: 'T, callback: Unit => Unit) : Int { 31 }
+    "#,
+    );
+    eval_fragments(&mut interpreter, "use captured = Qubit();");
+    for (target, args, source_call, expected) in [
+        (
+            "{ let f: (Int, Int) -> Int = AddValues; f }",
+            "(17, 14)",
+            "AddValues(17, 14)",
+            31,
+        ),
+        ("{ let f: Int -> Int = Accept; f }", "1", "Accept(1)", 31),
+        (
+            "{ let f: BigInt -> Int = Accept; f }",
+            "1L",
+            "Accept(1L)",
+            31,
+        ),
+        (
+            "{ let f: Double -> Int = Accept; f }",
+            "1.0",
+            "Accept(1.0)",
+            31,
+        ),
+        (
+            "{ let f: String -> Int = Accept; f }",
+            "\"s\"",
+            "Accept(\"s\")",
+            31,
+        ),
+        (
+            "{ let f: Bool[] -> Int = Accept; f }",
+            "[true]",
+            "Accept([true])",
+            31,
+        ),
+        (
+            "{ let f: Int[] -> Int = Accept; f }",
+            "{ let values: Int[] = []; values }",
+            "{ let values: Int[] = []; Accept(values) }",
+            31,
+        ),
+        (
+            "{ let f: Complex -> Int = Accept; f }",
+            "1.0 + 2.0i",
+            "Accept(1.0 + 2.0i)",
+            31,
+        ),
+        (
+            "{ let f: Bool -> Int = Comparable; f }",
+            "true",
+            "Comparable(true)",
+            31,
+        ),
+        (
+            "{ let f: (Bool[], Int) -> Int = Comparable; f }",
+            "([true], 7)",
+            "Comparable(([true], 7))",
+            31,
+        ),
+        (
+            "{ let f: Bool[] -> Int = Comparable; f }",
+            "{ let values: Bool[] = []; values }",
+            "{ let values: Bool[] = []; Comparable(values) }",
+            31,
+        ),
+        (
+            "{ let f: Int -> Int = IntegralAdd; f }",
+            "1",
+            "IntegralAdd(1)",
+            31,
+        ),
+        ("{ let f: Int -> Int = Through; f }", "1", "Through(1)", 31),
+        (
+            "{ let f: BigInt -> Int = IntPower; f }",
+            "2L",
+            "IntPower(2L)",
+            31,
+        ),
+        (
+            "{ let f: Double -> Int = FloatPower; f }",
+            "2.0",
+            "FloatPower(2.0)",
+            31,
+        ),
+        (
+            "{ let f: Bool[] -> Int = IterableBool; f }",
+            "[true]",
+            "IterableBool([true])",
+            31,
+        ),
+        (
+            "InvokeInt",
+            "{ let f: Int -> Int = Accept; f }",
+            "InvokeInt(Accept)",
+            31,
+        ),
+        (
+            "InvokeBool",
+            "{ let f: Bool -> Int = Comparable; f }",
+            "InvokeBool(Comparable)",
+            31,
+        ),
+        (
+            "FromEmpty",
+            "{ let values: Int[] = []; Make(values) }",
+            "{ let values: Int[] = []; FromEmpty(Make(values)) }",
+            31,
+        ),
+        (
+            "Driver",
+            "{ let values: Bool[] = []; MakeUnused(values) }",
+            "{ let values: Bool[] = []; Driver(MakeUnused(values)) }",
+            31,
+        ),
+        (
+            "Driver",
+            "{ let values: Int[] = []; MakeSibling(values, 7) }",
+            "{ let values: Int[] = []; Driver(MakeSibling(values, 7)) }",
+            31,
+        ),
+        (
+            "{ let f: (Int, Unit => Unit) => Int = Pinned; f }",
+            "(7, () => X(captured))",
+            "Pinned(7, () => X(captured))",
+            31,
+        ),
+    ] {
+        assert_eq!(
+            eval_fragments(&mut interpreter, source_call),
+            Value::Int(expected),
+            "{source_call}"
+        );
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{source_call}: {}", format_interpret_errors(errors)));
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 1, "{source_call}: {qir}");
+        assert!(
+            records[0].contains(&format!("i64 {expected},")),
+            "{source_call}: {qir}"
+        );
+    }
+    for (target, args) in [
+        ("{ let f: Int => Unit = Bound; f }", "7"),
+        (
+            "{ let f: Complex => Unit = Bound; f }",
+            "new Complex { Real = 1.0, Imag = 2.0 }",
+        ),
+    ] {
+        let target = eval_fragments(&mut interpreter, target);
+        let value = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, value.clone())
+            .expect("valid bounded operation");
+        assert_eq!(qir.matches("call void @__quantum__qis__h__body").count(), 2);
+        let actual = interpreter
+            .circuit(
+                CircuitEntryPoint::Callable(target, value),
+                CircuitGenerationMethod::Static,
+                qsc_circuit::TracerConfig {
+                    max_operations: 1000,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
+            )
+            .expect("valid bounded static circuit");
+        let expected = interpreter
+            .circuit(
+                CircuitEntryPoint::EntryExpr(format!("Bound({args})")),
+                CircuitGenerationMethod::Static,
+                qsc_circuit::TracerConfig {
+                    max_operations: 1000,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
+            )
+            .expect("whole-source static circuit");
+        assert_eq!(
+            actual.display_no_locations().to_string(),
+            expected.display_no_locations().to_string()
+        );
+        assert_eq!(
+            actual
+                .component_grid
+                .iter()
+                .flat_map(|column| &column.components)
+                .filter(|component| component.gate() == "H")
+                .count(),
+            2
+        );
+    }
+}
+
+#[test]
+fn runtime_constraint_rejections_distinguish_missing_evidence() {
+    use crate::interpret::{CircuitEntryPoint, Error};
+    use miette::Diagnostic;
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        newtype Wrapper = (Double, Double);
+        function AddValues<'T: Add>(a: 'T, b: 'T) : 'T { a + b }
+        function Accept<'T: Add>(value: 'T) : Int { 31 }
+        function IntegralAdd<'T: Add + Integral>(value: 'T) : Int { 31 }
+        function IntPower<'T: Exp[Int]>(value: 'T) : Int { 31 }
+        function IterableBool<'T: Iterable[Bool]>(value: 'T) : Int { 31 }
+        function EqValue<'T: Eq>(value: 'T) : Int { 31 }
+        function ShowValue<'T: Show>(value: 'T) : Int { 31 }
+        function Plain() : Int { 31 }
+        function InvokeBool(f: Bool -> Int) : Int { f(true) }
+        function Make<'T: Add>(values: 'T[]) : Unit -> Int { () -> Length(values) }
+        function Driver(f: Unit -> Int) : Int { f() }
+        operation AcceptOp<'T: Add>(value: 'T) : Unit {}
+        operation Pinned<'T: Add>(value: 'T, callback: Unit => Unit) : Int { 31 }
+    "#,
+    );
+    eval_fragments(&mut interpreter, "use captured = Qubit();");
+    for (target, args, insufficient, code, message) in [
+        (
+            "{ let f: (Int, Int) -> Int = AddValues; f }",
+            "(true, false)",
+            false,
+            "MissingClassAdd",
+            "type Bool does not support plus",
+        ),
+        (
+            "{ let f: Int -> Int = Accept; f }",
+            "true",
+            false,
+            "MissingClassAdd",
+            "type Bool does not support plus",
+        ),
+        (
+            "{ let f: Int -> Int = Accept; f }",
+            "(1.0, 2.0)",
+            false,
+            "MissingClassAdd",
+            "type (Double, Double) does not support plus",
+        ),
+        (
+            "{ let f: Int -> Int = Accept; f }",
+            "Wrapper(1.0, 2.0)",
+            false,
+            "MissingClassAdd",
+            "type Wrapper does not support plus",
+        ),
+        (
+            "{ let f: Int -> Int = IntegralAdd; f }",
+            "1.0",
+            false,
+            "MissingClassInteger",
+            "type Double is not an integer",
+        ),
+        (
+            "{ let f: Int -> Int = IntPower; f }",
+            "1.0",
+            false,
+            "TyMismatch",
+            "expected Double, found Int",
+        ),
+        (
+            "{ let f: Bool[] -> Int = IterableBool; f }",
+            "[1]",
+            false,
+            "TyMismatch",
+            "expected Int, found Bool",
+        ),
+        (
+            "{ let f: Int -> Int = EqValue; f }",
+            "([Plain], true)",
+            false,
+            "MissingClassEq",
+            "type (Unit -> Int) does not support equality",
+        ),
+        (
+            "{ let f: Int -> Int = ShowValue; f }",
+            "([Plain], true)",
+            false,
+            "MissingClassShow",
+            "type (Unit -> Int) cannot be converted into a string",
+        ),
+        (
+            "InvokeBool",
+            "{ let f: Int -> Int = Accept; f }",
+            false,
+            "MissingClassAdd",
+            "type Bool does not support plus",
+        ),
+        (
+            "Driver",
+            "{ let values: Int[] = []; Make(values) }",
+            true,
+            "MissingClassAdd",
+            "type Unit does not support plus",
+        ),
+        (
+            "{ let f: (Int, Unit => Unit) => Int = Pinned; f }",
+            "(true, () => X(captured))",
+            false,
+            "MissingClassAdd",
+            "type Bool does not support plus",
+        ),
+    ] {
+        let target_value = eval_fragments(&mut interpreter, target);
+        let args_value = eval_fragments(&mut interpreter, args);
+        let errors = interpreter
+            .qirgen_from_callable(&target_value, args_value.clone())
+            .expect_err("separately source-typed host fragments violate declared bounds");
+        let circuit_errors = interpreter
+            .circuit(
+                CircuitEntryPoint::Callable(target_value, args_value),
+                crate::interpret::CircuitGenerationMethod::Static,
+                qsc_circuit::TracerConfig {
+                    max_operations: 1000,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
+            )
+            .expect_err("static circuits enforce the same admission boundary");
+        assert_eq!(format!("{circuit_errors:?}"), format!("{errors:?}"));
+        let error = match errors.as_slice() {
+            [Error::RuntimeCallableConstraint { error, .. }] if !insufficient => error,
+            [Error::RuntimeCallableInsufficientEvidence { error, .. }] if insufficient => error,
+            _ => panic!("{target}({args}): {errors:?}"),
+        };
+        assert_eq!(
+            error.code().expect("code").to_string(),
+            format!("Qdk.Qsc.TypeCk.{code}")
+        );
+        assert_eq!(error.to_string(), message, "{target}({args})");
+        let labels: Vec<_> = error.labels().expect("declaration location").collect();
+        assert_eq!(labels.len(), 1);
+        let (source, span) = error.resolve_span(labels[0].inner());
+        let location = &source.contents[span.offset()..span.offset() + span.len()];
+        let expected_location = if insufficient {
+            "() -> Length(values)"
+        } else if target == "InvokeBool" {
+            "Accept"
+        } else {
+            target
+                .split(" = ")
+                .nth(1)
+                .expect("typed source reference")
+                .split(';')
+                .next()
+                .expect("callable name")
+        };
+        assert_eq!(location, expected_location, "{target}({args})");
+    }
+    let target = eval_fragments(&mut interpreter, "{ let f: Int => Unit = AcceptOp; f }");
+    let args = eval_fragments(&mut interpreter, "true");
+    let errors = interpreter
+        .circuit(
+            CircuitEntryPoint::Callable(target, args),
+            crate::interpret::CircuitGenerationMethod::Static,
+            qsc_circuit::TracerConfig {
+                max_operations: 1000,
+                source_locations: false,
+                group_by_scope: false,
+                prune_classical_qubits: false,
+            },
+        )
+        .expect_err("static circuit uses the same constraint admission");
+    assert!(
+        matches!(errors.as_slice(), [Error::RuntimeCallableConstraint { .. }]),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn runtime_generic_unobserved_elements_default_after_complete_evidence() {
+    let source = r#"
+        function Make<'T>(values: 'T[]) : Unit -> Int { () -> Length(values) }
+        function Driver(f: Unit -> Int) : Int { f() }
+    "#;
+    for (args, expected) in [
+        ("Make([1, 2])", 2),
+        ("{ let values: Int[] = []; Make(values) }", 0),
+    ] {
+        check_source_handle_integer_result(source, args, expected);
+    }
+    check_source_handle_integer_result(
+        r#"
+        function Make<'T>(value: 'T) : Unit -> Int { () -> { let copy = value; 31 } }
+        function Driver(f: Unit -> Int) : Int { f() }
+    "#,
+        "{ let values: Int[] = []; Make(values) }",
+        31,
+    );
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+            function Answer() : Int { 42 }
+            operation Bare<'T>(values : 'T[][]) : Int { 42 }
+            operation WithCallable<'T>(values : 'T[][], answer : Unit -> Int) : Int { answer() }
+            operation Pair<'T>(value : 'T, answer : Unit -> Int) : Int { answer() }
+        "#,
+    );
+    for (target, args, call) in [
+        (
+            "{ let run : Int[][] => Int = Bare; run }",
+            "{ let values : Int[][] = [[], []]; values }",
+            "{ let values : Int[][] = [[], []]; Bare(values) }",
+        ),
+        (
+            "{ let run : (Int[][], Unit -> Int) => Int = WithCallable; run }",
+            "{ let values : Int[][] = [[], []]; (values, Answer) }",
+            "{ let values : Int[][] = [[], []]; WithCallable(values, Answer) }",
+        ),
+        (
+            "{ let run : ((Bool[], Int), Unit -> Int) => Int = Pair; run }",
+            "{ let values : Bool[] = []; ((values, 42), Answer) }",
+            "{ let values : Bool[] = []; Pair((values, 42), Answer) }",
+        ),
+    ] {
+        assert_eq!(eval_fragments(&mut interpreter, call), Value::Int(42));
+        let target = eval_fragments(&mut interpreter, target);
+        let args = eval_fragments(&mut interpreter, args);
+        let qir = interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        assert!(qir.contains("call void @__quantum__rt__int_record_output(i64 42"));
+    }
 }
 
 #[test]
@@ -3477,16 +5249,17 @@ fn synthetic_path_generic_capturing_closure_concretizes_remaining_input() {
         }
     "#};
     let caps = Profile::AdaptiveRIF.into();
-    let (store, pkg, items) =
-        compile_and_locate_items(source, &[("InvokeInt", true), ("IgnoreFirst", true)], caps);
-
-    let generic_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Int(0)].into(),
-        id: fir_id_for(pkg, items["IgnoreFirst"]),
-        functor: FunctorApp::default(),
-    }));
-
-    let qir = callable_args_to_qir(&store, pkg, items["InvokeInt"], &generic_closure, caps);
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.InvokeInt");
+    let args = eval_fragments(
+        &mut interpreter,
+        "{ let captured = 0; Test.IgnoreFirst(captured, _) }",
+    );
+    assert!(matches!(&args, Value::Closure(closure) if !closure.fixed_args.is_empty()));
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected a captured generic closure to compile after inferring T = Int:\n{qir}"
@@ -3510,22 +5283,22 @@ fn synthetic_path_same_generic_target_supports_distinct_runtime_types() {
         }
     "#};
     let caps = Profile::AdaptiveRIF.into();
-    let (store, pkg, items) =
-        compile_and_locate_items(source, &[("InvokeBoth", true), ("IgnoreFirst", true)], caps);
-    let generic_target = fir_id_for(pkg, items["IgnoreFirst"]);
-    let int_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Int(0)].into(),
-        id: generic_target,
-        functor: FunctorApp::default(),
-    }));
-    let bool_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Bool(false)].into(),
-        id: generic_target,
-        functor: FunctorApp::default(),
-    }));
-    let args = Value::Tuple(vec![int_closure, bool_closure].into(), None);
-
-    let qir = callable_args_to_qir(&store, pkg, items["InvokeBoth"], &args, caps);
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.InvokeBoth");
+    let args = eval_fragments(
+        &mut interpreter,
+        r#"
+            {
+                let integer = 0;
+                let boolean = false;
+                (Test.IgnoreFirst(integer, _), Test.IgnoreFirst(boolean, _))
+            }
+        "#,
+    );
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert_eq!(
         qir.matches("call void @__quantum__qis__h__body").count(),
         2,
@@ -3552,25 +5325,23 @@ fn synthetic_path_generic_closures_infer_distinct_types_from_expected_arrows() {
         }
     "#};
     let caps = Profile::AdaptiveRIF.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[("InvokeBoth", true), ("ApplyCapturedFlag", true)],
-        caps,
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.InvokeBoth");
+    let args = eval_fragments(
+        &mut interpreter,
+        r#"
+            {
+                let enabled = true;
+                let intOp : Int => Unit = Test.ApplyCapturedFlag(enabled, _);
+                let boolOp : Bool => Unit = Test.ApplyCapturedFlag(enabled, _);
+                (intOp, boolOp)
+            }
+        "#,
     );
-    let generic_target = fir_id_for(pkg, items["ApplyCapturedFlag"]);
-    let int_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Bool(true)].into(),
-        id: generic_target,
-        functor: FunctorApp::default(),
-    }));
-    let bool_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Bool(true)].into(),
-        id: generic_target,
-        functor: FunctorApp::default(),
-    }));
-    let args = Value::Tuple(vec![int_closure, bool_closure].into(), None);
-
-    let qir = callable_args_to_qir(&store, pkg, items["InvokeBoth"], &args, caps);
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert_eq!(
         qir.matches("call void @__quantum__qis__h__body").count(),
         2,
@@ -3595,16 +5366,19 @@ fn synthetic_path_generic_closure_inside_generic_target_resolves_outer_type() {
         }
     "#};
     let caps = Profile::AdaptiveRIF.into();
-    let (store, pkg, items) =
-        compile_and_locate_items(source, &[("Invoke", true), ("Keep", true)], caps);
-    let closure = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![Value::Bool(true)].into(),
-        id: fir_id_for(pkg, items["Keep"]),
-        functor: FunctorApp::default(),
-    }));
-    let args = Value::Tuple(vec![closure, Value::Int(7)].into(), None);
-
-    let qir = callable_args_to_qir(&store, pkg, items["Invoke"], &args, caps);
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(
+        &mut interpreter,
+        "{ let run : (Int -> Int, Int) => Unit = Test.Invoke; run }",
+    );
+    let args = eval_fragments(
+        &mut interpreter,
+        "{ let enabled = true; let keep : Int -> Int = Test.Keep(enabled, _); (keep, 7) }",
+    );
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert!(
         qir.contains("call void @__quantum__qis__h__body"),
         "expected the inner generic closure to resolve through outer T = Int:\n{qir}"
@@ -4383,20 +6157,19 @@ fn functor_capable_returned_wrapper_with_struct_capture_generates_qir() {
         }
     "#};
     let capabilities = Profile::Base.into();
-    let (store, package_id, items) = compile_and_locate_items(
-        source,
-        &[("Run", true), ("ApplyCaptured", true)],
-        capabilities,
-    );
-
-    let compile_with_capture = |enabled| {
-        let params = Value::Tuple(vec![Value::Bool(enabled)].into(), None);
-        let captured_op = Value::Closure(Box::new(qsc_eval::val::Closure {
-            fixed_args: vec![params].into(),
-            id: fir_id_for(package_id, items["ApplyCaptured"]),
-            functor: FunctorApp::default(),
-        }));
-        callable_args_to_qir(&store, package_id, items["Run"], &captured_op, capabilities)
+    let mut interpreter = interpreter_with_capabilities(capabilities);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.Run");
+    let mut compile_with_capture = |enabled| {
+        let args = eval_fragments(
+            &mut interpreter,
+            &format!(
+                "{{ let params = new Test.OpParams {{ enabled = {enabled} }}; Test.ApplyCaptured(params, _) }}"
+            ),
+        );
+        interpreter
+            .qirgen_from_callable(&target, args)
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)))
     };
 
     let enabled_qir = compile_with_capture(true);
@@ -6523,54 +8296,28 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         }
     "#};
     let caps = Profile::Base.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[
-            ("MakeIQPECircuit", true),
-            ("PrepareSystems", true),
-            ("RepControlledUnitary", true),
-            ("ControlledParams", false),
-        ],
-        caps,
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.MakeIQPECircuit");
+    let args = eval_fragments(
+        &mut interpreter,
+        r#"
+            {
+                let params = new Test.ControlledParams {
+                    pauliExponents = [[PauliX]],
+                    pauliCoefficients = [1.0],
+                    repetitions = 1
+                };
+                let unitary = (control, systems) =>
+                    Test.RepControlledUnitary(params, control, systems);
+                (Test.PrepareSystems, unitary, 0.0, 0, [1], 0)
+            }
+        "#,
     );
 
-    let state_prep = Value::Global(
-        fir_id_for(pkg, items["PrepareSystems"]),
-        FunctorApp::default(),
-    );
-    let params = Value::Tuple(
-        vec![
-            Value::Array(
-                vec![Value::Array(
-                    vec![Value::Pauli(qsc_fir::fir::Pauli::X)].into(),
-                )]
-                .into(),
-            ),
-            Value::Array(vec![Value::Double(1.0)].into()),
-            Value::Int(1),
-        ]
-        .into(),
-        None,
-    );
-    let rep_controlled_unitary = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![params].into(),
-        id: fir_id_for(pkg, items["RepControlledUnitary"]),
-        functor: FunctorApp::default(),
-    }));
-    let args = Value::Tuple(
-        vec![
-            state_prep,
-            rep_controlled_unitary,
-            Value::Double(0.0),
-            Value::Int(0),
-            Value::Array(vec![Value::Int(1)].into()),
-            Value::Int(0),
-        ]
-        .into(),
-        None,
-    );
-
-    let qir = callable_args_to_qir(&store, pkg, items["MakeIQPECircuit"], &args, caps);
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
@@ -6579,26 +8326,6 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         qir.contains("__quantum__qis__cx__body"),
         "expected threaded Controlled X capture in QIR:\n{qir}"
     );
-}
-
-/// Returns every lifted lambda item in the package, ordered by item id, which
-/// is source order. Tests that build more than one closure value need to tell
-/// the lambdas apart, and `.lambda_<item-id>` names are not stable.
-fn lambda_item_ids(
-    store: &crate::PackageStore,
-    package_id: PackageId,
-) -> Vec<qsc_hir::hir::LocalItemId> {
-    let hir_package = &store.get(package_id).expect("package should exist").package;
-    let mut ids: Vec<_> = hir_package
-        .items
-        .iter()
-        .filter_map(|(local_id, item)| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.starts_with(".lambda") => Some(local_id),
-            _ => None,
-        })
-        .collect();
-    ids.sort();
-    ids
 }
 
 #[test]
@@ -6692,53 +8419,22 @@ fn chemistry_like_iqpe_with_nested_closure_capture_generates_base_profile_qir() 
         }
     "#};
     let caps = Profile::Base.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[("MakeIQPECircuit", true), ("RepControlledUnitary", true)],
-        caps,
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.MakeIQPECircuit");
+    let args = eval_fragments(
+        &mut interpreter,
+        r#"
+            {
+                let denseOp = Test.MakeDenseOp([0], [1.0]);
+                let statePrep = Test.MakeComposeOp(denseOp, [0]);
+                (statePrep, Test.RepControlledUnitary, 0.0, 0, [1], 0)
+            }
+        "#,
     );
-
-    // Source order: the dense-preparation lambda is lifted first, then the
-    // composing lambda that captures it.
-    let lambdas = lambda_item_ids(&store, pkg);
-    assert_eq!(
-        lambdas.len(),
-        2,
-        "both partial applications should be lifted"
-    );
-
-    let dense_op = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![
-            Value::Array(vec![Value::Int(0)].into()),
-            Value::Array(vec![Value::Double(1.0)].into()),
-        ]
-        .into(),
-        id: fir_id_for(pkg, lambdas[0]),
-        functor: FunctorApp::default(),
-    }));
-    let state_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![dense_op, Value::Array(vec![Value::Int(0)].into())].into(),
-        id: fir_id_for(pkg, lambdas[1]),
-        functor: FunctorApp::default(),
-    }));
-    let rep_controlled_unitary = Value::Global(
-        fir_id_for(pkg, items["RepControlledUnitary"]),
-        FunctorApp::default(),
-    );
-    let args = Value::Tuple(
-        vec![
-            state_prep,
-            rep_controlled_unitary,
-            Value::Double(0.0),
-            Value::Int(0),
-            Value::Array(vec![Value::Int(1)].into()),
-            Value::Int(0),
-        ]
-        .into(),
-        None,
-    );
-
-    let qir = callable_args_to_qir(&store, pkg, items["MakeIQPECircuit"], &args, caps);
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
@@ -7761,8 +9457,8 @@ fn runtime_argument_validation_preserves_dynamic_backend() {
     let (_, backend) = prepare_codegen_fir_from_callable_args(&store, target, &args, capabilities)
         .expect("valid dynamic integer argument must prepare successfully");
     assert!(
-        matches!(backend, CallableArgsBackend::ReinvokeOriginal { callable, args: actual }
-            if callable == fir_id_for(package, items["Scalar"]) && actual == args),
+        matches!(backend, CallableArgsBackend::ReinvokeOriginal { callable, functor, args: actual }
+            if callable == fir_id_for(package, items["Scalar"]) && actual == args && functor == FunctorApp::default()),
         "dynamic argument must retain its original backend and value"
     );
 

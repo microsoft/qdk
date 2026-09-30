@@ -182,6 +182,9 @@ pub struct CapturedVar {
     pub local: ScopedLocal,
     /// The type of the captured variable.
     pub ty: Ty,
+    /// Capture-free callable identity, retained even when operand evaluation
+    /// materializes the value into a temporary.
+    pub static_callable: Option<(ItemId, FunctorApp)>,
     /// An optional initializer expression to reuse when the original local is
     /// scoped to a block that rewrite will erase.
     pub expr: Option<ExprId>,
@@ -403,9 +406,7 @@ pub struct SpecKey {
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
 
-/// Hashable variant of [`ConcreteCallable`] used for deduplication. Closures
-/// are keyed only by their target and functor (captures are structural, not
-/// identity-defining).
+/// Hashable callable identity, including callable captures embedded into code.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ConcreteCallableKey {
     /// A direct global callable reference.
@@ -413,12 +414,11 @@ pub enum ConcreteCallableKey {
         item_id: ItemId,
         functor: FunctorApp,
     },
-    /// A closure keyed by target and functor.
+    /// A closure keyed by target, functor, occurrence and embedded callable identity.
     ///
-    /// Captured variables are intentionally omitted so that two closures
-    /// with identical targets and functors share a specialization; the
-    /// captured values are threaded as ordinary arguments at the call site
-    /// rather than being part of the dispatch identity.
+    /// Runtime captures are omitted; an embedded capture changes generated code
+    /// and therefore participates in identity. Only capture-free identities are
+    /// embedded, so recursive environments cannot expand the key indefinitely.
     ///
     /// The target is package-qualified (`StoreItemId`) so that closures with
     /// the same package-local id in different packages do not collide.
@@ -426,6 +426,7 @@ pub enum ConcreteCallableKey {
         target: StoreItemId,
         functor: FunctorApp,
         occurrence: Option<usize>,
+        embedded: Option<(ItemId, FunctorApp)>,
     },
 }
 

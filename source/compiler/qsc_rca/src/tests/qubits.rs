@@ -7,6 +7,50 @@ use super::{
 use expect_test::expect;
 
 #[test]
+fn nested_and_aliased_qubit_release_preserves_allocation_scope() {
+    use super::PackageStoreSearch;
+    use crate::ComputePropertiesLookup;
+    for (body, dynamic_release) in [
+        (
+            "QIR.Runtime.__quantum__rt__qubit_release(QIR.Runtime.__quantum__rt__qubit_allocate());",
+            false,
+        ),
+        (
+            "let q=QIR.Runtime.__quantum__rt__qubit_allocate(); let alias=q; QIR.Runtime.__quantum__rt__qubit_release(alias);",
+            false,
+        ),
+        (
+            "use flag=Qubit(); if MResetZ(flag)==One { QIR.Runtime.__quantum__rt__qubit_release(QIR.Runtime.__quantum__rt__qubit_allocate()); }",
+            false,
+        ),
+        (
+            "use flag=Qubit(); let q={ QIR.Runtime.__quantum__rt__qubit_allocate() }; if MResetZ(flag)==One { let alias={q}; QIR.Runtime.__quantum__rt__qubit_release(alias); }",
+            true,
+        ),
+    ] {
+        let mut context = CompilationContext::default();
+        context.update(&format!("operation Main() : Unit {{ {body} }}"));
+        let id = context
+            .fir_store
+            .find_callable_id_by_name("Main")
+            .expect("source callable");
+        let properties = context
+            .get_compute_properties()
+            .get_item(id, false)
+            .to_string();
+        assert!(
+            properties.contains("QubitAllocation"),
+            "{body}: {properties}"
+        );
+        assert_eq!(
+            properties.contains("UseOfDynamicQubitRelease"),
+            dynamic_release,
+            "{body}: {properties}"
+        );
+    }
+}
+
+#[test]
 fn check_rca_for_static_single_qubit_allcation() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(

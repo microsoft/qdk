@@ -62,7 +62,7 @@ fn check_review_literal_payloads(payloads: &[&str]) {
 }
 
 #[test]
-fn generated_interpolation_names_are_stable_across_allocator_changes() {
+fn reachable_interpolation_preserves_allocated_binding_names_and_references() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -78,8 +78,8 @@ fn generated_interpolation_names_are_stable_across_allocator_changes() {
     let render = |source: &str| {
         let (store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
         let raw = write_package_qsharp_parseable(&store, package_id);
-        let normalized = write_reachable_qsharp_parseable(&store, package_id);
-        (raw, normalized)
+        let reachable = write_reachable_qsharp_parseable(&store, package_id);
+        (raw, reachable)
     };
     let (first_raw, first) = render(source);
     let shifted_source = format!(
@@ -90,15 +90,43 @@ fn generated_interpolation_names_are_stable_across_allocator_changes() {
         first_raw, second_raw,
         "fixture must exercise allocator-ID drift"
     );
-    assert_eq!(first, second, "generated identifiers must remain stable");
-    let expression = first
-        .split("Message($\"sum {")
-        .nth(1)
-        .expect("interpolation expression must remain reachable");
-    for name in ["_range_id_0", "_index_id_1", "_step_id_2", "_end_id_3"] {
-        assert!(
-            expression.matches(name).count() >= 2,
-            "generated declaration and reference must occur inside interpolation: {name}"
+    for (raw, reachable) in [(&first_raw, &first), (&second_raw, &second)] {
+        let expression = reachable
+            .split("Message($\"sum {")
+            .nth(1)
+            .expect("interpolation expression must remain reachable");
+        for prefix in ["_range_id_", "_index_id_", "_step_id_", "_end_id_"] {
+            let offset = raw.find(prefix).expect("generated binding must exist");
+            let name = raw[offset..]
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .next()
+                .expect("generated identifier");
+            assert!(
+                expression.matches(name).count() >= 2,
+                "reachable declaration and reference must retain allocated name: {name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn reachable_rendering_preserves_user_names_resembling_generated_identifiers() {
+    let source = indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            let request_id_99 = 1;
+            let _index_id_12 = 2;
+            let _index_id_0 = 3;
+            request_id_99 * 100 + _index_id_12 * 10 + _index_id_0
+        }
+    "#};
+    let (store, package) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let rendered = write_reachable_qsharp_parseable(&store, package);
+    for name in ["request_id_99", "_index_id_12", "_index_id_0"] {
+        assert_eq!(
+            rendered.matches(name).count(),
+            2,
+            "declaration and reference must preserve distinct source name: {rendered}"
         );
     }
 }

@@ -172,9 +172,9 @@ impl InvariantLevel {
 /// pipeline intentionally limits invariant enforcement to the entry-rooted
 /// reachability closure.
 ///
-/// This entry point checks every reachable callable. The pipeline uses
-/// `check_with_skip` to bypass the residual-`Return` checks on callables that
-/// return unification deliberately left un-rewritten.
+/// This entry point checks every reachable callable without exemptions. The
+/// pipeline uses `check_with_exemptions` for callables skipped by return
+/// unification and for item- or entry-specific defunctionalization residue.
 ///
 /// # Ordering
 ///
@@ -201,9 +201,15 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct InvariantExemptions {
-    pub return_unify_items: FxHashSet<StoreItemId>,
-    pub defunc_items: FxHashSet<StoreItemId>,
-    pub defunc_entry: bool,
+    /// Callables left un-rewritten by return unification; exempt from its
+    /// no-return, block-tail, and operand-position flag-write checks.
+    pub return_unify_skipped_items: FxHashSet<StoreItemId>,
+    /// Callables with deferred defunctionalization residue; exempt from
+    /// arrow-parameter, residual-closure, and nested tuple-arrow local checks.
+    pub defunc_residual_items: FxHashSet<StoreItemId>,
+    /// Allows residual closures in the entry expression, independently of
+    /// the callable-item exemptions.
+    pub entry_has_defunc_residue: bool,
 }
 
 pub(crate) fn check_with_exemptions(
@@ -240,24 +246,19 @@ pub(crate) fn check_with_seeds(
     );
 }
 
-/// Shared implementation backing [`check`] and [`check_with_skip`], and the
+/// Shared implementation backing [`check`] and [`check_with_exemptions`], and the
 /// seed-rooted body-only signature-preserving sub-pipeline.
 ///
-/// `skip` bypasses the residual-`Return` checks for specific callables;
-/// `seeds` extends reachability roots beyond the entry expression so non
-/// entry-reachable pinned bodies (pinned `ReinvokeOriginal` target bodies and
-/// their transitive callees) are still validated.
+/// `exemptions` keeps return-unification skips separate from deferred
+/// defunctionalization residue, with the entry expression tracked independently
+/// of callable items. All other stage checks remain enforced.
 ///
-/// `residue_tolerant` relaxes compilation-scoped residue checks, while `skip`
-/// exempts the identified items from the arrow-parameter check.
+/// `seeds` extends reachability beyond the entry expression to pinned
+/// `ReinvokeOriginal` target bodies and their transitive callees.
 ///
-/// # Generic-target assumption
-///
-/// Pinned `ReinvokeOriginal` targets are concrete user callables, so
-/// `PostSignaturePreserving` not enforcing [`StageCheck::Mono`] (no `Ty::Param`)
-/// is safe. If a generic target ever reaches this check, the no-`Ty::Param`
-/// invariant panics with a descriptive message, which serves as the assertion
-/// that the assumption was violated.
+/// [`InvariantLevel::PostSignaturePreserving`] enforces only the postconditions
+/// of its body-only passes; it does not require pinned signatures to be
+/// monomorphized or reject `Ty::Param`.
 pub(crate) fn check_with_exemptions_and_seeds(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
@@ -298,21 +299,25 @@ pub(crate) fn check_with_exemptions_and_seeds(
                 store,
                 package_id,
                 &reachable,
-                &exemptions.return_unify_items,
+                &exemptions.return_unify_skipped_items,
             );
             check_no_flag_writes_in_operand_position(
                 store,
                 &reachable,
-                &exemptions.return_unify_items,
+                &exemptions.return_unify_skipped_items,
             );
         }
 
         // Check type invariants on the entry expression tree.
         //
-        // The entry-expression walk is not keyed by callable item, so it uses
-        // the compilation-scoped `residue_tolerant` flag (not `skip`) to allow
-        // a residual entry closure to flow downstream under deferred residue.
-        check_expr_types(store, package, entry_id, level, exemptions.defunc_entry);
+        // Entry residue is independent of the callable-item exemptions.
+        check_expr_types(
+            store,
+            package,
+            entry_id,
+            level,
+            exemptions.entry_has_defunc_residue,
+        );
 
         // After all passes, validate the entry exec graph.
         if level == InvariantLevel::PostAll {
@@ -380,7 +385,7 @@ fn check_package_udt_erase_invariants_in_reachable_items(
     target_package_id: qsc_fir::fir::PackageId,
 ) {
     let check_node = |pkg: &Package, node: CallableNode| match node {
-        CallableNode::Expr(id) => check_expr_udt_erase_invariants(pkg, id),
+        CallableNode::Expr(id) => check_expr_udt_erase_invariants(store, pkg, id),
         CallableNode::Pat(id) => {
             check_type_udt_erase_invariants(&pkg.get_pat(id).ty, &format!("Pat {id}"));
         }
@@ -482,15 +487,30 @@ fn check_id_references_in_reachable_items(
 }
 
 /// Validates that a single expression satisfies post-UDT-erasure invariants:
-/// no `Ty::Udt` in its type, no `ExprKind::Struct`, no `Field::Path` in
-/// `UpdateField`/`AssignField`, and `Field::Path` only on tuple-typed records.
+/// no UDT type, struct construction, or direct UDT constructor call; no
+/// `Field::Path` in updates; and field projections only on tuple-typed records.
 ///
 /// # Panics
 ///
 /// Panics with a descriptive message if any UDT-erasure invariant is violated.
-fn check_expr_udt_erase_invariants(package: &Package, expr_id: ExprId) {
+fn check_expr_udt_erase_invariants(store: &PackageStore, package: &Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id);
     check_type_udt_erase_invariants(&expr.ty, &format!("Expr {expr_id}"));
+
+    if let ExprKind::Call(callee, _) = expr.kind
+        && let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind
+    {
+        // Rolled-back incremental declarations retain their name-binding error;
+        // only an existing type item proves a residual constructor.
+        assert!(
+            !store
+                .get(item.package)
+                .items
+                .get(item.item)
+                .is_some_and(|item| matches!(item.kind, ItemKind::Ty(..))),
+            "PostUdtErase invariant violation: Expr {expr_id} calls a UDT constructor"
+        );
+    }
 
     if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
         panic!(
@@ -559,8 +579,9 @@ fn check_type_udt_erase_invariants(ty: &Ty, context: &str) {
 /// # Panics
 ///
 /// Panics with a descriptive message if any non-Unit block lacks a matching
-/// trailing `StmtKind::Expr`. A trailing expression whose type differs from the
-/// block type is tolerated only when that expression diverges (`fail`/`return`).
+/// trailing `StmtKind::Expr` or divergent `StmtKind::Semi`. A trailing expression
+/// whose type differs from the block type is tolerated only when that expression
+/// diverges (`fail`/`return`).
 pub(crate) fn check_non_unit_block_tails(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
@@ -672,11 +693,11 @@ fn check_nested_block_expr_tails(package: &Package, expr_id: ExprId, context: &s
 ///
 /// # Panics
 ///
-/// Panics if the block has a non-Unit type but is empty, ends in a non-Expr
-/// statement, or ends in an expression whose type does not match the block
-/// type and does not diverge (`fail`/`return`). A divergent trailing expression
-/// is exempt because it never yields a value, so typeck may leave its type
-/// different from the enclosing block.
+/// Panics if the block has a non-Unit type but is empty, lacks a trailing Expr
+/// or divergent Semi statement, or ends in an expression whose type does not
+/// match the block type, unless a necessarily evaluated statement diverges
+/// (`fail`/`return`). Such a block never yields a value, so typeck may leave its
+/// tail type different from the enclosing block.
 fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str) {
     if let Some(detail) = non_unit_block_tail_violation(package, block_id) {
         panic!("Non-Unit block-tail invariant violation: {context} {detail}");
@@ -686,13 +707,11 @@ fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str
 /// Returns a description of the non-Unit block-tail violation carried by
 /// `block_id`, or `None` when the block satisfies the invariant.
 ///
-/// A divergent trailing expression (`fail`/`return`, or an `if`/block that
-/// always diverges) never yields a value, so typeck may leave it with a type
-/// that differs from its enclosing non-Unit block. That mismatch is tolerated;
-/// any non-divergent type mismatch is still a real violation.
+/// An earlier or trailing necessarily divergent statement makes the block's
+/// value type unobservable. Lazy or deferred failures do not exempt a mismatch.
 fn non_unit_block_tail_violation(package: &Package, block_id: BlockId) -> Option<String> {
     let block = package.get_block(block_id);
-    if block.ty == Ty::UNIT {
+    if block.ty == Ty::UNIT || block_diverges(package, block_id) {
         return None;
     }
 
@@ -707,6 +726,9 @@ fn non_unit_block_tail_violation(package: &Package, block_id: BlockId) -> Option
     let expr_id = match &stmt.kind {
         StmtKind::Expr(expr_id) => *expr_id,
         StmtKind::Semi(expr_id) => {
+            if expr_diverges(package, *expr_id) {
+                return None;
+            }
             return Some(format!(
                 "Block {block_id} has type {:?} but ends with Semi Expr {expr_id}",
                 block.ty,
@@ -743,16 +765,53 @@ fn non_unit_block_tail_violation(package: &Package, block_id: BlockId) -> Option
 /// Typeck assigns a divergent expression a fresh divergent type that defaults to
 /// `Unit` when left unconstrained, so a divergent trailing expression can
 /// legitimately carry a type that differs from its enclosing non-Unit block. The
-/// predicate stays conservative: any unrecognized shape is treated as
-/// non-divergent so genuine value-type mismatches still surface.
+/// Only necessarily evaluated children establish divergence. Lazy operands,
+/// conditional bodies and deferred closure bodies are handled separately.
 fn expr_diverges(package: &Package, expr_id: ExprId) -> bool {
-    match &package.get_expr(expr_id).kind {
+    let kind = &package.get_expr(expr_id).kind;
+    match kind {
         ExprKind::Fail(_) | ExprKind::Return(_) => true,
         ExprKind::Block(block_id) => block_diverges(package, *block_id),
-        ExprKind::If(_, then, Some(els)) => {
-            expr_diverges(package, *then) && expr_diverges(package, *els)
+        ExprKind::If(condition, then, otherwise) => {
+            expr_diverges(package, *condition)
+                || otherwise.is_some_and(|otherwise| {
+                    expr_diverges(package, *then) && expr_diverges(package, otherwise)
+                })
         }
-        _ => false,
+        ExprKind::While(condition, _)
+        | ExprKind::BinOp(BinOp::AndL | BinOp::OrL, condition, _)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, condition, _) => {
+            expr_diverges(package, *condition)
+        }
+        ExprKind::Array(_)
+        | ExprKind::ArrayLit(_)
+        | ExprKind::ArrayRepeat(..)
+        | ExprKind::Assign(..)
+        | ExprKind::AssignOp(..)
+        | ExprKind::AssignField(..)
+        | ExprKind::AssignIndex(..)
+        | ExprKind::BinOp(..)
+        | ExprKind::Call(..)
+        | ExprKind::Field(..)
+        | ExprKind::Index(..)
+        | ExprKind::Parallel(..)
+        | ExprKind::Range(..)
+        | ExprKind::Struct(..)
+        | ExprKind::String(_)
+        | ExprKind::UpdateIndex(..)
+        | ExprKind::Tuple(_)
+        | ExprKind::UnOp(..)
+        | ExprKind::UpdateField(..) => {
+            let mut diverges = false;
+            crate::walk_utils::for_each_direct_child(kind, |child| {
+                diverges |= match child {
+                    crate::walk_utils::DirectChild::Expr(child) => expr_diverges(package, child),
+                    crate::walk_utils::DirectChild::Block(block) => block_diverges(package, block),
+                };
+            });
+            diverges
+        }
+        ExprKind::Closure(..) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(..) => false,
     }
 }
 
@@ -921,20 +980,20 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 /// Depending on `level`, this dispatcher invokes:
 /// - `check_type_invariants` on callable output types.
 /// - `check_no_arrow_params` once defunctionalization should have removed
-///   callable-valued parameters. Pinned items are excluded from this check
-///   because they are specialization targets that intentionally retain
-///   arrow-typed parameters for callable-args codegen. Items listed in `skip`
-///   (deferred defunctionalization residue) are likewise exempt, so an
-///   un-specialized higher-order-function arrow parameter can flow downstream
-///   instead of tripping the assertion.
+///   callable-valued parameters, except for `exemptions.defunc_residual_items`.
+///   Pins outside the entry-rooted closure are not visited by the normal
+///   pipeline check; the seeded signature-preserving check permits their
+///   original arrow-typed parameters.
 /// - `check_callable_input_pattern_shapes` once tuple-decompose and argument promotion may
 ///   have synthesized tuple-shaped inputs.
 /// - `check_no_returns` once return unification should have removed
-///   `ExprKind::Return`.
-/// - `check_spec_decl_types` on the body and explicit specializations.
+///   `ExprKind::Return`, except for `exemptions.return_unify_skipped_items`.
+/// - `check_spec_decl_types` on the body and explicit specializations,
+///   permitting defunctionalization residue only for the exempted items.
 /// - `check_local_var_consistency` to ensure every local reference is still
 ///   backed by a binder.
-/// - `check_spec_exec_graph` once exec graphs have been rebuilt at `PostAll`.
+///
+/// Reachable-spec execution graphs are checked separately at `PostAll`.
 fn check_reachable_invariants(
     store: &PackageStore,
     reachable: &FxHashSet<StoreItemId>,
@@ -961,7 +1020,7 @@ fn check_reachable_invariants(
             check_pat_types(item_pkg, decl.input, level);
 
             if enforces_stage(level, StageCheck::Defunc)
-                && !exemptions.defunc_items.contains(item_id)
+                && !exemptions.defunc_residual_items.contains(item_id)
             {
                 check_no_arrow_params(item_pkg, decl);
             }
@@ -971,14 +1030,14 @@ fn check_reachable_invariants(
             }
 
             if enforces_stage(level, StageCheck::ReturnUnify)
-                && !exemptions.return_unify_items.contains(item_id)
+                && !exemptions.return_unify_skipped_items.contains(item_id)
             {
                 check_no_returns(item_pkg, decl);
             }
 
             match &decl.implementation {
                 CallableImpl::Spec(spec_impl) => {
-                    let item_residue_tolerant = exemptions.defunc_items.contains(item_id);
+                    let item_residue_tolerant = exemptions.defunc_residual_items.contains(item_id);
                     check_spec_decl_types(
                         store,
                         item_pkg,
@@ -1646,17 +1705,12 @@ fn check_expr_types(
 /// type and then layers stage-specific structural checks on the expression
 /// kind itself.
 ///
-/// The `PostUdtErase`-era expression-kind assertions here (for
-/// [`ExprKind::Struct`], [`Field::Path`] in `UpdateField`/`AssignField`, and
-/// [`Field::Path`] on non-tuple records) intentionally overlap with
-/// `check_package_udt_erase_invariants_in_reachable_items`: this walker fires on
-/// every reachable expression in the target package, while the reachable-scoped
-/// walker visits every reachable callable expression in every reachable
-/// package. Both paths must agree so a regression caught in either scope
-/// produces the same diagnostic.
+/// Target-package and reachable foreign expressions share
+/// [`check_expr_udt_erase_invariants`] so both scopes enforce the same contract.
 ///
 /// `residue_tolerant` permits residual closures to reach downstream analysis.
-/// It is compilation-scoped because entry expressions have no callable item.
+/// It applies only to the current callable item or entry expression, as selected
+/// by [`InvariantExemptions`].
 fn check_expr_type(
     store: &PackageStore,
     package: &Package,
@@ -1677,11 +1731,9 @@ fn check_expr_type(
 
     // After defunctionalization, no closures should remain in reachable code.
     //
-    // A compilation carrying deferred defunctionalization residue
-    // (`residue_tolerant`) is exempt: a non-converging defunctionalization pass
-    // may leave a well-typed residual closure for RCA and partial evaluation to
-    // resolve or reject, so the closure-kind assertion is downgraded to a no-op
-    // for those compilations only.
+    // An exempted callable or entry expression may retain a well-typed closure
+    // for RCA and partial evaluation to resolve or reject. Other items still
+    // enforce this check.
     if enforces_stage(level, StageCheck::Defunc) && !residue_tolerant {
         assert!(
             !matches!(&expr.kind, ExprKind::Closure(_, _)),
@@ -1699,35 +1751,8 @@ fn check_expr_type(
         );
     }
 
-    // After UDT erasure, all Struct expressions must have been lowered.
     if enforces_stage(level, StageCheck::UdtErase) {
-        if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 ExprKind::Struct after UDT erasure"
-            );
-        }
-
-        // Field::Path references UDT field paths that must be lowered by udt_erase.
-        if let ExprKind::UpdateField(_, Field::Path(_), _)
-        | ExprKind::AssignField(_, Field::Path(_), _) = &expr.kind
-        {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 Field::Path in UpdateField/AssignField after UDT erasure"
-            );
-        }
-
-        // After UDT erasure, every Field::Path target must be a Tuple.
-        if let ExprKind::Field(record_id, Field::Path(_)) = &expr.kind {
-            let record = package.get_expr(*record_id);
-            assert!(
-                matches!(&record.ty, Ty::Tuple(_)),
-                "PostUdtErase invariant violation: Expr {expr_id} has Field::Path \
-                 on non-tuple record Expr {record_id} (type: {:?})",
-                record.ty,
-            );
-        }
+        check_expr_udt_erase_invariants(store, package, expr_id);
     }
 
     // After tuple comparison lowering, no BinOp(Eq/Neq) on non-empty tuple operands.

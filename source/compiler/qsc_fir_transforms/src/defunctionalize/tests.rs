@@ -1360,8 +1360,7 @@ fn dispatched_callable_before_static_sibling_declines_instead_of_aborting() {
 ///
 /// A tuple destructure and a mutable reassignment defeat the same tracing and
 /// were measured to miscompile identically, so all three are asserted here.
-/// Companion to the semantic equivalence test of the same shape, which lives
-/// behind the `slow-proptest-tests` feature and so does not run by default.
+/// Companion to the ordinarily enabled semantic equivalence test of the same shape.
 ///
 /// Consuming producers for a call the rewrite cannot discriminate replaced them
 /// with `fail`-bodied stand-ins that the surviving `ops[idx]` read still

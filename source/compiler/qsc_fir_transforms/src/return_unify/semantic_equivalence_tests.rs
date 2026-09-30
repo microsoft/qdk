@@ -2,11 +2,214 @@
 // Licensed under the MIT License.
 
 use crate::test_utils::check_semantic_equivalence;
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
 
 #[test]
-fn exploration_structural_while_nested_condition_return() {
+fn semicolon_failure_in_non_unit_body_preserves_user_error() {
+    check_non_unit_failure("fail \"expected\";");
+}
+
+#[test]
+fn expression_failure_in_non_unit_body_preserves_user_error() {
+    check_non_unit_failure("fail \"expected\"");
+}
+
+#[test]
+fn eager_operand_failures_in_non_unit_tails_preserve_user_error_and_location() {
+    for body in [
+        "[fail \"expected\"];",
+        "(1, fail \"expected\");",
+        "function Ignore(value : Int) : Unit {} Ignore(fail \"expected\");",
+        "if fail \"expected\" {}",
+        "$\"{fail \"expected\"}\";",
+        "1 + (fail \"expected\");",
+        "[1, size = fail \"expected\"];",
+    ] {
+        eprintln!("eager divergent tail: {body}");
+        check_non_unit_failure(body);
+    }
+}
+
+#[test]
+fn short_circuit_unselected_branch_and_deferred_closure_failures_return_seventeen() {
+    check_preserved_result(
+        indoc::indoc! {r#"
+            @EntryPoint()
+            operation Main() : Int {
+                let a = false and (fail "right and operand");
+                let b = true or (fail "right or operand");
+                let c = if false { fail "unselected branch" } else { 17 };
+                let deferred : Int -> Int = x -> { fail "closure body"; x };
+                if a or not b { fail "unexpected boolean result"; }
+                c
+            }
+        "#},
+        "17",
+    );
+}
+
+fn check_non_unit_failure(body: &str) {
+    let source = format!("@EntryPoint() operation Main() : Int {{ {body} }}");
+    check_preserved_failure(&source, "expected", Vec::new());
+}
+
+fn check_preserved_failure(source: &str, message: &str, trace: Vec<crate::test_utils::TraceOp>) {
+    use crate::test_utils::{
+        PipelineStage, compile_and_run_pipeline_to, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+
+    let (store, package_id) = compile_to_fir(source);
+    let fail_span = store
+        .get(package_id)
+        .exprs
+        .iter()
+        .find_map(|(_, expr)| {
+            matches!(expr.kind, qsc_fir::fir::ExprKind::Fail(_)).then_some(expr.span)
+        })
+        .expect("source must contain a fail expression");
+    let expected = (
+        Err(format!(
+            "{:?}",
+            qsc_eval::Error::UserFail(
+                message.into(),
+                (
+                    qsc_lowerer::map_fir_package_to_hir(fail_span.package),
+                    fail_span.span
+                )
+                    .into()
+            )
+        )),
+        trace,
+    );
+    assert_eq!(try_eval_fir_entry_with_trace(&store, package_id), expected);
+    for stage in [PipelineStage::ReturnUnify, PipelineStage::Full] {
+        let (mut store, package_id) = compile_and_run_pipeline_to(source, stage);
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+        assert_eq!(
+            try_eval_fir_entry_with_trace(&store, package_id),
+            expected,
+            "failure must survive {stage:?}"
+        );
+    }
+}
+
+#[test]
+fn divergent_for_iterables_preserve_stop_failure_and_return_seventeen() {
+    for body in [
+        "let value = for item : String in fail \"stop\" {};",
+        "for item : String in fail \"stop\" {}",
+        "let items : String[] = fail \"stop\"; for item in items {}",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Unit {{ {body} }}");
+        check_preserved_failure(&source, "stop", Vec::new());
+    }
+    check_preserved_result(
+        "@EntryPoint() operation Main() : Int { for item : String in return 17 {} 0 }",
+        "17",
+    );
+}
+
+#[test]
+fn generated_adjoint_preserves_iterable_failure_after_qubit_allocation() {
+    for iterable in [
+        "for item : String in fail \"iter\" { X(q); }",
+        "let items : String[] = fail \"iter\"; for item in items { X(q); }",
+    ] {
+        let source = format!(
+            "operation A(q : Qubit) : Unit is Adj {{ {iterable} }}
+             @EntryPoint() operation Main() : Unit {{
+                 use q = Qubit();
+                 Adjoint A(q);
+                 Reset(q);
+             }}"
+        );
+        check_preserved_failure(
+            &source,
+            "iter",
+            vec![crate::test_utils::TraceOp::QubitAllocate(0)],
+        );
+    }
+}
+
+fn check_preserved_unit_trace(source: &str, expected_trace: &[crate::test_utils::TraceOp]) {
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert_eq!(result, Ok(qsc_eval::val::Value::unit()));
+    assert_eq!(trace, expected_trace);
+    check_semantic_equivalence(source);
+}
+
+#[test]
+fn discarded_qubit_allocations_preserve_one_release_per_qubit() {
+    use crate::test_utils::TraceOp::{QubitAllocate, QubitRelease};
+    for body in [
+        "use _ = Qubit();",
+        "use q = Qubit();",
+        "use _ = Qubit(); return ();",
+        "while true { use _ = Qubit(); break; }",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Unit {{ {body} }}");
+        check_preserved_unit_trace(&source, &[QubitAllocate(0), QubitRelease(0)]);
+    }
+    for body in [
+        "use (_, q) = (Qubit(), Qubit());",
+        "use _ = (Qubit(), Qubit());",
+        "use (q, r) = (Qubit(), Qubit());",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Unit {{ {body} }}");
+        check_preserved_unit_trace(
+            &source,
+            &[
+                QubitAllocate(0),
+                QubitAllocate(1),
+                QubitRelease(1),
+                QubitRelease(0),
+            ],
+        );
+    }
+    check_preserved_unit_trace(
+        "@EntryPoint() operation Main() : Unit { use _ = Qubit[2]; }",
+        &[
+            QubitAllocate(0),
+            QubitAllocate(1),
+            QubitRelease(0),
+            QubitRelease(1),
+        ],
+    );
+}
+
+#[test]
+fn break_in_call_argument_preserves_qubit_array_type_and_release_without_calling_body() {
+    use crate::test_utils::TraceOp::{QubitAllocate, QubitRelease};
+    for assignment in ["keepGoing = false;", "set keepGoing = false;"] {
+        let source = format!(
+            "operation UseQubit(q : Qubit) : Unit {{ X(q); }}
+             @EntryPoint() operation Main() : Unit {{
+                 use q = Qubit();
+                 mutable keepGoing = true;
+                 while keepGoing {{
+                     UseQubit(if keepGoing {{ break }} else {{ q }});
+                     {assignment}
+                 }}
+             }}"
+        );
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        for (_, expr) in &store.get(package).exprs {
+            assert!(
+                !matches!(&expr.ty, qsc_fir::ty::Ty::Array(element) if **element == qsc_fir::ty::Ty::Err),
+                "source-derived expression {} has Array(Err): {assignment}",
+                expr.id
+            );
+        }
+        check_preserved_unit_trace(&source, &[QubitAllocate(0), QubitRelease(0)]);
+    }
+}
+
+#[test]
+fn nested_while_condition_return_preserves_accumulated_result() {
     crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
         namespace Test {
             function Identity(value : Int) : Int { value }
@@ -33,7 +236,7 @@ fn exploration_structural_while_nested_condition_return() {
 }
 
 #[test]
-fn exploration_structural_reduced_while_operand_return() {
+fn return_in_while_comparison_operand_returns_forty_two() {
     crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -46,7 +249,7 @@ fn exploration_structural_reduced_while_operand_return() {
 }
 
 #[test]
-fn exploration_structural_reduced_while_block_control() {
+fn return_in_while_condition_block_returns_forty_two() {
     crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -103,7 +306,7 @@ fn while_operand_return_preserves_repeated_eager_order() {
             }
         }
     "#};
-    check_while_condition_result(source, "(1231231, 12312312312, 1231231, 12312312312)");
+    check_preserved_result(source, "(1231231, 12312312312, 1231231, 12312312312)");
 }
 
 #[test]
@@ -125,10 +328,10 @@ fn while_operand_return_preserves_short_circuit_and_body_suppression() {
             operation Main() : (Int, Int) { (RightReturn(), LeftReturn()) }
         }
     "#};
-    check_while_condition_result(source, "(73, 91)");
+    check_preserved_result(source, "(73, 91)");
 }
 
-fn check_while_condition_result(source: &str, expected: &str) {
+fn check_preserved_result(source: &str, expected: &str) {
     use crate::test_utils::{compile_to_fir, try_eval_fir_entry_with_trace};
     let (store, package) = compile_to_fir(source);
     let (result, trace) = try_eval_fir_entry_with_trace(&store, package);
@@ -137,8 +340,8 @@ fn check_while_condition_result(source: &str, expected: &str) {
     check_semantic_equivalence(source);
 }
 
-mod round8_control {
-    use super::check_while_condition_result;
+mod control_flow_effect_order {
+    use super::check_preserved_result;
     use indoc::indoc;
 
     #[test]
@@ -170,7 +373,7 @@ mod round8_control {
                 operation Main() : (Int, Int, Int) { (Run(1), Run(2), Run(9)) }
             }
         "#};
-        check_while_condition_result(source, "(13, 134123, 134123412)");
+        check_preserved_result(source, "(13, 134123, 134123412)");
     }
 
     #[test]
@@ -202,7 +405,7 @@ mod round8_control {
                 }
             }
         "#};
-        check_while_condition_result(source, "(128313, 901200, 1028313, 128313)");
+        check_preserved_result(source, "(128313, 901200, 1028313, 128313)");
     }
 
     #[test]
@@ -228,7 +431,7 @@ mod round8_control {
                 operation Main() : (Int, Int, Int) { (Run(1), Run(2), Run(9)) }
             }
         "#};
-        check_while_condition_result(source, "(1212, 4012, 1212)");
+        check_preserved_result(source, "(1212, 4012, 1212)");
     }
 
     #[test]
@@ -265,7 +468,7 @@ mod round8_control {
                 }
             }
         "#};
-        check_while_condition_result(source, "(555696, 12, 12453, 12454370)");
+        check_preserved_result(source, "(555696, 12, 12453, 12454370)");
     }
 
     #[test]
@@ -300,7 +503,7 @@ mod round8_control {
                 }
             }
         "#};
-        check_while_condition_result(source, "(31853, 920312, 931853, 31853)");
+        check_preserved_result(source, "(31853, 920312, 931853, 31853)");
     }
 }
 
@@ -309,6 +512,7 @@ mod round8_control {
 /// (structured, flag, no-return). Each program wraps one of 12 template
 /// patterns in a `namespace Test { function Main() : Int { ... } }` shell.
 #[allow(clippy::too_many_lines)]
+#[cfg(feature = "slow-proptest-tests")]
 fn return_pattern_strategy() -> impl Strategy<Value = String> {
     let cmp = || 0..10i64;
     let val = || 0..100i64;
@@ -472,6 +676,7 @@ fn return_pattern_strategy() -> impl Strategy<Value = String> {
     ]
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(100))]
     #[test]

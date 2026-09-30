@@ -101,6 +101,7 @@ use qsc_fir::{
 };
 use thiserror::Error;
 
+pub use crate::cloner::FirCloner;
 use crate::package_assigners::PackageAssigners;
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 
@@ -311,10 +312,10 @@ fn run_pipeline_to_impl(
 
     lower_codegen_noop_intrinsic_calls(store, &mut assigners);
 
-    let (ru_errors, return_unify_items) =
+    let (ru_errors, return_unify_skipped_items) =
         return_unify::unify_returns(store, package_id, &mut assigners);
     let mut exemptions = invariants::InvariantExemptions {
-        return_unify_items,
+        return_unify_skipped_items,
         ..Default::default()
     };
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
@@ -325,8 +326,8 @@ fn run_pipeline_to_impl(
         .extend(ru_warnings.into_iter().map(PipelineError::from));
     // Return unification currently emits only warnings: callables it cannot
     // convert are left un-rewritten (their residual `Return` nodes are carried
-    // through downstream stages and the invariant checker skips them via
-    // `skipped`). This guard is a defensive abort for a future fatal
+    // through downstream stages under `exemptions.return_unify_skipped_items`).
+    // This guard is a defensive abort for a future fatal
     // `return_unify::Error` variant, keeping the schedule from advancing past a
     // genuinely unrecoverable callable; today `ru_fatal` is always empty.
     if !ru_fatal.is_empty() {
@@ -388,8 +389,9 @@ fn run_pipeline_to_impl(
 /// erasure, tuple-comparison lowering, and tuple decomposition, checking the
 /// matching invariant after each.
 ///
-/// Returns whether processing is complete and whether deferred residue requires
-/// relaxed downstream invariant checks.
+/// Returns `true` when the requested stage is reached or a fatal diagnostic
+/// stops processing. Records diagnostics on `result` and updates `exemptions`
+/// with item- and entry-specific defunctionalization residue when it is deferred.
 fn run_defunc_and_lowering_stages(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -431,8 +433,8 @@ fn run_defunc_and_lowering_stages(
     }
 
     if has_deferrable_residue {
-        exemptions.defunc_items = residue_items;
-        exemptions.defunc_entry = entry_has_residue;
+        exemptions.defunc_residual_items = residue_items;
+        exemptions.entry_has_defunc_residue = entry_has_residue;
     }
 
     invariants::check_with_exemptions(
@@ -668,14 +670,11 @@ fn assert_no_simulatable_intrinsics(store: &PackageStore) {
     );
 }
 
-/// Runs the backend stages after all structural transforms: pinned-item
-/// validation, item dead-code elimination, execution-graph rebuild, and the
-/// final `PostAll` invariant walk.
+/// Runs the backend stages after all structural transforms: item dead-code
+/// elimination, execution-graph rebuild, and the final `PostAll` invariant walk.
 ///
-/// Deferred residue remains tolerated through the final checks.
-///
-/// Mutates `result` in place; a fatal pinned-item validation error stops the
-/// backend early with the errors recorded on `result`.
+/// Pins have already been validated before UDT erasure. Stops after the
+/// requested stage and preserves the supplied exemptions through the checks.
 fn finalize_pipeline(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -1050,7 +1049,7 @@ pub fn run_signature_preserving_subpipeline(
     exec_graph_rebuild::rebuild_exec_graphs(store, package_id, seeds);
 
     let exemptions = invariants::InvariantExemptions {
-        return_unify_items: skipped,
+        return_unify_skipped_items: skipped,
         ..Default::default()
     };
     invariants::check_with_exemptions_and_seeds(

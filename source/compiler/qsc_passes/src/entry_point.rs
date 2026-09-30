@@ -9,15 +9,18 @@ use crate::PackageType;
 use super::Error as PassErr;
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
+use qsc_frontend::typeck::validate_instantiation;
 use qsc_hir::{
     assigner::Assigner,
     hir::{
         Attr, CallableDecl, Expr, ExprKind, Item, ItemId, ItemKind, LocalItemId, Package,
         PackageId, PatKind, Res,
     },
-    ty::Ty,
+    ty::{FunctorSet, GenericArg, ParamId, Ty, TypeParameter},
     visit::Visitor,
 };
+use rustc_hash::FxHashMap;
+use std::rc::Rc;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Diagnostic, Error)]
@@ -36,6 +39,13 @@ pub enum Error {
     #[error("entry point must have body implementation only")]
     #[diagnostic(code("Qdk.Qsc.EntryPoint.BodyMissing"))]
     BodyMissing(#[label("cannot have specialization implementation")] Span),
+
+    #[error("cannot infer a concrete entry-point type satisfying the bounds of `{0}`")]
+    #[diagnostic(code("Qdk.Qsc.EntryPoint.GenericBounds"))]
+    #[diagnostic(help(
+        "provide a non-generic entry point that invokes this callable with a concrete type"
+    ))]
+    GenericBounds(String, #[label] Span),
 
     #[error("entry point not found")]
     #[diagnostic(help(
@@ -87,7 +97,8 @@ fn create_entry_from_callables(
                     qsc_hir::hir::SpecBody::Gen(_) => {
                         Err(vec![PassErr::EntryPoint(Error::BodyMissing(ep.span))])
                     }
-                    qsc_hir::hir::SpecBody::Impl(_, block) => {
+                    qsc_hir::hir::SpecBody::Impl(_, _) => {
+                        let signature = Rc::new(generated_entry_signature(ep)?);
                         let arg = Expr {
                             id: assigner.next_node(),
                             span: ep.input.span,
@@ -102,13 +113,13 @@ fn create_entry_from_callables(
                         let callee = Expr {
                             id: assigner.next_node(),
                             span: ep.name.span,
-                            ty: block.ty.clone(),
+                            ty: Ty::Arrow(Rc::clone(&signature)),
                             kind: ExprKind::Var(Res::Item(item_id), Vec::new()),
                         };
                         let call = Expr {
                             id: assigner.next_node(),
                             span: Span::default(),
-                            ty: block.ty.clone(),
+                            ty: signature.output.borrow().clone(),
                             kind: ExprKind::Call(Box::new(callee), Box::new(arg)),
                         };
                         Ok(call)
@@ -133,6 +144,56 @@ fn create_entry_from_callables(
             })
             .collect())
     }
+}
+
+fn generated_entry_signature(ep: &CallableDecl) -> Result<qsc_hir::ty::Arrow, Vec<PassErr>> {
+    // Generated entries have Unit input and no expected output type, so there
+    // is no call-site evidence for their quantified parameters. Only defaults
+    // satisfying the declaration's constraints are admissible.
+    let args: Vec<_> = ep
+        .generics
+        .iter()
+        .map(|parameter| match parameter {
+            TypeParameter::Ty { .. } => GenericArg::Ty(Ty::UNIT),
+            TypeParameter::Functor(required) => GenericArg::Functor(FunctorSet::Value(*required)),
+        })
+        .collect();
+    let parameters: Vec<_> = ep
+        .generics
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(id, parameter)| (ParamId::from(id), parameter))
+        .collect();
+    let candidates = args
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(id, arg)| (ParamId::from(id), arg))
+        .collect();
+    validate_instantiation(
+        &parameters,
+        &candidates,
+        &FxHashMap::default(),
+        ep.name.span,
+    )
+    .map_err(|errors| {
+        let id = errors[0]
+            .parameter
+            .expect("entry default kinds and arity match");
+        let name = match &ep.generics[usize::from(id)] {
+            TypeParameter::Ty { name, .. } => name.to_string(),
+            TypeParameter::Functor(_) => unreachable!("functor defaults satisfy their bounds"),
+        };
+        vec![PassErr::EntryPoint(Error::GenericBounds(
+            name,
+            ep.name.span,
+        ))]
+    })?;
+    Ok(ep
+        .scheme()
+        .instantiate(&args)
+        .expect("generic defaults have declaration kinds"))
 }
 
 fn get_callables(package: &Package) -> Vec<(&CallableDecl, LocalItemId)> {

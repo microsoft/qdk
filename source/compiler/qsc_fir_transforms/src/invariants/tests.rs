@@ -25,6 +25,52 @@ use crate::test_utils::{
 use qsc_fir::fir::{CallableKind, ExprKind, LocalItemId, LocalVarId, StoreItemId};
 use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim};
 
+#[test]
+fn post_udt_erasure_rejects_restored_source_constructor_call() {
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() function Main() : Int { Data(23)::Value }
+    "#;
+    let (mut store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let package = store.get(package_id);
+    let (id, constructor) = package
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| {
+            let ExprKind::Call(callee, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+                return None;
+            };
+            matches!(
+                store.get(item.package).get_item(item.item).kind,
+                ItemKind::Ty(..)
+            )
+            .then(|| (id, expr.kind.clone()))
+        })
+        .expect("Q# input contains a scalar constructor call");
+    let projection = package
+        .exprs
+        .iter()
+        .find_map(|(field_id, expr)| {
+            matches!(expr.kind, ExprKind::Field(record, _) if record == id).then_some(field_id)
+        })
+        .expect("source projects the constructor result");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, package_id);
+    crate::udt_erase::erase_udts(&mut store, package_id, &mut assigners);
+    check(&store, package_id, InvariantLevel::PostUdtErase);
+    store
+        .get_mut(package_id)
+        .exprs
+        .get_mut(projection)
+        .expect("source expression remains")
+        .kind = constructor;
+    assert_panics_with("calls a UDT constructor", || {
+        check(&store, package_id, InvariantLevel::PostUdtErase);
+    });
+}
+
 /// Simple Q# source with a local variable binding.
 const SIMPLE_LOCAL_VAR: &str = r#"
     namespace Test {
@@ -256,30 +302,35 @@ fn divergent_earlier_statement_passes_block_tail() {
 }
 
 #[test]
-fn conditional_failure_does_not_exempt_mismatched_block_tail() {
-    let source = r#"
-        namespace Test {
-            @EntryPoint()
-            operation Main() : Int {
-                { if false { fail "unreachable"; } () }
-                0
-            }
-        }
-    "#;
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
-    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
-    let removed = store
-        .get_mut(pkg_id)
-        .blocks
-        .get_mut(body_id)
-        .expect("body block should exist")
-        .stmts
-        .pop();
-    assert!(removed.is_some(), "body should have a value tail to remove");
+fn unexecuted_failures_do_not_exempt_mismatched_block_tails() {
+    for body in [
+        "if false { fail \"unreachable\"; } ()",
+        "let unused = false and (fail \"unreachable\"); ()",
+        "let unused = true or (fail \"unreachable\"); ()",
+        "let unused = if false { fail \"unreachable\" } else { true }; ()",
+        "let unused : Int -> Int = x -> { fail \"unreachable\"; x }; ()",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ {{ {body} }} 0 }}");
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original(&source),
+            Ok(qsc_eval::val::Value::Int(0)),
+            "{body}"
+        );
+        let (mut store, pkg_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+        let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+        let removed = store
+            .get_mut(pkg_id)
+            .blocks
+            .get_mut(body_id)
+            .expect("body block should exist")
+            .stmts
+            .pop();
+        assert!(removed.is_some(), "body should have a value tail to remove");
 
-    assert_panics_with("Non-Unit block-tail invariant violation", || {
-        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
-    });
+        assert_panics_with("Non-Unit block-tail invariant violation", || {
+            check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+        });
+    }
 }
 
 #[test]
@@ -692,7 +743,7 @@ fn invariant_exemptions_are_phase_item_and_entry_scoped() {
     inject_closure_expr_at(&mut store, pkg_id, clean_init);
 
     let defunc_only = InvariantExemptions {
-        defunc_items: FxHashSet::from_iter([StoreItemId::from((pkg_id, residue_item))]),
+        defunc_residual_items: FxHashSet::from_iter([StoreItemId::from((pkg_id, residue_item))]),
         ..Default::default()
     };
     assert_panics_with("is a Closure after defunctionalization", || {
@@ -700,7 +751,7 @@ fn invariant_exemptions_are_phase_item_and_entry_scoped() {
     });
 
     let return_only = InvariantExemptions {
-        return_unify_items: FxHashSet::from_iter([StoreItemId::from((pkg_id, main_item))]),
+        return_unify_skipped_items: FxHashSet::from_iter([StoreItemId::from((pkg_id, main_item))]),
         ..Default::default()
     };
     assert_panics_with("is a Closure after defunctionalization", || {
@@ -719,7 +770,10 @@ fn invariant_exemptions_are_phase_item_and_entry_scoped() {
         })
         .expect("Main should exist");
     let wrong_phase = InvariantExemptions {
-        defunc_items: FxHashSet::from_iter([StoreItemId::from((return_pkg_id, return_main))]),
+        defunc_residual_items: FxHashSet::from_iter([StoreItemId::from((
+            return_pkg_id,
+            return_main,
+        ))]),
         ..Default::default()
     };
     assert_panics_with("ExprKind::Return found", || {
@@ -753,7 +807,7 @@ fn invariant_exemptions_are_phase_item_and_entry_scoped() {
     }));
     entry_expr.kind = ExprKind::Closure(Vec::new(), entry_main);
     let entry_only = InvariantExemptions {
-        defunc_entry: true,
+        entry_has_defunc_residue: true,
         ..Default::default()
     };
     check_with_exemptions(
@@ -1024,6 +1078,43 @@ fn post_defunc_catches_non_unit_block_tail_violation() {
     convert_last_body_expr_to_semi(&mut store, pkg_id);
     assert_panics_with("Non-Unit block-tail invariant violation", || {
         check(&store, pkg_id, InvariantLevel::PostDefunc);
+    });
+}
+
+#[test]
+fn non_divergent_unit_semicolon_tail_in_non_unit_body_is_rejected() {
+    let source = r#"
+        @EntryPoint()
+        operation Main() : Int {
+            ();
+            42
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
+    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+    store
+        .get_mut(pkg_id)
+        .blocks
+        .get_mut(body_id)
+        .expect("body should exist")
+        .stmts
+        .pop()
+        .expect("body should have a value tail to remove");
+    let package = store.get(pkg_id);
+    let tail_id = *package.get_block(body_id).stmts.last().expect("Unit tail");
+    let StmtKind::Semi(expr_id) = package.get_stmt(tail_id).kind else {
+        panic!("tail should be a semicolon-terminated expression");
+    };
+    assert_eq!(package.get_expr(expr_id).ty, Ty::UNIT);
+    assert_eq!(
+        non_unit_block_tail_violation(package, body_id),
+        Some(format!(
+            "Block {body_id} has type {:?} but ends with Semi Expr {expr_id}",
+            Ty::Prim(Prim::Int)
+        ))
+    );
+    assert_panics_with("Non-Unit block-tail invariant violation", || {
+        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
     });
 }
 

@@ -86,6 +86,10 @@ pub(super) fn allocate_capture_exprs(
     ids
 }
 
+/// Clones a capture expression while replacing producer parameters with caller
+/// operands. Keep supported forms synchronized with analysis's compound-capture
+/// substitution collection and residual-leak check; admitting a form there that
+/// is not rewritten here can leave a producer-local reference in the caller.
 #[allow(clippy::too_many_lines)]
 fn clone_capture_literal_with_substitutions(
     package: &mut Package,
