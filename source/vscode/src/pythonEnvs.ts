@@ -66,7 +66,7 @@ const packageChoices: PackageChoice[] = [
     packageName: "qdk",
     extra: "ec",
     description: "QDK optional support for quantum error correction",
-    detail: "Develop and test quantum error correction schemes via qdk.ec",
+    detail: "Develop and test quantum error correction schemes",
     picked: false,
   },
   {
