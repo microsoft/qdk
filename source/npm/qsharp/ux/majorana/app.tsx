@@ -15,7 +15,6 @@ import {
 } from "./types.js";
 import type { MajoranaTopology } from "./topology.js";
 import type { VirtualGeometry } from "./virtual-geometry.js";
-import type { VirtualOperationProjection } from "./virtual-operations.js";
 import type { VirtualTopology } from "./virtual-topology.js";
 
 export type MajoranaSceneProps = {
