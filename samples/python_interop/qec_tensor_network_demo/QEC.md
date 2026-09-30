@@ -85,6 +85,23 @@ least the bond the circuit needs; below that the error shows as a wrong P(r).
 
 ## 3. Running it
 
+The API, directly (`run_qir` returns shots; `tensornetwork_qir` returns one value
+per query, without shot noise):
+
+```python
+import qdk.stim
+from qdk.simulation import tensornetwork_qir, Probability, Cost, ContractionOptions, MpsOptions
+
+qir, _ = qdk.stim.compile(stim_text)
+r = [bit == "1" for bit in record]               # one bit per QIR result
+
+p, cost = tensornetwork_qir(qir, [Probability(), Cost()], method="contraction",
+                            outcomes=r, options=ContractionOptions(hyper_samples=8, seed=17))
+[plan] = tensornetwork_qir(qir, [Cost()], method="contraction", outcomes=r)   # plans, never contracts
+p, cost = tensornetwork_qir(qir, [Probability(), Cost()], method="mps",
+                            outcomes=r, options=MpsOptions(max_bond_dimension=512))
+```
+
 Measure on the GPU (one `tensornetwork_qir` call per record, so the time includes
 path finding):
 
