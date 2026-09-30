@@ -1116,7 +1116,7 @@ def test_gep_instruction_emitted():
 
 
 # ---------------------------------------------------------------------------
-# Test: Aggregate alloca rejected
+# Test: Aggregate alloca supported for arrays, not structs
 # ---------------------------------------------------------------------------
 
 ARRAY_ALLOCA_QIR = """\
@@ -1143,10 +1143,11 @@ attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_
 """
 
 
-def test_array_alloca_rejected():
-    """Alloca of an array type is rejected to prevent silent undersizing."""
-    with pytest.raises(NotImplementedError, match="Aggregate stack allocations"):
-        _run_pass(ARRAY_ALLOCA_QIR)
+def test_array_alloca_supported():
+    """Alloca of an array type is supported."""
+    r = _run_pass(ARRAY_ALLOCA_QIR)
+    primaries = [_primary(inst.opcode) for inst in r.instructions]
+    assert OP_ALLOCA in primaries, "Missing OP_ALLOCA"
 
 
 def test_struct_alloca_rejected():

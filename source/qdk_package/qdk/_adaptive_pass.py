@@ -829,7 +829,7 @@ class AdaptiveProfilePass:
             case pyqir.Opcode.INT_TO_PTR:
                 self._emit_inttoptr(instr)
             case pyqir.Opcode.ALLOCA:
-                self._emit_alloca(instr)
+                self._emit_alloca(cast(pyqir.Alloca, instr))
             case pyqir.Opcode.LOAD:
                 self._emit_load(instr)
             case pyqir.Opcode.STORE:
@@ -1240,30 +1240,24 @@ class AdaptiveProfilePass:
     # Memory operation emitters
     # ------------------------------------------------------------------
 
-    def _emit_alloca(self, instr: pyqir.Instruction) -> None:
+    def _emit_alloca(self, instr: pyqir.Alloca) -> None:
         """Emit OP_ALLOCA — stack memory allocation."""
         dst = self._alloc_reg(instr, REG_TYPE_PTR)
         alloc_type = instr.type
+        alloca_operand = (
+            cast(pyqir.IntConstant, instr.operands[0]) if instr.operands else None
+        )
+        num_words = alloca_operand.value if alloca_operand else 1
 
         # Determine the number of words to allocate
         if isinstance(alloc_type, pyqir.PointerType):
-            pointee = alloc_type.pointee
+            pointee = instr.allocated_type
             if isinstance(pointee, pyqir.ArrayType):
-                num_words = pointee.count
-            else:
-                # Reject alloca of aggregate data (arrays and structs).
-                text = str(instr).lstrip()
-                _, _, after_alloca = text.partition("alloca ")
-                if after_alloca.startswith("[") or after_alloca.startswith("{"):
-                    raise NotImplementedError(
-                        "Aggregate stack allocations (alloca of an array "
-                        "or struct type) are not supported by the adaptive "
-                        "GPU bytecode pass under LLVM opaque pointers; "
-                        f"got: {text!r}"
-                    )
-                num_words = 1
-        else:
-            num_words = 1
+                num_words *= pointee.count
+            elif isinstance(pointee, pyqir.StructType):
+                raise NotImplementedError(
+                    "Aggregate stack allocations for structs are not supported."
+                )
 
         addr = self._alloca_ptr
         self._alloca_ptr += num_words
