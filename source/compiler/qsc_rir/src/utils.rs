@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId};
+use crate::rir::{
+    Block, BlockId, Instruction, Operand, OperandMapping, Program, Variable, VariableId,
+};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -140,7 +142,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
 // usage of the variable with the stored value.
 pub(crate) fn map_variable_use_in_block(
     block: &mut Block,
-    var_map: &mut FxHashMap<VariableId, Operand>,
+    var_map: &mut FxHashMap<VariableId, OperandMapping>,
     var_stor_to_keep: &FxHashSet<VariableId>,
 ) {
     let instrs = block.0.drain(..).collect::<Vec<_>>();
@@ -153,10 +155,7 @@ pub(crate) fn map_variable_use_in_block(
                     // Only keep stores to variables that are in the set to keep.
                     *operand = operand.mapped(var_map);
                 } else {
-                    // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
-                    // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
-                    // copy of the operand.
-                    var_map.insert(var.variable_id, operand.mapped(var_map));
+                    update_variable_mapping(var_map, operand, var);
                     continue;
                 }
             }
@@ -273,9 +272,33 @@ pub(crate) fn map_variable_use_in_block(
     }
 }
 
+fn update_variable_mapping(
+    var_map: &mut FxHashMap<VariableId, OperandMapping>,
+    operand: &mut Operand,
+    var: &mut Variable,
+) {
+    // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
+    // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
+    // copy of the operand.
+    var_map.insert(
+        var.variable_id,
+        OperandMapping::Strong(operand.mapped(var_map)),
+    );
+
+    // For all existing strong mappings to this variable, downgrade them to weak mappings.
+    // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
+    for mapping in var_map.values_mut() {
+        if let OperandMapping::Strong(Operand::Variable(existing)) = mapping
+            && existing == var
+        {
+            *mapping = OperandMapping::Weak(Operand::Variable(*existing));
+        }
+    }
+}
+
 impl Operand {
     #[must_use]
-    pub fn mapped(&self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
+    pub(crate) fn mapped(&self, var_map: &FxHashMap<VariableId, OperandMapping>) -> Operand {
         match self {
             Operand::Literal(_) => *self,
             Operand::Variable(var) => var.map_to_operand(var_map),
@@ -285,28 +308,35 @@ impl Operand {
 
 impl Variable {
     #[must_use]
-    pub fn map_to_operand(self, var_map: &FxHashMap<VariableId, Operand>) -> Operand {
+    pub(crate) fn map_to_operand(self, var_map: &FxHashMap<VariableId, OperandMapping>) -> Operand {
         let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            if let Operand::Variable(new_var) = operand {
+        while let Some(mapping) = var_map.get(&var.variable_id) {
+            if let Operand::Variable(new_var) = mapping.into() {
                 if new_var.variable_id == var.variable_id {
                     // The variable maps to itself, as happens when a live-in parameter is seeded as
                     // its own definition. It is already at its root, so stop following the chain.
                     break;
                 }
-                var = *new_var;
+                var = new_var;
+                if mapping.is_weak() {
+                    // Stop following the chain for weak mappings and use the current mapping as is.
+                    break;
+                }
             } else {
-                return *operand;
+                return mapping.into();
             }
         }
         Operand::Variable(var)
     }
 
     #[must_use]
-    pub fn map_to_variable(self, var_map: &FxHashMap<VariableId, Operand>) -> Variable {
+    pub(crate) fn map_to_variable(
+        self,
+        var_map: &FxHashMap<VariableId, OperandMapping>,
+    ) -> Variable {
         let mut var = self;
-        while let Some(operand) = var_map.get(&var.variable_id) {
-            let Operand::Variable(new_var) = operand else {
+        while let Some(mapping) = var_map.get(&var.variable_id) {
+            let Operand::Variable(new_var) = mapping.into() else {
                 panic!("literal not supported in this context");
             };
             if new_var.variable_id == var.variable_id {
@@ -314,7 +344,11 @@ impl Variable {
                 // own definition. It is already at its root, so stop following the chain.
                 break;
             }
-            var = *new_var;
+            var = new_var;
+            if mapping.is_weak() {
+                // Stop following the chain for weak mappings and use the current mapping as is.
+                break;
+            }
         }
         var
     }

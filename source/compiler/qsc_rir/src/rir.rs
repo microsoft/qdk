@@ -831,6 +831,38 @@ impl PartialEq for ArrayLiteral {
     }
 }
 
+/// Tracks a mapping to a specific operand, indicating whether the mapping is weak or strong.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum OperandMapping {
+    /// A weak mapping to an operand, where the mapped value should be replaced by this operand
+    /// directly without following any further mappings.
+    Weak(Operand),
+    /// A strong mapping to an operand, where the mapped value should be followed to its root before use.
+    Strong(Operand),
+}
+
+impl OperandMapping {
+    pub(crate) fn is_weak(&self) -> bool {
+        matches!(self, OperandMapping::Weak(_))
+    }
+}
+
+impl From<OperandMapping> for Operand {
+    fn from(val: OperandMapping) -> Self {
+        match val {
+            OperandMapping::Weak(op) | OperandMapping::Strong(op) => op,
+        }
+    }
+}
+
+impl From<&OperandMapping> for Operand {
+    fn from(val: &OperandMapping) -> Self {
+        match val {
+            OperandMapping::Weak(op) | OperandMapping::Strong(op) => *op,
+        }
+    }
+}
+
 fn write_store_array_instruction(
     f: &mut Formatter,
     value: &[Operand],
