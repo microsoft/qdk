@@ -494,7 +494,7 @@ fn build_dominator_graph_intrinsic_callables_skipped() {
 }
 
 #[test]
-fn build_dominator_graph_single_body_unchanged_regression() {
+fn build_dominator_graph_single_body_has_single_root() {
     // A realistic single-body program still produces a single-root dominator map, confirming the
     // per-callable driver leaves single-body output unchanged.
     let mut program = bell_program();

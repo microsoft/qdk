@@ -509,11 +509,6 @@ impl FirCloner {
         &self.item_map
     }
 
-    /// Allocates a fresh `ExprId`.
-    pub fn alloc_expr(&mut self) -> ExprId {
-        self.assigner.next_expr()
-    }
-
     /// Allocates a fresh `PatId`.
     pub fn alloc_pat(&mut self) -> PatId {
         self.assigner.next_pat()

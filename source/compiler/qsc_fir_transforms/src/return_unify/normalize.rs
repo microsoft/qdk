@@ -703,11 +703,24 @@ fn hoist_short_circuit(
     if !contains_return_in_expr(package, b) {
         return None;
     }
+    let rhs = package.get_expr(b).clone();
+    let rhs_id = if matches!(rhs.kind, ExprKind::Block(_) | ExprKind::Return(_)) {
+        b
+    } else {
+        let stmt = alloc_expr_stmt(package, assigner, b, rhs.span);
+        let block = alloc_block(package, assigner, vec![stmt], rhs.ty.clone(), rhs.span);
+        hoist_block_once(package, assigner, package_id, block);
+        alloc_expr(package, assigner, rhs.ty, ExprKind::Block(block), rhs.span)
+    };
     let lit_expr = {
         let value = !is_and;
         alloc_bool_lit(package, assigner, value, package.synthetic_span())
     };
-    let (then_id, else_id) = if is_and { (b, lit_expr) } else { (lit_expr, b) };
+    let (then_id, else_id) = if is_and {
+        (rhs_id, lit_expr)
+    } else {
+        (lit_expr, rhs_id)
+    };
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
     expr.kind = ExprKind::If(a, then_id, Some(else_id));
     None
