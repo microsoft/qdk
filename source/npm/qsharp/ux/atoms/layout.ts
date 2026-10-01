@@ -9,7 +9,7 @@ type ZoneDataInput = {
   title: string;
   kind: "register" | "interaction" | "measurement";
 } & (
-  | { rows: number; rowStart?: never; rowEnd?: never }
+  | { rows: number; rowStart?: never; rowEnd?: never; skipRows?: never }
   | { rowStart: number; rowEnd: number; skipRows?: number[]; rows?: never }
 );
 
