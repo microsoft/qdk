@@ -82,7 +82,9 @@ export type TraceData = {
   metadata: any;
   qubits: Location[];
   steps: Array<{
-    id: string | number;
+    // The ID is never actually consumed, but we leave it in to
+    // avoid breaking existing callers that are passing it in.
+    id?: string | number;
     ops: Array<string>;
   }>;
 };
