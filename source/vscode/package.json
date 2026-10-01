@@ -474,7 +474,7 @@
       "notebook/cell/title": [
         {
           "command": "qsharp-vscode.learningNotebookExplain",
-          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
+          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningNotebookActive",
           "group": "inline/cell@50"
         }
       ],
