@@ -154,6 +154,10 @@ pub(crate) fn map_variable_use_in_block(
                 if var_stor_to_keep.contains(&var.variable_id) {
                     // Only keep stores to variables that are in the set to keep.
                     *operand = operand.mapped(var_map);
+                } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
+                    && var_stor_to_keep.contains(&mapped_var.variable_id)
+                {
+                    *operand = Operand::Variable(mapped_var);
                 } else {
                     update_variable_mapping(var_map, operand, var);
                     continue;
@@ -162,10 +166,7 @@ pub(crate) fn map_variable_use_in_block(
             Instruction::StoreArray(operand, var) => {
                 if var_stor_to_keep.contains(&var.variable_id) {
                     // Only keep stores to variables that are in the set to keep.
-                    *operand = operand
-                        .iter()
-                        .map(|op| op.mapped(var_map))
-                        .collect::<Vec<_>>();
+                    *operand = operand.iter().map(|op| op.mapped(var_map)).collect();
                 } else {
                     // Otherwise drop the store array by continuing the loop.
                     continue;
@@ -261,11 +262,8 @@ pub(crate) fn map_variable_use_in_block(
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
-            Instruction::Alloca(..) => {
-                panic!("alloca not supported in ssa transformation")
-            }
-            Instruction::Load(..) => {
-                panic!("load not supported in ssa transformation")
+            Instruction::Alloca(..) | Instruction::Load(..) => {
+                panic!("alloca/load not supported in ssa transformation")
             }
         }
         block.0.push(instr);

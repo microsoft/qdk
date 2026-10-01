@@ -6030,6 +6030,7 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
         block_0:
           %var_2 = alloca i64
           %var_5 = alloca i64
+          %var_8 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6051,8 +6052,10 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
           store i64 0, ptr %var_5
           br label %block_6
         block_6:
-          %var_8 = load i64, ptr %var_2
-          call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
+          %var_11 = load i64, ptr %var_2
+          store i64 %var_11, ptr %var_8
+          %var_13 = load i64, ptr %var_8
+          call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
           ret i64 0
         }
 

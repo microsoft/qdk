@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod tests;
 
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+
 use crate::{
     rir::{BlockId, Instruction, Operand, OperandMapping, Program, Ty, Variable, VariableId},
     utils::{get_all_block_successors, get_variable_assignments, map_variable_use_in_block},
@@ -100,8 +102,9 @@ fn transform_body_to_ssa(
             // predecessor has a different value for the variable, a phi node is needed.
             let first_pred_map = block_var_map
                 .get(*first_pred)
-                .expect("block should have variable map");
-            'var_loop: for (var_id, mapping) in first_pred_map {
+                .expect("block should have variable map")
+                .clone();
+            'var_loop: for (var_id, mapping) in &first_pred_map {
                 let operand = Into::<Operand>::into(mapping);
                 let mut phi_nodes = FxHashMap::default();
 
@@ -115,7 +118,7 @@ fn transform_body_to_ssa(
                 }) {
                     // Some predecessors have different values for this variable, so a phi node is needed.
                     // Start with the first predecessor's value and block id, then add the values from the other predecessors.
-                    let mut phi_args = vec![(operand.mapped(first_pred_map), *first_pred)];
+                    let mut phi_args = vec![(operand.mapped(&first_pred_map), *first_pred)];
                     for pred in rest_preds {
                         let pred_var_map = block_var_map
                             .get(*pred)
@@ -156,6 +159,17 @@ fn transform_body_to_ssa(
                         OperandMapping::Deep(Operand::Variable(new_var)),
                     );
                     *next_var_id = next_var_id.successor();
+
+                    let var_map = block_var_map
+                        .get_mut(block_id)
+                        .expect("block should have variable map");
+                    for mapping in var_map.values_mut() {
+                        if let OperandMapping::Shallow(Operand::Variable(var)) = mapping
+                            && var.variable_id == variable_id
+                        {
+                            *mapping = OperandMapping::Deep(Operand::Variable(new_var));
+                        }
+                    }
                 }
             }
         }
@@ -163,11 +177,19 @@ fn transform_body_to_ssa(
         // Now that the block has finished processing, apply any updates to the block and
         // merge those updates into the stored variable map to propagate to successors.
         map_variable_use_in_block(block, &mut var_map_updates, &FxHashSet::default());
+        let var_map = block_var_map
+            .get_mut(block_id)
+            .expect("block should have variable map");
         for (var_id, mapping) in var_map_updates {
-            let var_map = block_var_map
-                .get_mut(block_id)
-                .expect("block should have variable map");
-            var_map.entry(var_id).or_insert(mapping);
+            match var_map.entry(var_id) {
+                Vacant(entry) => {
+                    entry.insert(mapping);
+                }
+                Occupied(mut entry) if entry.get().is_shallow() => {
+                    entry.insert(mapping);
+                }
+                Occupied(_) => (),
+            }
         }
     }
 }

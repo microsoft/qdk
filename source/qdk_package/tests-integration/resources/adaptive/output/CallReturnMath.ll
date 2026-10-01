@@ -14,6 +14,7 @@ define internal i64 @A(ptr %var_2, ptr %var_3) {
 block_1:
   %var_10 = alloca i64
   %var_13 = alloca i64
+  %var_14 = alloca i64
   %var_9 = call i64 @B(ptr %var_3)
   store i64 %var_9, ptr %var_10
   call void @X(ptr %var_2)
@@ -28,8 +29,10 @@ block_3:
   br label %block_4
 block_4:
   %var_20 = load i64, ptr %var_13
-  %var_21 = load i64, ptr %var_10
-  %var_15 = mul i64 %var_20, %var_21
+  store i64 %var_20, ptr %var_14
+  %var_22 = load i64, ptr %var_14
+  %var_23 = load i64, ptr %var_10
+  %var_15 = mul i64 %var_22, %var_23
   %var_16 = add i64 %var_15, 1
   ret i64 %var_16
 }
@@ -48,8 +51,8 @@ block_7:
   store i64 3, ptr %var_8
   br label %block_8
 block_8:
-  %var_24 = load i64, ptr %var_8
-  ret i64 %var_24
+  %var_26 = load i64, ptr %var_8
+  ret i64 %var_26
 }
 
 define internal void @X(ptr %var_5) {

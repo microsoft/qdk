@@ -2930,6 +2930,623 @@ fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks() {
 }
 
 #[test]
+fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_using_load_and_store()
+{
+    let mut program = new_program();
+    program.callables.insert(
+        CallableId(1),
+        Callable {
+            name: "dynamic_bool".to_string(),
+            input_type: Vec::new(),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
+            body: None,
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(
+                CallableId(1),
+                Vec::new(),
+                Some(Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Boolean),
+                }),
+                None,
+            ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(0)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Branch(
+                Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Boolean),
+                },
+                BlockId(1),
+                BlockId(2),
+                None,
+            ),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(1),
+        Block(vec![
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(1)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Jump(BlockId(2)),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block(vec![
+            Instruction::Store(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(2)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Add(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Operand::Variable(Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(3),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Return(None),
+        ]),
+    );
+
+    // Before
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Variable(1, Integer) = Store Integer(0)
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Variable(1, Integer) = Store Integer(1)
+                    Jump(2)
+                Block 2: Block:
+                    Variable(2, Integer) = Store Variable(1, Integer)
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(3, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Return
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+
+    // After
+    program.config.capabilities = Profile::Adaptive.into();
+    check_and_transform(&mut program);
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(1, Integer) = Alloca
+                    Variable(2, Integer) = Alloca
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Variable(1, Integer) = Store Integer(0)
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Variable(1, Integer) = Store Integer(1)
+                    Jump(2)
+                Block 2: Block:
+                    Variable(5, Integer) = Load Variable(1, Integer)
+                    Variable(2, Integer) = Store Variable(5, Integer)
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(8, Integer) = Load Variable(1, Integer)
+                    Variable(9, Integer) = Load Variable(2, Integer)
+                    Variable(3, Integer) = Add Variable(8, Integer), Variable(9, Integer)
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
+fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_accessed_in_successor_block()
+ {
+    let mut program = new_program();
+    program.callables.insert(
+        CallableId(1),
+        Callable {
+            name: "dynamic_bool".to_string(),
+            input_type: Vec::new(),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
+            body: None,
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(
+                CallableId(1),
+                Vec::new(),
+                Some(Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Boolean),
+                }),
+                None,
+            ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(0)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Branch(
+                Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Boolean),
+                },
+                BlockId(1),
+                BlockId(2),
+                None,
+            ),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(1),
+        Block(vec![
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(1)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Jump(BlockId(2)),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block(vec![
+            Instruction::Store(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(2)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Call(
+                CallableId(1),
+                Vec::new(),
+                Some(Variable {
+                    variable_id: VariableId(3),
+                    ty: Ty::Prim(Prim::Boolean),
+                }),
+                None,
+            ),
+            Instruction::Branch(
+                Variable {
+                    variable_id: VariableId(3),
+                    ty: Ty::Prim(Prim::Boolean),
+                },
+                BlockId(3),
+                BlockId(4),
+                None,
+            ),
+        ]),
+    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(5))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(5))]));
+    program.blocks.insert(
+        BlockId(5),
+        Block(vec![
+            Instruction::Add(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Operand::Variable(Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Return(None),
+        ]),
+    );
+
+    // Before
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Variable(1, Integer) = Store Integer(0)
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Variable(1, Integer) = Store Integer(1)
+                    Jump(2)
+                Block 2: Block:
+                    Variable(2, Integer) = Store Variable(1, Integer)
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(3, Boolean) = Call id(1), args( )
+                    Branch Variable(3, Boolean), 3, 4
+                Block 3: Block:
+                    Jump(5)
+                Block 4: Block:
+                    Jump(5)
+                Block 5: Block:
+                    Variable(4, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Return
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+
+    // After
+    transform_program(&mut program);
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Jump(2)
+                Block 2: Block:
+                    Variable(5, Integer) = Phi ( [Integer(0), 0], [Integer(1), 1], )
+                    Variable(3, Boolean) = Call id(1), args( )
+                    Branch Variable(3, Boolean), 3, 4
+                Block 3: Block:
+                    Jump(5)
+                Block 4: Block:
+                    Jump(5)
+                Block 5: Block:
+                    Variable(4, Integer) = Add Integer(2), Variable(5, Integer)
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
+fn ssa_transform_allows_point_in_time_copy_of_variable_mutated_across_blocks_accessed_in_successor_block_using_load_and_store()
+ {
+    let mut program = new_program();
+    program.callables.insert(
+        CallableId(1),
+        Callable {
+            name: "dynamic_bool".to_string(),
+            input_type: Vec::new(),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
+            body: None,
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(
+                CallableId(1),
+                Vec::new(),
+                Some(Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Boolean),
+                }),
+                None,
+            ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(0)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Branch(
+                Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Boolean),
+                },
+                BlockId(1),
+                BlockId(2),
+                None,
+            ),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(1),
+        Block(vec![
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(1)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Jump(BlockId(2)),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block(vec![
+            Instruction::Store(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(2)),
+                Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Call(
+                CallableId(1),
+                Vec::new(),
+                Some(Variable {
+                    variable_id: VariableId(3),
+                    ty: Ty::Prim(Prim::Boolean),
+                }),
+                None,
+            ),
+            Instruction::Branch(
+                Variable {
+                    variable_id: VariableId(3),
+                    ty: Ty::Prim(Prim::Boolean),
+                },
+                BlockId(3),
+                BlockId(4),
+                None,
+            ),
+        ]),
+    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(5))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(5))]));
+    program.blocks.insert(
+        BlockId(5),
+        Block(vec![
+            Instruction::Add(
+                Operand::Variable(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Operand::Variable(Variable {
+                    variable_id: VariableId(2),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                Variable {
+                    variable_id: VariableId(4),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Return(None),
+        ]),
+    );
+
+    // Before
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Variable(1, Integer) = Store Integer(0)
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Variable(1, Integer) = Store Integer(1)
+                    Jump(2)
+                Block 2: Block:
+                    Variable(2, Integer) = Store Variable(1, Integer)
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(3, Boolean) = Call id(1), args( )
+                    Branch Variable(3, Boolean), 3, 4
+                Block 3: Block:
+                    Jump(5)
+                Block 4: Block:
+                    Jump(5)
+                Block 5: Block:
+                    Variable(4, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Return
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+
+    // After
+    program.config.capabilities = Profile::Adaptive.into();
+    check_and_transform(&mut program);
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(1, Integer) = Alloca
+                    Variable(2, Integer) = Alloca
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Variable(1, Integer) = Store Integer(0)
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Variable(1, Integer) = Store Integer(1)
+                    Jump(2)
+                Block 2: Block:
+                    Variable(6, Integer) = Load Variable(1, Integer)
+                    Variable(2, Integer) = Store Variable(6, Integer)
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(3, Boolean) = Call id(1), args( )
+                    Branch Variable(3, Boolean), 3, 4
+                Block 3: Block:
+                    Jump(5)
+                Block 4: Block:
+                    Jump(5)
+                Block 5: Block:
+                    Variable(9, Integer) = Load Variable(1, Integer)
+                    Variable(10, Integer) = Load Variable(2, Integer)
+                    Variable(4, Integer) = Add Variable(9, Integer), Variable(10, Integer)
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
 fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branches() {
     let mut program = new_program();
     program.callables.insert(

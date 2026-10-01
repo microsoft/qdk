@@ -8,6 +8,10 @@ define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_6 = alloca i1
   %var_14 = alloca i1
+  %var_15 = alloca i1
+  %var_16 = alloca i1
+  %var_17 = alloca i1
+  %var_18 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -32,13 +36,21 @@ block_2:
   store i1 true, ptr %var_14
   br label %block_3
 block_3:
+  %var_21 = load i1, ptr %var_6
+  store i1 %var_21, ptr %var_15
+  store i1 %var_8, ptr %var_16
+  store i1 %var_11, ptr %var_17
+  %var_25 = load i1, ptr %var_14
+  store i1 %var_25, ptr %var_18
   call void @__quantum__rt__tuple_record_output(i64 4, ptr @0)
-  %var_17 = load i1, ptr %var_6
-  call void @__quantum__rt__bool_record_output(i1 %var_17, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 %var_8, ptr @2)
-  call void @__quantum__rt__bool_record_output(i1 %var_11, ptr @3)
-  %var_18 = load i1, ptr %var_14
-  call void @__quantum__rt__bool_record_output(i1 %var_18, ptr @4)
+  %var_27 = load i1, ptr %var_15
+  call void @__quantum__rt__bool_record_output(i1 %var_27, ptr @1)
+  %var_28 = load i1, ptr %var_16
+  call void @__quantum__rt__bool_record_output(i1 %var_28, ptr @2)
+  %var_29 = load i1, ptr %var_17
+  call void @__quantum__rt__bool_record_output(i1 %var_29, ptr @3)
+  %var_30 = load i1, ptr %var_18
+  call void @__quantum__rt__bool_record_output(i1 %var_30, ptr @4)
   ret i64 0
 }
 
