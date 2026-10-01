@@ -149,11 +149,11 @@ fn transform_body_to_ssa(
                     };
                     let phi_node = Instruction::Phi(args, new_var);
                     block.0.insert(0, phi_node);
-                    // A phi node mapping is always strong, and since the variable is newly created,
-                    // there are no existing strong mappings to downgrade.
+                    // A phi node mapping is always deep, and since the variable is newly created,
+                    // there are no existing deep mappings to downgrade.
                     var_map_updates.insert(
                         variable_id,
-                        OperandMapping::Strong(Operand::Variable(new_var)),
+                        OperandMapping::Deep(Operand::Variable(new_var)),
                     );
                     *next_var_id = next_var_id.successor();
                 }
@@ -214,7 +214,7 @@ fn map_store_to_dominated_ssa(
                     var_map
                         .insert(
                             var_id,
-                            OperandMapping::Strong(Operand::Variable(Variable {
+                            OperandMapping::Deep(Operand::Variable(Variable {
                                 variable_id: var_id,
                                 ty,
                             })),

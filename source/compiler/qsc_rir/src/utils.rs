@@ -282,16 +282,16 @@ fn update_variable_mapping(
     // copy of the operand.
     var_map.insert(
         var.variable_id,
-        OperandMapping::Strong(operand.mapped(var_map)),
+        OperandMapping::Deep(operand.mapped(var_map)),
     );
 
-    // For all existing strong mappings to this variable, downgrade them to weak mappings.
+    // For all existing deep mappings to this variable, downgrade them to shallow mappings.
     // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
     for mapping in var_map.values_mut() {
-        if let OperandMapping::Strong(Operand::Variable(existing)) = mapping
+        if let OperandMapping::Deep(Operand::Variable(existing)) = mapping
             && existing == var
         {
-            *mapping = OperandMapping::Weak(Operand::Variable(*existing));
+            *mapping = OperandMapping::Shallow(Operand::Variable(*existing));
         }
     }
 }
@@ -318,8 +318,8 @@ impl Variable {
                     break;
                 }
                 var = new_var;
-                if mapping.is_weak() {
-                    // Stop following the chain for weak mappings and use the current mapping as is.
+                if mapping.is_shallow() {
+                    // Stop following the chain for shallow mappings and use the current mapping as is.
                     break;
                 }
             } else {
@@ -345,8 +345,8 @@ impl Variable {
                 break;
             }
             var = new_var;
-            if mapping.is_weak() {
-                // Stop following the chain for weak mappings and use the current mapping as is.
+            if mapping.is_shallow() {
+                // Stop following the chain for shallow mappings and use the current mapping as is.
                 break;
             }
         }

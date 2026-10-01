@@ -831,26 +831,26 @@ impl PartialEq for ArrayLiteral {
     }
 }
 
-/// Tracks a mapping to a specific operand, indicating whether the mapping is weak or strong.
+/// Tracks a mapping to a specific operand, indicating whether the mapping is shallow or deep.
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum OperandMapping {
-    /// A weak mapping to an operand, where the mapped value should be replaced by this operand
+    /// A shallow mapping to an operand, where the mapped value should be replaced by this operand
     /// directly without following any further mappings.
-    Weak(Operand),
-    /// A strong mapping to an operand, where the mapped value should be followed to its root before use.
-    Strong(Operand),
+    Shallow(Operand),
+    /// A deep mapping to an operand, where the mapped value should be followed to its root before use.
+    Deep(Operand),
 }
 
 impl OperandMapping {
-    pub(crate) fn is_weak(&self) -> bool {
-        matches!(self, OperandMapping::Weak(_))
+    pub(crate) fn is_shallow(&self) -> bool {
+        matches!(self, OperandMapping::Shallow(_))
     }
 }
 
 impl From<OperandMapping> for Operand {
     fn from(val: OperandMapping) -> Self {
         match val {
-            OperandMapping::Weak(op) | OperandMapping::Strong(op) => op,
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => op,
         }
     }
 }
@@ -858,7 +858,7 @@ impl From<OperandMapping> for Operand {
 impl From<&OperandMapping> for Operand {
     fn from(val: &OperandMapping) -> Self {
         match val {
-            OperandMapping::Weak(op) | OperandMapping::Strong(op) => *op,
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => *op,
         }
     }
 }
