@@ -113,14 +113,18 @@ const doublonCornerRadius = 5;
 
 // Used when no trace data is provided to fill the qubit mappings, assuming all register
 // zones are populated with sequentially numbered qubit ids from the top left to the bottom right.
-export function fillQubitLocations(layout: ZoneLayout): Location[] {
+function fillQubitLocations(
+  zones: readonly ZoneData[],
+  cols: number,
+  skipCols: readonly number[],
+): Location[] {
   const qubits: Location[] = [];
-  const normalizedZones = normalizeZones(layout.zones);
-  normalizedZones.forEach((zone) => {
+  zones.forEach((zone) => {
     if (zone.kind === "register") {
       for (let row = zone.rowStart; row <= zone.rowEnd; ++row) {
         if (zone.skipRows && zone.skipRows.includes(row)) continue;
-        for (let col = 0; col < layout.cols; ++col) {
+        for (let col = 0; col < cols; ++col) {
+          if (skipCols.includes(col)) continue;
           qubits.push([row, col]);
         }
       }
@@ -347,10 +351,16 @@ export class Layout {
     this.skipCols = sortedDistinct(layout.skipCols) ?? [];
     this.renumber = layout.renumber ?? false;
     this.columnMap = createColumnMap(layout.cols, this.skipCols);
+    this.normalizedZones = normalizeZones(layout.zones);
 
     if (!trace.qubits?.length) {
-      trace.qubits = fillQubitLocations(layout);
-    } else if (this.skipCols.length) {
+      trace.qubits = fillQubitLocations(
+        this.normalizedZones,
+        layout.cols,
+        this.skipCols,
+      );
+    }
+    if (this.skipCols.length) {
       // Map the initial qubit column positions if skipCols is provided
       trace.qubits = trace.qubits.map(([row, col]) => [
         row,
@@ -364,9 +374,6 @@ export class Layout {
       "http://www.w3.org/2000/svg",
       "svg",
     );
-
-    // Normalize zones to always use rowStart/rowEnd format
-    this.normalizedZones = normalizeZones(layout.zones);
 
     // Calculate effective columns (visual count after skipping)
     this.effectiveCols = layout.cols - this.skipCols.length;
