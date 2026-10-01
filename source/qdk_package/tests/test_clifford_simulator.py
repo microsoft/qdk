@@ -150,6 +150,25 @@ def test_program_with_branching_succeeds():
     assert len(results) == 1
 
 
+def test_program_indexing_single_zero_result_array_succeeds():
+    # Regression test for https://github.com/microsoft/qdk/issues/3777.
+    qsharp.init(target_profile=TargetProfile.Adaptive)
+    qsharp.eval("""
+        operation Main() : Result {
+            use q = Qubit();
+            for result in [M(q)] {
+                if result == One {
+                    X(q);
+                }
+            }
+            MResetZ(q)
+        }
+        """)
+    ir = qsharp.compile("Main()")
+    results = run_qir_clifford(str(ir), 1, NoiseConfig())
+    assert results == [Result.Zero]
+
+
 def test_program_with_unconditional_branching_succeeds():
     qir = """
 %Result = type opaque
