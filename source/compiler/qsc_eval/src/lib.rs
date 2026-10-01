@@ -2239,7 +2239,7 @@ fn lit_to_val(lit: &Lit) -> Value {
     }
 }
 
-/// UDT erasure in the codegen pipeline lowers `Complex` to an untagged tuple; tag it back.
+/// Re-tags UDT-erased `Complex` tuples; typeck only allows `Complex` in tuple arithmetic.
 fn normalize_complex(value: Value) -> Value {
     match value {
         Value::Tuple(items, None)
