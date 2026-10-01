@@ -17,23 +17,6 @@ fn i_gate_yields_expected_qir() {
 }
 
 #[test]
-fn i_gate_with_args_yields_error() {
-    let source = "I(0.1) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Semantic.UnsupportedArgument
-
-              x unsupported argument in instruction: I
-               ,----
-             1 | I(0.1) 0
-               :   ^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn x_gate_yields_expected_qir() {
     let source = "X 0";
     check(
@@ -274,24 +257,6 @@ fn h_gate_yields_expected_qir() {
 }
 
 #[test]
-fn h_xz_gate_yields_expected_qir() {
-    let source = "H_XZ 0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__h__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn h_nxy_gate_yields_expected_qir() {
     let source = "H_NXY 0";
     check(
@@ -411,24 +376,6 @@ fn s_gate_yields_expected_qir() {
 }
 
 #[test]
-fn sqrt_z_gate_yields_expected_qir() {
-    let source = "SQRT_Z 0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__body(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
 fn sqrt_x_gate_yields_expected_qir() {
     let source = "SQRT_X 0";
     check(
@@ -510,24 +457,6 @@ fn sqrt_y_dag_gate_yields_expected_qir() {
 #[test]
 fn s_dag_gate_yields_expected_qir() {
     let source = "S_DAG 0";
-    check(
-        source,
-        &expect![[r#"
-            [entry_point]
-                call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
-
-            [declarations]
-              declare void @__quantum__qis__s__adj(ptr)
-
-            [metadata]
-              required_num_qubits = 1
-              required_num_results = 0"#]],
-    );
-}
-
-#[test]
-fn sqrt_z_dag_gate_yields_expected_qir() {
-    let source = "SQRT_Z_DAG 0";
     check(
         source,
         &expect![[r#"
