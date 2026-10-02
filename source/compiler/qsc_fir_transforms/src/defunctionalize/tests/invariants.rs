@@ -6,6 +6,9 @@
 #![allow(clippy::too_many_lines)]
 
 use crate::package_assigners::PackageAssigners;
+use crate::test_utils::{
+    assert_panics_with, callable_id_by_name, compile_and_run_pipeline_to, find_callable_body_block,
+};
 
 use super::*;
 use expect_test::expect;
@@ -282,7 +285,7 @@ fn error_returned_not_panicked() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert!(
         !errors.is_empty(),
         "expected errors to be returned, not a panic"
@@ -307,7 +310,7 @@ fn error_multiple_dynamic_sites_collected() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         2,
@@ -1763,4 +1766,238 @@ fn pure_partial_app_direct_dispatch_passes_invariants() {
         }
         "#;
     check_invariants(source);
+}
+
+#[test]
+fn mutable_effectful_producer_residue_remains_authorized() {
+    use qsc_fir::fir::StoreItemId;
+
+    for setup in [
+        r#"
+            mutable op = Initial;
+            for _ in 0..2 {
+                op = MakeOp(q);
+            }
+        "#,
+        r#"
+            mutable op = MakeOp(q);
+            op = Initial;
+            for _ in 0..2 {
+                op = LoopValue;
+            }
+        "#,
+    ] {
+        let source = format!(
+            r#"
+            operation MakeOp(q : Qubit) : Qubit => Unit {{
+                X(q);
+                Rx(0.0, _)
+            }}
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {{
+                op(target);
+            }}
+            operation Initial(q : Qubit) : Unit {{ H(q); }}
+            operation LoopValue(q : Qubit) : Unit {{ X(q); }}
+            operation Main() : Unit {{
+                use q = Qubit();
+                {setup}
+                ApplyOp(op, q);
+            }}
+            "#
+        );
+        let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+        let producer = StoreItemId::from((
+            package_id,
+            callable_id_by_name(store.get(package_id), "MakeOp"),
+        ));
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+        assert!(
+            outcome
+                .diagnostics
+                .iter()
+                .any(super::super::Error::is_deferrable),
+            "expected deferred loop residue: {setup}"
+        );
+        assert!(
+            outcome.residue_items.contains(&producer),
+            "effectful producer must retain residue even if its result is overwritten: {setup}"
+        );
+        check_pipeline(&source);
+    }
+}
+
+#[test]
+fn deferrable_residue_preserves_local_binding_type_checks() {
+    use qsc_fir::fir::{ExprKind, StmtKind, StoreItemId};
+    use qsc_fir::ty::{Prim, Ty};
+
+    let (mut store, package_id) = compile_and_run_pipeline_to(
+        r#"
+        function Identity(value : Int) : Int { value }
+        operation Unrelated() : Unit {
+            let decoy = Identity;
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Unrelated();
+            mutable op = H;
+            for _ in 0..3 { set op = X; }
+            ApplyOp(op, q);
+        }
+        "#,
+        crate::PipelineStage::ReturnUnify,
+    );
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    crate::cond_normalize::normalize_conditions(&mut store, package_id, &mut assigners);
+    let package = store.get_mut(package_id);
+    let identity = callable_id_by_name(package, "Identity");
+    let unrelated = StoreItemId::from((package_id, callable_id_by_name(package, "Unrelated")));
+    let body = find_callable_body_block(package, "Unrelated");
+    let StmtKind::Local(_, pat, initializer) =
+        package.get_stmt(package.get_block(body).stmts[0]).kind
+    else {
+        panic!("Unrelated should start with a local binding");
+    };
+    // Preserve a closure as residue, but give its binding an incompatible type.
+    package.pats.get_mut(pat).expect("binding should exist").ty = Ty::Prim(Prim::Int);
+    package
+        .exprs
+        .get_mut(initializer)
+        .expect("initializer should exist")
+        .kind = ExprKind::Closure(Vec::new(), identity);
+
+    let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(super::super::Error::is_deferrable),
+        "the dynamic call should produce a deferrable diagnostic"
+    );
+    assert!(
+        outcome.residue_items.contains(&unrelated),
+        "residue discovery must include the unrelated closure"
+    );
+    let mut exemptions = fir_invariants::InvariantExemptions {
+        defunc_residual_items: outcome.residue_items,
+        entry_has_defunc_residue: outcome.entry_has_residue,
+        ..Default::default()
+    };
+    fir_invariants::check_with_exemptions(
+        &store,
+        package_id,
+        InvariantLevel::PostDefunc,
+        &exemptions,
+    );
+    assert_panics_with("has type Prim(Int) but initializer Expr", || {
+        fir_invariants::check_with_exemptions(
+            &store,
+            package_id,
+            InvariantLevel::PostAll,
+            &exemptions,
+        );
+    });
+
+    let mut result = crate::PipelineResult::default();
+    assert!(!crate::run_defunc_and_lowering_stages(
+        &mut store,
+        package_id,
+        crate::PipelineStage::Full,
+        &mut result,
+        &mut assigners,
+        &mut exemptions,
+    ));
+    assert!(result.errors.is_empty());
+    assert!(!crate::run_arg_promote_stages(
+        &mut store,
+        package_id,
+        crate::PipelineStage::Full,
+        &mut result,
+        &mut assigners,
+        &exemptions,
+    ));
+    assert_panics_with("has type Prim(Int) but initializer Expr", || {
+        crate::finalize_pipeline(
+            &mut store,
+            package_id,
+            crate::PipelineStage::Full,
+            &mut result,
+            &[],
+            &exemptions,
+        );
+    });
+}
+
+#[test]
+fn dynamic_entry_residue_remains_authorized() {
+    let (mut entry_store, entry_package_id) =
+        crate::test_utils::compile_to_monomorphized_fir_with_entry(
+            r#"
+            namespace Test {
+                operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                    op(q);
+                }
+            }
+            "#,
+            r#"{
+                use q = Qubit();
+                mutable op = H;
+                for _ in 0..3 { set op = X; }
+                Test.ApplyOp(op, q);
+            }"#,
+        );
+    let apply_item = collect_reachable_from_entry(&entry_store, entry_package_id)
+        .into_iter()
+        .find(|store_id| {
+            matches!(
+                &entry_store
+                    .get(store_id.package)
+                    .get_item(store_id.item)
+                    .kind,
+                ItemKind::Callable(decl) if decl.name.name.starts_with("ApplyOp")
+            )
+        })
+        .expect("reachable ApplyOp should exist");
+    let mut entry_assigners = PackageAssigners::new(&entry_store, entry_package_id);
+    let entry_outcome = defunctionalize(&mut entry_store, entry_package_id, &mut entry_assigners);
+    assert!(
+        entry_outcome.entry_has_residue,
+        "a dynamic call in the entry should authorize entry residue"
+    );
+    assert!(
+        entry_outcome.residue_items.contains(&apply_item),
+        "a dynamic HOF call in the entry should authorize the reachable HOF residue"
+    );
+}
+
+#[test]
+fn fixpoint_residue_remains_authorized() {
+    use qsc_fir::fir::StoreItemId;
+
+    let (mut store, package_id) = compile_to_monomorphized_fir(
+        r#"
+        function Main() : Int -> Int { x -> x }
+        "#,
+    );
+    let main = StoreItemId::from((
+        package_id,
+        callable_id_by_name(store.get(package_id), "Main"),
+    ));
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+    assert!(
+        matches!(
+            outcome.diagnostics.as_slice(),
+            [super::super::Error::FixpointNotReached(..)]
+        ),
+        "an unconsumed closure should produce FixpointNotReached"
+    );
+    assert!(
+        outcome.residue_items.contains(&main),
+        "FixpointNotReached should authorize every terminal remaining owner"
+    );
 }

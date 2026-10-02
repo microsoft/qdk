@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
 
 /// Regression for controlled dispatch of a *capturing* closure passed to a
@@ -143,6 +145,7 @@ fn global_dead_local_pruner_retains_effectful_callable_initializer() {
 /// Generates syntactically valid Q# programs exercising defunctionalization's
 /// key code paths: lambda arguments, partial application, and direct callable
 /// references passed to higher-order functions.
+#[cfg(feature = "slow-proptest-tests")]
 fn defunc_pattern_strategy() -> impl Strategy<Value = String> {
     let val = || 0..50i64;
 
@@ -192,6 +195,7 @@ fn defunc_pattern_strategy() -> impl Strategy<Value = String> {
 /// Generates programs with multi-capture closures where the captures have
 /// distinct values and are used in non-commutative operations, ensuring
 /// capture ordering is exercised.
+#[cfg(feature = "slow-proptest-tests")]
 fn multi_capture_strategy() -> impl Strategy<Value = String> {
     // Use distinct non-zero values so swapped captures produce a different result.
     (2..20i64, 1..10i64)
@@ -236,6 +240,7 @@ fn multi_capture_strategy() -> impl Strategy<Value = String> {
         })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
     #[test]
@@ -244,6 +249,7 @@ proptest! {
     }
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(30))]
     #[test]
