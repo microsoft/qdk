@@ -202,18 +202,7 @@ pub(crate) fn map_variable_use_in_block(
 
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _, _) => {
-                *args = args
-                    .iter()
-                    .map(|arg| match arg {
-                        Operand::Variable(var) => {
-                            // If the variable is not in the map, it is not something whose value has been updated via store in this block,
-                            // so just fallback to use the `arg` value directly.
-                            // `map_to_operand` does this automatically by returning `self`` when the variable is not in the map.
-                            var.map_to_operand(var_map)
-                        }
-                        Operand::Literal(_) => *arg,
-                    })
-                    .collect();
+                *args = args.iter().map(|arg| arg.mapped(var_map)).collect();
             }
 
             // Replace the branch condition with the new value of the variable.
@@ -277,11 +266,9 @@ fn update_variable_mapping(
 ) {
     // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
     // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
-    // copy of the operand.
-    var_map.insert(
-        var.variable_id,
-        OperandMapping::Deep(operand.mapped(var_map)),
-    );
+    // copy of the operand. However, it will create a mapping that matches the last mapping of the operand, ensuring
+    // that a shallow mapping is not incorrectly treated as a deep mapping.
+    var_map.insert(var.variable_id, operand.last_mapping(var_map));
 
     // For all existing deep mappings to this variable, downgrade them to shallow mappings.
     // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
@@ -300,6 +287,33 @@ impl Operand {
         match self {
             Operand::Literal(_) => *self,
             Operand::Variable(var) => var.map_to_operand(var_map),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn last_mapping(
+        &self,
+        var_map: &FxHashMap<VariableId, OperandMapping>,
+    ) -> OperandMapping {
+        match self {
+            Operand::Literal(_) => OperandMapping::Deep(*self),
+            Operand::Variable(var) => {
+                let mut var = *var;
+                while let Some(mapping) = var_map.get(&var.variable_id) {
+                    if let Operand::Variable(new_var) = mapping.into() {
+                        if new_var.variable_id == var.variable_id {
+                            break;
+                        }
+                        var = new_var;
+                        if mapping.is_shallow() {
+                            return *mapping;
+                        }
+                    } else {
+                        return *mapping;
+                    }
+                }
+                OperandMapping::Deep(Operand::Variable(var))
+            }
         }
     }
 }

@@ -109,12 +109,14 @@ fn transform_body_to_ssa(
                 let mut phi_nodes = FxHashMap::default();
 
                 if rest_preds.iter().any(|pred| {
-                    block_var_map
+                    let pred_map = block_var_map
                         .get(*pred)
-                        .expect("block should have variable map")
+                        .expect("block should have variable map");
+                    let pred_operand = pred_map
                         .get(var_id)
-                        .map(std::convert::Into::into)
-                        != Some(operand)
+                        .map(Into::<Operand>::into)
+                        .map(|op| op.mapped(pred_map));
+                    pred_operand != Some(operand)
                 }) {
                     // Some predecessors have different values for this variable, so a phi node is needed.
                     // Start with the first predecessor's value and block id, then add the values from the other predecessors.
@@ -142,32 +144,40 @@ fn transform_body_to_ssa(
                     var_map_updates.insert(*var_id, *mapping);
                 }
 
-                // For any phi nodes that need to be inserted, create a new variable and insert
-                // the phi node at the beginning of the block. The new variable will be used to replace
-                // the original variable in the block's variable map, which will take care of any orphaned uses.
                 for (variable_id, args) in phi_nodes {
-                    let new_var = Variable {
-                        variable_id: *next_var_id,
-                        ty: operand.get_type(),
+                    let operand_to_map = if let Some((first_arg, rest_args)) = args.split_first()
+                        && rest_args.iter().all(|(arg, _)| *arg == first_arg.0)
+                    {
+                        // All arguments are the same, so no phi node is needed.
+                        // Instead, map the original variable to the common operand.
+                        first_arg.0
+                    } else {
+                        // For any phi nodes that need to be inserted, create a new variable and insert
+                        // the phi node at the beginning of the block. The new variable will be used to replace
+                        // the original variable in the block's variable map, which will take care of any orphaned uses.
+                        let new_var = Variable {
+                            variable_id: *next_var_id,
+                            ty: operand.get_type(),
+                        };
+                        let phi_node = Instruction::Phi(args, new_var);
+                        block.0.insert(0, phi_node);
+                        Operand::Variable(new_var)
                     };
-                    let phi_node = Instruction::Phi(args, new_var);
-                    block.0.insert(0, phi_node);
-                    // A phi node mapping is always deep, and since the variable is newly created,
-                    // there are no existing deep mappings to downgrade.
-                    var_map_updates.insert(
-                        variable_id,
-                        OperandMapping::Deep(Operand::Variable(new_var)),
-                    );
+
+                    var_map_updates.insert(variable_id, OperandMapping::Deep(operand_to_map));
                     *next_var_id = next_var_id.successor();
 
                     let var_map = block_var_map
                         .get_mut(block_id)
                         .expect("block should have variable map");
+
+                    // To make sure calculations of successor blocks get the updated variable mappings, identify any existing mappings
+                    // for the variable being updated and replace them with the new operand mapping.
                     for mapping in var_map.values_mut() {
-                        if let OperandMapping::Shallow(Operand::Variable(var)) = mapping
+                        if let Operand::Variable(var) = mapping.into()
                             && var.variable_id == variable_id
                         {
-                            *mapping = OperandMapping::Deep(Operand::Variable(new_var));
+                            *mapping = OperandMapping::Deep(operand_to_map);
                         }
                     }
                 }
