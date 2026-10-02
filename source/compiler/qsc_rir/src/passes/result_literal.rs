@@ -21,9 +21,7 @@ pub fn transform_result_literals(program: &mut Program) {
         for instr in &mut block.0 {
             // Result literals are only expected in context of Store, Call, or Return instructions
             match instr {
-                Instruction::Store(operand, _)
-                | Instruction::StoreIndex(operand, _, _)
-                | Instruction::Return(Some(operand)) => {
+                Instruction::Store(operand, _) | Instruction::Return(Some(operand)) => {
                     let Operand::Literal(Literal::ResultLit(val)) = *operand else {
                         continue;
                     };
@@ -37,7 +35,7 @@ pub fn transform_result_literals(program: &mut Program) {
                     *operand = Operand::Literal(Literal::Result(id));
                 }
 
-                Instruction::StoreArray(operands, _) | Instruction::Call(_, operands, _, _) => {
+                Instruction::Call(_, operands, _, _) => {
                     for operand in operands.iter_mut() {
                         if let Operand::Literal(Literal::ResultLit(val)) = *operand {
                             let id = if val {
