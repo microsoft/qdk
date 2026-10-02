@@ -326,11 +326,81 @@ export class LearningTools {
    */
   async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
-    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
-      await this.service.resetExercise("chat");
+      // Resolve the target from the editor — the selected cell for notebook
+      // courses — rather than the stored position, matching hint/solution.
+      // A destructive reset must never silently act on a different cell, so
+      // if a workbook is focused but its selected cell can't be identified,
+      // fail loudly instead of falling back to the stored position.
+      if (this.notebookSelectionUnidentified()) {
+        throw new CopilotToolError(
+          "I couldn't tell which cell is selected — it has no stable id yet. " +
+            "Click into the exercise cell you want to reset and try again, or reset the whole unit.",
+        );
+      }
+      const state = this.serializeState(true);
+      await this.service.resetExerciseAt(state.position.location, "chat");
       await this.showActivity();
-      return { state: this.serializeState(false) }; // Q# only
+      return { state: this.serializeState(true) };
+    });
+  }
+
+  /**
+   * True when the learner is on a course workbook but the selected cell has no
+   * stable id, so {@link serializeState} would fall back to the stored
+   * position — unsafe for reset. Judged from the active editor's URI so a
+   * different unit's workbook is still covered.
+   */
+  private notebookSelectionUnidentified(): boolean {
+    const editor = vscode.window.activeNotebookEditor;
+    if (!editor || !this.service.isCourseWorkbook(editor.notebook.uri)) {
+      return false;
+    }
+    const selection = editor.selections[0];
+    if (!selection) {
+      return true;
+    }
+    const cellId = editor.notebook.cellAt(selection.start).metadata?.id;
+    return typeof cellId !== "string";
+  }
+
+  /**
+   * Reset an entire unit, clearing completion for all of its activities.
+   * Defaults to the current unit.
+   */
+  async resetUnit(input?: {
+    unitId?: string;
+  }): Promise<{ unitId: string; unitTitle: string } & StateSnapshot> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      // With no explicit unit, resolve the target from the notebook the
+      // learner is viewing rather than the stored position: sync the position
+      // to the active workbook first, matching how the other tools resolve
+      // from the editor. Best-effort — with no workbook focused we fall back
+      // to the stored current unit.
+      if (!input?.unitId) {
+        const activeNotebook = vscode.window.activeNotebookEditor?.notebook.uri;
+        if (activeNotebook) {
+          await this.service.syncToWorkbook(activeNotebook);
+        }
+      }
+
+      // Unit reset is notebook-only; the service rejects Q# courses.
+      const { unitId, unitTitle } = await this.service.resetUnit(
+        { unitId: input?.unitId },
+        "chat",
+      );
+
+      // The reset closed the workbook and notebook courses don't use the
+      // lesson panel, so re-open the fresh copy. The open command resolves the
+      // notebook from the current position, so move there first — the reset
+      // unit isn't necessarily the one the learner was on.
+      await this.service.goTo({ unitId }, "chat");
+      await vscode.commands.executeCommand(
+        "qsharp-vscode.learningOpenNotebook",
+      );
+
+      return { unitId, unitTitle, state: this.serializeState(false) };
     });
   }
 

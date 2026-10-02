@@ -14,6 +14,7 @@ import { promptInstallPythonExtensions } from "./python/extensionUtils.js";
 import {
   materializeCourseWorkbooks,
   rematerializeUnitWorkbook,
+  restoreUnitWorkbookCell,
 } from "./python/materialization.js";
 import {
   KATAS_COURSE_ID,
@@ -913,11 +914,16 @@ export class LearningService {
 
   getExerciseFileUri(): vscode.Uri {
     const exercise = this.resolveExercise();
+    return this.exerciseFileUri(this.position.unitId, exercise.id);
+  }
+
+  /** URI of the user's working copy of a specific exercise. */
+  private exerciseFileUri(unitId: string, exerciseId: string): vscode.Uri {
     return vscode.Uri.joinPath(
       this.requireWorkspace().learningContentRoot,
       "exercises",
-      this.position.unitId,
-      `${exercise.id}.qs`,
+      unitId,
+      `${exerciseId}.qs`,
     );
   }
 
@@ -926,11 +932,16 @@ export class LearningService {
     if (activity.type !== "lesson" || !activity.example) {
       throw new Error("Current activity is not an example");
     }
+    return this.exampleFileUri(unit.id, activity.example.id);
+  }
+
+  /** URI of the user's working copy of a specific example. */
+  private exampleFileUri(unitId: string, exampleId: string): vscode.Uri {
     return vscode.Uri.joinPath(
       this.requireWorkspace().learningContentRoot,
       "examples",
-      unit.id,
-      `${activity.example.id}.qs`,
+      unitId,
+      `${exampleId}.qs`,
     );
   }
 
@@ -944,14 +955,21 @@ export class LearningService {
     return new TextDecoder().decode(bytes);
   }
 
-  /** Save the document to disk if it's open and has unsaved edits. */
-  private async saveOpenDocument(uri: vscode.Uri): Promise<void> {
+  /**
+   * Save the document to disk if it's open and has unsaved edits. Returns
+   * `false` if the document is still dirty afterwards (the save didn't
+   * complete), so callers can avoid overwriting a file the editor would
+   * clobber back.
+   */
+  private async saveOpenDocument(uri: vscode.Uri): Promise<boolean> {
     const doc = vscode.workspace.textDocuments.find(
       (d) => d.uri.toString() === uri.toString(),
     );
-    if (doc?.isDirty) {
-      await doc.save();
+    if (!doc?.isDirty) {
+      return true;
     }
+    await doc.save();
+    return !doc.isDirty;
   }
 
   async markExampleRun(): Promise<void> {
@@ -979,46 +997,126 @@ export class LearningService {
   }
 
   /**
-   * Reset the current exercise/unit to its original state and clear
-   * completion status.
+   * Reset the current exercise to its original state and clear its
+   * completion status. For python-notebook courses this restores just the
+   * current cell.
    */
   async resetExercise(source?: TelemetrySource): Promise<void> {
-    // Python-notebook courses: close the notebook, re-copy the entire unit
-    // from source, and clear completion.
-    const course = this.activeCourse;
+    await this.resetExerciseAt(
+      this.requireWorkspace().progressData.position,
+      source,
+    );
+  }
+
+  /**
+   * Reset the exercise at {@link location} and clear its completion — one
+   * `.qs` file for Q# courses, or one cell for notebook courses. Lets
+   * editor-aware callers target the selected cell rather than the stored
+   * position, mirroring {@link getHintContext} and {@link getAllSolutions}.
+   */
+  async resetExerciseAt(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): Promise<void> {
+    const ws = this.requireWorkspace();
+    const course = this.requireCourse(ws, location.courseId);
+
     if (isNotebookCourse(course)) {
-      const unit = this.findCourseUnit(course, this.position.unitId);
-      // Close any open notebook tabs for this unit.
-      await this.closeNotebookTab(workbookUri(unit));
-      // Re-materialize the unit from source.
-      await rematerializeUnitWorkbook(unit);
-      // Clear completion for every activity in the unit, not just the
-      // current one, since the whole unit was re-materialized.
-      this.markUnitIncomplete(course.id, unit);
+      const unit = this.findCourseUnit(course, location.unitId);
+      const activity = unit.activities.find(
+        (a) => a.id === location.activityId,
+      );
+      if (
+        !activity ||
+        (activity.type !== "exercise" && activity.type !== "code-cell")
+      ) {
+        throw new Error("The current activity has no code cell to reset.");
+      }
+      const restored = await restoreUnitWorkbookCell(unit, location.activityId);
+      if (!restored) {
+        throw new Error(
+          "Could not restore this cell. Reset the whole unit instead.",
+        );
+      }
+      this.markIncomplete(location);
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
       if (source) {
-        this.sendActivityActionTelemetry("reset", source);
+        this.sendActivityActionTelemetry("reset", source, activity.type);
       }
       return;
     }
 
-    const exercise = this.resolveExercise();
-    const uri = this.getExerciseFileUri();
-    // Save any unsaved edits first so the editor is clean, then overwrite
-    // the file on disk. The editor will pick up the change automatically
-    // because it's no longer dirty.
-    await this.saveOpenDocument(uri);
+    const exercise = this.resolveExerciseAt(location);
+    const uri = this.exerciseFileUri(location.unitId, exercise.id);
+    // Save any unsaved edits first so the editor is clean, then overwrite the
+    // file on disk, the editor picks up the change because it's no longer
+    // dirty. If the save didn't take, abort: a still-dirty editor would save
+    // the user's old code back over the placeholder.
+    if (!(await this.saveOpenDocument(uri))) {
+      throw new Error(
+        "Couldn't save your open file. Save or close it, then try again.",
+      );
+    }
     await vscode.workspace.fs.writeFile(
       uri,
       new TextEncoder().encode(exercise.placeholderCode),
     );
-    this.markIncomplete(this.requireWorkspace().progressData.position);
+    this.markIncomplete(location);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     if (source) {
-      this.sendActivityActionTelemetry("reset", source);
+      this.sendActivityActionTelemetry("reset", source, exercise.type);
     }
+  }
+
+  /**
+   * Reset an entire unit: recopy its notebook from the course original and
+   * clear completion for all of its activities. Notebook courses only — a Q#
+   * unit is a folder of separate `.qs` files that are reset individually via
+   * {@link resetExercise}. Defaults to the current unit.
+   */
+  async resetUnit(
+    input?: { unitId?: string },
+    source?: TelemetrySource,
+  ): Promise<{ unitId: string; unitTitle: string }> {
+    const course = this.activeCourse;
+    if (!isNotebookCourse(course)) {
+      throw new Error(
+        "Resetting a whole unit is only supported for notebook courses. Reset Q# exercises one at a time instead.",
+      );
+    }
+    const unitId = input?.unitId ?? this.position.unitId;
+    const unit = this.findCourseUnit(course, unitId);
+    // Close any open notebook tab first. If the learner cancels a
+    // save-on-close prompt, abort — otherwise the still-open editor could
+    // later save stale content back over the reset.
+    if (!(await this.closeNotebookTab(workbookUri(unit)))) {
+      throw new Error(
+        "Couldn't close the open notebook. Save or close it, then try again.",
+      );
+    }
+    if (!(await rematerializeUnitWorkbook(unit))) {
+      throw new Error("Couldn't restore the unit's notebook.");
+    }
+    return this.finishUnitReset(course.id, unit, source);
+  }
+
+  /** Clear the unit's completions and persist after a unit reset. */
+  private async finishUnitReset(
+    courseId: string,
+    unit: CatalogUnit,
+    source?: TelemetrySource,
+  ): Promise<{ unitId: string; unitTitle: string }> {
+    this.markUnitIncomplete(courseId, unit);
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    if (source) {
+      // A unit reset spans every activity in the unit, so record it as a
+      // unit-level action rather than borrowing the current activity's type.
+      this.sendActivityActionTelemetry("reset-unit", source, "unit");
+    }
+    return { unitId: unit.id, unitTitle: unit.title };
   }
 
   async run(
@@ -1167,10 +1265,18 @@ export class LearningService {
   }
 
   sendActivityActionTelemetry(
-    action: "navigate" | "run" | "check" | "hint" | "solution" | "reset",
+    action:
+      | "navigate"
+      | "run"
+      | "check"
+      | "hint"
+      | "solution"
+      | "reset"
+      | "reset-unit",
     source: TelemetrySource,
+    activityType: CatalogActivity["type"] | "unit" = this.findCurrentActivity()
+      .activity.type,
   ): void {
-    const activityType = this.findCurrentActivity().activity.type;
     sendTelemetryEvent(
       EventType.LearningActivityAction,
       { action, activityType, source },
@@ -1489,15 +1595,18 @@ export class LearningService {
   /**
    * Close every open text or notebook tab whose URI matches {@link predicate}.
    * Tabs backed by any other input kind (diff views, webviews, terminals) are
-   * skipped, since they have no single URI to match against.
+   * skipped, since they have no single URI to match against. Returns `false`
+   * if a matching tab could not be closed (e.g. the user cancelled a
+   * save-on-close prompt).
    */
   private async closeTabs(
     predicate: (uri: vscode.Uri, tab: vscode.Tab) => boolean,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const matches = this.findTabs(predicate);
-    if (matches.length > 0) {
-      await vscode.window.tabGroups.close(matches);
+    if (matches.length === 0) {
+      return true;
     }
+    return vscode.window.tabGroups.close(matches);
   }
 
   /**
@@ -2019,10 +2128,11 @@ export class LearningService {
 
   /**
    * Close any open editor tabs whose URI matches the given notebook URI.
+   * Returns `false` if a matching tab could not be closed.
    */
-  private async closeNotebookTab(uri: vscode.Uri): Promise<void> {
+  private async closeNotebookTab(uri: vscode.Uri): Promise<boolean> {
     const uriStr = uri.toString();
-    await this.closeTabs(
+    return this.closeTabs(
       (tabUri, tab) =>
         tab.input instanceof vscode.TabInputNotebook &&
         tabUri.toString() === uriStr,
