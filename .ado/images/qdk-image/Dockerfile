@@ -1,6 +1,11 @@
 ARG BASE_REGISTRY=registry.access.redhat.com
 FROM ${BASE_REGISTRY}/ubi8/ubi:8.10
 
+ARG EXPECTED_MACHINE
+RUN if [ -n "${EXPECTED_MACHINE}" ]; then \
+        test "$(uname -m)" = "${EXPECTED_MACHINE}"; \
+    fi
+
 # Build for
 # - arm64: docker build --progress=plain --platform linux/arm64 -t qdk-image:arm64 .
 # - amd64: docker build --progress=plain --platform linux/amd64 -t qdk-image:amd64 .

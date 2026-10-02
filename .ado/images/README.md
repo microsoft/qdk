@@ -16,25 +16,40 @@ UBI8_UPSTREAM=registry.access.redhat.com/ubi8/ubi:8.10-1790754002
 az acr import --name $ACR_NAME --source $UBI8_UPSTREAM --image ubi8/ubi:8.10
 ```
 
-ACR selects the build architecture at the run level, so queue separate runs for AMD64
-and ARM64. Use the same image tag for both runs:
+Use `az acr build` to queue separate AMD64 and ARM64 builds. ACR executes ARM builds
+through QEMU on an AMD64 worker; the `--platform` argument selects the target image
+platform rather than a native ARM64 worker. Using `az acr build` applies that target
+directly to the Docker build. Use the same image tag for both builds:
 
 ```bash
 IMAGE_TAG="$(git rev-parse --short HEAD)"
 CONTEXT="${REPO}#${BRANCH}:.ado/images/qdk-image"
+ACR_LOGIN_SERVER="$(
+  az acr show --name "$ACR_NAME" --query loginServer --output tsv
+)"
 
-az acr run --registry "$ACR_NAME" --platform linux/amd64 --timeout 9000 \
-    --set imageTag="$IMAGE_TAG" --set arch=amd64 --set machine=x86_64 \
-    --no-wait --file task.yaml "$CONTEXT" --query runId --output tsv
+AMD64_RUN_ID=$(
+  az acr build --registry "$ACR_NAME" --platform linux/amd64 --timeout 12000 \
+    --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
+    --build-arg EXPECTED_MACHINE=x86_64 \
+    --image "qdk-image:${IMAGE_TAG}-amd64" \
+    --no-wait "$CONTEXT" --query runId --output tsv
+)
 
-az acr run --registry "$ACR_NAME" --platform linux/arm64 --timeout 9000 \
-    --set imageTag="$IMAGE_TAG" --set arch=arm64 --set machine=aarch64 \
-    --no-wait --file task.yaml "$CONTEXT" --query runId --output tsv
+ARM64_RUN_ID=$(
+  az acr build --registry "$ACR_NAME" --platform linux/arm64 --timeout 12000 \
+    --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
+    --build-arg EXPECTED_MACHINE=aarch64 \
+    --image "qdk-image:${IMAGE_TAG}-arm64" \
+    --no-wait "$CONTEXT" --query runId --output tsv
+)
+
+printf 'AMD64 run: %s\nARM64 run: %s\n' "$AMD64_RUN_ID" "$ARM64_RUN_ID"
 ```
 
-The task checks the architecture reported by the built image before pushing it. After
-both runs report `Succeeded`, create the versioned and `latest` multi-architecture
-manifests:
+The Dockerfile checks the architecture before performing the expensive package and LLVM
+build steps. After both runs report `Succeeded`, create the versioned and `latest`
+multi-architecture manifests:
 
 ```bash
 az acr run --registry "$ACR_NAME" --timeout 1800 \
