@@ -557,8 +557,10 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           %var_24 = alloca i1
           %var_26 = alloca i1
           %var_29 = alloca i64
+          %var_31 = alloca i64
           %var_37 = alloca i64
           %var_39 = alloca i64
+          %var_40 = alloca i64
           %var_9 = icmp sgt i64 %var_8, 53
           br i1 %var_9, label %block_4, label %block_5
         block_4:
@@ -572,49 +574,51 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           store i64 %var_19, ptr %var_20
           %var_21 = ashr i64 %var_7, %var_11
           store i64 %var_21, ptr %var_22
-          %var_65 = load i64, ptr %var_20
-          %var_66 = load i64, ptr %var_15
-          %var_23 = icmp sgt i64 %var_65, %var_66
+          %var_69 = load i64, ptr %var_20
+          %var_70 = load i64, ptr %var_15
+          %var_23 = icmp sgt i64 %var_69, %var_70
           store i1 true, ptr %var_24
           br i1 %var_23, label %block_9, label %block_6
         block_5:
           store i64 %var_7, ptr %var_10
           br label %block_13
         block_6:
-          %var_68 = load i64, ptr %var_20
-          %var_69 = load i64, ptr %var_15
-          %var_25 = icmp eq i64 %var_68, %var_69
+          %var_72 = load i64, ptr %var_20
+          %var_73 = load i64, ptr %var_15
+          %var_25 = icmp eq i64 %var_72, %var_73
           store i1 false, ptr %var_26
           br i1 %var_25, label %block_7, label %block_8
         block_7:
-          %var_80 = load i64, ptr %var_22
-          %var_27 = and i64 %var_80, 1
+          %var_84 = load i64, ptr %var_22
+          %var_27 = and i64 %var_84, 1
           %var_28 = icmp eq i64 %var_27, 1
           store i1 %var_28, ptr %var_26
           br label %block_8
         block_8:
-          %var_71 = load i1, ptr %var_26
-          store i1 %var_71, ptr %var_24
+          %var_75 = load i1, ptr %var_26
+          store i1 %var_75, ptr %var_24
           br label %block_9
         block_9:
-          %var_73 = load i1, ptr %var_24
-          br i1 %var_73, label %block_10, label %block_11
+          %var_77 = load i1, ptr %var_24
+          br i1 %var_77, label %block_10, label %block_11
         block_10:
-          %var_78 = load i64, ptr %var_22
-          %var_30 = add i64 %var_78, 1
+          %var_82 = load i64, ptr %var_22
+          %var_30 = add i64 %var_82, 1
           store i64 %var_30, ptr %var_29
           br label %block_12
         block_11:
-          %var_74 = load i64, ptr %var_22
-          store i64 %var_74, ptr %var_29
+          %var_78 = load i64, ptr %var_22
+          store i64 %var_78, ptr %var_29
           br label %block_12
         block_12:
-          %var_76 = load i64, ptr %var_29
-          store i64 %var_76, ptr %var_10
+          %var_80 = load i64, ptr %var_29
+          store i64 %var_80, ptr %var_10
           br label %block_13
         block_13:
           %var_56 = load i64, ptr %var_10
-          %var_36 = call i64 @MinI(i64 %var_56, i64 9007199254740991)
+          store i64 %var_56, ptr %var_31
+          %var_58 = load i64, ptr %var_31
+          %var_36 = call i64 @MinI(i64 %var_58, i64 9007199254740991)
           store i64 %var_36, ptr %var_37
           %var_38 = icmp sgt i64 %var_8, 53
           br i1 %var_38, label %block_14, label %block_15
@@ -625,11 +629,13 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           store i64 %var_8, ptr %var_39
           br label %block_16
         block_16:
-          %var_59 = load i64, ptr %var_39
-          %var_41 = shl i64 1, %var_59
+          %var_61 = load i64, ptr %var_39
+          store i64 %var_61, ptr %var_40
+          %var_63 = load i64, ptr %var_40
+          %var_41 = shl i64 1, %var_63
           %var_42 = sitofp i64 %var_41 to double
-          %var_60 = load i64, ptr %var_37
-          %var_44 = sitofp i64 %var_60 to double
+          %var_64 = load i64, ptr %var_37
+          %var_44 = sitofp i64 %var_64 to double
           %var_46 = fdiv double 6.283185307179586, %var_42
           %var_48 = fmul double %var_44, %var_46
           %var_53 = call double @MinD(double %var_48, double 6.283185307179585)
@@ -648,8 +654,8 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           store i64 %var_33, ptr %var_35
           br label %block_20
         block_20:
-          %var_83 = load i64, ptr %var_35
-          ret i64 %var_83
+          %var_87 = load i64, ptr %var_35
+          ret i64 %var_87
         }
 
         define internal double @MinD(double %var_49, double %var_50) {
@@ -664,8 +670,8 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           store double %var_50, ptr %var_52
           br label %block_24
         block_24:
-          %var_86 = load double, ptr %var_52
-          ret double %var_86
+          %var_90 = load double, ptr %var_52
+          ret double %var_90
         }
 
         define internal void @Rz(double %var_56, ptr %var_57) {

@@ -831,6 +831,46 @@ impl PartialEq for ArrayLiteral {
     }
 }
 
+/// Tracks a mapping to a specific operand, indicating whether the mapping is shallow or deep.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub(crate) enum OperandMapping {
+    /// A shallow mapping to an operand, where the mapped value should be replaced by this operand
+    /// directly without following any further mappings.
+    Shallow(Operand),
+    /// A deep mapping to an operand, where the mapped value should be followed to its root before use.
+    Deep(Operand),
+}
+
+impl OperandMapping {
+    pub(crate) fn is_shallow(&self) -> bool {
+        matches!(self, OperandMapping::Shallow(_))
+    }
+}
+
+impl From<OperandMapping> for Operand {
+    fn from(val: OperandMapping) -> Self {
+        match val {
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => op,
+        }
+    }
+}
+
+impl From<&OperandMapping> for Operand {
+    fn from(val: &OperandMapping) -> Self {
+        match val {
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => *op,
+        }
+    }
+}
+
+impl From<&mut OperandMapping> for Operand {
+    fn from(val: &mut OperandMapping) -> Self {
+        match val {
+            OperandMapping::Shallow(op) | OperandMapping::Deep(op) => *op,
+        }
+    }
+}
+
 fn write_store_array_instruction(
     f: &mut Formatter,
     value: &[Operand],
