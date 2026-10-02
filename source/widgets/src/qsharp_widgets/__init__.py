@@ -4,10 +4,14 @@
 import importlib.metadata
 import pathlib
 import time
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import anywidget
 import traitlets
+
+if TYPE_CHECKING:
+    from IPython.core.display import SVG
+    from qdk._native import Circuit as QdkCircuit
 
 try:
     __version__ = importlib.metadata.version("qsharp_widgets")
@@ -206,10 +210,38 @@ class Circuit(anywidget.AnyWidget):
 
     comp = traitlets.Unicode("Circuit").tag(sync=True)
     circuit_json = traitlets.Unicode().tag(sync=True)
+    svg = traitlets.Unicode("").tag(sync=True)
+    capture_svg = traitlets.Bool(False).tag(sync=True)
 
-    def __init__(self, circuit):
-        super().__init__(circuit_json=circuit.json())
+    def __init__(self, circuit: "QdkCircuit", capture_svg: bool = False) -> None:
+        super().__init__(circuit_json=circuit.json(), capture_svg=capture_svg)
         self.layout.overflow = "visible scroll"
+
+    def _rendered_svg(self) -> str:
+        """Return the SVG captured when the widget was displayed."""
+        if not self.capture_svg:
+            raise RuntimeError(
+                "SVG capture is disabled. Construct Circuit with capture_svg=True."
+            )
+        if not self.svg:
+            raise RuntimeError(
+                "The circuit SVG is not available. Display the Circuit widget "
+                "before calling display_svg() or save_svg()."
+            )
+        return self.svg
+
+    def display_svg(self) -> "SVG":
+        """Return the rendered circuit as a static SVG notebook output."""
+        from IPython.display import SVG
+
+        return SVG(self._rendered_svg())
+
+    def save_svg(self, path: str) -> None:
+        """Save the rendered circuit to an SVG file."""
+        output_path = pathlib.Path(path).expanduser().resolve()
+        if output_path.suffix.lower() != ".svg":
+            raise ValueError("Circuit.save_svg() only supports .svg files.")
+        output_path.write_text(self._rendered_svg(), encoding="utf-8")
 
 
 class BlochSphere(anywidget.AnyWidget):

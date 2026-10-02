@@ -22,6 +22,7 @@ export function Circuit(props: {
   circuit?: qviz.CircuitGroup | qviz.Circuit;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
+  onCircuitChanged?: () => void;
 }) {
   const isEditable = props.editor != null;
   let unrenderable = false;
@@ -66,6 +67,7 @@ function ZoomableCircuit(props: {
   circuitGroup: qviz.CircuitGroup;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
+  onCircuitChanged?: () => void;
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const qvizObj = useRef<ReturnType<typeof qviz.draw> | null>(null);
@@ -97,6 +99,7 @@ function ZoomableCircuit(props: {
       qvizObj.current = qviz.draw(props.circuitGroup, container, {
         renderLocations: props.renderLocations,
         editor: props.editor,
+        onCircuitChanged: props.onCircuitChanged,
         onZoomChange: isEditable
           ? undefined
           : (zoom) => {

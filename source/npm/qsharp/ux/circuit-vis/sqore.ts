@@ -70,6 +70,7 @@ export type EditorHandlers = {
 export type DrawOptions = {
   renderDepth?: number;
   renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
+  onCircuitChanged?: () => void;
   /**
    * When provided, enables editing behaviors (dropzones, run button, etc.) and requires the
    * callbacks necessary to support those behaviors.
@@ -317,6 +318,7 @@ export class Sqore {
     this.lastLocationMap = this.buildLiveLocationMap(
       this.circuit.componentGrid,
     );
+    this.options.onCircuitChanged?.();
   }
 
   /**
