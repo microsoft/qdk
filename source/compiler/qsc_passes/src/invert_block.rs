@@ -258,42 +258,61 @@ fn make_range_reverse_expr(range_id: NodeId) -> Expr {
     let step = make_range_field(range_id, PrimField::Step);
     let end = make_range_field(range_id, PrimField::End);
 
-    // A reversed range is `(start + (end - start) / step * step) .. -step .. start`.
+    // A reversed range is
+    // `(start + (end - start + step) / step * step - step) .. -step .. start`.
     let new_start = Box::new(Expr {
         id: NodeId::default(),
         span: Span::default(),
         ty: Ty::Prim(Prim::Int),
         kind: ExprKind::BinOp(
-            BinOp::Add,
-            Box::new(start.clone()),
+            BinOp::Sub,
             Box::new(Expr {
                 id: NodeId::default(),
                 span: Span::default(),
                 ty: Ty::Prim(Prim::Int),
                 kind: ExprKind::BinOp(
-                    BinOp::Mul,
+                    BinOp::Add,
+                    Box::new(start.clone()),
                     Box::new(Expr {
                         id: NodeId::default(),
                         span: Span::default(),
                         ty: Ty::Prim(Prim::Int),
                         kind: ExprKind::BinOp(
-                            BinOp::Div,
+                            BinOp::Mul,
                             Box::new(Expr {
                                 id: NodeId::default(),
                                 span: Span::default(),
                                 ty: Ty::Prim(Prim::Int),
                                 kind: ExprKind::BinOp(
-                                    BinOp::Sub,
-                                    Box::new(end),
-                                    Box::new(start.clone()),
+                                    BinOp::Div,
+                                    Box::new(Expr {
+                                        id: NodeId::default(),
+                                        span: Span::default(),
+                                        ty: Ty::Prim(Prim::Int),
+                                        kind: ExprKind::BinOp(
+                                            BinOp::Add,
+                                            Box::new(Expr {
+                                                id: NodeId::default(),
+                                                span: Span::default(),
+                                                ty: Ty::Prim(Prim::Int),
+                                                kind: ExprKind::BinOp(
+                                                    BinOp::Sub,
+                                                    Box::new(end),
+                                                    Box::new(start.clone()),
+                                                ),
+                                            }),
+                                            Box::new(step.clone()),
+                                        ),
+                                    }),
+                                    Box::new(step.clone()),
                                 ),
                             }),
                             Box::new(step.clone()),
                         ),
                     }),
-                    Box::new(step.clone()),
                 ),
             }),
+            Box::new(step.clone()),
         ),
     });
     let new_step = Box::new(Expr {

@@ -2545,6 +2545,30 @@ mod given_interpreter {
         }
 
         #[test]
+        fn generated_adjoint_preserves_empty_range_loops() {
+            for range in ["0..2..-1", "0..-2..1"] {
+                let mut interpreter = get_interpreter();
+                let (result, output) = line(
+                    &mut interpreter,
+                    &format!(
+                        "operation Foo(q : Qubit) : Unit is Adj {{ for _ in {range} {{ X(q); }} }}"
+                    ),
+                );
+                is_only_value(&result, &output, &Value::unit());
+
+                let (result, output) = run(
+                    &mut interpreter,
+                    "{ use q = Qubit(); Adjoint Foo(q); MResetZ(q) }",
+                );
+                is_only_value(
+                    &result,
+                    &output,
+                    &Value::Result(qsc_eval::val::Result::Val(false)),
+                );
+            }
+        }
+
+        #[test]
         fn run_runtime_failure() {
             let mut interpreter = get_interpreter();
             let (result, output) = line(
