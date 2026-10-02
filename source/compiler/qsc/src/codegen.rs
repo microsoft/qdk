@@ -35,7 +35,7 @@ pub mod qir {
     /// Invariants (when created with full pipeline):
     /// - No type parameters remain (monomorphization complete)
     /// - No return statements (return unification complete)
-    /// - No arrow types or closures (defunctionalization complete)
+    /// - Resolvable callable values specialized; valid residue deferred to RCA and partial evaluation
     /// - No UDT types (UDT erasure complete)
     /// - Execution graphs fully populated
     pub struct CodegenFir {

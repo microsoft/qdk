@@ -4,9 +4,9 @@
 //! Defunctionalization pass — runs after return unification, before UDT
 //! erasure.
 //!
-//! Eliminates all callable-valued expressions — arrow-typed locals, closures,
-//! and functor-applied callable values — in entry-reachable code. Required for
-//! QIR, which mandates direct calls to known callees.
+//! Specializes statically resolvable callable values in entry-reachable code.
+//! Unresolved callable residue is deferred to capability analysis and partial
+//! evaluation, which must resolve dispatch or reject it before QIR generation.
 //!
 //! # What to know before diving in
 //!
@@ -18,9 +18,9 @@
 //!   `Apply_specialized_Y` clone. A callable value nested inside a single tuple
 //!   parameter is located by a top-level parameter slot plus a nested field
 //!   path.
-//! - **Establishes [`crate::invariants::InvariantLevel::PostDefunc`]:** no
-//!   `ExprKind::Closure`, no arrow-typed parameters, and all dispatch is
-//!   direct in reachable code.
+//! - **Establishes [`crate::invariants::InvariantLevel::PostDefunc`]:** resolved
+//!   callables use direct dispatch. Reported residue relaxes callable-elimination
+//!   checks, not structural type, scope, or call-shape guarantees.
 //! - **Fixpoint loop.** Each iteration runs five steps in order. The pre-pass
 //!   promotes single-use callable locals and collapses identity closures such
 //!   as `(a) => f(a)` down to `f`. Analysis finds callable parameters and
@@ -33,9 +33,9 @@
 //!   `MIN_ITERATIONS` and `MAX_ITERATIONS`. Non-convergence appends
 //!   [`Error::FixpointNotReached`], but only when no other diagnostic already
 //!   fired, so a real earlier error is not buried.
-//! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a non-fatal
-//!   warning. Other errors are fatal because the intermediate FIR may violate
-//!   downstream invariants.
+//! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a warning.
+//!   [`Error::DynamicCallable`] and [`Error::FixpointNotReached`] are deferred
+//!   to downstream analysis. Unsupported-shape and resource backstops are fatal.
 //! - **Relies on an acyclic UDT graph.** Several type walks in this pass and
 //!   its submodules expand `Ty::Udt` through the referenced type's definition
 //!   and keep descending, with no visited set — `ty_contains_arrow_through_udts`,
@@ -63,7 +63,7 @@ pub use types::Error;
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, feature = "slow-proptest-tests"))]
+#[cfg(test)]
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::reachable_local_callables;
@@ -73,7 +73,7 @@ use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::{PackageSpan, Span};
 use qsc_fir::fir::{
-    ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
+    Expr, ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
     PackageStore, Res, StoreExprId, StoreItemId,
 };
 use qsc_fir::ty::Ty;
@@ -97,33 +97,47 @@ const MIN_ITERATIONS: usize = 5;
 /// for pathological programs.
 const MAX_ITERATIONS: usize = 20;
 
+/// Result of the [`defunctionalize`] entry point.
+///
+/// Includes diagnostics and reachable items with callable-valued residue. The
+/// pipeline defers convergence failures to downstream analysis, using those
+/// items to relax post-defunctionalization invariants.
+pub(crate) struct DefuncOutcome {
+    /// Fixpoint diagnostics, classified by the pipeline driver.
+    pub diagnostics: Vec<Error>,
+    /// Reachable callable items with residue.
+    pub residue_items: FxHashSet<StoreItemId>,
+    /// Whether the package entry expression itself contains residue.
+    pub entry_has_residue: bool,
+}
+
 /// Defunctionalizes all callable-valued expressions in the entry-reachable
 /// portion of a package.
 ///
-/// After this pass:
-/// - No `ExprKind::Closure` nodes remain in reachable code.
-/// - No arrow-typed parameters remain in reachable callable declarations.
-/// - All indirect callable dispatch is replaced with direct dispatch calls.
+/// Resolved callable arguments are replaced by direct dispatch and captures
+/// are threaded as ordinary arguments. Unresolved forms remain for downstream
+/// analysis, subject to the pipeline's structural invariants.
 ///
-/// Returns diagnostics encountered during defunctionalization.
+/// Returns diagnostics and item-keyed callable-valued residue.
 ///
 /// # Requires
 /// - Package with `package_id` has an entry expression
 ///
-/// [`Error::ExcessiveSpecializations`] is a non-fatal warning. Other
-/// diagnostics are fatal to the production pipeline because the intermediate
-/// FIR may not satisfy downstream invariants.
+/// [`Error::ExcessiveSpecializations`] is a warning. The driver defers
+/// [`Error::FixpointNotReached`] and [`Error::DynamicCallable`] to downstream
+/// analysis; other diagnostics remain fatal.
 ///
 /// # Panics
 ///
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
-) -> Vec<Error> {
+) -> DefuncOutcome {
     let mut errors: Vec<Error> = Vec::new();
     let mut warnings: Vec<Error> = Vec::new();
     // Start at the floor; `check_convergence` raises this to the dynamically
@@ -275,7 +289,15 @@ pub(crate) fn defunctionalize(
     );
     errors.extend(warnings);
 
-    errors
+    // The driver relaxes callable-elimination checks for discovered residue;
+    // structural invariants remain enforced at their pipeline checkpoints.
+    let (residue_items, entry_has_residue) = collect_residue_items(store, package_id);
+
+    DefuncOutcome {
+        diagnostics: errors,
+        residue_items,
+        entry_has_residue,
+    }
 }
 
 /// Computes the reachable local callable IDs and expression IDs for scoping
@@ -887,6 +909,70 @@ fn remaining_callable_value_info(
     (count > 0, count, first_package, first_span)
 }
 
+/// Finds reachable callable items with residue that requires deferred invariant
+/// enforcement. Entry-expression residue uses a compilation-scoped tolerance.
+fn collect_residue_items(
+    store: &PackageStore,
+    package_id: PackageId,
+) -> (FxHashSet<StoreItemId>, bool) {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let mut residue_items: FxHashSet<StoreItemId> = FxHashSet::default();
+
+    for store_id in &reachable {
+        let package = store.get(store_id.package);
+        let item = package.get_item(store_id.item);
+        if let ItemKind::Callable(decl) = &item.kind {
+            crate::walk_utils::for_each_node_in_callable(package, decl, &mut |node| match node {
+                crate::walk_utils::CallableNode::Pat(pat_id) => {
+                    if ty_contains_arrow_through_udts(store, &package.get_pat(pat_id).ty) {
+                        residue_items.insert(*store_id);
+                    }
+                }
+                crate::walk_utils::CallableNode::Expr(expr_id) => {
+                    if expr_is_defunc_residue(package, package.get_expr(expr_id)) {
+                        residue_items.insert(*store_id);
+                    }
+                }
+                crate::walk_utils::CallableNode::Block(_)
+                | crate::walk_utils::CallableNode::Stmt(_) => {}
+            });
+        }
+    }
+
+    let package = store.get(package_id);
+    let mut entry_has_residue = false;
+    if let Some(entry) = package.entry {
+        crate::walk_utils::for_each_node_from_expr_root(package, entry, &mut |node| match node {
+            crate::walk_utils::CallableNode::Pat(pat_id) => {
+                if ty_contains_arrow_through_udts(store, &package.get_pat(pat_id).ty) {
+                    entry_has_residue = true;
+                }
+            }
+            crate::walk_utils::CallableNode::Expr(expr_id) => {
+                if expr_is_defunc_residue(package, package.get_expr(expr_id)) {
+                    entry_has_residue = true;
+                }
+            }
+            crate::walk_utils::CallableNode::Block(_)
+            | crate::walk_utils::CallableNode::Stmt(_) => {}
+        });
+    }
+
+    (residue_items, entry_has_residue)
+}
+
+fn expr_is_defunc_residue(package: &Package, expr: &Expr) -> bool {
+    if matches!(expr.kind, ExprKind::Closure(_, _)) {
+        return true;
+    }
+    if let ExprKind::Call(callee_id, _) = &expr.kind {
+        let (base_id, _) = peel_body_functors(package, *callee_id);
+        let base_expr = package.get_expr(base_id);
+        return matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
+            && ty_contains_arrow(&base_expr.ty);
+    }
+    false
+}
 /// Checks whether a type contains an arrow type anywhere within its structure.
 ///
 /// This intentionally does not recurse into `Ty::Udt` or `Ty::Array`:
