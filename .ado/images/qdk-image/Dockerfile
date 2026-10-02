@@ -1,4 +1,5 @@
-FROM registry.access.redhat.com/ubi8/ubi:8.10
+ARG BASE_REGISTRY=registry.access.redhat.com
+FROM ${BASE_REGISTRY}/ubi8/ubi:8.10
 
 # Build for
 # - arm64: docker build --progress=plain --platform linux/arm64 -t qdk-image:arm64 .

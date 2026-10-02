@@ -1,0 +1,15 @@
+version: v1.1.0
+
+steps:
+  - build: --platform linux/amd64 --build-arg BASE_REGISTRY=$Registry -t $Registry/qdk-image:$ID-amd64 -f Dockerfile .
+  - build: --platform linux/arm64 --build-arg BASE_REGISTRY=$Registry -t $Registry/qdk-image:$ID-arm64 -f Dockerfile .
+  - push:
+      - $Registry/qdk-image:$ID-arm64
+      - $Registry/qdk-image:$ID-amd64
+  - cmd: >
+      docker manifest create
+      $Registry/qdk-image:latest
+      $Registry/qdk-image:$ID-arm64
+      $Registry/qdk-image:$ID-amd64
+  - cmd: docker manifest push --purge $Registry/qdk-image:latest
+  - cmd: docker manifest inspect $Registry/qdk-image:latest

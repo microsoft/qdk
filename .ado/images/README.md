@@ -1,5 +1,35 @@
 # Images for manylinux_2_28
 
+## Using ACR
+
+Assuming the upstream UBI8 images have been imported with:
+
+```bash
+
+```
+
+And assuming the following environment is defined and the upstream images imported
+
+```bash
+ACR_NAME=qdkacr
+
+# Where to run the ACR tasks from
+REPO=https://github.com/microsoft/qdk.git
+BRANCH="billti/manylinux_2_28"
+
+# Import the upstream images
+UBI8_UPSTREAM=registry.access.redhat.com/ubi8/ubi:8.10-1790754002
+az acr import --name $ACR_NAME --source $UBI8_UPSTREAM --image ubi8/ubi:8.10
+```
+
+Then you should be able to queue a task to build the `qdk-image` container image via:
+
+```bash
+az acr run -r $ACR_NAME -f task.yaml "${REPO}#${BRANCH}:.ado/images/qdk-image"
+```
+
+## Building within the container images
+
 For building and testing PyQIR and the QDK for manylinux_2_28, you can use the containers
 defined in this directory.
 
