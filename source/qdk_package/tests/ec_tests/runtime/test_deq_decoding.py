@@ -1286,6 +1286,8 @@ def test_composition_corrects_single_faults_across_chunks(
 ):
     from qdk.simulation._qodec import deq_decoding
 
+    runtime = deq_decoding.Runtime
+
     def serial_runtime(**kwargs):
         # With the default "sliding" window parallelism, deq forms windows
         # concurrently, so where window edges fall depends on thread timing (the
@@ -1296,7 +1298,7 @@ def test_composition_corrects_single_faults_across_chunks(
             "window_parallelism": "serial",
             "lookahead_radius": 0,
         }
-        return deq_decoding.Runtime(**kwargs)
+        return runtime(**kwargs)
 
     monkeypatch.setattr(deq_decoding, "Runtime", serial_runtime)
     monkeypatch.setattr(deq_decoding, "_COMPOSITE_SIZE", 32)
