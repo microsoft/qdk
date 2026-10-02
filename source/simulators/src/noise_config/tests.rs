@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::noise_config::{CumulativeNoiseConfig, Sampler, decode_pauli, encode_pauli, uq1_63};
+use crate::noise_config::{
+    CumulativeNoiseConfig, IdleNoiseParams, Sampler, decode_pauli, encode_pauli, uq1_63,
+};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 #[test]
@@ -26,6 +28,28 @@ fn noiseless_idle_returns_false_without_consuming_rng() {
 
     assert!(!config.gen_idle_fault(&mut rng, 5));
     assert_eq!(rng.next_u64(), reference_rng.next_u64());
+}
+
+// An unnecessary draw would shift subsequent random decisions.
+#[test]
+fn zero_idle_steps_preserve_rng_state() {
+    let config = CumulativeNoiseConfig {
+        idle: IdleNoiseParams {
+            s_probability: 0.25,
+        },
+        ..CumulativeNoiseConfig::default()
+    };
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut untouched_rng = StdRng::seed_from_u64(7);
+
+    assert!(config.idle.s_probability(0).abs() < f32::EPSILON);
+    assert!(!config.gen_idle_fault(&mut rng, 0));
+
+    assert_eq!(
+        rng.next_u64(),
+        untouched_rng.next_u64(),
+        "zero elapsed time must not shift subsequent random decisions"
+    );
 }
 
 #[test]
