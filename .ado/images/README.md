@@ -28,6 +28,7 @@ ACR_LOGIN_SERVER="$(
   az acr show --name "$ACR_NAME" --query loginServer --output tsv
 )"
 
+# This build on x64 took 1h15m last run.
 AMD64_RUN_ID=$(
   az acr build --registry "$ACR_NAME" --platform linux/amd64 --timeout 12000 \
     --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
@@ -36,8 +37,10 @@ AMD64_RUN_ID=$(
     --no-wait "$CONTEXT" --query runId --output tsv
 )
 
+# Max timeout is 28,800 (8 hours). Building LLVM on QEMU simulated ARM64 is slooooow
+# Started build at 3:15
 ARM64_RUN_ID=$(
-  az acr build --registry "$ACR_NAME" --platform linux/arm64 --timeout 12000 \
+  az acr build --registry "$ACR_NAME" --platform linux/arm64 --timeout 28800 \
     --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
     --build-arg EXPECTED_MACHINE=aarch64 \
     --image "qdk-image:${IMAGE_TAG}-arm64" \
