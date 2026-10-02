@@ -2,13 +2,7 @@
 
 ## Using ACR
 
-Assuming the upstream UBI8 images have been imported with:
-
-```bash
-
-```
-
-And assuming the following environment is defined and the upstream images imported
+Assuming the below has been run:
 
 ```bash
 ACR_NAME=qdkacr
@@ -22,10 +16,43 @@ UBI8_UPSTREAM=registry.access.redhat.com/ubi8/ubi:8.10-1790754002
 az acr import --name $ACR_NAME --source $UBI8_UPSTREAM --image ubi8/ubi:8.10
 ```
 
-Then you should be able to queue a task to build the `qdk-image` container image via:
+ACR selects the build architecture at the run level, so queue separate runs for AMD64
+and ARM64. Use the same image tag for both runs:
 
 ```bash
-az acr run -r $ACR_NAME -f task.yaml "${REPO}#${BRANCH}:.ado/images/qdk-image"
+IMAGE_TAG="$(git rev-parse --short HEAD)"
+CONTEXT="${REPO}#${BRANCH}:.ado/images/qdk-image"
+
+az acr run --registry "$ACR_NAME" --platform linux/amd64 --timeout 9000 \
+    --set imageTag="$IMAGE_TAG" --set arch=amd64 --set machine=x86_64 \
+    --no-wait --file task.yaml "$CONTEXT" --query runId --output tsv
+
+az acr run --registry "$ACR_NAME" --platform linux/arm64 --timeout 9000 \
+    --set imageTag="$IMAGE_TAG" --set arch=arm64 --set machine=aarch64 \
+    --no-wait --file task.yaml "$CONTEXT" --query runId --output tsv
+```
+
+The task checks the architecture reported by the built image before pushing it. After
+both runs report `Succeeded`, create the versioned and `latest` multi-architecture
+manifests:
+
+```bash
+az acr run --registry "$ACR_NAME" --timeout 1800 \
+  --set imageTag="$IMAGE_TAG" \
+  --file manifest-task.yaml "$CONTEXT"
+```
+
+To view and check on runs:
+
+```bash
+# Show recent runs
+az acr task list-runs --registry "$ACR_NAME" --top 10 --output table
+
+# See the status of a run
+az acr task show-run --registry "$ACR_NAME" --run-id "$RUN_ID" --output table
+
+# Reconnect the logs for a run
+az acr task logs --registry "$ACR_NAME" --run-id "$RUN_ID"
 ```
 
 ## Building within the container images

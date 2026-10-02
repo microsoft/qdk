@@ -1,0 +1,16 @@
+version: v1.1.0
+
+steps:
+  - cmd: >
+      docker manifest create
+      $Registry/qdk-image:{{.Values.imageTag}}
+      $Registry/qdk-image:{{.Values.imageTag}}-arm64
+      $Registry/qdk-image:{{.Values.imageTag}}-amd64
+  - cmd: docker manifest push --purge $Registry/qdk-image:{{.Values.imageTag}}
+  - cmd: >
+      docker manifest create
+      $Registry/qdk-image:latest
+      $Registry/qdk-image:{{.Values.imageTag}}-arm64
+      $Registry/qdk-image:{{.Values.imageTag}}-amd64
+  - cmd: docker manifest push --purge $Registry/qdk-image:latest
+  - cmd: docker manifest inspect $Registry/qdk-image:{{.Values.imageTag}}

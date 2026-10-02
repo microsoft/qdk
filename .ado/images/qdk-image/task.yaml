@@ -1,17 +1,10 @@
 version: v1.1.0
 
 steps:
-  - build: --platform linux/amd64 --build-arg BASE_REGISTRY=$Registry -t $Registry/qdk-image:$ID-amd64 -f Dockerfile .
+  - build: --build-arg BASE_REGISTRY=$Registry -t $Registry/qdk-image:{{.Values.imageTag}}-{{.Values.arch}} -f Dockerfile .
     timeout: 7200
-  - build: --platform linux/arm64 --build-arg BASE_REGISTRY=$Registry -t $Registry/qdk-image:$ID-arm64 -f Dockerfile .
-    timeout: 7200
-  - push:
-      - $Registry/qdk-image:$ID-arm64
-      - $Registry/qdk-image:$ID-amd64
   - cmd: >
-      docker manifest create
-      $Registry/qdk-image:latest
-      $Registry/qdk-image:$ID-arm64
-      $Registry/qdk-image:$ID-amd64
-  - cmd: docker manifest push --purge $Registry/qdk-image:latest
-  - cmd: docker manifest inspect $Registry/qdk-image:latest
+      $Registry/qdk-image:{{.Values.imageTag}}-{{.Values.arch}}
+      bash -c 'test "$(uname -m)" = "{{.Values.machine}}"'
+  - push:
+      - $Registry/qdk-image:{{.Values.imageTag}}-{{.Values.arch}}
