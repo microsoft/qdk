@@ -402,15 +402,15 @@ pub struct VariableInfo {
 pub struct Range {
     step: i64,
     end: i64,
-    curr: Option<i64>,
+    curr: i64,
 }
 
 impl Iterator for Range {
     type Item = i64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let curr = self.curr?;
-        self.curr = self.step.checked_add(curr);
+        let curr = self.curr;
+        self.curr += self.step;
         if (self.step > 0 && curr <= self.end) || (self.step < 0 && curr >= self.end) {
             Some(curr)
         } else {
@@ -424,7 +424,7 @@ impl Range {
         Range {
             step,
             end,
-            curr: Some(start),
+            curr: start,
         }
     }
 }
@@ -1701,6 +1701,9 @@ impl State {
         let span = self.to_global_span(span);
         match index {
             Value::Int(index) => {
+                if index < 0 {
+                    return Err(Error::InvalidNegativeInt(index, span));
+                }
                 self.update_array_index_single(env, globals, lhs, span, index, update)
             }
             range @ Value::Range(..) => {
@@ -1889,6 +1892,9 @@ impl State {
                     };
                     let range = make_range(arr, inner.start, inner.step, inner.end, range_span)?;
                     for (idx, rhs) in range.into_iter().zip(rhs.iter()) {
+                        if idx < 0 {
+                            return Err(Error::InvalidNegativeInt(idx, range_span));
+                        }
                         var.value.update_array(idx, rhs.clone(), range_span)?;
                     }
                 }

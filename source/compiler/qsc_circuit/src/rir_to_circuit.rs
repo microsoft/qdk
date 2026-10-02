@@ -558,14 +558,10 @@ fn process_variables(
         }
         instruction @ (Instruction::Store(..)
         | Instruction::StoreArray(..)
-        | Instruction::StoreIndex(..)
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
         | Instruction::Load(..)
-        | Instruction::Index(..)
-        | Instruction::CopyArray(..)
-        | Instruction::SliceArray(..)
-        | Instruction::ConcatArrays(..)) => {
+        | Instruction::Index(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));

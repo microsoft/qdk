@@ -113,13 +113,9 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 }
                 Instruction::Store(_, var)
                 | Instruction::StoreArray(_, var)
-                | Instruction::StoreIndex(_, _, var)
                 | Instruction::Alloca(var)
                 | Instruction::Load(_, var)
-                | Instruction::Index(_, _, var)
-                | Instruction::CopyArray(_, var)
-                | Instruction::SliceArray(_, _, _, _, var)
-                | Instruction::ConcatArrays(_, _, var) => {
+                | Instruction::Index(_, _, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -169,33 +165,6 @@ pub(crate) fn map_variable_use_in_block(
                     *operand = operand.iter().map(|op| op.mapped(var_map)).collect();
                 } else {
                     // Otherwise drop the store array by continuing the loop.
-                    continue;
-                }
-            }
-            Instruction::StoreIndex(value, index, var) => {
-                if var_stor_to_keep.contains(&var.variable_id) {
-                    // Only keep stores to variables that are in the set to keep.
-                    *value = value.mapped(var_map);
-                    *index = index.mapped(var_map);
-                } else {
-                    // Otherwise drop the store index by continuing the loop.
-                    continue;
-                }
-            }
-            Instruction::CopyArray(src, dest) | Instruction::SliceArray(src, _, _, _, dest) => {
-                if var_stor_to_keep.contains(&dest.variable_id) {
-                    *src = src.map_to_variable(var_map);
-                } else {
-                    // Otherwise drop the copy array by continuing the loop.
-                    continue;
-                }
-            }
-            Instruction::ConcatArrays(lhs, rhs, dest) => {
-                if var_stor_to_keep.contains(&dest.variable_id) {
-                    *lhs = lhs.map_to_variable(var_map);
-                    *rhs = rhs.map_to_variable(var_map);
-                } else {
-                    // Otherwise drop the concat arrays by continuing the loop.
                     continue;
                 }
             }
