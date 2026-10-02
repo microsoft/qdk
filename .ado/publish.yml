@@ -27,7 +27,12 @@ resources:
   containers:
     - container: qdkImage
       image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
-      endpoint: a98876e0-d260-464b-9338-a6e0c514151b
+      type: acr
+      azureSubscription: 'QDK Publish Connection'
+      resourceGroup: 'aqua-qdk-test'
+      registry: 'qdkacr'
+      repository: 'qdk-image'
+      trigger: none
 
 parameters:
   - name: matrix
