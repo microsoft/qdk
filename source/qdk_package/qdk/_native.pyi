@@ -474,6 +474,7 @@ class CircuitConfig:
         self,
         *,
         max_operations: Optional[int] = None,
+        max_loop_iterations: Optional[int] = None,
         generation_method: Optional["CircuitGenerationMethod"] = None,
         source_locations: bool = False,
         group_by_scope: bool = False,
@@ -483,6 +484,12 @@ class CircuitConfig:
     max_operations: Optional[int]
     """
     The maximum number of operations to include in the generated circuit.
+    """
+
+    max_loop_iterations: Optional[int]
+    """
+    The maximum number of loop iterations to render in full, or ``None`` to disable
+    truncation.
     """
 
     generation_method: Optional[CircuitGenerationMethod]
@@ -1101,6 +1108,7 @@ class NoiseConfig:
     # form is decomposed into other instructions before reaching the simulator.
     swap: NoiseTable
     mov: NoiseTable
+    mz: NoiseTable
     mresetz: NoiseTable
     # idle: IdleNoiseParams
     intrinsics: NoiseIntrinsicsTable

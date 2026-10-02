@@ -109,6 +109,7 @@
           "additionalProperties": false,
           "default": {
             "maxOperations": 10001,
+            "maxLoopIterations": 100,
             "generationMethod": "static",
             "sourceLocations": true,
             "groupByScope": true
@@ -119,6 +120,12 @@
               "default": 10001,
               "minimum": 1,
               "description": "The maximum number of operations to include in the circuit diagram."
+            },
+            "maxLoopIterations": {
+              "type": "number",
+              "default": 100,
+              "minimum": 2,
+              "description": "The maximum number of loop iterations to render in full."
             },
             "groupByScope": {
               "type": "boolean",
@@ -467,7 +474,7 @@
       "notebook/cell/title": [
         {
           "command": "qsharp-vscode.learningNotebookExplain",
-          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
+          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningNotebookActive",
           "group": "inline/cell@50"
         }
       ],

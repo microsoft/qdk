@@ -18,11 +18,11 @@ block_1:
   br i1 %var_1, label %block_2, label %block_3
 block_2:
   %var_40 = load i64, ptr %var_0
-  %var_2_offset_chk = icmp slt i64 %var_40, 0
-  %var_2_offset = select i1 %var_2_offset_chk, i64 1, i64 0
-  %var_2 = getelementptr [3 x double], ptr @array0, i64 %var_2_offset, i64 %var_40
-  %var_41 = load double, ptr %var_2
-  call void @Rx(double %var_41, ptr inttoptr (i64 0 to ptr))
+  %var_41_offset_chk = icmp slt i64 %var_40, 0
+  %var_41_offset = select i1 %var_41_offset_chk, i64 1, i64 0
+  %var_41 = getelementptr [3 x double], ptr @array0, i64 %var_41_offset, i64 %var_40
+  %var_2 = load double, ptr %var_41
+  call void @Rx(double %var_2, ptr inttoptr (i64 0 to ptr))
   %var_6 = add i64 %var_40, 1
   store i64 %var_6, ptr %var_0
   br label %block_1
@@ -35,11 +35,11 @@ block_4:
   br i1 %var_9, label %block_5, label %block_6
 block_5:
   %var_37 = load i64, ptr %var_8
-  %var_10_offset_chk = icmp slt i64 %var_37, 0
-  %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
-  %var_10 = getelementptr [3 x double], ptr @array1, i64 %var_10_offset, i64 %var_37
-  %var_38 = load double, ptr %var_10
-  call void @Rx(double %var_38, ptr inttoptr (i64 0 to ptr))
+  %var_38_offset_chk = icmp slt i64 %var_37, 0
+  %var_38_offset = select i1 %var_38_offset_chk, i64 1, i64 0
+  %var_38 = getelementptr [3 x double], ptr @array1, i64 %var_38_offset, i64 %var_37
+  %var_10 = load double, ptr %var_38
+  call void @Rx(double %var_10, ptr inttoptr (i64 0 to ptr))
   %var_12 = add i64 %var_37, 1
   store i64 %var_12, ptr %var_8
   br label %block_4
@@ -52,11 +52,11 @@ block_7:
   br i1 %var_14, label %block_8, label %block_9
 block_8:
   %var_34 = load i64, ptr %var_13
-  %var_15_offset_chk = icmp slt i64 %var_34, 0
-  %var_15_offset = select i1 %var_15_offset_chk, i64 1, i64 0
-  %var_15 = getelementptr [3 x double], ptr @array0, i64 %var_15_offset, i64 %var_34
-  %var_35 = load double, ptr %var_15
-  call void @Rx(double %var_35, ptr inttoptr (i64 0 to ptr))
+  %var_35_offset_chk = icmp slt i64 %var_34, 0
+  %var_35_offset = select i1 %var_35_offset_chk, i64 1, i64 0
+  %var_35 = getelementptr [3 x double], ptr @array0, i64 %var_35_offset, i64 %var_34
+  %var_15 = load double, ptr %var_35
+  call void @Rx(double %var_15, ptr inttoptr (i64 0 to ptr))
   %var_17 = add i64 %var_34, 1
   store i64 %var_17, ptr %var_13
   br label %block_7
@@ -69,11 +69,11 @@ block_10:
   br i1 %var_19, label %block_11, label %block_12
 block_11:
   %var_31 = load i64, ptr %var_18
-  %var_20_offset_chk = icmp slt i64 %var_31, 0
-  %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
-  %var_20 = getelementptr [1 x double], ptr @array2, i64 %var_20_offset, i64 %var_31
-  %var_32 = load double, ptr %var_20
-  call void @Rx(double %var_32, ptr inttoptr (i64 0 to ptr))
+  %var_32_offset_chk = icmp slt i64 %var_31, 0
+  %var_32_offset = select i1 %var_32_offset_chk, i64 1, i64 0
+  %var_32 = getelementptr [1 x double], ptr @array2, i64 %var_32_offset, i64 %var_31
+  %var_20 = load double, ptr %var_32
+  call void @Rx(double %var_20, ptr inttoptr (i64 0 to ptr))
   %var_22 = add i64 %var_31, 1
   store i64 %var_22, ptr %var_18
   br label %block_10
@@ -103,7 +103,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -114,3 +114,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

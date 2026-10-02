@@ -24,11 +24,11 @@ block_1:
   br i1 %var_6, label %block_2, label %block_3
 block_2:
   %var_26 = load i64, ptr %var_5
-  %var_7_offset_chk = icmp slt i64 %var_26, 0
-  %var_7_offset = select i1 %var_7_offset_chk, i64 1, i64 0
-  %var_7 = getelementptr [2 x ptr], ptr @array0, i64 %var_7_offset, i64 %var_26
-  %var_27 = load ptr, ptr %var_7
-  call void @Reset(ptr %var_27)
+  %var_27_offset_chk = icmp slt i64 %var_26, 0
+  %var_27_offset = select i1 %var_27_offset_chk, i64 1, i64 0
+  %var_27 = getelementptr [2 x ptr], ptr @array0, i64 %var_27_offset, i64 %var_26
+  %var_7 = load ptr, ptr %var_27
+  call void @Reset(ptr %var_7)
   %var_10 = add i64 %var_26, 1
   store i64 %var_10, ptr %var_5
   br label %block_1
@@ -45,11 +45,11 @@ block_4:
   br i1 %var_15, label %block_5, label %block_6
 block_5:
   %var_23 = load i64, ptr %var_14
-  %var_16_offset_chk = icmp slt i64 %var_23, 0
-  %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
-  %var_16 = getelementptr [2 x ptr], ptr @array1, i64 %var_16_offset, i64 %var_23
-  %var_24 = load ptr, ptr %var_16
-  call void @Reset(ptr %var_24)
+  %var_24_offset_chk = icmp slt i64 %var_23, 0
+  %var_24_offset = select i1 %var_24_offset_chk, i64 1, i64 0
+  %var_24 = getelementptr [2 x ptr], ptr @array1, i64 %var_24_offset, i64 %var_23
+  %var_16 = load ptr, ptr %var_24
+  call void @Reset(ptr %var_16)
   %var_18 = add i64 %var_23, 1
   store i64 %var_18, ptr %var_14
   br label %block_4
@@ -104,7 +104,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -115,3 +115,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

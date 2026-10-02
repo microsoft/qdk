@@ -3,17 +3,18 @@
 
 use crate::{
     ApplicationGeneratorSet, CallableComputeProperties, ComputePropertiesLookup,
-    ItemComputeProperties, PackageComputeProperties, PackageStoreComputeProperties,
-    common::GlobalSpecId,
+    ItemComputeProperties, MutableFixedSizeArraysEntry, PackageComputeProperties,
+    PackageStoreComputeProperties, common::GlobalSpecId,
 };
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::{
     fir::{
         self, BlockId, ExprId, LocalItemId, PackageId, StmtId, StoreBlockId, StoreExprId,
-        StoreItemId, StoreStmtId,
+        StoreItemId, StoreItemSpecializationKey, StoreStmtId,
     },
     ty::FunctorSetValue,
 };
+use rustc_hash::FxHashMap;
 
 /// Scaffolding used to build the package store compute properties.
 #[derive(Debug)]
@@ -43,6 +44,10 @@ impl From<PackageStoreComputeProperties> for InternalPackageStoreComputeProperti
                     .unresolved_callee_exprs
                     .into_iter()
                     .collect(),
+                mutable_fixed_size_arrays: package_compute_properties
+                    .mutable_fixed_size_arrays
+                    .into_iter()
+                    .collect(),
             };
             scaffolding.insert(package_id, package_compute_properties);
         }
@@ -61,6 +66,10 @@ impl From<PackageStoreComputeProperties> for InternalPackageStoreComputeProperti
                 exprs: package_compute_properties.exprs,
                 unresolved_callee_exprs: package_compute_properties
                     .unresolved_callee_exprs
+                    .into_iter()
+                    .collect(),
+                mutable_fixed_size_arrays: package_compute_properties
+                    .mutable_fixed_size_arrays
                     .into_iter()
                     .collect(),
             };
@@ -94,6 +103,10 @@ impl From<InternalPackageStoreComputeProperties> for PackageStoreComputeProperti
                     .unresolved_callee_exprs
                     .into_iter()
                     .collect(),
+                mutable_fixed_size_arrays: package_scaffolding
+                    .mutable_fixed_size_arrays
+                    .into_iter()
+                    .collect(),
             };
             package_store_compute_properties.insert(package_id, package_compute_properties);
         }
@@ -113,6 +126,10 @@ impl From<InternalPackageStoreComputeProperties> for PackageStoreComputeProperti
                 exprs: package_scaffolding.exprs,
                 unresolved_callee_exprs: package_scaffolding
                     .unresolved_callee_exprs
+                    .into_iter()
+                    .collect(),
+                mutable_fixed_size_arrays: package_scaffolding
+                    .mutable_fixed_size_arrays
                     .into_iter()
                     .collect(),
             };
@@ -293,6 +310,9 @@ pub struct InternalPackageComputeProperties {
     pub exprs: IndexMap<ExprId, ApplicationGeneratorSet>,
     /// The expressions that were unresolved callees at analysis time.
     pub unresolved_callee_exprs: Vec<ExprId>,
+    /// The mutable fixed size arrays for each package item and specialization.
+    pub mutable_fixed_size_arrays:
+        FxHashMap<StoreItemSpecializationKey, MutableFixedSizeArraysEntry>,
 }
 
 /// Scaffolding used to build the compute properties of an item.

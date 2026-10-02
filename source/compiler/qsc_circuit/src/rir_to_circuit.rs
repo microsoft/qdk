@@ -84,7 +84,13 @@ pub fn rir_to_circuit(
     // All operations from the program collected, finalize the circuit.
     let qubits = wire_map_builder.into_wire_map().to_qubits(source_lookup);
     let operations = builder.into_operations();
-    let circuit = finish_circuit(source_lookup, operations, qubits, config.group_by_scope);
+    let circuit = finish_circuit(
+        source_lookup,
+        operations,
+        qubits,
+        config.group_by_scope,
+        config.max_loop_iterations,
+    );
 
     Ok(circuit)
 }
@@ -552,10 +558,14 @@ fn process_variables(
         }
         instruction @ (Instruction::Store(..)
         | Instruction::StoreArray(..)
+        | Instruction::StoreIndex(..)
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
         | Instruction::Load(..)
-        | Instruction::Index(..)) => {
+        | Instruction::Index(..)
+        | Instruction::CopyArray(..)
+        | Instruction::SliceArray(..)
+        | Instruction::ConcatArrays(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));

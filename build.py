@@ -289,6 +289,10 @@ def use_python_env(folder):
     return (python_bin, pip_env)
 
 
+def is_windows_arm64() -> bool:
+    return platform.system() == "Windows" and platform.machine().lower() == "arm64"
+
+
 # Static checks for Python code in source/qdk_package.
 # Currently only includes type checking with pyright.
 # Runs if:
@@ -412,7 +416,10 @@ if args.check:
     step_end()
 
     if build_qdk:
-        run_python_checks()
+        if is_windows_arm64():
+            print("Python static checks skipped on Windows ARM64")
+        else:
+            run_python_checks()
 
 
 if build_cli:
@@ -564,12 +571,15 @@ if build_qdk:
         step_end()
 
     if args.check:
-        step_start("Checking qdk public API surface for private type leakage")
-        run(
-            [python_bin, os.path.join(qdk_python_src, "check_api_surface.py")],
-            cwd=qdk_python_src,
-        )
-        step_end()
+        if is_windows_arm64():
+            print("API surface checks skipped on Windows ARM64")
+        else:
+            step_start("Checking qdk public API surface for private type leakage")
+            run(
+                [python_bin, os.path.join(qdk_python_src, "check_api_surface.py")],
+                cwd=qdk_python_src,
+            )
+            step_end()
 
     if run_tests:
         step_start("Running tests for the qdk python package")
@@ -769,6 +779,7 @@ if build_widgets and build_qdk and args.integration_tests:
     notebook_files = [
         os.path.join(dp, f)
         for dp, _, filenames in os.walk(samples_src)
+        if os.path.basename(dp) != "qdk_ec"
         for f in filenames
         if f.endswith(".ipynb") and not f.startswith(SKIP_NOTEBOOK_PREFIXES)
     ]

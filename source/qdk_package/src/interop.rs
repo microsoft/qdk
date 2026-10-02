@@ -675,6 +675,7 @@ pub(crate) fn circuit_qasm_program(
         max_operations: config
             .max_operations
             .unwrap_or(TracerConfig::DEFAULT_MAX_OPERATIONS),
+        max_loop_iterations: config.max_loop_iterations,
         source_locations: config.source_locations,
         group_by_scope: config.group_by_scope,
         prune_classical_qubits: config.prune_classical_qubits,

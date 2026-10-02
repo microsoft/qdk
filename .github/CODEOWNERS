@@ -20,7 +20,7 @@
 /library @swernli @orpuente-MS
 /source/npm @billti @amcasey
 /source/qdk_package @billti @idavis
-/source/qdk_package/qdk/qre @msoeken @brad-lackey @jwhogabo
+/source/qdk_package/qdk/qre @msoeken @brad-lackey @jwhogabo @fedimser
 /source/playground @billti @amcasey
 /source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @swernli

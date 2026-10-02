@@ -16,11 +16,11 @@ block_1:
   br i1 %var_2, label %block_2, label %block_3
 block_2:
   %var_8 = load i64, ptr %var_1
-  %var_3_offset_chk = icmp slt i64 %var_8, 0
-  %var_3_offset = select i1 %var_3_offset_chk, i64 1, i64 0
-  %var_3 = getelementptr [3 x ptr], ptr @array0, i64 %var_3_offset, i64 %var_8
-  %var_9 = load ptr, ptr %var_3
-  call void @X(ptr %var_9)
+  %var_9_offset_chk = icmp slt i64 %var_8, 0
+  %var_9_offset = select i1 %var_9_offset_chk, i64 1, i64 0
+  %var_9 = getelementptr [3 x ptr], ptr @array0, i64 %var_9_offset, i64 %var_8
+  %var_3 = load ptr, ptr %var_9
+  call void @X(ptr %var_3)
   %var_5 = add i64 %var_8, -1
   store i64 %var_5, ptr %var_1
   br label %block_1
@@ -57,7 +57,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -68,3 +68,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

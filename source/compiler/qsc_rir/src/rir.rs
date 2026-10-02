@@ -377,6 +377,7 @@ impl Display for FcmpConditionCode {
 pub enum Instruction {
     Store(Operand, Variable),
     StoreArray(Vec<Operand>, Variable),
+    StoreIndex(Operand, Operand, Variable),
     Call(
         CallableId,
         Vec<Operand>,
@@ -416,6 +417,9 @@ pub enum Instruction {
     Load(Variable, Variable),
     Alloca(Variable),
     Index(Operand, Operand, Variable),
+    CopyArray(Variable, Variable),
+    SliceArray(Variable, i64, i64, i64, Variable),
+    ConcatArrays(Variable, Variable, Variable),
     Return(Option<Operand>),
 }
 
@@ -430,11 +434,16 @@ impl Instruction {
 }
 
 impl Display for Instruction {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::StoreArray(value, variable) => {
                 write_store_array_instruction(f, value, *variable)?;
+            }
+            Self::StoreIndex(value, index, array_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "StoreIndex {value}, {index}, {array_var}")?;
             }
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
             Self::Call(callable_id, args, variable, metadata) => {
@@ -523,6 +532,21 @@ impl Display for Instruction {
             Self::Index(array_var, index_opr, result_var) => {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
+            }
+            Self::CopyArray(source_array, dest_array) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{dest_array} = CopyArray {source_array}")?;
+            }
+            Self::SliceArray(array_var, start, step, end, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(
+                    indent,
+                    "{result_var} = SliceArray {array_var}, {start}, {step}, {end}"
+                )?;
+            }
+            Self::ConcatArrays(lhs, rhs, result) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{result} = ConcatArrays {lhs}, {rhs}")?;
             }
             Self::Return(None) => write!(f, "Return")?,
             Self::Return(Some(operand)) => write!(f, "Return {operand}")?,
@@ -670,7 +694,7 @@ impl Operand {
         match self {
             Operand::Literal(lit) => match lit {
                 Literal::Qubit(_) => Ty::Prim(Prim::Qubit),
-                Literal::Result(_) => Ty::Prim(Prim::Result),
+                Literal::Result(_) | Literal::ResultLit(_) => Ty::Prim(Prim::Result),
                 Literal::Bool(_) => Ty::Prim(Prim::Boolean),
                 Literal::Integer(_) => Ty::Prim(Prim::Integer),
                 Literal::Double(_) => Ty::Prim(Prim::Double),
@@ -687,6 +711,7 @@ impl Operand {
 pub enum Literal {
     Qubit(u32),
     Result(u32),
+    ResultLit(bool),
     Bool(bool),
     Integer(i64),
     Double(f64),
@@ -700,6 +725,7 @@ impl Display for Literal {
         match &self {
             Self::Qubit(id) => write!(f, "Qubit({id})")?,
             Self::Result(id) => write!(f, "Result({id})")?,
+            Self::ResultLit(b) => write!(f, "ResultLit({b})")?,
             Self::Bool(b) => write!(f, "Bool({b})")?,
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
@@ -748,6 +774,13 @@ impl PartialEq for Literal {
             Self::Result(self_result) => {
                 if let Self::Result(other_result) = other {
                     self_result == other_result
+                } else {
+                    false
+                }
+            }
+            Self::ResultLit(self_result_lit) => {
+                if let Self::ResultLit(other_result_lit) = other {
+                    self_result_lit == other_result_lit
                 } else {
                     false
                 }

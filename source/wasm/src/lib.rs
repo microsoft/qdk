@@ -152,12 +152,14 @@ serializable_type! {
     {
         generation_method: String,
         max_operations: usize,
+        max_loop_iterations: Option<usize>,
         source_locations: bool,
         group_by_scope: bool,
     },
     r#"export interface ICircuitConfig {
         generationMethod: "simulate" | "classicalEval" | "static";
         maxOperations: number;
+        maxLoopIterations?: number;
         sourceLocations: boolean;
         groupByScope: boolean;
     }"#,
@@ -185,6 +187,7 @@ pub fn get_circuit(
     let tracer_config = qsc::circuit::TracerConfig {
         source_locations: config.source_locations,
         max_operations: config.max_operations,
+        max_loop_iterations: config.max_loop_iterations,
         group_by_scope: config.group_by_scope,
         prune_classical_qubits: false,
     };

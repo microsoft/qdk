@@ -48,6 +48,9 @@ impl ToQir<String> for rir::Literal {
             rir::Literal::Array(_) => {
                 panic!("array literals are not supported in QIR v1 generation")
             }
+            rir::Literal::ResultLit(..) => {
+                panic!("result literal values are not supported in QIR v1 generation")
+            }
         }
     }
 }
@@ -221,7 +224,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Srem(lhs, rhs, variable) => {
                 binop_to_qir("srem", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Store(_, _) | rir::Instruction::StoreArray(_, _) => {
+            rir::Instruction::Store(_, _)
+            | rir::Instruction::StoreArray(_, _)
+            | rir::Instruction::StoreIndex(_, _, _) => {
                 unimplemented!("store should be removed by pass")
             }
             rir::Instruction::Sub(lhs, rhs, variable) => {
@@ -229,7 +234,10 @@ impl ToQir<String> for rir::Instruction {
             }
             rir::Instruction::Alloca(..)
             | rir::Instruction::Load(..)
-            | rir::Instruction::Index(..) => {
+            | rir::Instruction::Index(..)
+            | rir::Instruction::CopyArray(..)
+            | rir::Instruction::SliceArray(..)
+            | rir::Instruction::ConcatArrays(..) => {
                 unimplemented!("advanced instructions are not supported in QIR v1 generation")
             }
         }
@@ -548,6 +556,9 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             rir::Literal::Array(..) => {
                 panic!("array literals are not supported in QIR v1 generation")
             }
+            rir::Literal::ResultLit(..) => {
+                panic!("result literal values are not supported in QIR v1 generation")
+            }
         },
         rir::Operand::Variable(var) => ToQir::<String>::to_qir(&var.variable_id, program),
     }
@@ -564,6 +575,9 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::NullPointer | rir::Literal::Tag(..) => "i8*",
             rir::Literal::Array(_) => {
                 panic!("array literals are not supported in QIR v1 generation")
+            }
+            rir::Literal::ResultLit(..) => {
+                panic!("result literal values are not supported in QIR v1 generation")
             }
         },
         rir::Operand::Variable(var) => get_variable_ty(*var),

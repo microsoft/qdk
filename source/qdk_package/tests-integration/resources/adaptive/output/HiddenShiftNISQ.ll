@@ -33,11 +33,11 @@ block_1:
   br i1 %var_3, label %block_2, label %block_3
 block_2:
   %var_110 = load i64, ptr %var_2
-  %var_4_offset_chk = icmp slt i64 %var_110, 0
-  %var_4_offset = select i1 %var_4_offset_chk, i64 1, i64 0
-  %var_4 = getelementptr [6 x ptr], ptr @array0, i64 %var_4_offset, i64 %var_110
-  %var_111 = load ptr, ptr %var_4
-  call void @H(ptr %var_111)
+  %var_111_offset_chk = icmp slt i64 %var_110, 0
+  %var_111_offset = select i1 %var_111_offset_chk, i64 1, i64 0
+  %var_111 = getelementptr [6 x ptr], ptr @array0, i64 %var_111_offset, i64 %var_110
+  %var_4 = load ptr, ptr %var_111
+  call void @H(ptr %var_4)
   %var_7 = add i64 %var_110, 1
   store i64 %var_7, ptr %var_2
   br label %block_1
@@ -51,11 +51,11 @@ block_4:
   br i1 %var_10, label %block_5, label %block_6
 block_5:
   %var_101 = load i64, ptr %var_9
-  %var_11_offset_chk = icmp slt i64 %var_101, 0
-  %var_11_offset = select i1 %var_11_offset_chk, i64 1, i64 0
-  %var_11 = getelementptr [6 x ptr], ptr @array0, i64 %var_11_offset, i64 %var_101
-  %var_102 = load ptr, ptr %var_11
-  store ptr %var_102, ptr %var_12
+  %var_102_offset_chk = icmp slt i64 %var_101, 0
+  %var_102_offset = select i1 %var_102_offset_chk, i64 1, i64 0
+  %var_102 = getelementptr [6 x ptr], ptr @array0, i64 %var_102_offset, i64 %var_101
+  %var_11 = load ptr, ptr %var_102
+  store ptr %var_11, ptr %var_12
   %var_104 = load i64, ptr %var_8
   %var_13 = and i64 %var_104, 1
   %var_14 = icmp ne i64 %var_13, 0
@@ -90,15 +90,15 @@ block_11:
   br label %block_10
 block_12:
   %var_97 = load i64, ptr %var_19
-  %var_22_offset_chk = icmp slt i64 %var_97, 0
-  %var_22_offset = select i1 %var_22_offset_chk, i64 1, i64 0
-  %var_22 = getelementptr [3 x ptr], ptr @array1, i64 %var_22_offset, i64 %var_97
-  %var_98 = load ptr, ptr %var_22
-  %var_23_offset_chk = icmp slt i64 %var_97, 0
-  %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
-  %var_23 = getelementptr [3 x ptr], ptr @array2, i64 %var_23_offset, i64 %var_97
-  %var_99 = load ptr, ptr %var_23
-  call void @CZ(ptr %var_98, ptr %var_99)
+  %var_98_offset_chk = icmp slt i64 %var_97, 0
+  %var_98_offset = select i1 %var_98_offset_chk, i64 1, i64 0
+  %var_98 = getelementptr [3 x ptr], ptr @array1, i64 %var_98_offset, i64 %var_97
+  %var_22 = load ptr, ptr %var_98
+  %var_99_offset_chk = icmp slt i64 %var_97, 0
+  %var_99_offset = select i1 %var_99_offset_chk, i64 1, i64 0
+  %var_99 = getelementptr [3 x ptr], ptr @array2, i64 %var_99_offset, i64 %var_97
+  %var_23 = load ptr, ptr %var_99
+  call void @CZ(ptr %var_22, ptr %var_23)
   %var_26 = add i64 %var_97, 1
   store i64 %var_26, ptr %var_19
   br label %block_8
@@ -112,11 +112,11 @@ block_14:
   br i1 %var_29, label %block_15, label %block_16
 block_15:
   %var_88 = load i64, ptr %var_28
-  %var_30_offset_chk = icmp slt i64 %var_88, 0
-  %var_30_offset = select i1 %var_30_offset_chk, i64 1, i64 0
-  %var_30 = getelementptr [6 x ptr], ptr @array0, i64 %var_30_offset, i64 %var_88
-  %var_89 = load ptr, ptr %var_30
-  store ptr %var_89, ptr %var_31
+  %var_89_offset_chk = icmp slt i64 %var_88, 0
+  %var_89_offset = select i1 %var_89_offset_chk, i64 1, i64 0
+  %var_89 = getelementptr [6 x ptr], ptr @array0, i64 %var_89_offset, i64 %var_88
+  %var_30 = load ptr, ptr %var_89
+  store ptr %var_30, ptr %var_31
   %var_91 = load i64, ptr %var_27
   %var_32 = and i64 %var_91, 1
   %var_33 = icmp ne i64 %var_32, 0
@@ -144,11 +144,11 @@ block_19:
   br label %block_14
 block_20:
   %var_85 = load i64, ptr %var_37
-  %var_39_offset_chk = icmp slt i64 %var_85, 0
-  %var_39_offset = select i1 %var_39_offset_chk, i64 1, i64 0
-  %var_39 = getelementptr [6 x ptr], ptr @array0, i64 %var_39_offset, i64 %var_85
-  %var_86 = load ptr, ptr %var_39
-  call void @H(ptr %var_86)
+  %var_86_offset_chk = icmp slt i64 %var_85, 0
+  %var_86_offset = select i1 %var_86_offset_chk, i64 1, i64 0
+  %var_86 = getelementptr [6 x ptr], ptr @array0, i64 %var_86_offset, i64 %var_85
+  %var_39 = load ptr, ptr %var_86
+  call void @H(ptr %var_39)
   %var_41 = add i64 %var_85, 1
   store i64 %var_41, ptr %var_37
   br label %block_18
@@ -168,15 +168,15 @@ block_24:
   br label %block_23
 block_25:
   %var_81 = load i64, ptr %var_42
-  %var_45_offset_chk = icmp slt i64 %var_81, 0
-  %var_45_offset = select i1 %var_45_offset_chk, i64 1, i64 0
-  %var_45 = getelementptr [3 x ptr], ptr @array1, i64 %var_45_offset, i64 %var_81
-  %var_82 = load ptr, ptr %var_45
-  %var_46_offset_chk = icmp slt i64 %var_81, 0
-  %var_46_offset = select i1 %var_46_offset_chk, i64 1, i64 0
-  %var_46 = getelementptr [3 x ptr], ptr @array2, i64 %var_46_offset, i64 %var_81
-  %var_83 = load ptr, ptr %var_46
-  call void @CZ(ptr %var_82, ptr %var_83)
+  %var_82_offset_chk = icmp slt i64 %var_81, 0
+  %var_82_offset = select i1 %var_82_offset_chk, i64 1, i64 0
+  %var_82 = getelementptr [3 x ptr], ptr @array1, i64 %var_82_offset, i64 %var_81
+  %var_45 = load ptr, ptr %var_82
+  %var_83_offset_chk = icmp slt i64 %var_81, 0
+  %var_83_offset = select i1 %var_83_offset_chk, i64 1, i64 0
+  %var_83 = getelementptr [3 x ptr], ptr @array2, i64 %var_83_offset, i64 %var_81
+  %var_46 = load ptr, ptr %var_83
+  call void @CZ(ptr %var_45, ptr %var_46)
   %var_47 = add i64 %var_81, 1
   store i64 %var_47, ptr %var_42
   br label %block_22
@@ -189,11 +189,11 @@ block_27:
   br i1 %var_49, label %block_28, label %block_29
 block_28:
   %var_78 = load i64, ptr %var_48
-  %var_50_offset_chk = icmp slt i64 %var_78, 0
-  %var_50_offset = select i1 %var_50_offset_chk, i64 1, i64 0
-  %var_50 = getelementptr [6 x ptr], ptr @array0, i64 %var_50_offset, i64 %var_78
-  %var_79 = load ptr, ptr %var_50
-  call void @H__Adj(ptr %var_79)
+  %var_79_offset_chk = icmp slt i64 %var_78, 0
+  %var_79_offset = select i1 %var_79_offset_chk, i64 1, i64 0
+  %var_79 = getelementptr [6 x ptr], ptr @array0, i64 %var_79_offset, i64 %var_78
+  %var_50 = load ptr, ptr %var_79
+  call void @H__Adj(ptr %var_50)
   %var_53 = add i64 %var_78, -1
   store i64 %var_53, ptr %var_48
   br label %block_27
@@ -258,7 +258,7 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -269,3 +269,4 @@ attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

@@ -9,7 +9,7 @@ use qsc_eval::{
 use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
 use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::hash_map::Entry, rc::Rc};
 
 use crate::{ScopeDbgContext, is_static_value};
@@ -124,6 +124,8 @@ pub struct Scope {
     /// Any locally constant arrays associated with this scope, along with the variable ID
     /// they are assigned (which happens after the scope is created).
     pub(crate) arrays: Vec<(Rc<Vec<Value>>, Option<VariableId>)>,
+    /// Any mutable fixed-size arrays owned by this scope that may need additional handling during evaluation.
+    pub(crate) mutable_fixed_size_arrays: FxHashSet<LocalVarId>,
 }
 
 impl Scope {
@@ -194,6 +196,7 @@ impl Scope {
             static_vars: FxHashMap::default(),
             dbg_context: ScopeDbgContext::default(),
             arrays: arrays.into_iter().map(|array| (array, None)).collect(),
+            mutable_fixed_size_arrays: FxHashSet::default(),
         }
     }
 

@@ -613,6 +613,21 @@ class AdaptiveProfilePass:
         )
 
     @staticmethod
+    def _is_zero_array(value: pyqir.Value) -> bool:
+        """Whether `value` is an all-zero array constant (`zeroinitializer`).
+
+        LLVM folds arrays whose elements are all zero (including
+        `[N x ptr] [ptr inttoptr (i64 0 to ptr), ...]`, since that is `null`)
+        to `zeroinitializer`, which pyqir exposes as a `Constant` rather
+        than an `ArrayConstant`.
+        """
+        return (
+            isinstance(value, pyqir.Constant)
+            and isinstance(value.type, pyqir.ArrayType)
+            and value.is_null
+        )
+
+    @staticmethod
     def _is_global_array(global_variable: pyqir.GlobalVariable):
         init = global_variable.initializer
         if init is None:
@@ -620,7 +635,9 @@ class AdaptiveProfilePass:
         # If the global variable has an initializer, but the initializer value
         # is not an array, return False. E.g.: This can happens when initializing
         # a global integer constant.
-        if not isinstance(init, pyqir.ArrayConstant):
+        if not isinstance(
+            init, pyqir.ArrayConstant
+        ) and not AdaptiveProfilePass._is_zero_array(init):
             return False
 
         # ``[N x i8]`` globals are excluded on purpose: in Adaptive Profile QIR
@@ -658,12 +675,12 @@ class AdaptiveProfilePass:
         # encoding elements.  This ensures that forward references between
         # globals (e.g. @matrix declared before @row0/@row1) are resolved
         # correctly in Pass 2.
-        supported_globals: list[tuple[pyqir.GlobalVariable, pyqir.ArrayConstant]] = []
+        supported_globals: list[tuple[pyqir.GlobalVariable, pyqir.Constant]] = []
         base = len(self.constant_data)
         for gv in mod.global_variables:
             if not self._is_global_array(gv):
                 continue
-            init = cast(pyqir.ArrayConstant, gv.initializer)
+            init = cast(pyqir.Constant, gv.initializer)
             self._global_to_address[gv.name] = base
             base += self._size_in_words(init.type)
             supported_globals.append((gv, init))
@@ -675,21 +692,25 @@ class AdaptiveProfilePass:
         self._alloca_ptr = len(self.constant_data)
         self._memory_size = self._alloca_ptr
 
-    def _encode_array_elements(self, arr: pyqir.ArrayConstant, gv_name: str) -> None:
+    def _encode_array_elements(self, arr: pyqir.Constant, gv_name: str) -> None:
         """Recursively encode ArrayConstant elements into constant_data.
 
         Nested ``ArrayConstant`` elements (e.g. ``[2 x [2 x i32]]``) are
-        flattened in row-major order.
+        flattened in row-major order. All-zero arrays (``zeroinitializer``)
+        have no elements and are encoded as zero words.
         """
+        if self._is_zero_array(arr):
+            self.constant_data.extend([0] * self._size_in_words(arr.type))
+            return
         mask = (1 << self._int_bits) - 1
-        for elem in arr.elements:
+        for elem in cast(pyqir.ArrayConstant, arr).elements:
             if isinstance(elem, pyqir.IntConstant):
                 self.constant_data.append(elem.value & mask)
             elif isinstance(elem, pyqir.FloatConstant):
                 self.constant_data.append(
                     encode_float_as_bits(elem.value, self._bytecode_kind)
                 )
-            elif isinstance(elem, pyqir.ArrayConstant):
+            elif isinstance(elem, pyqir.ArrayConstant) or self._is_zero_array(elem):
                 # Nested array — flatten recursively.
                 self._encode_array_elements(elem, gv_name)
             elif isinstance(elem, pyqir.GlobalVariable):
@@ -829,7 +850,7 @@ class AdaptiveProfilePass:
             case pyqir.Opcode.INT_TO_PTR:
                 self._emit_inttoptr(instr)
             case pyqir.Opcode.ALLOCA:
-                self._emit_alloca(instr)
+                self._emit_alloca(cast(pyqir.Alloca, instr))
             case pyqir.Opcode.LOAD:
                 self._emit_load(instr)
             case pyqir.Opcode.STORE:
@@ -1240,30 +1261,24 @@ class AdaptiveProfilePass:
     # Memory operation emitters
     # ------------------------------------------------------------------
 
-    def _emit_alloca(self, instr: pyqir.Instruction) -> None:
+    def _emit_alloca(self, instr: pyqir.Alloca) -> None:
         """Emit OP_ALLOCA — stack memory allocation."""
         dst = self._alloc_reg(instr, REG_TYPE_PTR)
         alloc_type = instr.type
+        alloca_operand = (
+            cast(pyqir.IntConstant, instr.operands[0]) if instr.operands else None
+        )
+        num_words = alloca_operand.value if alloca_operand else 1
 
         # Determine the number of words to allocate
         if isinstance(alloc_type, pyqir.PointerType):
-            pointee = alloc_type.pointee
+            pointee = instr.allocated_type
             if isinstance(pointee, pyqir.ArrayType):
-                num_words = pointee.count
-            else:
-                # Reject alloca of aggregate data (arrays and structs).
-                text = str(instr).lstrip()
-                _, _, after_alloca = text.partition("alloca ")
-                if after_alloca.startswith("[") or after_alloca.startswith("{"):
-                    raise NotImplementedError(
-                        "Aggregate stack allocations (alloca of an array "
-                        "or struct type) are not supported by the adaptive "
-                        "GPU bytecode pass under LLVM opaque pointers; "
-                        f"got: {text!r}"
-                    )
-                num_words = 1
-        else:
-            num_words = 1
+                num_words *= pointee.count
+            elif isinstance(pointee, pyqir.StructType):
+                raise NotImplementedError(
+                    "Aggregate stack allocations for structs are not supported."
+                )
 
         addr = self._alloca_ptr
         self._alloca_ptr += num_words

@@ -24,15 +24,11 @@ import {
   getLanguageServiceWorker,
 } from "qsharp-lang";
 
-// The playground Katas viewer uses the Markdown version of the katas
-import { Kata, getAllKatas } from "qsharp-lang/katas-md";
-
 import { Nav } from "./nav.js";
 import { Editor } from "./editor.js";
 import { registerOpenQasmLanguage } from "./openqasm-language.js";
 import { OutputTabs } from "./tabs.js";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { Kata as Katas } from "./kata.js";
 import {
   DocumentationDisplay,
   getNamespaces,
@@ -64,7 +60,7 @@ md.use((mk as any).default, {
   enableMathBlockInHtml: true,
   enableMathInlineInHtml: true,
 }); // Not sure why it's not using the default export automatically :-/
-// Allow only the protocols used in doc/kata/estimator content
+// Allow only the protocols used in doc/estimator content
 // Borrowed from DOMPurify and filtered to our protocols
 const ALLOWED_URI = /^(?:(?:https|xref):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i; // eslint-disable-line no-useless-escape
 setRenderer((input: string) =>
@@ -97,7 +93,6 @@ function createCompiler(onStateChange: (val: CompilerState) => void) {
 }
 
 function App(props: {
-  katas: Kata[];
   linkedCode?: string;
   linkedLanguage?: "qsharp" | "openqasm";
 }) {
@@ -159,7 +154,6 @@ function App(props: {
     setCompilerState("idle");
   };
 
-  const kataTitles = props.katas.map((elem) => elem.title);
   const sampleTitles = samples.map((sample) => sample.title);
   const openqasmSampleTitles = openqasm_samples.map((sample) => sample.title);
 
@@ -195,10 +189,6 @@ function App(props: {
   const sampleCode = selectedSample?.code || props.linkedCode;
 
   const defaultShots = selectedSample?.shots || 100;
-
-  const activeKata = kataTitles.includes(currentNavItem)
-    ? props.katas.find((kata) => kata.title === currentNavItem)
-    : undefined;
 
   function onNavItemSelected(name: string) {
     // If there was a ?code link on the URL before, clear it out
@@ -290,7 +280,6 @@ function App(props: {
       <Nav
         selected={currentNavItem}
         navSelected={onNavItemSelected}
-        katas={kataTitles}
         samples={sampleTitles}
         openqasmSamples={openqasmSampleTitles}
         namespaces={getNamespaces(documentation)}
@@ -329,15 +318,6 @@ function App(props: {
             setActiveTab={setActiveTab}
           ></OutputTabs>
         </>
-      ) : activeKata ? (
-        <Katas
-          kata={activeKata!}
-          compiler={compiler}
-          compiler_worker_factory={compiler_worker_factory}
-          compilerState={compilerState}
-          onRestartCompiler={onRestartCompiler}
-          languageService={languageService}
-        ></Katas>
       ) : currentNavItem === "bloch" ? (
         <div class="bloch-view">
           <BlochSphere
@@ -392,8 +372,6 @@ async function loaded() {
 
   await loadWasmModule(modulePath);
 
-  const katas = await getAllKatas({ includeUnpublished: true });
-
   // If URL is a sharing link, populate the editor with the code from the link.
   // Otherwise, populate with sample code.
   let linkedCode: string | undefined;
@@ -412,11 +390,7 @@ async function loaded() {
     params.get("lang") === "openqasm" ? "openqasm" : "qsharp";
 
   render(
-    <App
-      katas={katas}
-      linkedCode={linkedCode}
-      linkedLanguage={linkedLanguage}
-    ></App>,
+    <App linkedCode={linkedCode} linkedLanguage={linkedLanguage}></App>,
     document.body,
   );
 }
