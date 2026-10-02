@@ -3302,7 +3302,11 @@ impl<'a> PartialEvaluator<'a> {
         let masked_diff = new_var();
         let result = new_var();
         let instructions = [
-            Instruction::Ashr(rhs_operand, Operand::Literal(Literal::Integer(63)), mask),
+            Instruction::Ashr(
+                rhs_operand,
+                Operand::Literal(Literal::Integer((i64::BITS - 1).into())),
+                mask,
+            ),
             Instruction::BitwiseXor(rhs_operand, Operand::Variable(mask), flipped),
             Instruction::Sub(
                 Operand::Variable(flipped),
