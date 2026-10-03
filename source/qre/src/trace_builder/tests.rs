@@ -278,6 +278,53 @@ fn repeat_estimates_creates_repeated_block() {
 }
 
 #[test]
+fn is_resource_estimating_takes_repeat_estimates_branch() {
+    let trace = run_trace(indoc! {
+        "
+        namespace Test {
+            import Std.ResourceEstimation.*;
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                if IsResourceEstimating() {
+                    within {
+                        RepeatEstimates(5);
+                    } apply {
+                        X(q);
+                    }
+                } else {
+                    for _ in 1..5 {
+                        X(q);
+                    }
+                }
+            }
+        }
+        "
+    });
+
+    assert_eq!(trace.compute_qubits(), 1);
+    assert_eq!(trace.num_gates(), 5);
+    assert_eq!(trace.gate_counts().get(&PAULI_X), Some(&5));
+
+    // The body is recorded once inside a repeated block rather than unrolled,
+    // which shows the estimating branch was taken.
+    let rendered = trace.to_string();
+    assert_eq!(
+        rendered,
+        indoc! {"
+            @compute_qubits(1)
+            {
+              repeat 5 {
+                PAULI_X(0)
+              }
+            }
+        "},
+        "expected a single repeat block, got:\n{rendered}"
+    );
+}
+
+#[test]
 fn estimate_caching_is_a_no_op() {
     let trace = run_trace(indoc! {r#"
         namespace Test {

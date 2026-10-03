@@ -102,3 +102,30 @@ def test_qsharp_trace_backend_from_callable(context: Context):
         MEAS_Z,
         MEAS_RESET_Z,
     }
+
+
+def test_qsharp_trace_backend_is_resource_estimating():
+    program = """
+    {
+        use q = Qubit();
+        if Std.ResourceEstimation.IsResourceEstimating() {
+            within {
+                Std.ResourceEstimation.RepeatEstimates(5);
+            } apply {
+                X(q);
+            }
+        } else {
+            for _ in 1..5 {
+                X(q);
+            }
+        }
+    }
+    """
+    app = QSharpApplication(program, use_trace_backend=True)
+    trace = app.get_trace()
+
+    assert trace.compute_qubits == 1
+    assert trace.num_gates == 5
+    assert trace.gate_counts == {PAULI_X: 5}
+    # The estimating branch records the body once inside a repeated block.
+    assert "repeat 5" in str(trace)
