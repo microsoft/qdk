@@ -260,6 +260,8 @@ fn make_range_reverse_expr(range_id: NodeId) -> Expr {
 
     // A reversed range is
     // `(start + (end - start + step) / step * step - step) .. -step .. start`.
+    // Step is both added (inside the division) and subtracted (outside) as a sneaky
+    // way to handle cases where there would be zero steps without branching.
     let new_start = Box::new(Expr {
         id: NodeId::default(),
         span: Span::default(),
