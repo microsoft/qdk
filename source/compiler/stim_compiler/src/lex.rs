@@ -45,6 +45,13 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    /// A tag that is not closed with `]` before the end of the line or input, e.g. `H[tag`.
+    #[error("tag was not closed with ']' before the end of the line")]
+    #[diagnostic(code("Qdk.Stim.Lex.UnterminatedTag"))]
+    UnterminatedTag {
+        #[label]
+        span: Span,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -334,8 +341,12 @@ impl Iterator for Lexer<'_> {
             },
             'A'..='Z' | 'a'..='z' => self.scan_identifier(lo as usize),
             '[' => {
-                self.eat_while(|c| c != ']');
-                self.chars.next_if(|(_, c)| *c == ']');
+                self.eat_while(|c| c != ']' && c != '\n');
+                if self.chars.next_if(|(_, c)| *c == ']').is_none() {
+                    return Some(Err(Error::UnterminatedTag {
+                        span: Span { lo, hi: self.pos() },
+                    }));
+                }
                 TokenKind::Tag
             }
             _ => {
