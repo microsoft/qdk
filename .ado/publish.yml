@@ -51,7 +51,7 @@ extends:
     authenticatedContainerRegistries:
       - serviceConnection: qdkacr
     containers:
-      default_windows_container:
+      default_linux_container:
         image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
     sdl:
       sourceAnalysisPool:
