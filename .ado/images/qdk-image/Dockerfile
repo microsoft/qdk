@@ -56,7 +56,7 @@ RUN git clone \
         -DLLVM_ENABLE_ZSTD=OFF \
     && cmake --build /tmp/llvm-build \
         --target install \
-        --parallel 4 \
+        --parallel 1 \
     && rm -rf /tmp/llvm-project /tmp/llvm-build
 
 ENV PATH="${LLVM_INSTALL_PREFIX}/bin:${PATH}"
