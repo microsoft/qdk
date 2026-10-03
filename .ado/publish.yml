@@ -52,6 +52,13 @@ parameters:
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
   parameters:
+    sdl:
+      sourceAnalysisPool:
+        name: "Azure-Pipelines-DevTools-EO"
+        image: windows-2025
+        os: windows
+      sbom:
+        continueOnError: false
     containers:
       default_linux_container:
         image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
