@@ -16,7 +16,7 @@ variables:
   #
   # Caveat: the synthesized .npmrc file doesn't seem to contain the necessary token, so we'll have to
   # use the npmAuthenticate task explicitly.
-  AZURE_ARTIFACTS_FEED: https://pkgs.dev.azure.com/ms-azurequantum/AzureQuantum/_packaging/azure-quantum/npm/registry/
+  # AZURE_ARTIFACTS_FEED: https://pkgs.dev.azure.com/ms-azurequantum/AzureQuantum/_packaging/azure-quantum/npm/registry/
 
 resources:
   repositories:
@@ -24,10 +24,10 @@ resources:
       type: git
       name: 1ESPipelineTemplates/1ESPipelineTemplates
       ref: refs/tags/release
-  containers:
-    - container: qdkImage
-      image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
-      endpoint: qdkacr
+  # containers:
+  #   - container: qdkImage
+  #     image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
+  #     endpoint: qdkacr
 
 parameters:
   - name: matrix
@@ -52,13 +52,11 @@ parameters:
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
   parameters:
-    sdl:
-      sourceAnalysisPool:
-        name: "Azure-Pipelines-DevTools-EO"
-        image: windows-2025
-        os: windows
-      sbom:
-        continueOnError: false
+    containers:
+      default_linux_container:
+        image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
+    authenticatedContainerRegistries:
+      - serviceConnection: qdkacr
     stages:
       - stage: build
         displayName: Build
@@ -69,7 +67,6 @@ extends:
                   name: ${{ target.poolName }}
                   image: ${{ target.imageName }}
                   os: ${{ target.os }}
-                container: qdkImage
                 timeoutInMinutes: 90
                 templateContext:
                   outputs:
