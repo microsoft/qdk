@@ -17,6 +17,7 @@ from ._qre import (
     LatticeSurgery as _LatticeSurgery,
     DynamicMemoryCompute as _DynamicMemoryCompute,
     Unmemory as _Unmemory,
+    Unroll as _Unroll,
     Trace,
 )
 
@@ -131,6 +132,14 @@ class DynamicMemoryCompute(TraceTransform):
     as needed so that at most a fraction of the original qubits reside
     in the compute area at any time.
 
+    Repeated blocks are not expanded: the first iteration of each is
+    emitted separately, followed by one copy of the body for the
+    remaining iterations.  With least-recently-used eviction,
+    instruction counts match those of the unrolled trace, but
+    compute-slot assignments inside repeated blocks, and slot-dependent
+    quantities such as PSSPC's rotation depth, are approximate.  Apply
+    ``Unroll`` first to place the unrolled trace instead.
+
     Attributes:
         compute_capacity_percentage (float): Fraction (0.0–1.0) of the
             input trace's compute qubits to keep in the compute area.
@@ -188,6 +197,32 @@ class Unmemory(TraceTransform):
             Optional[Trace]: The transformed trace.
         """
         return self._unmemory.transform(trace)
+
+
+@dataclass
+class Unroll(TraceTransform):
+    """Unroll trace transform.
+
+    Expands every repeated block into its repetitions, so that subsequent
+    transforms process the gates in execution order instead of approximating
+    repeated blocks.
+
+    The resulting trace is as large as the fully executed program.
+    """
+
+    def __post_init__(self):
+        self._unroll = _Unroll()
+
+    def transform(self, trace: Trace) -> Optional[Trace]:
+        """Apply the unroll transformation to a trace.
+
+        Args:
+            trace (Trace): The input trace.
+
+        Returns:
+            Optional[Trace]: The transformed trace.
+        """
+        return self._unroll.transform(trace)
 
 
 class _Node(ABC):

@@ -36,4 +36,5 @@ from .._native import (
     _float_from_bits,
     DynamicMemoryCompute,
     Unmemory,
+    Unroll,
 )

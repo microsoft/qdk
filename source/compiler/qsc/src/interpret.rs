@@ -726,6 +726,11 @@ impl Interpreter {
         self.sim.set_seed(seed);
     }
 
+    #[must_use]
+    pub fn quantum_seed(&self) -> Option<u64> {
+        self.quantum_seed
+    }
+
     pub fn set_classical_seed(&mut self, seed: Option<u64>) {
         self.classical_seed = seed;
     }
