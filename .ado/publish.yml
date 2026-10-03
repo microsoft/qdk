@@ -82,10 +82,10 @@ extends:
                   - script: |
                       set -euxo pipefail
 
-                      cat /etc/redhat-release
                       uname -m
                       python --version
                       llvm-config --version
+                    target: qdkImage
                     displayName: Verify Environment
 
                   - script: |
@@ -94,4 +94,5 @@ extends:
                       mkdir -p target/wheels
                       echo "Mock wheel content" > target/wheels/mock_wheel.whl
                       ls -l target/wheels/*
+                    target: qdkImage
                     displayName: Create mock wheel
