@@ -24,15 +24,6 @@ resources:
       type: git
       name: 1ESPipelineTemplates/1ESPipelineTemplates
       ref: refs/tags/release
-  containers:
-    - container: qdkImage
-      image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
-      type: acr
-      azureSubscription: 'QDK Publish Connection'
-      resourceGroup: 'aqua-qdk-test'
-      registry: 'qdkacr'
-      repository: 'qdk-image'
-      trigger: none
 
 parameters:
   - name: matrix
@@ -57,6 +48,9 @@ parameters:
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
   parameters:
+    containers:
+      default_windows_container:
+        image: qdkacr-cfgqhwddajdaebhg.azurecr.io/qdk-image:cc4-amd64
     sdl:
       sourceAnalysisPool:
         name: "Azure-Pipelines-DevTools-EO"
@@ -74,7 +68,6 @@ extends:
                   name: ${{ target.poolName }}
                   image: ${{ target.imageName }}
                   os: ${{ target.os }}
-                container: qdkImage
                 timeoutInMinutes: 90
                 templateContext:
                   outputs:
