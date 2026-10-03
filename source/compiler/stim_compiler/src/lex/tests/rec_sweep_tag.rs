@@ -43,6 +43,44 @@ fn tag_stops_at_first_close_bracket() {
 }
 
 #[test]
+fn unterminated_tag_at_eof_is_error() {
+    check(
+        "[tag",
+        &expect![[r#"
+        Qdk.Stim.Lex.UnterminatedTag
+
+          x tag was not closed with ']' before the end of the line
+           ,----
+         1 | [tag
+           : ^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn unterminated_tag_does_not_consume_next_line() {
+    check(
+        "H[bad\nX[tag] 0",
+        &expect![[r#"
+        instruction_name(H) [0-1]
+        Qdk.Stim.Lex.UnterminatedTag
+
+          x tag was not closed with ']' before the end of the line
+           ,-[1:2]
+         1 | H[bad
+           :  ^^^^
+         2 | X[tag] 0
+           `----
+
+        newline(\n) [5-6]
+        instruction_name(X) [6-7]
+        tag([tag]) [7-12]
+        uint(0) [13-14]"#]],
+    );
+}
+
+#[test]
 fn longer_identifiers_are_not_rec_or_sweep() {
     // Only the exact identifiers "rec" and "sweep" are special.
     check("record", &expect!["instruction_name(record) [0-6]"]);
