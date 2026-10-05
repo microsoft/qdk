@@ -349,8 +349,7 @@ impl Backend for TraceBuilder {
 
                 Some(Ok(Value::unit()))
             }
-            "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
-            "IsResourceEstimating" => Some(Ok(Value::Bool(true))),
+            "BeginEstimateCaching" | "IsResourceEstimating" => Some(Ok(Value::Bool(true))),
             "EndEstimateCaching"
             | "GlobalPhase"
             | "ConfigurePauliNoise"
