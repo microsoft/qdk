@@ -7,7 +7,7 @@ FROM ${BASE_REGISTRY}/ubi8/ubi:8.10
 
 ARG PYTHON_VERSION=3.11
 
-# Install Python and basic build tools
+# Install basic build tools (jq is needed for Azure Artifacts)
 RUN dnf install -y \
         python${PYTHON_VERSION} \
         python${PYTHON_VERSION}-pip \
@@ -21,10 +21,11 @@ RUN dnf install -y \
         tar \
         gzip \
         xz \
+        jq \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
-# Create a default Python environment
+# Create a default Python environment with minimal build tools
 RUN python${PYTHON_VERSION} -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip build
 
