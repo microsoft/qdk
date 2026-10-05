@@ -30,14 +30,15 @@ use super::types::{
 };
 use super::{
     apply_target_input_at_control_path, build_combined_spec_key, build_combined_spec_key_for_group,
-    build_spec_key, concrete_callable_key, has_multiple_forwarded_callable_arrays,
-    is_combined_eligible, partition_mixed_branch_split, resolve_self_call_arg_key,
+    build_spec_key, concrete_callable_key, dispatched_precedes_detached_static,
+    has_multiple_forwarded_callable_arrays, is_combined_eligible, partition_mixed_branch_split,
+    resolve_self_call_arg_key,
 };
 use crate::cloner::FirCloner;
 use crate::fir_builder::{
-    alloc_bin_op_expr, alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr, alloc_expr_stmt,
-    alloc_functor_wrapped_expr, alloc_int_lit, alloc_item_var_expr, alloc_local_var,
-    alloc_local_var_expr, functored_specs,
+    alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr, alloc_expr_stmt,
+    alloc_functor_wrapped_expr, alloc_item_var_expr, alloc_local_var, alloc_local_var_expr,
+    alloc_semi_stmt, alloc_unit_expr, functored_specs,
 };
 use crate::package_assigners::PackageAssigners;
 use crate::walk_utils::{expr_is_side_effect_free, for_each_expr_in_callable_impl};
@@ -45,11 +46,13 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath,
-    Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
-    PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, Visibility,
+    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Ident,
+    Item, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+    PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, Visibility,
 };
-use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
+#[cfg(test)]
+use qsc_fir::ty::Prim;
+use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Ty};
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write as _;
@@ -312,6 +315,9 @@ pub(super) fn specialize(
         //    single-argument key. This covers single-arrow-param HOFs and
         //    branch-split candidate sets, and is the path every group reaches
         //    when none of the more specific shapes above applied.
+        if dispatched_precedes_detached_static(group) {
+            continue;
+        }
         specialize_per_row_group(
             store,
             group,
@@ -1724,7 +1730,9 @@ fn apply_single_param_specialization(
 /// higher-order function) with its arguments intact, so the fixpoint loop's
 /// call-site rewrite routes it to the correct sibling specialization. An
 /// argument whose key cannot be statically resolved (`None`) is treated as a
-/// mismatch so the decision fails safe.
+/// mismatch so the decision fails safe. Capturing closures take that path even
+/// when their lifted target matches: the normal rewrite must thread their
+/// runtime environment, which this slot-removal shortcut does not construct.
 fn rewrite_recursive_self_call_args(
     package: &mut Package,
     package_id: PackageId,
@@ -1868,8 +1876,27 @@ fn rewrite_recursive_self_call_arg_expr(
 /// argument becomes `Unit`. Non-empty paths expect tuple-structured arguments;
 /// when a nested tuple element changes shape, the enclosing tuple type is
 /// refreshed to keep the expression tree internally consistent.
+///
+/// # Discarded evaluation
+///
+/// This deletes the slot expression outright, so it needs the same disposition
+/// answer as every other removal site (see
+/// [`super::rewrite::consumed_callable_expr_disposition`]). Here the answer is
+/// decidable from the caller's precondition rather than by purity analysis.
+/// [`rewrite_recursive_self_call_arg_expr`] runs only when
+/// `targets_this_specialization` held, which requires
+/// [`super::resolve_self_call_arg_key`] to have resolved *every* callable slot,
+/// and that resolver accepts only a global item reference or a capture-free closure,
+/// optionally wrapped in `Adj`/`Ctl` body functors. Both forms are pure to
+/// evaluate — a FIR `Closure` node names already-bound locals rather than
+/// evaluating initializers — so the disposition is always
+/// `Discarded` and an effectful expression cannot reach this position.
+///
+/// [`assert_discarded_slot_is_pure`] states that rather than leaving it
+/// implicit, so a later change to argument shaping cannot silently open it.
 fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     let Some((&index, rest)) = path.split_first() else {
+        assert_discarded_slot_is_pure(package, expr_id);
         let expr = package.get_expr(expr_id).clone();
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
         expr_mut.kind = ExprKind::Tuple(Vec::new());
@@ -1887,6 +1914,7 @@ fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     }
 
     if rest.is_empty() {
+        assert_discarded_slot_is_pure(package, elements[index]);
         let new_elements = elements
             .into_iter()
             .enumerate()
@@ -1902,6 +1930,28 @@ fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     let nested_id = elements[index];
     remove_arg_at_path(package, nested_id, rest);
     update_tuple_element_type(package, expr_id, index, nested_id);
+}
+
+/// Asserts that a recursive self-call argument slot about to be deleted is a
+/// pure expression, so removing it discards no observable evaluation.
+///
+/// See [`remove_arg_at_path`] for why only these two forms can appear. A
+/// failure here means argument shaping changed and the removal site now needs
+/// the full disposition decision rather than this structural proof.
+fn assert_discarded_slot_is_pure(package: &Package, expr_id: ExprId) {
+    let (base_id, _) = peel_body_functors(package, expr_id);
+    let kind = &package.get_expr(base_id).kind;
+    assert!(
+        matches!(
+            kind,
+            ExprKind::Var(Res::Item(_), _) | ExprKind::Closure(_, _)
+        ),
+        "recursive self-call slot removal would discard the evaluation of a \
+         non-reference expression ({kind:?}); \
+         `resolve_self_call_arg_key` admits only a global item reference or a \
+         closure, so this slot must be classified by \
+         `consumed_callable_expr_disposition` before it is deleted"
+    );
 }
 
 /// Refreshes one tuple element type after its nested argument was rewritten.
@@ -2364,7 +2414,6 @@ fn transform_expr(
                     package_id,
                     destination,
                     expr_id,
-                    callee_id,
                     args_id,
                     array_id,
                     index_id,
@@ -3267,7 +3316,6 @@ fn replace_indexed_callable_array_call(
     package_id: PackageId,
     destination: CaptureScope,
     call_expr_id: ExprId,
-    callee_expr_id: ExprId,
     args_id: ExprId,
     array_id: ExprId,
     index_id: ExprId,
@@ -3275,36 +3323,14 @@ fn replace_indexed_callable_array_call(
     concrete_group: &[ConcreteCallable],
     assigner: &mut Assigner,
 ) {
-    let Some(first) = concrete_group.first() else {
+    if concrete_group.is_empty() {
         return;
-    };
+    }
 
     let branch_callables: Vec<ConcreteCallable> = concrete_group
         .iter()
         .map(|concrete| apply_body_functor_to_concrete(concrete, body_functor))
         .collect();
-
-    if branch_callables.len() == 1 {
-        let branch_callable = branch_callables
-            .first()
-            .expect("branch callable should exist");
-        replace_callee(
-            package,
-            package_id,
-            callee_expr_id,
-            body_functor,
-            first,
-            assigner,
-        );
-        rewrite_indexed_closure_dispatch_args(
-            package,
-            destination,
-            args_id,
-            branch_callable,
-            assigner,
-        );
-        return;
-    }
 
     let Ty::Array(item_ty) = package.get_expr(array_id).ty.clone() else {
         return;
@@ -3354,7 +3380,14 @@ fn replace_indexed_callable_array_call(
             }
             None => index_id,
         };
-        let condition_id = alloc_index_eq_expr(package, operand, position, span, assigner);
+        let condition_id = super::rewrite::alloc_index_match_expr(
+            package,
+            operand,
+            position,
+            branch_callables.len(),
+            span,
+            assigner,
+        );
         dispatch_id = alloc_if_expr(
             package,
             span,
@@ -3366,17 +3399,37 @@ fn replace_indexed_callable_array_call(
         );
     }
 
+    let bounds_operand = match &hoisted {
+        Some((local_var, ty, index_span, _)) => {
+            alloc_local_var_expr(package, assigner, *local_var, ty.clone(), *index_span)
+        }
+        None => index_id,
+    };
+    let units = (0..branch_callables.len())
+        .map(|_| alloc_unit_expr(package, assigner, span))
+        .collect();
+    let bounds_array = alloc_expr(
+        package,
+        assigner,
+        Ty::Array(Box::new(Ty::UNIT)),
+        ExprKind::Array(units),
+        span,
+    );
+    let bounds_check = alloc_expr(
+        package,
+        assigner,
+        Ty::UNIT,
+        ExprKind::Index(bounds_array, bounds_operand),
+        span,
+    );
+    let mut stmts = Vec::with_capacity(3);
     if let Some((_, _, _, let_stmt)) = &hoisted {
-        let tail_stmt = alloc_expr_stmt(package, assigner, dispatch_id, span);
-        let block_id = alloc_block(
-            package,
-            assigner,
-            vec![*let_stmt, tail_stmt],
-            result_ty.clone(),
-            span,
-        );
-        dispatch_id = alloc_block_expr(package, assigner, block_id, result_ty.clone(), span);
+        stmts.push(*let_stmt);
     }
+    stmts.push(alloc_semi_stmt(package, assigner, bounds_check, span));
+    stmts.push(alloc_expr_stmt(package, assigner, dispatch_id, span));
+    let block_id = alloc_block(package, assigner, stmts, result_ty.clone(), span);
+    dispatch_id = alloc_block_expr(package, assigner, block_id, result_ty.clone(), span);
 
     let dispatch = package.get_expr(dispatch_id).clone();
     let call_expr = package
@@ -3880,27 +3933,6 @@ fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (E
     }
 }
 
-/// Synthesizes the boolean condition `index_expr == index_value`, used to
-/// select one arm of an index-dispatch chain.
-fn alloc_index_eq_expr(
-    package: &mut Package,
-    index_expr_id: ExprId,
-    index_value: usize,
-    span: PackageSpan,
-    assigner: &mut Assigner,
-) -> ExprId {
-    let index_value = i64::try_from(index_value).expect("dispatch index should fit in i64");
-    let lit_id = alloc_int_lit(package, assigner, index_value, span);
-    alloc_bin_op_expr(
-        package,
-        assigner,
-        BinOp::Eq,
-        index_expr_id,
-        lit_id,
-        Ty::Prim(Prim::Bool),
-        span,
-    )
-}
 /// Synthesizes an `if condition { true_id } else { false_id }` expression with
 /// the given result type.
 fn alloc_if_expr(

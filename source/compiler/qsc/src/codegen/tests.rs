@@ -5471,54 +5471,28 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         }
     "#};
     let caps = Profile::Base.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[
-            ("MakeIQPECircuit", true),
-            ("PrepareSystems", true),
-            ("RepControlledUnitary", true),
-            ("ControlledParams", false),
-        ],
-        caps,
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(&mut interpreter, source);
+    let target = eval_fragments(&mut interpreter, "Test.MakeIQPECircuit");
+    let args = eval_fragments(
+        &mut interpreter,
+        r#"
+            {
+                let params = new Test.ControlledParams {
+                    pauliExponents = [[PauliX]],
+                    pauliCoefficients = [1.0],
+                    repetitions = 1
+                };
+                let unitary = (control, systems) =>
+                    Test.RepControlledUnitary(params, control, systems);
+                (Test.PrepareSystems, unitary, 0.0, 0, [1], 0)
+            }
+        "#,
     );
 
-    let state_prep = Value::Global(
-        fir_id_for(pkg, items["PrepareSystems"]),
-        FunctorApp::default(),
-    );
-    let params = Value::Tuple(
-        vec![
-            Value::Array(
-                vec![Value::Array(
-                    vec![Value::Pauli(qsc_fir::fir::Pauli::X)].into(),
-                )]
-                .into(),
-            ),
-            Value::Array(vec![Value::Double(1.0)].into()),
-            Value::Int(1),
-        ]
-        .into(),
-        None,
-    );
-    let rep_controlled_unitary = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![params].into(),
-        id: fir_id_for(pkg, items["RepControlledUnitary"]),
-        functor: FunctorApp::default(),
-    }));
-    let args = Value::Tuple(
-        vec![
-            state_prep,
-            rep_controlled_unitary,
-            Value::Double(0.0),
-            Value::Int(0),
-            Value::Array(vec![Value::Int(1)].into()),
-            Value::Int(0),
-        ]
-        .into(),
-        None,
-    );
-
-    let qir = callable_args_to_qir(&store, pkg, items["MakeIQPECircuit"], &args, caps);
+    let qir = interpreter
+        .qirgen_from_callable(&target, args)
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
@@ -6603,4 +6577,361 @@ fn forwarded_closure_preserves_captured_offset_in_base_qir() {
     "#};
     let qir = compile_source_to_qir(source, Profile::Base.into());
     assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
+}
+
+#[test]
+fn pipeline_snapshot_and_embedded_capture_identity_record_507() {
+    let source = r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Twice(x : Int) : Int { x * 2 }
+        function Wrap(f : Int -> Int) : Int -> Int { x -> f(x) + 1 }
+        @EntryPoint()
+        operation Main() : Int {
+            let first = Wrap(Inc);
+            let second = Wrap(Twice);
+            mutable selected = first;
+            let earlier = ({ selected })({ set selected = second; 3 });
+            earlier * 100 + selected(3)
+        }
+    "#;
+    let mut original = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut original, source);
+    assert_eq!(eval_fragments(&mut original, "Main()"), Value::Int(507));
+    assert_single_integer_output(
+        &compile_source_to_qir(source, Profile::AdaptiveRIF.into()),
+        507,
+    );
+}
+
+#[test]
+fn composite_callee_preserves_selection_effects_and_captures_in_qir() {
+    for call in [
+        "({ f })({ set f = Times2; 2 })",
+        "(if true { f } else { Times2 })({ set f = Times2; 2 })",
+        "Identity(f)({ set f = Times2; 2 })",
+        "(new Holder { Op = f }).Op({ set f = Times2; 2 })",
+        "Apply(if true { f } else { Times2 }, { set f = Times2; 2 })",
+    ] {
+        let source = format!(
+            "namespace Test {{
+                struct Holder {{ Op : Int -> Int }}
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ x * 2 }}
+                function Identity(f : Int -> Int) : Int -> Int {{ f }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable f = Add1;
+                    {call}
+                }}
+            }}"
+        );
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        let outputs: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(outputs.len(), 1, "{call}\n{qir}");
+        assert!(outputs[0].contains("(i64 3,"), "{call}\n{qir}");
+    }
+    for flag in [true, false] {
+        for callee in [
+            "{ set count += 1; flag ? Add1 | Times2 }",
+            "{ { set count += 1; flag ? Add1 | Times2 } }",
+            "if flag { set count += 1; Add1 } else { set count += 1; Times2 }",
+            "{ set count += 1; if flag { let n = count; x -> x + n } else { Times2 } }",
+            "{ let n = { set count += 1; count }; if flag { x -> x + n } else { Times2 } }",
+            if flag {
+                "if flag { set count += 1; Add1 } else { fail \"inactive callee\"; Times2 }"
+            } else {
+                "if flag { fail \"inactive callee\"; Add1 } else { set count += 1; Times2 }"
+            },
+        ] {
+            for (argument, count) in [
+                ("2", 1),
+                ("{ set count += 10; set flag = not flag; 2 }", 11),
+            ] {
+                let expected = count * 100 + if flag { 3 } else { 4 };
+                let source = format!(
+                    "namespace Test {{
+                        function Add1(x : Int) : Int {{ x + 1 }}
+                        function Times2(x : Int) : Int {{ 2 * x }}
+                        @EntryPoint() operation Main() : Int {{
+                            mutable count = 0;
+                            mutable flag = {flag};
+                            let value = ({callee})({argument});
+                            count * 100 + value
+                        }}
+                    }}"
+                );
+                let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+                let outputs: Vec<_> = qir
+                    .lines()
+                    .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+                    .collect();
+                assert_eq!(outputs.len(), 1, "{source}\n{qir}");
+                assert!(
+                    outputs[0].contains(&format!("(i64 {expected},")),
+                    "{source}\n{qir}"
+                );
+            }
+        }
+        let source = format!(
+            "namespace Test {{
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag = {flag};
+                    ({{ fail \"callee prefix failed\"; flag ? Add1 | Times2 }})(
+                        {{ fail \"argument failed\"; 2 }})
+                }}
+            }}"
+        );
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRIF.into())
+            .expect_err("callee failure must precede the argument");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("expected a partial-evaluation failure: {errors:?}");
+        };
+        let qsc_partial_eval::Error::EvaluationFailed(message, span) = error.error() else {
+            panic!("expected a source evaluation failure: {error:?}");
+        };
+        assert!(message.contains("callee prefix failed"), "{message}");
+        assert_eq!(
+            &source[span.span.lo as usize..span.span.hi as usize],
+            "fail \"callee prefix failed\"",
+        );
+    }
+    for body in [
+        "for i in 0..2 { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); }",
+        "mutable i = 0; repeat { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); set i += 1; } until i == 3;",
+    ] {
+        let source = format!(
+            "namespace Test {{
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable count = 0;
+                    mutable flag = true;
+                    mutable total = 0;
+                    {body}
+                    count * 100 + total
+                }}
+            }}"
+        );
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        let outputs: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(outputs.len(), 1, "{source}\n{qir}");
+        assert!(outputs[0].contains("(i64 310,"), "{source}\n{qir}");
+    }
+    for (flag, expected) in [(true, 33), (false, 44)] {
+        let source = format!(
+            "namespace Test {{
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag = {flag};
+                    mutable f = Add1;
+                    let value = (if flag {{ set f = Add1; Add1 }} else {{ set f = Times2; Times2 }})(
+                        {{ set flag = not flag; 2 }});
+                    value * 10 + f(2)
+                }}
+            }}"
+        );
+        let qir = compile_source_to_qir(&source, Profile::AdaptiveRIF.into());
+        let outputs: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(outputs.len(), 1, "{source}\n{qir}");
+        assert!(
+            outputs[0].contains(&format!("(i64 {expected},")),
+            "{source}\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn tuple_assignment_preserves_callable_and_value_in_base_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            @EntryPoint()
+            operation Main() : Unit {
+                mutable (value, callable) = (14, Add11);
+                set (value, callable) = (9, Times3);
+                if callable(2) != 6 { fail "wrong assigned callable"; }
+                let pair = (7, Add11);
+                set (value, callable) = pair;
+                if value * 100 + callable(2) != 713 { fail "wrong tuple copy"; }
+            }
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
+}
+
+#[test]
+fn closure_used_in_capture_assignment_compiles_to_base_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use target = Qubit();
+                mutable angle = 0.0;
+                let op = Rx(angle, _);
+                set angle = { op(target); 0.0 };
+                op(target);
+                Reset(target);
+            }
+        }
+    "#;
+    let result = compile_source_to_qir_result(source, Profile::Base.into());
+    assert!(result.is_ok(), "expected Base QIR acceptance: {result:?}");
+}
+
+#[test]
+fn callable_payload_dispatch_preserves_qir_acceptance() {
+    let source = r#"
+        namespace Test {
+            operation Dispatch(
+                choices : ((Qubit => Unit) => Unit)[],
+                index : Int,
+                payload : Qubit => Unit
+            ) : Unit {
+                choices[index](payload);
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use selector = Qubit();
+                H(selector);
+                let choices : ((Qubit => Unit) => Unit)[] = [
+                    op => { H(target); op(target); },
+                    op => { X(target); op(target); }
+                ];
+                Dispatch(choices, 0, S);
+                Reset(selector);
+                MResetZ(target)
+            }
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+    assert!(qir.contains("call void @__quantum__qis__s__body("));
+}
+
+#[test]
+fn factory_capture_uses_creation_time_value_in_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Mark(enabled : Bool, q : Qubit) : Unit {
+                if enabled {
+                    X(q);
+                }
+            }
+            function Make(enabled : Bool) : Qubit => Unit {
+                Mark(enabled, _)
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable enabled = false;
+                let op = Make(enabled);
+                set enabled = true;
+                ApplyOp(op, q);
+                Reset(q);
+            }
+        }
+    "#};
+
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        0,
+        "factory closure must retain the creation-time false capture:\n{qir}"
+    );
+}
+
+#[test]
+fn source_entry_callable_array_effectful_index_runs_once() {
+    let source = r#"
+        namespace Test {
+            operation ChooseIndex(q : Qubit) : Int {
+                X(q);
+                1
+            }
+
+            operation RunAt(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+                ops[ChooseIndex(q)](q);
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                RunAt([I, X, Y], q);
+                Reset(q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected one index effect and one selected X gate:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected no unselected Y gate:\n{qir}"
+    );
+}
+
+#[test]
+fn dispatched_callable_before_classical_field_reports_diagnostics() {
+    // A tuple parameter mixing callables with a classical field between them,
+    // where the dispatched callable sits at an earlier field than the static
+    // one. Argument promotion used to leave the call site disagreeing with the
+    // callee's input type, tripping the `PostArgPromote/PostAll` call invariant
+    // and aborting the compiler on valid Q#.
+    let source = r#"
+operation Apply(data : (Qubit => Unit, Int, Qubit => Unit), q : Qubit) : Unit {
+    let (f, n, g) = data;
+    f(q); g(q);
+}
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let first = if MResetZ(q) == One { X } else { Y };
+    Apply((first, 5, Z), q);
+}
+"#;
+    let errors =
+        compile_source_to_qir_result(source, TargetCapabilityFlags::from(Profile::AdaptiveRIF))
+            .expect_err("AdaptiveRIF must reject a measurement-dependent callable");
+
+    // Reaching any capability diagnostic at all means the transform pipeline ran
+    // to completion; the regression aborted the process before this point.
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            crate::interpret::Error::Pass(with_source)
+                if matches!(with_source.error(), qsc_passes::Error::CapabilitiesCk(..))
+        )),
+        "expected capability diagnostics, got: {errors:?}"
+    );
+}
+
+fn assert_single_integer_output(qir: &str, expected: i64) {
+    let records: Vec<_> = qir
+        .lines()
+        .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+        .collect();
+    assert_eq!(records.len(), 1, "{qir}");
+    assert!(records[0].contains(&format!("i64 {expected},")), "{qir}");
 }

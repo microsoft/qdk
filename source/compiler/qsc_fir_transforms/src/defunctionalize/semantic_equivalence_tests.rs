@@ -12,6 +12,240 @@ use proptest::prelude::*;
 use super::test_cases;
 
 #[test]
+fn recursive_specializations_preserve_capture_environments() {
+    for (source, expected) in test_cases::recursive_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn controlled_recursive_specializations_preserve_captures() {
+    for functor in [
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+        "Controlled Adjoint",
+        "Adjoint Controlled Controlled",
+    ] {
+        for (source, expected) in test_cases::recursive_capture_control_cases(functor) {
+            check_callable_result(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn recursive_specialization_does_not_replay_capture_effects() {
+    check_callable_result(
+        r#"
+        function Logged(n : Int) : Int { Message("capture"); n }
+        function Add(offset : Int, n : Int) : Int { offset+n }
+        function Repeat(f : Int -> Int, n : Int) : Int {
+            if n==0 { f(0) } else { f(n)+Repeat(f,n-1) }
+        }
+        @EntryPoint() operation Main() : Int {
+            let f=Add(Logged(7),_);
+            Message("ready");
+            Repeat(f,3)
+        }
+        "#,
+        34,
+    );
+}
+
+#[test]
+fn effectful_short_circuit_guards_are_evaluated_once() {
+    for (source, expected) in test_cases::effectful_short_circuit_guard_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn mutating_short_circuit_guards_preserve_selected_callable() {
+    for (source, expected) in test_cases::mutating_short_circuit_guard_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn compound_short_circuit_guards_preserve_pre_store_selection() {
+    for (source, expected) in test_cases::compound_short_circuit_guard_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn measured_short_circuit_guard_is_not_repeated_for_dispatch() {
+    check_callable_result(test_cases::MEASURED_SHORT_CIRCUIT_GUARD, 6);
+}
+
+#[test]
+fn effectful_short_circuit_guard_refreshes_each_loop_iteration() {
+    check_callable_result(
+        r#"
+        function Inc(n : Int) : Int { n+1 }
+        function Twice(n : Int) : Int { 2*n }
+        function Guard(flag : Bool) : Bool { Message("guard"); flag }
+        @EntryPoint() operation Main() : Int {
+            mutable total=0;
+            for i in 0..2 {
+                mutable f=Inc;
+                let unused=Guard(i % 2 == 0) and { set f=Twice; true };
+                Message("ready");
+                set total=10*total+f(3);
+            }
+            total
+        }
+        "#,
+        646,
+    );
+}
+
+#[test]
+fn effectful_short_circuit_guard_stays_in_its_enclosing_operand() {
+    for enabled in [false, true] {
+        let source = indoc::formatdoc! {r#"
+            function Inc(n : Int) : Int {{ n+1 }}
+            function Twice(n : Int) : Int {{ 2*n }}
+            function Guard() : Bool {{ Message("guard"); true }}
+            @EntryPoint() operation Main() : Int {{
+                mutable f=Inc;
+                let unused={enabled} and {{
+                    Guard() and {{ set f=Twice; true }}
+                }};
+                Message("ready");
+                f(3)
+            }}
+        "#};
+        check_callable_result(&source, if enabled { 6 } else { 4 });
+    }
+}
+
+#[test]
+fn nested_inline_struct_captures_preserve_evaluation_order() {
+    for (source, expected) in test_cases::nested_inline_struct_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn nested_inline_struct_field_failure_precedes_capture_failure() {
+    let source = r#"
+        struct Payload { Head : Int, F : Int -> Int, Tail : Int }
+        function Log(n : Int) : Int { Message("outer"); n }
+        function Fail(label : String) : Int { fail label }
+        function Add(n : Int, x : Int) : Int { n+x }
+        function Read(p : Payload) : Int { 100*p.Head+10*p.F(2)+p.Tail }
+        function Sum(n : Int, p : Payload) : Int { n+Read(p) }
+        @EntryPoint() operation Main() : Int {
+            Sum(
+                Read(new Payload { Head=Fail("head"), F=Add(Fail("capture"),_), Tail=3 }),
+                new Payload { Head=4, F=Add(Log(5),_), Tail=6 }
+            )
+        }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("the inner head should fail before the capture and outer operands");
+    assert!(error.contains("head"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn inline_struct_captures_preserve_operand_evaluation() {
+    for (source, expected) in test_cases::inline_struct_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn inline_struct_field_failure_precedes_capture_failure() {
+    let source = r#"
+        struct Payload { Head : Int, F : Int -> Int, Tail : Int }
+        function Fail(label : String) : Int { fail label }
+        function Add(n : Int, x : Int) : Int { n+x }
+        function Read(p : Payload) : Int { 100*p.Head+10*p.F(2)+p.Tail }
+        @EntryPoint() operation Main() : Int {
+            Read(new Payload { Tail=Fail("tail"), F=Add(Fail("capture"),_), Head=4 })
+        }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("the earlier field should fail before closure creation");
+    assert!(error.contains("tail"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn inline_struct_capture_stays_in_its_call_branch() {
+    for flag in [false, true] {
+        let source = indoc::formatdoc! {r#"
+            struct Payload {{ F : Int -> Int, N : Int }}
+            function Log(label : String, n : Int) : Int {{ Message(label); n }}
+            function Add(n : Int, x : Int) : Int {{ n+x }}
+            function Read(p : Payload) : Int {{ p.F(p.N) }}
+            function Choose(flag : Bool) : Int {{
+                if flag {{
+                    Read(new Payload {{ N=Log("field",4), F=Add(Log("capture",3),_) }})
+                }} else {{ 2 }}
+            }}
+            @EntryPoint() operation Main() : Int {{ Choose({flag}) }}
+        "#};
+        check_callable_result(&source, if flag { 7 } else { 2 });
+    }
+}
+
+#[test]
+fn inline_struct_captures_remain_distinct_in_a_loop() {
+    check_callable_result(
+        r#"
+        struct Payload { Head : Int, F : Int -> Int, Tail : Int }
+        function Log(label : String, n : Int) : Int { Message(label); n }
+        function Add(n : Int, x : Int) : Int { n+x }
+        function Read(p : Payload) : Int { 100*p.Head+10*p.F(2)+p.Tail }
+        @EntryPoint() operation Main() : Int {
+            mutable result=0;
+            for i in 1..3 {
+                set result+=Read(new Payload {
+                    Head=Log("head",i), F=Add(Log("capture",i),_), Tail=Log("tail",i)
+                });
+            }
+            result
+        }
+        "#,
+        726,
+    );
+}
+
+#[test]
+fn inline_struct_functors_preserve_capture_evaluation() {
+    for functor in [
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+        "Controlled Adjoint",
+        "Adjoint Controlled Controlled",
+    ] {
+        for (source, expected) in test_cases::direct_struct_capture_control_cases(functor) {
+            check_callable_result(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn closure_creation_preserves_nested_prefix_effects() {
+    check_callable_result(
+        r#"
+        function Add(n : Int, x : Int) : Int { n+x }
+        function Capture() : Int { Message("capture"); 3 }
+        @EntryPoint() operation Main() : Int {
+            let f={Message("creating"); Add(Capture(),_)};
+            Message("ready");
+            f(2)
+        }
+        "#,
+        5,
+    );
+}
+
+#[test]
 fn partial_application_evaluates_capture_before_following_statements() {
     check_callable_result(test_cases::PARTIAL_APPLICATION_CAPTURE_TIMING, 18);
 }
@@ -905,6 +1139,23 @@ fn guard_var_never_reassigned_after_binding_is_equivalent() {
             }
         }
     "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                mutable angle = 0.0;
+                let op = Rx(angle + 0.0, _);
+                set angle = 3.141592653589793;
+                ApplyOp(op, target);
+                MResetZ(target)
+            }
+        }
+    "#});
 }
 
 #[test]
@@ -1575,4 +1826,2558 @@ fn check_callable_result(source: &str, expected: i64) {
         source,
         qsc_eval::val::Value::Int(expected),
     );
+}
+
+fn mixed_static_dispatch_source(prior: &str, reset: &str, run: &str) -> String {
+    formatdoc! {r#"
+        operation Run(first : Qubit => Unit is Ctl, second : Qubit => Unit is Ctl, target : Qubit) : Unit is Ctl {{
+            first(target); second(target);
+        }}
+        @EntryPoint() operation Main() : Unit {{
+            use q = Qubit(); use c = Qubit();
+            let angle = 0.25; let second = target => Rz(angle, target);
+            {prior}
+            let ops = [H, X];
+            for i in 0..1 {{ let first = ops[i]; {run} }}
+            {reset}
+        }}
+    "#}
+}
+
+#[test]
+fn mixed_static_dispatch_preserves_original_nonzero_release_failure() {
+    let source = mixed_static_dispatch_source(
+        "Controlled Run([c], (H, second, q));",
+        "",
+        "Run(first, second, q);",
+    );
+    let (store, package) = crate::test_utils::compile_to_fir(&source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert!(
+        result
+            .expect_err("original live qubit must not be silently reset")
+            .starts_with("ReleasedQubitNotZero(0, PackageSpan"),
+        "{source}"
+    );
+    crate::test_utils::check_semantic_equivalence(&source);
+}
+
+#[test]
+fn mixed_static_dispatch_reset_preserves_trace_and_controlled_input_shapes() {
+    use qsc_fir::{
+        fir::{ExprKind, ItemKind, PackageLookup, Res},
+        ty::Ty,
+    };
+    for (prior, call) in [
+        (
+            "Controlled Run([c], (H, second, q));",
+            "Run(first, second, q);",
+        ),
+        ("", "Controlled Run([c], (first, second, q));"),
+        (
+            "",
+            "Controlled Controlled Run([], ([c], (first, second, q)));",
+        ),
+        ("", "Run(first, second, q);"),
+        ("Run(H, second, q);", "Run(first, second, q);"),
+        (
+            "",
+            "set angle = 0.25; Run(first, { let saved = angle; target => Rz(saved, target) }, { set angle = 0.75; q });",
+        ),
+        (
+            "",
+            "Run({ let saved = Capture(q); target => Rz(saved, target) }, first, q);",
+        ),
+    ] {
+        let source = format!(
+            "operation Capture(q : Qubit) : Double {{ Z(q); 0.25 }}\n{}",
+            mixed_static_dispatch_source(prior, "ResetAll([q, c]);", call)
+        );
+        let source = if call.contains("set angle") {
+            source.replace("let angle = 0.25; let second = target => Rz(angle, target);",
+                "mutable angle = 0.25; let initial = angle; let second = target => Rz(initial, target);")
+        } else {
+            source
+        };
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        assert!(result.is_ok(), "{prior} {call}: {result:?}");
+        if prior.starts_with("Controlled") {
+            expect_test::expect![[r#"[QubitAllocate(0), QubitAllocate(1), Gate { name: "S", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "H", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "T", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [1], theta: None }, Gate { name: "T", is_adjoint: true, targets: [0], controls: [], theta: None }, Gate { name: "H", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "S", is_adjoint: true, targets: [0], controls: [], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(0.125) }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [1], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(-0.125) }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [1], theta: None }, Gate { name: "H", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(0.25) }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Rz", is_adjoint: false, targets: [0], controls: [], theta: Some(0.25) }, Reset(0), Reset(1), QubitRelease(1), QubitRelease(0)]"#]]
+                .assert_eq(&format!("{trace:?}"));
+        }
+        crate::test_utils::check_semantic_equivalence(&source);
+        let (store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let package = store.get(package);
+        let mut checked = 0;
+        for expr in package.exprs.values() {
+            let ExprKind::Call(callee, args) = expr.kind else {
+                continue;
+            };
+            let (base, _) = super::peel_body_functors(package, callee);
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(base).kind else {
+                continue;
+            };
+            let owner = store.get(item.package);
+            let ItemKind::Callable(decl) = &owner.get_item(item.item).kind else {
+                continue;
+            };
+            if !decl.name.name.starts_with("Run") || !decl.name.name.contains('{') {
+                continue;
+            }
+            let Ty::Arrow(base_arrow) = &package.get_expr(base).ty else {
+                panic!("base callable type")
+            };
+            assert_eq!(
+                base_arrow.input.as_ref(),
+                &owner.get_pat(decl.input).ty,
+                "callee reference must agree with its actual package-owned declaration"
+            );
+            let Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                panic!("callable input")
+            };
+            assert_eq!(
+                arrow.input.as_ref(),
+                &package.get_expr(args).ty,
+                "{prior} {call}: specialized dispatch call must match its input"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "source-generated specialized calls must be checked"
+        );
+    }
+}
+
+#[test]
+fn composite_callee_before_argument_write_returns_three() {
+    for call in [
+        "({ f })({ set f = Times2; 2 })",
+        "(if true { f } else { Times2 })({ set f = Times2; 2 })",
+        "Identity(f)({ set f = Times2; 2 })",
+        "(new Holder { Op = f }).Op({ set f = Times2; 2 })",
+        "Apply(if true { f } else { Times2 }, { set f = Times2; 2 })",
+        "[f][0]({ set f = Times2; 2 })",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    struct Holder {{ Op : Int -> Int }}
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Identity(f : Int -> Int) : Int -> Int {{ f }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable f = Add1;
+                        {call}
+                    }}
+                }}
+            "#},
+            3,
+        );
+    }
+}
+
+#[test]
+fn self_mutating_branch_guard_preserves_taken_callable_returning_four() {
+    for branch in [
+        "if flag { set flag = false; set f = Times2; }",
+        "let unused = flag and { set flag = false; set f = Times2; true };",
+        "let unused = not flag or { set flag = false; set f = Times2; false };",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable flag = true;
+                        mutable f = Add1;
+                        {branch}
+                        f(2)
+                    }}
+                }}
+            "#},
+            4,
+        );
+    }
+}
+
+#[test]
+fn repeated_branch_selection_refreshes_guard_and_skips_inactive_effects() {
+    for branch in [
+        "if flag { set flag = false; set f = Times2; }",
+        "let unused = flag and { set flag = false; set f = Times2; true };",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable flag = true;
+                        mutable result = 0;
+                        for index in 0..1 {{
+                            mutable f = Add1;
+                            {branch}
+                            set result = result * 10 + f(2);
+                        }}
+                        result
+                    }}
+                }}
+            "#},
+            43,
+        );
+    }
+}
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "Keep the callee evaluation-order matrix in its existing source regression."
+)]
+fn direct_callee_effects_run_once_before_arguments_and_conditional_dispatch() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            @EntryPoint()
+            operation Main() : Int {
+                mutable count = 0;
+                let answer = ({
+                    set count += 1;
+                    let n = { set count += 2; 1 };
+                    x -> x + n
+                })(2);
+                count * 100 + answer
+            }
+        "#},
+        303,
+    );
+    check_callable_result(
+        indoc::indoc! {r#"
+            @EntryPoint()
+            operation Main() : Int {
+                mutable count = 0;
+                let n = 1;
+                let answer = ({ set count += 1; x -> x + n })(2);
+                count * 100 + answer
+            }
+        "#},
+        103,
+    );
+    check_callable_result(
+        indoc::indoc! {r#"
+            function Add1(x : Int) : Int { x + 1 }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable order = 0;
+                let answer = ({ set order = order * 10 + 1; Add1 })(
+                    { set order = order * 10 + 2; 2 });
+                answer * 100 + order
+            }
+        "#},
+        312,
+    );
+    check_callable_result(
+        indoc::indoc! {r#"
+            function Add1(x : Int) : Int { x + 1 }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable count = 0;
+                let answer = ({ set count += 1; Add1 })(2);
+                count * 100 + answer
+            }
+        "#},
+        103,
+    );
+    for flag in [true, false] {
+        for (label, callee, expected) in [
+            (
+                "prefix",
+                "{ set count += 1; flag ? Add1 | Times2 }",
+                if flag { 103 } else { 104 },
+            ),
+            (
+                "nested prefix",
+                "{ { set count += 1; flag ? Add1 | Times2 } }",
+                if flag { 103 } else { 104 },
+            ),
+            (
+                "selected prefix",
+                "if flag { set count += 1; Add1 } else { set count += 2; Times2 }",
+                if flag { 103 } else { 204 },
+            ),
+            (
+                "inactive failure",
+                "if flag { set count += 1; Add1 } else { fail \"inactive callee\"; Times2 }",
+                103,
+            ),
+            (
+                "inactive then failure",
+                "if flag { fail \"inactive callee\"; Add1 } else { set count += 1; Times2 }",
+                104,
+            ),
+            (
+                "nested selection",
+                "{ set count += 1; if flag { if count == 1 { Add1 } else { fail \"inactive nested callee\"; Times2 } } else { Times2 } }",
+                if flag { 103 } else { 104 },
+            ),
+            (
+                "higher order control",
+                "{ set count += 1; flag ? Add1 | Times2 }",
+                if flag { 103 } else { 104 },
+            ),
+        ] {
+            if (label == "inactive failure" && !flag) || (label == "inactive then failure" && flag)
+            {
+                continue;
+            }
+            let call = if label == "higher order control" {
+                format!("Apply({callee}, 2)")
+            } else {
+                format!("({callee})(2)")
+            };
+            let source = formatdoc! {r#"
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable count = 0;
+                    mutable flag = {flag};
+                    let value = {call};
+                    count * 100 + value
+                }}
+            "#};
+            eprintln!("{label}, flag={flag}");
+            check_callable_result(&source, expected);
+            let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
+                &source,
+                crate::PipelineStage::Defunc,
+            );
+            crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+            assert_eq!(
+                crate::test_utils::try_eval_fir_entry(&store, package),
+                Ok(qsc_eval::val::Value::Int(expected)),
+                "{label}, flag={flag}",
+            );
+        }
+    }
+    for body in [
+        "for i in 0..2 { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); }",
+        "mutable i = 0; while i < 3 { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); set i += 1; }",
+        "mutable i = 0; repeat { set total += ({ set count += 1; flag ? Add1 | Times2 })({ set flag = not flag; 2 }); set i += 1; } until i == 3;",
+    ] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable count = 0;
+                mutable flag = true;
+                mutable total = 0;
+                {body}
+                count * 100 + total
+            }}
+        "#};
+        eprintln!("repeated dispatch: {body}");
+        check_callable_result(&source, 310);
+        let (mut store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(310)),
+            "{body}",
+        );
+    }
+    let library = r#"
+        namespace Lib {
+            export Invoke;
+            function Times2(x : Int) : Int { 2 * x }
+            function Invoke(flag : Bool) : Int {
+                mutable count = 0;
+                let value = ({
+                    set count += 1;
+                    if flag { let n = count; x -> x + n } else { Times2 }
+                })({ set count += 10; 2 });
+                count * 100 + value
+            }
+        }
+    "#;
+    for (flag, expected) in [(true, 1103), (false, 1104)] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ Lib.Invoke({flag}) }}");
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(library, &source),
+            Ok(qsc_eval::val::Value::Int(expected)),
+        );
+        for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+            let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+                library, &source, stage,
+            );
+            crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+            assert_eq!(
+                crate::test_utils::try_eval_fir_entry(&store, package),
+                Ok(qsc_eval::val::Value::Int(expected)),
+                "foreign conditional callee, flag={flag}, {stage:?}",
+            );
+        }
+    }
+    for (flag, expected) in [(true, 4), (false, 8)] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable flag = {flag};
+                mutable f = Add1;
+                (if flag {{ set f = Add1; Add1 }} else {{ set f = Times2; Times2 }})(
+                    {{ let value = f(2); value }})
+            }}
+        "#};
+        check_callable_result(&source, expected);
+    }
+    for (flag, expected) in [(true, 33), (false, 44)] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable flag = {flag};
+                mutable f = Add1;
+                let value = (if flag {{ set f = Add1; Add1 }} else {{ set f = Times2; Times2 }})(
+                    {{ set flag = not flag; 2 }});
+                value * 10 + f(2)
+            }}
+        "#};
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn failing_direct_callee_and_factory_preserve_failure_before_argument() {
+    for callee in [
+        "{ fail \"callee evaluated\"; Add1 }",
+        "Make()",
+        "{ fail \"callee evaluated\"; let n = 1; x -> x + n }",
+        "{ fail \"callee evaluated\"; flag ? Add1 | Times2 }",
+        "{ { fail \"callee evaluated\"; flag ? Add1 | Times2 } }",
+        "if flag { fail \"callee evaluated\"; Add1 } else { Times2 }",
+    ] {
+        let source = formatdoc! {r#"
+            function Add1(x : Int) : Int {{ x + 1 }}
+            function Times2(x : Int) : Int {{ 2 * x }}
+            function Make() : Int -> Int {{ fail "callee evaluated"; Add1 }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable flag = true;
+                ({callee})({{ fail "argument evaluated"; 2 }})
+            }}
+        "#};
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        let failure = result.expect_err("callee must fail before the argument");
+        assert!(failure.contains("callee evaluated"), "{callee}: {failure}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+    for flag in [true, false] {
+        for callee in [
+            "{ X(q); fail \"callee prefix failed\"; flag ? Add1 | Times2 }",
+            "{ { X(q); fail \"callee prefix failed\"; flag ? Add1 | Times2 } }",
+            if flag {
+                "if flag { X(q); fail \"callee prefix failed\"; Add1 } else { Times2 }"
+            } else {
+                "if flag { Add1 } else { X(q); fail \"callee prefix failed\"; Times2 }"
+            },
+        ] {
+            let source = formatdoc! {r#"
+                function Add1(x : Int) : Int {{ x + 1 }}
+                function Times2(x : Int) : Int {{ 2 * x }}
+                @EntryPoint() operation Main() : Int {{
+                    use q = Qubit();
+                    mutable flag = {flag};
+                    ({callee})({{ Z(q); fail "argument failed"; 2 }})
+                }}
+            "#};
+            let (store, package) = crate::test_utils::compile_to_fir(&source);
+            let (expected, trace) =
+                crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+            assert!(
+                expected
+                    .as_ref()
+                    .expect_err("callee must fail")
+                    .contains("callee prefix failed"),
+                "{callee}, flag={flag}: {expected:?}",
+            );
+            expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }]"#]]
+                .assert_eq(&format!("{trace:?}"));
+            for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+                let (mut store, package) =
+                    crate::test_utils::compile_and_run_pipeline_to(&source, stage);
+                crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+                let (actual, actual_trace) =
+                    crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+                assert_eq!(actual, expected, "{callee}, flag={flag}, {stage:?}");
+                assert_eq!(actual_trace, trace, "{callee}, flag={flag}, {stage:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn later_callable_selection_observes_earlier_argument_write_returning_four() {
+    for selection in ["flag ? Add1 | Times2", "[Times2, Add1][index]"] {
+        for call in [
+            format!("ApplyAfter({{ set flag = false; set index = 0; 2 }}, {selection})"),
+            format!("ApplyNested(({{ set flag = false; set index = 0; 2 }}, {selection}))"),
+        ] {
+            check_callable_result(
+                &formatdoc! {r#"
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function ApplyAfter(x : Int, f : Int -> Int) : Int {{ f(x) }}
+                    function ApplyNested(pair : (Int, Int -> Int)) : Int {{
+                        let (x, f) = pair;
+                        f(x)
+                    }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable flag = true;
+                        mutable index = 1;
+                        {call}
+                    }}
+                "#},
+                4,
+            );
+        }
+    }
+}
+
+#[test]
+fn earlier_callable_capture_preserves_three_across_scalar_and_controlled_inputs() {
+    for call in [
+        "Apply({ let n = k; x -> x + n }, { set k = 7; 0 })",
+        "ApplyNested(({ let n = k; x -> x + n }, { set k = 7; 0 }))",
+        "({ let n = k; x -> x + n })({ set k = 7; 0 })",
+        "Apply(if true { let n = k; x -> x + n } else { x -> x }, { set k = 7; 0 })",
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function ApplyNested(pair : (Int -> Int, Int)) : Int {{
+                    let (f, x) = pair;
+                    f(x)
+                }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    mutable k = 3;
+                    {call}
+                }}
+            "#},
+            3,
+        );
+    }
+    for call in [
+        "Apply({ let n = k; target => Target(n, target) }, { set k = 7; q });",
+        "Controlled Apply([], ({ let n = k; target => Target(n, target) }, { set k = 7; q }));",
+        "Controlled Adjoint Apply([], ({ let n = k; target => Target(n, target) }, { set k = 7; q }));",
+    ] {
+        let source = formatdoc! {r#"
+            operation Target(n : Int, q : Qubit) : Unit is Adj + Ctl {{
+                body (...) {{ fail $"captured {{n}}"; }}
+                adjoint self;
+                controlled (controls, ...) {{ fail $"captured {{n}}"; }}
+                controlled adjoint self;
+            }}
+            operation Apply(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+                op(q);
+            }}
+            @EntryPoint()
+            operation Main() : Unit {{
+                use q = Qubit();
+                mutable k = 3;
+                {call}
+            }}
+        "#};
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        let failure = result.expect_err("selected specialization reports its captured value");
+        assert!(failure.contains("captured 3"), "{call}: {failure}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn callable_capture_timing_preserves_mutation_values_and_quantum_effects() {
+    for flag in [true, false] {
+        for callee in [
+            "{ set count += 1; if flag { let n = count; x -> x + n } else { Times2 } }",
+            "{ { set count += 1; if flag { let n = count; x -> x + n } else { Times2 } } }",
+            "{ let n = { set count += 1; count }; if flag { x -> x + n } else { Times2 } }",
+            "if flag { let n = { set count += 1; count }; x -> x + n } else { set count += 1; Times2 }",
+        ] {
+            for (argument, count) in [
+                ("2", 1),
+                ("{ set count += 10; set flag = not flag; 2 }", 11),
+            ] {
+                let expected = count * 100 + if flag { 3 } else { 4 };
+                let source = formatdoc! {r#"
+                    function Times2(x : Int) : Int {{ 2 * x }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable count = 0;
+                        mutable flag = {flag};
+                        let value = ({callee})({argument});
+                        count * 100 + value
+                    }}
+                "#};
+                eprintln!("capture flag={flag}, callee={callee}, argument={argument}");
+                check_callable_result(&source, expected);
+                let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
+                    &source,
+                    crate::PipelineStage::Defunc,
+                );
+                crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+                assert_eq!(
+                    crate::test_utils::try_eval_fir_entry(&store, package),
+                    Ok(qsc_eval::val::Value::Int(expected)),
+                    "capture flag={flag}, callee={callee}, argument={argument}",
+                );
+            }
+        }
+    }
+    check_callable_result(
+        indoc::indoc! {r#"
+            function Apply(a : Int, f : Int -> Int, b : Int, g : Int -> Int, c : Int) : Int {
+                a * 1000 + f(0) * 100 + b * 10 + g(c)
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable k = 3;
+                Apply(
+                    { set k = 2; 1 },
+                    { let n = k; x -> x + n },
+                    { set k = 4; 3 },
+                    { let n = k; x -> x + n },
+                    { set k = 9; 0 })
+            }
+        "#},
+        1234,
+    );
+    for (body, expected) in [
+        (
+            "let result = Apply({ let n = Capture(q); x -> x + n }, { Z(q); 0 }); X(q); result",
+            3,
+        ),
+        (
+            "ApplyTwo({ let n = Capture(q); x -> x + n }, { Z(q); 0 }, { let n = Capture(q); x -> x + n })",
+            33,
+        ),
+    ] {
+        let source = formatdoc! {r#"
+            operation Capture(q : Qubit) : Int {{ X(q); 3 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function ApplyTwo(f : Int -> Int, x : Int, g : Int -> Int) : Int {{ f(x) * 10 + g(x) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                use q = Qubit();
+                {body}
+            }}
+        "#};
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+        assert_eq!(result, Ok(qsc_eval::val::Value::Int(expected)));
+        expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Z", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, QubitRelease(0)]"#]]
+            .assert_eq(&format!("{trace:?}"));
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn tuple_loop_callable_writes_return_seven_for_direct_and_higher_order_calls() {
+    for call in ["f(2)", "Apply(f, 2)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable f = Add1;
+                        mutable index = 0;
+                        mutable result = 0;
+                        while index < 2 {{
+                            set result += {call};
+                            set (index, f) = (index + 1, Times2);
+                        }}
+                        result
+                    }}
+                }}
+            "#},
+            7,
+        );
+    }
+}
+
+#[test]
+fn scalar_loop_callable_write_returns_seven() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable f = Add1;
+                    mutable index = 0;
+                    mutable result = 0;
+                    while index < 2 {
+                        set result += f(2);
+                        set index += 1;
+                        set f = Times2;
+                    }
+                    result
+                }
+            }
+        "#},
+        7,
+    );
+}
+
+#[test]
+fn tuple_loop_guard_write_preserves_callable_snapshot_returning_six() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable flag = true;
+                    let f = flag ? Add1 | Times2;
+                    mutable index = 0;
+                    mutable result = 0;
+                    while index < 2 {
+                        set result += f(2);
+                        set (index, flag) = (index + 1, false);
+                    }
+                    result
+                }
+            }
+        "#},
+        6,
+    );
+}
+
+#[test]
+fn direct_callee_before_argument_write_preserves_selected_value_and_failure() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable f = Add1;
+                    f({ set f = Times2; 2 })
+                }
+            }
+        "#},
+        3,
+    );
+    check_wrapped_callable_before_write(false);
+}
+
+#[test]
+fn direct_callee_before_tuple_argument_write_returns_three() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable f = Add1;
+                    mutable n = 0;
+                    f({ set (f, n) = (Times2, 9); 2 })
+                }
+            }
+        "#},
+        3,
+    );
+}
+
+#[test]
+fn higher_order_callable_before_later_write_preserves_selected_value_and_failure() {
+    for assignment in ["set f = Times2;", "set (f, n) = (Times2, 9);"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable f = Add1;
+                        mutable n = 0;
+                        Apply(f, {{ {assignment} 2 }})
+                    }}
+                }}
+            "#},
+            3,
+        );
+    }
+    check_wrapped_callable_before_write(true);
+}
+
+fn check_wrapped_callable_before_write(higher_order: bool) {
+    for (functor, input, argument, specialization) in [
+        ("Adjoint", "Int", "value", "adjoint"),
+        ("Controlled", "(Qubit[], Int)", "([], value)", "controlled"),
+        (
+            "Controlled Adjoint",
+            "(Qubit[], Int)",
+            "([], value)",
+            "controlled adjoint",
+        ),
+        ("Adjoint Adjoint", "Int", "value", "body"),
+    ] {
+        let argument = argument.replace("value", "{ set calls += 1; set op = Second; calls }");
+        let call = if higher_order {
+            format!("Apply({functor} op, {argument});")
+        } else {
+            format!("{functor} op({argument});")
+        };
+        let source = formatdoc! {r#"
+            namespace Test {{
+                operation First(value : Int) : Unit is Adj + Ctl {{
+                    body (...) {{ fail $"first body {{value}}"; }}
+                    adjoint (...) {{ fail $"first adjoint {{value}}"; }}
+                    controlled (controls, ...) {{ fail $"first controlled {{value}}"; }}
+                    controlled adjoint (controls, ...) {{
+                        fail $"first controlled adjoint {{value}}";
+                    }}
+                }}
+                operation Second(value : Int) : Unit is Adj + Ctl {{
+                    body (...) {{ fail "second"; }}
+                    adjoint (...) {{ fail "second"; }}
+                    controlled (controls, ...) {{ fail "second"; }}
+                    controlled adjoint (controls, ...) {{ fail "second"; }}
+                }}
+                operation Apply(op : {input} => Unit, value : {input}) : Unit {{
+                    op(value);
+                }}
+                @EntryPoint()
+                operation Main() : Unit {{
+                    mutable calls = 0;
+                    mutable op = First;
+                    {call}
+                }}
+            }}
+        "#};
+        let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+        let error = result.expect_err("the originally selected specialization must fail");
+        assert!(
+            error.contains(&format!("first {specialization} 1")),
+            "unexpected failure for {functor}: {error}"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn indexed_call_after_earlier_operand_preserves_order_returning_1312() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable order = 0;
+                    let result = { set order = order * 10 + 1; 10 }
+                        + [Add1, Times2][{ set order = order * 10 + 2; 0 }](2);
+                    result * 100 + order
+                }
+            }
+        "#},
+        1312,
+    );
+}
+
+#[test]
+fn indexed_call_in_unselected_branch_does_not_evaluate_index() {
+    check_callable_result(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Add1(x : Int) : Int { x + 1 }
+                function Times2(x : Int) : Int { x * 2 }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable selected = false;
+                    mutable order = 0;
+                    let result = selected
+                        ? [Add1, Times2][{ set order += 1; 0 }](2)
+                        | 9;
+                    result * 10 + order
+                }
+            }
+        "#},
+        90,
+    );
+}
+
+#[test]
+fn identical_conditional_index_arms_return_four_for_direct_and_higher_order_calls() {
+    for call in ["f(2)", "Apply(f, 2)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Times2(x : Int) : Int {{ x * 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        let fs = [Add1, Times2];
+                        mutable index = 1;
+                        mutable flag = true;
+                        let f = flag ? fs[index] | fs[index];
+                        {call}
+                    }}
+                }}
+            "#},
+            4,
+        );
+    }
+}
+
+mod callable_evaluation_order {
+    use qsc_eval::val::Value;
+
+    use crate::test_utils::{
+        check_semantic_equivalence, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+
+    #[test]
+    fn root_array_elements_preserve_mutations_and_capture_snapshots() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> offset + value }
+                function Times5(value : Int) : Int { value * 5 }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    saved[0](2) * 10000 + saved[1](3) * 100 + saved[2](5)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable offset = 3;
+                    mutable visits = 0;
+                    let answer = Relay([
+                        { set visits = visits * 10 + 1; Make(offset) },
+                        { set offset = 17; set visits = visits * 10 + 2; Times5 },
+                        { set visits = visits * 10 + 3; Make(offset) }
+                    ]);
+                    answer * 1000 + visits
+                }
+            }
+        "#};
+        let (store, package_id) = compile_to_fir(source);
+        let (result, _) = try_eval_fir_entry_with_trace(&store, package_id);
+        assert_eq!(result, Ok(Value::Int(51_522_123)));
+        check_semantic_equivalence(source);
+    }
+
+    #[test]
+    fn unused_array_candidate_producer_still_fails() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int {
+                    if offset < 0 { fail "unused callable producer"; }
+                    value -> offset + value
+                }
+                function Times5(value : Int) : Int { value * 5 }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    saved[0](2) * 100 + saved[1](3)
+                }
+                @EntryPoint()
+                operation Main() : Int { Relay([Make(7), Times5, Make(-1)]) }
+            }
+        "#};
+        let (store, package_id) = compile_to_fir(source);
+        let (result, _) = try_eval_fir_entry_with_trace(&store, package_id);
+        assert!(result.is_err(), "the unused candidate producer must fail");
+        check_semantic_equivalence(source);
+    }
+
+    #[test]
+    fn repeated_array_size_preserves_initializer_snapshot_and_effects() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> offset + value }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    saved[0](2) * 100 + saved[2](3)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable offset = 7;
+                    mutable order = 0;
+                    let answer = Relay([
+                        { set order = order * 10 + 1; Make(offset) },
+                        size = { set order = order * 10 + 2; set offset = 19; 3 }
+                    ]);
+                    answer * 10000 + order * 100 + offset
+                }
+            }
+        "#};
+        let (store, package_id) = compile_to_fir(source);
+        let (result, _) = try_eval_fir_entry_with_trace(&store, package_id);
+        assert_eq!(result, Ok(Value::Int(9_101_219)));
+        check_semantic_equivalence(source);
+    }
+
+    #[test]
+    fn concatenated_array_forwarding_preserves_operand_order_and_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> offset + value }
+                function Times5(value : Int) : Int { value * 5 }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    saved[0](2) * 10000 + saved[1](3) * 100 + saved[2](5)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable offset = 3;
+                    mutable order = 0;
+                    let answer = Relay(
+                        { set order = order * 10 + 1; [Make(offset), Times5] } +
+                        { set offset = 19; set order = order * 10 + 2; [Make(offset)] }
+                    );
+                    answer * 100 + order
+                }
+            }
+        "#};
+        let (store, package_id) = compile_to_fir(source);
+        let (result, _) = try_eval_fir_entry_with_trace(&store, package_id);
+        assert_eq!(result, Ok(Value::Int(5_152_412)));
+        check_semantic_equivalence(source);
+    }
+
+    #[test]
+    fn sliced_array_forwarding_preserves_discarded_element_and_bound_effects() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> offset + value }
+                function Times5(value : Int) : Int { value * 5 }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    saved[0](2) * 100 + saved[1](3)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable offset = 3;
+                    mutable order = 0;
+                    let answer = Relay([
+                        { set order = order * 10 + 1; Make(offset) },
+                        { set offset = 17; set order = order * 10 + 2; Make(offset) },
+                        Times5
+                    ][{ set offset = 41; set order = order * 10 + 3; 1 }..2]);
+                    answer * 100000 + order * 100 + offset
+                }
+            }
+        "#};
+        let (store, package_id) = compile_to_fir(source);
+        let (result, _) = try_eval_fir_entry_with_trace(&store, package_id);
+        assert_eq!(result, Ok(Value::Int(191_512_341)));
+        check_semantic_equivalence(source);
+    }
+}
+
+#[test]
+fn specialized_callable_array_preserves_signed_indices_and_bounds() {
+    for index in [-4_i64, -3, -2, -1, 0, 1, 2, 3] {
+        let source = formatdoc! {r#"
+            namespace Test {{
+                function Add11(value : Int) : Int {{ value + 11 }}
+                function Times3(value : Int) : Int {{ value * 3 }}
+                function Minus5(value : Int) : Int {{ value - 5 }}
+                function Invoke(actions : (Int -> Int)[], index : Int) : Int {{
+                    actions[index](5)
+                }}
+                @EntryPoint()
+                operation Main() : Int {{ Invoke([Add11, Times3, Minus5], {index}) }}
+            }}
+        "#};
+        let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+        if (-3..3).contains(&index) {
+            let expected = [16, 15, 0][usize::try_from(index.rem_euclid(3)).expect("valid index")];
+            assert_eq!(result, Ok(qsc_eval::val::Value::Int(expected)));
+        } else {
+            assert!(result.is_err(), "out-of-range index must fail");
+        }
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn fir_value_preservation_forward_identity() {
+    use qsc_fir::fir::{ExprKind, Lit, PackageLookup};
+
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Forward(callable : Int -> Int) : Int -> Int { callable }
+            @EntryPoint()
+            operation Main() : Int {
+                let callable = Forward(Make(17));
+                callable(1)
+            }
+        }
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result.expect("original must succeed").to_string(), "18");
+    crate::test_utils::check_semantic_equivalence(source);
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    let package = store.get(package_id);
+    let mut found_capture = false;
+    for (_, expr) in &package.exprs {
+        if let ExprKind::Call(callee, args) = expr.kind
+            && let qsc_fir::ty::Ty::Arrow(arrow) = &package.get_expr(callee).ty
+            && let ExprKind::Tuple(elements) = &package.get_expr(args).kind
+            && elements.len() == 2
+            && matches!(
+                package.get_expr(elements[0]).kind,
+                ExprKind::Lit(Lit::Int(17))
+            )
+        {
+            assert_eq!(package.get_expr(args).ty, *arrow.input);
+            found_capture = true;
+        }
+    }
+    assert!(
+        found_capture,
+        "expected the scalar capture in the lifted call"
+    );
+}
+
+#[test]
+fn fir_value_preservation_forward_relay_and_saved_captures() {
+    for (body, expected) in [
+        ("let callable = Relay(Make(17)); callable(1)", 18),
+        (
+            "mutable current = Relay(Make(3)); set current = Relay(Make(17)); let captured = Forward(current); set current = Relay(Make(41)); 100 * captured(1) + current(3)",
+            1844,
+        ),
+        (
+            "let current = Relay(Make(17)); let captured = Forward(current); let nested = value -> captured(value) + 5; 100 * nested(1) + nested(2)",
+            2324,
+        ),
+        (
+            "mutable current = Relay(Make(3)); set current = Relay(Make(17)); let captured = Forward(current); let nested = value -> captured(value) + 5; set current = Relay(Make(41)); 10000 * nested(1) + 100 * nested(2) + current(3)",
+            232_444,
+        ),
+        (
+            "mutable current = Relay(Make(3)); set current = Relay(Make(17)); let captured = Forward(current); let nested = value -> captured(value) + 5; set current = Relay(Make(41)); 10000 * Invoke(nested, 1) + 100 * nested(2) + current(3)",
+            232_444,
+        ),
+        (
+            "let first = Forward(Make(3)); let second = Relay(Make(17)); 10000 * first(1) + 100 * second(2) + Invoke(first, 3)",
+            41906,
+        ),
+    ] {
+        let source = formatdoc! {r#"
+            namespace Test {{
+                function Make(offset : Int) : Int -> Int {{ value -> value + offset }}
+                function Forward(callable : Int -> Int) : Int -> Int {{ callable }}
+                function Relay(callable : Int -> Int) : Int -> Int {{ Forward(callable) }}
+                function Invoke(callable : Int -> Int, value : Int) : Int {{ callable(value) }}
+                @EntryPoint()
+                operation Main() : Int {{ {body} }}
+            }}
+        "#};
+        let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+        assert_eq!(
+            result.expect("original must succeed").to_string(),
+            expected.to_string()
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn fir_value_preservation_tuple_assignment_targets() {
+    for (body, expected) in [
+        (
+            "mutable (value, callable) = (14, Add11); let callables = [Add11, Times3]; set (value, callable) = (9, Times3); let answer = Use(value, callables[0]); answer * 100 + value * 10 + callable(2)",
+            2096,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let callables = [Add11, Minus5]; let answer = Use(value, callables[{ set (value, callable) = (9, Times3); 1 }]); answer * 10000 + value * 100 + callable(2)",
+            90906,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let callables = [Add11, Times3]; let answer = Use(value, callables[{ set (value, callable) = (9, Times3); 0 }]); answer * 100 + value * 10 + callable(2)",
+            2596,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let answer = Use(value, { set (value, callable) = (9, Times3); Add11 }); answer * 100 + value * 10 + callable(2)",
+            2596,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let answer = Use(value, { set value = 9; set callable = Times3; Add11 }); answer * 100 + value * 10 + callable(2)",
+            2596,
+        ),
+    ] {
+        check_tuple_assignment_result(body, expected);
+    }
+}
+
+#[test]
+fn fir_value_preservation_tuple_assignment_simultaneous_values() {
+    for (body, expected) in [
+        (
+            "mutable (first, second) = (Add11, Times3); let saved = first; set (first, second) = (second, first); 10000 * first(2) + 100 * second(2) + saved(2)",
+            61313,
+        ),
+        (
+            "mutable (value, (first, second)) = (0, (Add11, Times3)); set (value, (first, second)) = (9, (second, first)); value * 10000 + first(2) * 100 + second(2)",
+            90613,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let pair = (9, Times3); set (value, callable) = pair; value * 100 + callable(2)",
+            906,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); set (value, callable) = Pair(); value * 100 + callable(2)",
+            906,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); set (value, callable) = { let pair = Pair(); pair }; value * 100 + callable(2)",
+            906,
+        ),
+    ] {
+        check_tuple_assignment_result(body, expected);
+    }
+}
+
+#[test]
+fn fir_value_preservation_tuple_assignment_rhs_effects() {
+    for (body, expected) in [
+        (
+            "mutable (value, callable) = (14, Add11); mutable order = 0; let pair = { set order = order * 10 + 1; (9, Times3) }; set (value, callable) = pair; set order = order * 10 + 2; order * 10000 + value * 100 + callable(2)",
+            120_906,
+        ),
+        (
+            "mutable (first, second) = (Add11, Times3); set (first, second) = (first, { set first = Times3; Minus5 }); first(2) * 100 + second(2)",
+            1297,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); set (value, callable) = { set value = 7; (value, Times3) }; value * 100 + callable(2)",
+            706,
+        ),
+    ] {
+        check_tuple_assignment_result(body, expected);
+    }
+}
+
+#[test]
+fn tuple_assignment_preserves_nonadjacent_immutable_snapshot() {
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable (value, callable) = (14, Add11);
+            let pair = (value, callable);
+            set value = 9;
+            set callable = Times3;
+            set (value, callable) = pair;
+            value * 100 + callable(2)
+        "#},
+        1413,
+    );
+}
+
+#[test]
+fn tuple_assignment_preserves_effectful_alias_chain_snapshot() {
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable (value, callable) = (14, Add11);
+            mutable order = 0;
+            let pair = { set order = order * 10 + 1; (value, callable) };
+            set callable = Times3;
+            let forwarded = pair;
+            set order = order * 10 + 2;
+            set value = 9;
+            set (value, callable) = forwarded;
+            order * 10000 + value * 100 + callable(2)
+        "#},
+        121_413,
+    );
+}
+
+#[test]
+fn tuple_assignment_preserves_nested_and_reused_alias_snapshots() {
+    for (body, expected) in [
+        (
+            "mutable (value, (first, second)) = (14, (Add11, Times3)); let saved = (value, (first, second)); set value = 9; set first = Minus5; set (value, (first, second)) = saved; value * 10000 + first(2) * 100 + second(2)",
+            141_306,
+        ),
+        (
+            "mutable offset = 3; mutable (value, callable) = (14, { let captured = offset; input -> input + captured }); let saved = (value, callable); set offset = 17; set callable = { let captured = offset; input -> input + captured }; set (value, callable) = saved; value * 100 + callable(2)",
+            1405,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let saved = (value, callable); set value = 9; set (value, callable) = saved; let first = value * 100 + callable(2); set callable = Times3; set (value, callable) = saved; first * 10000 + value * 100 + callable(2)",
+            14_131_413,
+        ),
+        (
+            "mutable (value, callable) = (14, Add11); let saved = Pair(); set value = 7; set (value, callable) = saved; value * 100 + callable(2)",
+            906,
+        ),
+    ] {
+        check_tuple_assignment_result(body, expected);
+    }
+}
+
+#[test]
+fn tuple_snapshot_nested_bindings_preserve_callable_values() {
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable (value, callable) = (14, Add11);
+            let (tag, saved) = (3, (value, callable));
+            set (value, callable) = (9, Times3);
+            set (value, callable) = saved;
+            tag * 10000 + value * 100 + callable(2)
+        "#},
+        31_413,
+    );
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable (value, (first, second)) = (14, (Add11, Times3));
+            let ((saved, tag), tail) = (((value, (first, second)), 3), 2);
+            set (value, (first, second)) = (9, (Minus5, Add11));
+            set (value, (first, second)) = saved;
+            tail * 10000000 + tag * 1000000 + value * 10000
+                + first(2) * 100 + second(2)
+        "#},
+        23_141_306,
+    );
+}
+
+#[test]
+fn tuple_snapshot_captured_alias_preserves_callable_values() {
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable (value, callable) = (14, Add11);
+            let saved = (value, callable);
+            let observe = input -> {
+                let (stored, action) = saved;
+                stored * 100 + action(input)
+            };
+            set (value, callable) = (9, Times3);
+            let before = observe(2);
+            set (value, callable) = saved;
+            before * 10000 + value * 100 + callable(2)
+        "#},
+        14_131_413,
+    );
+}
+
+#[test]
+fn tuple_snapshot_assignment_inside_closure_preserves_callable_values() {
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable (value, callable) = (14, Add11);
+            let saved = (value, callable);
+            let restore = input -> {
+                mutable (localValue, localCallable) = (7, Minus5);
+                set (localValue, localCallable) = saved;
+                localValue * 100 + localCallable(input)
+            };
+            set (value, callable) = (9, Times3);
+            set (value, callable) = saved;
+            restore(3) * 10000 + value * 100 + callable(2)
+        "#},
+        14_141_413,
+    );
+}
+
+#[test]
+fn tuple_snapshot_captured_nested_initializer_runs_once_in_order() {
+    check_tuple_assignment_result(
+        indoc::indoc! {r#"
+            mutable count = 0;
+            mutable (value, callable) = (14, Add11);
+            let (tag, saved) = ({ set count += 1; count }, {
+                set count *= 10;
+                (value, callable)
+            });
+            let observe = input -> {
+                let (stored, action) = saved;
+                stored * 100 + action(input)
+            };
+            set count += 2;
+            set (value, callable) = (9, Times3);
+            set (value, callable) = saved;
+            count * 1000000 + tag * 100000 + observe(2) * 10 + callable(2)
+        "#},
+        12_114_143,
+    );
+}
+
+#[test]
+fn tuple_snapshot_forwarding_preserves_nested_noncallable_fields() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Forward(pair : (Bool, (Int, Int -> Int), Int))
+                : (Bool, (Int, Int -> Int), Int) { pair }
+            @EntryPoint()
+            operation Main() : Int {
+                let saved = Forward(Forward((true, (14, Make(3)), 7)));
+                let (tag, (value, callable), tail) = saved;
+                if tag { value * 1000 + callable(2) * 10 + tail } else { 0 }
+            }
+        }
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(14_057)));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+fn check_tuple_assignment_result(body: &str, expected: i64) {
+    let source = formatdoc! {r#"
+        namespace Test {{
+            function Add11(value : Int) : Int {{ value + 11 }}
+            function Times3(value : Int) : Int {{ value * 3 }}
+            function Minus5(value : Int) : Int {{ value - 5 }}
+            function Pair() : (Int, Int -> Int) {{ (9, Times3) }}
+            function Use(value : Int, callable : Int -> Int) : Int {{ callable(value) }}
+            @EntryPoint()
+            operation Main() : Int {{ {body} }}
+        }}
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(expected)));
+    crate::test_utils::check_semantic_equivalence(&source);
+}
+
+#[test]
+fn closure_used_in_capture_assignment_preserves_execution() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use target = Qubit();
+                mutable angle = 0.0;
+                let op = Rx(angle, _);
+                set angle = { op(target); 0.0 };
+                op(target);
+                Reset(target);
+            }
+        }
+    "#});
+}
+
+#[test]
+fn indexed_callable_argument_preserves_failure_order() {
+    let cases =
+        [("first_arg_failure", 1), ("in_bounds_failure_control", 0)].map(|(name, index)| {
+            (
+                name,
+                formatdoc! {r#"
+                namespace Test {{
+                    function Identity(value : Int) : Int {{ value }}
+                    function FailFirst() : Int {{ fail "first argument" }}
+                    operation Use(value : Int, op : Int -> Int) : Int {{ op(value) }}
+                    @EntryPoint()
+                    operation Main() : Int {{ Use(FailFirst(), [Identity][{index}]) }}
+                }}
+            "#},
+            )
+        });
+    check_indexed_callable_argument_cases(cases);
+}
+
+#[test]
+fn indexed_callable_argument_preserves_effect_order() {
+    let cases = [
+        ("single_hof_prior_effect_invalid", "Use(Earlier(target), [Z][1], target);"),
+        ("single_hof_ordered_success", "let ops = [Z]; Use({ X(target); 42 }, ops[{ Y(target); 0 }], target);"),
+        ("multi_hof_ordered_success_zero", "let ops = [Z, S]; for index in 0..0 { Use({ X(target); 42 }, ops[{ Y(target); index }], target); }"),
+        ("multi_hof_ordered_success_one", "let ops = [Z, S]; for index in 1..1 { Use({ X(target); 42 }, ops[{ Y(target); index }], target); }"),
+        ("direct_callee_ordered_success", "[Z][Index(target, 0)](Argument(target));"),
+        ("single_hof_pure_index_success", "Use(Earlier(target), [Z][0], target);"),
+        ("multi_hof_pure_index_success_zero", "let ops = [Z, S]; for index in 0..0 { Use(Earlier(target), ops[index], target); }"),
+        ("multi_hof_pure_index_success_one", "let ops = [Z, S]; for index in 1..1 { Use(Earlier(target), ops[index], target); }"),
+    ].map(|(name, body)| {
+        (name, formatdoc! {r#"
+            namespace Test {{
+                operation Earlier(target : Qubit) : Int {{ X(target); 42 }}
+                operation Index(target : Qubit, index : Int) : Int {{ Y(target); index }}
+                operation Argument(target : Qubit) : Qubit {{ X(target); target }}
+                operation Use(value : Int, op : Qubit => Unit, target : Qubit) : Unit {{
+                    if value != 42 {{ fail "earlier argument changed"; }}
+                    op(target);
+                }}
+                @EntryPoint()
+                operation Main() : Unit {{
+                    use target = Qubit();
+                    {body}
+                    Reset(target);
+                }}
+            }}
+        "#})
+    });
+    check_indexed_callable_argument_cases(cases);
+}
+
+fn check_indexed_callable_argument_cases(cases: impl IntoIterator<Item = (&'static str, String)>) {
+    let mut failures = Vec::new();
+    for (name, source) in cases {
+        let passed = std::panic::catch_unwind(|| {
+            if name != "first_arg_failure" && name != "in_bounds_failure_control" {
+                use crate::test_utils::{TraceOp, compile_to_fir, try_eval_fir_entry_with_trace};
+                let (store, package_id) = compile_to_fir(&source);
+                let (result, trace) = try_eval_fir_entry_with_trace(&store, package_id);
+                let gates = trace
+                    .iter()
+                    .filter_map(|operation| match operation {
+                        TraceOp::Gate { name, .. } => Some(name.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let expected = match name {
+                    "single_hof_prior_effect_invalid" => vec!["X"],
+                    "multi_hof_ordered_success_one" => vec!["X", "Y", "S"],
+                    "direct_callee_ordered_success" => vec!["Y", "X", "Z"],
+                    "single_hof_pure_index_success" | "multi_hof_pure_index_success_zero" => {
+                        vec!["X", "Z"]
+                    }
+                    "multi_hof_pure_index_success_one" => vec!["X", "S"],
+                    _ => vec!["X", "Y", "Z"],
+                };
+                assert_eq!(gates, expected, "original gate order for {name}");
+                assert_eq!(result.is_err(), name == "single_hof_prior_effect_invalid");
+                let (store, package_id) = crate::test_utils::compile_and_run_pipeline_to(
+                    &source,
+                    crate::PipelineStage::Defunc,
+                );
+                let rendered = crate::pretty::write_package_qsharp(&store, package_id);
+                let main = rendered
+                    .split("operation Main()")
+                    .nth(1)
+                    .expect("entry operation must be emitted")
+                    .split("\noperation ")
+                    .next()
+                    .expect("entry body must be emitted");
+                if name.contains("pure_index_success") || name == "single_hof_prior_effect_invalid"
+                {
+                    assert!(
+                        main.contains("{ Z }"),
+                        "expected specialized Z dispatch: {main}"
+                    );
+                    if name.starts_with("multi_hof") {
+                        assert!(
+                            main.contains("{ S }") && main.contains("if (index == 0)"),
+                            "expected both indexed dispatch branches: {main}"
+                        );
+                    }
+                } else if name == "direct_callee_ordered_success" {
+                    assert!(
+                        main.contains("Z(Argument(target))"),
+                        "expected direct Z call: {main}"
+                    );
+                }
+            }
+            crate::test_utils::check_semantic_equivalence(&source);
+        })
+        .is_ok();
+        eprintln!("{name}: {}", if passed { "passed" } else { "failed" });
+        if !passed {
+            failures.push(name);
+        }
+    }
+    assert!(failures.is_empty(), "semantic failures: {failures:?}");
+}
+
+#[test]
+fn residual_callable_sources_preserve_semantics() {
+    let mut failures = Vec::new();
+    for (name, source) in residual_callable_sources() {
+        if std::panic::catch_unwind(|| crate::test_utils::check_semantic_equivalence(&source))
+            .is_err()
+        {
+            failures.push(name);
+        }
+        eprintln!("checked {name}");
+    }
+    assert!(failures.is_empty(), "semantic failures: {failures:?}");
+}
+
+fn residual_callable_sources() -> Vec<(&'static str, String)> {
+    let mut sources = Vec::new();
+    for (name, body) in [
+        ("false_branch", "if false { ApplyOp(ops[index], q); }"),
+        ("false_loop", "while false { ApplyOp(ops[index], q); }"),
+        ("post_return", "return (); ApplyOp(ops[index], q);"),
+    ] {
+        sources.push((
+            name,
+            format!(
+                r#"
+            namespace Test {{
+                operation MakeCandidates(q : Qubit) : (Qubit => Unit)[] {{ Y(q); [H, X] }}
+                operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {{ op(target); }}
+                @EntryPoint()
+                operation Main() : Unit {{
+                    use q = Qubit();
+                    let ops = MakeCandidates(q);
+                    let index = if MResetZ(q) == Zero {{ 0 }} else {{ 1 }};
+                    {body}
+                }}
+            }}
+        "#
+            ),
+        ));
+    }
+    sources.push((
+        "killed_producer",
+        r#"
+        namespace Test {
+            operation MakeOp(q : Qubit) : Qubit => Unit { X(q); Rx(0.0, _) }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit { op(target); }
+            operation Replacement(q : Qubit) : Unit { H(q); }
+            operation LoopValue(q : Qubit) : Unit { X(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable op = MakeOp(q);
+                op = Replacement;
+                for _ in 0..2 { op = LoopValue; }
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#
+        .to_string(),
+    ));
+    sources.push((
+        "unrelated_callable",
+        r#"
+        namespace Test {
+            function Identity(value : Int) : Int { value }
+            operation Unrelated() : Unit { let decoy = Identity; }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Unrelated();
+                mutable op = H;
+                for _ in 0..3 { op = X; }
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#
+        .to_string(),
+    ));
+    sources
+}
+
+#[test]
+fn producer_factory_unsafe_expressions_preserve_semantics() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation Mark(enabled : Bool, q : Qubit) : Unit {
+                if enabled {
+                    X(q);
+                }
+            }
+            function Make(enabled : Bool) : Qubit => Unit {
+                Mark(enabled, _)
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                mutable enabled = false;
+                let op = Make(enabled);
+                set enabled = true;
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            function Choose(flag : Bool) : Qubit => Unit {
+                if not flag {
+                    X
+                } else {
+                    Z
+                }
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let source = false;
+                let op = Choose(source);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// `EvaluationDisposition::Discarded`. `MakeOp` is a pure, total factory, so
+/// deleting the consumed binding drops an evaluation that was never observable.
+///
+/// The trace pins `Y`, `H`, `X`, `H`, `Z`: the surrounding gates fix where the
+/// dispatch lands in the order, and `ApplyOp`'s own `H` pair fixes how many
+/// times it ran. A dropped, duplicated, or reordered dispatch changes the
+/// sequence even though the returned value would not.
+#[test]
+fn discarded_disposition_drops_only_unobservable_evaluation() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            function MakeOp() : Qubit => Unit {
+                X
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Y(q);
+                let op = MakeOp();
+                ApplyOp(op, q);
+                Z(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Exercises `EvaluationDisposition::Relocated`. `GetAngle` flips the qubit
+/// while computing the captured angle, and the rewrite splices that initializer
+/// into the specialized call, so deleting the binding *moves* the flip rather
+/// than dropping it.
+///
+/// The trace pins `Y`, `X`, `H`, `Rx`, `H`, `Z`. Dropping the binding without
+/// relocating loses the `X`; retaining it after relocation runs the `X` twice.
+/// Both are invisible to structure and to the returned value, and both change
+/// this sequence.
+#[test]
+fn relocated_disposition_moves_capture_evaluation_exactly_once() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetAngle(q : Qubit) : Double {
+                X(q);
+                0.0
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Y(q);
+                let op = Rx(GetAngle(q), _);
+                ApplyOp(op, q);
+                Z(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// `EvaluationDisposition::Replayed` by branch dispatch. The binding is a
+/// static callable selection, so deleting it is sound only because
+/// `branch_split_direct_call_rewrite` emits the same `if` tree at the replaced
+/// call site.
+///
+/// The selecting condition is a measurement, which makes the replay observable:
+/// the condition is not safe to discard, so the binding reaches the replay rule
+/// rather than the discard rule, and the trace records where and how often the
+/// measurement ran. Replaying it twice, dropping it, or moving it across the
+/// surrounding `X` and `Z` all change the sequence, and none of those changes
+/// alters the returned value or the transformed program's structure in a way a
+/// snapshot would flag.
+#[test]
+fn replayed_disposition_reruns_the_branch_selection() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use flag = Qubit();
+                use q = Qubit();
+                X(flag);
+                X(q);
+                let op = if MResetZ(flag) == One { Y } else { Z };
+                ApplyOp(op, q);
+                Z(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// `EvaluationDisposition::Replayed` by index dispatch at the *argument*
+/// position, the one rule that differs between the two consumption sites. The
+/// rewrite resolves `ops[1]` statically and calls the selected callable
+/// directly, so the selection is replayed and only the bounds check is elided.
+///
+/// The trace pins `Z`, `H`, `Y`, `H`. Selecting the wrong element swaps `Y` for
+/// `X`; dropping the dispatch removes it entirely.
+#[test]
+fn replayed_index_selection_at_argument_position_preserves_dispatch() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let ops = [X, Y];
+                Z(q);
+                ApplyOp(ops[1], q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn indexed_dispatch_preserves_out_of_range_failures() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyAt(ops : (Qubit => Unit)[], idx : Int, q : Qubit) : Unit {
+                ops[idx](q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                ApplyAt([Z, X], 2, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let ops = [Z, X];
+                ops[2](q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn indexed_dispatch_preserves_duplicate_physical_positions() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use flag = Qubit();
+                use target = Qubit();
+                X(flag);
+                let index = if MResetZ(flag) == One { 1 } else { 0 };
+                let ops = [I, I, X];
+                ops[index](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyAt(ops : (Qubit => Unit)[], index : Int, target : Qubit) : Unit {
+                ops[index](target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use flag = Qubit();
+                use target = Qubit();
+                X(flag);
+                let index = if MResetZ(flag) == One { 1 } else { 0 };
+                ApplyAt([I, I, X], index, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn indexed_dispatch_preserves_singleton_bounds_and_effectful_index_evaluation() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyAt(ops : (Qubit => Unit)[], index : Int, target : Qubit) : Unit {
+                ops[index](target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                ApplyAt([X], 1, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let ops = [X];
+                ops[1](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyAt(ops : (Qubit => Unit)[], index : Int, target : Qubit) : Unit {
+                ops[index](target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                ApplyAt([Z], {
+                    X(target);
+                    0
+                }, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let ops = [Z];
+                ops[{
+                    X(target);
+                    0
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let ops = [I, Z];
+                for index in 1..1 {
+                    let op = ops[{
+                        X(target);
+                        index
+                    }];
+                    op(target);
+                }
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                mutable ops = [I, Z];
+                set ops = [Z, I];
+                ops[{
+                    X(target);
+                    0
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn indexed_struct_field_source_preserves_semantics() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [Z] };
+                config.Ops[{
+                    X(target);
+                    0
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [I, Z] };
+                config.Ops[{
+                    X(target);
+                    1
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [X] };
+                config.Ops[1](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [X] };
+                ApplyOp(config.Ops[1], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [Z] };
+                ApplyOp(config.Ops[{
+                    X(target);
+                    0
+                }], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyValue(value : Int, target : Qubit) : Unit {
+                if value == 1 {
+                    Z(target);
+                }
+            }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let value = 1;
+                let config = new Config { Ops = [ApplyValue(value, _)] };
+                ApplyOp(config.Ops[{
+                    X(target);
+                    0
+                }], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [I, X] };
+                ApplyOp(config.Ops[1], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [I, X] };
+                ApplyOp(config.Ops[2], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            struct Outer { Inner : Config }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let outer = new Outer {
+                    Inner = new Config { Ops = [I, Z] }
+                };
+                outer.Inner.Ops[{
+                    X(target);
+                    1
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let base = new Config { Ops = [X] };
+                let config = new Config { ...base, Ops = [I, X] };
+                config.Ops[1](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                mutable config = new Config { Ops = [X, I] };
+                set config w/= Ops <- [I, X];
+                config.Ops[0](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            newtype Wrapped = (Ops : (Qubit => Unit is Adj + Ctl)[]);
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let wrapped = Wrapped([I, X]);
+                wrapped::Ops[1](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyBoth(first : Qubit => Unit, second : Qubit => Unit, target : Qubit) : Unit {
+                first(target);
+                second(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [I, X] };
+                ApplyBoth(config.Ops[1], I, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyBoth(first : Qubit => Unit, second : Qubit => Unit, target : Qubit) : Unit {
+                first(target);
+                second(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [X] };
+                ApplyBoth(config.Ops[1], I, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyBoth(first : Qubit => Unit, second : Qubit => Unit, target : Qubit) : Unit {
+                first(target);
+                second(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let config = new Config { Ops = [X] };
+                ApplyBoth(config.Ops[{
+                    X(target);
+                    1
+                }], I, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyBoth(first : Qubit => Unit, second : Qubit => Unit, target : Qubit) : Unit {
+                first(target);
+                second(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use (flag, target) = (Qubit(), Qubit());
+                X(flag);
+                let index = if MResetZ(flag) == One { 1 } else { 0 };
+                let config = new Config { Ops = [I, X] };
+                X(target);
+                ApplyBoth(config.Ops[index], I, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn unresolved_indexed_struct_field_source_declines_atomically() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let (config, ignored) = (new Config { Ops = [Z] }, 0);
+                config.Ops[{
+                    X(target);
+                    ignored
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let (config, ignored) = (new Config { Ops = [I, Z] }, 0);
+                config.Ops[{
+                    X(target);
+                    ignored + 1
+                }](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let (config, ignored) = (new Config { Ops = [X] }, 0);
+                config.Ops[ignored + 1](target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let (config, ignored) = (new Config { Ops = [X] }, 0);
+                ApplyOp(config.Ops[ignored + 1], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let (config, ignored) = (new Config { Ops = [I, Z] }, 0);
+                ApplyOp(config.Ops[{
+                    X(target);
+                    ignored + 1
+                }], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyBoth(first : Qubit => Unit, second : Qubit => Unit, target : Qubit) : Unit {
+                first(target);
+                second(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let (config, ignored) = (new Config { Ops = [X] }, 0);
+                ApplyBoth(config.Ops[ignored + 1], I, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyBoth(first : Qubit => Unit, second : Qubit => Unit, target : Qubit) : Unit {
+                first(target);
+                second(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use (flag, target) = (Qubit(), Qubit());
+                X(flag);
+                let index = if MResetZ(flag) == One { 1 } else { 0 };
+                let (config, ignored) = (new Config { Ops = [I, X] }, 0);
+                X(target);
+                ApplyBoth(config.Ops[index + ignored], I, target);
+                MResetZ(target)
+            }
+        }
+    "#});
+
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            struct Config { Ops : (Qubit => Unit)[] }
+            operation ApplyValue(value : Int, target : Qubit) : Unit {
+                if value == 1 {
+                    Z(target);
+                }
+            }
+            operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+                op(target);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                let value = 1;
+                let (config, ignored) = (
+                    new Config { Ops = [ApplyValue(value, _)] },
+                    0
+                );
+                ApplyOp(config.Ops[{
+                    X(target);
+                    ignored
+                }], target);
+                MResetZ(target)
+            }
+        }
+    "#});
+}
+
+/// `EvaluationDisposition::Retained`. `GetOp` applies `X` before returning the
+/// named callable it produces, and nothing relocates or replays that `X`, so
+/// the binding must survive even though its callable value is consumed.
+///
+/// The trace pins `Y`, `X`, `H`, `Z`, `H`, `Y`. Deleting the binding drops the
+/// leading `X`; hoisting it past the surrounding gates reorders the sequence.
+#[test]
+fn retained_disposition_keeps_observable_producer_evaluation_in_place() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetOp(q : Qubit) : (Qubit => Unit) {
+                X(q);
+                Z
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Y(q);
+                let op = GetOp(q);
+                ApplyOp(op, q);
+                Y(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// The recursive self-call slot deleted by `remove_arg_at_path` can only hold a
+/// global item reference or a closure, so the deletion discards nothing
+/// observable. `Repeat`'s self-call forwards the named `H`, which is exactly the
+/// slot shape `assert_discarded_slot_is_pure` states, and running the pipeline
+/// exercises that assertion.
+///
+/// The trace pins `X`, four `H`, then `Y`. Dropping or duplicating a recursion
+/// step changes the number of `H`s. The count is even so the four gates compose
+/// to the identity and the measured result stays deterministic, which keeps the
+/// value comparison meaningful alongside the trace comparison.
+#[test]
+fn recursive_self_call_slot_removal_preserves_recursion_count() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat(H, n - 1, q);
+                }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                X(q);
+                Repeat(H, 4, q);
+                Y(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn capture_admissibility_producer_nested_mutable_snapshot() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            function MakeRot(angle : Double) : Qubit => Unit is Adj + Ctl {
+                Rx(angle, _)
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                mutable angle = 0.0;
+                let op = MakeRot(angle + 0.0);
+                set angle = 3.141592653589793;
+                op(target);
+                MResetZ(target)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn capture_admissibility_direct_mutable_snapshot() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                mutable angle = 0.0;
+                let op = Rx(angle + 0.0, _);
+                set angle = 3.141592653589793;
+                op(target);
+                MResetZ(target)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn capture_admissibility_loop_mutable_snapshot() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                mutable angle = 0.0;
+                let op = Rx(angle + 0.0, _);
+                for _ in 0..0 {
+                    set angle = 3.141592653589793;
+                }
+                op(target);
+                MResetZ(target)
+            }
+        }
+    "#});
 }
