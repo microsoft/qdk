@@ -21,15 +21,18 @@
 //! - **Establishes [`crate::invariants::InvariantLevel::PostDefunc`]:** resolved
 //!   callables use direct dispatch. Reported residue relaxes callable-elimination
 //!   checks, not structural type, scope, or call-shape guarantees.
-//! - **Fixpoint loop.** Each iteration runs five steps in order. The pre-pass
-//!   promotes single-use callable locals and collapses identity closures such
-//!   as `(a) => f(a)` down to `f`. Analysis finds callable parameters and
-//!   concrete call sites. Specialize clones a HOF once per concrete argument
-//!   combination, deduplicated by [`types::SpecKey`]. Rewrite redirects call
+//! - **Fixpoint loop.** Each iteration normalizes operand evaluation and branch
+//!   guards, exposes eligible capture bindings, promotes callable aliases, and
+//!   collapses identity closures such as `(a) => f(a)` down to `f`. Analysis
+//!   finds callable parameters and concrete call sites. Specialize clones a HOF
+//!   once per concrete argument combination, deduplicated by [`types::SpecKey`].
+//!   Rewrite redirects call
 //!   sites, drops the callable argument, and threads captured values through as
 //!   extra arguments. A final closure-cleanup step is convergence-critical: it
-//!   replaces consumed closures with `Tuple([])` so they stop counting as
-//!   remaining work. The iteration cap scales dynamically between
+//!   replaces eligible consumed closures with `Tuple([])`, subject to local
+//!   dependency and producer-owner protection. Consumption identifies cleanup
+//!   candidates, not proof that every occurrence of their target is dead.
+//!   The iteration cap scales dynamically between
 //!   `MIN_ITERATIONS` and `MAX_ITERATIONS`. If no error was recorded, remaining
 //!   work produces [`Error::DynamicCallable`] for unresolved direct calls, or
 //!   [`Error::FixpointNotReached`] when no such call site was identified.
@@ -205,9 +208,14 @@ pub(crate) fn defunctionalize(
     // specialization never reach that terminal state.
     let mut unresolved_direct_call_sites: Vec<StoreExprId> = Vec::new();
 
-    // Whitelisted total intrinsics, identified across packages. Dead-binding
-    // cleanup uses them when proving a producer call safe to discard.
-    let total_foreign = crate::walk_utils::collect_total_foreign_callables(store);
+    // Callables outside a rewritten package that are side-effect free and total.
+    // Dead-binding cleanup needs them to prove that discarding a producer call
+    // is unobservable, and the package set does not change during the loop.
+    let total_foreign = {
+        let mut total = crate::walk_utils::collect_total_foreign_callables(store);
+        crate::walk_utils::extend_with_discardable_foreign_callables(store, &mut total);
+        total
+    };
 
     let mut preserved_direct_lambda_calls = Vec::new();
 
@@ -232,7 +240,22 @@ pub(crate) fn defunctionalize(
 
         // Simplify defunctionalization analysis by eliminating callable
         // indirection patterns and exposing direct call sites.
-        let collapsed_spans = prepass::run(store, package_id, &reachable_expr_ids);
+        let assigner = assigners.get_mut(store, package_id);
+        let collapsed_spans = prepass::run(store, package_id, &reachable_expr_ids, assigner);
+
+        let packages: FxHashSet<_> = std::iter::once(package_id)
+            .chain(reachable.iter().map(|item| item.package))
+            .collect();
+        for owner in packages {
+            let (_, expressions) = collect_reachable_scope(store, owner, &reachable);
+            let assigner = assigners.get_mut(store, owner);
+            rewrite::normalize_direct_callee_control_flow(
+                store.get_mut(owner),
+                expressions,
+                assigner,
+            );
+            prepass::snapshot_branch_guards(store.get_mut(owner), assigner);
+        }
 
         let analysis = analysis::analyze(
             store,
@@ -241,6 +264,7 @@ pub(crate) fn defunctionalize(
             &specialized_items,
             &collapsed_spans,
             &preserved_direct_lambda_calls,
+            &total_foreign,
         );
         preserved_direct_lambda_calls.clone_from(&analysis.direct_call_sites);
 
@@ -483,8 +507,9 @@ fn rewrite_call_sites(
     }
 }
 
-/// Records which closure targets were consumed by specialization or direct-call
-/// rewrite in this iteration.
+/// Records closure targets selected by specialization or direct-call analysis
+/// in this iteration. This target-level set supplies cleanup candidates; it is
+/// not occurrence-level liveness and does not replace cleanup's dependency checks.
 fn track_specialized_closures(
     analysis: &AnalysisResult,
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
@@ -510,18 +535,9 @@ fn track_specialized_closures(
         if spec_map.contains_key(&spec_key)
             && let ConcreteCallable::Closure { target, .. } = &cs.callable_arg
         {
-            // Internal consistency check. When a producer-closure argument is a
-            // single-valued sibling of a parameter that is dispatched over
-            // several candidates, recording it as consumed here would let
-            // `cleanup_consumed_closures` clear its producer body while the
-            // dispatched siblings are still live, un-inlined call sites. The
-            // next iteration
-            // would then re-read the cleared body as `Dynamic` and the call
-            // would compile to incorrect output. The combined per-candidate
-            // specialization handles this shape instead, so this
-            // single-argument per-row specialization should never exist for it.
-            // If it does, that specialization did not run, so stop with a clear
-            // error rather than emitting incorrect QIR.
+            // A shared per-row key may originate at another call site. For
+            // this mixed occurrence, require complete combined dispatch
+            // coverage before its sibling producer can be consumed.
             if let Some(group) = groups.get(&(cs.call_pkg_id, cs.call_expr_id))
                 && closure_constant_sibling_of_dispatch(group, cs)
             {
@@ -536,6 +552,12 @@ fn track_specialized_closures(
                     .iter()
                     .any(|member| matches!(member.callable_arg, ConcreteCallable::Dynamic))
                 {
+                    continue;
+                }
+                // The same per-row key can belong to a different call site.
+                // This occurrence is covered only if every mixed dispatch leaf
+                // has its own complete, position-aligned specialization.
+                if mixed_dispatch_is_specialized(group, spec_map) {
                     continue;
                 }
                 panic!(
@@ -650,6 +672,10 @@ fn emit_fixpoint_error(
 /// bodies (a closure passed to a HOF inside a relocated generic body), so the
 /// cross-package `specialized_targets` / `skip_items` sets are projected to each
 /// package's local item ids before running the single-package cleanup there.
+///
+/// Owner protection includes direct callees of skipped specializations and
+/// reachable callables whose output is directly arrow-typed. It is not a
+/// transitive analysis of callable-bearing aggregate results.
 fn cleanup_consumed_closures_per_package(
     store: &mut PackageStore,
     entry_pkg_id: PackageId,
@@ -742,6 +768,19 @@ fn items_called_from_skipped_items(
     }
 
     called_items
+}
+
+fn mixed_dispatch_is_specialized(
+    group: &[&CallSite],
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
+) -> bool {
+    partition_mixed_branch_split(group).is_some_and(|(dispatch, constants)| {
+        dispatch.iter().all(|candidate| {
+            let mut members = vec![*candidate];
+            members.extend(constants.iter().copied());
+            spec_map.contains_key(&build_combined_spec_key(candidate.hof_item_id, &members))
+        })
+    })
 }
 
 /// Replaces eligible closure expressions whose target was consumed by
@@ -898,18 +937,21 @@ fn collect_live_call_argument_exprs(
                     }
                 }
             }
-            CallableNode::Expr(expr_id) => match package.get_expr(*expr_id).kind {
-                ExprKind::Var(Res::Local(_), _) => pending.push(*expr_id),
-                ExprKind::Call(callee, args) if !is_udt_ctor_call(package, package_id, callee) => {
-                    pending.push(args);
+            CallableNode::Expr(expr_id) => {
+                let expr = package.get_expr(*expr_id);
+                for local in analysis::assignment_written_locals(package, expr) {
+                    definitions.entry(local).or_default().push(*expr_id);
                 }
-                ExprKind::Assign(lhs, rhs) => {
-                    if let ExprKind::Var(Res::Local(var), _) = package.get_expr(lhs).kind {
-                        definitions.entry(var).or_default().push(rhs);
+                match expr.kind {
+                    ExprKind::Var(Res::Local(_), _) => pending.push(*expr_id),
+                    ExprKind::Call(callee, args)
+                        if !is_udt_ctor_call(package, package_id, callee) =>
+                    {
+                        pending.push(args);
                     }
+                    _ => {}
                 }
-                _ => {}
-            },
+            }
             CallableNode::Block(_) | CallableNode::Pat(_) => {}
         }
     }
@@ -1192,13 +1234,16 @@ fn concrete_callable_key(
 /// against the specialization's own key before its callable slot is stripped
 /// and the call retargeted; otherwise a self-call that forwards a *different*
 /// callable would be silently rerouted to the wrong specialization. This
-/// resolver recognizes the two statically-decidable argument forms — a direct
-/// global item reference and a closure — each optionally wrapped in `Adj`/`Ctl`
+/// resolver recognizes the two capture-free argument forms — a direct global
+/// item reference and a capture-free closure — each optionally wrapped in `Adj`/`Ctl`
 /// body functors, and mints their key through [`concrete_callable_key`], the
 /// same reduction used when a specialization's [`SpecKey`] is built, so a
 /// resolved self-call argument keys identically to the specialization it
 /// targets. This syntax-only resolver does not recover embedded capture facts;
 /// such a self-call cannot match an embedding specialization without analysis.
+/// Closures with runtime captures also need the normal call-site rewrite to
+/// append their environment operands; merely removing their callable slot
+/// would leave the recursive call missing arguments.
 ///
 /// Arguments that would require flow-sensitive reaching definitions (such as a
 /// forwarded local parameter) or cross-package return tracing are reported as
@@ -1220,7 +1265,7 @@ pub(crate) fn resolve_self_call_arg_key(
             item_id: *item_id,
             functor: outer_functor,
         },
-        ExprKind::Closure(_, target) => ConcreteCallable::Closure {
+        ExprKind::Closure(captures, target) if captures.is_empty() => ConcreteCallable::Closure {
             target: *target,
             captures: Vec::new(),
             functor: outer_functor,
@@ -1412,35 +1457,32 @@ pub(crate) fn build_param_input_path(
     path
 }
 
-/// Determines whether a group of call sites that share one call expression
-/// forms a genuine multi-argument higher-order call eligible for combined
-/// specialization, where every arrow parameter is specialized together against
-/// one clone in a single fixpoint iteration.
+/// Detects a dispatched tuple field separated from a later static global field.
 ///
-/// Both the specialize and rewrite phases consult this predicate so they agree
-/// on exactly which call sites are combined. Any disagreement would strand a
-/// combined specialization without a matching call-site rewrite, or a rewrite
-/// without its specialization. A group qualifies only when all of the following
-/// hold:
+/// Per-row specialization and removal do not agree on this mixed layout.
+/// Both phases conservatively decline it, preserving residual dispatch rather
+/// than producing a call whose arguments no longer match its specialization.
+pub(super) fn dispatched_precedes_detached_static(group: &[&CallSite]) -> bool {
+    group.iter().any(|dispatched| {
+        !dispatched.condition.is_empty()
+            && dispatched.field_path.len() == 1
+            && group.iter().any(|constant| {
+                constant.condition.is_empty()
+                    && matches!(constant.callable_arg, ConcreteCallable::Global { .. })
+                    && constant.top_level_param == dispatched.top_level_param
+                    && constant.field_path.len() == 1
+                    && constant.field_path[0] > dispatched.field_path[0] + 1
+            })
+    })
+}
+
+/// Whether static arguments can share one specialization and call-site rewrite.
 ///
-/// - it has at least two members. A single arrow parameter stays on the per-row
-///   path, byte-identical to the pre-combined behavior.
-/// - every member resolves a static callable with no branch condition and is
-///   not `Dynamic`, so branch-split candidate sets keep their dispatch path.
-/// - every member supplies a callable for a distinct parameter position, which
-///   is its top-level slot plus the field path into any nested tuple. This makes
-///   the group a genuine multi-argument call rather than a branch-split
-///   candidate set that resolves the same parameter many ways.
-///   Statically resolved elements of one callable-array parameter are an
-///   exception: their repeated position is specialized together.
-/// - the call carries no outer controlled functor, whose nested argument tuple
-///   the top-level combined removal does not model.
-/// - every nested member, meaning one that selects an arrow field of a
-///   tuple-valued parameter, is single-level, and the group covers every field
-///   of that parameter's tuple, so the combined removal can drop the whole
-///   top-level slot. Partial field coverage such as a surviving non-arrow
-///   element, deeper nesting, or a slot whose type does not resolve to a direct
-///   tuple keeps the call on the per-row path.
+/// Both phases use this decision to keep their argument layouts synchronized.
+/// Distinct parameter positions are combined only when nested tuple slots can
+/// be removed whole. Static callable arrays are the exception: all candidate
+/// occurrences must reach one clone for its in-body index dispatch.
+/// Outer controlled calls stay on the per-row path.
 ///
 /// `package` must own `group`'s shared call expression.
 pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bool {

@@ -1246,10 +1246,13 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
                     let _end_id_196 : Int = _range_id_183.End;
                     while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
-                        if idx == 0 {
-                            _lambda_5(__capture_0, (controls[idx], targets))
-                        } else {
-                            _lambda_6(__capture_1, (controls[idx], targets))
+                        {
+                            [(), ()][idx];
+                            if (idx == 0) or (idx == -2) {
+                                _lambda_5(__capture_0, (controls[idx], targets))
+                            } else {
+                                _lambda_6(__capture_1, (controls[idx], targets))
+                            }
                         };
                         _index_id_186 += _step_id_191;
                     }
@@ -1383,7 +1386,10 @@ fn producer_body_closure_cleanup_converges() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty__closure_(q, true);
+                {
+                    let __capture : Bool = true;
+                    ApplyOp_Empty__closure_(q, __capture)
+                };
                 __quantum__rt__qubit_release(q);
             }
             operation _lambda_5(arg : Bool, hole : Qubit) : Unit {
@@ -2374,10 +2380,13 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                     while _index_id_45 < _len_id_40 {
                         let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_45 == 0 {
-                            S(q)
-                        } else {
-                            T(q)
+                        {
+                            [(), ()][_index_id_45];
+                            if (_index_id_45 == 0) or (_index_id_45 == -2) {
+                                S(q)
+                            } else {
+                                T(q)
+                            }
                         };
                         _index_id_45 += 1;
                         __quantum__rt__qubit_release(q);
@@ -2518,14 +2527,17 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                     while _index_id_165 < _len_id_160 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_165];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_165 == 0 {
-                            I(q)
-                        } else if _index_id_165 == 1 {
-                            X(q)
-                        } else if _index_id_165 == 2 {
-                            SetToPlus(q)
-                        } else {
-                            SetToMinus(q)
+                        {
+                            [(), (), (), ()][_index_id_165];
+                            if (_index_id_165 == 0) or (_index_id_165 == -4) {
+                                I(q)
+                            } else if (_index_id_165 == 1) or (_index_id_165 == -3) {
+                                X(q)
+                            } else if (_index_id_165 == 2) or (_index_id_165 == -2) {
+                                SetToPlus(q)
+                            } else {
+                                SetToMinus(q)
+                            }
                         };
                         _index_id_165 += 1;
                         __quantum__rt__qubit_release(q);
@@ -2666,14 +2678,17 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                     while _index_id_171 < _len_id_166 {
                         let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_171];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_171 == 0 {
-                            I(q)
-                        } else if _index_id_171 == 1 {
-                            X(q)
-                        } else if _index_id_171 == 2 {
-                            SetToPlus(q)
-                        } else {
-                            SetToMinus(q)
+                        {
+                            [(), (), (), ()][_index_id_171];
+                            if (_index_id_171 == 0) or (_index_id_171 == -4) {
+                                I(q)
+                            } else if (_index_id_171 == 1) or (_index_id_171 == -3) {
+                                X(q)
+                            } else if (_index_id_171 == 2) or (_index_id_171 == -2) {
+                                SetToPlus(q)
+                            } else {
+                                SetToMinus(q)
+                            }
                         };
                         _index_id_171 += 1;
                         __quantum__rt__qubit_release(q);
@@ -2818,14 +2833,17 @@ fn pipeline_teleportation_like_callable_from_string_tagged_triple_array() {
                     while _index_id_178 < _len_id_173 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_178];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_178 == 0 {
-                            I(q)
-                        } else if _index_id_178 == 1 {
-                            X(q)
-                        } else if _index_id_178 == 2 {
-                            SetToPlus(q)
-                        } else {
-                            SetToMinus(q)
+                        {
+                            [(), (), (), ()][_index_id_178];
+                            if (_index_id_178 == 0) or (_index_id_178 == -4) {
+                                I(q)
+                            } else if (_index_id_178 == 1) or (_index_id_178 == -3) {
+                                X(q)
+                            } else if (_index_id_178 == 2) or (_index_id_178 == -2) {
+                                SetToPlus(q)
+                            } else {
+                                SetToMinus(q)
+                            }
                         };
                         let _ : Result = Measure([basis], [q]);
                         Reset(q);
@@ -2923,20 +2941,23 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
                     mutable _index_id_113 : Int = 0;
                     while _index_id_113 < _len_id_108 {
                         let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_113];
-                        if _index_id_113 == 0 {
-                            H(q)
-                        } else if _index_id_113 == 1 {
-                            X(q)
-                        } else if _index_id_113 == 2 {
-                            Y(q)
-                        } else if _index_id_113 == 3 {
-                            Z(q)
-                        } else if _index_id_113 == 4 {
-                            S(q)
-                        } else if _index_id_113 == 5 {
-                            Adjoint S(q)
-                        } else {
-                            SX(q)
+                        {
+                            [(), (), (), (), (), (), ()][_index_id_113];
+                            if (_index_id_113 == 0) or (_index_id_113 == -7) {
+                                H(q)
+                            } else if (_index_id_113 == 1) or (_index_id_113 == -6) {
+                                X(q)
+                            } else if (_index_id_113 == 2) or (_index_id_113 == -5) {
+                                Y(q)
+                            } else if (_index_id_113 == 3) or (_index_id_113 == -4) {
+                                Z(q)
+                            } else if (_index_id_113 == 4) or (_index_id_113 == -3) {
+                                S(q)
+                            } else if (_index_id_113 == 5) or (_index_id_113 == -2) {
+                                Adjoint S(q)
+                            } else {
+                                SX(q)
+                            }
                         };
                         _index_id_113 += 1;
                     }
@@ -3192,4 +3213,72 @@ fn branch_split_inside_specialized_clone_preserves_capture_scope() {
     ));
     fir_invariants::check_local_var_consistency(package, outer);
     fir_invariants::check(&store, pkg_id, InvariantLevel::PostDefunc);
+}
+
+#[test]
+fn direct_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let first = 0.1;
+            let second = 0.2;
+            let ops = [target => Rx(first, target), target => Ry(second, target)];
+            ops[idx](q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn aliased_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let first = 0.1;
+            let second = 0.2;
+            let ops = [target => Rx(first, target), target => Ry(second, target)];
+            let forwarded = ops;
+            forwarded[idx](q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn hof_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let firstAngle = 0.1;
+            let secondAngle = 0.2;
+            let ops = [
+                target => Rx(firstAngle, target),
+                target => Ry(secondAngle, target)
+            ];
+            Apply(ops[idx], q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
 }

@@ -13,6 +13,75 @@ use super::*;
 use expect_test::expect;
 
 #[test]
+fn recursive_capture_calls_match_specialized_signatures() {
+    for (source, _) in crate::defunctionalize::test_cases::recursive_capture_cases() {
+        let (store, pkg_id) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let reachable = collect_reachable_from_entry(&store, pkg_id);
+        let mut checked = 0;
+        for item in reachable.iter().filter(|item| item.package == pkg_id) {
+            let package = store.get(pkg_id);
+            let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+                continue;
+            };
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut |_, expr| {
+                    let fir::ExprKind::Call(callee, args) = expr.kind else {
+                        return;
+                    };
+                    let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                        package.get_expr(callee).kind
+                    else {
+                        return;
+                    };
+                    let target_pkg = store.get(target.package);
+                    let ItemKind::Callable(target) = &target_pkg.get_item(target.item).kind else {
+                        return;
+                    };
+                    if !target.name.name.starts_with("Repeat") || !target.name.name.contains('{') {
+                        return;
+                    }
+                    let qsc_fir::ty::Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                        panic!("specialized callee should be arrow-typed");
+                    };
+                    let input = &target_pkg.get_pat(target.input).ty;
+                    assert_eq!(&*arrow.input, input, "callee metadata:\n{source}");
+                    assert_eq!(
+                        &package.get_expr(args).ty,
+                        input,
+                        "call arguments:\n{source}"
+                    );
+                    checked += 1;
+                },
+            );
+        }
+        assert!(
+            checked >= 2,
+            "entry and recursive calls should specialize:\n{source}"
+        );
+    }
+}
+
+#[test]
+fn inline_struct_capture_arguments_are_specialized() {
+    for (source, _) in crate::defunctionalize::test_cases::inline_struct_capture_cases() {
+        let (store, pkg_id) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let reachable = collect_reachable_from_entry(&store, pkg_id);
+        assert!(
+            reachable.iter().any(|item| {
+                matches!(&store.get(item.package).get_item(item.item).kind,
+                    ItemKind::Callable(decl) if decl.name.name.starts_with("Read")
+                        && decl.name.name.contains('{'))
+            }),
+            "the inline captured field should specialize Read, not merely defer:\n{source}"
+        );
+    }
+}
+
+#[test]
 fn partial_application_capture_is_bound_before_rewritten_call() {
     let source = crate::defunctionalize::test_cases::PARTIAL_APPLICATION_CAPTURE_TIMING;
     let (store, pkg_id) =
@@ -4404,7 +4473,10 @@ fn cross_function_closure_capture_threads_correct_value() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let amount : Int = 5;
-                Apply_Empty__closure_(q, amount);
+                {
+                    let __capture : Int = amount;
+                    Apply_Empty__closure_(q, __capture)
+                };
                 __quantum__rt__qubit_release(q);
             }
             operation _lambda_5(arg : Int, hole : Qubit) : Unit {
@@ -4737,7 +4809,10 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                     expansionOps = [],
                     numQubits = 1
                 };
-                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, params);
+                {
+                    let __capture : __UDT_Item_1__Package_2_ = params;
+                    MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, __capture)
+                };
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -5534,10 +5609,13 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
                     mutable _index_id_60 : Int = 0;
                     while _index_id_60 < _len_id_55 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
-                        if _index_id_60 == 0 {
-                            ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
-                        } else {
-                            ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
+                        {
+                            [(), ()][_index_id_60];
+                            if (_index_id_60 == 0) or (_index_id_60 == -2) {
+                                ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
+                            } else {
+                                ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
+                            }
                         };
                         _index_id_60 += 1;
                     }
@@ -5651,9 +5729,10 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
             operation RunAt_AdjCtl__I__X__Y_(q : Qubit) : Unit {
                 {
                     let index : Int = ChooseIndex(q);
-                    if index == 0 {
+                    [(), (), ()][index];
+                    if (index == 0) or (index == -3) {
                         I(q)
-                    } else if index == 1 {
+                    } else if (index == 1) or (index == -2) {
                         X(q)
                     } else {
                         Y(q)
@@ -5784,10 +5863,13 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     mutable _index_id_64 : Int = 0;
                     while _index_id_64 < _len_id_59 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
-                        if _index_id_64 == 0 {
-                            Run_Empty__H_(q)
-                        } else {
-                            Run_Empty__X_(q)
+                        {
+                            [(), ()][_index_id_64];
+                            if (_index_id_64 == 0) or (_index_id_64 == -2) {
+                                Run_Empty__H_(q)
+                            } else {
+                                Run_Empty__X_(q)
+                            }
                         };
                         _index_id_64 += 1;
                     }
