@@ -7,7 +7,7 @@ FROM ${BASE_REGISTRY}/ubi8/ubi:8.10
 
 ARG PYTHON_VERSION=3.11
 
-# Install basic build tools (jq is needed for Azure Artifacts)
+# Install basic build tools (curl, jq, and unzip are needed for Azure Artifacts and msrustup)
 RUN dnf install -y \
         python${PYTHON_VERSION} \
         python${PYTHON_VERSION}-pip \
@@ -17,11 +17,12 @@ RUN dnf install -y \
         make \
         cmake \
         ninja-build \
-        curl \
         tar \
         gzip \
         xz \
+        curl \
         jq \
+        unzip \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
