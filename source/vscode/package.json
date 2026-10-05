@@ -243,6 +243,10 @@
       ],
       "commandPalette": [
         {
+          "command": "qsharp-vscode.gotoLocations",
+          "when": "false"
+        },
+        {
           "command": "qsharp-vscode.runProgram",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit"
         },
@@ -269,6 +273,10 @@
         {
           "command": "qsharp-vscode.workspaceOpenPortal",
           "when": "qsharp-vscode.treeItemIsWorkspace"
+        },
+        {
+          "command": "qsharp-vscode.jobOpenPortal",
+          "when": "false"
         },
         {
           "command": "qsharp-vscode.downloadResults",
