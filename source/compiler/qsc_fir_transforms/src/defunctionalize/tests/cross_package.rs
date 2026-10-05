@@ -9,12 +9,122 @@ use crate::package_assigners::PackageAssigners;
 
 use super::*;
 use expect_test::expect;
-use indoc::indoc;
+use indoc::{formatdoc, indoc};
 use miette::Diagnostic;
 
 use super::super::build_spec_key;
 use super::super::types::CallSite;
 use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId};
+
+#[test]
+fn foreign_capture_expression_collisions_preserve_613_in_both_declaration_orders() {
+    for reversed in [false, true] {
+        let (library, source) = foreign_capture_collision_sources(reversed);
+        let (store, package_id) = crate::test_utils::compile_to_fir_with_library(&library, &source);
+        assert_foreign_wrap_operand_collisions(&store, package_id, reversed);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package_id),
+            Ok(qsc_eval::val::Value::Int(613))
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(&library, &source);
+    }
+}
+
+fn foreign_capture_collision_sources(reversed: bool) -> (String, String) {
+    let declarations = [
+        "function Add(n : Int) : Int -> Int { x -> x+n }",
+        "function Wrap(f : Int -> Int, n : Int) : Int -> Int { x -> f(x)+n }",
+        "function Apply<'T,'U>(f : 'T -> 'U, x : 'T) : 'U { f(x) }",
+    ];
+    let padding = vec!["true"; 128].join(",");
+    let caller_padding = vec!["false"; 64].join(",");
+    let padding_decl = format!("function Padding() : Bool[] {{ [{padding}] }}");
+    let mut ordered = declarations
+        .iter()
+        .map(|decl| (*decl).to_string())
+        .collect::<Vec<_>>();
+    ordered.insert(0, padding_decl);
+    if reversed {
+        ordered.reverse();
+    }
+    let library = format!(
+        "namespace Lib {{ {} export Add, Wrap, Apply; }}",
+        ordered.join("\n")
+    );
+    let main = formatdoc! {r#"
+        @EntryPoint() operation Main() : Int {{
+            let padding = [{caller_padding}];
+            let first = Lib.Wrap(Lib.Add(2), 3);
+            let second = Lib.Wrap(Lib.Add(5), 7);
+            Lib.Apply(first, 1)*100 + Lib.Apply(second, 1)
+        }}
+    "#};
+    let other = "function Other() : Bool { true }";
+    let source = if reversed {
+        format!("{main}\n{other}")
+    } else {
+        format!("{other}\n{main}")
+    };
+    (library, source)
+}
+
+/// Verifies the regression fixture, not the correctness of a compiler collision.
+///
+/// `ExprId`s are package-local, so equal numeric IDs in different packages are
+/// valid and refer to unrelated expressions. This fixture deliberately makes
+/// each caller-side `Wrap` scalar operand (`Int`) share an ID with a library-side
+/// `Bool` expression. Looking up that operand in the wrong package would then
+/// select a visibly different value and type.
+///
+/// These assertions ensure both calls still exercise that hazard if lowering or
+/// ID allocation changes. The enclosing test separately verifies that execution
+/// preserves the correct result rather than confusing the two packages.
+fn assert_foreign_wrap_operand_collisions(
+    store: &fir::PackageStore,
+    package_id: PackageId,
+    reversed: bool,
+) {
+    use qsc_fir::{
+        fir::{ExprKind, ItemKind, PackageLookup, Res},
+        ty::{Prim, Ty},
+    };
+
+    let package = store.get(package_id);
+    let mut collisions = 0;
+    for expr in package.exprs.values() {
+        let ExprKind::Call(callee, args) = expr.kind else {
+            continue;
+        };
+        let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+            continue;
+        };
+        if item.package == package_id {
+            continue;
+        }
+        let foreign = store.get(item.package);
+        let ItemKind::Callable(decl) = &foreign.get_item(item.item).kind else {
+            continue;
+        };
+        if decl.name.name.as_ref() != "Wrap" {
+            continue;
+        }
+        let ExprKind::Tuple(args) = &package.get_expr(args).kind else {
+            panic!("Wrap tuple input")
+        };
+        let scalar_id = args[1];
+        assert_eq!(package.get_expr(scalar_id).ty, Ty::Prim(Prim::Int));
+        let collision = foreign
+            .exprs
+            .get(scalar_id)
+            .expect("source-created foreign ExprId overlap");
+        assert_eq!(collision.ty, Ty::Prim(Prim::Bool), "reversed={reversed}");
+        collisions += 1;
+    }
+    assert_eq!(
+        collisions, 2,
+        "both Wrap operands collide, reversed={reversed}"
+    );
+}
 
 /// Regression guard: two call sites that differ only in the package owning the
 /// closure body (`call_pkg_id`) must produce distinct `SpecKey`s. The closure
@@ -336,15 +446,13 @@ fn cross_package_foreign_hof_without_nested_lambda_specializes_into_entry() {
     );
 }
 
-/// A higher-order callable that forwards its own callable parameter to another
-/// higher-order call cannot be specialized: the forwarded parameter cannot be
-/// resolved statically, so defunctionalize emits a `DynamicCallable`
-/// diagnostic. This is a by-design limitation of the pass, not a cross-package
-/// regression.
+/// This mutually recursive pair of higher-order callables leaves an unresolved
+/// forwarded callable parameter, so the raw defunctionalization pass emits
+/// `DynamicCallable` diagnostics. Ordinary non-recursive forwarding is supported.
 ///
-/// The test asserts the cross-package mutual recursion is rejected identically
-/// to the structurally-equivalent same-package program, proving cross-package
-/// transformation adds no new failure mode for recursive callables.
+/// The test asserts that this cross-package fixture produces the same diagnostic
+/// count and messages as its same-package counterpart. It does not run the full
+/// pipeline, which defers these diagnostics.
 #[test]
 fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() {
     // The mutually-recursive callables live in a library package, seeded with a
@@ -422,8 +530,7 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
         );
     }
 
-    // The rejection matches the same-package program in count and message,
-    // proving cross-package transformation adds no new failure mode.
+    // The diagnostic count and messages match for these two fixtures.
     assert_eq!(
         cross_package_errors.len(),
         same_package_errors.len(),
@@ -445,9 +552,9 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
     );
 }
 
-/// A library function whose return type is a callable hands a function value
+/// A library function whose return type is a callable hands an operation value
 /// back across the package boundary for the entry package to invoke.
-/// Defunctionalize and the rest of the pipeline must handle the function-typed
+/// Defunctionalize and the rest of the pipeline must handle the callable-typed
 /// return without dangling closures or errors.
 #[test]
 fn cross_package_function_typed_return_flows_across_packages() {
@@ -481,7 +588,7 @@ fn cross_package_function_typed_return_flows_across_packages() {
         &errors,
     );
 
-    // A function-typed return must not leave any closure referencing a foreign
+    // A callable-typed return must not leave any closure referencing a foreign
     // package-local id.
     assert_no_dangling_cross_package_closures(&fir_store);
 
@@ -745,6 +852,26 @@ fn analysis_apply_operation_power_ca_consumer() {
                 Consume_AdjCtl__closure_(qs);
                 ReleaseQubitArray(qs);
             }
+            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole_1 : Qubit[])) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole_1)
+                }
+                adjoint ... {
+                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole_1)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole_1))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole_1))
+                }
+            }
+            operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
+                apply_power_of_u(1, target);
+            }
+            operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
+                _lambda_4(1, target);
+            }
             operation _lambda_4(hole : Int, hole_1 : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
@@ -758,12 +885,6 @@ fn analysis_apply_operation_power_ca_consumer() {
                 controlled adjoint (ctls, ...) {
                     Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole_1))
                 }
-            }
-            operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
-                apply_power_of_u(1, target);
-            }
-            operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
-                _lambda_4(1, target);
             }
             operation ApplyOperationPowerCA__Qubit_____AdjCtl__U_(power : Int, target : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
@@ -3350,8 +3471,8 @@ fn cross_package_callable_value_semantic_equivalence() {
 /// The same library HOF is called with the same global callable from two
 /// packages: the user entry and a sibling library function. Defunctionalization
 /// keys the specialization on the callee, not the caller package, so both call
-/// sites dedup to a single specialization. The program stays correct regardless
-/// of which package that shared specialization lands in.
+/// sites can share a specialization. This test checks return-value equivalence
+/// across that boundary, not the number or destination of specializations.
 #[test]
 fn cross_package_same_hof_same_global_from_two_packages_is_correct() {
     let lib_source = indoc! {"

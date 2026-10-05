@@ -308,6 +308,28 @@ fn check_analysis(source: &str, expect: &Expect) {
     check_analysis_with_capabilities(source, TargetCapabilityFlags::empty(), expect);
 }
 
+fn run_prepass_and_analysis(
+    fir_store: &mut qsc_fir::fir::PackageStore,
+    fir_pkg_id: fir::PackageId,
+) -> super::types::AnalysisResult {
+    let reachable = collect_reachable_from_entry(fir_store, fir_pkg_id);
+    let package = fir_store.get(fir_pkg_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    let collapsed_spans = super::prepass::run(fir_store, fir_pkg_id, &reachable_expr_ids);
+    defunc_analysis::analyze(
+        fir_store,
+        fir_pkg_id,
+        &reachable,
+        &Default::default(),
+        &collapsed_spans,
+        &[],
+    )
+}
+
 fn check_analysis_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
@@ -315,15 +337,7 @@ fn check_analysis_with_capabilities(
 ) {
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
-    let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
-        .map(|(id, _)| id)
-        .collect();
-    let reachable_expr_ids =
-        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-    let collapsed_spans = super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
-    let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable, &collapsed_spans);
+    let result = run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
 
     let mut lines: Vec<String> = Vec::new();
     lines.push(format!("callable_params: {}", result.callable_params.len()));
@@ -493,9 +507,9 @@ namespace Test {
 ";
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    // The callable stored in the field originates from a dynamic array index,
-    // so defunctionalize cannot fully resolve it (non-convergence is expected
-    // and orthogonal to this regression). We only assert binding survival.
+    // The callable stored in the field comes from `arr[0]` in `Pick`.
+    // Diagnostics are deliberately ignored here; this regression checks only
+    // that the original `Pick` body retains the binding read by its struct field.
     let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     let package = fir_store.get(fir_pkg_id);
     assert!(
@@ -919,16 +933,11 @@ fn unreachable_closure_structure_preserved() {
 
 /// The `StmtKind::Semi(Return(_))` arm in defunctionalize analysis
 /// (`resolve_callable_return`) is genuinely live for bodies that originate
-/// cross-package. `check_no_returns` skips cross-package items and
-/// return-unification runs local-package-only, so a library callable that
-/// returns a callable via an explicit `return` keeps its `Semi(Return)` tail.
-/// Monomorphization specializes the generic helper in place in its owning
-/// (library) package, where defunctionalize then analyzes the `Semi(Return)`
-/// arm cross-package. A returned `Global` callable carries its own package and
-/// resolves across packages; if the arm were dead or broken, the HOF argument
-/// could not be resolved statically and defunctionalization would surface an
-/// error; asserting no errors proves the arm is reached and resolves the
-/// returned callable.
+/// cross-package. This test runs monomorphization followed directly by
+/// defunctionalization, without return unification, so the library helper keeps
+/// its explicit `Semi(Return)` tail. Monomorphization specializes `MakeStep<Int>`
+/// in its owning library package. Analysis must resolve its returned `LibStep`
+/// global across the package boundary without a defunctionalization diagnostic.
 #[test]
 fn cross_package_return_stmt_is_analyzed() {
     let lib_source = r#"
@@ -952,10 +961,9 @@ fn cross_package_return_stmt_is_analyzed() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
 
-    // Monomorphization specializes `MakeIdentity<Int>` in place in its owning
-    // (library) package; its body still ends in `return x -> x;`
-    // (`Semi(Return)`), since return unification has not run on the freshly
-    // cloned cross-package body.
+    // Monomorphization specializes `MakeStep<Int>` in its owning library
+    // package; its body still ends in `return LibStep;` (`Semi(Return)`),
+    // since this test does not run return unification.
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
@@ -997,4 +1005,31 @@ fn cross_package_return_stmt_is_analyzed() {
     // returned callable; success (no errors) proves the arm is live.
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("cross_package_return_stmt_is_analyzed", &errors);
+}
+
+/// Q# lets an operation with extra functors bind to a slot that requires fewer,
+/// so `[X, Y]` (`Adj + Ctl`) is legal for a `(Qubit => Unit)[]` parameter. When
+/// the array stays dynamic and is forwarded through a second higher-order
+/// callable, the parameter survives defunctionalization and reaches the
+/// post-`arg_promote` call-shape check. That check compared `Ty` with `==`,
+/// which includes the functor set, so it aborted the compiler on a legal
+/// program -- and it is ungated, so release builds aborted too.
+#[test]
+fn forwarded_dynamic_callable_array_may_carry_extra_functors() {
+    let source = r#"
+        operation Apply(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            for op in ops { op(q); }
+        }
+        operation Forward(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            Apply(ops, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let ops = if MResetZ(q) == One { [X, Y] } else { [Z, H] };
+            Forward(ops, q);
+        }
+    "#;
+
+    crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
 }

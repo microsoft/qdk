@@ -1266,8 +1266,8 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
 /// A closure callable-array forwarded across two higher-order levels and fully
 /// consumed by the innermost indexed dispatch leaves the source-array local
 /// dead in the reachable caller. Because closure cleanup blanks each element to
-/// unit, the surviving array binding would be an arrow-typed block with a unit
-/// tail that trips the `PostDefunc` non-unit block-tail invariant. The dead
+/// unit, retaining the array would leave its element blocks arrow-typed with unit
+/// tails that trip the `PostDefunc` non-unit block-tail invariant. The dead
 /// binding must be removed; this runs the invariant walk and full pipeline over
 /// the same shape as
 /// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
@@ -1458,8 +1458,9 @@ fn callable_returning_closure_with_controlled_callable_captures() {
 }
 
 /// Two callable arguments passed to a multi-parameter HOF: one partial
-/// application closure and one global callable. Both must survive cleanup
-/// because they are still live as call arguments.
+/// application closure and one global callable. Both must remain available until
+/// specialization consumes them; the final snapshot removes both callable slots
+/// and threads the closure's capture into the specialized call.
 #[test]
 fn closure_in_active_call_arg_survives_cleanup() {
     let source = r#"
@@ -1590,8 +1591,8 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
 /// a lifted lambda that re-invokes `Repeat`. Before the static closure-capture
 /// inlining prepass, the captured `H` could not be resolved statically and this
 /// construct errored with `DynamicCallable`. The prepass inlines the callable
-/// capture into the lifted body, normalizing the closure into the already
-/// converging capture-free explicit-lambda shape.
+/// capture into the lifted body while retaining the classical `Int` capture,
+/// allowing the recursive specialization chain to converge.
 ///
 /// The `check_rewrite` snapshot locks the full converged specialization chain so
 /// a zero-error miscompile with wrong downstream routing (wrong callable,
@@ -1941,11 +1942,10 @@ fn single_capture_single_closure_param_rewrite() {
 }
 
 /// When a mutable callable variable is reassigned in a loop, the analysis
-/// resolves it to `Dynamic` (overdefined). The fixpoint loop detects no
-/// progress — remaining callable count is unchanged and no new call sites are
-/// discovered — and breaks via stuck detection. The `DynamicCallable` error
-/// from the current iteration survives, preventing the post-loop
+/// resolves it to `Dynamic` (overdefined). The final iteration's
+/// `DynamicCallable` diagnostic survives, preventing the post-loop
 /// `FixpointNotReached` from firing (which only fires when `errors.is_empty()`).
+/// This checks the diagnostic, not which termination condition ends the loop.
 #[test]
 fn stuck_detection_with_unresolvable_callable_emits_dynamic_error() {
     check_errors(
@@ -3068,13 +3068,11 @@ fn multiple_forwarded_callable_arrays_return_unsupported_error() {
 
 #[test]
 fn operation_computed_captured_field_declines_to_dynamic_callable() {
-    // A captured struct field whose value is computed by an operation call
-    // cannot be specialized. Rebuilding the captured literal in the caller would
-    // duplicate and reorder that operation call, which is unsound for a call
-    // with quantum side effects because it cannot be run twice or moved. The
-    // transform therefore declines the closure to a dynamic call site and
-    // reports a recoverable `DynamicCallable` diagnostic. On the base profile
-    // this surfaces as a hard error rather than silently incorrect code.
+    // `MakeWrapper` computes its callable-valued `Op` field with
+    // `Choose(MResetZ(q))`. The raw pass cannot statically resolve this projected
+    // callable and reports `DynamicCallable`; it must not duplicate the
+    // measurement to reconstruct the field. This test checks the raw diagnostic,
+    // not a Base-profile codegen failure: the pipeline defers this diagnostic.
     check_errors(
         r#"
         struct Wrapper { Op : Qubit => Unit }
@@ -3101,9 +3099,10 @@ fn operation_computed_captured_field_declines_to_dynamic_callable() {
 #[test]
 fn operation_call_in_captured_compound_literal_without_locals_declines_to_dynamic_callable() {
     // A closure returned from `MakeOp` captures a `Payload` struct literal whose
-    // field is initialized by a runtime operation call (`ReadValue()`), with no
-    // intervening local binding to anchor that call. The captured value is not a
-    // statically-known callable, so defunctionalization must decline the
+    // field is initialized by an operation call (`ReadValue()`). The struct is
+    // bound to `payload`, but the field computation has no separate local binding.
+    // Operation calls are not eligible for capture reconstruction, even though
+    // this particular operation returns a constant, so the raw pass declines the
     // `ApplyOp(MakeOp(), q)` call site to a dynamic callable — emitting the
     // "callable argument could not be resolved statically" diagnostic — rather than
     // attempt to specialize the unresolved compound-literal capture.
@@ -3133,4 +3132,64 @@ fn operation_call_in_captured_compound_literal_without_locals_declines_to_dynami
         "#,
         &expect!["callable argument could not be resolved statically"],
     );
+}
+
+#[test]
+fn branch_split_inside_specialized_clone_preserves_capture_scope() {
+    let source = r#"
+        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, chooseFirst : Bool, q : Qubit) : Unit {
+            seed(q);
+            let firstAngle = 0.1;
+            let secondAngle = 0.2;
+            let selected = if chooseFirst {
+                target => Rx(firstAngle, target)
+            } else {
+                target => Ry(secondAngle, target)
+            };
+            Apply(selected, q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, true, q);
+        }
+        "#;
+
+    let (store, pkg_id) = compile_and_defunctionalize(source);
+    let package = store.get(pkg_id);
+    let reachable = collect_reachable_from_entry(&store, pkg_id);
+    let (outer_id, outer) = reachable
+        .iter()
+        .filter(|item| item.package == pkg_id)
+        .find_map(|item| match &package.get_item(item.item).kind {
+            ItemKind::Callable(decl)
+                if decl.name.name.starts_with("Outer") && decl.name.name.ends_with("{H}") =>
+            {
+                Some((item.item, decl.as_ref()))
+            }
+            _ => None,
+        })
+        .expect("Outer should have a reachable specialization for H");
+
+    expect![[r#"
+        operation Outer_AdjCtl__H_(chooseFirst : Bool, q : Qubit) : Unit {
+            H(q);
+            let firstAngle : Double = 0.1;
+            let secondAngle : Double = 0.2;
+            if chooseFirst {
+                Apply_Empty__closure_(q, firstAngle)
+            } else {
+                Apply_Empty__closure_(q, secondAngle)
+            };
+        }
+    "#]]
+    .assert_eq(&crate::pretty::write_item_qsharp_parseable(
+        &store, pkg_id, outer_id,
+    ));
+    fir_invariants::check_local_var_consistency(package, outer);
+    fir_invariants::check(&store, pkg_id, InvariantLevel::PostDefunc);
 }

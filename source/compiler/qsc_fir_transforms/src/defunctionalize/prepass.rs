@@ -9,6 +9,9 @@
 //!
 //! # Responsibilities
 //!
+//! - Expose immutable capture bindings from closure-construction blocks at
+//!   their original evaluation point, rather than replaying their initializers
+//!   when the closure is invoked.
 //! - Run the static closure-capture inlining that normalizes a partial
 //!   application closure into a capture-free explicit-lambda shape by inlining
 //!   statically-known callable captures into the lifted target body (via
@@ -48,6 +51,7 @@ pub(super) fn run(
     package_id: PackageId,
     reachable_expr_ids: &[ExprId],
 ) -> FxHashMap<ExprId, Span> {
+    expose_closure_capture_bindings(store.get_mut(package_id), reachable_expr_ids);
     inline_static_closure_captures(store, package_id, reachable_expr_ids);
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
@@ -77,6 +81,152 @@ struct ClosureCaptureInlining {
     /// In-place body rewrites: each `Var(Res::Local(capture_param))` use in the
     /// target body is overwritten with a clone of the capture's initializer kind.
     body_rewrites: Vec<(ExprId, ExprKind)>,
+}
+
+/// Exposes closure-construction bindings in the enclosing block so later
+/// defunctionalization can pass stored captures instead of replaying their
+/// initializers at invocation. Evaluation remains at closure creation, including
+/// when the declaration is inside a branch or loop.
+///
+/// # Before
+/// ```text
+/// let f = {
+///     let capture = Logged(17);
+///     Closure([capture], target)
+/// };
+/// Message("ready");
+/// f(1)
+/// ```
+///
+/// # After
+/// ```text
+/// let capture = Logged(17);
+/// let f = Closure([capture], target);
+/// Message("ready");
+/// f(1)   // later rewrite can pass the stored capture to target
+/// ```
+///
+/// # Eligibility
+/// - The reachable initializer belongs to an immutable callable binding and
+///   consists of a nonempty immutable-binding prefix followed by a closure.
+/// - At least one prefix initializer is not proven side-effect-free and total.
+///   Proven discard-safe prefixes retain their existing expression-replay path.
+/// - The binding statement, initializer expression, and initializer block each
+///   have one incoming reference. Shared candidates are left alone rather than
+///   exposing the same locals in multiple contexts.
+///
+/// # Mutations
+/// - Inserts the prefix statement IDs immediately before the callable binding,
+///   preserving their order and existing local IDs.
+/// - Replaces the initializer's `Block` kind with the tail's `Closure` kind.
+///   The now-detached inner block remains in the arena for later cleanup.
+fn expose_closure_capture_bindings(pkg: &mut Package, reachable_expr_ids: &[ExprId]) {
+    // Reachability limits candidates, but sharing counts cover the whole package:
+    // even a reference outside the current traversal prevents a unique-owner rewrite.
+    let reachable: FxHashSet<_> = reachable_expr_ids.iter().copied().collect();
+    let mut expr_uses: FxHashMap<ExprId, usize> = FxHashMap::default();
+    let mut block_uses: FxHashMap<BlockId, usize> = FxHashMap::default();
+    let mut stmt_uses: FxHashMap<StmtId, usize> = FxHashMap::default();
+
+    // Count block-to-statement and statement-to-expression edges first.
+    for (_, block) in &pkg.blocks {
+        for &stmt in &block.stmts {
+            *stmt_uses.entry(stmt).or_default() += 1;
+        }
+    }
+    for (_, stmt) in &pkg.stmts {
+        match stmt.kind {
+            StmtKind::Local(_, _, expr) | StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
+                *expr_uses.entry(expr).or_default() += 1;
+            }
+            StmtKind::Item(_) => {}
+        }
+    }
+
+    // Count direct expression edges, not recursive visits: a shared parent must
+    // not multiply the count of its children's own incoming references.
+    for (_, expr) in &pkg.exprs {
+        crate::walk_utils::for_each_direct_child(&expr.kind, |child| match child {
+            crate::walk_utils::DirectChild::Expr(expr) => {
+                *expr_uses.entry(expr).or_default() += 1;
+            }
+            crate::walk_utils::DirectChild::Block(block) => {
+                *block_uses.entry(block).or_default() += 1;
+            }
+        });
+    }
+
+    // Callable bodies and the entry expression are roots, so they contribute
+    // references that are not represented by another expression's child edges.
+    for (_, item) in &pkg.items {
+        if let ItemKind::Callable(decl) = &item.kind
+            && let CallableImpl::Spec(spec) = &decl.implementation
+        {
+            *block_uses.entry(spec.body.block).or_default() += 1;
+            for spec in crate::fir_builder::functored_specs(spec) {
+                *block_uses.entry(spec.block).or_default() += 1;
+            }
+        }
+    }
+    if let Some(entry) = pkg.entry {
+        *expr_uses.entry(entry).or_default() += 1;
+    }
+
+    // Reuse the promotion walk's owner boundaries and deduplicate their blocks.
+    // Each block is rewritten locally; bindings never move past its entry.
+    let block_ids: FxHashSet<_> = collect_promotion_scopes(pkg)
+        .into_iter()
+        .flat_map(|scope| scope.seen_blocks)
+        .collect();
+    for block_id in block_ids {
+        let mut statements = Vec::new();
+        for stmt_id in pkg.get_block(block_id).stmts.clone() {
+            // Reusing the existing locals requires a uniquely referenced binding
+            // and initializer block; cloning or remapping shared captures is not
+            // part of this normalization.
+            if let StmtKind::Local(Mutability::Immutable, _, init_id) = pkg.get_stmt(stmt_id).kind
+                && reachable.contains(&init_id)
+                && stmt_uses.get(&stmt_id) == Some(&1)
+                && expr_uses.get(&init_id) == Some(&1)
+                && matches!(pkg.get_expr(init_id).ty, Ty::Arrow(_))
+                && let ExprKind::Block(capture_block_id) = pkg.get_expr(init_id).kind
+                && block_uses.get(&capture_block_id) == Some(&1)
+            {
+                let capture_stmts = &pkg.get_block(capture_block_id).stmts;
+                // Move the complete binding prefix, including dependencies among
+                // captures. An effectful or fallible initializer makes its original
+                // evaluation point significant; all-discard-safe prefixes stay put.
+                if let Some((&tail_stmt, prefix)) = capture_stmts.split_last()
+                    && !prefix.is_empty()
+                    && prefix.iter().all(|&stmt| {
+                        matches!(
+                            pkg.get_stmt(stmt).kind,
+                            StmtKind::Local(Mutability::Immutable, _, _)
+                        )
+                    })
+                    && prefix.iter().any(|&stmt| {
+                        let StmtKind::Local(_, _, value) = pkg.get_stmt(stmt).kind else {
+                            return false;
+                        };
+                        !crate::walk_utils::expr_is_safe_to_discard(pkg, pkg.id, value)
+                    })
+                    && let StmtKind::Expr(tail) = pkg.get_stmt(tail_stmt).kind
+                    && matches!(pkg.get_expr(tail).kind, ExprKind::Closure(..))
+                {
+                    // Splice before `let f`, preserving creation-time evaluation.
+                    // The closure still names the same locals, now visible to
+                    // subsequent rewritten calls in this enclosing block.
+                    statements.extend_from_slice(prefix);
+                    let closure = pkg.get_expr(tail).kind.clone();
+                    pkg.exprs.get_mut(init_id).expect("initializer exists").kind = closure;
+                }
+            }
+            // Keep the original callable binding (and all unrelated statements)
+            // in order; later defunc cleanup decides whether the binding is dead.
+            statements.push(stmt_id);
+        }
+        pkg.blocks.get_mut(block_id).expect("block exists").stmts = statements;
+    }
 }
 
 /// Normalizes a partial-application closure into the capture-free explicit-lambda

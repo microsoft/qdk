@@ -5,6 +5,32 @@ use std::any::Any;
 
 use super::*;
 
+// smoke test to ensure that semantic equivalence checks the expected original value
+#[test]
+fn semantic_equivalence_checks_the_expected_original_value() {
+    let source = "@EntryPoint() operation Main() : Int { 42 }";
+    check_semantic_equivalence_with_expected(source, qsc_eval::val::Value::Int(42));
+    assert_panics_with("unexpected original value", || {
+        check_semantic_equivalence_with_expected(source, qsc_eval::val::Value::Int(41));
+    });
+}
+
+#[test]
+fn observable_evaluation_records_messages_in_order() {
+    let source = r#"
+        @EntryPoint() operation Main() : Int {
+            Message("first");
+            Message("second");
+            42
+        }
+    "#;
+    let (store, package) = compile_to_fir(source);
+    let (result, trace, output) = eval_fir_entry_with_observables(&store, package);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(42)));
+    assert!(trace.is_empty());
+    assert_eq!(output, b"first\nsecond\n");
+}
+
 fn panic_message(panic: Box<dyn Any + Send>) -> String {
     match panic.downcast::<String>() {
         Ok(message) => *message,
