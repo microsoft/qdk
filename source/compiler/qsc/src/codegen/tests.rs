@@ -159,8 +159,8 @@ fn fact_is_codegen_noop_after_simulatable_intrinsic_collapse() {
 /// Compiles `lib_source` as a separate library package, then generates QIR for
 /// `user_source` with that library as a dependency. The library's namespaces are
 /// visible to the user program without an alias, so user code can reference them
-/// directly (for example `import Lib.*;`). This exercises emission of foreign
-/// (non-entry-package) callables as standalone IR functions.
+/// directly (for example `import Lib.*;`). This exercises codegen for foreign
+/// callable references without requiring them to remain standalone IR functions.
 fn compile_source_to_qir_with_library(
     lib_source: &str,
     user_source: &str,
@@ -624,7 +624,8 @@ fn defunctionalize_assignop_orl_short_circuit_reaches_qir() {
 
 /// In `(new Rec { A = f(5), B = 0 }) w/ B <- { set f = Bar; 0 }`, runtime
 /// evaluates the replace operand (`set f = Bar`) BEFORE the record operand
-/// (containing `f(5)`), so `f(5)` specializes to `Bar` -> 106.0.
+/// (containing `f(5)`), so `f(5)` specializes to `Bar(5) = 105` and the
+/// subsequent `+ 1` produces the rotation angle `106.0`.
 #[test]
 fn defunctionalize_update_field_replace_first_reaches_qir() {
     let source = r#"
@@ -657,7 +658,8 @@ fn defunctionalize_update_field_replace_first_reaches_qir() {
 
 /// In `[f(5), 0] w/ 1 <- { set f = Bar; 0 }`, runtime evaluates the index then
 /// the replace operand (`set f = Bar`) BEFORE the container operand (containing
-/// `f(5)`), so `f(5)` specializes to `Bar` -> 106.0.
+/// `f(5)`), so `f(5)` specializes to `Bar(5) = 105` and the subsequent `+ 1`
+/// produces the rotation angle `106.0`.
 #[test]
 fn defunctionalize_update_index_replace_first_reaches_qir() {
     let source = r#"
@@ -701,7 +703,7 @@ fn defunctionalize_update_index_replace_first_reaches_qir() {
 /// Because `and` only evaluates its right-hand side when the left side is true,
 /// the later `f(5)` must call:
 ///   * `Bar` when `cond` is true  -> `Bar(5) + 1 = 106`,
-///   * `Foo` when `cond` is false -> `Foo(5) + 1 = 6`.
+///   * `Foo` when `cond` is false -> `Foo(5) + 1 = 7`.
 ///
 /// The two outcomes cannot be folded to a single constant, so the generated QIR
 /// keeps both branches and merges them with a `phi i64 [105, ...], [6, ...]`
@@ -764,8 +766,9 @@ fn defunctionalize_binop_andl_runtime_dynamic_branch_split_reaches_qir() {
 /// The previous flat left-associated `AndL` dispatch fold referenced the outer
 /// condition twice (once in the `outer and inner` guard for `Foo` and once in
 /// the standalone `outer` guard for `Bar`), so the measurement was emitted
-/// twice. The recursive nested-`if` tree references it exactly once, so the
-/// program must contain exactly one `mresetz` measurement instruction.
+/// twice. The pipeline now normalizes the condition before defunctionalization
+/// and builds nested dispatch, so the program must contain exactly one
+/// `mresetz` measurement instruction.
 #[test]
 fn defunctionalize_nested_condition_dispatch_evaluates_measurement_once() {
     let source = r#"
@@ -2375,8 +2378,8 @@ fn hir_id_for(package_id: PackageId, local_id: qsc_hir::hir::LocalItemId) -> qsc
     }
 }
 
-/// Runs `prepare_codegen_fir_from_callable_args` and then `fir_to_qir_from_callable`,
-/// returning the QIR string.
+/// Prepares callable arguments for codegen, then emits QIR with `fir_to_qir` for
+/// `SyntheticEntry` or `fir_to_qir_from_callable` for `ReinvokeOriginal`.
 fn callable_args_to_qir(
     store: &crate::PackageStore,
     package_id: PackageId,
@@ -2448,8 +2451,8 @@ fn interpreter_with_capabilities(
 
 #[test]
 fn synthetic_path_arrow_and_int_tuple_generates_qir() {
-    // Target takes (op: Qubit => Unit, count: Int). Only the callable flows
-    // through `args`; count is provided as a plain Int value.
+    // Target takes (op: Qubit => Unit, count: Int). `args` supplies both the
+    // Global callable and a plain Int count in their respective tuple slots.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation RunOp(op : Qubit => Unit, count : Int) : Result {
@@ -2821,8 +2824,8 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
 fn synthetic_path_classical_capture_closure_generates_qir() {
     // A closure capturing a classical value (Int shift) flows through the
     // self-contained synthetic entry: the capture is materialized as a local and
-    // the closure is reconstructed for partial evaluation, which specializes the
-    // lifted callable and emits the corresponding gates. The target also takes a
+    // the closure is reconstructed for FIR transforms and subsequent partial
+    // evaluation to specialize and emit its gates. The target also takes a
     // plain Int argument so the synthetic entry exercises mixed closure/scalar
     // argument lowering.
     let source = indoc::indoc! {r#"
@@ -2991,11 +2994,10 @@ fn synthetic_path_returned_for_each_direct_length_closure_generates_qir() {
 fn synthetic_path_controlled_hof_forwarded_capturing_closure_generates_qir() {
     // A capturing closure (`MakeSelectOp` captures `coeffs`) forwarded through a
     // CONTROLLED two-callable HOF (`PrepSelPrep`) and invoked under `Controlled`
-    // must nest its capture INSIDE the control-level input tuple, producing
-    // `([control], (systems, ancilla, coeffs))`. Appending the capture as a
-    // top-level sibling of `[control]` would yield a malformed 3-tuple
-    // `([control], (systems, ancilla), coeffs)` whose control-level element is no
-    // longer a 2-tuple, which `split_controls_and_input` in qsc_rca rejects.
+    // must nest its capture inside the base input beneath the controls, preserving
+    // each control layer's `(controls, input)` pair. Appending the capture as a
+    // third element beside the controls and input would break the shape required
+    // by `split_controls_and_input` in qsc_rca.
     let source = indoc::indoc! {r#"
         namespace Test {
             import Std.Measurement.*;
@@ -3073,9 +3075,8 @@ fn synthetic_path_controlled_hof_forwarded_capturing_closure_generates_qir() {
     let args = Value::Tuple(vec![prepare, select, Value::Int(1)].into(), None);
 
     // The captured `coeffs = [1]` (length 1) drives exactly one `X(systems[0])`
-    // inside `SelectWithCoeffs`; applied under `Controlled` it lowers to a single
-    // `cx` (controlled-X), proving the capture was genuinely threaded into the
-    // controlled call rather than dropped or panic-silenced.
+    // inside `SelectWithCoeffs`; the assertion checks that a `cx` (controlled-X)
+    // is emitted, guarding against a dropped capture. It does not count gates.
     let qir = callable_args_to_qir(&store, pkg, items["RunCircuit"], &args, caps);
     assert!(
         qir.contains("__quantum__qis__cx__body"),
@@ -3089,10 +3090,9 @@ fn synthetic_path_doubly_controlled_hof_forwarded_capturing_closure_generates_qi
     // single control layer. This case forwards the same capturing closure
     // through the same two-callable HOF (`PrepSelPrep`) but invokes it under
     // `Controlled Controlled`, so the capture must nest beneath BOTH control
-    // layers, producing the strict per-layer 2-tuple shape
-    // `([c2], ([c1], (systems, ancilla, coeffs)))`. Appending the capture as a
-    // top-level sibling of the outer control register would break the outermost
-    // control layer's 2-tuple shape and `split_controls_and_input` in qsc_rca
+    // layers, preserving each layer's `(controls, input)` pair. Appending the
+    // capture as a top-level sibling of the outer control register would break
+    // the outermost control layer's 2-tuple shape and `split_controls_and_input` in qsc_rca
     // would reject it on the first control-layer peel.
     let source = indoc::indoc! {r#"
         namespace Test {
@@ -3259,8 +3259,7 @@ fn deep_var_local_bound_nested_udt_callable_generates_qir() {
     // `let`-bound local built from UDT constructors. Defunctionalization must
     // deep-strip the callable field from the local's initializer at the call
     // site so the local no longer retains an arrow-typed field, otherwise the
-    // `PostDefunc` invariant that forbids a tuple-bound local from keeping an
-    // arrow-typed field would fire.
+    // nested tuple-arrow local check after tuple decomposition would fire.
     let source = indoc::indoc! {r#"
         namespace Test {
             import Std.Measurement.*;
@@ -3536,9 +3535,9 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
 #[test]
 fn synthetic_path_array_arg_preserves_element_values() {
     // A `Value::Array` argument must survive materialization on the synthetic
-    // path with its element VALUES intact (not just its length). Each nonzero
-    // element drives one `op(q)` call, so the gate count proves the concrete
-    // contents `[1, 0, 1]` were threaded through `build_synthetic_args`.
+    // path with its element values intact (not just its length). Each nonzero
+    // element drives one `op(q)` call, so the gate count checks that `[1, 0, 1]`
+    // produces two calls; it does not distinguish element order or nonzero values.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation RunWith(op : Qubit => Unit, data : Int[]) : Result {
@@ -3715,7 +3714,8 @@ namespace Test {{
 /// on early-return-in-dynamic-branch closures.
 ///
 /// Both variants pass the SAME target operation (`RunOp`), whose body early-returns
-/// inside a measurement-dependent branch. They differ ONLY in the closure capture:
+/// inside a measurement-dependent branch. Their closures perform different gates
+/// and use different capture types:
 ///
 /// * Classical capture -> FIR-lowerable -> `SyntheticEntry`. The target body becomes
 ///   entry-reachable through the synthetic `Call`, so `return_unify` rewrites the early
@@ -4068,8 +4068,8 @@ fn synthetic_path_nested_struct_with_callable_generates_qir() {
     // Two levels of UDT wrapping: Config(Inner: OpBox, N: Int) where
     // OpBox(Op: Qubit => Unit, Id: Int). This exercises UDT pure-type descent
     // and nested field-chain replacement in defunctionalization.
-    // Inner UDTs need 2+ fields to avoid the single-field-UDT unwrap issue
-    // where the Value::Tuple shape misaligns with the erased type.
+    // Two fields keep the inner value tuple-shaped; a single-field UDT would
+    // use its unwrapped value, as in the single-field test above.
     let source = indoc::indoc! {r#"
         namespace Test {
             newtype OpBox = (Op: Qubit => Unit, Id: Int);
@@ -4305,11 +4305,12 @@ fn synthetic_path_struct_with_two_callable_fields_generates_qir() {
     );
 }
 
-// ---- Synthetic path: callable with Pauli and Result args ----
+// ---- Synthetic path: callable with a Pauli arg and Result output ----
 
 #[test]
 fn synthetic_path_callable_with_pauli_and_result_values() {
-    // Exercises the Pauli and Result branches of `lower_value_to_expr`.
+    // Exercises the Pauli branch of `lower_value_to_expr`; Result is the
+    // operation's output, not an argument supplied to the synthetic entry.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation Measure(op : Qubit => Unit, basis : Pauli) : Result {
@@ -5657,7 +5658,7 @@ fn return_and_break_in_loop_composes_with_return_unify() {
 #[test]
 fn break_continue_loops_lower_to_rir_without_early_exit() {
     // Exercises the RIR lowering path, a superset of the checks QIR relies on,
-    // for every loop form carrying `break`/`continue`, confirming no residual
+    // for `for` and `repeat` loops carrying `break`/`continue`, confirming no residual
     // `break`/`continue`/early-exit construct survives into RIR.
     let source = r#"
         namespace Test {
@@ -5735,7 +5736,7 @@ fn bare_operand_break_lowers_to_qir_and_skips_eager_consumer() {
     "#;
 
     // Classical loop and condition keep the program static, so the Base profile
-    // suffices. `X(q)` runs for i = 0, 1, 2 before the guard; on i == 3 the break
+    // suffices. `X(q)` runs for i = 0, 1, 2 after the false guard; on i == 3 the break
     // fires first, so the trailing `X(q)` is skipped and the loop exits. That
     // gives exactly three X gates, and no H gate because `Sink` never runs.
     let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
@@ -6512,7 +6513,6 @@ fn residual_callable_sources_preserve_profile_acceptance() {
                 }
                 result => failures.push(format!("{context}: unexpected acceptance: {result:?}")),
             }
-            eprintln!("checked {context}");
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
@@ -6586,4 +6586,21 @@ fn residual_callable_sources() -> Vec<(&'static str, String)> {
         .to_string(),
     ));
     sources
+}
+
+#[test]
+fn forwarded_closure_preserves_captured_offset_in_base_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Forward(callable : Int -> Int) : Int -> Int { callable }
+            @EntryPoint()
+            operation Main() : Unit {
+                let callable = Forward(Make(17));
+                if callable(1) != 18 { fail "wrong forwarded closure"; }
+            }
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
 }

@@ -88,18 +88,18 @@ pub fn assert_pipeline_succeeded(context: &str, result: &crate::PipelineResult) 
     assert_no_pipeline_errors(context, &result.errors);
 }
 
-/// Serializes panic-hook swaps performed by [`assert_panics_with`] so that
-/// concurrently running tests don't observe (or restore) each other's
-/// temporary silent hook.
+/// Serializes panic-hook swaps performed by [`assert_panics_with`] so concurrent
+/// invocations of that helper do not overwrite or restore each other's hooks.
 static PANIC_HOOK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Runs `operation`, asserting that it panics with a message containing
 /// `expected_substring`.
 ///
-/// The default panic hook is suppressed for the duration of the call, so an
+/// The active panic hook is suppressed for the duration of the call, so an
 /// expected panic does not clutter test output with `thread '...' panicked`
 /// banners or backtraces. Prefer this over `#[should_panic]` for tests that
-/// deliberately trigger invariant panics.
+/// deliberately trigger invariant panics. The hook is process-global, so
+/// unrelated threads can also have their panic output suppressed during the call.
 pub fn assert_panics_with(expected_substring: &str, operation: impl FnOnce()) {
     let _hook_guard = PANIC_HOOK_LOCK
         .lock()
@@ -126,7 +126,7 @@ pub fn assert_panics_with(expected_substring: &str, operation: impl FnOnce()) {
 }
 
 /// Runs the FIR pipeline up to `stage`, asserts that no pipeline errors were
-/// produced, and returns the resulting `PipelineResult`.
+/// produced, and returns the resulting `PipelineResult`. Warnings are allowed.
 pub fn assert_pipeline_stage_succeeds(
     context: &str,
     store: &mut fir::PackageStore,
@@ -138,8 +138,8 @@ pub fn assert_pipeline_stage_succeeds(
     result
 }
 
-/// Runs the full FIR pipeline, asserts that no pipeline errors were produced,
-/// and returns the resulting `PipelineResult`.
+/// Runs the full FIR pipeline, asserts that neither errors nor warnings were
+/// produced, and returns the resulting `PipelineResult`.
 pub fn assert_full_pipeline_succeeds(
     context: &str,
     store: &mut fir::PackageStore,
@@ -373,7 +373,7 @@ pub fn compile_to_fir_with_library_and_capabilities(
 /// `lib_b_source`, and `user_source` depends on `lib_a_source`, forming an
 /// entry → libA → libB chain across distinct packages.
 ///
-/// Returns a FIR store with six packages (core, std, libB, libA, user) and the
+/// Returns a FIR store with five packages (core, std, libB, libA, user) and the
 /// user package ID.
 #[cfg(test)]
 #[allow(clippy::similar_names)]
@@ -518,12 +518,12 @@ pub(crate) fn compile_to_monomorphized_fir_with_entry(
 }
 
 /// Compiles Q# source and runs the FIR optimization pipeline up to the given
-/// stage.
+/// stage, returning its diagnostics without asserting that the pipeline succeeded.
 ///
 /// # Panics
 ///
-/// Panics if compilation fails, or if the requested stage reaches
-/// defunctionalization and the shared pipeline runner returns any errors.
+/// Panics if source compilation fails or a pipeline invariant panics. Reported
+/// pipeline errors are returned in the `PipelineResult`.
 #[cfg(test)]
 pub(crate) fn compile_and_run_pipeline_to_with_errors(
     source: &str,
@@ -1189,16 +1189,16 @@ impl qsc_eval::backend::Tracer for OpTracer {
 /// Evaluates the entry exec graph of the given FIR store with a fixed
 /// simulator seed for determinism, capturing the ordered sequence of quantum
 /// operations performed. Returns the evaluation result alongside the recorded
-/// trace.
+/// trace and receiver output.
 ///
-/// The real [`SparseSim`] backend is kept (rather than the no-backend
-/// fallback) so measurement results are produced by simulation and stay
+/// The real [`SparseSim`](qsc_eval::backend::SparseSim) backend is kept rather
+/// than a no-backend fallback, so measurements are produced by simulation and stay
 /// aligned across runs of the same program.
 #[cfg(test)]
-pub(crate) fn try_eval_fir_entry_with_trace(
+fn eval_fir_entry_with_observables(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
-) -> (Result<qsc_eval::val::Value, String>, Vec<TraceOp>) {
+) -> (Result<qsc_eval::val::Value, String>, Vec<TraceOp>, Vec<u8>) {
     use qsc_eval::backend::{SparseSim, TracingBackend};
     use qsc_eval::output::GenericReceiver;
     use qsc_fir::fir::ExecGraphConfig;
@@ -1221,14 +1221,14 @@ pub(crate) fn try_eval_fir_entry_with_trace(
         &mut receiver,
     )
     .map_err(|(err, _frames)| format!("{err:?}"));
-    (result, tracer.ops)
+    (result, tracer.ops, out)
 }
 
 /// Compiles Q# source to FIR with cached core/std HIR setup and evaluates the
 /// entry exec graph.
 ///
-/// The FIR has no transforms applied — this captures the original program
-/// semantics.
+/// No FIR optimization passes have run; HIR passes and lowering still apply.
+/// This captures the original program semantics.
 #[cfg(test)]
 pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value, String> {
     let (fir_store, pkg_id) =
@@ -1236,8 +1236,8 @@ pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value,
     try_eval_fir_entry(&fir_store, pkg_id)
 }
 
-/// Compiles library + user Q# source to FIR using a single lowerer (no
-/// transforms) and evaluates the entry exec graph.
+/// Compiles library + user Q# source through HIR passes and FIR lowering, then
+/// evaluates the entry exec graph before FIR optimization.
 ///
 /// The FIR has no transforms applied — this captures the original program
 /// semantics with a cross-package library dependency.
@@ -1253,7 +1253,7 @@ pub(crate) fn eval_qsharp_original_with_library(
 /// Asserts semantic equivalence of a Q# program before and after the
 /// full FIR transform pipeline.
 ///
-/// This validates two properties in a single check:
+/// This validates three properties in a single check:
 ///
 /// 1. Value equivalence: the original Q# source (no transforms) and the
 ///    fully transformed program evaluate to equal return values (or both
@@ -1264,20 +1264,40 @@ pub(crate) fn eval_qsharp_original_with_library(
 ///    program runs extra (or differently ordered) quantum effects — for
 ///    example a gate or reset that executes on an early-return path it
 ///    should have short-circuited.
+/// 3. Output equivalence: receiver output, including `Message` calls from
+///    classical functions, is neither duplicated, reordered, nor discarded.
 ///
-/// Both programs are evaluated against the real [`SparseSim`] backend with a
-/// fixed seed, so measurement-dependent fixtures stay aligned across the two
-/// runs and their traces compare deterministically.
+/// Both programs use the real [`SparseSim`](qsc_eval::backend::SparseSim)
+/// backend with a fixed seed, so measurement-dependent fixtures stay aligned
+/// across the two runs and their traces compare deterministically.
 #[cfg(test)]
 pub(crate) fn check_semantic_equivalence(source: &str) {
-    let (expected, expected_trace) = {
+    check_semantic_equivalence_impl(source, None);
+}
+
+/// Checks semantic equivalence and the original program's expected return
+/// value using the same two evaluations.
+#[cfg(test)]
+pub(crate) fn check_semantic_equivalence_with_expected(
+    source: &str,
+    expected: qsc_eval::val::Value,
+) {
+    check_semantic_equivalence_impl(source, Some(expected));
+}
+
+#[cfg(test)]
+fn check_semantic_equivalence_impl(source: &str, expected_value: Option<qsc_eval::val::Value>) {
+    let (expected, expected_trace, expected_output) = {
         let (fir_store, pkg_id) =
             compile_to_fir_with_cached_stdlib(source, None, TargetCapabilityFlags::empty());
-        try_eval_fir_entry_with_trace(&fir_store, pkg_id)
+        eval_fir_entry_with_observables(&fir_store, pkg_id)
     };
-    let (actual, actual_trace) = {
+    if let Some(value) = expected_value {
+        assert_eq!(expected, Ok(value), "unexpected original value:\n{source}");
+    }
+    let (actual, actual_trace, actual_output) = {
         let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-        try_eval_fir_entry_with_trace(&store, pkg_id)
+        eval_fir_entry_with_observables(&store, pkg_id)
     };
 
     match (&expected, &actual) {
@@ -1307,6 +1327,11 @@ pub(crate) fn check_semantic_equivalence(source: &str) {
         "effect-trace equivalence violated: original performed {expected_trace:?}, \
          transformed performed {actual_trace:?}"
     );
+    assert_eq!(
+        String::from_utf8(expected_output).expect("receiver output should be UTF-8"),
+        String::from_utf8(actual_output).expect("receiver output should be UTF-8"),
+        "output equivalence violated"
+    );
 }
 
 /// Asserts semantic equivalence of a cross-package Q# program before and
@@ -1317,6 +1342,9 @@ pub(crate) fn check_semantic_equivalence(source: &str) {
 /// 2. Compiles and runs the full FIR pipeline, then evaluates to get the
 ///    actual return value.
 /// 3. Asserts the two results match.
+///
+/// Unlike [`check_semantic_equivalence`], this helper currently compares only
+/// values or error strings, not receiver output or quantum-operation traces.
 #[cfg(test)]
 pub(crate) fn check_semantic_equivalence_with_library(lib_source: &str, user_source: &str) {
     let expected = eval_qsharp_original_with_library(lib_source, user_source);

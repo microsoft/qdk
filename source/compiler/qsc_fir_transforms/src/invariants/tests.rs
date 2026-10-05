@@ -22,8 +22,8 @@ use crate::test_utils::{
     compile_and_run_pipeline_to_with_library, find_callable_body_block,
 };
 
-use qsc_fir::fir::LocalVarId;
-use qsc_fir::ty::Prim;
+use qsc_fir::fir::{CallableKind, LocalVarId};
+use qsc_fir::ty::{Arrow, FunctorSetValue, Prim};
 
 /// Simple Q# source with a local variable binding.
 const SIMPLE_LOCAL_VAR: &str = r#"
@@ -732,6 +732,124 @@ fn post_arg_promote_catches_functor_wrapper_stale_item_signature() {
 }
 
 #[test]
+fn call_shape_invariant_rejects_missing_adjoint() {
+    assert_call_shape_rejects_nested_callable(|operation| {
+        operation.functors = FunctorSet::Value(FunctorSetValue::Ctl);
+    });
+}
+
+#[test]
+fn call_shape_invariant_rejects_missing_controlled() {
+    assert_call_shape_rejects_nested_callable(|operation| {
+        operation.functors = FunctorSet::Value(FunctorSetValue::Adj);
+    });
+}
+
+#[test]
+fn call_shape_invariant_rejects_nested_callable_input_mismatch() {
+    assert_call_shape_rejects_nested_callable(|operation| {
+        *operation.input = Ty::Prim(Prim::Int);
+    });
+}
+
+#[test]
+fn call_shape_invariant_rejects_nested_callable_output_mismatch() {
+    assert_call_shape_rejects_nested_callable(|operation| {
+        *operation.output = Ty::Prim(Prim::Int);
+    });
+}
+
+#[test]
+fn call_shape_invariant_rejects_nested_callable_kind_mismatch() {
+    assert_call_shape_rejects_nested_callable(|operation| {
+        operation.kind = CallableKind::Function;
+    });
+}
+
+#[test]
+fn call_shape_invariant_rejects_non_callable_array_element() {
+    assert_call_shape_rejects_argument_type(Ty::Tuple(vec![
+        Ty::Array(Box::new(Ty::Prim(Prim::Int))),
+        Ty::Prim(Prim::Int),
+    ]));
+}
+
+#[test]
+fn call_shape_invariant_rejects_argument_tuple_arity_mismatch() {
+    assert_call_shape_rejects_argument_type(Ty::Tuple(vec![Ty::Prim(Prim::Int)]));
+}
+
+fn assert_call_shape_rejects_nested_callable(mutate: impl FnOnce(&mut Arrow)) {
+    let mut operation = Arrow {
+        kind: CallableKind::Operation,
+        input: Box::new(Ty::UNIT),
+        output: Box::new(Ty::UNIT),
+        functors: FunctorSet::Value(FunctorSetValue::CtlAdj),
+    };
+    mutate(&mut operation);
+    assert_call_shape_rejects_argument_type(Ty::Tuple(vec![
+        Ty::Array(Box::new(Ty::Arrow(Box::new(operation)))),
+        Ty::Prim(Prim::Int),
+    ]));
+}
+
+fn assert_call_shape_rejects_argument_type(actual: Ty) {
+    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(
+        r#"
+        operation Consume(payload : ((Unit => Unit is Adj + Ctl)[], Int)) : Unit {}
+        operation Identity() : Unit is Adj + Ctl {}
+        @EntryPoint()
+        operation Main() : Unit { Consume(([Identity], 0)); }
+        "#,
+    );
+    let package = store.get(pkg_id);
+    let call_id = super::test_utils::find_expr_in_named_callable(package, "Main", |_, _, expr| {
+        matches!(expr.kind, ExprKind::Call(..))
+    });
+    let ExprKind::Call(callee_id, arg_id) = package.get_expr(call_id).kind else {
+        panic!("Main should call Consume");
+    };
+    check_call_shape_matches_callee(&store, package, call_id, callee_id, arg_id);
+
+    store
+        .get_mut(pkg_id)
+        .exprs
+        .get_mut(arg_id)
+        .expect("argument should exist")
+        .ty = actual;
+    assert_panics_with("PostArgPromote/PostAll call invariant violation", || {
+        check_call_shape_matches_callee(&store, store.get(pkg_id), call_id, callee_id, arg_id);
+    });
+}
+
+#[test]
+fn call_shape_invariant_allows_extra_functors_in_nested_values() {
+    let (store, pkg_id) = crate::test_utils::compile_to_fir(
+        r#"
+        operation Consume(payload : ((Unit => Unit is Adj)[], Int)) : Unit {}
+        operation Identity() : Unit is Adj + Ctl {}
+        @EntryPoint()
+        operation Main() : Unit { Consume(([Identity], 0)); }
+        "#,
+    );
+    let package = store.get(pkg_id);
+    let call_id = super::test_utils::find_expr_in_named_callable(package, "Main", |_, _, expr| {
+        matches!(expr.kind, ExprKind::Call(..))
+    });
+    let ExprKind::Call(callee_id, arg_id) = package.get_expr(call_id).kind else {
+        panic!("Main should call Consume");
+    };
+    let (expected_input, _) = resolve_call_signature(&store, package, callee_id)
+        .expect("Consume should have a signature");
+    assert_ne!(
+        package.get_expr(arg_id).ty,
+        expected_input,
+        "the fixture should retain the argument's extra functor"
+    );
+    check_call_shape_matches_callee(&store, package, call_id, callee_id, arg_id);
+}
+
+#[test]
 fn post_all_field_path_on_non_tuple_panics() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(STRUCT_FIELD_ACCESS, PipelineStage::Full);
     inject_non_tuple_field_path_target(&mut store, pkg_id);
@@ -873,19 +991,15 @@ fn invariant_catches_dangling_stmt_id_in_block() {
     });
 }
 
-// `InvariantLevel::PostSignaturePreserving` membership is hand-placed in each
-// `is_post_*_or_later` predicate (see `invariants.rs`) rather than derived from a
-// single monotone threshold. That makes it vulnerable to silent weakening:
-// dropping `PostSignaturePreserving` from a return/tuple predicate
-// would stop rejecting residue the body-only sub-pipeline must remove, while adding
-// it to the defunc/UDT predicates would wrongly reject the arrow/closure/UDT residue
-// the sub-pipeline legitimately preserves. The tests below pin both directions of
-// that membership matrix and confirm the main-pipeline levels are unchanged.
+// `InvariantLevel::enforces` special-cases `PostSignaturePreserving`, while the
+// main-pipeline levels use ordered stage thresholds. The tests below check that
+// the body-only level rejects returns but permits arrow parameters, closures,
+// and UDT types, and that the corresponding main-pipeline levels reject them.
 //
 // These complement the behavioral checks in `signature_preserving_tests.rs`, which
 // drive the real seed-rooted sub-pipeline end to end. Here we inject a single
-// isolated residue into otherwise fully-processed FIR and check the levels
-// directly, so a future per-predicate mis-edit is caught at its source.
+// isolated residue into staged FIR (or retain a return at `Mono`) and check the
+// levels directly, so a membership change is caught at its source.
 
 /// A dynamic (measurement-dependent) early return inside the entry callable.
 /// `monomorphize` runs before `return_unify`, so compiling only to
@@ -916,7 +1030,7 @@ const NAMED_PARAM_CALLABLE: &str = r#"
 
 // Include side: the sub-pipeline runs `return_unify`, so `PostSignaturePreserving`
 // must still reject a residual dynamic `ExprKind::Return`. Removing
-// `PostSignaturePreserving` from `is_post_return_unify_or_later` would silently
+// `StageCheck::ReturnUnify` from its `enforces` case would silently
 // weaken the sub-pipeline check and stop this test from panicking.
 #[test]
 fn sig_preserving_rejects_residual_return() {
@@ -928,7 +1042,7 @@ fn sig_preserving_rejects_residual_return() {
 
 // Exclude side: the sub-pipeline preserves arrow-typed parameters, so
 // `PostSignaturePreserving` must not fire on an injected arrow param. Adding
-// `PostSignaturePreserving` to `is_post_defunc_or_later` would make this panic.
+// `StageCheck::Defunc` to its `enforces` case would make this panic.
 #[test]
 fn sig_preserving_allows_arrow_param() {
     let (mut store, pkg_id) =
