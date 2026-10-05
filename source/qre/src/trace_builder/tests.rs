@@ -302,6 +302,28 @@ fn estimate_caching_is_a_no_op() {
 }
 
 #[test]
+fn is_resource_estimating_is_true() {
+    let trace = run_trace(indoc! {r#"
+        namespace Test {
+            import Std.ResourceEstimation.*;
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                if IsResourceEstimating() {
+                    X(q);
+                } else {
+                    H(q);
+                }
+            }
+        }
+    "#});
+
+    let ids: Vec<u64> = trace.walk_iter().map(Gate::id).collect();
+    assert_eq!(ids, vec![PAULI_X]);
+}
+
+#[test]
 fn load_and_store_emit_memory_gates() {
     let mut builder = TraceBuilder::default();
     let q = builder.qubit_allocate().expect("allocate should succeed");
