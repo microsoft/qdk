@@ -19,8 +19,26 @@ export function registerLearningCommands(
   panelManager: LessonPanelManager,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("qsharp-vscode.learningShowActivity", () =>
-      panelManager.show(),
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningShowActivity",
+      async () => {
+        if (!service.initialized) {
+          await panelManager.show();
+          if (
+            !service.initialized ||
+            !isNotebookCourse(service.getActiveCourseInfo())
+          ) {
+            return;
+          }
+        }
+
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
+          await openCourseNotebook(service, { reveal: "top" });
+          return;
+        }
+
+        await panelManager.show();
+      },
     ),
 
     // Code lens commands
