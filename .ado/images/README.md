@@ -21,33 +21,120 @@ through QEMU on an AMD64 worker; the `--platform` argument selects the target im
 platform rather than a native ARM64 worker. Using `az acr build` applies that target
 directly to the Docker build. Use the same image tag for both builds:
 
+## Building and using images in ADO
+
+To put LLVM in an ADO feed as a universal package:
+
+- Download from <https://github.com/llvm/llvm-project/archive/refs/tags/llvmorg-20.1.8.tar.gz> (or similar)
+- Upload as a Univseral Package via:
+
+```bash
+az artifacts universal publish \
+  --organization https://dev.azure.com/<org> \
+  --project <project> --scope project \
+  --feed "azure-quantum" \
+  --name llvm-source \
+  --version 20.1.8 \
+  --path ~/Downloads/llvm-project-llvmorg-20.1.8.tar.gz \
+  --description "LLVM source tarball"
+```
+
+Then in the pipeline
+
+```yaml
+# Download the package
+- task: UniversalPackages@1
+  displayName: Download LLVM source
+  inputs:
+    command: download
+    feed: "AzureQuantum/azure-quantum"
+    packageName: "llvm-source"
+    packageVersion: "20.1.8" # or '*', '18.*' (wildcards supported for download)
+    directory: "$(Pipeline.Workspace)/llvm-src"
+
+# Copy it into the Docker context
+- script: |
+    set -euxo pipefail
+    ls -lh $(Pipeline.Workspace)/llvm-src
+    mkdir -p docker-context/third_party
+    cp $(Pipeline.Workspace)/llvm-src/llvm-project-18.1.8.tar.gz docker-context/third_party/
+  displayName: Stage LLVM tarball into Docker build context
+```
+
+Note that with network isolation the Universal Package download may fail, as it needs to fetch from
+blob storage. To enable this in a 1ES template, add the networkIsolationPolicy below:
+
+```yaml
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
+  parameters:
+    settings:
+      # To fetch the Universal Package from the ADO feed, Azure blob access is needed :(
+      networkIsolationPolicy: AzureStorage
+```
+
+Then unpack it in the Dockerfile to the desired location, e.g.
+
+```yaml
+COPY third_party/llvm-project-18.1.8.tar.gz /tmp/
+RUN tar -xzf /tmp/llvm-project-18.1.8.tar.gz -C /tmp/llvm-project
+```
+
+TODO
+
+- Document how to create the service connections and set permissions
+- Document how to use an image in a ADO pipeline
+- Document how to create and publish an image in an ADO pipeline
+
+## BONEYARD
+
+The below was too slow to run on ACR, so trying to move it to ADO Hosted Pools and pipelines
+
 ```bash
 IMAGE_TAG="$(git rev-parse --short HEAD)"
 CONTEXT="${REPO}#${BRANCH}:.ado/images/qdk-image"
 ACR_LOGIN_SERVER="$(
   az acr show --name "$ACR_NAME" --query loginServer --output tsv
 )"
+```
 
+```bash
 # This build on x64 took 1h15m last run.
-AMD64_RUN_ID=$(
-  az acr build --registry "$ACR_NAME" --platform linux/amd64 --timeout 12000 \
-    --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
-    --build-arg EXPECTED_MACHINE=x86_64 \
-    --image "qdk-image:${IMAGE_TAG}-amd64" \
-    --no-wait "$CONTEXT" --query runId --output tsv
-)
+IMAGE_TAG="20261004"
+az acr build --registry "$ACR_NAME" --platform linux/amd64 --timeout 12000 \
+  --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
+  --image "qdk-image:${IMAGE_TAG}-amd64" \
+  "$CONTEXT"
 
 # Max timeout is 28,800 (8 hours). Building LLVM on QEMU simulated ARM64 is slooooow
-# Started build at 3:15
-ARM64_RUN_ID=$(
-  az acr build --registry "$ACR_NAME" --platform linux/arm64 --timeout 28800 \
-    --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
-    --build-arg EXPECTED_MACHINE=aarch64 \
-    --image "qdk-image:${IMAGE_TAG}-arm64" \
-    --no-wait "$CONTEXT" --query runId --output tsv
-)
+az acr build --registry "$ACR_NAME" --platform linux/arm64 --timeout 28800 \
+  --build-arg BASE_REGISTRY="$ACR_LOGIN_SERVER" \
+  --image "qdk-image:${IMAGE_TAG}-arm64" \
+  "$CONTEXT"
 
-printf 'AMD64 run: %s\nARM64 run: %s\n' "$AMD64_RUN_ID" "$ARM64_RUN_ID"
+
+
+# Create the multi-platform manifest for an image for the form: <name>:<tag>-<arch>
+# Ensure Docker is logged in
+az acr login --name "$ACR_NAME"
+IMAGE_NAME=qdk-rust
+IMAGE_TAG=20261005
+docker buildx imagetools create \
+    --tag "$ACR_LOGIN_SERVER/${IMAGE_NAME}:${IMAGE_TAG}" \
+    "$ACR_LOGIN_SERVER/${IMAGE_NAME}:${IMAGE_TAG}-amd64" \
+    "$ACR_LOGIN_SERVER/${IMAGE_NAME}:${IMAGE_TAG}-arm64"
+
+# Point 'latest' to that if desired
+docker buildx imagetools create \
+    --tag "$ACR_LOGIN_SERVER/${IMAGE_NAME}:latest" \
+    "$ACR_LOGIN_SERVER/${IMAGE_NAME}:${IMAGE_TAG}"
+
+# Get it locally, add a friendly tag, and run it
+docker pull "$ACR_LOGIN_SERVER/${IMAGE_NAME}"
+docker tag "$ACR_LOGIN_SERVER/${IMAGE_NAME}" ${IMAGE_NAME}
+docker run --rm -it ${IMAGE_NAME}
+
+# To run as a non-root user, add: --user 1000:1000
 ```
 
 The Dockerfile checks the architecture before performing the expensive package and LLVM
