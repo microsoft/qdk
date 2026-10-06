@@ -312,7 +312,7 @@ fn overflowing_shl(lhs: i64, rhs: i64) -> i64 {
 /// all the bits out, so we need to implement our own `overflowing_shr`.
 ///
 /// This must run in constant time, since the rhs can be any `i64`.
-/// UInt values use an `i64` representation, so the shift must reinterpret
+/// `UInt` values use an `i64` representation, so the shift must reinterpret
 /// the value as unsigned to avoid sign extension.
 fn overflowing_shr(lhs: i64, rhs: i64) -> i64 {
     assert!(rhs >= 0, "shift amount should be non-negative");
