@@ -457,9 +457,14 @@ fn binary_op_shl_huge_shift_amount() -> miette::Result<(), Vec<Report>> {
         const uint a = 77727 << 7773727777776 << 3727777777277777;
         const uint[8] b = 255;
         const uint[8] c = b << 9223372036854775807;
+        const angle[8] d = 1.0;
+        const angle[8] e = d << 9223372036854775807;
+        const bit[8] f = "00000001" << 9223372036854775807;
         def const_eval_context() {
-            uint d = a;
-            uint[8] e = c;
+            uint g = a;
+            uint[8] h = c;
+            angle[8] i = e;
+            bit[8] j = f;
         }
     "#;
 
@@ -469,9 +474,23 @@ fn binary_op_shl_huge_shift_amount() -> miette::Result<(), Vec<Report>> {
         let a = 0;
         let b = 255;
         let c = 0;
+        let d = new Std.OpenQASM.Angle.Angle {
+            Value = 41,
+            Size = 8
+        };
+        let e = new Std.OpenQASM.Angle.Angle {
+            Value = 0,
+            Size = 8
+        };
+        let f = [Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero];
         function const_eval_context() : Unit {
-            mutable d = 0;
-            mutable e = 0;
+            mutable g = 0;
+            mutable h = 0;
+            mutable i = new Std.OpenQASM.Angle.Angle {
+                Value = 0,
+                Size = 8
+            };
+            mutable j = [Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero];
         }
     "#]]
     .assert_eq(&qsharp);
@@ -606,10 +625,14 @@ fn binary_op_shr_by_bit_width_boundary() -> miette::Result<(), Vec<Report>> {
         const uint a = 9223372036854775807 >> 62;
         const uint b = 9223372036854775807 >> 63;
         const uint c = 9223372036854775807 >> 64;
+        const uint d = (1 << 63) >> 63; // Confirm we're not accidentally sign extending
+        const uint e = (1 << 63) >> 64;
         def const_eval_context() {
-            uint d = a;
-            uint e = b;
-            uint f = c;
+            uint f = a;
+            uint g = b;
+            uint h = c;
+            uint i = d;
+            uint j = e;
         }
     "#;
 
@@ -619,10 +642,14 @@ fn binary_op_shr_by_bit_width_boundary() -> miette::Result<(), Vec<Report>> {
         let a = 1;
         let b = 0;
         let c = 0;
+        let d = 1;
+        let e = 0;
         function const_eval_context() : Unit {
-            mutable d = 1;
-            mutable e = 0;
-            mutable f = 0;
+            mutable f = 1;
+            mutable g = 0;
+            mutable h = 0;
+            mutable i = 1;
+            mutable j = 0;
         }
     "#]]
     .assert_eq(&qsharp);
@@ -634,9 +661,14 @@ fn binary_op_shr_huge_shift_amount() -> miette::Result<(), Vec<Report>> {
     let source = r#"
         const uint a = 444444 >> 44444444444444444;
         const uint b = 9223372036854775807 >> 9223372036854775807;
+        const angle[8] c = 1.0;
+        const angle[8] d = c >> 9223372036854775807;
+        const bit[8] e = "00000001" >> 9223372036854775807;
         def const_eval_context() {
-            uint c = a;
-            uint d = b;
+            uint f = a;
+            uint g = b;
+            angle[8] h = d;
+            bit[8] i = e;
         }
     "#;
 
@@ -645,9 +677,23 @@ fn binary_op_shr_huge_shift_amount() -> miette::Result<(), Vec<Report>> {
         import Std.OpenQASM.Intrinsic.*;
         let a = 0;
         let b = 0;
+        let c = new Std.OpenQASM.Angle.Angle {
+            Value = 41,
+            Size = 8
+        };
+        let d = new Std.OpenQASM.Angle.Angle {
+            Value = 0,
+            Size = 8
+        };
+        let e = [Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero];
         function const_eval_context() : Unit {
-            mutable c = 0;
-            mutable d = 0;
+            mutable f = 0;
+            mutable g = 0;
+            mutable h = new Std.OpenQASM.Angle.Angle {
+                Value = 0,
+                Size = 8
+            };
+            mutable i = [Zero, Zero, Zero, Zero, Zero, Zero, Zero, Zero];
         }
     "#]]
     .assert_eq(&qsharp);
