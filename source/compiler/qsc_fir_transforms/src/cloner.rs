@@ -525,7 +525,8 @@ impl FirCloner {
     }
 
     /// Consumes the cloner and returns the internal `Assigner` with its
-    /// counters advanced past all IDs allocated during cloning.
+    /// counters advanced past all IDs allocated during cloning, including
+    /// callable-local IDs from nested targets and before map resets.
     #[must_use]
     pub fn into_assigner(self) -> Assigner {
         self.assigner
@@ -537,6 +538,7 @@ impl FirCloner {
     pub(crate) fn alloc_local(&mut self, old: LocalVarId) -> LocalVarId {
         let new = LocalVarId::from(self.next_local);
         self.next_local += 1;
+        self.assigner.advance_local_past(new);
         self.local_map.insert(old, new);
         new
     }
