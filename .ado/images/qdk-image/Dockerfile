@@ -1,5 +1,7 @@
-ARG BASE_REGISTRY=registry.access.redhat.com
-FROM ${BASE_REGISTRY}/ubi8/ubi:8.10
+ARG BASE_REGISTRY=qdkacr-cfgqhwddajdaebhg.azurecr.io
+# ARG BASE_REGISTRY=registry.access.redhat.com
+
+FROM ${BASE_REGISTRY}/ubi8/ubi:8.10@sha256:8827ae684e58fbdb93c8893e48731bae36d5cdd302a6efebee8e01707145c85e
 
 # Build for
 # - arm64: docker build --progress=plain --platform linux/arm64 -t qdk-image:arm64 .
