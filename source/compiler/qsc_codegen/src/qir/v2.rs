@@ -449,7 +449,7 @@ fn call_to_qir(
 ) -> String {
     let args = args
         .iter()
-        .map(|arg| ToQir::<String>::to_qir(arg, program))
+        .map(|arg| i1_zeroext(&ToQir::<String>::to_qir(arg, program)))
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
@@ -458,7 +458,7 @@ fn call_to_qir(
         format!(
             "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
-            ToQir::<String>::to_qir(&callable.output_type, program),
+            zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program)),
             callable_name
         )
     } else {
@@ -714,12 +714,12 @@ impl ToQir<String> for rir::Callable {
 /// real LLVM `define internal void @<name>(<params>)` IR function with typed parameters named after
 /// the callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
 fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Program) -> String {
-    let output_type = ToQir::<String>::to_qir(&callable.output_type, program);
+    let output_type = zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program));
     let Some(entry_id) = callable.body else {
         let input_type = callable
             .input_type
             .iter()
-            .map(|t| ToQir::<String>::to_qir(t, program))
+            .map(|t| i1_zeroext(&ToQir::<String>::to_qir(t, program)))
             .collect::<Vec<_>>()
             .join(", ");
         let callable_name = llvm_global_name(&callable.name);
@@ -769,7 +769,7 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
             .map(|(ty, var_id)| {
                 format!(
                     "{} {}",
-                    ToQir::<String>::to_qir(ty, program),
+                    i1_zeroext(&ToQir::<String>::to_qir(ty, program)),
                     ToQir::<String>::to_qir(var_id, program)
                 )
             })
@@ -852,4 +852,12 @@ fn get_additional_module_attributes(program: &rir::Program) -> String {
     }
 
     attrs
+}
+
+fn zeroext_i1(input: &str) -> String {
+    input.replace("i1", "zeroext i1")
+}
+
+fn i1_zeroext(input: &str) -> String {
+    input.replace("i1", "i1 zeroext")
 }

@@ -41,7 +41,7 @@ block_5:
 block_6:
   call void @__quantum__qis__ccx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_11 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_11 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   %var_12 = icmp eq i1 %var_11, false
   %var_13 = xor i1 %var_12, true
   store i1 %var_13, ptr %var_1
@@ -84,7 +84,7 @@ declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_18) {
 block_13:

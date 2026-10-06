@@ -18,27 +18,27 @@ block_0:
   call void @CreateEntangledPair(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_8 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   store i1 %var_8, ptr %var_11
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-  %var_14 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_14 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 %var_14, ptr %var_17
   %var_42 = load i1, ptr %var_11
   %var_43 = load i1, ptr %var_17
-  call void @SuperdenseEncode(i1 %var_42, i1 %var_43, ptr inttoptr (i64 0 to ptr))
+  call void @SuperdenseEncode(i1 zeroext %var_42, i1 zeroext %var_43, ptr inttoptr (i64 0 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H__Adj(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-  %var_25 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_25 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__cz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H__Adj(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
-  %var_29 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+  %var_29 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
   store i1 %var_25, ptr %var_32
   store i1 %var_29, ptr %var_33
   store i64 0, ptr %var_34
@@ -61,14 +61,14 @@ block_3:
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @1)
   %var_48 = load i1, ptr %var_11
-  call void @__quantum__rt__bool_record_output(i1 %var_48, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_48, ptr @2)
   %var_49 = load i1, ptr %var_17
-  call void @__quantum__rt__bool_record_output(i1 %var_49, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_49, ptr @3)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @4)
   %var_50 = load i1, ptr %var_32
-  call void @__quantum__rt__bool_record_output(i1 %var_50, ptr @5)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_50, ptr @5)
   %var_51 = load i1, ptr %var_33
-  call void @__quantum__rt__bool_record_output(i1 %var_51, ptr @6)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_51, ptr @6)
   ret i64 0
 }
 
@@ -99,9 +99,9 @@ declare void @__quantum__qis__cx__body(ptr, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
-define internal void @SuperdenseEncode(i1 %var_18, i1 %var_19, ptr %var_20) {
+define internal void @SuperdenseEncode(i1 zeroext %var_18, i1 zeroext %var_19, ptr %var_20) {
 block_7:
   br i1 %var_18, label %block_8, label %block_9
 block_8:
@@ -150,7 +150,7 @@ declare void @__quantum__qis__reset__body(ptr) #1
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="4" }
 attributes #1 = { "irreversible" }

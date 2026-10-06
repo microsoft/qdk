@@ -14,14 +14,14 @@ block_0:
   call void @CNOT(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_9 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   br i1 %var_9, label %block_1, label %block_2
 block_1:
   call void @X(ptr inttoptr (i64 1 to ptr))
   br label %block_2
 block_2:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-  %var_11 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_11 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 %var_11, ptr %var_1
   %var_23 = load i1, ptr %var_1
   br i1 %var_23, label %block_3, label %block_4
@@ -81,7 +81,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
