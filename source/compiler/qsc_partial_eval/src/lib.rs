@@ -362,9 +362,7 @@ impl<'a> PartialEvaluator<'a> {
                 self.bind_value_to_mutable_ident(ident, value);
             }
             Mutability::Immutable => {
-                let current_scope = self.eval_context.get_current_scope();
-                if matches!(value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())
-                {
+                if matches!(value, Value::Var(_)) {
                     // An immutable identifier is being bound to a dynamic value, so treat the identifier as mutable.
                     // This allows it to represent a point-in-time copy of the mutable value during evaluation.
                     self.bind_value_to_mutable_ident(ident, value);

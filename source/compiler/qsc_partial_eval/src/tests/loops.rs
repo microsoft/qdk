@@ -2052,3 +2052,74 @@ fn classical_while_inside_dynamic_while_folds_mutable_variable() {
                 Jump(1)"#]],
     );
 }
+
+#[test]
+fn emitting_classical_for_loop_propagates_variables_properly() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable a = 1;
+            mutable r = 0;
+            for i in 0..0 {
+                X(q);
+                let t = a;
+                if i == 7 { X(q); }
+                set a = 5;
+                set r = t;
+            }
+            Reset(q);
+            r
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(1)
+                Variable(1, Integer) = Store Integer(0)
+                Variable(2, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Boolean) = Icmp Sle, Variable(3, Integer), Integer(0)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
+                Variable(6, Boolean) = Store Bool(true)
+                Branch Variable(5, Boolean), 3, 4
+            Block 2:Block:
+                Call id(4), args( Qubit(0), )
+                Variable(15, Integer) = Store Variable(1, Integer)
+                Call id(6), args( Variable(15, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Branch Variable(6, Boolean), 5, 2
+            Block 4:Block:
+                Variable(6, Boolean) = Store Bool(false)
+                Jump(3)
+            Block 5:Block:
+                Variable(7, Integer) = Store Variable(2, Integer)
+                Call id(2), args( Qubit(0), )
+                Variable(9, Integer) = Store Variable(0, Integer)
+                Variable(10, Integer) = Store Variable(7, Integer)
+                Variable(11, Boolean) = Icmp Eq, Variable(10, Integer), Integer(7)
+                Branch Variable(11, Boolean), 8, 7
+            Block 6:Block:
+                Call id(3), args( Variable(8, Qubit), )
+                Return
+            Block 7:Block:
+                Variable(0, Integer) = Store Integer(5)
+                Variable(1, Integer) = Store Variable(9, Integer)
+                Variable(12, Integer) = Store Variable(2, Integer)
+                Variable(13, Integer) = Add Variable(12, Integer), Integer(1)
+                Variable(2, Integer) = Store Variable(13, Integer)
+                Jump(1)
+            Block 8:Block:
+                Call id(2), args( Qubit(0), )
+                Jump(7)
+            Block 9:Block:
+                Call id(5), args( Variable(14, Qubit), )
+                Return"#]],
+    );
+}
