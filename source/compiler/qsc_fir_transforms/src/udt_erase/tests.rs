@@ -1907,6 +1907,51 @@ fn udt_erase_is_idempotent() {
     assert_eq!(first, second, "udt_erase should be idempotent");
 }
 
+fn runtime_constructor_fixture() -> (PackageStore, PackageId) {
+    // The argument write keeps the call indirect instead of eliminating it statically.
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() operation Main() : Int {
+            mutable choice = 0;
+            let factories = [Data, Data];
+            let data = factories[choice]({ choice = 1; 23 });
+            data::Value
+        }
+    "#;
+    crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase)
+}
+
+#[test]
+fn repeated_constructor_values_share_one_identity() {
+    let (store, pkg_id) = runtime_constructor_fixture();
+    let package = store.get(pkg_id);
+    let identities = package
+        .items
+        .values()
+        .filter(|item| {
+            matches!(&item.kind, ItemKind::Callable(decl)
+                if decl.name.name.starts_with("__udt_constructor_"))
+        })
+        .count();
+    assert_eq!(
+        identities, 1,
+        "repeated constructor values share one identity"
+    );
+}
+
+#[test]
+fn runtime_constructor_erasure_is_idempotent() {
+    let (mut store, pkg_id) = runtime_constructor_fixture();
+    let before = store.get(pkg_id).to_string();
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
+    assert_eq!(
+        before,
+        store.get(pkg_id).to_string(),
+        "a second erasure must not allocate another identity or change any nodes"
+    );
+}
+
 fn render_before_after_udt_erase(source: &str) -> (String, String) {
     let (mut store, pkg_id) =
         crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
@@ -2122,10 +2167,13 @@ fn unreachable_callable_in_reachable_package_is_erased() {
 
     // Verify Dead callable still exists and has UDT forms erased.
     let package = store.get(pkg_id);
-    let dead_exists = package.items.values().any(
-        |item| matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Dead"),
+    let dead = crate::test_utils::callable_id_by_name(package, "Dead");
+    crate::invariants::check_with_seeds(
+        &store,
+        pkg_id,
+        crate::invariants::InvariantLevel::PostUdtErase,
+        &[(pkg_id, dead).into()],
     );
-    assert!(dead_exists, "Dead should still exist (pre-DCE)");
 
     // UDT type items remain in the package after erase_udts — they are only
     // removed later by item_dce. Verify that the UDT type item is still present
@@ -2141,10 +2189,7 @@ fn unreachable_callable_in_reachable_package_is_erased() {
     );
 }
 
-#[test]
-fn cross_package_udt_copy_update_erased() {
-    use crate::test_utils::compile_to_fir_with_library;
-
+fn cross_package_copy_update_sources() -> (&'static str, &'static str) {
     let lib_source = indoc! {"
         namespace TestLib {
             struct Pair { Fst: Int, Snd: Int }
@@ -2171,6 +2216,14 @@ fn cross_package_udt_copy_update_erased() {
         }
     "};
 
+    (lib_source, user_source)
+}
+
+#[test]
+fn cross_package_udt_copy_update_erased() {
+    use crate::test_utils::compile_to_fir_with_library;
+
+    let (lib_source, user_source) = cross_package_copy_update_sources();
     let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     erase_udts(&mut store, pkg_id, &mut assigners);
@@ -2207,31 +2260,6 @@ fn cross_package_udt_copy_update_erased() {
 fn cross_package_udt_copy_update_semantic_equivalence() {
     use crate::test_utils::check_semantic_equivalence_with_library;
 
-    let lib_source = indoc! {"
-        namespace TestLib {
-            struct Pair { Fst: Int, Snd: Int }
-
-            function MakePair(fst: Int, snd: Int) : Pair {
-                new Pair { Fst = fst, Snd = snd }
-            }
-
-            function UpdateFst(p: Pair, newFst: Int) : Pair {
-                new Pair { ...p, Fst = newFst }
-            }
-
-            export Pair, MakePair, UpdateFst;
-        }
-    "};
-    let user_source = indoc! {"
-        import TestLib.*;
-
-        @EntryPoint()
-        operation Main() : (Int, Int) {
-            let p = MakePair(1, 2);
-            let updated = UpdateFst(p, 42);
-            (updated.Fst, updated.Snd)
-        }
-    "};
-
+    let (lib_source, user_source) = cross_package_copy_update_sources();
     check_semantic_equivalence_with_library(lib_source, user_source);
 }
