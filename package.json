@@ -46,7 +46,7 @@
     "highlight.js": "^11.11.1",
     "highlightjs-copy": "^1.0.6",
     "jsdom": "^29.0.2",
-    "markdown-it": "^14.2.0",
+    "markdown-it": "^14.3.1",
     "mocha": "^11.7.5",
     "modern-normalize": "^3.0.1",
     "monaco-editor": "^0.53.0",
