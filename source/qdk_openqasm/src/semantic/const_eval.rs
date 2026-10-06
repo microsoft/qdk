@@ -299,8 +299,9 @@ impl UnaryOpExpr {
 ///
 /// This must run in constant time, since the rhs can be any `i64`.
 fn overflowing_shl(lhs: i64, rhs: i64) -> i64 {
+    assert!(rhs >= 0, "shift amount should be non-negative");
     match rhs {
-        ..=0 => lhs,
+        0 => lhs,
         1..=63 => lhs << rhs,
         _ => 0,
     }
@@ -314,7 +315,8 @@ fn overflowing_shl(lhs: i64, rhs: i64) -> i64 {
 /// Shifting by 63 already leaves only copies of the sign bit,
 /// so larger shifts produce the same result.
 fn overflowing_shr(lhs: i64, rhs: i64) -> i64 {
-    lhs >> rhs.clamp(0, 63)
+    assert!(rhs >= 0, "shift amount should be non-negative");
+    lhs >> rhs.min(63)
 }
 
 impl BinaryOpExpr {
