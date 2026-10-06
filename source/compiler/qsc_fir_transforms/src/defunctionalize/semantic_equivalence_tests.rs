@@ -12,6 +12,13 @@ use proptest::prelude::*;
 use super::test_cases;
 
 #[test]
+fn conditional_hof_callees_preserve_branch_argument_ownership() {
+    for (source, expected) in test_cases::conditional_hof_argument_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
 fn recursive_specializations_preserve_capture_environments() {
     for (source, expected) in test_cases::recursive_capture_cases() {
         check_callable_result(&source, expected);

@@ -5,6 +5,38 @@
 
 use indoc::formatdoc;
 
+/// Choosing a higher-order callee creates mutually exclusive calls with the
+/// same source arguments. Each branch must own its mutable argument tree,
+/// while captures and preceding values are evaluated only in the chosen branch.
+pub(super) fn conditional_hof_argument_cases() -> impl Iterator<Item = (String, i64)> {
+    [true, false].into_iter().flat_map(|flag| {
+        [
+            "(if flag {FirstTuple} else {SecondTuple})(Log(4),Add(Log(2),_))",
+            "(if flag {First} else {Second})(new Payload {N=Log(4),F=Add(Log(2),_)})",
+            "(if flag {First} else {Second})(new Payload {F=Add(Log(2),_),N=Log(4)})",
+            "({Message(\"callee\");if flag {FirstTuple} else {SecondTuple}})(n,Add({set n=2;n},_))",
+            "(if flag {FirstTuple} else {SecondTuple})(Log(4),Add({let offset=2;Log(offset)},_))",
+        ]
+        .map(move |call| {
+            let source = formatdoc! {r#"
+                struct Payload {{ N : Int, F : Int -> Int }}
+                function Add(n : Int, x : Int) : Int {{ n+x }}
+                function Log(n : Int) : Int {{ Message($"value:{{n}}"); n }}
+                function First(p : Payload) : Int {{ 100*p.N+p.F(3) }}
+                function Second(p : Payload) : Int {{ 200*p.N+p.F(3) }}
+                function FirstTuple(n : Int, f : Int -> Int) : Int {{ 100*n+f(3) }}
+                function SecondTuple(n : Int, f : Int -> Int) : Int {{ 200*n+f(3) }}
+                function Pick(flag : Bool) : Int {{
+                    mutable n=4;
+                    {call}
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+            "#};
+            (source, if flag { 405 } else { 805 })
+        })
+    })
+}
+
 pub(super) fn recursive_capture_cases() -> impl Iterator<Item = (String, i64)> {
     [
         ("Repeat(x->x+offset,3)", 34),
