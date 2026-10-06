@@ -427,6 +427,58 @@ fn binary_op_shl_overflow() -> miette::Result<(), Vec<Report>> {
 }
 
 #[test]
+fn binary_op_shl_by_bit_width_boundary() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        const uint a = 1 << 62;
+        const uint b = 1 << 64;
+        def const_eval_context() {
+            uint c = a;
+            uint d = b;
+        }
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        let a = 4611686018427387904;
+        let b = 0;
+        function const_eval_context() : Unit {
+            mutable c = 4611686018427387904;
+            mutable d = 0;
+        }
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
+fn binary_op_shl_huge_shift_amount() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        const uint a = 77727 << 7773727777776 << 3727777777277777;
+        const uint[8] b = 255;
+        const uint[8] c = b << 9223372036854775807;
+        def const_eval_context() {
+            uint d = a;
+            uint[8] e = c;
+        }
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        let a = 0;
+        let b = 255;
+        let c = 0;
+        function const_eval_context() : Unit {
+            mutable d = 0;
+            mutable e = 0;
+        }
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
 fn binary_op_shl_angle() -> miette::Result<(), Vec<Report>> {
     let source = r#"
         const angle[32] a = 1.0;
@@ -542,6 +594,60 @@ fn binary_op_shr_overflow() -> miette::Result<(), Vec<Report>> {
         let a = 0;
         function const_eval_context() : Unit {
             mutable b = 0;
+        }
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
+fn binary_op_shr_by_bit_width_boundary() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        const uint a = 9223372036854775807 >> 62;
+        const uint b = 9223372036854775807 >> 63;
+        const uint c = 9223372036854775807 >> 64;
+        def const_eval_context() {
+            uint d = a;
+            uint e = b;
+            uint f = c;
+        }
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        let a = 1;
+        let b = 0;
+        let c = 0;
+        function const_eval_context() : Unit {
+            mutable d = 1;
+            mutable e = 0;
+            mutable f = 0;
+        }
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
+fn binary_op_shr_huge_shift_amount() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        const uint a = 444444 >> 44444444444444444;
+        const uint b = 9223372036854775807 >> 9223372036854775807;
+        def const_eval_context() {
+            uint c = a;
+            uint d = b;
+        }
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        let a = 0;
+        let b = 0;
+        function const_eval_context() : Unit {
+            mutable c = 0;
+            mutable d = 0;
         }
     "#]]
     .assert_eq(&qsharp);

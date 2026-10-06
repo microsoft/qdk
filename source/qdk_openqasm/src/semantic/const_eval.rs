@@ -294,35 +294,27 @@ impl UnaryOpExpr {
 }
 
 /// Rust's `i64::Shl` panics if the rhs is greater than 63,
-/// and `i64::overflowing_shl` doesn't behaves as expected
-/// so we need to implement our own `overflowing_shl`.
-fn overflowing_shl(mut lhs: i64, mut rhs: i64) -> i64 {
-    while rhs > 0 {
-        if rhs >= 64 {
-            lhs <<= 63;
-            rhs -= 63;
-        } else {
-            lhs <<= rhs;
-            rhs = 0;
-        }
+/// and `i64::overflowing_shl` masks the rhs instead of shifting
+/// all the bits out, so we need to implement our own `overflowing_shl`.
+///
+/// This must run in constant time, since the rhs can be any `i64`.
+fn overflowing_shl(lhs: i64, rhs: i64) -> i64 {
+    match rhs {
+        ..=0 => lhs,
+        1..=63 => lhs << rhs,
+        _ => 0,
     }
-    lhs
 }
 
 /// Rust's `i64::Shr` panics if the rhs is greater than 63,
-/// and `i64::overflowing_shr` doesn't behaves as expected
-/// so we need to implement our own `overflowing_shr`.
-fn overflowing_shr(mut lhs: i64, mut rhs: i64) -> i64 {
-    while rhs > 0 {
-        if rhs >= 64 {
-            lhs >>= 63;
-            rhs -= 63;
-        } else {
-            lhs >>= rhs;
-            rhs = 0;
-        }
-    }
-    lhs
+/// and `i64::overflowing_shr` masks the rhs instead of shifting
+/// all the bits out, so we need to implement our own `overflowing_shr`.
+///
+/// This must run in constant time, since the rhs can be any `i64`.
+/// Shifting by 63 already leaves only copies of the sign bit,
+/// so larger shifts produce the same result.
+fn overflowing_shr(lhs: i64, rhs: i64) -> i64 {
+    lhs >> rhs.clamp(0, 63)
 }
 
 impl BinaryOpExpr {
