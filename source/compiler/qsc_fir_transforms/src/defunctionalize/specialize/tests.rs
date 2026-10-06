@@ -11,6 +11,71 @@ use crate::test_utils::{callable_id_by_name, compile_to_monomorphized_fir};
 use crate::walk_utils::collect_expr_ids_in_local_callables;
 use qsc_fir::fir::CallableKind;
 
+#[test]
+fn specialization_cloner_keeps_local_watermark_across_targets_and_resets() {
+    let (store, package_id) = compile_to_monomorphized_fir(
+        r#"
+        function Make(offset : Int) : Int -> Int {
+            value -> {
+                let first = offset + value;
+                let second = first + 1;
+                let third = second + 1;
+                third
+            }
+        }
+        @EntryPoint() operation Main() : Int {
+            let f = Make(10);
+            f(1)
+        }
+        "#,
+    );
+    let source = store.get(package_id);
+    let make = callable_id_by_name(source, "Make");
+    let ItemKind::Callable(decl) = &source.get_item(make).kind else {
+        panic!("Make should be callable");
+    };
+    let PatKind::Bind(offset) = &source.get_pat(decl.input).kind else {
+        panic!("Make should bind its offset");
+    };
+
+    for initial_floor in [0_u32, 100] {
+        let mut target = Package {
+            id: package_id,
+            ..Package::default()
+        };
+        let mut assigner = Assigner::new();
+        assigner.set_next_local(LocalVarId::from(initial_floor));
+        let mut cloner = FirCloner::from_assigner(assigner);
+        cloner.clone_pat(source, decl.input, &mut target);
+        cloner.clone_callable_impl(source, &decl.implementation, &mut target);
+        let capture = cloner.alloc_local(offset.id);
+        let nested_max = target
+            .pats
+            .values()
+            .filter_map(|pat| match &pat.kind {
+                PatKind::Bind(ident) => Some(ident.id),
+                _ => None,
+            })
+            .max()
+            .expect("the cloned target binds locals");
+        assert!(
+            nested_max > capture,
+            "a restored outer counter must not hide larger nested-target locals"
+        );
+
+        cloner.reset_maps();
+        cloner.clone_pat(source, decl.input, &mut target);
+        let mut assigner = cloner.into_assigner();
+        let fresh = assigner.next_local();
+        assert!(fresh >= LocalVarId::from(initial_floor));
+        assert!(
+            fresh > nested_max && fresh > capture,
+            "recovered assigner must include nested locals and appended captures"
+        );
+        assert!(assigner.next_local() > fresh);
+    }
+}
+
 /// `Qubit[]`, the scalar payload and the captured operation's input.
 fn qubit_array_ty() -> Ty {
     Ty::Array(Box::new(Ty::Prim(Prim::Qubit)))

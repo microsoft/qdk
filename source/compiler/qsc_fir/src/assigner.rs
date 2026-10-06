@@ -3,10 +3,11 @@
 
 //! FIR node-ID allocator.
 //!
-//! [`Assigner`] hands out monotonically increasing IDs for each FIR ID type:
+//! Between explicit counter resets, [`Assigner`] hands out increasing IDs for:
 //! `BlockId`, `ExprId`, `PatId`, `StmtId`, `LocalVarId`, and `LocalItemId`.
-//! Every `next_*()` returns the current value and advances the counter; IDs are
-//! **never reused or decremented**.
+//! Every `next_*()` returns the current value and advances the counter. Arena
+//! IDs must not be reused within a package; local-variable IDs may be reused in
+//! separate callable scopes.
 //!
 //! # Reseeding over an existing package
 //!
@@ -16,13 +17,18 @@
 //! stmts, and items are read from their arenas; local-var IDs have no arena and
 //! are recovered by scanning `PatKind::Bind` and local/closure `ExprKind`s. The
 //! `set_next_*()` methods expose the same per-counter reseeding directly.
+//! [`Assigner::advance_local_past`] reserves externally allocated callable-local
+//! IDs without lowering the package watermark or rescanning existing nodes.
 //!
 //! `stash_local`/`reset_local` save and restore the local-var counter so each
-//! callable can number its locals from zero.
+//! callable can number its locals from zero during lowering. The `set_next_*`
+//! setters replace counters exactly; callers reseeding a populated package must
+//! supply values above its existing IDs. Unlike those setters,
+//! `advance_local_past` only raises the current counter.
 //!
 //! # Append-only arenas
 //!
-//! Because IDs are never reused, FIR arena entries are append-only: rewrite
+//! With arena IDs allocated above the existing watermark, entries are append-only: rewrite
 //! passes add and mutate nodes but leave superseded ones behind as unreachable
 //! "orphans". Arena `iter()` skips empty/tombstoned (`None`) slots but not
 //! orphans, since an orphan is still a populated entry — just no longer
@@ -114,6 +120,11 @@ impl Assigner {
 
     pub fn set_next_local(&mut self, id: LocalVarId) {
         self.next_local = id;
+    }
+
+    /// Reserves a local allocated outside this counter without lowering it.
+    pub fn advance_local_past(&mut self, id: LocalVarId) {
+        self.next_local = self.next_local.max(id.successor());
     }
 
     pub fn set_next_item(&mut self, id: LocalItemId) {
