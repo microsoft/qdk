@@ -259,10 +259,10 @@ fn post_tuple_decompose2_cut_matches_full_pipeline_bodies() {
         compile_and_lower(source);
     let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
 
-    // `TupleDecompose2` is the final optimization stage (it runs after `arg_promote`);
-    // the trailing `Gc`/`ItemDce`/`ExecGraphRebuild` stages do not alter
-    // reachable callable bodies, so the post-`TupleDecompose2` cut must match the full
-    // pipeline.
+    // `TupleDecompose2` follows the tuple-decompose/arg-promote fixed point and
+    // call-argument-type normalization. Subsequent item DCE, GC, and exec-graph
+    // rebuilding preserve reachable callable body structure, so these body
+    // summaries must match the full pipeline.
     run_pipeline_to_successfully(
         &mut post_tuple_decompose2_store,
         post_tuple_decompose2_pkg_id,
@@ -351,9 +351,8 @@ fn terminal_result_block_shape_stays_valid_across_stage_boundaries() {
     ));
     assert_callable_body_terminal_expr_matches_block_type(&post_all_store, post_all_pkg_id, "Main");
 
-    // The Lowered shape is identical in both modes; the post-pipeline shape
-    // reflects the flag strategy prepending `__has_returned`/`__ret_val`
-    // bindings and emitting the merge as a `Var` read.
+    // Both PostReturnUnify and PostAll retain the flag strategy's prepended
+    // `__has_returned`/`__ret_val` bindings and terminal `Var` read.
     let expected = concat!(
         "Lowered\n",
         "block_ty=Result\n",
@@ -1037,8 +1036,8 @@ fn pipeline_collapses_simulatable_intrinsics_before_monomorphization() {
 fn cross_package_nested_generics_fully_resolved() {
     // Uses Std.Arrays.Mapped (generic) which internally calls other std
     // generic helpers. This exercises the cross-package nested-generic
-    // worklist: cloning Mapped<Int, Int> into user package discovers further
-    // cross-package generic references that must also be specialized.
+    // worklist: specializing Mapped<Int, Int> in its owning library package
+    // discovers further generic references that must also be specialized.
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         open Std.Arrays;
@@ -1326,11 +1325,9 @@ fn udt_wrapping_callable_survives_full_pipeline() {
 /// Uses the `Complex` struct from the core library, which is exported and
 /// available to user code.
 ///
-/// NOTE: The Q# frontend resolver fails to resolve cross-package UDT
-/// constructors in expression position, producing `Res::Err` / `Ty::Err`
-/// before any pipeline transforms run. See `qsc_frontend/src/lower.rs`
-/// line 1059 for the `hir::Res::Err` fallback. This is a frontend bug,
-/// not a pipeline bug.
+/// The constructor must resolve successfully before the transformed entry
+/// package is validated; this is a success regression, not an expected
+/// frontend-resolution failure.
 #[test]
 fn cross_package_udt_constructor_resolution() {
     let source = r#"
@@ -1789,8 +1786,8 @@ fn stage_parity_tuple_comp_lower_no_residual() {
 fn stage_parity_item_dce_removes_unreachable_callable_items() {
     // Regression test for item DCE removing dead callable items.
     //
-    // Invariant: After item DCE, callable items that are not reachable from
-    // the entry expression are removed from the package item table.
+    // With no pinned items, item DCE removes entry-unreachable callables from
+    // the package item table while retaining `Main` and `Used`.
     let source = r#"
         operation Unused() : Unit { }
         operation Used() : Unit { }
@@ -1837,4 +1834,67 @@ fn stage_parity_item_dce_removes_unreachable_callable_items() {
         post_dce_pkg_id,
         invariants::InvariantLevel::PostItemDce,
     );
+}
+
+// Keep the four same-typed captures to exercise the regression's argument layout.
+const FACTORY_RETURNED_PARTIAL_APPLICATION: &str = r#"
+    namespace Test {
+        operation Compose(
+            op : Qubit[] => Unit,
+            map : Int[], binary : Int[], gaussian : Int[], pool : Int[],
+            qs : Qubit[]
+        ) : Unit {
+            op(qs);
+        }
+
+        function MakeCompose(
+            op : Qubit[] => Unit,
+            map : Int[], binary : Int[], gaussian : Int[], pool : Int[]
+        ) : Qubit[] => Unit {
+            Compose(op, map, binary, gaussian, pool, _)
+        }
+
+        operation Invoke(op : Qubit[] => Unit, qs : Qubit[]) : Unit { op(qs); }
+        operation Prepare(qs : Qubit[]) : Unit { H(qs[0]); }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Invoke(MakeCompose(Prepare, [0], [1], [2], [3]), qs);
+        }
+    }
+"#;
+
+#[test]
+fn factory_returned_partial_application_preserves_lifted_lambda_call_shape() {
+    let (mut store, pkg_id, _) = compile_and_lower(FACTORY_RETURNED_PARTIAL_APPLICATION);
+    run_pipeline_to_successfully(&mut store, pkg_id, PipelineStage::ArgPromote);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostArgPromote);
+
+    let package = store.get(pkg_id);
+    let reachable = reachability::collect_reachable_from_entry(&store, pkg_id);
+    let lambda_inputs: Vec<_> = reachable
+        .iter()
+        .filter(|item| item.package == pkg_id)
+        .filter_map(|item| match &package.get_item(item.item).kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with(".lambda") => {
+                Some(package.get_pat(decl.input).ty.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lambda_inputs,
+        ["((Int)[], (Int)[], (Int)[], (Int)[], (Qubit)[])"],
+        "the reachable lifted lambda should embed Prepare and take four runtime captures before qs; \
+         PostArgPromote checks that its call sites match"
+    );
+}
+
+#[test]
+fn factory_returned_partial_application_passes_full_pipeline() {
+    let (mut store, pkg_id, _) = compile_and_lower(FACTORY_RETURNED_PARTIAL_APPLICATION);
+    run_pipeline_successfully(&mut store, pkg_id);
+    validate(store.get(pkg_id), &store);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }

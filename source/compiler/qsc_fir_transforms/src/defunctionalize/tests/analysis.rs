@@ -13,7 +13,8 @@ use crate::{
 use super::*;
 use expect_test::expect;
 use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::{LocalVarId, Package};
+use qsc_fir::fir::{LocalVarId, Package, PatKind};
+use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
 
 #[test]
@@ -1342,7 +1343,14 @@ fn constructor_and_factory_return_field_projection_resolve_distinctly() {
         collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
     let collapsed_spans =
         super::super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
-    let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable, &collapsed_spans);
+    let result = defunc_analysis::analyze(
+        &mut fir_store,
+        fir_pkg_id,
+        &reachable,
+        &Default::default(),
+        &collapsed_spans,
+        &[],
+    );
 
     assert_eq!(
         result.direct_call_sites.len(),
@@ -3053,8 +3061,8 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
 /// A closure callable-array forwarded through a struct-literal field and fully
 /// consumed by an indexed dispatch inside the callee leaves the source-array
 /// local dead in the reachable caller. Closure cleanup blanks each element to
-/// unit, so the surviving array binding would be an arrow-typed block with a
-/// unit tail. The dead binding must be removed before the `PostDefunc`
+/// unit, so retaining the array would leave its element blocks arrow-typed with
+/// unit tails. The dead binding must be removed before the `PostDefunc`
 /// invariant walk observes it; this exercises that walk over the same shape as
 /// `indexed_closure_callable_array_loop_dispatches_closures`.
 #[test]
@@ -6283,9 +6291,10 @@ fn pure_array_index_dispatch_reuses_index_expression() {
     );
 }
 
-/// A side-effecting index expression must be evaluated once before the
-/// synthesized dispatch. Hoisting the block into an `index` local prevents
-/// its `X(q)` call from being repeated by each branch guard.
+/// Hoisting a side-effecting index into an `index` local prevents its `X(q)`
+/// call from being repeated by each synthesized branch guard. This raw-pass
+/// snapshot also retains the original `op` initializer and its index evaluation,
+/// so it checks guard reuse, not single evaluation across the entire block.
 #[test]
 fn impure_array_index_dispatch_hoists_index_expression() {
     let source = r#"
@@ -6818,5 +6827,30 @@ fn orl_runtime_dynamic_condition_branch_split_dispatch() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn another_callable_parameter_does_not_supply_capture_type() {
+    let (store, package_id) = compile_to_monomorphized_fir(
+        r#"
+        function Other(value : Double) : Double { value }
+        operation Main() : Double { Other(2.0) }
+        "#,
+    );
+    let package = store.get(package_id);
+    let input = package.get_pat(callable_decl(package, "Other").input);
+    let PatKind::Bind(parameter) = &input.kind else {
+        panic!("Other should bind its parameter");
+    };
+    assert_eq!(input.ty, Ty::Prim(Prim::Double));
+
+    // The ID exists in the package, but not in the capture's scope.
+    let locals = LocalState::default();
+    let captures = resolve_captures(package, &locals, &[parameter.id], &FxHashSet::default());
+
+    assert!(
+        captures.is_none(),
+        "another callable's parameter must not replace missing scoped type evidence",
     );
 }

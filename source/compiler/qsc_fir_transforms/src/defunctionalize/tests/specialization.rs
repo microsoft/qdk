@@ -13,6 +13,235 @@ use super::*;
 use expect_test::expect;
 
 #[test]
+fn partial_application_capture_is_bound_before_rewritten_call() {
+    let source = crate::defunctionalize::test_cases::PARTIAL_APPLICATION_CAPTURE_TIMING;
+    let (store, pkg_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    let main = crate::test_utils::callable_id_by_name(store.get(pkg_id), "Main");
+    expect![[r#"
+        operation Main() : Int {
+            let arg : Int = Logged(17);
+            Message($"ready");
+            _lambda_4(arg, 1)
+        }
+    "#]]
+    .assert_eq(&crate::pretty::write_item_qsharp_parseable(
+        &store, pkg_id, main,
+    ));
+}
+
+#[test]
+fn pure_struct_copy_factory_is_evaluated_once() {
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
+        crate::defunctionalize::test_cases::DIRECT_STRUCT_COPY_FACTORY,
+        crate::PipelineStage::Defunc,
+    );
+    let package = store.get(pkg_id);
+    let main = crate::test_utils::find_callable(package, "Main");
+    let original = crate::test_utils::callable_id_by_name(package, "Original");
+    let mut calls = 0;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &main.implementation,
+        &mut |_, expr| {
+            if let fir::ExprKind::Call(callee, _) = expr.kind
+                && let fir::ExprKind::Var(fir::Res::Item(target), _) = package.get_expr(callee).kind
+                && target.package == pkg_id
+                && target.item == original
+            {
+                calls += 1;
+            }
+        },
+    );
+    assert_eq!(calls, 1, "copied fields must share one factory evaluation");
+}
+
+#[test]
+fn controlled_branch_arguments_match_declared_signatures() {
+    use qsc_fir::ty::{Prim, Ty};
+    for functor in [
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+        "Controlled Adjoint",
+        "Adjoint Controlled Controlled",
+    ] {
+        for (source, _) in crate::defunctionalize::test_cases::controlled_branch_cases(functor) {
+            let (mut store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
+                &source,
+                crate::PipelineStage::ReturnUnify,
+            );
+            let mut assigners = PackageAssigners::new(&store, pkg_id);
+            let outcome = defunctionalize(&mut store, pkg_id, &mut assigners);
+            assert_no_defunctionalization_errors(&source, &outcome.diagnostics);
+            let package = store.get(pkg_id);
+            let reachable = collect_reachable_from_entry(&store, pkg_id);
+            let mut checked = 0;
+            for item in reachable.iter().filter(|item| item.package == pkg_id) {
+                let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+                    continue;
+                };
+                crate::walk_utils::for_each_expr_in_callable_impl(
+                    package,
+                    &decl.implementation,
+                    &mut |_, expr| {
+                        let fir::ExprKind::Call(callee, arg) = expr.kind else {
+                            return;
+                        };
+                        let (base, applied) =
+                            crate::defunctionalize::types::peel_body_functors(package, callee);
+                        let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                            package.get_expr(base).kind
+                        else {
+                            return;
+                        };
+                        let target_package = store.get(target.package);
+                        let ItemKind::Callable(target) = &target_package.get_item(target.item).kind
+                        else {
+                            return;
+                        };
+                        if !target.name.name.starts_with("Apply") || !target.name.name.contains('{')
+                        {
+                            return;
+                        }
+                        let mut expected = target_package.get_pat(target.input).ty.clone();
+                        for _ in 0..applied.controlled {
+                            expected = Ty::Tuple(vec![
+                                Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+                                expected,
+                            ]);
+                        }
+                        let Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                            panic!("specialized callee should be an arrow");
+                        };
+                        assert_eq!(&*arrow.input, &expected, "callee signature for {functor}");
+                        assert_eq!(
+                            &package.get_expr(arg).ty,
+                            &expected,
+                            "branch arguments for {functor}"
+                        );
+                        checked += 1;
+                    },
+                );
+            }
+            assert_eq!(checked, 2, "both branches should call a specialized Apply");
+            fir_invariants::check(&store, pkg_id, InvariantLevel::PostDefunc);
+        }
+    }
+}
+
+#[test]
+fn conditional_capture_calls_match_specialized_input_types() {
+    for (source, _) in crate::defunctionalize::test_cases::conditional_capture_layout_cases()
+        .chain(crate::defunctionalize::test_cases::struct_branch_cases())
+        .chain(crate::defunctionalize::test_cases::nested_struct_branch_cases())
+        .chain(crate::defunctionalize::test_cases::struct_copy_factory_cases())
+        .chain(crate::defunctionalize::test_cases::nested_struct_copy_factory_cases())
+        .chain(crate::defunctionalize::test_cases::type_constructor_argument_cases())
+    {
+        let (store, pkg_id) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let package = store.get(pkg_id);
+        let reachable = collect_reachable_from_entry(&store, pkg_id);
+        let mut checked = 0;
+        for item in reachable.iter().filter(|item| item.package == pkg_id) {
+            let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+                continue;
+            };
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut |_, expr| {
+                    let fir::ExprKind::Call(callee_id, args_id) = expr.kind else {
+                        return;
+                    };
+                    let callee = package.get_expr(callee_id);
+                    let fir::ExprKind::Var(fir::Res::Item(target), _) = callee.kind else {
+                        return;
+                    };
+                    let ItemKind::Callable(target) =
+                        &store.get(target.package).get_item(target.item).kind
+                    else {
+                        return;
+                    };
+                    if !target.name.name.starts_with("Apply{")
+                        && !target.name.name.starts_with("Use{")
+                        && !target.name.name.starts_with("Read{")
+                        && !target.name.name.starts_with("ReadNested{")
+                    {
+                        return;
+                    }
+                    let qsc_fir::ty::Ty::Arrow(arrow) = &callee.ty else {
+                        panic!("specialized callee should have an arrow type");
+                    };
+                    let input = &package.get_pat(target.input).ty;
+                    assert_eq!(
+                        &*arrow.input, input,
+                        "callee metadata: {}",
+                        target.name.name
+                    );
+                    assert_eq!(
+                        &package.get_expr(args_id).ty,
+                        input,
+                        "call arguments: {}",
+                        target.name.name
+                    );
+                    checked += 1;
+                },
+            );
+        }
+        assert_eq!(
+            checked, 2,
+            "both conditional branches should call specialized targets"
+        );
+    }
+}
+
+#[test]
+fn independently_created_equivalent_callable_captures_share_specialization() {
+    let source = crate::defunctionalize::test_cases::embedded_callable_source(
+        "Inc",
+        "Inc",
+        "Apply(a, 3)*100+Apply(b, 3)",
+    );
+    let (store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+    let count = store
+        .get(package)
+        .items
+        .values()
+        .filter(|item| {
+            matches!(&item.kind, ItemKind::Callable(decl)
+                if decl.name.name.starts_with("Apply{"))
+        })
+        .count();
+    assert_eq!(
+        count, 1,
+        "equivalent embedded callable identities deduplicate"
+    );
+}
+
+#[test]
+fn embedded_callable_specializations_are_deterministic() {
+    let source = crate::defunctionalize::test_cases::embedded_callable_source(
+        "Inc",
+        "Twice",
+        "Apply(a, 3)*100+Apply(b, 3)",
+    );
+    let render = || {
+        let (store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        crate::pretty::write_package_qsharp_parseable(&store, package)
+    };
+    assert_eq!(render(), render(), "specialization must be deterministic");
+}
+
+#[test]
+fn immutable_capture_snapshot_remains_specializable_after_caller_mutation() {
+    check_invariants(crate::defunctionalize::test_cases::IMMUTABLE_CAPTURE_SNAPSHOT);
+}
+
+#[test]
 fn specialize_single_global_callable() {
     check_rewrite(
         r#"
@@ -1342,7 +1571,7 @@ fn multiple_callable_parameters_specialize_independently() {
 /// `ops` slot is dropped in a single pass rather than removed one field at a
 /// time across iterations. The snapshot pins the single collapsed
 /// specialization `RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_(q)` with the fields
-/// inlined in order `First -> H`, `Second -> X`, `Third -> Y`; a field-index
+/// inlined in order `first -> H`, `second -> X`, `third -> Y`; a field-index
 /// mix-up would inline the gates out of order or dispatch the wrong callable.
 ///
 /// The per-field `reindex_sibling_field_access` path, which shifts surviving
@@ -3713,9 +3942,9 @@ fn identity_closure_peephole_replaces_wrapper() {
 #[test]
 fn excessive_specializations_warning_emitted() {
     // A HOF called with > 10 different concrete closures triggers the
-    // ExcessiveSpecializations warning. Each distinct Rx(angle, _) partial
-    // application with a different angle creates a distinct closure, and
-    // all closures map to the same functorless Apply<Empty> variant.
+    // ExcessiveSpecializations warning. Each explicit `q1 => Rx(angle, q1)`
+    // lambda has a distinct lifted target, and all closures are passed to the
+    // same functorless Apply<Empty> variant.
     check_errors(
         r#"
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
@@ -3741,7 +3970,8 @@ fn excessive_specializations_warning_emitted() {
 
 #[test]
 fn below_threshold_no_excessive_specializations_warning() {
-    // A HOF with exactly 10 specializations should not trigger the warning.
+    // Ten call sites split across the AdjCtl and Empty functor variants should
+    // not trigger the per-variant specialization warning.
     let source = r#"
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
         operation Main() : Unit {
@@ -4098,11 +4328,10 @@ fn direct_call_preserves_lambda_body_span() {
     );
 }
 
-/// A closure is created by a separate function, `MakeAdder`, that returns it,
-/// then bound to a local, `adder`, and passed to a higher-order function,
-/// `Apply`. Because the closure's capture, `base`, is defined across the
-/// function-return boundary, the HOF call-site rewrite cannot resolve the
-/// capture's value from the enclosing block and threads the wrong local.
+/// `MakeRotation` returns a partial application capturing its `base` parameter.
+/// `Main` binds it to `rotation` and passes it to the higher-order operation
+/// `Apply`. The rewrite must substitute the caller's `amount` for the
+/// producer's `base`, rather than thread a local from the wrong callable.
 #[test]
 fn cross_function_closure_capture_threads_correct_value() {
     let source = r#"
@@ -4262,11 +4491,11 @@ fn inline_closure_capture_threads_correct_value() {
 /// `ApplyStatePreparation`) and is forwarded into an inner closure that issues
 /// `Controlled prepareOp([control], systems)` under a loop.
 ///
-/// The correct post-fix rewrite retargets that controlled call to the concrete
-/// operation while threading the captured struct, i.e.
-/// `Controlled ApplyStatePreparation([control], (__capture_0, systems))`. This
+/// The snapshot retargets that controlled call to the lifted partial-application
+/// wrapper while threading the captured struct, i.e.
+/// `Controlled _lambda_8([control], (__capture_0, systems))`. This
 /// guards against a silent re-drop where the control layer wraps the base input
-/// and the capture is lost, leaving `Controlled ApplyStatePreparation([control], systems)`.
+/// and the capture is lost, leaving `Controlled _lambda_8([control], systems)`.
 #[test]
 fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
     let source = r#"
@@ -4584,9 +4813,9 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                 __quantum__rt__qubit_release(control);
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
-                / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+                / * closure item = 14 captures = [__capture_0, numSystemQubits, power] * / _lambda_7
             }
-            operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            operation _lambda_7(__capture_0 : __UDT_Item_1__Package_2_, numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
                     let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
@@ -4597,7 +4826,7 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                         let _end_id_354 : Int = _range_id_341.End;
                         while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
                             let _ : Int = _index_id_344;
-                            Controlled _lambda_8([control], systems);
+                            Controlled _lambda_8([control], (__capture_0, systems));
                             Controlled SelectIdentity([control], (systems, ancilla));
                             _index_id_344 += _step_id_349;
                         }
@@ -4894,7 +5123,7 @@ fn producer_scope_struct_capture_operation_field_declines_to_dynamic() {
 }
 
 /// A mixed branch-split call can combine a dispatched callable field with a
-/// single-valued producer closure while leaving another field of the same tuple
+/// single-valued inline capturing closure while leaving another field of the same tuple
 /// parameter live.
 ///
 /// The combined specialization must remove only the callable fields from
@@ -4993,8 +5222,8 @@ fn mixed_branch_split_partial_tuple_field_coverage_preserves_surviving_field() {
 /// combined per-candidate specialization.
 ///
 /// The unresolved `third` argument must surface as `DynamicCallable`. The
-/// producer closure sibling may still get a transient per-row spec while that
-/// diagnostic is collected, but tracking it as consumed would clear its body or
+/// capturing closure sibling may still get a transient per-row spec while that
+/// diagnostic is collected, but tracking it as consumed could clear a live closure or
 /// trip the internal consistency panic. This test uses more than `MULTI_CAP`
 /// array elements to force the sibling to `Dynamic` and asserts the pass returns
 /// diagnostics instead of panicking.
