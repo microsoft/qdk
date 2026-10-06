@@ -512,7 +512,7 @@ def test_compile_qir_str_from_callable_with_mresetzchecked() -> None:
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
-        "call i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
+        "call zeroext i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir

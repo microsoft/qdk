@@ -508,15 +508,15 @@ block_0:
   call void @__quantum__qis__sx__body(ptr null)
   call void @__quantum__qis__mresetz__body(ptr null, ptr null)
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  %0 = call zeroext i1 @__quantum__rt__read_result(ptr null)
   br i1 %0, label %block_1, label %block_2
 
 block_1:                                          ; preds = %block_0
-  %1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   br i1 %1, label %block_3, label %block_4
 
 block_2:                                          ; preds = %block_0
-  %2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   br i1 %2, label %block_5, label %block_6
 
 block_3:                                          ; preds = %block_1
@@ -557,7 +557,7 @@ declare void @__quantum__qis__sx__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare zeroext i1 @__quantum__rt__read_result(ptr)
 
 declare void @__quantum__qis__rz__body(double, ptr)
 
@@ -676,7 +676,7 @@ block_0:
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__h__body(ptr null)
   call void @__quantum__qis__mresetz__body(ptr null, ptr null)
-  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  %0 = call zeroext i1 @__quantum__rt__read_result(ptr null)
   br i1 %0, label %block_1, label %block_2
 
 block_1:                                          ; preds = %block_0
@@ -695,7 +695,7 @@ declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare zeroext i1 @__quantum__rt__read_result(ptr)
 
 declare void @__quantum__qis__x__body(ptr)
 
@@ -751,7 +751,7 @@ block_0:
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__h__body(ptr null)
   call void @__quantum__qis__mresetz__body(ptr null, ptr null)
-  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  %0 = call zeroext i1 @__quantum__rt__read_result(ptr null)
   br i1 %0, label %block_1, label %block_2
 
 block_1:                                          ; preds = %block_0
@@ -769,7 +769,7 @@ declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare zeroext i1 @__quantum__rt__read_result(ptr)
 
 declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -831,7 +831,7 @@ block_0:
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__h__body(ptr null)
   call void @__quantum__qis__mresetz__body(ptr null, ptr null)
-  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  %0 = call zeroext i1 @__quantum__rt__read_result(ptr null)
   br i1 %0, label %block_1, label %block_2
 
 block_1:                                          ; preds = %block_0
@@ -856,7 +856,7 @@ declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare zeroext i1 @__quantum__rt__read_result(ptr)
 
 declare void @__quantum__qis__x__body(ptr)
 
@@ -926,7 +926,7 @@ block_0:
   call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__mresetz__body(ptr null, ptr null)
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  %0 = call zeroext i1 @__quantum__rt__read_result(ptr null)
   br i1 %0, label %block_1, label %block_2
 
 block_1:                                          ; preds = %block_0
@@ -934,7 +934,7 @@ block_1:                                          ; preds = %block_0
 
 block_2:                                          ; preds = %block_1, %block_0
   %1 = phi i64 [ 0, %block_0 ], [ 1, %block_1 ]
-  %2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   br i1 %2, label %block_3, label %block_4
 
 block_3:                                          ; preds = %block_2
@@ -953,7 +953,7 @@ declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr)
+declare zeroext i1 @__quantum__rt__read_result(ptr)
 
 declare void @__quantum__rt__int_record_output(i64, ptr)
 
