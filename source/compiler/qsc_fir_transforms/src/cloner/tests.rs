@@ -13,6 +13,73 @@ use qsc_fir::ty::Ty;
 const LET_X_SOURCE: &str = "function Main() : Int { let x = 42; x }";
 
 #[test]
+fn expression_copy_freshens_bindings_but_preserves_closure_target() {
+    let (store, pkg_id) = compile_to_fir(
+        r#"
+        function Main() : Int {
+            let outer=3;
+            let f={let inner=outer+1; x->x+inner+outer};
+            f(1)
+        }
+        "#,
+    );
+    let source = store.get(pkg_id);
+    let (_, outer) = find_local_bind(source, "outer");
+    let (_, inner) = find_local_bind(source, "inner");
+    let (f, _) = find_local_bind(source, "f");
+    let init = source
+        .stmts
+        .values()
+        .find_map(|stmt| match stmt.kind {
+            StmtKind::Local(_, pat, init) if pat == f => Some(init),
+            _ => None,
+        })
+        .expect("f has an initializer");
+    let mut target = source.clone();
+    let mut assigner = Assigner::from_package(&target);
+    let fresh_floor = assigner.next_local();
+    let mut cloner = FirCloner::from_assigner_for_expr(assigner);
+    let copied = cloner.clone_expr(source, init, &mut target);
+    assert_ne!(copied, init);
+    let copied_inner = cloner.local_map()[&inner];
+    assert!(
+        copied_inner > fresh_floor,
+        "new binding must not shadow existing locals"
+    );
+    assert!(!cloner.local_map().contains_key(&outer));
+    assert!(
+        cloner.item_map().is_empty(),
+        "closure target identity must be preserved"
+    );
+    assert_eq!(target.items.iter().count(), source.items.iter().count());
+    for (&original, &copy) in cloner.expr_map() {
+        assert_ne!(original, copy);
+        match &source.exprs.get(original).expect("source exists").kind {
+            ExprKind::Var(Res::Local(local), _) if *local == outer => {
+                assert!(matches!(target.exprs.get(copy).expect("copy exists").kind,
+                    ExprKind::Var(Res::Local(local), _) if local == outer));
+            }
+            ExprKind::Closure(captures, original_target) => {
+                let ExprKind::Closure(copied_captures, copied_target) =
+                    &target.exprs.get(copy).expect("copy exists").kind
+                else {
+                    panic!("closure should remain a closure")
+                };
+                assert_eq!(copied_target, original_target);
+                assert_eq!(
+                    copied_captures,
+                    &captures
+                        .iter()
+                        .map(|&local| if local == inner { copied_inner } else { local })
+                        .collect::<Vec<_>>()
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+#[test]
 fn clone_block_produces_fresh_ids() {
     let (store, pkg_id) = compile_to_fir(LET_X_SOURCE);
     let source = store.get(pkg_id);

@@ -6,6 +6,13 @@
 use super::test_cases;
 
 #[test]
+fn conditional_hof_callees_generate_correct_argument_qir() {
+    for (source, expected) in test_cases::conditional_hof_argument_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
 fn recursive_specializations_record_capture_results() {
     for (source, expected) in test_cases::recursive_capture_cases() {
         check_qir_int_result(&source, expected);
