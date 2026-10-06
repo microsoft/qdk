@@ -16,8 +16,11 @@
 //! # What to know before diving in
 //!
 //! - **Establishes [`crate::invariants::InvariantLevel::PostUdtErase`]:** no
-//!   `Ty::Udt`, `ExprKind::Struct`, UDT constructor call, UDT-targeted
+//!   `Ty::Udt`, `ExprKind::Struct`, UDT constructor call or value, UDT-targeted
 //!   `UpdateField`/`AssignField`, or `Field::Path` on non-tuple types remains.
+//! - Children are erased before a parent copies their kind, independently of
+//!   arena allocation order. Constructor and identity-read elimination retain
+//!   the child's source span.
 //! - **Whole-package erasure across the reachable package closure.** This
 //!   mutates every expression and callable signature in the target package
 //!   and in packages reached from its entry, not just reachable callable
@@ -54,16 +57,22 @@ use crate::EMPTY_EXEC_RANGE;
 use crate::fir_builder;
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
-use crate::walk_utils::expr_is_safe_to_discard;
+use crate::walk_utils::{
+    DirectChild, expr_is_safe_to_discard, for_each_direct_child, for_each_expr,
+    for_each_expr_in_callable_impl,
+};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemKind, LocalItemId,
-    Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, Res, StmtId, StoreItemId,
+    BlockId, CallableDecl, CallableImpl, CallableKind, ExecGraph, Expr, ExprId, ExprKind, Field,
+    FieldAssign, FieldPath, Ident, Item, ItemId, ItemKind, LocalItemId, Mutability, Package,
+    PackageId, PackageLookup, PackageStore, PatId, Res, SpecDecl, SpecImpl, StmtId, StmtKind,
+    StoreItemId, Visibility,
 };
-use qsc_fir::ty::{Arrow, Ty};
+use qsc_fir::ty::{Arrow, FunctorSetValue, Ty};
+use std::rc::Rc;
 
 use qsc_fir::fir::PackageSpan;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Maps `StoreItemId` → pure `Ty` for every UDT definition
 /// in the store.
@@ -81,6 +90,9 @@ type UdtCache = FxHashMap<StoreItemId, Ty>;
 ///   direct tuple construction could duplicate, skip, or reorder evaluation.
 /// - UDT constructor calls (`ExprKind::Call` whose callee is an
 ///   `ItemKind::Ty` item) into the underlying tuple or scalar value.
+///   Constructor values that survive in executable expressions reference
+///   ordinary identity callables, so later type-item removal cannot invalidate
+///   indirect calls. Callee selection and argument evaluation stay unchanged.
 /// - `ExprKind::UpdateField` and `ExprKind::AssignField` with `Field::Path`
 ///   into explicit tuple constructions with field extractions, evaluating the
 ///   replacement before the record. This differs from struct copy syntax,
@@ -153,8 +165,8 @@ pub fn erase_udts(
 /// - Allocates field-extraction expressions and ordered operand bindings through
 ///   `assigner` for struct construction and field-update lowering.
 fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: &mut Assigner) {
-    // Rewrite all expression types and Struct expressions.
-    let mut expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
+    // Parents can copy a child's kind, so every copied child must already be erased.
+    let mut expr_ids = expressions_in_postorder(package);
     let mut next = 0;
     while let Some(&expr_id) = expr_ids.get(next) {
         next += 1;
@@ -212,15 +224,11 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: 
                     } else {
                         // newtype X = T: pure type is scalar T. Unwrap to
                         // the inner expression directly.
-                        let inner_expr = package
-                            .exprs
-                            .get(values[0])
-                            .expect("inner expr should exist");
-                        let inner_kind = inner_expr.kind.clone();
-                        let inner_ty = inner_expr.ty.clone();
+                        let inner_expr = package.get_expr(values[0]).clone();
                         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-                        expr_mut.kind = inner_kind;
-                        expr_mut.ty = resolve_ty(udt_cache, &inner_ty);
+                        expr_mut.kind = inner_expr.kind;
+                        expr_mut.ty = resolve_ty(udt_cache, &inner_expr.ty);
+                        expr_mut.span = inner_expr.span;
                     }
                 } else {
                     // Multi-field UDT: replace with a tuple of the field
@@ -239,11 +247,12 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: 
         lower_field_updates(package, assigner, udt_cache, expr_id, &kind, expr_span);
 
         if lower_identity_expr(package, udt_cache, expr_id) {
-            // Removing a wrapper can expose a struct or update cloned from an
-            // expression that has not yet been erased.
+            // Revisit the copied root kind after peeling identity wrappers.
             expr_ids.push(expr_id);
         }
     }
+
+    lower_constructor_values(package, udt_cache, assigner);
 
     // Rewrite all pattern types.
     let pat_ids: Vec<PatId> = package.pats.iter().map(|(id, _)| id).collect();
@@ -281,6 +290,157 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: 
             }
         }
     }
+}
+
+/// Replaces surviving constructor values, not the orphaned callee nodes left
+/// behind by direct-call elimination. Each package reuses one identity callable
+/// per package-qualified constructor, including values in currently dead bodies.
+fn lower_constructor_values(package: &mut Package, udt_cache: &UdtCache, assigner: &mut Assigner) {
+    let mut references = FxHashMap::default();
+    let mut collect = |id, expr: &Expr| {
+        if let ExprKind::Var(Res::Item(item), _) = expr.kind
+            && udt_cache.contains_key(&(item.package, item.item).into())
+        {
+            references.insert(id, StoreItemId::from((item.package, item.item)));
+        }
+    };
+    for item in package.items.values() {
+        if let ItemKind::Callable(decl) = &item.kind {
+            for_each_expr_in_callable_impl(package, &decl.implementation, &mut collect);
+        }
+    }
+    if let Some(entry) = package.entry {
+        for_each_expr(package, entry, &mut collect);
+    }
+    let mut references: Vec<_> = references.into_iter().collect();
+    references.sort_unstable_by_key(|(id, _)| *id);
+
+    let mut identities = FxHashMap::default();
+    for (expr_id, constructor) in references {
+        let target = *identities.entry(constructor).or_insert_with(|| {
+            let ty = resolve_ty(udt_cache, &udt_cache[&constructor]);
+            create_constructor_identity(package, assigner, ty)
+        });
+        let expr = package
+            .exprs
+            .get_mut(expr_id)
+            .expect("constructor reference exists");
+        expr.kind = ExprKind::Var(
+            Res::Item(ItemId {
+                package: package.id,
+                item: target,
+            }),
+            Vec::new(),
+        );
+    }
+}
+
+/// Creates an internal function that returns its argument unchanged, providing
+/// a runtime target for a constructor value after its UDT representation is
+/// erased. Unlike the original type item, this callable survives item DCE when
+/// referenced by an indirect call.
+///
+/// `ty` must be the fully erased constructor input/output type. Binding it as
+/// one value preserves its entire shape, including Unit, nested tuples, and
+/// singleton tuples; no additional tuple wrapper is introduced.
+///
+/// # Before / After
+/// ```text
+/// Before: constructor value Data : T -> Data
+/// After:  __udt_constructor_N : erased(T) -> erased(T)
+///         body(value) { value }
+/// ```
+/// The caller replaces constructor references and caches the returned local
+/// item ID; this helper always creates a fresh callable.
+///
+/// # Mutations
+/// Allocates the callable and its input pattern, local IDs, expression,
+/// statement, and block in `package` using its assigner and synthetic span.
+/// Execution graphs are left empty for [`crate::exec_graph_rebuild`] to rebuild.
+fn create_constructor_identity(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    ty: Ty,
+) -> LocalItemId {
+    let span = package.synthetic_span();
+    let (value, input) = fir_builder::alloc_bind_pat(package, assigner, "value", ty.clone(), span);
+    let result = fir_builder::alloc_local_var_expr(package, assigner, value, ty.clone(), span);
+    let statement = fir_builder::alloc_expr_stmt(package, assigner, result, span);
+    let block = fir_builder::alloc_block(package, assigner, vec![statement], ty.clone(), span);
+    let id = assigner.next_item();
+    let decl = CallableDecl {
+        span,
+        kind: CallableKind::Function,
+        name: Ident {
+            id: assigner.next_local(),
+            span,
+            name: Rc::from(format!("__udt_constructor_{id}")),
+        },
+        generics: Vec::new(),
+        input,
+        output: ty,
+        functors: FunctorSetValue::Empty,
+        implementation: CallableImpl::Spec(SpecImpl {
+            body: SpecDecl {
+                span,
+                block,
+                input: None,
+                exec_graph: ExecGraph::default(),
+            },
+            adj: None,
+            ctl: None,
+            ctl_adj: None,
+        }),
+        attrs: Vec::new(),
+    };
+    package.items.insert(
+        id,
+        Item {
+            id,
+            span,
+            parent: None,
+            doc: Rc::from(""),
+            attrs: Vec::new(),
+            visibility: Visibility::Internal,
+            kind: ItemKind::Callable(Box::new(decl)),
+        },
+    );
+    id
+}
+
+fn expressions_in_postorder(package: &Package) -> Vec<ExprId> {
+    let roots: Vec<_> = package.exprs.iter().map(|(id, _)| (id, false)).collect();
+    let mut pending: Vec<_> = roots.into_iter().rev().collect();
+    let mut seen = FxHashSet::default();
+    let mut ordered = Vec::new();
+    while let Some((id, children_visited)) = pending.pop() {
+        if children_visited {
+            ordered.push(id);
+            continue;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        pending.push((id, true));
+        let mut children = Vec::new();
+        for_each_direct_child(&package.get_expr(id).kind, |child| match child {
+            DirectChild::Expr(child) => children.push(child),
+            DirectChild::Block(block) => {
+                for &statement in &package.get_block(block).stmts {
+                    match package.get_stmt(statement).kind {
+                        StmtKind::Expr(child)
+                        | StmtKind::Semi(child)
+                        | StmtKind::Local(_, _, child) => {
+                            children.push(child);
+                        }
+                        StmtKind::Item(_) => {}
+                    }
+                }
+            }
+        });
+        pending.extend(children.into_iter().rev().map(|id| (id, false)));
+    }
+    ordered
 }
 
 /// Stores the copy value first, then every initializer in source order. Once
@@ -373,7 +533,7 @@ fn wrap_operand_evaluation(
 /// ```
 ///
 /// # Mutations
-/// - Rewrites `expr_id`'s `ExprKind` and `Ty` in place.
+/// - Rewrites `expr_id`'s `ExprKind`, `Ty`, and source span in place.
 fn lower_identity_expr(package: &mut Package, udt_cache: &UdtCache, expr_id: ExprId) -> bool {
     let mut changed = false;
     loop {
@@ -413,9 +573,11 @@ fn lower_identity_expr(package: &mut Package, udt_cache: &UdtCache, expr_id: Exp
         let source = package.exprs.get(source).expect("source should exist");
         let source_kind = source.kind.clone();
         let source_ty = resolve_ty(udt_cache, &source.ty);
+        let source_span = source.span;
         let expr = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr.kind = source_kind;
         expr.ty = source_ty;
+        expr.span = source_span;
         changed = true;
     }
 }

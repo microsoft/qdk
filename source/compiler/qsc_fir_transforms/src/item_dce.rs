@@ -39,9 +39,9 @@ use rustc_hash::FxHashSet;
 /// reachable set are ignored.
 ///
 /// Type items are unconditionally removed: `udt_erase` (which must precede this
-/// pass) inlined every UDT reference in the *reachable* callables, and this
-/// pass drops the unreachable callables that may still reference a UDT, so no
-/// surviving callable references a type item.
+/// pass) erases nominal types and replaces constructor calls or values with
+/// erased expressions or ordinary identity callables. No surviving callable
+/// therefore depends on a type item.
 ///
 /// Returns the number of items removed.
 #[allow(clippy::implicit_hasher)]
@@ -61,9 +61,8 @@ pub fn eliminate_dead_items(
         let keep = match &item.kind {
             // Callable items: keep only if reachable from entry.
             ItemKind::Callable(_) => local_reachable.contains(&id),
-            // Type items: dead because `udt_erase` inlined every UDT reference
-            // in the reachable callables, and the unreachable callables that
-            // may still reference a UDT are dropped by the `Callable` arm above.
+            // Type items: `udt_erase` removed their runtime references, including
+            // constructor values retained for indirect calls.
             ItemKind::Ty(..) => false,
         };
         if !keep {
