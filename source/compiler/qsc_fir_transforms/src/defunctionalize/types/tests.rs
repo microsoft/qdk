@@ -223,6 +223,64 @@ fn join_with_condition_multi_multi_shared_callable_keeps_both_arms() {
 }
 
 #[test]
+fn join_with_condition_multi_multi_preserves_indexed_positions() {
+    for (left, right) in [
+        (vec![global(1)], vec![global(2), global(3), global(2)]),
+        (
+            vec![global(1), global(2)],
+            vec![global(3), global(1), global(3)],
+        ),
+    ] {
+        for (left, right) in [(&left, &right), (&right, &left)] {
+            let lhs = CalleeLattice::Multi(left.iter().cloned().map(|cc| (cc, vec![])).collect());
+            let rhs = CalleeLattice::Multi(right.iter().cloned().map(|cc| (cc, vec![])).collect());
+            let expected = CalleeLattice::Multi(
+                left.iter()
+                    .cloned()
+                    .map(|cc| (cc, vec![cond()]))
+                    .chain(right.iter().cloned().map(|cc| (cc, vec![])))
+                    .collect(),
+            );
+            assert_eq!(
+                lhs.join_with_condition(rhs, cond()),
+                expected,
+                "indexed positions must survive until dispatch eligibility is checked",
+            );
+        }
+    }
+}
+
+#[test]
+fn join_with_condition_multi_multi_preserves_guards_and_indexed_positions() {
+    let inner_a = ExprId::from(10u32);
+    let inner_b = ExprId::from(20u32);
+    let lhs = CalleeLattice::Multi(vec![(global(1), vec![inner_a]), (global(2), vec![])]);
+    let rhs = CalleeLattice::Multi(vec![
+        (global(3), vec![inner_b]),
+        (global(1), vec![]),
+        (global(3), vec![]),
+    ]);
+
+    assert_eq!(
+        lhs.join_with_condition(rhs, cond()),
+        CalleeLattice::Multi(vec![
+            (global(1), vec![cond(), inner_a]),
+            (global(2), vec![cond()]),
+            (global(3), vec![inner_b]),
+            (global(1), vec![]),
+            (global(3), vec![]),
+        ]),
+    );
+}
+
+#[test]
+fn join_with_condition_multi_multi_counts_indexed_positions_toward_cap() {
+    let lhs = CalleeLattice::Multi(vec![(global(1), vec![])]);
+    let rhs = CalleeLattice::Multi(vec![(global(2), vec![]); MULTI_CAP]);
+    assert_eq!(lhs.join_with_condition(rhs, cond()), CalleeLattice::Dynamic);
+}
+
+#[test]
 fn join_with_condition_multi_multi_cap_exceeded_becomes_dynamic() {
     let half = MULTI_CAP / 2 + 1;
     let s1: Vec<(ConcreteCallable, Vec<ExprId>)> = (0..half)
@@ -309,6 +367,7 @@ fn compose_functors_adj_and_ctl() {
 fn spec_key_equality() {
     let key1 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -319,6 +378,7 @@ fn spec_key_equality() {
     };
     let key2 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -334,6 +394,7 @@ fn spec_key_equality() {
 fn spec_key_different() {
     let key1 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -344,6 +405,7 @@ fn spec_key_different() {
     };
     let key2 = SpecKey {
         hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
+        param_positions: vec![(0, vec![])],
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),

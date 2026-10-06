@@ -11,10 +11,1215 @@ use proptest::prelude::*;
 
 use super::test_cases;
 
+pub(super) fn mixed_dispatch_owned_argument_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for flag in [false, true] {
+        for fields in [
+            "F=if flag { Inc } else { Twice }, N=n, G=Make(offset)",
+            "G=Make(offset), N=n, F=if flag { Inc } else { Twice }",
+        ] {
+            let payload = format!("new Payload {{ {fields} }}");
+            for call in [
+                format!("Read({payload})"),
+                format!("let stored={payload}; Read(stored)"),
+                format!("let stored={payload}; Read(new Payload {{ ...stored, G=Make(offset) }})"),
+                format!("ReadPair((0, {payload}))"),
+                format!("ReadOuter(new Outer {{ Value={payload} }})"),
+                "ReadLegacy(Legacy(if flag { Inc } else { Twice }, n, Make(offset)))".to_string(),
+            ] {
+                let source = formatdoc! {r#"
+                    struct Payload {{ F : Int -> Int, G : Int -> Int, N : Int }}
+                    struct Outer {{ Value : Payload }}
+                    newtype Legacy = (F : Int -> Int, N : Int, G : Int -> Int);
+                    function Inc(x : Int) : Int {{ x+1 }}
+                    function Twice(x : Int) : Int {{ 2*x }}
+                    function Make(offset : Int) : Int -> Int {{ x -> x+offset }}
+                    function Read(p : Payload) : Int {{ p.F(p.N)+p.G(p.N) }}
+                    function ReadPair(pair : (Int, Payload)) : Int {{
+                        let (prefix, p)=pair; prefix+p.F(p.N)+p.G(p.N)
+                    }}
+                    function ReadOuter(p : Outer) : Int {{
+                        p.Value.F(p.Value.N)+p.Value.G(p.Value.N)
+                    }}
+                    function ReadLegacy(p : Legacy) : Int {{
+                        let (f, n, g)=p!; f(n)+g(n)
+                    }}
+                    function Pick(flag : Bool, n : Int, offset : Int) : Int {{ {call} }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}, 3, 10) }}
+                "#};
+                cases.push((source, if flag { 17 } else { 19 }));
+            }
+        }
+    }
+    cases
+}
+
+#[test]
+fn mixed_dispatch_owned_arguments_preserve_values_and_bindings() {
+    for (source, expected) in mixed_dispatch_owned_argument_cases() {
+        check_projected_callee_result(&source, expected);
+    }
+}
+
+#[test]
+fn mixed_dispatch_owned_arguments_preserve_capture_occurrences_and_field_order() {
+    for flag in [false, true] {
+        for fields in [
+            r#"F=selected, N=Log("first", n), G=Make(offset), Tail=Log("last", 7)"#,
+            r#"Tail=Log("first", 7), G=Make(offset), N=Log("last", n), F=selected"#,
+        ] {
+            let source = formatdoc! {r#"
+                struct Payload {{ F : Int -> Int, G : Int -> Int, N : Int, Tail : Int }}
+                function Inc(x : Int) : Int {{ x+1 }}
+                function Twice(x : Int) : Int {{ 2*x }}
+                function Make(offset : Int) : Int -> Int {{ x -> x+offset }}
+                function Log(label : String, n : Int) : Int {{ Message(label); n }}
+                function Read(p : Payload) : Int {{ p.F(p.N)+p.G(p.N)+p.Tail }}
+                function Pick(flag : Bool, n : Int, offset : Int) : Int {{
+                    let selected=if flag {{ Inc }} else {{ Twice }};
+                    Read(new Payload {{ {fields} }})
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    Pick({flag}, 3, 10)+Pick(not {flag}, 4, 20)
+                }}
+            "#};
+            check_rewritten_callable_result(&source, if flag { 63 } else { 62 });
+        }
+    }
+}
+
+#[test]
+fn mixed_dispatch_owned_arguments_preserve_first_field_failure() {
+    for flag in [false, true] {
+        for fields in [
+            r#"F=selected, N=Fail("first"), G=Make(offset), Tail=Fail("last")"#,
+            r#"Tail=Fail("first"), G=Make(offset), N=Fail("last"), F=selected"#,
+        ] {
+            let source = formatdoc! {r#"
+                struct Payload {{ F : Int -> Int, G : Int -> Int, N : Int, Tail : Int }}
+                function Inc(x : Int) : Int {{ x+1 }}
+                function Twice(x : Int) : Int {{ 2*x }}
+                function Make(offset : Int) : Int -> Int {{ x -> x+offset }}
+                function Fail(label : String) : Int {{ Message(label); fail label }}
+                function Read(p : Payload) : Int {{ p.F(p.N)+p.G(p.N)+p.Tail }}
+                function Pick(flag : Bool, offset : Int) : Int {{
+                    let selected=if flag {{ Inc }} else {{ Twice }};
+                    Read(new Payload {{ {fields} }})
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, 10) }}
+            "#};
+            let error = crate::test_utils::eval_qsharp_original(&source)
+                .expect_err("the first field must fail");
+            assert!(error.contains("first"), "{error}");
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
+fn mixed_dispatch_owned_arguments_preserve_controlled_traces() {
+    for functor in ["Controlled", "Controlled Controlled", "Adjoint Controlled"] {
+        for flag in [false, true] {
+            for enabled in [false, true] {
+                let payload = "new Payload { F=selected, N=Data(target), G=Make(7) }";
+                let args = if functor == "Controlled Controlled" {
+                    format!("[outer], ([inner], ({payload}, target))")
+                } else {
+                    format!("[outer], ({payload}, target)")
+                };
+                let source = formatdoc! {r#"
+                    struct Payload {{
+                        F : Qubit => Unit is Adj + Ctl,
+                        G : Qubit => Unit is Adj + Ctl, N : Int
+                    }}
+                    operation Toggle(tag : Int, q : Qubit) : Unit is Adj + Ctl {{
+                        if tag==7 {{ X(q); }}
+                    }}
+                    function Make(tag : Int) : Qubit => Unit is Adj + Ctl {{ Toggle(tag, _) }}
+                    operation Data(q : Qubit) : Int {{ Message("field"); X(q); 3 }}
+                    operation Run(p : Payload, q : Qubit) : Unit is Adj + Ctl {{
+                        if p.N==3 {{ p.F(q); p.G(q); }}
+                    }}
+                    operation Pick(flag : Bool, outer : Qubit, inner : Qubit, target : Qubit) : Unit {{
+                        let selected=if flag {{ Z }} else {{ X }};
+                        {functor} Run({args});
+                    }}
+                    @EntryPoint() operation Main() : Int {{
+                        use outer=Qubit();
+                        use inner=Qubit();
+                        use target=Qubit();
+                        if {enabled} {{ X(outer); X(inner); }}
+                        Pick({flag}, outer, inner, target);
+                        Reset(outer); Reset(inner);
+                        if MResetZ(target)==One {{ 1 }} else {{ 0 }}
+                    }}
+                "#};
+                check_rewritten_callable_result(&source, i64::from(!enabled || !flag));
+            }
+        }
+    }
+}
+
+pub(super) fn dispatch_operand_struct_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    let head = r#"{ Message("head"); set selector = not selector; set order = 10*order+1; 3 }"#;
+    let tail = r#"{ Message("tail"); set order = 10*order+2; 7 }"#;
+    let prefix = r#"{ Message("prefix"); set order = 10*order+3; 9 }"#;
+    let selected = "if selector { Inc } else { Twice }";
+    let payload = format!("new Payload {{ Head={head}, F={selected}, Tail={tail} }}");
+    for flag in [true, false] {
+        for (call, order, extra) in [
+            (format!("Read({payload})"), 12, 0),
+            (
+                format!("Read(new Payload {{ Tail={tail}, Head={head}, F={selected} }})"),
+                21,
+                0,
+            ),
+            (format!("ReadNested(({prefix}, {payload}))"), 312, 9),
+            (
+                format!("ReadOuter(new Outer {{ Prefix={prefix}, Value={payload} }})"),
+                312,
+                9,
+            ),
+            (
+                format!(
+                    r#"Read(new Payload {{
+                        ...new Payload {{
+                            F=Inc, Head=0,
+                            Tail={{ Message("copy"); set order=10*order+3; 7 }}
+                        }},
+                        Head={head}, F={selected}
+                    }})"#
+                ),
+                31,
+                0,
+            ),
+            (
+                format!("ReadLegacy(Legacy({head}, {selected}, {tail}))"),
+                12,
+                0,
+            ),
+            (format!("let stored={payload}; Read(stored)"), 12, 0),
+        ] {
+            let source = formatdoc! {r#"
+                struct Payload {{ F : Int -> Int, Head : Int, Tail : Int }}
+                struct Outer {{ Value : Payload, Prefix : Int }}
+                newtype Legacy = (Head : Int, F : Int -> Int, Tail : Int);
+                function Inc(x : Int) : Int {{ x+1 }}
+                function Twice(x : Int) : Int {{ 2*x }}
+                function Read(p : Payload) : Int {{ p.F(p.Head)+p.Tail }}
+                function ReadNested(data : (Int, Payload)) : Int {{
+                    let (prefix, p)=data; prefix+Read(p)
+                }}
+                function ReadOuter(p : Outer) : Int {{ p.Prefix+Read(p.Value) }}
+                function ReadLegacy(p : Legacy) : Int {{
+                    let (head, f, tail)=p!; f(head)+tail
+                }}
+                function Choose(flag : Bool) : Int {{
+                    mutable selector=flag;
+                    mutable order=0;
+                    let value={{ {call} }};
+                    1000*order+value
+                }}
+                @EntryPoint() operation Main() : Int {{ Choose({flag}) }}
+            "#};
+            cases.push((source, 1000 * order + extra + if flag { 13 } else { 11 }));
+        }
+    }
+    cases
+}
+
+#[test]
+fn dispatch_operand_struct_preserves_source_order_and_selection() {
+    for (source, expected) in dispatch_operand_struct_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+pub(super) fn dispatch_operand_reassigned_index_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for (first, second) in [(0, 1), (1, 0), (-2, -1), (-1, -2), (0, -1), (-1, 0)] {
+        let first_value = if first == 0 || first == -2 { 4 } else { 6 };
+        let second_value = if second == 0 || second == -2 { 4 } else { 6 };
+        for (body, expected) in [
+            ("set f=fs[second]; f(3)", second_value),
+            ("set f=fs[second]; Apply(f, 3)", second_value),
+            ("set f=fs[second]; let alias=f; alias(3)", second_value),
+            (
+                "let before=f; set f=fs[second]; 100*before(3)+f(3)",
+                100 * first_value + second_value,
+            ),
+            (
+                "mutable tag=0; set (tag, f)=(7, fs[second]); 100*tag+f(3)",
+                700 + second_value,
+            ),
+            ("set f=fs[second]; f({ set f=fs[first]; 3 })", second_value),
+            (
+                r#"set f=fs[{ Message("store"); second }];
+                   Apply(f, { Message("argument"); 3 })"#,
+                second_value,
+            ),
+        ] {
+            let source = formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x+1 }}
+                function Twice(x : Int) : Int {{ 2*x }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function Choose(first : Int, second : Int) : Int {{
+                    let fs=[Inc, Twice];
+                    mutable f=fs[first];
+                    {body}
+                }}
+                @EntryPoint() operation Main() : Int {{ Choose({first}, {second}) }}
+            "#};
+            cases.push((source, expected));
+        }
+    }
+    cases
+}
+
+#[test]
+fn dispatch_operand_reassigned_index_preserves_reaching_selection() {
+    for (source, expected) in dispatch_operand_reassigned_index_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn dispatch_operand_unassigned_index_locals_remain_specializable() {
+    for binding in ["let", "mutable"] {
+        let source = formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x+1 }}
+            function Twice(x : Int) : Int {{ 2*x }}
+            function Choose(index : Int) : Int {{
+                let fs=[Inc, Twice];
+                {binding} f=fs[index];
+                f(3)
+            }}
+            @EntryPoint() operation Main() : Int {{ Choose(-1) }}
+        "#};
+        let (store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
+        let rendered = crate::pretty::write_package_qsharp_parseable(&store, package);
+        assert!(rendered.contains("Inc(3)"), "{rendered}");
+        assert!(rendered.contains("Twice(3)"), "{rendered}");
+        check_callable_result(&source, 6);
+    }
+}
+
+#[test]
+fn dispatch_operand_struct_prefix_stays_in_its_lazy_branch() {
+    for flag in [true, false] {
+        let source = formatdoc! {r#"
+            struct Payload {{ F : Int -> Int, N : Int }}
+            function Inc(x : Int) : Int {{ x+1 }}
+            function Twice(x : Int) : Int {{ 2*x }}
+            function Read(p : Payload) : Int {{ p.F(p.N) }}
+            function Choose(enabled : Bool) : Int {{
+                mutable selector=true;
+                mutable visits=0;
+                let value=if enabled {{
+                    Read(new Payload {{
+                        N={{ set visits+=1; set selector=false; 3 }},
+                        F=if selector {{ Inc }} else {{ Twice }}
+                    }})
+                }} else {{ 0 }};
+                100*visits+value
+            }}
+            @EntryPoint() operation Main() : Int {{ Choose({flag}) }}
+        "#};
+        check_callable_result(&source, if flag { 106 } else { 0 });
+    }
+}
+
+#[test]
+fn dispatch_operand_failures_preserve_earlier_evaluations() {
+    let source = r#"
+        struct Payload { F : Int -> Int, N : Int, Tail : Int }
+        function Inc(x : Int) : Int { x+1 }
+        function Twice(x : Int) : Int { 2*x }
+        function Read(p : Payload, extra : Int) : Int { p.F(p.N)+p.Tail+extra }
+        function Choose(flag : Bool) : Int {
+            mutable selector=flag;
+            Read(new Payload {
+                N={ Message("head"); set selector=not selector; fail "first field" },
+                F=if selector { Inc } else { Twice },
+                Tail={ fail "later field" }
+            }, { fail "later argument" })
+        }
+        @EntryPoint() operation Main() : Int { Choose(true) }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("the first field must fail before later operands");
+    assert!(error.contains("first field"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+
+    for (first, second) in [(0, 2), (0, -3), (2, 1), (-3, 1)] {
+        let source = formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x+1 }}
+            function Twice(x : Int) : Int {{ 2*x }}
+            function Choose(first : Int, second : Int) : Int {{
+                let fs=[Inc, Twice];
+                mutable f=fs[{{ Message("initial"); first }}];
+                set f=fs[{{ Message("store"); second }}];
+                f({{ fail "argument" }})
+            }}
+            @EntryPoint() operation Main() : Int {{ Choose({first}, {second}) }}
+        "#};
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("selection bounds must fail before invocation arguments");
+        assert!(error.starts_with("IndexOutOfRange("), "{error}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn dispatch_operand_struct_and_reassigned_index_preserve_quantum_trace() {
+    for flag in [true, false] {
+        for body in [
+            r#"
+                mutable selector=flag;
+                Run(new Payload {
+                    N={ H(q); set selector=not selector; 0 },
+                    F=if selector { X } else { Z },
+                    Q={ H(q); q }
+                });
+            "#,
+            r#"
+                let ops=[X, Z];
+                mutable f=ops[first];
+                set f=ops[{ H(q); second }];
+                f({ H(q); q });
+            "#,
+        ] {
+            let source = formatdoc! {r#"
+                struct Payload {{ F : Qubit => Unit, N : Int, Q : Qubit }}
+                operation Run(p : Payload) : Unit {{ p.F(p.Q); }}
+                operation Pick(first : Int, second : Int, flag : Bool, q : Qubit) : Unit {{
+                    {body}
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    use q=Qubit();
+                    Y(q);
+                    Pick({first}, {second}, {flag}, q);
+                    Reset(q);
+                    0
+                }}
+            "#, first = i32::from(!flag), second = i32::from(flag)};
+            let (store, package) = crate::test_utils::compile_to_fir(&source);
+            let (_, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+            let gates: Vec<_> = trace
+                .iter()
+                .filter_map(|operation| match operation {
+                    crate::test_utils::TraceOp::Gate { name, .. } => Some(name.as_str()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(gates, ["Y", "H", "H", if flag { "Z" } else { "X" }]);
+            check_callable_result(&source, 0);
+        }
+    }
+}
+
+pub(super) const PROJECTED_CALLEE_EFFECTS: &str = r#"
+    struct Choice { F : Int -> Int, Stamp : Int }
+    function Inc(x : Int) : Int { x + 1 }
+    function Twice(x : Int) : Int { 2 * x }
+    function Pick(flag : Bool) : Int {
+        mutable order = 0;
+        let value = (new Choice {
+            F = if flag { Inc } else { Twice },
+            Stamp = { set order = 10 * order + 1; 0 }
+        }).F({ set order = 10 * order + 2; 3 });
+        100 * order + value
+    }
+    @EntryPoint()
+    operation Main() : Int { Pick(true) + Pick(false) }
+"#;
+
+pub(super) const PROJECTED_HOF_CAPTURE: &str = r#"
+    struct Payload { F : Int -> Int, N : Int }
+    struct Dispatch { Run : Payload -> Int }
+    function Add(offset : Int, x : Int) : Int { offset + x }
+    function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+    function First(p : Payload) : Int { Apply(p.F, p.N) }
+    function Second(p : Payload) : Int { 100 + Apply(p.F, p.N) }
+    function Pick(flag : Bool) : Int {
+        mutable visits = 0;
+        let value = (new Dispatch {
+            Run = if flag { First } else { Second }
+        }).Run(new Payload {
+            F = Add({ set visits += 1; 10 }, _),
+            N = 3
+        });
+        1000 * visits + value
+    }
+    @EntryPoint()
+    operation Main() : Int { Pick(true) + Pick(false) }
+"#;
+
+#[test]
+fn projected_callee_preserves_complete_aggregate_evaluation() {
+    check_projected_callee_result(PROJECTED_CALLEE_EFFECTS, 2410);
+}
+
+#[test]
+fn projected_callee_hof_owns_inline_struct_captures() {
+    check_projected_callee_result(PROJECTED_HOF_CAPTURE, 2126);
+}
+
+pub(super) fn projected_callee_snapshot_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for flag in [false, true] {
+        for capturing in [false, true] {
+            for nested in [false, true] {
+                let (first, second, selected, prefix) = if capturing {
+                    (
+                        "Add({ set order = 10 * order + 4; offset }, _)",
+                        "Add({ set order = 10 * order + 4; 2 * offset }, _)",
+                        if flag { 13 } else { 23 },
+                        4,
+                    )
+                } else {
+                    ("Inc", "Twice", if flag { 4 } else { 6 }, 0)
+                };
+                let choice = formatdoc! {r#"
+                    new Choice {{
+                        F = if selector {{ {first} }} else {{ {second} }},
+                        Stamp = {{
+                            set selector = not selector;
+                            set order = 10 * order + 1;
+                            0
+                        }}
+                    }}
+                "#};
+                let callee = if nested {
+                    formatdoc! {r#"
+                        (new Outer {{
+                            Inner = {choice},
+                            Stamp = {{ set order = 10 * order + 2; 0 }}
+                        }}).Inner.F
+                    "#}
+                } else {
+                    format!("({choice}).F")
+                };
+                let order = if nested {
+                    1000 * prefix + 123
+                } else {
+                    100 * prefix + 13
+                };
+                let source = formatdoc! {r#"
+                    struct Choice {{ F : Int -> Int, Stamp : Int }}
+                    struct Outer {{ Inner : Choice, Stamp : Int }}
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Add(offset : Int, x : Int) : Int {{ offset + x }}
+                    function Pick(flag : Bool, offset : Int) : Int {{
+                        mutable selector = flag;
+                        mutable order = 0;
+                        let value = ({callee})({{ set order = 10 * order + 3; 3 }});
+                        100 * order + value
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}, 10) }}
+                "#};
+                cases.push((source, 100 * order + selected));
+            }
+        }
+    }
+    cases
+}
+
+#[test]
+fn projected_callee_preserves_selection_and_capture_snapshots() {
+    for (source, expected) in projected_callee_snapshot_cases() {
+        check_projected_callee_result(&source, expected);
+    }
+}
+
+pub(super) fn projected_callee_hof_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for flag in [false, true] {
+        for nested in [false, true] {
+            let dispatch = r#"
+                new Dispatch {
+                    Run = if flag { First } else { Second },
+                    Stamp = { set order = 10 * order + 1; 0 }
+                }
+            "#;
+            let callee = if nested {
+                formatdoc! {r#"
+                    (new Outer {{
+                        Inner = {dispatch},
+                        Stamp = {{ set order = 10 * order + 2; 0 }}
+                    }}).Inner.Run
+                "#}
+            } else {
+                format!("({dispatch}).Run")
+            };
+            let source = formatdoc! {r#"
+                struct Payload {{ F : Int -> Int, N : Int }}
+                struct Dispatch {{ Run : Payload -> Int, Stamp : Int }}
+                struct Outer {{ Inner : Dispatch, Stamp : Int }}
+                function Add(offset : Int, x : Int) : Int {{ offset + x }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function First(p : Payload) : Int {{ Apply(p.F, p.N) }}
+                function Second(p : Payload) : Int {{ 100 + Apply(p.F, p.N) }}
+                function Pick(flag : Bool) : Int {{
+                    mutable order = 0;
+                    let value = ({callee})(new Payload {{
+                        F = Add({{ set order = 10 * order + 3; 10 }}, _),
+                        N = {{ set order = 10 * order + 4; 3 }}
+                    }});
+                    1000 * order + value
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+            "#};
+            let order = if nested { 1234 } else { 134 };
+            cases.push((source, 1000 * order + if flag { 13 } else { 113 }));
+        }
+    }
+    cases
+}
+
+#[test]
+fn projected_callee_hof_preserves_nested_effects_and_capture_ownership() {
+    for (source, expected) in projected_callee_hof_cases() {
+        check_projected_callee_result(&source, expected);
+    }
+}
+
+#[test]
+fn projected_callee_preserves_failure_order() {
+    for flag in [false, true] {
+        for nested in [false, true] {
+            for capture_fails in [false, true] {
+                let (first, second, expected) = if capture_fails {
+                    (
+                        "Add(CaptureFailure(), _)",
+                        "Add(CaptureFailure(), _)",
+                        "capture first",
+                    )
+                } else {
+                    ("Inc", "Twice", "callee first")
+                };
+                let choice = formatdoc! {r#"
+                    new Choice {{
+                        F = if flag {{ {first} }} else {{ {second} }},
+                        Stamp = {{ fail "callee first" }}
+                    }}
+                "#};
+                let callee = if nested {
+                    format!(
+                        "(new Outer {{ Inner = {choice}, Stamp = {{ fail \"outer first\" }} }}).Inner.F"
+                    )
+                } else {
+                    format!("({choice}).F")
+                };
+                let source = formatdoc! {r#"
+                    struct Choice {{ F : Int -> Int, Stamp : Int }}
+                    struct Outer {{ Inner : Choice, Stamp : Int }}
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Add(offset : Int, x : Int) : Int {{ offset + x }}
+                    function CaptureFailure() : Int {{ fail "capture first" }}
+                    function Pick(flag : Bool) : Int {{
+                        ({callee})({{ fail "argument first" }})
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+                "#};
+                let error = crate::test_utils::eval_qsharp_original(&source)
+                    .expect_err("the callee must fail before the argument");
+                assert!(error.contains(expected), "{error}");
+                crate::test_utils::check_semantic_equivalence(&source);
+            }
+        }
+    }
+}
+
+#[test]
+fn projected_callee_hof_failure_precedes_argument_capture() {
+    for flag in [false, true] {
+        let source = formatdoc! {r#"
+            struct Payload {{ F : Int -> Int }}
+            struct Dispatch {{ Run : Payload -> Int, Stamp : Int }}
+            struct Outer {{ Inner : Dispatch, Stamp : Int }}
+            function Add(offset : Int, x : Int) : Int {{ offset + x }}
+            function CaptureFailure() : Int {{ fail "argument capture" }}
+            function First(p : Payload) : Int {{ p.F(3) }}
+            function Second(p : Payload) : Int {{ 100 + p.F(3) }}
+            function Pick(flag : Bool) : Int {{
+                (new Outer {{
+                    Inner = new Dispatch {{
+                        Run = if flag {{ First }} else {{ Second }},
+                        Stamp = {{ fail "callee first" }}
+                    }},
+                    Stamp = {{ fail "outer first" }}
+                }}).Inner.Run(new Payload {{ F = Add(CaptureFailure(), _) }})
+            }}
+            @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+        "#};
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("callee construction must fail before argument capture");
+        assert!(error.contains("callee first"), "{error}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+fn check_projected_callee_result(source: &str, expected: i64) {
+    use qsc_fir::fir::{ItemKind, PackageLookup};
+
+    let (store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    for owner in crate::reachability::collect_reachable_from_entry(&store, package) {
+        let package = store.get(owner.package);
+        if let ItemKind::Callable(decl) = &package.get_item(owner.item).kind {
+            crate::invariants::check_local_var_consistency(package, decl);
+        }
+    }
+    check_callable_result(source, expected);
+}
+
+pub(super) fn callable_array_partial_sibling_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for reversed in [false, true] {
+        let parameters = if reversed {
+            "pair : (Int -> Int, Int), ops : (Int -> Int)[]"
+        } else {
+            "ops : (Int -> Int)[], pair : (Int -> Int, Int)"
+        };
+        for (callable, expected) in [("Inc", 10), ("x -> x + offset", 19)] {
+            for stored in [false, true] {
+                let pair = if stored {
+                    "pair".to_string()
+                } else {
+                    format!("({callable}, Data())")
+                };
+                let arguments = if reversed {
+                    format!("{pair}, [Inc, Twice]")
+                } else {
+                    format!("[Inc, Twice], {pair}")
+                };
+                let binding = if stored {
+                    format!("let pair = ({callable}, Data()); Message(\"stored pair\");")
+                } else {
+                    String::new()
+                };
+                let source = formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Data() : Int {{ Message("data"); 3 }}
+                    function Run({parameters}) : Int {{
+                        let (f, n) = pair;
+                        ops[1](n) + f(n)
+                    }}
+                    function Pick(offset : Int) : Int {{
+                        {binding}
+                        Run({arguments})
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick(10) }}
+                "#};
+                cases.push((source, expected));
+            }
+        }
+    }
+    cases
+}
+
+#[test]
+fn callable_array_partial_sibling_preserves_data_and_capture_layout() {
+    for (source, expected) in callable_array_partial_sibling_cases() {
+        check_rewritten_callable_result(&source, expected);
+    }
+}
+
+pub(super) fn indexed_array_effect_cases() -> impl Iterator<Item = (String, i64)> {
+    [(-2, 4), (-1, 6), (0, 4), (1, 6)]
+        .into_iter()
+        .map(|(index, value)| {
+            let source = formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x + 1 }}
+                function Twice(x : Int) : Int {{ 2 * x }}
+                function Pick(index : Int) : Int {{
+                    mutable order = 0;
+                    let result = ({{
+                        Message("array");
+                        set order = 10 * order + 1;
+                        [Inc, Twice]
+                    }})[{{
+                        Message("index");
+                        set order = 10 * order + 2;
+                        index
+                    }}]({{
+                        Message("argument");
+                        set order = 10 * order + 3;
+                        3
+                    }});
+                    100 * order + result
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({index}) }}
+            "#};
+            (source, 12300 + value)
+        })
+}
+
+#[test]
+fn indexed_array_construction_preserves_value_and_effect_order() {
+    for (source, expected) in indexed_array_effect_cases() {
+        check_rewritten_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn indexed_array_control_flow_preserves_selected_construction() {
+    for (flag, expected) in [(true, 124), (false, 226)] {
+        let source = formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Twice(x : Int) : Int {{ 2 * x }}
+            function Pick(flag : Bool, index : Int) : Int {{
+                mutable order = 0;
+                let result = (if flag {{
+                    Message("first array");
+                    set order = 1;
+                    [Inc, Twice]
+                }} else {{
+                    Message("second array");
+                    set order = 2;
+                    [Twice, Inc]
+                }})[{{ set order = 10 * order + 2; index }}](3);
+                10 * order + result
+            }}
+            @EntryPoint() operation Main() : Int {{ Pick({flag}, 0) }}
+        "#};
+        check_rewritten_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn indexed_array_construction_precedes_bounds_and_argument_failures() {
+    for index in [-3, 2] {
+        let source = formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Twice(x : Int) : Int {{ 2 * x }}
+            function Argument() : Int {{ fail "argument" }}
+            function Pick(index : Int) : Int {{
+                ({{ Message("array"); [Inc, Twice] }})[index](Argument())
+            }}
+            @EntryPoint() operation Main() : Int {{ Pick({index}) }}
+        "#};
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("bounds must fail before the argument");
+        assert!(error.starts_with("IndexOutOfRange("), "{error}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+    let source = r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Twice(x : Int) : Int { 2 * x }
+        function ArrayPrefix() : Unit { fail "array"; }
+        function Pick(index : Int) : Int {
+            ({ ArrayPrefix(); [Inc, Twice] })[index](3)
+        }
+        @EntryPoint() operation Main() : Int { Pick(2) }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("array construction must fail before bounds");
+    assert!(error.contains("array"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+pub(super) fn mixed_stored_argument_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for (flag, expected) in [(true, 17), (false, 19)] {
+        for call in [
+            "Run(args)",
+            "let alias = args; Run(alias)",
+            "Run(args) + Run(args)",
+        ] {
+            let source = formatdoc! {r#"
+                function Inc(x : Int) : Int {{ x + 1 }}
+                function Twice(x : Int) : Int {{ 2 * x }}
+                function Data() : Int {{ Message("stored data"); 3 }}
+                function Run(f : Int -> Int, g : Int -> Int, n : Int) : Int {{
+                    f(n) + g(n)
+                }}
+                function Pick(flag : Bool, offset : Int) : Int {{
+                    let chosen = if flag {{ Inc }} else {{ Twice }};
+                    let other = x -> x + offset;
+                    let args = (chosen, other, Data());
+                    Message("stored");
+                    {call}
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, 10) }}
+            "#};
+            cases.push((
+                source,
+                if call.contains('+') {
+                    2 * expected
+                } else {
+                    expected
+                },
+            ));
+        }
+    }
+    cases
+}
+
+#[test]
+fn mixed_dispatch_projects_stored_argument_values_once() {
+    for (source, expected) in mixed_stored_argument_cases() {
+        check_rewritten_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn mixed_dispatch_projects_stored_controlled_arguments() {
+    for functor in ["Controlled", "Controlled Controlled", "Adjoint Controlled"] {
+        for (flag, expected) in [(true, 0), (false, 1)] {
+            let args = if functor == "Controlled Controlled" {
+                "([outer], ([inner], (chosen, other, target)))"
+            } else {
+                "([outer], (chosen, other, target))"
+            };
+            let source = formatdoc! {r#"
+                operation FlipWhen(tag : Int, q : Qubit) : Unit is Adj + Ctl {{
+                    if tag == 7 {{ X(q); }}
+                }}
+                operation Run(
+                    f : Qubit => Unit is Adj + Ctl,
+                    g : Qubit => Unit is Adj + Ctl, q : Qubit
+                ) : Unit is Adj + Ctl {{
+                    f(q); g(q);
+                }}
+                operation Pick(flag : Bool, tag : Int) : Int {{
+                    use outer = Qubit();
+                    use inner = Qubit();
+                    use target = Qubit();
+                    X(outer); X(inner);
+                    let chosen = if flag {{ X }} else {{ I }};
+                    let other = FlipWhen(tag, _);
+                    let args = {args};
+                    {functor} Run(args);
+                    Reset(outer); Reset(inner);
+                    if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, 7) }}
+            "#};
+            check_rewritten_callable_result(&source, expected);
+        }
+    }
+}
+
+pub(super) fn surviving_unit_payload_cases() -> Vec<(String, i64)> {
+    [
+        (
+            "Run((x -> x + offset, ()))",
+            "if unit == () { f(3) } else { 0 }",
+            true,
+            13,
+        ),
+        (
+            "let args = (x -> x + offset, ()); Run(args)",
+            "if unit == () { f(3) } else { 0 }",
+            true,
+            13,
+        ),
+        (
+            "mutable marker = 0;
+             let result = Run((x -> x + offset, { Message(\"unit\"); set marker = 1; () }));
+             1000 * marker + result",
+            "f(3)",
+            true,
+            1013,
+        ),
+        (
+            "let chosen = if flag { x -> x + offset } else { x -> x - offset };
+             Run((chosen, ()))",
+            "if unit == () { f(3) } else { 0 }",
+            true,
+            13,
+        ),
+        (
+            "let chosen = if flag { x -> x + offset } else { x -> x - offset };
+             Run((chosen, ()))",
+            "if unit == () { f(3) } else { 0 }",
+            false,
+            -7,
+        ),
+    ]
+    .into_iter()
+    .map(|(call, body, flag, expected)| {
+        let source = formatdoc! {r#"
+            function Run(pair : (Int -> Int, Unit)) : Int {{
+                let (f, unit) = pair;
+                {body}
+            }}
+            function Pick(flag : Bool, offset : Int) : Int {{ {call} }}
+            @EntryPoint() operation Main() : Int {{ Pick({flag}, 10) }}
+        "#};
+        (source, expected)
+    })
+    .collect()
+}
+
+#[test]
+fn single_slot_specialization_preserves_surviving_unit_payloads() {
+    for (source, expected) in surviving_unit_payload_cases() {
+        check_rewritten_callable_result(&source, expected);
+    }
+}
+
+fn check_rewritten_callable_result(source: &str, expected: i64) {
+    check_callable_result(source, expected);
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "{source}",
+    );
+}
+
+#[test]
+fn guarded_indexed_candidates_preserve_selected_values() {
+    for flag in [false, true] {
+        for (index, indexed_value) in [(-2, 4), (-1, 6), (0, 4), (1, 6)] {
+            for (selection, selects_index) in [
+                ("if flag { fs[index] } else { Inc }", flag),
+                ("if flag { Inc } else { fs[index] }", !flag),
+                (
+                    "if flag { if inner { fs[index] } else { Twice } } else { Inc }",
+                    flag,
+                ),
+            ] {
+                for call in ["selected(3)", "Apply(selected, 3)"] {
+                    let source = formatdoc! {r#"
+                        function Inc(x : Int) : Int {{ x+1 }}
+                        function Twice(x : Int) : Int {{ 2*x }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        function Pick(flag : Bool, inner : Bool, index : Int) : Int {{
+                            let fs = [Inc, Twice];
+                            let selected = {selection};
+                            {call}
+                        }}
+                        @EntryPoint() operation Main() : Int {{ Pick({flag}, true, {index}) }}
+                    "#};
+                    check_callable_result(&source, if selects_index { indexed_value } else { 4 });
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn guarded_indexed_candidates_preserve_bounds_and_effect_order() {
+    for flag in [false, true] {
+        for index in ["-3", "2", "-9223372036854775807", "9223372036854775807"] {
+            for call in ["selected(Argument())", "Apply(selected, Argument())"] {
+                let source = formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x+1 }}
+                    function Twice(x : Int) : Int {{ 2*x }}
+                    function Index(index : Int) : Int {{ Message("index"); index }}
+                    function Argument() : Int {{ Message("argument"); 3 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    function Pick(flag : Bool, index : Int) : Int {{
+                        let fs = [Inc, Twice];
+                        let selected = if flag {{ fs[Index(index)] }} else {{ Inc }};
+                        Message("selected");
+                        {call}
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}, {index}) }}
+                "#};
+                if flag {
+                    let error = crate::test_utils::eval_qsharp_original(&source)
+                        .expect_err("the selected array index must fail before the argument");
+                    assert!(error.starts_with("IndexOutOfRange("), "{error}");
+                    crate::test_utils::check_semantic_equivalence(&source);
+                } else {
+                    check_callable_result(&source, 4);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn stored_controlled_closure_layout_preserves_functor_alias() {
+    check_stored_controlled_closure_layout(
+        "let controlledValue = Controlled partial; controlledValue([], 42);",
+    );
+}
+
+#[test]
+fn stored_controlled_closure_layout_preserves_input_tuple() {
+    check_stored_controlled_closure_layout("let args = ([], 42); Controlled partial(args);");
+}
+
+#[test]
+fn stored_controlled_closure_layout_preserves_both_aliases() {
+    check_stored_controlled_closure_layout(
+        "let controlledValue = Controlled partial; let args = ([], 42); controlledValue(args);",
+    );
+}
+
+fn check_stored_controlled_closure_layout(body: &str) {
+    let source = formatdoc! {r#"
+        operation Target(n : Int, x : Int) : Unit is Ctl {{
+            body (...) {{ fail $"body:{{n}}:{{x}}"; }}
+            controlled (controls, ...) {{ fail $"ctl:{{n}}:{{x}}"; }}
+        }}
+        @EntryPoint() operation Main() : Unit {{
+            let partial = Target(7, _);
+            {body}
+        }}
+    "#};
+    let error = crate::test_utils::eval_qsharp_original(&source)
+        .expect_err("the controlled specialization reports its inputs");
+    assert!(error.contains("ctl:7:42"), "{error}");
+    crate::test_utils::check_semantic_equivalence(&source);
+}
+
+#[test]
+fn stored_controlled_closure_layout_preserves_gates_and_argument_effects() {
+    for functor in ["Controlled", "Controlled Controlled", "Adjoint Controlled"] {
+        let arguments = if functor == "Controlled Controlled" {
+            "([outer], ([inner], target))"
+        } else {
+            "([outer], target)"
+        };
+        for body in [
+            format!("let controlledValue = {functor} selected; controlledValue{arguments};"),
+            format!("let args = {arguments}; {functor} selected(args);"),
+            format!(
+                "let controlledValue = {functor} selected; \
+                 controlledValue({{ Message(\"arguments\"); {arguments} }});"
+            ),
+        ] {
+            for first in [false, true] {
+                for enabled in [false, true] {
+                    let source = formatdoc! {r#"
+                        function Angle() : Double {{ Message("capture"); 1.5707963267948966 }}
+                        operation Rotate(angle : Double, q : Qubit) : Unit is Adj + Ctl {{
+                            Ry(angle, q);
+                        }}
+                        operation Invoke(first : Bool, outer : Qubit, inner : Qubit, target : Qubit) : Unit {{
+                            let angle = Angle();
+                            let positive = Rotate(angle, _);
+                            let negative = Rotate(-angle, _);
+                            let selected = if first {{ positive }} else {{ negative }};
+                            {body}
+                        }}
+                        @EntryPoint() operation Main() : Int {{
+                            use outer = Qubit();
+                            use inner = Qubit();
+                            use target = Qubit();
+                            if {enabled} {{ X(outer); X(inner); H(target); }}
+                            Invoke({first}, outer, inner, target);
+                            Reset(outer);
+                            Reset(inner);
+                            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+                        }}
+                    "#};
+                    let expected = i64::from(enabled && (first != functor.contains("Adjoint")));
+                    check_callable_result(&source, expected);
+                    let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
+                        &source,
+                        crate::PipelineStage::Defunc,
+                    );
+                    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+                    assert_eq!(
+                        crate::test_utils::try_eval_fir_entry(&store, package),
+                        Ok(qsc_eval::val::Value::Int(expected)),
+                        "{functor}: {body}, first={first}, enabled={enabled}",
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_hof_callees_preserve_mutating_argument_order() {
+    for flag in [false, true] {
+        let source = formatdoc! {r#"
+            function Add(n : Int, x : Int) : Int {{ n+x }}
+            function First(n : Int, f : Int -> Int) : Int {{ 100*n+f(3) }}
+            function Second(n : Int, f : Int -> Int) : Int {{ 200*n+f(3) }}
+            function Pick(flag : Bool) : Int {{
+                mutable order = 0;
+                let selected = if flag {{ First }} else {{ Second }};
+                let result = selected(
+                    {{ set order = 10*order+1; 4 }},
+                    Add({{ set order = 10*order+2; 2 }}, _));
+                1000*order+result
+            }}
+            @EntryPoint() operation Main() : Int {{ Pick({flag}) }}
+        "#};
+        check_callable_result(&source, if flag { 12405 } else { 12805 });
+    }
+}
+
 #[test]
 fn conditional_hof_callees_preserve_branch_argument_ownership() {
     for (source, expected) in test_cases::conditional_hof_argument_cases() {
         check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn conditional_hof_callees_preserve_first_argument_failure() {
+    let source = r#"
+        function Fail(label : String) : Int { fail label }
+        function Add(n : Int, x : Int) : Int { n+x }
+        function First(n : Int, f : Int -> Int) : Int { n+f(3) }
+        function Second(n : Int, f : Int -> Int) : Int { n-f(3) }
+        function Pick(flag : Bool) : Int {
+            (if flag {First} else {Second})(Fail("first"),Add(Fail("capture"),_))
+        }
+        @EntryPoint() operation Main() : Int { Pick(false) }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source).expect_err("first argument fails");
+    assert!(error.contains("first"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn conditional_controlled_hof_callees_preserve_arguments() {
+    for functor in ["Controlled", "Controlled Controlled", "Adjoint Controlled"] {
+        for first in [true, false] {
+            for enabled in [true, false] {
+                let args = if functor == "Controlled Controlled" {
+                    "[outer], ([inner], (Head(), Ry(Angle(),_), target))"
+                } else {
+                    "[outer], (Head(), Ry(Angle(),_), target)"
+                };
+                let source = formatdoc! {r#"
+                    function Head() : Int {{ Message("head"); 4 }}
+                    function Angle() : Double {{ Message("capture"); 1.5707963267948966 }}
+                    operation First(n : Int, f : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+                        if n==4 {{ f(q); }}
+                    }}
+                    operation Second(n : Int, f : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {{
+                        if n==4 {{ Adjoint f(q); }}
+                    }}
+                    operation Pick(flag : Bool, outer : Qubit, inner : Qubit, target : Qubit) : Unit {{
+                        {functor} (if flag {{First}} else {{Second}})({args});
+                    }}
+                    @EntryPoint() operation Main() : Int {{
+                        use outer=Qubit();
+                        use inner=Qubit();
+                        use target=Qubit();
+                        if {enabled} {{ X(outer); X(inner); H(target); }}
+                        Pick({first},outer,inner,target);
+                        Reset(outer);
+                        Reset(inner);
+                        if MResetZ(target)==One {{ 1 }} else {{ 0 }}
+                    }}
+                "#};
+                check_callable_result(
+                    &source,
+                    i64::from(enabled && (first != functor.contains("Adjoint"))),
+                );
+            }
+        }
     }
 }
 
@@ -413,6 +1618,28 @@ fn direct_struct_fields_preserve_initializer_evaluation_order() {
         "#,
         408,
     );
+}
+
+#[test]
+fn singleton_newtype_payload_preserves_specialized_fields() {
+    for (source, expected) in test_cases::singleton_newtype_payload_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn controlled_singleton_newtype_payloads_preserve_values_and_effects() {
+    for functor in [
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+        "Controlled Adjoint",
+        "Adjoint Controlled Controlled",
+    ] {
+        for (source, expected) in test_cases::controlled_newtype_cases(functor) {
+            check_callable_result(&source, expected);
+        }
+    }
 }
 
 #[test]
@@ -3622,20 +4849,12 @@ fn relocated_disposition_moves_capture_evaluation_exactly_once() {
     "#});
 }
 
-/// `EvaluationDisposition::Replayed` by branch dispatch. The binding is a
-/// static callable selection, so deleting it is sound only because
-/// `branch_split_direct_call_rewrite` emits the same `if` tree at the replaced
-/// call site.
-///
-/// The selecting condition is a measurement, which makes the replay observable:
-/// the condition is not safe to discard, so the binding reaches the replay rule
-/// rather than the discard rule, and the trace records where and how often the
-/// measurement ran. Replaying it twice, dropping it, or moving it across the
-/// surrounding `X` and `Z` all change the sequence, and none of those changes
-/// alters the returned value or the transformed program's structure in a way a
-/// snapshot would flag.
+/// Branch dispatch may reuse the selection, not rerun its measurement. The
+/// prepass stores the guard where the original binding evaluates it, and later
+/// dispatch reads that snapshot. The trace catches an extra measurement even
+/// when the final result happens to be unchanged.
 #[test]
-fn replayed_disposition_reruns_the_branch_selection() {
+fn replayed_disposition_preserves_branch_selection_once() {
     crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
         namespace Test {
             operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -3656,6 +4875,39 @@ fn replayed_disposition_reruns_the_branch_selection() {
             }
         }
     "#});
+}
+
+/// An intervening gate changes the selector qubit after selection. Both direct
+/// and HOF calls must keep the originally chosen operation across repeated uses,
+/// while the trace must contain only the original selecting measurement.
+#[test]
+fn measured_callable_selection_survives_intervening_effects_and_reuse() {
+    for selected_x in [false, true] {
+        for invocation in ["chosen(target);", "Apply(chosen, target);"] {
+            for count in [1, 2] {
+                let calls = invocation.repeat(count);
+                let source = formatdoc! {r#"
+                    operation Apply(op : Qubit => Unit, target : Qubit) : Unit {{op(target);}}
+                    @EntryPoint() operation Main() : Int {{
+                        use selector = Qubit();
+                        use target = Qubit();
+                        if {selected_x} {{X(selector);}}
+                        let chosen = if MResetZ(selector) == One {{X}} else {{I}};
+                        Message("selected");
+                        X(selector);
+                        {calls}
+                        Reset(selector);
+                        if MResetZ(target) == One {{1}} else {{0}}
+                    }}
+                "#};
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(i64::from(selected_x && count == 1)),
+                );
+                crate::test_utils::generate_qir(&source);
+            }
+        }
+    }
 }
 
 /// `EvaluationDisposition::Replayed` by index dispatch at the *argument*
@@ -4387,4 +5639,311 @@ fn capture_admissibility_loop_mutable_snapshot() {
             }
         }
     "#});
+}
+
+#[test]
+fn stored_multi_parameter_alias_preserves_capture_layout() {
+    check_aggregate_rewrite_result(
+        r#"
+        function Run(f : Int -> Int, a : Int, b : Int) : Int { 100 * a + f(b) }
+        function Pick(offset : Int) : Int {
+            let args = (x -> x + offset, 4, 3);
+            let alias = args;
+            Run(alias) + Run(args)
+        }
+        @EntryPoint() operation Main() : Int { Pick(10) }
+        "#,
+        826,
+    );
+}
+
+#[test]
+fn nested_projected_aggregate_argument_preserves_payload() {
+    check_aggregate_rewrite_result(
+        r#"
+        struct Inner { Pair : (Int -> Int, Int) }
+        struct Outer { Inner : Inner }
+        function Inc(x : Int) : Int { x + 1 }
+        function Run(pair : (Int -> Int, Int)) : Int {
+            let (f, n) = pair;
+            f(n)
+        }
+        @EntryPoint() operation Main() : Int {
+            let outer = new Outer { Inner = new Inner { Pair = (Inc, 4) } };
+            Run(outer.Inner.Pair)
+        }
+        "#,
+        5,
+    );
+}
+
+#[test]
+fn stored_nested_callable_array_arguments_preserve_aliases() {
+    check_aggregate_rewrite_result(
+        r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Twice(x : Int) : Int { 2 * x }
+        function Run(prefix : Int, pair : ((Int -> Int)[], Int)) : Int {
+            let (ops, n) = pair;
+            prefix + ops[1](n)
+        }
+        @EntryPoint() operation Main() : Int {
+            let args = (10, ([Inc, Twice], 3));
+            let alias = args;
+            Run(alias) + Run(args)
+        }
+        "#,
+        32,
+    );
+}
+
+// Keep complete Q# fixtures together for the shared semantic and QIR checks.
+#[allow(clippy::too_many_lines)]
+pub(super) fn nonliteral_argument_rewrite_cases() -> Vec<(String, i64)> {
+    [
+        (
+            r#"
+            function Run(f : Int -> Int, a : Int, b : Int) : Int { 100 * a + f(b) }
+            function Pick(offset : Int) : Int {
+                let args = (x -> x + offset, 4, 3);
+                Run(args)
+            }
+            @EntryPoint() operation Main() : Int { Pick(10) }
+            "#,
+            413,
+        ),
+        (
+            r#"
+            function Run(f : Int -> Int, a : Int, b : Int) : Int { 100 * a + f(b) }
+            function Logged(label : String, value : Int) : Int { Message(label); value }
+            function Pick(offset : Int) : Int {
+                let args = (
+                    x -> x + offset,
+                    Logged("first", 4),
+                    Logged("second", 3)
+                );
+                let alias = args;
+                Message("stored");
+                Run(alias) + Run(args)
+            }
+            @EntryPoint() operation Main() : Int { Pick(10) }
+            "#,
+            826,
+        ),
+        (
+            r#"
+            struct Outer { Pair : (Int -> Int, Int) }
+            function Inc(x : Int) : Int { x + 1 }
+            function Run(pair : (Int -> Int, Int)) : Int {
+                let (f, n) = pair;
+                f(n)
+            }
+            @EntryPoint() operation Main() : Int {
+                let outer = new Outer { Pair = (Inc, 3) };
+                Run(outer.Pair)
+            }
+            "#,
+            4,
+        ),
+        (
+            r#"
+            struct Inner { Pair : (Int -> Int, Int) }
+            struct Outer { Inner : Inner }
+            function Inc(x : Int) : Int { x + 1 }
+            function Logged(value : Int) : Int { Message("field"); value }
+            function Run(pair : (Int -> Int, Int)) : Int {
+                let (f, n) = pair;
+                f(n)
+            }
+            @EntryPoint() operation Main() : Int {
+                let outer = new Outer {
+                    Inner = new Inner { Pair = (Inc, Logged(4)) }
+                };
+                Message("stored");
+                Run(outer.Inner.Pair)
+            }
+            "#,
+            5,
+        ),
+        (
+            r#"
+            function Inc(x : Int) : Int { x + 1 }
+            function Twice(x : Int) : Int { 2 * x }
+            function Run(prefix : Int, pair : ((Int -> Int)[], Int)) : Int {
+                let (ops, n) = pair;
+                prefix + ops[1](n)
+            }
+            @EntryPoint() operation Main() : Int {
+                let args = (10, ([Inc, Twice], 3));
+                Run(args)
+            }
+            "#,
+            16,
+        ),
+        (
+            r#"
+            function Inc(x : Int) : Int { x + 1 }
+            function Twice(x : Int) : Int { 2 * x }
+            function Run(prefix : Int, pair : ((Int -> Int)[], Int)) : Int {
+                let (ops, n) = pair;
+                prefix + ops[1](n)
+            }
+            @EntryPoint() operation Main() : Int {
+                let args = (
+                    Logged("prefix", 10),
+                    ([Inc, Twice], Logged("value", 3))
+                );
+                let alias = args;
+                Message("stored");
+                Run(alias) + Run(args)
+            }
+            function Logged(label : String, value : Int) : Int { Message(label); value }
+            "#,
+            32,
+        ),
+        (
+            r#"
+            function Run(prefix : Int, pair : ((Int -> Int)[], Int)) : Int {
+                let (ops, n) = pair;
+                prefix + ops[1](n)
+            }
+            function Pick(offset : Int) : Int {
+                let args = (10, ([x -> x + offset, x -> x + offset + 1], 3));
+                Run(args)
+            }
+            @EntryPoint() operation Main() : Int { Pick(10) }
+            "#,
+            24,
+        ),
+    ]
+    .into_iter()
+    .map(|(source, expected)| (source.to_string(), expected))
+    .collect()
+}
+
+pub(super) fn deep_partial_argument_rewrite_cases() -> Vec<(String, i64)> {
+    let mut cases = vec![(
+        r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Twice(x : Int) : Int { 2 * x }
+        function Run(ops : (Int -> Int)[], pair : ((Int -> Int, Int -> Int), Int)) : Int {
+            let ((f, g), n) = pair;
+            ops[1](n) + f(n) + g(n)
+        }
+        @EntryPoint() operation Main() : Int {
+            Run([Inc, Twice], ((Inc, Twice), 3))
+        }
+        "#
+        .to_string(),
+        16,
+    )];
+    for stored in [false, true] {
+        for (signature, unpack, argument, result, expected) in [
+            (
+                "((Int -> Int, Int -> Int), Int)",
+                "let ((f, g), n) = pair;",
+                "((Inc, Twice), { set order = 10 * order + 2; 3 })",
+                "ops[1](n) + f(n) + g(n)",
+                12316,
+            ),
+            (
+                "((Int -> Int, Int -> Int, Int -> Int), Int)",
+                "let ((f, g, h), n) = pair;",
+                "((Inc, Twice, Inc), { set order = 10 * order + 2; 3 })",
+                "ops[1](n) + f(n) + g(n) + h(n)",
+                12320,
+            ),
+            (
+                "((Int -> Int, Int -> Int), Unit, Int)",
+                "let ((f, g), unit, n) = pair;",
+                "((Inc, Twice), (), { set order = 10 * order + 2; 3 })",
+                "if unit == () { ops[1](n) + f(n) + g(n) } else { 0 }",
+                12316,
+            ),
+        ] {
+            let arguments = format!("([Inc, Twice], {argument})");
+            let invocation = if stored {
+                format!("let args = {arguments}; let alias = args; Run(alias)")
+            } else {
+                format!("Run{arguments}")
+            };
+            cases.push((
+                formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Run(ops : (Int -> Int)[], pair : {signature}) : Int {{
+                        {unpack}
+                        {result}
+                    }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable order = 1;
+                        let value = {{ {invocation} }};
+                        set order = 10 * order + 3;
+                        100 * order + value
+                    }}
+                "#},
+                expected,
+            ));
+        }
+    }
+    cases
+}
+
+#[test]
+fn nonliteral_argument_rewrites_preserve_values_effects_and_abi() {
+    for (source, expected) in nonliteral_argument_rewrite_cases() {
+        check_aggregate_rewrite_result(&source, expected);
+    }
+}
+
+#[test]
+fn deep_partial_argument_rewrites_preserve_values_effects_and_abi() {
+    for (source, expected) in deep_partial_argument_rewrite_cases() {
+        check_aggregate_rewrite_result(&source, expected);
+    }
+}
+
+fn check_aggregate_rewrite_result(source: &str, expected: i64) {
+    use qsc_fir::{
+        fir::{ExprKind, ItemKind, PackageLookup, Res},
+        ty::Ty,
+    };
+
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    let mut checked = 0;
+    for item in super::collect_reachable_from_entry(&store, package_id) {
+        let package = store.get(item.package);
+        let ItemKind::Callable(decl) = &package.get_item(item.item).kind else {
+            continue;
+        };
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_, expr| {
+                let ExprKind::Call(callee, args) = expr.kind else {
+                    return;
+                };
+                let ExprKind::Var(Res::Item(target), _) = package.get_expr(callee).kind else {
+                    return;
+                };
+                let owner = store.get(target.package);
+                let ItemKind::Callable(target) = &owner.get_item(target.item).kind else {
+                    return;
+                };
+                if !target.name.name.starts_with("Run") || !target.name.name.contains('{') {
+                    return;
+                }
+                let expected_input = &owner.get_pat(target.input).ty;
+                assert_eq!(&package.get_expr(args).ty, expected_input, "{source}");
+                let Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                    panic!("specialized target must have an arrow type");
+                };
+                assert_eq!(arrow.input.as_ref(), expected_input, "{source}");
+                checked += 1;
+            },
+        );
+    }
+    assert!(checked > 0, "expected a specialized Run call:\n{source}");
+    check_callable_result(source, expected);
 }

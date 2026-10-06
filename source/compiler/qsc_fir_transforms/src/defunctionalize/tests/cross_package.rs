@@ -15,6 +15,299 @@ use miette::Diagnostic;
 use super::super::build_spec_key;
 use super::super::types::CallSite;
 use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId};
+use rustc_hash::{FxHashMap, FxHashSet};
+
+#[test]
+fn cross_package_shares_conditional_specializations_in_both_orders() {
+    for reverse_declarations in [false, true] {
+        for foreign_first in [false, true] {
+            for captured in [false, true] {
+                let body = if captured {
+                    "let offset = 2; let invoke = y -> f(y) + offset; invoke(x)"
+                } else {
+                    "f(x)"
+                };
+                let mut declarations = [
+                    "function Inc(x : Int) : Int { x + 1 }".to_string(),
+                    "function Twice(x : Int) : Int { 2 * x }".to_string(),
+                    format!("function Apply(f : Int -> Int, x : Int) : Int {{ {body} }}"),
+                    "function Choose(flag : Bool, x : Int) : Int {
+                        Apply(if flag { Inc } else { Twice }, x)
+                    }"
+                    .to_string(),
+                ];
+                if reverse_declarations {
+                    declarations.reverse();
+                }
+                let library = format!(
+                    "namespace Lib {{ {} export Inc, Twice, Apply, Choose; }}",
+                    declarations.join("\n"),
+                );
+                let calls = if foreign_first {
+                    "Lib.Choose(false, 3) + Pick(true)"
+                } else {
+                    "Pick(true) + Lib.Choose(false, 3)"
+                };
+                let pick = "function Pick(flag : Bool) : Int {
+                    Lib.Apply(if flag { Lib.Inc } else { Lib.Twice }, 3)
+                }";
+                let main = format!("@EntryPoint() operation Main() : Int {{ {calls} }}");
+                let source = if reverse_declarations {
+                    format!("{main}\n{pick}")
+                } else {
+                    format!("{pick}\n{main}")
+                };
+                let expected = if captured { 14 } else { 10 };
+                assert_eq!(
+                    crate::test_utils::eval_qsharp_original_with_library(&library, &source),
+                    Ok(qsc_eval::val::Value::Int(expected)),
+                );
+                crate::test_utils::check_semantic_equivalence_with_library(&library, &source);
+                let (store, package_id) =
+                    crate::test_utils::compile_and_run_pipeline_to_with_library(
+                        &library,
+                        &source,
+                        crate::PipelineStage::Defunc,
+                    );
+                assert_shared_specialization_abis(&store, package_id, "Apply", 2);
+            }
+        }
+    }
+}
+
+#[test]
+fn cross_package_shares_combined_specializations_in_both_orders() {
+    for reverse_declarations in [false, true] {
+        for foreign_first in [false, true] {
+            let mut declarations = [
+                "function Inc(x : Int) : Int { x + 1 }",
+                "function Twice(x : Int) : Int { 2 * x }",
+                "function ApplyBoth(f : Int -> Int, g : Int -> Int, x : Int) : Int {
+                    f(x) + g(x)
+                }",
+                "function Choose(x : Int) : Int { ApplyBoth(Inc, Twice, x) }",
+            ];
+            if reverse_declarations {
+                declarations.reverse();
+            }
+            let library = format!(
+                "namespace Lib {{ {} export Inc, Twice, ApplyBoth, Choose; }}",
+                declarations.join("\n"),
+            );
+            let calls = if foreign_first {
+                "Lib.Choose(3) + Lib.ApplyBoth(Lib.Inc, Lib.Twice, 3)"
+            } else {
+                "Lib.ApplyBoth(Lib.Inc, Lib.Twice, 3) + Lib.Choose(3)"
+            };
+            let source = format!("@EntryPoint() operation Main() : Int {{ {calls} }}");
+            assert_eq!(
+                crate::test_utils::eval_qsharp_original_with_library(&library, &source),
+                Ok(qsc_eval::val::Value::Int(20)),
+            );
+            crate::test_utils::check_semantic_equivalence_with_library(&library, &source);
+            let (store, package_id) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+                &library,
+                &source,
+                crate::PipelineStage::Defunc,
+            );
+            assert_shared_specialization_abis(&store, package_id, "ApplyBoth", 1);
+        }
+    }
+}
+
+#[test]
+fn cross_package_shared_dispatch_preserves_output_and_quantum_order() {
+    let library = r#"
+        namespace Lib {
+            operation A(q : Qubit) : Unit { X(q); }
+            operation B(q : Qubit) : Unit { H(q); }
+            operation Apply(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+            operation Choose(flag : Bool, q : Qubit) : Unit {
+                Message("foreign");
+                Apply(if flag { A } else { B }, q);
+            }
+            export A, B, Apply, Choose;
+        }
+    "#;
+    for calls in [
+        "Pick(true, q); Lib.Choose(false, q);",
+        "Lib.Choose(false, q); Pick(true, q);",
+    ] {
+        let source = formatdoc! {r#"
+            operation Pick(flag : Bool, q : Qubit) : Unit {{
+                Message("local");
+                Lib.Apply(if flag {{ Lib.A }} else {{ Lib.B }}, q);
+            }}
+            @EntryPoint() operation Main() : Int {{
+                use q = Qubit();
+                {calls}
+                Reset(q);
+                0
+            }}
+        "#};
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(library, &source),
+            Ok(qsc_eval::val::Value::Int(0)),
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(library, &source);
+        let (store, package_id) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+            library,
+            &source,
+            crate::PipelineStage::Defunc,
+        );
+        assert_shared_specialization_abis(&store, package_id, "Apply", 2);
+    }
+}
+
+/// Both packages must call the same generated targets with declaration-backed inputs.
+fn assert_shared_specialization_abis(
+    store: &fir::PackageStore,
+    entry_package: PackageId,
+    name: &str,
+    expected_targets: usize,
+) {
+    let mut callers: FxHashMap<fir::StoreItemId, FxHashSet<PackageId>> = FxHashMap::default();
+    for owner in crate::reachability::collect_reachable_from_entry(store, entry_package) {
+        let package = store.get(owner.package);
+        let fir::ItemKind::Callable(decl) = &package.get_item(owner.item).kind else {
+            continue;
+        };
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_, expr| {
+                let fir::ExprKind::Call(callee, args) = expr.kind else {
+                    return;
+                };
+                let fir::ExprKind::Var(fir::Res::Item(target), _) = package.get_expr(callee).kind
+                else {
+                    return;
+                };
+                let target_package = store.get(target.package);
+                let fir::ItemKind::Callable(target_decl) =
+                    &target_package.get_item(target.item).kind
+                else {
+                    return;
+                };
+                if !target_decl.name.name.starts_with(name) || !target_decl.name.name.contains('{')
+                {
+                    return;
+                }
+                let expected = &target_package.get_pat(target_decl.input).ty;
+                let qsc_fir::ty::Ty::Arrow(arrow) = &package.get_expr(callee).ty else {
+                    panic!("specialized callee must be arrow-typed");
+                };
+                assert_eq!(arrow.input.as_ref(), expected);
+                assert_eq!(&package.get_expr(args).ty, expected);
+                callers
+                    .entry((target.package, target.item).into())
+                    .or_default()
+                    .insert(owner.package);
+            },
+        );
+    }
+    assert_eq!(callers.len(), expected_targets);
+    for owners in callers.values() {
+        assert_eq!(
+            owners.len(),
+            2,
+            "both packages must reuse each specialization"
+        );
+    }
+}
+
+#[test]
+fn cross_package_layout_preserves_nominal_data() {
+    let library = r#"
+        namespace Lib {
+            struct Data { N : Int, Tail : Int }
+            function Inc(x : Int) : Int { x + 1 }
+            function Twice(x : Int) : Int { 2 * x }
+            function Read(pair : (Int -> Int, Data)) : Int {
+                let (f, data) = pair;
+                f(data.N) + data.Tail
+            }
+            export Data, Inc, Twice, Read;
+        }
+    "#;
+    for stored in [false, true] {
+        let argument = "(selected, new Lib.Data { N = 3, Tail = 10 })";
+        let invocation = if stored {
+            format!("let held = {argument}; Lib.Read(held)")
+        } else {
+            format!("Lib.Read({argument})")
+        };
+        let source = formatdoc! {r#"
+            struct Different {{ F : Int -> Int }}
+            function Pick(flag : Bool) : Int {{
+                let selected = if flag {{ Lib.Inc }} else {{ Lib.Twice }};
+                {invocation}
+            }}
+            @EntryPoint() operation Main() : Int {{ Pick(true) + Pick(false) }}
+        "#};
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(library, &source),
+            Ok(qsc_eval::val::Value::Int(30)),
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(library, &source);
+    }
+}
+
+/// Foreign bodies need the same capture-creation normalization as the entry
+/// package. Equal return values are insufficient: these cases previously moved
+/// capture output past "ready", or emitted the struct capture twice.
+#[test]
+fn foreign_capture_normalization_preserves_output_order() {
+    for (body, expected) in [
+        ("let f=Add(Log(17),_); Message(\"ready\"); f(1)", 18),
+        ("Read(new Payload {N=Log(4),F=Add(Log(2),_)})", 403),
+        (
+            "let f={let g=Add(Log(17),_);x->g(x)}; Message(\"ready\"); f(1)",
+            18,
+        ),
+    ] {
+        let library = formatdoc! {r#"
+            namespace Lib {{
+                struct Payload {{N : Int, F : Int -> Int}}
+                function Log(n : Int) : Int {{Message($"value:{{n}}");n}}
+                function Add(n : Int, x : Int) : Int {{n+x}}
+                function Read(p : Payload) : Int {{100*p.N+p.F(1)}}
+                function Run() : Int {{{body}}}
+                export Run;
+            }}
+        "#};
+        let source = "@EntryPoint() operation Main() : Int {Lib.Run()}";
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(&library, source),
+            Ok(qsc_eval::val::Value::Int(expected)),
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(&library, source);
+    }
+}
+
+/// Reset makes the final value insensitive to gate order. The shared semantic
+/// oracle must still observe X during capture creation, before the later H.
+#[test]
+fn foreign_capture_normalization_preserves_quantum_order() {
+    let library = r#"
+        namespace Lib {
+            operation Angle(q : Qubit) : Double {X(q);0.0}
+            operation Run() : Int {
+                use q=Qubit();
+                let f=Rx(Angle(q),_);
+                H(q);
+                f(q);
+                Reset(q);
+                0
+            }
+            export Run;
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_library(
+        library,
+        "@EntryPoint() operation Main() : Int {Lib.Run()}",
+    );
+}
 
 #[test]
 fn foreign_capture_expression_collisions_preserve_613_in_both_declaration_orders() {
@@ -870,9 +1163,9 @@ fn analysis_apply_operation_power_ca_consumer() {
                 apply_power_of_u(1, target);
             }
             operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
-                _lambda_4(1, target);
+                _lambda_4((1, target), );
             }
-            operation _lambda_4(hole : Int, hole_1 : Qubit[]) : Unit is Adj + Ctl {
+            operation _lambda_4((hole : Int, hole_1 : Qubit[]), ) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
                 }

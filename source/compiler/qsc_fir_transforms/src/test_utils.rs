@@ -1198,7 +1198,7 @@ impl qsc_eval::backend::Tracer for OpTracer {
 fn eval_fir_entry_with_observables(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
-) -> (Result<qsc_eval::val::Value, String>, Vec<TraceOp>, Vec<u8>) {
+) -> EvaluationObservables {
     use qsc_eval::backend::{SparseSim, TracingBackend};
     use qsc_eval::output::GenericReceiver;
     use qsc_fir::fir::ExecGraphConfig;
@@ -1223,6 +1223,9 @@ fn eval_fir_entry_with_observables(
     .map_err(|(err, _frames)| format!("{err:?}"));
     (result, tracer.ops, out)
 }
+
+#[cfg(test)]
+type EvaluationObservables = (Result<qsc_eval::val::Value, String>, Vec<TraceOp>, Vec<u8>);
 
 /// Evaluates FIR with its quantum trace for explicit test preconditions.
 /// Semantic-equivalence assertions additionally compare receiver output.
@@ -1298,19 +1301,31 @@ pub(crate) fn check_semantic_equivalence_with_expected(
 
 #[cfg(test)]
 fn check_semantic_equivalence_impl(source: &str, expected_value: Option<qsc_eval::val::Value>) {
-    let (expected, expected_trace, expected_output) = {
+    let expected = {
         let (fir_store, pkg_id) =
             compile_to_fir_with_cached_stdlib(source, None, TargetCapabilityFlags::empty());
         eval_fir_entry_with_observables(&fir_store, pkg_id)
     };
     if let Some(value) = expected_value {
-        assert_eq!(expected, Ok(value), "unexpected original value:\n{source}");
+        assert_eq!(
+            expected.0,
+            Ok(value),
+            "unexpected original value:\n{source}"
+        );
     }
-    let (actual, actual_trace, actual_output) = {
+    let actual = {
         let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
         eval_fir_entry_with_observables(&store, pkg_id)
     };
+    assert_observable_equivalence(expected, actual);
+}
 
+/// Local and cross-package programs must use the same value, trace, and output oracle.
+#[cfg(test)]
+fn assert_observable_equivalence(
+    (expected, expected_trace, expected_output): EvaluationObservables,
+    (actual, actual_trace, actual_output): EvaluationObservables,
+) {
     match (&expected, &actual) {
         (Ok(exp_val), Ok(act_val)) => {
             assert_eq!(
@@ -1348,43 +1363,20 @@ fn check_semantic_equivalence_impl(source: &str, expected_value: Option<qsc_eval
 /// Asserts semantic equivalence of a cross-package Q# program before and
 /// after the full FIR transform pipeline.
 ///
-/// 1. Compiles library + user Q# source (no transforms) and evaluates to
-///    get the expected return value.
-/// 2. Compiles and runs the full FIR pipeline, then evaluates to get the
-///    actual return value.
-/// 3. Asserts the two results match.
-///
-/// Unlike [`check_semantic_equivalence`], this helper currently compares only
-/// values or error strings, not receiver output or quantum-operation traces.
+/// Uses the same oracle as [`check_semantic_equivalence`]: return values or
+/// errors, ordered quantum-operation traces, and receiver output must all match.
+/// Library calls must preserve observable evaluation order even when their
+/// returned values are unchanged.
 #[cfg(test)]
 pub(crate) fn check_semantic_equivalence_with_library(lib_source: &str, user_source: &str) {
-    let expected = eval_qsharp_original_with_library(lib_source, user_source);
+    let expected = {
+        let (store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+        eval_fir_entry_with_observables(&store, pkg_id)
+    };
     let actual = {
         let (store, pkg_id) =
             compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
-        try_eval_fir_entry(&store, pkg_id)
+        eval_fir_entry_with_observables(&store, pkg_id)
     };
-
-    match (&expected, &actual) {
-        (Ok(exp_val), Ok(act_val)) => {
-            assert_eq!(
-                exp_val, act_val,
-                "semantic equivalence violated: original returned {exp_val}, \
-                 transformed returned {act_val}"
-            );
-        }
-        (Err(exp_err), Err(act_err)) => {
-            assert_eq!(
-                exp_err, act_err,
-                "semantic equivalence violated: original failed with {exp_err}, \
-                 transformed failed with {act_err}"
-            );
-        }
-        (Ok(exp_val), Err(err)) => {
-            panic!("original succeeded with {exp_val} but transformed failed: {err}");
-        }
-        (Err(err), Ok(act_val)) => {
-            panic!("original failed with {err} but transformed succeeded with {act_val}");
-        }
-    }
+    assert_observable_equivalence(expected, actual);
 }

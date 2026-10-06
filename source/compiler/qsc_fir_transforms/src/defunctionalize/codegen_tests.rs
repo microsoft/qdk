@@ -4,6 +4,389 @@
 //! QIR output regressions for defunctionalized callable values.
 
 use super::test_cases;
+use expect_test::expect;
+
+#[test]
+fn mixed_dispatch_owned_arguments_record_expected_values() {
+    for (source, expected) in
+        super::semantic_equivalence_tests::mixed_dispatch_owned_argument_cases()
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn dispatch_operand_struct_records_expected_values() {
+    for (source, expected) in super::semantic_equivalence_tests::dispatch_operand_struct_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn dispatch_operand_reassigned_index_records_expected_values() {
+    for (source, expected) in
+        super::semantic_equivalence_tests::dispatch_operand_reassigned_index_cases()
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn projected_callee_effects_record_expected_value() {
+    check_qir_int_result(
+        super::semantic_equivalence_tests::PROJECTED_CALLEE_EFFECTS,
+        2410,
+    );
+}
+
+#[test]
+fn projected_callee_hof_captures_record_expected_value() {
+    check_qir_int_result(
+        super::semantic_equivalence_tests::PROJECTED_HOF_CAPTURE,
+        2126,
+    );
+}
+
+#[test]
+fn projected_callee_snapshots_record_expected_values() {
+    for (source, expected) in super::semantic_equivalence_tests::projected_callee_snapshot_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn projected_callee_hof_nested_effects_record_expected_values() {
+    for (source, expected) in super::semantic_equivalence_tests::projected_callee_hof_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn nonliteral_argument_rewrites_record_expected_values() {
+    for (source, expected) in super::semantic_equivalence_tests::nonliteral_argument_rewrite_cases()
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn deep_partial_argument_rewrites_record_expected_values() {
+    for (source, expected) in
+        super::semantic_equivalence_tests::deep_partial_argument_rewrite_cases()
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn callable_array_partial_sibling_records_expected_values() {
+    for (source, expected) in
+        super::semantic_equivalence_tests::callable_array_partial_sibling_cases()
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn indexed_array_construction_records_expected_value() {
+    for (source, expected) in super::semantic_equivalence_tests::indexed_array_effect_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn mixed_stored_arguments_record_expected_values() {
+    for (source, expected) in super::semantic_equivalence_tests::mixed_stored_argument_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn surviving_unit_payloads_record_expected_values() {
+    for (source, expected) in super::semantic_equivalence_tests::surviving_unit_payload_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn guarded_indexed_candidates_record_selected_value() {
+    for flag in [false, true] {
+        for (index, indexed_value) in [(-2, 4), (-1, 6), (0, 4), (1, 6)] {
+            for call in ["selected(3)", "Apply(selected, 3)"] {
+                let source = indoc::formatdoc! {r#"
+                    function Inc(x : Int) : Int {{ x+1 }}
+                    function Twice(x : Int) : Int {{ 2*x }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    function Pick(flag : Bool, index : Int) : Int {{
+                        let fs = [Inc, Twice];
+                        let selected = if flag {{ fs[index] }} else {{ Inc }};
+                        {call}
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Pick({flag}, {index}) }}
+                "#};
+                check_qir_int_result(&source, if flag { indexed_value } else { 4 });
+            }
+        }
+    }
+}
+
+#[test]
+fn stored_controlled_closure_layout_records_measured_int() {
+    let qir = stored_controlled_closure_qir("Controlled");
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.7853981633974483, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__rz__body(double -0.7853981633974483, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_5 = phi i64 [1, %block_1], [0, %block_2]
+          call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__s__adj(%Qubit*)
+
+        declare void @__quantum__qis__h__body(%Qubit*)
+
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
+
+        declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+
+        declare void @__quantum__qis__s__body(%Qubit*)
+
+        declare void @__quantum__qis__reset__body(%Qubit*) #1
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__rt__int_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]]
+    .assert_eq(&qir);
+}
+
+#[test]
+fn stored_controlled_closure_layout_with_two_controls_records_measured_int() {
+    let qir = stored_controlled_closure_qir("Controlled Controlled");
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 3 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.7853981633974483, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__rz__body(double -0.7853981633974483, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 3 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_6 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_6, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_10 = phi i64 [1, %block_1], [0, %block_2]
+          call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__s__adj(%Qubit*)
+
+        declare void @__quantum__qis__h__body(%Qubit*)
+
+        declare void @__quantum__qis__ccx__body(%Qubit*, %Qubit*, %Qubit*)
+
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
+
+        declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+
+        declare void @__quantum__qis__s__body(%Qubit*)
+
+        declare void @__quantum__qis__reset__body(%Qubit*) #1
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__rt__int_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]]
+    .assert_eq(&qir);
+}
+
+#[test]
+fn stored_controlled_closure_layout_with_adjoint_records_measured_int() {
+    let qir = stored_controlled_closure_qir("Adjoint Controlled");
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__rz__body(double -0.7853981633974483, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.7853981633974483, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_5 = phi i64 [1, %block_1], [0, %block_2]
+          call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__s__adj(%Qubit*)
+
+        declare void @__quantum__qis__h__body(%Qubit*)
+
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
+
+        declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+
+        declare void @__quantum__qis__s__body(%Qubit*)
+
+        declare void @__quantum__qis__reset__body(%Qubit*) #1
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__rt__int_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]]
+    .assert_eq(&qir);
+}
+
+/// Store both the functor-applied partial and its input tuple before invocation.
+/// Ry(pi/2) makes the target measurement probabilistic: either result is valid,
+/// but the recorded integer must be 1 for One and 0 for Zero. The snapshots
+/// check that dataflow as well as the control qubits and rotation signs.
+fn stored_controlled_closure_qir(functor: &str) -> String {
+    let arguments = if functor == "Controlled Controlled" {
+        "([outer], ([inner], target))"
+    } else {
+        "([outer], target)"
+    };
+    let source = indoc::formatdoc! {r#"
+        @EntryPoint() operation Main() : Int {{
+            use outer = Qubit();
+            use inner = Qubit();
+            use target = Qubit();
+            X(outer);
+            X(inner);
+            let partial = Ry(1.5707963267948966, _);
+            let controlledValue = {functor} partial;
+            let args = {arguments};
+            controlledValue(args);
+            Reset(outer);
+            Reset(inner);
+            if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+        }}
+    "#};
+    crate::test_utils::generate_qir(&source)
+}
 
 #[test]
 fn conditional_hof_callees_generate_correct_argument_qir() {
@@ -114,6 +497,13 @@ fn direct_struct_fields_record_declaration_order() {
 }
 
 #[test]
+fn singleton_newtype_payload_records_specialized_fields() {
+    for (source, expected) in test_cases::singleton_newtype_payload_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
 fn struct_copy_factory_records_returned_fields() {
     for (source, expected) in test_cases::struct_copy_factory_cases()
         .chain(test_cases::nested_struct_copy_factory_cases())
@@ -169,7 +559,10 @@ fn controlled_branch_capture_layouts_generate_qir() {
         "Controlled Adjoint",
         "Adjoint Controlled Controlled",
     ] {
-        for (source, _) in test_cases::controlled_branch_cases(functor) {
+        for (source, _) in test_cases::controlled_branch_cases(functor)
+            .into_iter()
+            .chain(test_cases::controlled_newtype_cases(functor))
+        {
             let qir = crate::test_utils::generate_qir(&source);
             assert_eq!(
                 qir.lines()

@@ -415,6 +415,69 @@ pub(super) fn direct_struct_field_order_cases() -> Vec<(String, i64)> {
     cases
 }
 
+pub(super) fn singleton_newtype_payload_cases() -> Vec<(String, i64)> {
+    let mut cases = Vec::new();
+    for (ty, pattern, value, result, first_result, second_result) in [
+        (
+            "(Int -> Int, Int, Int)",
+            "(f,a,b)",
+            "(selected,4,7)",
+            "100*a+f(b)",
+            408,
+            414,
+        ),
+        (
+            "(Int, Int -> Int, Int)",
+            "(a,f,b)",
+            "(4,selected,7)",
+            "100*a+f(b)",
+            408,
+            414,
+        ),
+        (
+            "(Int, Int, Int -> Int)",
+            "(a,b,f)",
+            "(4,7,selected)",
+            "100*a+f(b)",
+            408,
+            414,
+        ),
+        ("(Int -> Int, Int)", "(f,n)", "(selected,7)", "f(n)", 8, 14),
+        (
+            "(Int -> Int, (Int, Int))",
+            "(f,(a,b))",
+            "(selected,(4,7))",
+            "100*a+f(b)",
+            408,
+            414,
+        ),
+    ] {
+        for (first, second) in [("Inc", "Twice"), ("Make(1)", "Make(7)")] {
+            for (flag, expected) in [(true, first_result), (false, second_result)] {
+                cases.push((
+                    formatdoc! {r#"
+                    newtype Envelope = (Payload : {ty});
+                    function Inc(x : Int) : Int {{ x+1 }}
+                    function Twice(x : Int) : Int {{ 2*x }}
+                    function Make(n : Int) : Int -> Int {{ x -> x+n }}
+                    function Read(p : Envelope) : Int {{
+                        let {pattern}=p::Payload;
+                        {result}
+                    }}
+                    function Choose(flag : Bool) : Int {{
+                        let selected=if flag {{ {first} }} else {{ {second} }};
+                        Read(Envelope({value}))
+                    }}
+                    @EntryPoint() operation Main() : Int {{ Choose({flag}) }}
+                "#},
+                    expected,
+                ));
+            }
+        }
+    }
+    cases
+}
+
 pub(super) fn struct_copy_factory_cases() -> impl Iterator<Item = (String, i64)> {
     ["Original()", "FromOne(3)", "FromThree(2,3,5)"]
         .into_iter()
@@ -667,6 +730,31 @@ pub(super) fn nested_struct_branch_cases() -> impl Iterator<Item = (String, i64)
 }
 
 pub(super) fn controlled_branch_cases(functor: &str) -> Vec<(String, i64)> {
+    controlled_payload_cases(
+        functor,
+        &[
+            ("Apply", "(selected, target)"),
+            ("ApplyNested", "((9, (selected, 4, 13)), target)"),
+            (
+                "ApplyStruct",
+                "(new Payload { Tail=13, F=selected, Head=9 }, target)",
+            ),
+            (
+                "ApplyStruct",
+                "(new Payload { ...Original(8,12), F=selected }, target)",
+            ),
+        ],
+    )
+}
+
+pub(super) fn controlled_newtype_cases(functor: &str) -> Vec<(String, i64)> {
+    controlled_payload_cases(
+        functor,
+        &[("ApplyEnvelope", "(Envelope((9, selected, 13)), target)")],
+    )
+}
+
+fn controlled_payload_cases(functor: &str, payloads: &[(&str, &str)]) -> Vec<(String, i64)> {
     let double_control = functor
         .split_whitespace()
         .filter(|word| *word == "Controlled")
@@ -681,18 +769,7 @@ pub(super) fn controlled_branch_cases(functor: &str) -> Vec<(String, i64)> {
     let mut cases = Vec::new();
     for &choose_first in &[true, false] {
         for &(outer, inner) in control_states {
-            for (operation, payload) in [
-                ("Apply", "(selected, target)"),
-                ("ApplyNested", "((9, (selected, 4, 13)), target)"),
-                (
-                    "ApplyStruct",
-                    "(new Payload { Tail=13, F=selected, Head=9 }, target)",
-                ),
-                (
-                    "ApplyStruct",
-                    "(new Payload { ...Original(8,12), F=selected }, target)",
-                ),
-            ] {
+            for &(operation, payload) in payloads {
                 let enabled = outer && (!double_control || inner);
                 let expected = i64::from(enabled && (choose_first != adjoint));
                 let arguments = if double_control {
@@ -702,6 +779,7 @@ pub(super) fn controlled_branch_cases(functor: &str) -> Vec<(String, i64)> {
                 };
                 let source = formatdoc! {r#"
                 struct Payload {{ Head : Int, F : Qubit => Unit is Adj + Ctl, Tail : Int }}
+                newtype Envelope = (Payload : (Int, (Qubit => Unit is Adj + Ctl), Int));
                 function Make(angle : Double) : Qubit => Unit is Adj + Ctl {{
                     Ry(angle, _)
                 }}
@@ -719,6 +797,10 @@ pub(super) fn controlled_branch_cases(functor: &str) -> Vec<(String, i64)> {
                 }}
                 operation ApplyStruct(payload : Payload, q : Qubit) : Unit is Adj + Ctl {{
                     if payload.Head == 9 and payload.Tail == 13 {{ payload.F(q); }}
+                }}
+                operation ApplyEnvelope(payload : Envelope, q : Qubit) : Unit is Adj + Ctl {{
+                    let (head, op, tail)=payload::Payload;
+                    if head == 9 and tail == 13 {{ op(q); }}
                 }}
                 operation Choose(flag : Bool, outer : Qubit, inner : Qubit, target : Qubit) : Unit {{
                     let selected = if flag {{

@@ -17,6 +17,1251 @@ use qsc_fir::fir::{LocalVarId, Package, PatKind};
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
 
+fn check_flow_value(source: &str, expected: i64) {
+    // Residual struct values need erasure before their exec graphs can be rebuilt.
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "defunctionalization must preserve the value:\n{source}"
+    );
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(expected),
+    );
+}
+
+#[test]
+fn flow_indexed_fields_keep_selection_before_later_initializer_writes() {
+    for (index, expected) in [(0, 1), (-1, 2)] {
+        for replacement in [1, 2] {
+            for selection in ["[A, B][index]", "alias"] {
+                for invocation in ["saved.F(saved.Tag)", "Apply(saved.F, saved.Tag)"] {
+                    let source = format!(
+                        r#"
+                        struct Holder {{ F : Int -> Int, Tag : Int }}
+                        function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                        function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        @EntryPoint() operation Main() : Int {{
+                            mutable index = {index};
+                            let selected = [A, B][index];
+                            let alias = selected;
+                            let original = new Holder {{
+                                F = {selection},
+                                Tag = {{
+                                    Message("store");
+                                    set index = {replacement};
+                                    0
+                                }}
+                            }};
+                            let saved = original;
+                            Message("invoke");
+                            {invocation}
+                        }}
+                        "#
+                    );
+                    let (mut store, package) = compile_to_monomorphized_fir(&source);
+                    let result = super::run_prepass_and_analysis(&mut store, package);
+                    if invocation.starts_with("Apply") {
+                        assert_eq!(result.call_sites.len(), 1);
+                        assert!(
+                            result.call_sites.iter().all(|site| {
+                                matches!(site.callable_arg, ConcreteCallable::Dynamic)
+                            }),
+                            "aggregate fallback must not recover an invalidated selector"
+                        );
+                    } else {
+                        assert!(
+                            result.direct_call_sites.is_empty(),
+                            "a stale index must not produce concrete dispatch"
+                        );
+                        assert_eq!(result.unresolved_direct_call_sites.len(), 1);
+                    }
+                    check_flow_value(&source, expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_rows_preserve_all_physical_positions() {
+    for (rows, names, values) in [
+        (
+            "[(A, 0), (A, 0), (B, 0)]",
+            ["A:Body", "A:Body", "B:Body"],
+            [1, 1, 2],
+        ),
+        (
+            "[(A, 0), (B, 0), (A, 0)]",
+            ["A:Body", "B:Body", "A:Body"],
+            [1, 2, 1],
+        ),
+        (
+            "[(A, 0), (A, 0), (A, 0)]",
+            ["A:Body", "A:Body", "A:Body"],
+            [1, 1, 1],
+        ),
+    ] {
+        for index in -3_i64..3 {
+            for selector in [index.to_string(), "index".to_string()] {
+                let source = format!(
+                    r#"
+                    function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                    function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable index = {index};
+                        let rows = {rows};
+                        let alias = rows;
+                        let (f, _) = alias[{selector}];
+                        f(0)
+                    }}
+                    "#
+                );
+                let (mut store, package) = compile_to_monomorphized_fir(&source);
+                let result = super::run_prepass_and_analysis(&mut store, package);
+                let candidates: Vec<_> = result
+                    .direct_call_sites
+                    .iter()
+                    .map(|site| format_concrete_callable(&site.callable, &store))
+                    .collect();
+                assert_eq!(candidates, names, "every physical row needs a candidate");
+                let position = usize::try_from(index.rem_euclid(3)).expect("normalized index");
+                check_flow_value(&source, values[position]);
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_joined_indexed_singleton_preserves_false_alternatives() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function C(x : Int) : Int { x + 3 }
+        function Pick(flag : Bool, index : Int) : Int {
+            let (left, _) = [(A, 0)][0];
+            let selected = if flag { left } else { [B, C][index] };
+            selected(0)
+        }
+        @EntryPoint() operation Main() : Int { Pick(false, 0) }
+    "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let result = super::run_prepass_and_analysis(&mut store, package);
+    let candidates: Vec<_> = result
+        .direct_call_sites
+        .iter()
+        .map(|site| {
+            (
+                format_concrete_callable(&site.callable, &store),
+                site.condition.len(),
+            )
+        })
+        .collect();
+    // A singleton positional Multi must not hide the false branch's missing
+    // index discriminator by turning B and C into one trailing default.
+    assert_eq!(
+        candidates,
+        [("A:Body", 1), ("B:Body", 0), ("C:Body", 0)]
+            .map(|(name, guards)| (name.to_string(), guards)),
+    );
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(2)),
+        "ambiguous indexed alternatives must not become a guarded direct call",
+    );
+    check_flow_value(source, 2);
+}
+
+#[test]
+fn flow_joined_indexed_branches_preserve_all_positions() {
+    for (left_rows, left_values, right_rows, right_values) in [
+        (
+            "[(A, 0)]",
+            &[1_i64][..],
+            "[(B, 0), (C, 0), (B, 0)]",
+            &[2, 3, 2][..],
+        ),
+        (
+            "[(A, 0), (B, 0)]",
+            &[1, 2][..],
+            "[(C, 0), (A, 0), (C, 0)]",
+            &[3, 1, 3][..],
+        ),
+    ] {
+        for (left_rows, left_values, right_rows, right_values) in [
+            (left_rows, left_values, right_rows, right_values),
+            (right_rows, right_values, left_rows, left_values),
+        ] {
+            for (flag, values) in [(true, left_values), (false, right_values)] {
+                let length = i64::try_from(values.len()).expect("small test array");
+                for index in -length..length {
+                    let position =
+                        usize::try_from(index.rem_euclid(length)).expect("normalized index");
+                    for binding in [
+                        "let selected = if flag { left } else { right };",
+                        "mutable selected = left;
+                         if flag { set selected = left; } else { set selected = right; }",
+                    ] {
+                        for invocation in ["selected(0)", "Apply(selected, 0)"] {
+                            let source = format!(
+                                r#"
+                                function A(x : Int) : Int {{ x + 1 }}
+                                function B(x : Int) : Int {{ x + 2 }}
+                                function C(x : Int) : Int {{ x + 3 }}
+                                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                                function Pick(flag : Bool, first : Int, second : Int) : Int {{
+                                    let (left, _) = {left_rows}[first];
+                                    let (right, _) = {right_rows}[second];
+                                    {binding}
+                                    {invocation}
+                                }}
+                                @EntryPoint() operation Main() : Int {{
+                                    Pick({flag}, {first}, {second})
+                                }}
+                                "#,
+                                first = if flag { index } else { 0 },
+                                second = if flag { 0 } else { index },
+                            );
+                            check_flow_value(&source, values[position]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_joined_indexed_branches_preserve_effect_order() {
+    for (flag, values, order) in [
+        (true, &[1_i64, 2][..], 12349),
+        (false, &[2, 3, 2][..], 156_789),
+    ] {
+        let length = i64::try_from(values.len()).expect("small test array");
+        for index in -length..length {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                function C(x : Int) : Int {{ Message("C"); x + 3 }}
+                function Pick(flag : Bool, index : Int) : Int {{
+                    mutable order = 0;
+                    let selected = if {{ set order = 10 * order + 1; flag }} {{
+                        let (f, _) = [
+                            (A, {{ set order = 10 * order + 2; 0 }}),
+                            (B, {{ set order = 10 * order + 3; 0 }})
+                        ][{{ set order = 10 * order + 4; index }}];
+                        f
+                    }} else {{
+                        let (f, _) = [
+                            (B, {{ set order = 10 * order + 5; 0 }}),
+                            (C, {{ set order = 10 * order + 6; 0 }}),
+                            (B, {{ set order = 10 * order + 7; 0 }})
+                        ][{{ set order = 10 * order + 8; index }}];
+                        f
+                    }};
+                    let result = selected({{ set order = 10 * order + 9; 0 }});
+                    100 * order + result
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, {index}) }}
+                "#
+            );
+            let position = usize::try_from(index.rem_euclid(length)).expect("normalized index");
+            check_flow_value(&source, 100 * order + values[position]);
+        }
+    }
+}
+
+#[test]
+fn flow_joined_indexed_branches_preserve_bounds_before_argument_failure() {
+    for (flag, length) in [(true, 2), (false, 3)] {
+        for index in [-length - 1, length] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function C(x : Int) : Int {{ x + 3 }}
+                function Mark(label : String) : Int {{ Message(label); 0 }}
+                function Pick(flag : Bool, index : Int) : Int {{
+                    let selected = if {{ Message("guard"); flag }} {{
+                        let (f, _) = [
+                            (A, Mark("true-0")), (B, Mark("true-1"))
+                        ][{{ Message("true-index"); index }}];
+                        f
+                    }} else {{
+                        let (f, _) = [
+                            (B, Mark("false-0")), (C, Mark("false-1")), (B, Mark("false-2"))
+                        ][{{ Message("false-index"); index }}];
+                        f
+                    }};
+                    selected({{ Message("argument"); fail "argument ran before bounds" }})
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({flag}, {index}) }}
+                "#
+            );
+            let error = crate::test_utils::eval_qsharp_original(&source)
+                .expect_err("the selected branch's index must fail first");
+            assert!(error.starts_with("IndexOutOfRange("), "{error}");
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_aliases_do_not_replay_later_selector_writes() {
+    for (index, expected) in [(0, 1), (1, 2), (-1, 1)] {
+        for invocation in ["alias(0)", "Apply(alias, 0)"] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable index = {index};
+                        let (selected, _) = [(A, 0), (B, 0), (A, 0)][index];
+                        let alias = selected;
+                        set index = 3;
+                        {invocation}
+                    }}
+                    "#
+                ),
+                expected,
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_rows_preserve_bounds_failures() {
+    for index in [-4, 3] {
+        for selector in [index.to_string(), "index".to_string()] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ Message("A"); x + 1 }}
+                function B(x : Int) : Int {{ Message("B"); x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable index = {index};
+                    let (f, _) = [(A, 0), (A, 0), (B, 0)][{selector}];
+                    f(0)
+                }}
+                "#
+            );
+            assert!(
+                crate::test_utils::eval_qsharp_original(&source).is_err(),
+                "the original tuple-array access must fail its bounds check"
+            );
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_branch_sources_remain_invalidatable() {
+    for (flag, expected) in [(true, 1), (false, 2)] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable first = 0;
+                    mutable second = 1;
+                    mutable selected = A;
+                    if {flag} {{
+                        let (f, _) = [(A, 0), (B, 0)][first];
+                        set selected = f;
+                    }} else {{
+                        let (f, _) = [(A, 0), (B, 0)][second];
+                        set selected = f;
+                    }}
+                    let alias = selected;
+                    set first = 1;
+                    set second = 0;
+                    alias(0)
+                }}
+                "#
+            ),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn flow_indexed_tuple_dispatch_preserves_defunc_call_abi() {
+    let source = r#"
+        function A(pair : (Int, Int)) : Int {
+            let (x, y) = pair;
+            x + y + 1
+        }
+        function B(pair : (Int, Int)) : Int {
+            let (x, y) = pair;
+            x + y + 2
+        }
+        @EntryPoint() operation Main() : Int {
+            let (f, _) = [(A, 0), (A, 0), (B, 0)][1];
+            f((2, 3))
+        }
+    "#;
+    check_invariants(source);
+    let (mut store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(6)),
+        "dispatch must retain the declared tuple input immediately after Defunc"
+    );
+    check_flow_value(source, 6);
+}
+
+#[test]
+fn flow_effectful_callable_argument_guards_are_retained() {
+    // Equal targets may collapse to Single; distinct targets may form Multi.
+    // Neither permits deleting the guard or moving it past the data operand.
+    for flag in [false, true] {
+        for other in ["A", "B"] {
+            for selection in [
+                format!("if Guard() {{ A }} else {{ {other} }}"),
+                format!("{{ if Guard() {{ A }} else {{ {other} }} }}"),
+                format!("if true {{ if Guard() {{ A }} else {{ {other} }} }} else {{ B }}"),
+            ] {
+                let source = format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable visits = 0;
+                        let result = Apply({selection}, {{ set visits = 10 * visits + 2; 0 }});
+                        100 * visits + result
+                    }}
+                    "#
+                )
+                .replace(
+                    "Guard()",
+                    &format!("{{ set visits = 10 * visits + 1; {flag} }}"),
+                );
+                check_flow_value(&source, if flag || other == "A" { 1201 } else { 1202 });
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_callable_argument_guard_failures_are_not_erased() {
+    for other in ["A", "B"] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function Guard() : Bool {{ fail "guard must run" }}
+            @EntryPoint() operation Main() : Int {{
+                Apply(if Guard() {{ A }} else {{ {other} }}, {{ fail "argument ran first" }})
+            }}
+            "#
+        );
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("the guard must fail before the data argument");
+        assert!(error.contains("guard must run"), "{error}");
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn flow_discardable_callable_argument_guards_still_specialize() {
+    for flag in [false, true] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            @EntryPoint() operation Main() : Int {{
+                Apply(if {flag} {{ A }} else {{ B }}, 0)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let result = super::run_prepass_and_analysis(&mut store, package);
+        assert!(!result.call_sites.is_empty());
+        assert!(
+            result
+                .call_sites
+                .iter()
+                .all(|site| !matches!(site.callable_arg, ConcreteCallable::Dynamic))
+        );
+        check_flow_value(&source, if flag { 1 } else { 2 });
+    }
+}
+
+#[test]
+fn flow_parallel_capture_limits_rebind_across_producer_environments() {
+    // The body is deliberately local-free. A local in the body remains an
+    // unsupported block capture; the limit is a reconstructible expression.
+    for limit in ["2", "n", "n + 1"] {
+        for producer in ["Make(2)", "Forward(2)", "Again(2)"] {
+            let source = format!(
+                r#"
+                operation Make(n : Int) : Int -> Int {{
+                    let value = parallel within {limit} {{ 7 }};
+                    x -> value + x
+                }}
+                operation Forward(n : Int) : Int -> Int {{ Make(n + 1) }}
+                operation Again(padding : Int) : Int -> Int {{ Forward(2 * padding) }}
+                @EntryPoint() operation Main() : Int {{ {producer}(3) }}
+                "#
+            );
+            check_flow_value(&source, 10);
+        }
+    }
+}
+
+#[test]
+fn flow_unsupported_capture_forms_remain_dynamic() {
+    // These local-bearing leaves cannot be reconstructed by the capture writer.
+    // Also reject operation calls with no locals: absence of a scope leak is
+    // not permission to move an operation's evaluation.
+    for initializer in [
+        "{ n }",
+        "if true { n } else { 0 }",
+        "parallel within 2 { n }",
+        "Read()",
+    ] {
+        let source = format!(
+            r#"
+            operation Read() : Int {{ 7 }}
+            operation Make(n : Int) : Int -> Int {{
+                let value = {initializer};
+                x -> value + x
+            }}
+            @EntryPoint() operation Main() : Int {{ Make(7)(3) }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let result = super::run_prepass_and_analysis(&mut store, package);
+        assert!(
+            result
+                .direct_call_sites
+                .iter()
+                .all(|site| matches!(site.callable, ConcreteCallable::Dynamic)),
+            "unsupported producer capture must not yield a concrete call: {initializer}"
+        );
+        check_flow_value(&source, 10);
+    }
+}
+
+#[test]
+fn analysis_collapsed_spans_are_qualified_by_call_package() {
+    use qsc_data_structures::span::Span;
+
+    let (mut store, package_id) = crate::test_utils::compile_to_fir_with_library(
+        r#"
+        namespace Lib {
+            function Inc(x : Int) : Int { x + 1 }
+            function Run() : Int { let f = Inc; f(2) }
+            export Run;
+        }
+        "#,
+        r#"
+        function Inc(x : Int) : Int { x + 1 }
+        @EntryPoint() operation Main() : Int { let f = Inc; f(1) + Lib.Run() }
+        "#,
+    );
+    let reachable = collect_reachable_from_entry(&store, package_id);
+    let mut collapsed_spans = rustc_hash::FxHashMap::default();
+    let local_span = Span { lo: 1000, hi: 1001 };
+    let foreign_span = Span { lo: 2000, hi: 2001 };
+    // Deliberately overlap numeric expression IDs while assigning each package
+    // a distinct marker. Analyze without promotion so both local reads survive.
+    for (owner, package) in &store {
+        let span = if owner == package_id {
+            local_span
+        } else {
+            foreign_span
+        };
+        for (expr_id, _) in &package.exprs {
+            collapsed_spans.insert((owner, expr_id), span);
+        }
+    }
+    let total_foreign = crate::walk_utils::collect_total_foreign_callables(&store);
+    let result = super::super::analysis::analyze(
+        &mut store,
+        package_id,
+        &reachable,
+        &Default::default(),
+        &collapsed_spans,
+        &[],
+        &total_foreign,
+    );
+    assert!(
+        result
+            .direct_call_sites
+            .iter()
+            .any(|site| site.call_pkg_id == package_id)
+    );
+    assert!(
+        result
+            .direct_call_sites
+            .iter()
+            .any(|site| site.call_pkg_id != package_id)
+    );
+    for site in &result.direct_call_sites {
+        assert_eq!(
+            site.def_span,
+            Some(if site.call_pkg_id == package_id {
+                local_span
+            } else {
+                foreign_span
+            }),
+            "call site metadata must come from its owning package"
+        );
+    }
+}
+
+#[test]
+fn flow_guard_values_survive_later_initializer_writes() {
+    for flag in [false, true] {
+        for binding in ["let", "mutable"] {
+            for (pattern, initializer, callable) in [
+                (
+                    "(saved, _)",
+                    "(if flag { A } else { B }, { set flag = not flag; 0 })",
+                    "saved",
+                ),
+                (
+                    "(saved, _)",
+                    "(selected, { set flag = not flag; 0 })",
+                    "saved",
+                ),
+                (
+                    "saved",
+                    "new Holder { F = if flag { A } else { B }, Tag = { set flag = not flag; 0 } }",
+                    "saved.F",
+                ),
+                (
+                    "((saved, _), _)",
+                    "(if flag { (A, 7) } else { (B, 7) }, { set flag = not flag; 0 })",
+                    "saved",
+                ),
+            ] {
+                for invocation in [format!("{callable}(0)"), format!("Apply({callable}, 0)")] {
+                    check_flow_value(
+                        &format!(
+                            r#"
+                            struct Holder {{ F : Int -> Int, Tag : Int }}
+                            function A(x : Int) : Int {{ x + 1 }}
+                            function B(x : Int) : Int {{ x + 2 }}
+                            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                            @EntryPoint() operation Main() : Int {{
+                                mutable flag = {flag};
+                                let selected = if flag {{ A }} else {{ B }};
+                                {binding} {pattern} = {initializer};
+                                {invocation}
+                            }}
+                            "#
+                        ),
+                        if flag { 1 } else { 2 },
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_guard_values_survive_simultaneous_stores() {
+    for flag in [false, true] {
+        for rhs in ["if flag { A } else { B }", "selected", "{ selected }"] {
+            for invocation in ["saved(0)", "Apply(saved, 0)"] {
+                check_flow_value(
+                    &format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        @EntryPoint() operation Main() : Int {{
+                            mutable flag = {flag};
+                            let selected = if flag {{ A }} else {{ B }};
+                            mutable saved = A;
+                            set (saved, flag) = ({rhs}, not flag);
+                            {invocation}
+                        }}
+                        "#
+                    ),
+                    if flag { 1 } else { 2 },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_unrelated_writes_keep_guarded_calls_resolvable() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        @EntryPoint() operation Main() : Int {
+            mutable flag = true;
+            mutable unrelated = 0;
+            let (saved, _) = (if flag { A } else { B }, { set unrelated = 1; 0 });
+            saved(0)
+        }
+    "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let result = super::run_prepass_and_analysis(&mut store, package);
+    assert_eq!(result.direct_call_sites.len(), 2);
+    assert!(result.unresolved_direct_call_sites.is_empty());
+    check_flow_value(source, 1);
+}
+
+#[test]
+fn flow_guarded_factory_failure_is_preserved() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function Guard() : Bool { true }
+        function Choose(flag : Bool) : Int -> Int {
+            fail "producer must run";
+            if flag { A } else { B }
+        }
+        @EntryPoint() operation Main() : Int { Choose(Guard())(0) }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("the producer must fail before its returned callable is invoked");
+    assert!(error.contains("producer must run"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn flow_guarded_factory_messages_run_once_in_order() {
+    for flag in [false, true] {
+        for (guard_prefix, producer_prefix) in [
+            ("", "Message(\"producer\");"),
+            ("Message(\"guard\");", ""),
+            ("Message(\"guard\");", "Message(\"producer\");"),
+        ] {
+            for selection in [
+                "Choose(Guard())(0)",
+                "{ let saved = Choose(Guard()); saved(0) }",
+                "{ let saved = Choose(Guard()); Apply(saved, 0) }",
+            ] {
+                check_flow_value(
+                    &format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Guard() : Bool {{
+                            {guard_prefix}
+                            {flag}
+                        }}
+                        function Choose(flag : Bool) : Int -> Int {{
+                            {producer_prefix}
+                            if flag {{ A }} else {{ B }}
+                        }}
+                        function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                        @EntryPoint() operation Main() : Int {{
+                            Message("before");
+                            let result = {selection};
+                            Message("after");
+                            result
+                        }}
+                        "#
+                    ),
+                    if flag { 1 } else { 2 },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_static_index_negation_preserves_wrapping_and_bounds() {
+    for (index, execute_index) in [("0x8000000000000000", false), ("2", true)] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            @EntryPoint() operation Main() : Int {{
+                let index = {index};
+                if {execute_index} {{ [A][-index](0) }} else {{ 1 }}
+            }}
+            "#
+        );
+        if execute_index {
+            assert!(
+                crate::test_utils::eval_qsharp_original(&source).is_err(),
+                "the executed negative index must retain its bounds failure"
+            );
+            crate::test_utils::check_semantic_equivalence(&source);
+        } else {
+            check_flow_value(&source, 1);
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_declarations_observe_ordered_initializer_values() {
+    for binding in ["let", "mutable"] {
+        for (pattern, initializer, result, expected) in [
+            ("(tag, g)", "({ set f = B; 0 }, f)", "g(tag)", 2),
+            ("(g, tag)", "(f, { set f = B; 0 })", "g(tag)", 1),
+            (
+                "((before, tag), after)",
+                "((f, { set f = B; 0 }), f)",
+                "10 * before(tag) + after(tag)",
+                12,
+            ),
+        ] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable f = A;
+                        {binding} {pattern} = {initializer};
+                        {result}
+                    }}
+                    "#
+                ),
+                expected,
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_block_reanalysis_keeps_already_evaluated_callable_operands() {
+    for call in [
+        "Apply(if true { f } else { B }, { set f = B; 0 })",
+        "Apply({ f }, { set f = B; 0 })",
+        "Identity(f)({ set f = B; 0 })",
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function Identity(f : Int -> Int) : Int -> Int {{ f }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable f = A;
+                    {call}
+                }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_producer_aggregates_keep_creation_time_callable_values() {
+    for (initializer, result) in [
+        ("[f]", "saved[0]"),
+        ("(f, 7)", "{ let (selected, _) = saved; selected }"),
+        ("new Holder { F = f }", "saved.F"),
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Holder {{ F : Int -> Int }}
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Make() : Int -> Int {{
+                    mutable f = A;
+                    let saved = {initializer};
+                    set f = B;
+                    {result}
+                }}
+                @EntryPoint() operation Main() : Int {{ Make()(0) }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_return_guards_use_caller_not_producer_local_bindings() {
+    for (flag, expected) in [(true, 1), (false, 2)] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Choose(flag : Bool) : Int -> Int {{
+                    let unrelated = {opposite};
+                    if flag {{ A }} else {{ B }}
+                }}
+                function Forward(flag : Bool) : Int -> Int {{ Choose(flag) }}
+                @EntryPoint() operation Main() : Int {{
+                    let padding = 0;
+                    let flag = {flag};
+                    Choose(flag)(padding) + 10 * Forward(flag)(padding)
+                }}
+                "#,
+                opposite = !flag,
+            ),
+            11 * expected,
+        );
+    }
+}
+
+#[test]
+fn flow_aggregate_parameters_resolve_in_the_callers_environment() {
+    for body in [
+        "Get(p)(0)",
+        "Forward(p)(0)",
+        "Select(fs, index)(0)",
+        "Project(new Holder { F = A })(0)",
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Holder {{ F : Int -> Int }}
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Get(p : (Int -> Int, Int)) : Int -> Int {{
+                    let (f, _) = p;
+                    f
+                }}
+                function Forward(p : (Int -> Int, Int)) : Int -> Int {{ Get(p) }}
+                function Select(fs : (Int -> Int)[], index : Int) : Int -> Int {{
+                    let unrelated = [B];
+                    fs[index]
+                }}
+                function Project(p : Holder) : Int -> Int {{ p.F }}
+                @EntryPoint() operation Main() : Int {{
+                    let p = (A, 0);
+                    let fs = [A, B];
+                    let index = 0;
+                    {body}
+                }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_recursive_factory_analysis_terminates_through_bindings() {
+    for recursive_call in ["Make(n - 1)", "Forward(n - 1)"] {
+        check_flow_value(
+            &format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function Make(n : Int) : Int -> Int {{
+                    if n == 0 {{ A }} else {{
+                        mutable next = {recursive_call};
+                        next
+                    }}
+                }}
+                function Forward(n : Int) : Int -> Int {{ Make(n) }}
+                @EntryPoint() operation Main() : Int {{ Make(2)(0) }}
+                "#
+            ),
+            1,
+        );
+    }
+}
+
+#[test]
+fn flow_foreign_return_guards_never_escape_their_expression_package() {
+    let source = "@EntryPoint() operation Main() : Int { Lib.Choose()(0) }";
+    for (flag, expected) in [(true, 1), (false, 2)] {
+        let library = format!(
+            r#"
+            namespace Lib {{
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Choose() : Int -> Int {{ if {flag} {{ A }} else {{ B }} }}
+                export Choose;
+            }}
+            "#
+        );
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original_with_library(&library, source),
+            Ok(qsc_eval::val::Value::Int(expected))
+        );
+        let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+            &library,
+            source,
+            crate::PipelineStage::Defunc,
+        );
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(expected))
+        );
+        crate::test_utils::check_semantic_equivalence_with_library(&library, source);
+    }
+}
+
+#[test]
+fn flow_indexed_aliases_invalidate_transitive_selector_provenance() {
+    for aliases in [
+        "let alias = saved;",
+        "let middle = saved; let alias = middle;",
+        "let middle = (saved, 7); let (alias, _) = middle;",
+        "let middle = (saved, 7); let unrelated = 0; let (alias, _) = middle;",
+    ] {
+        for invocation in ["alias(3)", "Apply(alias, 3)"] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function Inc(x : Int) : Int {{ x + 1 }}
+                    function Twice(x : Int) : Int {{ 2 * x }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        let fs = [Inc, Twice];
+                        mutable index = 0;
+                        let saved = fs[index];
+                        {aliases}
+                        set index = 1;
+                        {invocation}
+                    }}
+                    "#
+                ),
+                4,
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_aggregate_guard_invalidation_blocks_initializer_replay() {
+    for flag in [false, true] {
+        for (initializer, invocation) in [
+            ("new Holder { F = if flag { A } else { B } }", "saved.F(0)"),
+            ("new Holder { F = selected }", "Apply(saved.F, 0)"),
+            (
+                "(if flag { A } else { B }, 7)",
+                "{ let (f, _) = saved; f(0) }",
+            ),
+            ("[if flag { A } else { B }]", "saved[0](0)"),
+        ] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    struct Holder {{ F : Int -> Int }}
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable flag = {flag};
+                        let selected = if flag {{ A }} else {{ B }};
+                        let original = {initializer};
+                        let saved = original;
+                        set flag = not flag;
+                        {invocation}
+                    }}
+                    "#
+                ),
+                if flag { 1 } else { 2 },
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_return_guards_are_not_substituted_twice() {
+    for flag in [false, true] {
+        for other in [false, true] {
+            for producer in ["Choose", "Forward"] {
+                check_flow_value(
+                    &format!(
+                        r#"
+                        function A(x : Int) : Int {{ x + 1 }}
+                        function B(x : Int) : Int {{ x + 2 }}
+                        function Choose(flag : Bool, other : Bool) : Int -> Int {{
+                            if flag {{ A }} else {{ B }}
+                        }}
+                        function Forward(flag : Bool, other : Bool) : Int -> Int {{
+                            Choose(flag, other)
+                        }}
+                        @EntryPoint() operation Main() : Int {{
+                            let padding = 0;
+                            mutable flag = {flag};
+                            {producer}(flag, {other})(padding)
+                        }}
+                        "#
+                    ),
+                    if flag { 1 } else { 2 },
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_guards_preserve_row_selection() {
+    for flag in [false, true] {
+        for invocation in ["f(0)", "Apply(f, 0)"] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable flag = {flag};
+                        let rows = [(if flag {{ A }} else {{ B }}, 0), (A, 0)];
+                        mutable total = 0;
+                        for (f, _) in rows {{ set total += {invocation}; }}
+                        total
+                    }}
+                    "#
+                ),
+                if flag { 2 } else { 3 },
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_nonliteral_rows_keep_all_candidates() {
+    for row in ["hidden", "{ hidden }", "Row()"] {
+        for (index, expected) in [(0, 1), (1, 2), (-1, 2), (-2, 1)] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Row() : (Int -> Int, Int) {{ (B, 0) }}
+                function Pick(index : Int) : Int -> Int {{
+                    let hidden = (B, 0);
+                    let rows = [(A, 0), {row}];
+                    let (f, _) = rows[index];
+                    f
+                }}
+                @EntryPoint() operation Main() : Int {{ Pick({index})(0) }}
+                "#
+            );
+            let (mut store, package) = compile_to_monomorphized_fir(&source);
+            let result = super::run_prepass_and_analysis(&mut store, package);
+            let candidates = result
+                .lattice_states
+                .values()
+                .flatten()
+                .find_map(|(_, lattice)| match lattice {
+                    CalleeLattice::Multi(entries) => Some(entries),
+                    _ => None,
+                })
+                .expect("the producer must retain the complete row candidate union");
+            let names: Vec<_> = candidates
+                .iter()
+                .map(|(callable, _)| format_concrete_callable(callable, &store))
+                .collect();
+            assert_eq!(names, ["A:Body", "B:Body"]);
+            assert_eq!(
+                result.unresolved_direct_call_sites.len(),
+                1,
+                "the producer's index cannot be replayed at the caller"
+            );
+            check_flow_value(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_guards_without_index_provenance_remain_residual() {
+    for flag in [false, true] {
+        for index in [0, 1, -1, -2] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function Run(flag : Bool) : Int {{
+                    let rows = [(if flag {{ A }} else {{ B }}, 0), (A, 0)];
+                    let (f, _) = rows[{index}];
+                    f(0)
+                }}
+                @EntryPoint() operation Main() : Int {{ Run({flag}) }}
+                "#
+            );
+            let first_row = index == 0 || index == -2;
+            check_flow_value(&source, if first_row && !flag { 2 } else { 1 });
+            let (mut store, package) = compile_to_monomorphized_fir(&source);
+            let result = super::run_prepass_and_analysis(&mut store, package);
+            assert!(result.direct_call_sites.is_empty());
+            assert_eq!(
+                result.unresolved_direct_call_sites.len(),
+                1,
+                "row guards alone must not replace array-index selection"
+            );
+        }
+    }
+}
+
+#[test]
+fn flow_tuple_array_unknown_rows_are_not_omitted() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function Run(row : (Int -> Int, Int)) : Int {
+            let rows = [(A, 0), row];
+            mutable total = 0;
+            for (f, _) in rows { set total += f(0); }
+            total
+        }
+        @EntryPoint() operation Main() : Int { Run((B, 0)) }
+    "#;
+    check_flow_value(source, 3);
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let result = super::run_prepass_and_analysis(&mut store, package);
+    assert_eq!(
+        result.unresolved_direct_call_sites.len(),
+        1,
+        "the unseeded row parameter must make the loop callee unresolved"
+    );
+}
+
+#[test]
+fn flow_computed_callee_residue_is_scoped_to_its_owners() {
+    let source = r#"
+        function A(x : Int) : Int { x + 1 }
+        function B(x : Int) : Int { x + 2 }
+        function Plain(x : Int) : Int { x }
+        function Pick(index : Int) : Int -> Int {
+            let hidden = (B, 0);
+            let rows = [(A, 0), hidden];
+            let (f, _) = rows[index];
+            f
+        }
+        @EntryPoint() operation Main() : Int { Plain(Pick(1)(0)) }
+    "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package);
+    let outcome = super::defunctionalize(&mut store, package, &mut assigners);
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(|error| matches!(error, crate::defunctionalize::Error::DynamicCallable(_)))
+    );
+    let owners: FxHashSet<_> = outcome
+        .residue_items
+        .iter()
+        .map(|item| {
+            let ItemKind::Callable(decl) = &store.get(item.package).get_item(item.item).kind else {
+                panic!("residue owners must be callables");
+            };
+            decl.name.name.as_ref()
+        })
+        .collect();
+    assert_eq!(owners, FxHashSet::from_iter(["Pick", "Main"]));
+    assert!(!outcome.entry_has_residue);
+    check_flow_value(source, 2);
+}
+
 #[test]
 fn analysis_no_callable_params() {
     let source = "operation Main() : Unit { }";
@@ -3793,7 +5038,7 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
 
             }
             operation Main() : Unit {
-                Run_PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, 1, 2);
+                Run_PrepareSystems__closure__closure__PreparePhase_((2, [0, 1], 0), 1, 2);
             }
             operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
                 ApplyParityOperation(arg, hole, hole_1)
@@ -3802,13 +5047,13 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_PrepareSystems__closure__closure__PreparePhase_(config : (Int, Int[], Int), __capture_0 : Int, __capture_1 : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray((config::StatePrep + Length(config::ControlledUnitary)) + config::PhaseQubitPrep);
-                let ancillas : Qubit[] = qs[0..config::StatePrep - 1];
-                let allTargets : Qubit[] = qs[config::StatePrep...];
+                let qs : Qubit[] = AllocateQubitArray((config::Item < 0 > + Length(config::Item < 1 >)) + config::Item < 2 >);
+                let ancillas : Qubit[] = qs[0..config::Item < 0 > - 1];
+                let allTargets : Qubit[] = qs[config::Item < 0 > ...];
                 PrepareSystems(allTargets);
                 PreparePhase(ancillas);
                 {
-                    let _range_id_219 : Range = 0..config::StatePrep - 1;
+                    let _range_id_219 : Range = 0..config::Item < 0 > - 1;
                     mutable _index_id_222 : Int = _range_id_219.Start;
                     let _step_id_227 : Int = _range_id_219.Step;
                     let _end_id_232 : Int = _range_id_219.End;
@@ -3834,6 +5079,7 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             Main()
         "#]],
     );
+    crate::test_utils::check_semantic_equivalence(source);
 }
 
 #[test]
@@ -5295,7 +6541,7 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
               site: callee=T:Body, default
             lattice states:
               callable Main:
-                5: Multi([S:Body, T:Body])"#]],
+                5: Dynamic"#]],
     );
     check_rewrite(
         source,
@@ -5380,7 +6626,7 @@ fn resolve_captures_missing_binding_returns_none() {
 //
 // These cover operand-position and program-point sensitivity in the
 // defunctionalize flow analysis (`analyze_expr_flow` /
-// `collect_assigned_vars_expr` and program-point-sensitive call recording).
+// `collect_written_vars_expr` and program-point-sensitive call recording).
 // Each test pairs a top-level `set` with the same reassignment nested in an
 // operand-position child; both must specialize calls to the reaching
 // definition.

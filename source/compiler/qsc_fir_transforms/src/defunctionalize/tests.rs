@@ -308,8 +308,9 @@ fn check_analysis(source: &str, expect: &Expect) {
     check_analysis_with_capabilities(source, TargetCapabilityFlags::empty(), expect);
 }
 
-/// Runs the defunctionalization pre-pass and analysis over an already-compiled
-/// store, mirroring how the driver assembles the analysis inputs.
+/// Runs the requested package's prepass and analysis over an already-compiled
+/// store. This focused helper does not run the driver's per-package
+/// direct-callee normalization sequence.
 ///
 /// The `total_foreign` set is built the same way the driver builds it, because
 /// the argument-position disposition check consults it when deciding whether a
@@ -327,7 +328,10 @@ fn run_prepass_and_analysis(
         collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
     let mut assigners = PackageAssigners::new(fir_store, fir_pkg_id);
     let assigner = assigners.get_mut(fir_store, fir_pkg_id);
-    let collapsed_spans = super::prepass::run(fir_store, fir_pkg_id, &reachable_expr_ids, assigner);
+    let collapsed_spans = super::prepass::run(fir_store, fir_pkg_id, &reachable_expr_ids, assigner)
+        .into_iter()
+        .map(|(expr, span)| ((fir_pkg_id, expr), span))
+        .collect();
     let mut total_foreign = crate::walk_utils::collect_total_foreign_callables(fir_store);
     crate::walk_utils::extend_with_discardable_foreign_callables(fir_store, &mut total_foreign);
     defunc_analysis::analyze(
