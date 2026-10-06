@@ -2189,6 +2189,149 @@ fn unreachable_callable_in_reachable_package_is_erased() {
     );
 }
 
+fn find_fixture_callable(store: &PackageStore, name: &str) -> StoreItemId {
+    store
+        .iter()
+        .find_map(|(package_id, package)| {
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == name)
+                    .then_some((package_id, item_id).into())
+            })
+        })
+        .unwrap_or_else(|| panic!("fixture must declare {name}"))
+}
+
+fn check_pinned_result(mut store: PackageStore, root: PackageId, expected: i64) {
+    let pinned = find_fixture_callable(&store, "Pinned");
+    assert_eq!(
+        crate::test_utils::try_eval_fir_callable(&store, pinned),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "original pinned body"
+    );
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        root,
+        crate::PipelineStage::Full,
+        &[pinned],
+    );
+    crate::test_utils::assert_no_pipeline_errors("pinned UDT pipeline", &result.errors);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_callable(&store, pinned),
+        Ok(qsc_eval::val::Value::Int(expected)),
+        "transformed pinned body"
+    );
+}
+
+#[test]
+fn pinned_structs_preserve_values() {
+    let (store, root) = crate::test_utils::compile_to_fir_with_library(
+        r#"
+            namespace Lib {
+                struct Data { Value : Int }
+                operation Pinned() : Int {
+                    let data = new Data { Value = 42 };
+                    data.Value
+                }
+            }
+        "#,
+        "@EntryPoint() operation Main() : Unit {}",
+    );
+    check_pinned_result(store, root, 42);
+}
+
+#[test]
+fn pinned_constructors_and_factories_remain_distinct() {
+    for (choice, expected) in [(0, 23), (1, 33)] {
+        let library = indoc::formatdoc! {r#"
+            namespace Lib {{
+                newtype Data = (Value : Int);
+                function Offset(value : Int) : Data {{ Data(value + 10) }}
+                operation Pinned() : Int {{
+                    mutable choice = {choice};
+                    let factories = [Data, Offset];
+                    let data = factories[choice]({{ choice = 1 - choice; 23 }});
+                    data::Value
+                }}
+            }}
+        "#};
+        let (store, root) = crate::test_utils::compile_to_fir_with_library(
+            &library,
+            "@EntryPoint() operation Main() : Unit {}",
+        );
+        check_pinned_result(store, root, expected);
+    }
+}
+
+#[test]
+fn pinned_udt_dependencies_preserve_values_across_packages() {
+    let (store, root) = crate::test_utils::compile_to_fir_with_two_libraries(
+        r#"
+            namespace Inner {
+                export Data, Make;
+                struct Data { First : Int, Second : Int }
+                function Make() : Data { new Data { First = 4, Second = 2 } }
+            }
+        "#,
+        r#"
+            namespace Outer {
+                operation Pinned() : Int {
+                    let data = Inner.Make();
+                    data.First * 10 + data.Second
+                }
+            }
+        "#,
+        "@EntryPoint() operation Main() : Unit {}",
+    );
+    check_pinned_result(store, root, 42);
+}
+
+fn seed_only_udt_fixture() -> (PackageStore, PackageId) {
+    crate::test_utils::compile_and_run_pipeline_to_with_two_libraries(
+        r#"
+            namespace Unused {
+                newtype Data = (Value : Int);
+                function UnusedFactory() : Data { Data(99) }
+            }
+        "#,
+        r#"
+            namespace Lib {
+                newtype Data = (Value : Int);
+                operation Pinned() : Int {
+                    mutable choice = 0;
+                    let factories = [Data, Data];
+                    let data = factories[choice]({ choice = 1; 23 });
+                    data::Value
+                }
+            }
+        "#,
+        "@EntryPoint() operation Main() : Unit {}",
+        crate::PipelineStage::Defunc,
+    )
+}
+
+#[test]
+fn seeded_erasure_is_idempotent() {
+    let (mut store, root) = seed_only_udt_fixture();
+    let pinned = find_fixture_callable(&store, "Pinned");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, root);
+    erase_udts_with_seeds(&mut store, root, &mut assigners, &[pinned]);
+    let before = store.get(pinned.package).to_string();
+    erase_udts_with_seeds(&mut store, root, &mut assigners, &[pinned]);
+    assert_eq!(before, store.get(pinned.package).to_string());
+}
+
+#[test]
+fn seeded_erasure_leaves_unrelated_packages_unchanged() {
+    let (mut store, root) = seed_only_udt_fixture();
+    let pinned = find_fixture_callable(&store, "Pinned");
+    let unrelated = find_fixture_callable(&store, "UnusedFactory").package;
+    assert_ne!(unrelated, pinned.package);
+    let before = store.get(unrelated).to_string();
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, root);
+    erase_udts_with_seeds(&mut store, root, &mut assigners, &[pinned]);
+    assert_eq!(before, store.get(unrelated).to_string());
+}
+
 fn cross_package_copy_update_sources() -> (&'static str, &'static str) {
     let lib_source = indoc! {"
         namespace TestLib {

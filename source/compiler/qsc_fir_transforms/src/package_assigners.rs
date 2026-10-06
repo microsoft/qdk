@@ -25,7 +25,7 @@
 //! * [`return_unify::unify_returns`](crate::return_unify::unify_returns)
 //! * [`cond_normalize::normalize_conditions`](crate::cond_normalize::normalize_conditions)
 //! * [`defunctionalize::defunctionalize`](crate::defunctionalize::defunctionalize)
-//! * [`udt_erase::erase_udts`](crate::udt_erase::erase_udts)
+//! * [`udt_erase::erase_udts_with_seeds`](crate::udt_erase::erase_udts_with_seeds)
 //! * [`tuple_compare_lower::lower_tuple_comparisons`](crate::tuple_compare_lower::lower_tuple_comparisons)
 //! * [`tuple_decompose::tuple_decompose`](crate::tuple_decompose::tuple_decompose)
 //! * [`arg_promote::arg_promote`](crate::arg_promote::arg_promote) (and its

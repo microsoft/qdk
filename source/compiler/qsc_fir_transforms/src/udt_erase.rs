@@ -23,8 +23,8 @@
 //!   the child's source span.
 //! - **Whole-package erasure across the reachable package closure.** This
 //!   mutates every expression and callable signature in the target package
-//!   and in packages reached from its entry, not just reachable callable
-//!   bodies. Like defunctionalization, it handles paths into library
+//!   and in packages reached from its entry or additional seeds, not just
+//!   reachable callable bodies. Like defunctionalization, it handles paths into library
 //!   packages. UDT definitions are resolved from the whole store via the UDT cache.
 //! - **Feeds [`crate::exec_graph_rebuild`].** Structurally mutates reachable
 //!   callable bodies in place; the pipeline driver unconditionally rebuilds the
@@ -56,7 +56,7 @@ mod test_cases;
 use crate::EMPTY_EXEC_RANGE;
 use crate::fir_builder;
 use crate::package_assigners::PackageAssigners;
-use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::reachability::{collect_reachable_package_closure, collect_reachable_with_seeds};
 use crate::walk_utils::{
     DirectChild, expr_is_safe_to_discard, for_each_direct_child, for_each_expr,
     for_each_expr_in_callable_impl,
@@ -78,9 +78,19 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// in the store.
 type UdtCache = FxHashMap<StoreItemId, Ty>;
 
+/// Test convenience wrapper for entry-rooted UDT erasure without extra seeds.
+#[cfg(test)]
+pub fn erase_udts(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+) {
+    erase_udts_with_seeds(store, package_id, assigners, &[]);
+}
+
 /// Erases UDT types and UDT-shaped expressions in the target package's
-/// reachable package closure, while resolving UDT definitions from the
-/// whole store. Specifically, rewrites:
+/// entry- and seed-reachable package closure, while resolving UDT definitions
+/// from the whole store. Specifically, rewrites:
 ///
 /// - Every `Ty::Udt` to its pure tuple or scalar type (via `get_pure_ty()`)
 ///   on expressions, patterns, blocks, and callable signatures.
@@ -117,19 +127,20 @@ type UdtCache = FxHashMap<StoreItemId, Ty>;
 /// # Panics
 ///
 /// Panics if the package has no entry expression. The reachability scans
-/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// in this pass go through [`collect_reachable_with_seeds`], which asserts
 /// `package.entry.is_some()`.
-pub fn erase_udts(
+pub fn erase_udts_with_seeds(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
+    seeds: &[StoreItemId],
 ) {
     // Build a resolution cache from all UDT items across all packages.
     let udt_cache = build_udt_cache(store);
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
 
     // Erase UDTs in the target package and in any package that contains an
-    // entry-reachable item. UDT definition lookup still spans the whole
+    // entry- or seed-reachable item. UDT definition lookup still spans the whole
     // store so cross-package references resolve correctly.
     let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
         .into_iter()
@@ -144,7 +155,7 @@ pub fn erase_udts(
 /// Erases UDT types and struct expressions in a single package, rewriting
 /// every expression type, pattern type, block type, callable signature,
 /// and struct construction in place. Called once per package in the
-/// entry-reachable closure.
+/// entry- and seed-reachable closure.
 ///
 /// # Before
 /// ```text
