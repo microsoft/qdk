@@ -65,9 +65,9 @@ block_1:
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define internal void @H(ptr %var_4) {
+define internal void @H(ptr %var_6) {
 block_2:
-  call void @__quantum__qis__h__body(ptr %var_4)
+  call void @__quantum__qis__h__body(ptr %var_6)
   ret void
 }
 
@@ -75,25 +75,25 @@ declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__cz__body(ptr, ptr)
 
-define internal void @H__Adj(ptr %var_6) {
+define internal void @H__Adj(ptr %var_8) {
 block_3:
-  call void @__quantum__qis__h__body(ptr %var_6)
+  call void @__quantum__qis__h__body(ptr %var_8)
   ret void
 }
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-define internal void @X(ptr %var_8) {
+define internal void @X(ptr %var_10) {
 block_4:
-  call void @__quantum__qis__x__body(ptr %var_8)
+  call void @__quantum__qis__x__body(ptr %var_10)
   ret void
 }
 
 declare void @__quantum__qis__x__body(ptr)
 
-define internal void @CNOT__Adj(ptr %var_11, ptr %var_12) {
+define internal void @CNOT__Adj(ptr %var_13, ptr %var_14) {
 block_5:
-  call void @__quantum__qis__cx__body(ptr %var_11, ptr %var_12)
+  call void @__quantum__qis__cx__body(ptr %var_13, ptr %var_14)
   ret void
 }
 

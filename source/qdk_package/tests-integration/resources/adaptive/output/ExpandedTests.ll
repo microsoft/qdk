@@ -229,33 +229,33 @@ block_31:
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define internal void @Rx(double %var_56, ptr %var_57) {
+define internal void @Rx(double %var_58, ptr %var_59) {
 block_32:
-  call void @__quantum__qis__rx__body(double %var_56, ptr %var_57)
+  call void @__quantum__qis__rx__body(double %var_58, ptr %var_59)
   ret void
 }
 
 declare void @__quantum__qis__rx__body(double, ptr)
 
-define internal void @Rz(double %var_58, ptr %var_59) {
+define internal void @Rz(double %var_62, ptr %var_63) {
 block_33:
-  call void @__quantum__qis__rz__body(double %var_58, ptr %var_59)
+  call void @__quantum__qis__rz__body(double %var_62, ptr %var_63)
   ret void
 }
 
 declare void @__quantum__qis__rz__body(double, ptr)
 
-define internal void @Rzz(double %var_60, ptr %var_61, ptr %var_62) {
+define internal void @Rzz(double %var_66, ptr %var_67, ptr %var_68) {
 block_34:
-  call void @__quantum__qis__rzz__body(double %var_60, ptr %var_61, ptr %var_62)
+  call void @__quantum__qis__rzz__body(double %var_66, ptr %var_67, ptr %var_68)
   ret void
 }
 
 declare void @__quantum__qis__rzz__body(double, ptr, ptr)
 
-define internal void @CNOT__Adj(ptr %var_63, ptr %var_64) {
+define internal void @CNOT__Adj(ptr %var_72, ptr %var_73) {
 block_35:
-  call void @__quantum__qis__cx__body(ptr %var_63, ptr %var_64)
+  call void @__quantum__qis__cx__body(ptr %var_72, ptr %var_73)
   ret void
 }
 

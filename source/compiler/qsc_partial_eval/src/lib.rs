@@ -2802,7 +2802,24 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(*expr_id),
                 ));
             }
-            values.push(control_flow.into_value());
+            let elem_value = match control_flow.into_value() {
+                Value::Var(var) => {
+                    let var_id = self.resource_manager.next_var();
+                    let elem_var = Var {
+                        id: var_id.into(),
+                        ty: var.ty,
+                    };
+                    // Insert a store instruction.
+                    let value_operand = map_eval_var_to_rir_var(var);
+                    let rir_var = map_eval_var_to_rir_var(elem_var);
+                    let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
+                    self.get_current_rir_block_mut().0.push(store_ins);
+                    Value::Var(elem_var)
+                }
+                val => val,
+            };
+
+            values.push(elem_value);
         }
         Ok(EvalControlFlow::Continue(Value::Array(values.into())))
     }
@@ -2817,7 +2834,24 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(*expr_id),
                 ));
             }
-            values.push(control_flow.into_value());
+            let elem_value = match control_flow.into_value() {
+                Value::Var(var) => {
+                    let var_id = self.resource_manager.next_var();
+                    let elem_var = Var {
+                        id: var_id.into(),
+                        ty: var.ty,
+                    };
+                    // Insert a store instruction.
+                    let value_operand = map_eval_var_to_rir_var(var);
+                    let rir_var = map_eval_var_to_rir_var(elem_var);
+                    let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
+                    self.get_current_rir_block_mut().0.push(store_ins);
+                    Value::Var(elem_var)
+                }
+                val => val,
+            };
+
+            values.push(elem_value);
         }
         Ok(EvalControlFlow::Continue(Value::Tuple(values.into(), None)))
     }

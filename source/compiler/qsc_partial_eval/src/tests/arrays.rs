@@ -143,9 +143,10 @@ fn array_with_hybrid_content() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(4), args( Integer(2), Tag(0, 3), )
                 Call id(5), args( Bool(true), Tag(1, 5), )
-                Call id(5), args( Variable(1, Boolean), Tag(2, 5), )
+                Call id(5), args( Variable(2, Boolean), Tag(2, 5), )
                 Return Integer(0)"#]],
     );
 }

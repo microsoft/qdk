@@ -27,7 +27,7 @@ pub const GROVER_EXPECT: Expect = expect!["[Zero, One, Zero, One, Zero]"];
 pub const GROVER_EXPECT_DEBUG: Expect = expect!["[Zero, One, Zero, One, Zero]"];
 pub const GROVER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 33215"];
 pub const GROVER_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 20376"];
-pub const GROVER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 22076"];
+pub const GROVER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 22116"];
 pub const RANDOMNUMBER_EXPECT: Expect = expect!["9"];
 pub const RANDOMNUMBER_EXPECT_DEBUG: Expect = expect!["9"];
 pub const RANDOMNUMBER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3559"];
@@ -41,9 +41,9 @@ pub const SIMPLE1DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circui
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18979"];
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 13431"];
+    expect!["generated QIR of length 13441"];
 pub const TELEPORTATION_EXPECT: Expect = expect!["Zero"];
 pub const TELEPORTATION_EXPECT_DEBUG: Expect = expect!["Zero"];
 pub const TELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 2086"];
 pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3086"];
-pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8644"];
+pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8662"];

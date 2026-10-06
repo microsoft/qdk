@@ -6,12 +6,14 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_6 = alloca i1
-  %var_14 = alloca i1
-  %var_15 = alloca i1
+  %var_9 = alloca i1
+  %var_12 = alloca i1
   %var_16 = alloca i1
-  %var_17 = alloca i1
-  %var_18 = alloca i1
+  %var_19 = alloca i1
+  %var_20 = alloca i1
+  %var_21 = alloca i1
+  %var_22 = alloca i1
+  %var_23 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -19,38 +21,42 @@ block_0:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @Reset(ptr inttoptr (i64 0 to ptr))
   call void @Reset(ptr inttoptr (i64 1 to ptr))
-  %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  store i1 %var_5, ptr %var_6
-  %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  %var_8 = icmp eq i1 %var_7, false
-  %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  store i1 %var_7, ptr %var_9
   %var_10 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  %var_11 = icmp eq i1 %var_9, %var_10
-  %var_12 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  %var_13 = icmp eq i1 %var_12, false
-  br i1 %var_13, label %block_1, label %block_2
+  %var_11 = icmp eq i1 %var_10, false
+  store i1 %var_11, ptr %var_12
+  %var_13 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_14 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_15 = icmp eq i1 %var_13, %var_14
+  store i1 %var_15, ptr %var_16
+  %var_17 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_18 = icmp eq i1 %var_17, false
+  br i1 %var_18, label %block_1, label %block_2
 block_1:
-  store i1 false, ptr %var_14
+  store i1 false, ptr %var_19
   br label %block_3
 block_2:
-  store i1 true, ptr %var_14
+  store i1 true, ptr %var_19
   br label %block_3
 block_3:
-  %var_21 = load i1, ptr %var_6
-  store i1 %var_21, ptr %var_15
-  store i1 %var_8, ptr %var_16
-  store i1 %var_11, ptr %var_17
-  %var_25 = load i1, ptr %var_14
-  store i1 %var_25, ptr %var_18
+  %var_28 = load i1, ptr %var_19
+  store i1 %var_28, ptr %var_20
+  %var_30 = load i1, ptr %var_9
+  store i1 %var_30, ptr %var_21
+  %var_32 = load i1, ptr %var_12
+  store i1 %var_32, ptr %var_22
+  %var_34 = load i1, ptr %var_16
+  store i1 %var_34, ptr %var_23
   call void @__quantum__rt__tuple_record_output(i64 4, ptr @0)
-  %var_27 = load i1, ptr %var_15
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_27, ptr @1)
-  %var_28 = load i1, ptr %var_16
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_28, ptr @2)
-  %var_29 = load i1, ptr %var_17
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_29, ptr @3)
-  %var_30 = load i1, ptr %var_18
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_30, ptr @4)
+  %var_36 = load i1, ptr %var_21
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_36, ptr @1)
+  %var_37 = load i1, ptr %var_22
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_37, ptr @2)
+  %var_38 = load i1, ptr %var_23
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_38, ptr @3)
+  %var_39 = load i1, ptr %var_20
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_39, ptr @4)
   ret i64 0
 }
 
@@ -74,9 +80,9 @@ declare void @__quantum__qis__cx__body(ptr, ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-define internal void @Reset(ptr %var_4) {
+define internal void @Reset(ptr %var_6) {
 block_6:
-  call void @__quantum__qis__reset__body(ptr %var_4)
+  call void @__quantum__qis__reset__body(ptr %var_6)
   ret void
 }
 

@@ -49,13 +49,13 @@ fn nested_for_over_qubit_slice_succeeds() {
           store i64 1, ptr %var_2
           br label %block_1
         block_1:
-          %var_14 = load i64, ptr %var_2
-          %var_3 = icmp sle i64 %var_14, 2
+          %var_17 = load i64, ptr %var_2
+          %var_3 = icmp sle i64 %var_17, 2
           store i1 true, ptr %var_4
           br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_17 = load i1, ptr %var_4
-          br i1 %var_17, label %block_4, label %block_5
+          %var_20 = load i1, ptr %var_4
+          br i1 %var_20, label %block_4, label %block_5
         block_3:
           store i1 false, ptr %var_4
           br label %block_2
@@ -66,23 +66,23 @@ fn nested_for_over_qubit_slice_succeeds() {
           call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
           ret i64 0
         block_6:
-          %var_19 = load i64, ptr %var_5
-          %var_6 = icmp slt i64 %var_19, 2
+          %var_22 = load i64, ptr %var_5
+          %var_6 = icmp slt i64 %var_22, 2
           br i1 %var_6, label %block_7, label %block_8
         block_7:
-          %var_22 = load i64, ptr %var_5
-          %var_23_offset_chk = icmp slt i64 %var_22, 0
-          %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
-          %var_23 = getelementptr [2 x ptr], ptr @array0, i64 %var_23_offset, i64 %var_22
-          %var_7 = load ptr, ptr %var_23
+          %var_25 = load i64, ptr %var_5
+          %var_26_offset_chk = icmp slt i64 %var_25, 0
+          %var_26_offset = select i1 %var_26_offset_chk, i64 1, i64 0
+          %var_26 = getelementptr [2 x ptr], ptr @array0, i64 %var_26_offset, i64 %var_25
+          %var_7 = load ptr, ptr %var_26
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_7)
-          %var_11 = add i64 %var_22, 1
-          store i64 %var_11, ptr %var_5
+          %var_14 = add i64 %var_25, 1
+          store i64 %var_14, ptr %var_5
           br label %block_6
         block_8:
-          %var_20 = load i64, ptr %var_2
-          %var_12 = add i64 %var_20, 1
-          store i64 %var_12, ptr %var_2
+          %var_23 = load i64, ptr %var_2
+          %var_15 = add i64 %var_23, 1
+          store i64 %var_15, ptr %var_2
           br label %block_1
         }
 
@@ -96,9 +96,9 @@ fn nested_for_over_qubit_slice_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define internal void @CNOT(ptr %var_9, ptr %var_10) {
+        define internal void @CNOT(ptr %var_10, ptr %var_11) {
         block_10:
-          call void @__quantum__qis__cx__body(ptr %var_9, ptr %var_10)
+          call void @__quantum__qis__cx__body(ptr %var_10, ptr %var_11)
           ret void
         }
 
@@ -163,13 +163,13 @@ fn constant_folding_pattern_succeeds() {
           store i64 1, ptr %var_2
           br label %block_1
         block_1:
-          %var_14 = load i64, ptr %var_2
-          %var_3 = icmp sle i64 %var_14, 2
+          %var_17 = load i64, ptr %var_2
+          %var_3 = icmp sle i64 %var_17, 2
           store i1 true, ptr %var_4
           br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_17 = load i1, ptr %var_4
-          br i1 %var_17, label %block_4, label %block_5
+          %var_20 = load i1, ptr %var_4
+          br i1 %var_20, label %block_4, label %block_5
         block_3:
           store i1 false, ptr %var_4
           br label %block_2
@@ -186,23 +186,23 @@ fn constant_folding_pattern_succeeds() {
           call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @3)
           ret i64 0
         block_6:
-          %var_19 = load i64, ptr %var_5
-          %var_6 = icmp slt i64 %var_19, 2
+          %var_22 = load i64, ptr %var_5
+          %var_6 = icmp slt i64 %var_22, 2
           br i1 %var_6, label %block_7, label %block_8
         block_7:
-          %var_22 = load i64, ptr %var_5
-          %var_23_offset_chk = icmp slt i64 %var_22, 0
-          %var_23_offset = select i1 %var_23_offset_chk, i64 1, i64 0
-          %var_23 = getelementptr [2 x ptr], ptr @array0, i64 %var_23_offset, i64 %var_22
-          %var_7 = load ptr, ptr %var_23
+          %var_25 = load i64, ptr %var_5
+          %var_26_offset_chk = icmp slt i64 %var_25, 0
+          %var_26_offset = select i1 %var_26_offset_chk, i64 1, i64 0
+          %var_26 = getelementptr [2 x ptr], ptr @array0, i64 %var_26_offset, i64 %var_25
+          %var_7 = load ptr, ptr %var_26
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_7)
-          %var_11 = add i64 %var_22, 1
-          store i64 %var_11, ptr %var_5
+          %var_14 = add i64 %var_25, 1
+          store i64 %var_14, ptr %var_5
           br label %block_6
         block_8:
-          %var_20 = load i64, ptr %var_2
-          %var_12 = add i64 %var_20, 1
-          store i64 %var_12, ptr %var_2
+          %var_23 = load i64, ptr %var_2
+          %var_15 = add i64 %var_23, 1
+          store i64 %var_15, ptr %var_2
           br label %block_1
         }
 
@@ -216,9 +216,9 @@ fn constant_folding_pattern_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define internal void @CNOT(ptr %var_9, ptr %var_10) {
+        define internal void @CNOT(ptr %var_10, ptr %var_11) {
         block_10:
-          call void @__quantum__qis__cx__body(ptr %var_9, ptr %var_10)
+          call void @__quantum__qis__cx__body(ptr %var_10, ptr %var_11)
           ret void
         }
 
@@ -290,19 +290,19 @@ fn three_qubit_repetition_code_pattern_succeeds() {
           %var_2 = alloca i64
           %var_4 = alloca i1
           %var_5 = alloca i64
-          %var_12 = alloca i64
+          %var_15 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @X(ptr inttoptr (i64 0 to ptr))
           store i64 1, ptr %var_2
           br label %block_1
         block_1:
-          %var_21 = load i64, ptr %var_2
-          %var_3 = icmp sle i64 %var_21, 2
+          %var_27 = load i64, ptr %var_2
+          %var_3 = icmp sle i64 %var_27, 2
           store i1 true, ptr %var_4
           br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_24 = load i1, ptr %var_4
-          br i1 %var_24, label %block_4, label %block_5
+          %var_30 = load i1, ptr %var_4
+          br i1 %var_30, label %block_4, label %block_5
         block_3:
           store i1 false, ptr %var_4
           br label %block_2
@@ -319,40 +319,40 @@ fn three_qubit_repetition_code_pattern_succeeds() {
           call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @3)
           ret i64 0
         block_6:
-          %var_26 = load i64, ptr %var_5
-          %var_6 = icmp slt i64 %var_26, 2
+          %var_32 = load i64, ptr %var_5
+          %var_6 = icmp slt i64 %var_32, 2
           br i1 %var_6, label %block_7, label %block_8
         block_7:
-          %var_34 = load i64, ptr %var_5
-          %var_35_offset_chk = icmp slt i64 %var_34, 0
-          %var_35_offset = select i1 %var_35_offset_chk, i64 1, i64 0
-          %var_35 = getelementptr [2 x ptr], ptr @array0, i64 %var_35_offset, i64 %var_34
-          %var_7 = load ptr, ptr %var_35
+          %var_40 = load i64, ptr %var_5
+          %var_41_offset_chk = icmp slt i64 %var_40, 0
+          %var_41_offset = select i1 %var_41_offset_chk, i64 1, i64 0
+          %var_41 = getelementptr [2 x ptr], ptr @array0, i64 %var_41_offset, i64 %var_40
+          %var_7 = load ptr, ptr %var_41
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_7)
-          %var_11 = add i64 %var_34, 1
-          store i64 %var_11, ptr %var_5
+          %var_14 = add i64 %var_40, 1
+          store i64 %var_14, ptr %var_5
           br label %block_6
         block_8:
-          store i64 0, ptr %var_12
+          store i64 0, ptr %var_15
           br label %block_9
         block_9:
-          %var_28 = load i64, ptr %var_12
-          %var_13 = icmp slt i64 %var_28, 3
-          br i1 %var_13, label %block_10, label %block_11
+          %var_34 = load i64, ptr %var_15
+          %var_16 = icmp slt i64 %var_34, 3
+          br i1 %var_16, label %block_10, label %block_11
         block_10:
-          %var_31 = load i64, ptr %var_12
-          %var_32_offset_chk = icmp slt i64 %var_31, 0
-          %var_32_offset = select i1 %var_32_offset_chk, i64 1, i64 0
-          %var_32 = getelementptr [3 x ptr], ptr @array1, i64 %var_32_offset, i64 %var_31
-          %var_14 = load ptr, ptr %var_32
-          call void @Rx(double 6.2831853, ptr %var_14)
-          %var_18 = add i64 %var_31, 1
-          store i64 %var_18, ptr %var_12
+          %var_37 = load i64, ptr %var_15
+          %var_38_offset_chk = icmp slt i64 %var_37, 0
+          %var_38_offset = select i1 %var_38_offset_chk, i64 1, i64 0
+          %var_38 = getelementptr [3 x ptr], ptr @array1, i64 %var_38_offset, i64 %var_37
+          %var_17 = load ptr, ptr %var_38
+          call void @Rx(double 6.2831853, ptr %var_17)
+          %var_24 = add i64 %var_37, 1
+          store i64 %var_24, ptr %var_15
           br label %block_9
         block_11:
-          %var_29 = load i64, ptr %var_2
-          %var_19 = add i64 %var_29, 1
-          store i64 %var_19, ptr %var_2
+          %var_35 = load i64, ptr %var_2
+          %var_25 = add i64 %var_35, 1
+          store i64 %var_25, ptr %var_2
           br label %block_1
         }
 
@@ -366,17 +366,17 @@ fn three_qubit_repetition_code_pattern_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define internal void @CNOT(ptr %var_9, ptr %var_10) {
+        define internal void @CNOT(ptr %var_10, ptr %var_11) {
         block_13:
-          call void @__quantum__qis__cx__body(ptr %var_9, ptr %var_10)
+          call void @__quantum__qis__cx__body(ptr %var_10, ptr %var_11)
           ret void
         }
 
         declare void @__quantum__qis__cx__body(ptr, ptr)
 
-        define internal void @Rx(double %var_16, ptr %var_17) {
+        define internal void @Rx(double %var_20, ptr %var_21) {
         block_14:
-          call void @__quantum__qis__rx__body(double %var_16, ptr %var_17)
+          call void @__quantum__qis__rx__body(double %var_20, ptr %var_21)
           ret void
         }
 
@@ -439,8 +439,8 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
           store i1 false, ptr %var_1
           br label %block_1
         block_1:
-          %var_12 = load i1, ptr %var_1
-          %var_2 = xor i1 %var_12, true
+          %var_15 = load i1, ptr %var_1
+          %var_2 = xor i1 %var_15, true
           br i1 %var_2, label %block_2, label %block_3
         block_2:
           store i64 0, ptr %var_3
@@ -449,31 +449,31 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
           call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
           ret i64 0
         block_4:
-          %var_14 = load i64, ptr %var_3
-          %var_4 = icmp slt i64 %var_14, 2
+          %var_17 = load i64, ptr %var_3
+          %var_4 = icmp slt i64 %var_17, 2
           br i1 %var_4, label %block_5, label %block_6
         block_5:
-          %var_16 = load i64, ptr %var_3
-          %var_17_offset_chk = icmp slt i64 %var_16, 0
-          %var_17_offset = select i1 %var_17_offset_chk, i64 1, i64 0
-          %var_17 = getelementptr [2 x ptr], ptr @array0, i64 %var_17_offset, i64 %var_16
-          %var_5 = load ptr, ptr %var_17
+          %var_19 = load i64, ptr %var_3
+          %var_20_offset_chk = icmp slt i64 %var_19, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [2 x ptr], ptr @array0, i64 %var_20_offset, i64 %var_19
+          %var_5 = load ptr, ptr %var_20
           call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr %var_5)
-          %var_9 = add i64 %var_16, 1
-          store i64 %var_9, ptr %var_3
+          %var_12 = add i64 %var_19, 1
+          store i64 %var_12, ptr %var_3
           br label %block_4
         block_6:
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_10 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          store i1 %var_10, ptr %var_1
+          %var_13 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          store i1 %var_13, ptr %var_1
           br label %block_1
         }
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define internal void @CNOT(ptr %var_7, ptr %var_8) {
+        define internal void @CNOT(ptr %var_8, ptr %var_9) {
         block_7:
-          call void @__quantum__qis__cx__body(ptr %var_7, ptr %var_8)
+          call void @__quantum__qis__cx__body(ptr %var_8, ptr %var_9)
           ret void
         }
 
@@ -839,6 +839,8 @@ fn result_variables_with_default_values_succeeds() {
         block_0:
           %var_0 = alloca ptr
           %var_1 = alloca ptr
+          %var_6 = alloca ptr
+          %var_7 = alloca ptr
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 1 to ptr))
           call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 2 to ptr))
@@ -853,11 +855,15 @@ fn result_variables_with_default_values_succeeds() {
           br label %block_2
         block_2:
           call void @Reset(ptr inttoptr (i64 0 to ptr))
+          %var_10 = load ptr, ptr %var_0
+          store ptr %var_10, ptr %var_6
+          %var_12 = load ptr, ptr %var_1
+          store ptr %var_12, ptr %var_7
           call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
-          %var_5 = load ptr, ptr %var_0
-          call void @__quantum__rt__result_record_output(ptr %var_5, ptr @1)
-          %var_6 = load ptr, ptr %var_1
-          call void @__quantum__rt__result_record_output(ptr %var_6, ptr @2)
+          %var_14 = load ptr, ptr %var_6
+          call void @__quantum__rt__result_record_output(ptr %var_14, ptr @1)
+          %var_15 = load ptr, ptr %var_7
+          call void @__quantum__rt__result_record_output(ptr %var_15, ptr @2)
           ret i64 0
         }
 
@@ -1635,24 +1641,24 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
           ret void
         }
 
-        define internal void @Rx(double %var_1, ptr %var_2) {
+        define internal void @Rx(double %var_2, ptr %var_3) {
         block_2:
-          call void @__quantum__qis__rx__body(double %var_1, ptr %var_2)
+          call void @__quantum__qis__rx__body(double %var_2, ptr %var_3)
           ret void
         }
 
         declare void @__quantum__qis__rx__body(double, ptr)
 
-        define internal void @Op__Adj(ptr %var_3) {
+        define internal void @Op__Adj(ptr %var_6) {
         block_3:
-          call void @Rx__Adj(double 1.0, ptr %var_3)
+          call void @Rx__Adj(double 1.0, ptr %var_6)
           ret void
         }
 
-        define internal void @Rx__Adj(double %var_4, ptr %var_5) {
+        define internal void @Rx__Adj(double %var_8, ptr %var_9) {
         block_4:
-          %var_6 = fmul double -1.0, %var_4
-          call void @Rx(double %var_6, ptr %var_5)
+          %var_10 = fmul double -1.0, %var_8
+          call void @Rx(double %var_10, ptr %var_9)
           ret void
         }
 
@@ -1909,19 +1915,19 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
         define internal void @AllocArrayAndX() {
         block_1:
           %var_1 = call ptr @__quantum__rt__qubit_allocate()
-          %var_2 = call ptr @__quantum__rt__qubit_allocate()
+          %var_3 = call ptr @__quantum__rt__qubit_allocate()
           call void @X(ptr %var_1)
-          call void @X(ptr %var_2)
+          call void @X(ptr %var_3)
           call void @__quantum__rt__qubit_release(ptr %var_1)
-          call void @__quantum__rt__qubit_release(ptr %var_2)
+          call void @__quantum__rt__qubit_release(ptr %var_3)
           ret void
         }
 
         declare ptr @__quantum__rt__qubit_allocate()
 
-        define internal void @X(ptr %var_3) {
+        define internal void @X(ptr %var_5) {
         block_2:
-          call void @__quantum__qis__x__body(ptr %var_3)
+          call void @__quantum__qis__x__body(ptr %var_5)
           ret void
         }
 
@@ -2584,23 +2590,23 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__rz__body(double, ptr)
 
-        define internal void @H__Adj(ptr %var_9) {
+        define internal void @H__Adj(ptr %var_11) {
         block_4:
-          call void @__quantum__qis__h__body(ptr %var_9)
+          call void @__quantum__qis__h__body(ptr %var_11)
           ret void
         }
 
-        define internal void @S(ptr %var_10) {
+        define internal void @S(ptr %var_12) {
         block_5:
-          call void @__quantum__qis__s__body(ptr %var_10)
+          call void @__quantum__qis__s__body(ptr %var_12)
           ret void
         }
 
         declare void @__quantum__qis__s__body(ptr)
 
-        define internal void @CNOT__Adj(ptr %var_15, ptr %var_16) {
+        define internal void @CNOT__Adj(ptr %var_17, ptr %var_18) {
         block_6:
-          call void @__quantum__qis__cx__body(ptr %var_15, ptr %var_16)
+          call void @__quantum__qis__cx__body(ptr %var_17, ptr %var_18)
           ret void
         }
 

@@ -659,18 +659,18 @@ fn dynamic_double_intrinsic() {
         block_2:
           br label %block_3
         block_3:
-          %var_9 = phi double [0.0, %block_1], [1.0, %block_2]
-          %var_4 = fadd double 1.0, %var_9
+          %var_19 = phi double [0.0, %block_1], [1.0, %block_2]
+          %var_4 = fadd double 1.0, %var_19
           call void @OpA(double %var_4, %Qubit* inttoptr (i64 0 to %Qubit*))
-          %var_5 = fmul double 2.0, %var_9
-          call void @__quantum__qis__rx__body(double %var_5, %Qubit* inttoptr (i64 0 to %Qubit*))
-          %var_6 = fdiv double %var_9, 3.0
-          call void @__quantum__qis__ry__body(double %var_6, %Qubit* inttoptr (i64 0 to %Qubit*))
-          %var_7 = fsub double %var_9, 4.0
-          call void @__quantum__qis__rz__body(double %var_7, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @OpA(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rx__body(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__rt__double_record_output(double %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          %var_6 = fmul double 2.0, %var_19
+          call void @__quantum__qis__rx__body(double %var_6, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_9 = fdiv double %var_19, 3.0
+          call void @__quantum__qis__ry__body(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_12 = fsub double %var_19, 4.0
+          call void @__quantum__qis__rz__body(double %var_12, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @OpA(double %var_19, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__rx__body(double %var_19, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__rt__double_record_output(double %var_19, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 

@@ -152,10 +152,14 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(0, Double), Variable(1, Qubit), )
+                Variable(2, Double) = Store Variable(0, Double)
+                Variable(3, Qubit) = Store Variable(1, Qubit)
+                Call id(3), args( Variable(2, Double), Variable(3, Qubit), )
                 Return
             Block 2:Block:
-                Call id(4), args( Variable(2, Double), Variable(3, Qubit), )
+                Variable(6, Double) = Store Variable(4, Double)
+                Variable(7, Qubit) = Store Variable(5, Qubit)
+                Call id(4), args( Variable(6, Double), Variable(7, Qubit), )
                 Return"#]],
     );
 }
@@ -858,14 +862,18 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Variable(9, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
+                Variable(3, Double) = Store Variable(1, Double)
+                Variable(4, Qubit) = Store Variable(2, Qubit)
+                Call id(3), args( Variable(3, Double), Variable(4, Qubit), )
                 Return Variable(1, Double)
             Block 2:Block:
-                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Variable(7, Double) = Store Variable(5, Double)
+                Variable(8, Qubit) = Store Variable(6, Qubit)
+                Call id(4), args( Variable(7, Double), Variable(8, Qubit), )
                 Return"#]],
     );
 }
@@ -931,14 +939,18 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Variable(9, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
+                Variable(3, Double) = Store Variable(1, Double)
+                Variable(4, Qubit) = Store Variable(2, Qubit)
+                Call id(3), args( Variable(3, Double), Variable(4, Qubit), )
                 Return Variable(1, Double)
             Block 2:Block:
-                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Variable(7, Double) = Store Variable(5, Double)
+                Variable(8, Qubit) = Store Variable(6, Qubit)
+                Call id(4), args( Variable(7, Double), Variable(8, Qubit), )
                 Return"#]],
     );
 }

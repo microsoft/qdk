@@ -225,7 +225,7 @@ pub const DIAGNOSTICS_EXPECT_DEBUG: Expect = expect![[r#"
     ()"#]];
 pub const DIAGNOSTICS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 215"];
 pub const DIAGNOSTICS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1463"];
-pub const DIAGNOSTICS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2417"];
+pub const DIAGNOSTICS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2421"];
 pub const DOUBLE_EXPECT: Expect = expect!["0.1973269804"];
 pub const DOUBLE_EXPECT_DEBUG: Expect = expect!["0.1973269804"];
 pub const DOUBLE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
@@ -367,7 +367,7 @@ pub const QUBIT_EXPECT_DEBUG: Expect = expect![[r#"
     ()"#]];
 pub const QUBIT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 449"];
 pub const QUBIT_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1819"];
-pub const QUBIT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2742"];
+pub const QUBIT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2744"];
 pub const RANGE_EXPECT: Expect = expect![[r#"
     Range: 1..3
     Range: 2..2..5
@@ -433,7 +433,7 @@ pub const SPECIALIZATIONS_EXPECT: Expect = expect!["()"];
 pub const SPECIALIZATIONS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const SPECIALIZATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4540"];
 pub const SPECIALIZATIONS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3106"];
-pub const SPECIALIZATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8062"];
+pub const SPECIALIZATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8160"];
 pub const STRING_EXPECT: Expect = expect![[r#"
     FooBar
     interpolated: FooBar

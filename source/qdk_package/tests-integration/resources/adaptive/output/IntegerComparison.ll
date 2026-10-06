@@ -15,13 +15,13 @@ block_0:
   store i64 1, ptr %var_3
   br label %block_1
 block_1:
-  %var_18 = load i64, ptr %var_3
-  %var_4 = icmp sle i64 %var_18, 10
+  %var_20 = load i64, ptr %var_3
+  %var_4 = icmp sle i64 %var_20, 10
   store i1 true, ptr %var_5
   br i1 %var_4, label %block_2, label %block_3
 block_2:
-  %var_21 = load i1, ptr %var_5
-  br i1 %var_21, label %block_4, label %block_5
+  %var_23 = load i1, ptr %var_5
+  br i1 %var_23, label %block_4, label %block_5
 block_3:
   store i1 false, ptr %var_5
   br label %block_2
@@ -30,28 +30,28 @@ block_4:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   store i1 %var_7, ptr %var_0
-  %var_24 = load i1, ptr %var_0
-  br i1 %var_24, label %block_6, label %block_7
+  %var_26 = load i1, ptr %var_0
+  br i1 %var_26, label %block_6, label %block_7
 block_5:
   call void @Reset(ptr inttoptr (i64 0 to ptr))
-  %var_22 = load i64, ptr %var_2
-  %var_12 = icmp sgt i64 %var_22, 5
-  %var_13 = icmp slt i64 %var_22, 5
-  %var_14 = icmp eq i64 %var_22, 10
+  %var_24 = load i64, ptr %var_2
+  %var_12 = icmp sgt i64 %var_24, 5
+  %var_14 = icmp slt i64 %var_24, 5
+  %var_16 = icmp eq i64 %var_24, 10
   call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_12, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_13, ptr @2)
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_16, ptr @3)
   ret i64 0
 block_6:
   call void @X(ptr inttoptr (i64 0 to ptr))
-  %var_27 = load i64, ptr %var_2
-  %var_9 = add i64 %var_27, 1
+  %var_29 = load i64, ptr %var_2
+  %var_9 = add i64 %var_29, 1
   store i64 %var_9, ptr %var_2
   br label %block_7
 block_7:
-  %var_25 = load i64, ptr %var_3
-  %var_10 = add i64 %var_25, 1
+  %var_27 = load i64, ptr %var_3
+  %var_10 = add i64 %var_27, 1
   store i64 %var_10, ptr %var_3
   br label %block_1
 }

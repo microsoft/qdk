@@ -52,15 +52,15 @@ block_6:
 block_7:
   br label %block_9
 block_8:
-  %var_89 = phi i1 [true, %block_5], [false, %block_6]
+  %var_93 = phi i1 [true, %block_5], [false, %block_6]
   br label %block_9
 block_9:
-  %var_90 = phi i1 [true, %block_7], [%var_89, %block_8]
-  br i1 %var_90, label %block_10, label %block_11
+  %var_94 = phi i1 [true, %block_7], [%var_93, %block_8]
+  br i1 %var_94, label %block_10, label %block_11
 block_10:
   br label %block_11
 block_11:
-  %var_91 = phi i64 [0, %block_9], [1, %block_10]
+  %var_95 = phi i64 [0, %block_9], [1, %block_10]
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 2 to %Qubit*))
@@ -101,16 +101,16 @@ block_17:
 block_18:
   br label %block_20
 block_19:
-  %var_92 = phi i1 [true, %block_16], [false, %block_17]
+  %var_96 = phi i1 [true, %block_16], [false, %block_17]
   br label %block_20
 block_20:
-  %var_93 = phi i1 [true, %block_18], [%var_92, %block_19]
-  br i1 %var_93, label %block_21, label %block_22
+  %var_97 = phi i1 [true, %block_18], [%var_96, %block_19]
+  br i1 %var_97, label %block_21, label %block_22
 block_21:
-  %var_34 = add i64 %var_91, 1
+  %var_34 = add i64 %var_95, 1
   br label %block_22
 block_22:
-  %var_94 = phi i64 [%var_91, %block_20], [%var_34, %block_21]
+  %var_98 = phi i64 [%var_95, %block_20], [%var_34, %block_21]
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 2 to %Qubit*))
@@ -151,16 +151,16 @@ block_28:
 block_29:
   br label %block_31
 block_30:
-  %var_95 = phi i1 [true, %block_27], [false, %block_28]
+  %var_99 = phi i1 [true, %block_27], [false, %block_28]
   br label %block_31
 block_31:
-  %var_96 = phi i1 [true, %block_29], [%var_95, %block_30]
-  br i1 %var_96, label %block_32, label %block_33
+  %var_100 = phi i1 [true, %block_29], [%var_99, %block_30]
+  br i1 %var_100, label %block_32, label %block_33
 block_32:
-  %var_50 = add i64 %var_94, 1
+  %var_50 = add i64 %var_98, 1
   br label %block_33
 block_33:
-  %var_97 = phi i64 [%var_94, %block_31], [%var_50, %block_32]
+  %var_101 = phi i64 [%var_98, %block_31], [%var_50, %block_32]
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 2 to %Qubit*))
@@ -201,16 +201,16 @@ block_39:
 block_40:
   br label %block_42
 block_41:
-  %var_98 = phi i1 [true, %block_38], [false, %block_39]
+  %var_102 = phi i1 [true, %block_38], [false, %block_39]
   br label %block_42
 block_42:
-  %var_99 = phi i1 [true, %block_40], [%var_98, %block_41]
-  br i1 %var_99, label %block_43, label %block_44
+  %var_103 = phi i1 [true, %block_40], [%var_102, %block_41]
+  br i1 %var_103, label %block_43, label %block_44
 block_43:
-  %var_66 = add i64 %var_97, 1
+  %var_66 = add i64 %var_101, 1
   br label %block_44
 block_44:
-  %var_100 = phi i64 [%var_97, %block_42], [%var_66, %block_43]
+  %var_104 = phi i64 [%var_101, %block_42], [%var_66, %block_43]
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__rx__body(double 1.5707963267948966, %Qubit* inttoptr (i64 2 to %Qubit*))
@@ -251,16 +251,16 @@ block_50:
 block_51:
   br label %block_53
 block_52:
-  %var_101 = phi i1 [true, %block_49], [false, %block_50]
+  %var_105 = phi i1 [true, %block_49], [false, %block_50]
   br label %block_53
 block_53:
-  %var_102 = phi i1 [true, %block_51], [%var_101, %block_52]
-  br i1 %var_102, label %block_54, label %block_55
+  %var_106 = phi i1 [true, %block_51], [%var_105, %block_52]
+  br i1 %var_106, label %block_54, label %block_55
 block_54:
-  %var_82 = add i64 %var_100, 1
+  %var_82 = add i64 %var_104, 1
   br label %block_55
 block_55:
-  %var_103 = phi i64 [%var_100, %block_53], [%var_82, %block_54]
+  %var_107 = phi i64 [%var_104, %block_53], [%var_82, %block_54]
   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -270,7 +270,7 @@ block_55:
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   call void @__quantum__rt__bool_record_output(i1 zeroext %var_83, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-  call void @__quantum__rt__int_record_output(i64 %var_103, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_107, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
   ret i64 0
 }
 

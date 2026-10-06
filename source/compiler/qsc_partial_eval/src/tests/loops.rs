@@ -462,8 +462,8 @@ fn rotation_call_within_a_for_loop() {
                         [0]: Double
                         [1]: Qubit
                     input_vars:
-                        [0]: 4
-                        [1]: 5
+                        [0]: 5
+                        [1]: 6
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -496,12 +496,15 @@ fn rotation_call_within_a_for_loop() {
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Store Variable(2, Double)
-                    Call id(2), args( Variable(3, Double), Qubit(0), )
-                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(6, Integer)
+                    Variable(4, Double) = Store Variable(3, Double)
+                    Call id(2), args( Variable(4, Double), Qubit(0), )
+                    Variable(9, Integer) = Add Variable(0, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(9, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
+                    Variable(7, Double) = Store Variable(5, Double)
+                    Variable(8, Qubit) = Store Variable(6, Qubit)
+                    Call id(3), args( Variable(7, Double), Variable(8, Qubit), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -609,8 +612,8 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                         [0]: Double
                         [1]: Qubit
                     input_vars:
-                        [0]: 5
-                        [1]: 6
+                        [0]: 6
+                        [1]: 7
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -640,31 +643,35 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                     Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Variable(0, Integer) = Store Integer(1)
-                    Variable(8, Integer) = Store Integer(0)
+                    Variable(11, Integer) = Store Integer(0)
                     Jump(5)
                 Block 3: Block:
                     Variable(3, Double) = Index Array(0), Variable(1, Integer)
                     Variable(4, Double) = Store Variable(3, Double)
-                    Call id(2), args( Variable(4, Double), Qubit(0), )
-                    Variable(7, Integer) = Add Variable(1, Integer), Integer(1)
-                    Variable(1, Integer) = Store Variable(7, Integer)
+                    Variable(5, Double) = Store Variable(4, Double)
+                    Call id(2), args( Variable(5, Double), Qubit(0), )
+                    Variable(10, Integer) = Add Variable(1, Integer), Integer(1)
+                    Variable(1, Integer) = Store Variable(10, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(5, Double), Variable(6, Qubit), )
+                    Variable(8, Double) = Store Variable(6, Double)
+                    Variable(9, Qubit) = Store Variable(7, Qubit)
+                    Call id(3), args( Variable(8, Double), Variable(9, Qubit), )
                     Return
                 Block 5: Block:
-                    Variable(9, Boolean) = Icmp Slt, Variable(8, Integer), Integer(2)
-                    Branch Variable(9, Boolean), 7, 6
+                    Variable(12, Boolean) = Icmp Slt, Variable(11, Integer), Integer(2)
+                    Branch Variable(12, Boolean), 7, 6
                 Block 6: Block:
                     Variable(0, Integer) = Store Integer(2)
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 7: Block:
-                    Variable(10, Double) = Index Array(1), Variable(8, Integer)
-                    Variable(11, Double) = Store Variable(10, Double)
-                    Call id(2), args( Variable(11, Double), Qubit(0), )
-                    Variable(12, Integer) = Add Variable(8, Integer), Integer(1)
-                    Variable(8, Integer) = Store Variable(12, Integer)
+                    Variable(13, Double) = Index Array(1), Variable(11, Integer)
+                    Variable(14, Double) = Store Variable(13, Double)
+                    Variable(15, Double) = Store Variable(14, Double)
+                    Call id(2), args( Variable(15, Double), Qubit(0), )
+                    Variable(16, Integer) = Add Variable(11, Integer), Integer(1)
+                    Variable(11, Integer) = Store Variable(16, Integer)
                     Jump(5)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -752,7 +759,9 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 1: Block:
-                    Call id(3), args( Variable(2, Double), Variable(3, Qubit), )
+                    Variable(4, Double) = Store Variable(2, Double)
+                    Variable(5, Qubit) = Store Variable(3, Qubit)
+                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -936,8 +945,8 @@ fn for_loop_over_empty_array_emits_successfully() {
                         [0]: Double
                         [1]: Qubit
                     input_vars:
-                        [0]: 4
-                        [1]: 5
+                        [0]: 5
+                        [1]: 6
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -970,12 +979,15 @@ fn for_loop_over_empty_array_emits_successfully() {
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Store Variable(2, Double)
-                    Call id(2), args( Variable(3, Double), Qubit(0), )
-                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(6, Integer)
+                    Variable(4, Double) = Store Variable(3, Double)
+                    Call id(2), args( Variable(4, Double), Qubit(0), )
+                    Variable(9, Integer) = Add Variable(0, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(9, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
+                    Variable(7, Double) = Store Variable(5, Double)
+                    Variable(8, Qubit) = Store Variable(6, Qubit)
+                    Call id(3), args( Variable(7, Double), Variable(8, Qubit), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -1054,9 +1066,10 @@ fn rotation_call_within_a_while_loop() {
                     Return Integer(0)
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
-                    Call id(2), args( Variable(2, Double), Qubit(0), )
-                    Variable(3, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(3, Integer)
+                    Variable(3, Double) = Store Variable(2, Double)
+                    Call id(2), args( Variable(3, Double), Qubit(0), )
+                    Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(4, Integer)
                     Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -1137,9 +1150,10 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Index Array(0), Variable(0, Integer)
                     Variable(4, Double) = Fadd Variable(2, Double), Variable(3, Double)
-                    Call id(2), args( Variable(4, Double), Qubit(0), )
-                    Variable(5, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(5, Integer)
+                    Variable(5, Double) = Store Variable(4, Double)
+                    Call id(2), args( Variable(5, Double), Qubit(0), )
+                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(6, Integer)
                     Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -1232,7 +1246,8 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
                     Variable(3, Integer) = Store Integer(0)
                     Call id(4), args( Double(0), Qubit(0), )
                     Variable(3, Integer) = Store Integer(1)
-                    Call id(4), args( Variable(2, Double), Qubit(0), )
+                    Variable(4, Double) = Store Variable(2, Double)
+                    Call id(4), args( Variable(4, Double), Qubit(0), )
                     Variable(3, Integer) = Store Integer(2)
                     Call id(4), args( Double(2), Qubit(0), )
                     Variable(3, Integer) = Store Integer(3)

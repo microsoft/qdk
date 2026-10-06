@@ -70,7 +70,7 @@ pub const CATSTATES_EXPECT_DEBUG: Expect = expect![[r#"
     [Zero, Zero, Zero, Zero, Zero]"#]];
 pub const CATSTATES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3172"];
 pub const CATSTATES_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3311"];
-pub const CATSTATES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3532"];
+pub const CATSTATES_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3534"];
 pub const RANDOMBITS_EXPECT: Expect = expect!["[Zero, Zero, One, One, One]"];
 pub const RANDOMBITS_EXPECT_DEBUG: Expect = expect!["[Zero, Zero, One, One, One]"];
 pub const RANDOMBITS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3486"];
@@ -89,7 +89,7 @@ pub const SIMPLETELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
 pub const SIMPLETELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 1463"];
 pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 3166"];
-pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 4426"];
+pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 4428"];
 pub const ENTANGLEMENT_EXPECT: Expect = expect![[r#"
     STATE:
     |00⟩: 0.7071+0.0000𝑖
@@ -130,7 +130,7 @@ pub const JOINTMEASUREMENT_EXPECT_DEBUG: Expect = expect![[r#"
 pub const JOINTMEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 959"];
 pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 3259"];
-pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3894"];
+pub const JOINTMEASUREMENT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 3896"];
 pub const MEASUREMENT_EXPECT: Expect = expect!["(One, [Zero, Zero])"];
 pub const MEASUREMENT_EXPECT_DEBUG: Expect = expect!["(One, [Zero, Zero])"];
 pub const MEASUREMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 613"];

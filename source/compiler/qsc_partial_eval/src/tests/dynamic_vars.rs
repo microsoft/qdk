@@ -663,9 +663,11 @@ fn immutable_bind_of_dynamic_var_should_be_point_in_time_copy() {
                 Variable(3, Integer) = Store Variable(0, Integer)
                 Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
                 Variable(0, Integer) = Store Variable(4, Integer)
+                Variable(5, Integer) = Store Variable(3, Integer)
+                Variable(6, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Integer(2), Tag(0, 3), )
-                Call id(5), args( Variable(3, Integer), Tag(1, 5), )
-                Call id(5), args( Variable(0, Integer), Tag(2, 5), )
+                Call id(5), args( Variable(5, Integer), Tag(1, 5), )
+                Call id(5), args( Variable(6, Integer), Tag(2, 5), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(-1)
@@ -931,7 +933,8 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_pass_dyn
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Call id(4), args( Variable(3, Double), Qubit(1), )
+                Variable(4, Double) = Store Variable(3, Double)
+                Call id(4), args( Variable(4, Double), Qubit(1), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
