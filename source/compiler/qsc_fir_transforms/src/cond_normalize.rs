@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Conditional-guard normalization — hoists side-effecting `if` conditions
-//! into a single-evaluation `let` binding so downstream passes can reuse the
-//! guard value without re-running its effects.
+//! Conditional-guard normalization preserves selection-time values for later
+//! dispatch. Statement conditions and callable-valued selections share the same
+//! guard storage, while retaining their original evaluation positions.
 //!
 //! # Motivation
 //!
@@ -36,16 +36,21 @@
 //!
 //! # Scope
 //!
-//! Only **statement-position** `if` conditions (an `if` that is itself an
+//! **Statement-position** `if` conditions (an `if` that is itself an
 //! `Expr`/`Semi` statement, e.g. the retained `if cond { op = X }` of a
 //! mutable-reassignment) are normalized — these are the conditions
 //! defunctionalization both keeps and reuses. Every condition in such a chain
 //! is normalized, not just the outer one.
 //!
-//! Left untouched: value-position `if`s (defunctionalization removes the
-//! binding and rebuilds a tree referencing each guard once); `while` guards
-//! (re-evaluated per iteration); and conditions whose evaluation is locally
-//! proven side-effect-free by [`crate::walk_utils::expr_is_side_effect_free`].
+//! **Callable selections** additionally include value-position `if`s, logical
+//! short-circuit expressions and compound logical assignments. Guards that may
+//! have effects or fail, or whose reads are overwritten by their selected body
+//! or store, are snapshotted. Discard-safe evaluation is not enough to prove
+//! that a mutable read remains stable.
+//!
+//! Non-callable value-position `if`s and `while` guards are left untouched.
+//! Loop-contained selection guards are refreshed at their original evaluation
+//! point on each iteration; lazy operands stay lazy.
 //!
 //! # Binding placement
 //!
@@ -64,9 +69,9 @@
 //!   `false` default is read only on paths where the branch was not taken,
 //!   matching the original fall-through.
 //!
-//! Temporaries are named `__cond_<n>` (counter scoped per root block) so
-//! co-resident guards render with distinct suffixes, mirroring return
-//! unification's `__operand_tmp_<n>` scheme.
+//! Callable-selection snapshots use the same root declaration/original-point
+//! assignment mechanism even inside operands. Defunctionalization requests this
+//! normalization again when specialization or callee rewriting creates new code.
 //!
 //! Synthesized nodes use [`crate::EMPTY_EXEC_RANGE`];
 //! [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
@@ -75,17 +80,21 @@
 mod tests;
 
 use crate::fir_builder::{
-    alloc_assign_expr, alloc_block, alloc_block_expr, alloc_bool_lit, alloc_expr_stmt,
-    alloc_local_var, alloc_local_var_expr, alloc_semi_stmt, reachable_local_callables,
+    alloc_assign_expr, alloc_block, alloc_block_expr, alloc_bool_lit, alloc_expr, alloc_expr_stmt,
+    alloc_local_var, alloc_local_var_expr, alloc_semi_stmt, functored_specs,
+    reachable_local_callables,
 };
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 use crate::walk_utils::expr_is_side_effect_free;
-use crate::walk_utils::{DirectChild, for_each_direct_child};
+use crate::walk_utils::{
+    DirectChild, assignment_written_locals, for_each_direct_child, for_each_expr,
+    for_each_expr_in_block,
+};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, CallableImpl, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup,
-    PackageStore, SpecImpl, StmtId, StmtKind, StoreItemId,
+    BinOp, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, Mutability, Package, PackageId,
+    PackageLookup, PackageStore, Res, SpecImpl, StmtId, StmtKind, StoreItemId,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -110,13 +119,11 @@ fn next_cond_temp_name(counter: &mut u32) -> String {
 /// the `if` statement at `stmt_index`.
 type ConditionTarget = (BlockId, BlockId, usize, ExprId);
 
-/// Normalizes side-effecting, statement-position `if` conditions across every
-/// reachable callable in every reachable package by hoisting each into a
-/// single-evaluation `let` binding spliced immediately before its statement.
+/// Normalizes statement conditions and callable selections across reachable
+/// packages, preserving evaluation order and dominating guard storage.
 ///
-/// Runs once, after return unification and before defunctionalization, so that
-/// defunctionalization's guard reuse references only pure `Var` reads bound in
-/// a scope that dominates the dispatch site.
+/// Runs after return unification and before defunctionalization. Defunc also
+/// calls [`normalize_callable_selections`] for newly generated selections.
 ///
 /// Reachability is rooted once at the entry package; the resulting closure
 /// spans the user, std, and core packages. Each reachable package is processed
@@ -134,7 +141,266 @@ pub(crate) fn normalize_conditions(
         .collect();
     for pkg in pkg_ids {
         normalize_conditions_in_package(store, pkg, assigners, &reachable);
+        let assigner = assigners.get_mut(store, pkg);
+        normalize_callable_selections(store.get_mut(pkg), assigner);
     }
+}
+
+/// A dominating declaration and its original-point evaluation, plus the read
+/// used by both the original selection and any later dispatch.
+struct GuardSnapshot {
+    declaration: StmtId,
+    evaluation: StmtId,
+    read: ExprId,
+}
+
+/// Allocates the storage for one Boolean guard without choosing where to place
+/// it. All guard-normalization paths share this declaration/assignment/read
+/// contract.
+///
+/// # Before
+/// ```text
+/// condition
+/// ```
+/// # After
+/// ```text
+/// declaration: mutable guard = false;
+/// evaluation:  set guard = condition;
+/// read:        guard
+/// ```
+///
+/// # Placement
+/// The caller places `declaration` in a scope that dominates every use, keeps
+/// `evaluation` at the condition's original evaluation point, and replaces the
+/// original guard with `read`. In a loop, the declaration may be outside the
+/// loop, but the assignment must execute on each reached iteration.
+///
+/// # Mutations
+/// - Allocates the local, binding pattern, statements, and read/write expressions.
+/// - Reuses `condition` as the assignment RHS; does not rewrite it or insert the
+///   returned statements into any block.
+fn snapshot_guard(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    condition: ExprId,
+    name: &str,
+) -> GuardSnapshot {
+    let condition = package.get_expr(condition).clone();
+    let initial = alloc_bool_lit(package, assigner, false, condition.span);
+    let (local, declaration) = alloc_local_var(
+        package,
+        assigner,
+        name,
+        &condition.ty,
+        initial,
+        Mutability::Mutable,
+    );
+    let target = alloc_local_var_expr(
+        package,
+        assigner,
+        local,
+        condition.ty.clone(),
+        condition.span,
+    );
+    let assignment = alloc_assign_expr(package, assigner, target, condition.id, condition.span);
+    let evaluation = alloc_semi_stmt(package, assigner, assignment, condition.span);
+    let read = alloc_local_var_expr(package, assigner, local, condition.ty, condition.span);
+    GuardSnapshot {
+        declaration,
+        evaluation,
+        read,
+    }
+}
+
+/// Normalizes callable-selection guards in a package, including fresh code
+/// introduced during defunctionalization. The declaration dominates dispatch;
+/// the assignment stays inside the original expression, including lazy operands
+/// and loop bodies. Already-normalized reads are left unchanged.
+///
+/// Like the other package-local defunc prerequisites, this visits every explicit
+/// specialization and the package entry, without following closure target edges.
+///
+/// # Before
+/// ```text
+/// let op = if Guard() { First } else { Second };
+/// let value = Gate() and { set f = Times2; true };
+/// set enabled and= { set f = Times2; false };
+/// ```
+/// # After
+/// ```text
+/// // Declarations go at the specialization root, or in a new entry wrapper.
+/// mutable op_guard = false;
+/// mutable gate_guard = false;
+/// mutable store_guard = false;
+///
+/// let op = { set op_guard = Guard(); if op_guard { First } else { Second } };
+/// let value = { set gate_guard = Gate(); gate_guard and { set f = Times2; true } };
+/// { set store_guard = enabled;
+///   set enabled = store_guard and { set f = Times2; false }; }
+/// // Later dispatch reads the saved guards, not Guard(), Gate(), or enabled.
+/// ```
+///
+/// `or` and `or=` follow the same scheme with their original short-circuit
+/// behavior. Each assignment remains inside the original operand: it is not
+/// moved ahead of earlier operands or out of a conditional branch.
+///
+/// # Eligibility
+/// [`callable_guard_to_snapshot`] selects guards that participate in callable
+/// selection and either may have effects/failures or read locals overwritten by
+/// their branches or compound store. Stable, discard-safe guards and selections
+/// without callable-valued results or writes remain unchanged.
+///
+/// # Mutations
+/// - Allocates guard storage through [`snapshot_guard`].
+/// - Replaces each selected expression's kind with a block containing the
+///   guard assignment and rewritten selection, preserving its type.
+/// - Prepends declarations to the owning specialization root, or wraps the
+///   package entry to give its declarations a dominating scope.
+/// - Leaves callable signatures unchanged. Re-running on normalized selections
+///   allocates nothing; defunc can call this again for newly generated code.
+pub(crate) fn normalize_callable_selections(package: &mut Package, assigner: &mut Assigner) {
+    let mut roots = Vec::new();
+    if let Some(entry) = package.entry {
+        let mut expressions = Vec::new();
+        for_each_expr(package, entry, &mut |id, _| expressions.push(id));
+        roots.push((None, expressions));
+    }
+    for (_, item) in &package.items {
+        if let ItemKind::Callable(decl) = &item.kind
+            && let CallableImpl::Spec(specs) = &decl.implementation
+        {
+            for spec in std::iter::once(&specs.body).chain(functored_specs(specs)) {
+                let mut expressions = Vec::new();
+                for_each_expr_in_block(package, spec.block, &mut |id, _| expressions.push(id));
+                roots.push((Some(spec.block), expressions));
+            }
+        }
+    }
+    for (root, expressions) in roots {
+        let mut declarations = Vec::new();
+        for id in expressions {
+            let expression = package.get_expr(id).clone();
+            let Some(condition) = callable_guard_to_snapshot(package, &expression) else {
+                continue;
+            };
+            let snapshot = snapshot_guard(package, assigner, condition, "_.branch_guard");
+            declarations.push(snapshot.declaration);
+            let kind = match expression.kind {
+                ExprKind::If(_, body, otherwise) => ExprKind::If(snapshot.read, body, otherwise),
+                ExprKind::BinOp(op, _, rhs) => ExprKind::BinOp(op, snapshot.read, rhs),
+                ExprKind::AssignOp(op, lhs, rhs) => {
+                    let value = alloc_expr(
+                        package,
+                        assigner,
+                        package.get_expr(condition).ty.clone(),
+                        ExprKind::BinOp(op, snapshot.read, rhs),
+                        expression.span,
+                    );
+                    ExprKind::Assign(lhs, value)
+                }
+                _ => unreachable!("only conditional expressions are selected"),
+            };
+            let selected = alloc_expr(
+                package,
+                assigner,
+                expression.ty.clone(),
+                kind,
+                expression.span,
+            );
+            let tail = alloc_expr_stmt(package, assigner, selected, expression.span);
+            let block = alloc_block(
+                package,
+                assigner,
+                vec![snapshot.evaluation, tail],
+                expression.ty,
+                expression.span,
+            );
+            package.exprs.get_mut(id).expect("selection exists").kind = ExprKind::Block(block);
+        }
+        if declarations.is_empty() {
+            continue;
+        }
+        if let Some(root) = root {
+            let block = package.blocks.get_mut(root).expect("root block exists");
+            declarations.append(&mut block.stmts);
+            block.stmts = declarations;
+        } else if let Some(entry) = package.entry {
+            let expression = package.get_expr(entry).clone();
+            declarations.push(alloc_expr_stmt(package, assigner, entry, expression.span));
+            let block = alloc_block(
+                package,
+                assigner,
+                declarations,
+                expression.ty.clone(),
+                expression.span,
+            );
+            package.entry = Some(alloc_block_expr(
+                package,
+                assigner,
+                block,
+                expression.ty,
+                expression.span,
+            ));
+        }
+    }
+}
+
+/// Selects the original guard operand that needs a selection-time snapshot.
+///
+/// Recognizes `If`, short-circuit `and`/`or`, and compound `and=`/`or=`. A
+/// callable selection has an arrow at its result type's root or beneath tuple
+/// fields, or assigns such a value within a branch. Arrays and nominal UDTs
+/// remain opaque to this narrow test.
+///
+/// A guard needs storage if it is not safe to discard, or if one of its local
+/// reads is overwritten by a branch or the compound assignment itself. For
+/// example, `enabled and= { set f = Times2; false }` must save the old `enabled`,
+/// even though reading it is pure: the final stored value is not the decision
+/// that selected `f`.
+///
+/// Returns `None` when no snapshot is needed. This is a read-only eligibility
+/// check; [`normalize_callable_selections`] performs the before/after rewrite.
+fn callable_guard_to_snapshot(package: &Package, expression: &Expr) -> Option<ExprId> {
+    let (condition, branches) = match &expression.kind {
+        ExprKind::If(condition, body, otherwise) => (
+            *condition,
+            std::iter::once(*body).chain(*otherwise).collect::<Vec<_>>(),
+        ),
+        ExprKind::BinOp(BinOp::AndL | BinOp::OrL, condition, rhs)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, condition, rhs) => (*condition, vec![*rhs]),
+        _ => return None,
+    };
+    // Compound logical stores can overwrite their own selector even if the
+    // selected RHS writes only a different callable local.
+    let mut writes: FxHashSet<_> = assignment_written_locals(package, expression)
+        .into_iter()
+        .collect();
+    let mut selects_callable = crate::defunctionalize::ty_contains_arrow(&expression.ty);
+    for branch in branches {
+        for_each_expr(package, branch, &mut |_, expression| {
+            writes.extend(assignment_written_locals(package, expression));
+            if let ExprKind::Assign(_, value)
+            | ExprKind::AssignField(_, _, value)
+            | ExprKind::AssignIndex(_, _, value) = expression.kind
+            {
+                selects_callable |=
+                    crate::defunctionalize::ty_contains_arrow(&package.get_expr(value).ty);
+            }
+        });
+    }
+    if !selects_callable {
+        return None;
+    }
+    if !crate::walk_utils::expr_is_safe_to_discard(package, package.id, condition) {
+        return Some(condition);
+    }
+    let mut overwritten = false;
+    for_each_expr(package, condition, &mut |_, expression| {
+        if let ExprKind::Var(Res::Local(local), _) = expression.kind {
+            overwritten |= writes.contains(&local);
+        }
+    });
+    overwritten.then_some(condition)
 }
 
 /// Normalizes the statement-position `if` conditions of every reachable
@@ -374,29 +640,20 @@ fn hoist_condition(
         if nested {
             // `mutable __cond = false;` in the root block, with `__cond = cond;`
             // at the original point so side-effect timing is unchanged.
-            let false_lit = alloc_bool_lit(package, assigner, false, cond_span);
-            let (cond_local, mut_decl) = alloc_local_var(
+            let snapshot = snapshot_guard(
                 package,
                 assigner,
+                cond_expr_id,
                 &next_cond_temp_name(cond_temp_counter),
-                &cond_ty,
-                false_lit,
-                Mutability::Mutable,
             );
-            root_prepends.push((root_block, mut_decl));
-
-            let assign_lhs =
-                alloc_local_var_expr(package, assigner, cond_local, cond_ty.clone(), cond_span);
-            let assign = alloc_assign_expr(package, assigner, assign_lhs, cond_expr_id, cond_span);
-            let set_stmt = alloc_semi_stmt(package, assigner, assign, cond_span);
+            root_prepends.push((root_block, snapshot.declaration));
 
             // Rewrite the `if` in place to test a pure read of the accumulator.
-            let cond_var = alloc_local_var_expr(package, assigner, cond_local, cond_ty, cond_span);
             package
                 .exprs
                 .get_mut(if_expr_id)
                 .expect("if expr not found")
-                .kind = ExprKind::If(cond_var, body, otherwise);
+                .kind = ExprKind::If(snapshot.read, body, otherwise);
 
             // Splice the `set` immediately before the `if` statement.
             package
@@ -404,7 +661,7 @@ fn hoist_condition(
                 .get_mut(enclosing_block)
                 .expect("block not found")
                 .stmts
-                .insert(insert_index, set_stmt);
+                .insert(insert_index, snapshot.evaluation);
             inserted = 1;
         } else {
             // `let __cond = cond;` — moves the original condition `ExprId` into
@@ -493,51 +750,38 @@ fn hoist_else_if_chain(
         };
 
         if !expr_is_side_effect_free(package, package_id, elif_cond) {
-            let cond_ty = package.get_expr(elif_cond).ty.clone();
-            let cond_span = package.get_expr(elif_cond).span;
             let if_ty = package.get_expr(elif_id).ty.clone();
             let if_span = package.get_expr(elif_id).span;
 
             // `mutable __cond = false;`, where `false` encodes "this guard did
             // not hold". Declared in the dominating block.
-            let false_lit = alloc_bool_lit(package, assigner, false, cond_span);
-            let (cond_local, mut_decl) = alloc_local_var(
+            let snapshot = snapshot_guard(
                 package,
                 assigner,
+                elif_cond,
                 &next_cond_temp_name(cond_temp_counter),
-                &cond_ty,
-                false_lit,
-                Mutability::Mutable,
             );
             if nested {
-                root_prepends.push((root_block, mut_decl));
+                root_prepends.push((root_block, snapshot.declaration));
             } else {
                 package
                     .blocks
                     .get_mut(enclosing_block)
                     .expect("block not found")
                     .stmts
-                    .insert(insert_index, mut_decl);
+                    .insert(insert_index, snapshot.declaration);
                 insert_index += 1;
                 inserted += 1;
             }
 
-            // `__cond = c;` — evaluates the original condition once, only
-            // when this else scope is reached.
-            let assign_lhs =
-                alloc_local_var_expr(package, assigner, cond_local, cond_ty.clone(), cond_span);
-            let assign = alloc_assign_expr(package, assigner, assign_lhs, elif_cond, cond_span);
-            let set_stmt = alloc_semi_stmt(package, assigner, assign, cond_span);
-
             // Rewrite the `else if` to test a pure read of the accumulator.
-            let cond_var = alloc_local_var_expr(package, assigner, cond_local, cond_ty, cond_span);
             if let ExprKind::If(cond, _, _) = &mut package
                 .exprs
                 .get_mut(elif_id)
                 .expect("else-if expr not found")
                 .kind
             {
-                *cond = cond_var;
+                *cond = snapshot.read;
             }
 
             // Wrap the rewritten `if` as the trailing expression of a fresh
@@ -547,7 +791,7 @@ fn hoist_else_if_chain(
             let else_block = alloc_block(
                 package,
                 assigner,
-                vec![set_stmt, if_stmt],
+                vec![snapshot.evaluation, if_stmt],
                 if_ty.clone(),
                 if_span,
             );

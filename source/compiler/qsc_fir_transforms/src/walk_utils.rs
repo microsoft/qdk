@@ -72,6 +72,30 @@ use qsc_fir::fir::{
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
 
+/// Collects every base local written by an assignment, including nested tuple
+/// destinations. Does not visit assignments within the RHS; callers use the
+/// expression walker when they need writes across a whole subtree.
+pub(crate) fn assignment_written_locals(package: &Package, expr: &Expr) -> Vec<LocalVarId> {
+    let (ExprKind::Assign(lhs, _)
+    | ExprKind::AssignOp(_, lhs, _)
+    | ExprKind::AssignField(lhs, _, _)
+    | ExprKind::AssignIndex(lhs, _, _)) = expr.kind
+    else {
+        return Vec::new();
+    };
+    let mut pending = vec![lhs];
+    let mut locals = Vec::new();
+    while let Some(target) = pending.pop() {
+        match &package.get_expr(target).kind {
+            ExprKind::Tuple(elements) => pending.extend(elements),
+            ExprKind::Field(base, _) | ExprKind::Index(base, _) => pending.push(*base),
+            ExprKind::Var(Res::Local(local), _) => locals.push(*local),
+            _ => {}
+        }
+    }
+    locals
+}
+
 /// Walks an expression tree in pre-order, invoking `visit` for each expression.
 ///
 /// Does not recurse into closure bodies: [`ExprKind::Closure`] is a leaf from

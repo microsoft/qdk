@@ -331,13 +331,15 @@ pub(super) fn partial_app_tuple(
 ///
 /// - `direct_lambda_packaged_input` (defunc rewrite) detects zero-capture lambdas by matching
 ///   `Ty::Tuple(items) if items.len() == 1`
-/// - `rewrite_direct_closure_args` wraps call-site arguments in `Tuple([args])` to match
+/// - `build_closure_call_args` (defunc rewrite) packs direct-item calls against the
+///   lifted declaration, including `Tuple([args])`; closure-value calls retain
+///   their public input because the evaluator supplies that wrapper
 /// - `map_input_pattern_to_input_expressions` (RCA) uses `skip_ahead` logic assuming the 1-tuple
 /// - `merge_fixed_args` (eval) wraps `Value::Tuple([arg])` for `Some([])`
 /// - `resolve_args` (partial eval) has a fallback for post-defunc mismatches
 ///
 /// Changing this to return bare `input` for zero captures requires coordinated updates
-/// across all five sites: `direct_lambda_packaged_input`, `rewrite_direct_closure_args`,
+/// across all five sites: `direct_lambda_packaged_input`, `build_closure_call_args`,
 /// `map_input_pattern_to_input_expressions`, `merge_fixed_args`, and `resolve_args`.
 fn closure_input(
     vars: impl IntoIterator<Item = (NodeId, (Ident, Ty))>,

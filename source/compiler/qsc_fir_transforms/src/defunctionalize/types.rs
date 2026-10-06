@@ -17,10 +17,183 @@ use thiserror::Error;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PackageSpan, PatId, StoreExprId, StoreItemId, UnOp,
+    ExprId, ExprKind, Functor, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId,
+    PackageLookup, PackageSpan, PackageStore, PatId, Res, StoreExprId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
+
+/// Immutable structural UDT definitions shared by analysis and mutation phases.
+/// Types retain their owning package identity even when a callable is cloned
+/// into another package. Unresolved definitions remain opaque, not arrow-free.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct UdtMetadata {
+    pure_tys: FxHashMap<StoreItemId, Ty>,
+}
+
+impl UdtMetadata {
+    pub(super) fn new(store: &PackageStore) -> Self {
+        let mut pure_tys = FxHashMap::default();
+        for (package_id, package) in store {
+            for (item_id, item) in &package.items {
+                if let ItemKind::Ty(_, udt) = &item.kind {
+                    pure_tys.insert((package_id, item_id).into(), udt.get_pure_ty());
+                }
+            }
+        }
+        Self { pure_tys }
+    }
+
+    pub(super) fn pure_ty(&self, item: ItemId) -> Option<&Ty> {
+        self.pure_tys.get(&(item.package, item.item).into())
+    }
+
+    /// Opens only the outer UDT wrappers, preserving nominal child types.
+    pub(super) fn underlying_ty<'a>(&'a self, mut ty: &'a Ty) -> &'a Ty {
+        while let Ty::Udt(Res::Item(item)) = ty {
+            let Some(pure) = self.pure_ty(*item) else {
+                break;
+            };
+            ty = pure;
+        }
+        ty
+    }
+
+    /// Expands structural views without changing any FIR type or item identity.
+    /// Frontend rejection of cyclic UDTs makes recursive expansion finite.
+    pub(super) fn resolve(&self, ty: &Ty) -> Ty {
+        match ty {
+            Ty::Udt(Res::Item(item)) => self
+                .pure_ty(*item)
+                .map_or_else(|| ty.clone(), |pure| self.resolve(pure)),
+            Ty::Tuple(items) => Ty::Tuple(items.iter().map(|item| self.resolve(item)).collect()),
+            Ty::Array(item) => Ty::Array(Box::new(self.resolve(item))),
+            Ty::Arrow(arrow) => {
+                let mut arrow = arrow.clone();
+                arrow.input = Box::new(self.resolve(&arrow.input));
+                arrow.output = Box::new(self.resolve(&arrow.output));
+                Ty::Arrow(arrow)
+            }
+            _ => ty.clone(),
+        }
+    }
+
+    pub(super) fn contains_arrow(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Udt(Res::Item(item)) => self
+                .pure_ty(*item)
+                .is_none_or(|pure| self.contains_arrow(pure)),
+            Ty::Arrow(_) | Ty::Udt(_) => true,
+            Ty::Array(item) => self.contains_arrow(item),
+            Ty::Tuple(items) => items.iter().any(|item| self.contains_arrow(item)),
+            Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Err => false,
+        }
+    }
+}
+
+/// A batch of removals in the original structural input coordinates.
+/// Only removing an immediate child collapses its parent; an original Unit
+/// child is retained even when another child is completely consumed.
+#[derive(Clone, Debug)]
+pub(super) enum InputRemoval {
+    Keep,
+    Remove,
+    Tuple { children: Vec<Self>, collapse: bool },
+}
+
+impl InputRemoval {
+    pub(super) fn new(ty: &Ty, paths: &[&[usize]]) -> Option<Self> {
+        if paths.iter().any(|path| path.is_empty()) {
+            return Some(Self::Remove);
+        }
+        if paths.is_empty() {
+            return Some(Self::Keep);
+        }
+        let Ty::Tuple(fields) = ty else {
+            return None;
+        };
+        if paths.iter().any(|path| path[0] >= fields.len()) {
+            return None;
+        }
+        let children: Vec<_> = fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let paths: Vec<_> = paths
+                    .iter()
+                    .filter_map(|path| (path[0] == index).then_some(&path[1..]))
+                    .collect();
+                Self::new(field, &paths)
+            })
+            .collect::<Option<_>>()?;
+        let removed = children.iter().filter(|child| child.is_removed()).count();
+        Some(Self::Tuple {
+            children,
+            collapse: removed > 0 && fields.len() - removed == 1,
+        })
+    }
+
+    pub(super) fn is_removed(&self) -> bool {
+        matches!(self, Self::Remove)
+    }
+
+    pub(super) fn consumes_original(&self) -> bool {
+        match self {
+            Self::Keep => false,
+            Self::Remove => true,
+            Self::Tuple { children, .. } => {
+                !children.is_empty() && children.iter().all(Self::consumes_original)
+            }
+        }
+    }
+
+    /// Applies structural removals without erasing untouched nominal children.
+    pub(super) fn reduced_ty(&self, ty: &Ty, udts: &UdtMetadata) -> Ty {
+        match self {
+            Self::Keep => ty.clone(),
+            Self::Remove => Ty::UNIT,
+            Self::Tuple { children, collapse } => {
+                let Ty::Tuple(fields) = udts.underlying_ty(ty) else {
+                    unreachable!("removal layout was built from this tuple type");
+                };
+                let mut remaining: Vec<_> = children
+                    .iter()
+                    .zip(fields)
+                    .filter(|(child, _)| !child.is_removed())
+                    .map(|(child, field)| child.reduced_ty(field, udts))
+                    .collect();
+                if *collapse {
+                    remaining.pop().expect("one surviving child")
+                } else {
+                    Ty::Tuple(remaining)
+                }
+            }
+        }
+    }
+
+    pub(super) fn rebase(&self, path: &[usize]) -> Option<Vec<usize>> {
+        match self {
+            Self::Keep => Some(path.to_vec()),
+            Self::Remove => None,
+            Self::Tuple { children, collapse } => {
+                let Some((&index, tail)) = path.split_first() else {
+                    return Some(Vec::new());
+                };
+                let suffix = children.get(index)?.rebase(tail)?;
+                let mut rebased = Vec::new();
+                if !collapse {
+                    rebased.push(
+                        children[..index]
+                            .iter()
+                            .filter(|child| !child.is_removed())
+                            .count(),
+                    );
+                }
+                rebased.extend(suffix);
+                Some(rebased)
+            }
+        }
+    }
+}
 
 /// A callable parameter detected in a higher-order function declaration.
 #[derive(Clone, Debug)]
@@ -73,10 +246,10 @@ impl CallableParam {
 pub struct CallSite {
     /// The Call expression.
     pub call_expr_id: ExprId,
-    /// The package owning the body that contains this call expression. The
-    /// specialized callable is allocated into this package and the call is
-    /// rewritten within it, which may differ from the entry package when the
-    /// call site lives in a foreign body walked by analysis.
+    /// The package owning this call expression and its argument operands.
+    /// Rewriting happens in this package, which may differ from the entry
+    /// package. A deduplicated specialization can live in another package;
+    /// its `StoreItemId` independently identifies that target's owner.
     pub call_pkg_id: PackageId,
     /// The HOF being called.
     pub hof_item_id: ItemId,
@@ -318,7 +491,12 @@ impl CalleeLattice {
     ///   `s2` guards as-is, and concatenate `s1`-then-`s2` **without**
     ///   deduplicating by callable identity — the same callable under
     ///   `condition` (s1) and `!condition` (s2) is two distinct dispatch arms.
-    ///   Only the `s2` empty-guard default survives as the trailing fall-through.
+    ///   Preserve every empty-guard entry too: indexed alternatives are physical
+    ///   positions, not competing defaults. Dropping one could make an ambiguous
+    ///   indexed selection look like a complete conditional decision tree.
+    ///
+    /// A joined `Multi` is not necessarily a complete dispatch tree. Rewrite
+    /// must still prove its guard tree or recover an index discriminator.
     ///
     /// Overflow past `MULTI_CAP` degrades to `Dynamic`.
     #[must_use]
@@ -363,49 +541,20 @@ impl CalleeLattice {
                     Self::Multi(s)
                 }
             }
-            // Multi from both branches (nested dispatch on each side). Identical
-            // dispatch chains — same callables *and* same guards — mean the
-            // variable was not modified in the branch, so keep `s1` to stay
-            // byte-stable; otherwise merge the two chains. Comparing callable
-            // identity alone is unsound: two branches can reassign the local to
-            // the same set of callables under *different* inner guards (e.g.
-            // `if rb {X} else {Z}` vs `if rc {X} else {Z}`), and collapsing to
-            // `s1` would drop the outer condition and reroute the false-branch
-            // path through the true branch's guards.
-            (Self::Multi(s1), Self::Multi(s2)) => {
+            // Identical ordered candidates and guards can stay byte-stable.
+            // Callable identity alone cannot establish equivalent selections.
+            (Self::Multi(mut s1), Self::Multi(s2)) => {
                 if s1 == s2 {
                     Self::Multi(s1)
                 } else {
-                    // Prepend `condition` onto every `s1` guard list; keep `s2`
-                    // guards as-is. Concatenated without dedup by callable: the
-                    // same callable under `condition` (s1) and `!condition` (s2)
-                    // names two distinct arms, and dropping the `s2` arm would
-                    // reroute its path to the trailing default instead.
-                    let mut merged: Vec<(ConcreteCallable, Vec<ExprId>)> =
-                        Vec::with_capacity(s1.len() + s2.len());
-                    for (cc, mut guards) in s1 {
+                    for (_, guards) in &mut s1 {
                         guards.insert(0, condition);
-                        merged.push((cc, guards));
                     }
-                    // Keep exactly one trailing default: after the prepend, any
-                    // `s1` default is now guarded by `condition`, so the `s2`
-                    // default is the unconditional fall-through. Hold it back so
-                    // it terminates the chain.
-                    let mut trailing_default: Option<(ConcreteCallable, Vec<ExprId>)> = None;
-                    for (cc, guards) in s2 {
-                        if guards.is_empty() {
-                            trailing_default = Some((cc, guards));
-                        } else {
-                            merged.push((cc, guards));
-                        }
-                    }
-                    if let Some(default_entry) = trailing_default {
-                        merged.push(default_entry);
-                    }
-                    if merged.len() > MULTI_CAP {
+                    s1.extend(s2);
+                    if s1.len() > MULTI_CAP {
                         Self::Dynamic
                     } else {
-                        Self::Multi(merged)
+                        Self::Multi(s1)
                     }
                 }
             }
@@ -415,11 +564,15 @@ impl CalleeLattice {
 }
 
 /// Deduplication key for specializations. Two call sites that share the same
-/// `SpecKey` can reuse the same generated dispatch callable.
+/// `SpecKey` remove the same callable positions and can reuse the same generated
+/// dispatch callable.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SpecKey {
     /// The HOF being specialized.
     pub hof_id: StoreItemId,
+    /// Removed `(top_level_param, field_path)` positions, aligned with
+    /// `concrete_args`. Repeated positions preserve callable-array element order.
+    pub param_positions: Vec<(usize, Vec<usize>)>,
     /// Hashable representations of the concrete callable arguments.
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
@@ -456,6 +609,8 @@ pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>
 /// Output of the analysis phase.
 #[derive(Clone, Debug, Default)]
 pub struct AnalysisResult {
+    /// Package-qualified UDT layouts captured before specialization mutates FIR.
+    pub(super) udt_metadata: UdtMetadata,
     /// Callable parameters with arrow types found in HOF declarations.
     pub callable_params: Vec<CallableParam>,
     /// HOF argument candidates, including dynamic placeholders for diagnostics.

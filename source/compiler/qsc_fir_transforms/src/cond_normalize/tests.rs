@@ -7,6 +7,7 @@
 
 use expect_test::{Expect, expect};
 use indoc::indoc;
+use qsc_eval::val::Value;
 
 use crate::cond_normalize::normalize_conditions;
 use crate::package_assigners::PackageAssigners;
@@ -39,6 +40,236 @@ fn assert_no_change(source: &str) {
     assert_eq!(before, after, "pure condition must not be rewritten");
 }
 
+/// Check the normalizer alone, then the complete pipeline. A second invocation
+/// must neither change live syntax nor allocate more arena nodes.
+fn check_callable_selection(source: &str, expected: i64) {
+    let (mut store, package_id) = compile_to_monomorphized_fir(source);
+    let original = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(original.0, Ok(Value::Int(expected)), "{source}");
+    let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    let once = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert_ne!(before, once, "fixture must exercise normalization");
+    let node_counts = |store: &qsc_fir::fir::PackageStore| {
+        let package = store.get(package_id);
+        (
+            package.exprs.iter().count(),
+            package.stmts.iter().count(),
+            package.blocks.iter().count(),
+            package.pats.iter().count(),
+        )
+    };
+    let counts = node_counts(&store);
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    assert_eq!(
+        once,
+        crate::pretty::write_package_qsharp_parseable(&store, package_id),
+        "normalization must be idempotent",
+    );
+    assert_eq!(counts, node_counts(&store), "rerun must not allocate nodes");
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+    assert_eq!(
+        original,
+        crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id),
+        "{source}",
+    );
+    crate::test_utils::check_semantic_equivalence_with_expected(source, Value::Int(expected));
+}
+
+/// The original selection survives an intervening change to the selector qubit.
+/// Comparing traces detects a repeated measurement even if the final bit agrees.
+#[test]
+fn callable_value_guard_is_evaluated_once_before_reuse() {
+    for enabled in [false, true] {
+        check_callable_selection(
+            &indoc::formatdoc! {r#"
+                operation Apply(op : Qubit => Unit, q : Qubit) : Unit {{op(q);}}
+                @EntryPoint() operation Main() : Int {{
+                    use selector=Qubit();
+                    use target=Qubit();
+                    if {enabled} {{X(selector);}}
+                    let op=if MResetZ(selector)==One {{X}} else {{I}};
+                    X(selector);
+                    Apply(op,target);
+                    Apply(op,target);
+                    Apply(op,target);
+                    Reset(selector);
+                    if MResetZ(target)==One {{1}} else {{0}}
+                }}
+            "#},
+            i64::from(enabled),
+        );
+    }
+}
+
+/// A guard inside a call operand must stay after the earlier operand. Moving
+/// it to the enclosing statement would change the returned 110 into 113.
+#[test]
+fn callable_guard_keeps_its_operand_position() {
+    check_callable_selection(
+        r#"
+        function A(x : Int) : Int {x+1}
+        function B(x : Int) : Int {2*x}
+        function Read(n : Int, f : Int -> Int) : Int {10*n+f(2)}
+        @EntryPoint() operation Main() : Int {
+            mutable count=0;
+            let result=Read({set count=10;count},if {set count-=3;true} {A} else {B});
+            result+count
+        }
+        "#,
+        110,
+    );
+}
+
+/// The saved decision must be refreshed each iteration, not captured once
+/// outside the loop. Callable-valued selections inside the RHS stay lazy.
+#[test]
+fn callable_guards_refresh_in_loops_and_preserve_short_circuiting() {
+    for (operator, evaluate, flag) in [
+        ("and", false, false),
+        ("and", true, true),
+        ("or", false, true),
+        ("or", true, false),
+    ] {
+        let source = indoc::formatdoc! {r#"
+            function A(x : Int) : Int {{x+1}}
+            function B(x : Int) : Int {{x+2}}
+            @EntryPoint() operation Main() : Int {{
+                mutable visits=0;
+                mutable total=0;
+                for i in 0..2 {{
+                    mutable f=A;
+                    let ignored={flag} {operator} {{
+                        let selected=if {{set visits+=1;i==1}} {{B}} else {{A}};
+                        set f=selected;
+                        true
+                    }};
+                    set total+=f(0);
+                }}
+                100*visits+total
+            }}
+        "#};
+        check_callable_selection(&source, if evaluate { 304 } else { 3 });
+    }
+}
+
+/// The RHS changes the compound guard's final value. Dispatch must use the
+/// pre-store decision, while the original Bool variable retains the new value.
+#[test]
+fn compound_logical_selection_preserves_pre_store_guard() {
+    for (operator, initial, rhs) in [("and", true, false), ("or", false, true)] {
+        check_callable_selection(
+            &indoc::formatdoc! {r#"
+                function A(x : Int) : Int {{x+1}}
+                function B(x : Int) : Int {{x+2}}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag={initial};
+                    mutable f=A;
+                    set flag {operator}= {{set f=B;{rhs}}};
+                    10*f(0)+(if flag {{1}} else {{0}})
+                }}
+            "#},
+            if rhs { 21 } else { 20 },
+        );
+    }
+}
+
+/// The condition is discard-safe as an expression, but its branch overwrites
+/// the Bool local. Both tuple-assignment and ordinary-assignment writes count.
+#[test]
+fn callable_guard_snapshots_values_overwritten_by_selected_branch() {
+    for write in ["set flag=false;", "set (flag,unused)=(false,1);"] {
+        check_callable_selection(
+            &indoc::formatdoc! {r#"
+                function A(x : Int) : Int {{x+1}}
+                function B(x : Int) : Int {{x+2}}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag=true;
+                    mutable unused=0;
+                    let f=if flag {{{write} B}} else {{A}};
+                    f(0)
+                }}
+            "#},
+            2,
+        );
+    }
+}
+
+/// Normalizing a value-position condition cannot move its failure ahead of an
+/// earlier operand, nor permit later arguments to fail first.
+#[test]
+fn callable_guard_preserves_failure_order() {
+    for first in ["3", "Fail(\"first\")"] {
+        let source = indoc::formatdoc! {r#"
+            function A(x : Int) : Int {{x+1}}
+            function Guard() : Bool {{fail "guard"}}
+            function Fail(label : String) : Int {{fail label}}
+            function Read(n : Int, f : Int -> Int, m : Int) : Int {{n+f(m)}}
+            @EntryPoint() operation Main() : Int {{
+                Read({first},if Guard() {{A}} else {{A}},Fail("last"))
+            }}
+        "#};
+        let original =
+            crate::test_utils::eval_qsharp_original(&source).expect_err("the source must fail");
+        assert!(
+            original.contains(if first == "3" { "guard" } else { "first" }),
+            "{original}"
+        );
+        check_semantic_equivalence(&source);
+    }
+}
+
+/// Defunc can create code after the pipeline's first normalization. Clone an
+/// unnormalized Q# body to fresh IDs and exercise that package-local entrypoint.
+#[test]
+fn normalization_handles_new_callable_body_after_first_run() {
+    let source = r#"
+        function A(x : Int) : Int {x+1}
+        @EntryPoint() operation Main() : Int {
+            mutable count=0;
+            let f=if {set count+=1;true} {A} else {A};
+            100*count+f(0)
+        }
+    "#;
+    let (mut store, package_id) = compile_to_monomorphized_fir(source);
+    let original = store.get(package_id).clone();
+    let main_id = crate::test_utils::callable_id_by_name(&original, "Main");
+    let original_body = crate::test_utils::find_callable_body_block(&original, "Main");
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    let package = store.get_mut(package_id);
+    let mut cloner = crate::cloner::FirCloner::from_assigner_for_expr(
+        qsc_fir::assigner::Assigner::from_package(package),
+    );
+    let fresh_body = cloner.clone_block(&original, original_body, package);
+    let qsc_fir::fir::ItemKind::Callable(main) =
+        &mut package.items.get_mut(main_id).expect("Main exists").kind
+    else {
+        panic!("Main is callable");
+    };
+    let qsc_fir::fir::CallableImpl::Spec(specs) = &mut main.implementation else {
+        panic!("Main has a body");
+    };
+    specs.body.block = fresh_body;
+    let mut assigner = cloner.into_assigner();
+    let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    let package = store.get_mut(package_id);
+    super::normalize_callable_selections(package, &mut assigner);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package_id),
+        Ok(Value::Int(101))
+    );
+    let after = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert_ne!(before, after, "the fresh body must be normalized");
+    super::normalize_callable_selections(store.get_mut(package_id), &mut assigner);
+    assert_eq!(
+        after,
+        crate::pretty::write_package_qsharp_parseable(&store, package_id)
+    );
+}
+
 /// A `Var` condition has no side effects, so the `if` is left untouched.
 #[test]
 fn pure_var_condition_is_not_hoisted() {
@@ -51,6 +282,92 @@ fn pure_var_condition_is_not_hoisted() {
             }
         }
     "#});
+}
+
+/// Both policies see this statement, but callable normalization must reuse the
+/// already saved condition rather than allocate another guard.
+#[test]
+fn callable_selection_reuses_statement_guard_storage() {
+    let source = r#"
+        function A(x : Int) : Int {x+1}
+        function B(x : Int) : Int {x+2}
+        @EntryPoint() operation Main() : Int {
+            mutable count=0;
+            mutable f=A;
+            if {set count+=1;true} {set f=B;}
+            100*count+f(0)
+        }
+    "#;
+    check_callable_selection(source, 102);
+    let (mut store, package_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert_eq!(rendered.matches("let __cond_").count(), 1, "{rendered}");
+    assert!(!rendered.contains("__branch_guard"), "{rendered}");
+}
+
+/// Entry expressions have no callable root block. Their generated guard
+/// declarations still need to dominate selection and repeated invocation.
+#[test]
+fn callable_entry_guard_is_normalized_without_a_callable_owner() {
+    let (mut store, package_id) = crate::test_utils::compile_to_monomorphized_fir_with_entry(
+        "namespace Test { function A(x : Int) : Int {x+1} }",
+        "{mutable count=0; let f=if {set count+=1;true} {Test.A} else {Test.A}; 100*count+f(0)}",
+    );
+    let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    let once = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert_ne!(before, once, "the entry guard must be normalized");
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    assert_eq!(
+        once,
+        crate::pretty::write_package_qsharp_parseable(&store, package_id)
+    );
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package_id),
+        Ok(Value::Int(101))
+    );
+}
+
+/// Reachable library selections must be normalized before defunc, not merely
+/// repaired when a later specialization happens to copy them into the caller.
+#[test]
+fn callable_value_guard_is_normalized_in_its_library_package() {
+    let library = r#"
+        namespace Lib {
+            function A(x : Int) : Int {x+1}
+            function B(x : Int) : Int {x+2}
+            function Run() : Int {
+                mutable count=0;
+                let f=if {set count+=1;true} {A} else {B};
+                100*count+f(0)
+            }
+            export Run;
+        }
+    "#;
+    let source = "@EntryPoint() operation Main() : Int {Lib.Run()}";
+    let (mut store, package_id) =
+        compile_and_run_pipeline_to_with_library(library, source, PipelineStage::ReturnUnify);
+    let library_id = find_library_callable(&store, package_id, "Run").package;
+    let before = crate::pretty::write_package_qsharp_parseable(&store, library_id);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    let once = crate::pretty::write_package_qsharp_parseable(&store, library_id);
+    assert_ne!(before, once, "library guard must be normalized");
+    normalize_conditions(&mut store, package_id, &mut assigners);
+    assert_eq!(
+        once,
+        crate::pretty::write_package_qsharp_parseable(&store, library_id)
+    );
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package_id),
+        Ok(Value::Int(101))
+    );
+    check_semantic_equivalence_with_library(library, source);
 }
 
 /// A comparison of pure values has no side effects, so the `if` is untouched.
@@ -442,10 +759,8 @@ fn while_condition_is_not_hoisted() {
     "#});
 }
 
-/// A value-position `if` (one that produces a binding's value) is left
-/// untouched even when its condition is side-effecting: defunctionalization
-/// removes the binding and rebuilds a tree that references each guard once, so
-/// this pass deliberately only normalizes statement-position `if`s.
+/// Non-callable value-position selections need no reusable dispatch guard.
+/// Their effects stay in the original expression without extra storage.
 #[test]
 fn value_position_if_condition_is_not_hoisted() {
     assert_no_change(indoc! {r#"

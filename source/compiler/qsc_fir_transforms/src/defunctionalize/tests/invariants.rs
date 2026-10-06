@@ -1194,6 +1194,10 @@ fn newtype_ctor_callable_field_cleanup() {
         }
         "#;
     check_invariants(source);
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(138),
+    );
     check_rewrite(
         source,
         &expect![[r#"
@@ -1237,13 +1241,13 @@ fn newtype_ctor_callable_field_cleanup() {
                 let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
                 let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
                 ((if true {
-                    _lambda_4(10)
+                    _lambda_4(10, )
                 } else {
-                    _lambda_5(10)
+                    _lambda_5(10, )
                 } + if false {
-                    _lambda_4(10)
+                    _lambda_4(10, )
                 } else {
-                    _lambda_5(10)
+                    _lambda_5(10, )
                 }) + selectedT::Offset) + selectedF::Offset
             }
             function _lambda_4(x : Int, ) : Int {

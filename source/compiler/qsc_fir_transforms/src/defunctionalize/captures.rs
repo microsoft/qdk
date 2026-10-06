@@ -9,9 +9,7 @@ use super::types::{CaptureScope, CaptureSubstitution, CapturedVar};
 use crate::fir_builder::{alloc_expr, alloc_local_var_expr};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::PackageSpan;
-use qsc_fir::fir::{
-    CallableKind, ExprId, ExprKind, FieldAssign, LocalVarId, Package, PackageLookup, Res,
-};
+use qsc_fir::fir::{CallableKind, ExprId, ExprKind, LocalVarId, Package, PackageLookup, Res};
 use qsc_fir::ty::Ty;
 use rustc_hash::FxHashMap;
 
@@ -98,11 +96,51 @@ pub(super) fn allocate_capture_exprs(
     ids
 }
 
-/// Clones a capture expression while replacing producer parameters with caller
-/// operands. Keep supported forms synchronized with analysis's compound-capture
-/// substitution collection and residual-leak check; admitting a form there that
-/// is not rewritten here can leave a producer-local reference in the caller.
-#[allow(clippy::too_many_lines)]
+/// The expression children reconstructed by capture substitution. `None` means
+/// the node is kept verbatim: analysis must reject any producer locals beneath
+/// it. Both admission and cloning use this contract, including Parallel limits.
+/// Callers separately reject operation calls; function kind alone is not purity.
+pub(super) fn capture_expr_children(kind: &mut ExprKind) -> Option<Vec<&mut ExprId>> {
+    Some(match kind {
+        ExprKind::Tuple(elements) | ExprKind::Array(elements) | ExprKind::ArrayLit(elements) => {
+            elements.iter_mut().collect()
+        }
+        ExprKind::ArrayRepeat(a, b)
+        | ExprKind::Call(a, b)
+        | ExprKind::BinOp(_, a, b)
+        | ExprKind::Index(a, b)
+        | ExprKind::UpdateField(a, _, b) => vec![a, b],
+        ExprKind::Struct(_, copy, fields) => copy
+            .iter_mut()
+            .chain(fields.iter_mut().map(|field| &mut field.value))
+            .collect(),
+        ExprKind::UnOp(_, operand) | ExprKind::Field(operand, _) => vec![operand],
+        ExprKind::UpdateIndex(container, index, value) => vec![container, index, value],
+        ExprKind::Range(start, step, end) => start
+            .iter_mut()
+            .chain(step.iter_mut())
+            .chain(end.iter_mut())
+            .collect(),
+        ExprKind::Parallel(limit, body) => limit.iter_mut().chain(std::iter::once(body)).collect(),
+        ExprKind::Assign(..)
+        | ExprKind::AssignOp(..)
+        | ExprKind::AssignField(..)
+        | ExprKind::AssignIndex(..)
+        | ExprKind::Block(..)
+        | ExprKind::Closure(..)
+        | ExprKind::Fail(..)
+        | ExprKind::Hole
+        | ExprKind::If(..)
+        | ExprKind::Lit(..)
+        | ExprKind::Return(..)
+        | ExprKind::String(..)
+        | ExprKind::Var(..)
+        | ExprKind::While(..) => return None,
+    })
+}
+
+/// Clones the expression forms admitted by capture rebinding. A substitution's
+/// replacement is interpreted only in its own nested environment.
 fn clone_capture_literal_with_substitutions(
     package: &mut Package,
     expr_id: ExprId,
@@ -129,83 +167,19 @@ fn clone_capture_literal_with_substitutions(
         );
     }
 
-    let clone_expr = |package: &mut Package, expr_id, assigner: &mut Assigner| {
-        clone_capture_literal_with_substitutions(package, expr_id, substitutions, assigner)
-    };
-    let new_kind = match &expr.kind {
-        ExprKind::Tuple(elements) => ExprKind::Tuple(
-            elements
-                .iter()
-                .map(|&element| clone_expr(package, element, assigner))
-                .collect(),
-        ),
-        ExprKind::Array(elements) => ExprKind::Array(
-            elements
-                .iter()
-                .map(|&element| clone_expr(package, element, assigner))
-                .collect(),
-        ),
-        ExprKind::ArrayLit(elements) => ExprKind::ArrayLit(
-            elements
-                .iter()
-                .map(|&element| clone_expr(package, element, assigner))
-                .collect(),
-        ),
-        ExprKind::ArrayRepeat(value, size) => ExprKind::ArrayRepeat(
-            clone_expr(package, *value, assigner),
-            clone_expr(package, *size, assigner),
-        ),
-        ExprKind::Struct(name, copy, fields) => ExprKind::Struct(
-            *name,
-            copy.map(|copy| clone_expr(package, copy, assigner)),
-            fields
-                .iter()
-                .map(|field| FieldAssign {
-                    span: field.span,
-                    field: field.field.clone(),
-                    value: clone_expr(package, field.value, assigner),
-                })
-                .collect(),
-        ),
-        ExprKind::Call(callee, arg) if callee_is_function(package, *callee) => ExprKind::Call(
-            clone_expr(package, *callee, assigner),
-            clone_expr(package, *arg, assigner),
-        ),
-        ExprKind::BinOp(op, lhs, rhs) => ExprKind::BinOp(
-            *op,
-            clone_expr(package, *lhs, assigner),
-            clone_expr(package, *rhs, assigner),
-        ),
-        ExprKind::UnOp(op, operand) => ExprKind::UnOp(*op, clone_expr(package, *operand, assigner)),
-        ExprKind::Field(base, field) => {
-            ExprKind::Field(clone_expr(package, *base, assigner), field.clone())
+    let mut new_kind = expr.kind;
+    if let Some(children) = capture_expr_children(&mut new_kind) {
+        for child in children {
+            *child =
+                clone_capture_literal_with_substitutions(package, *child, substitutions, assigner);
         }
-        ExprKind::Index(base, index) => ExprKind::Index(
-            clone_expr(package, *base, assigner),
-            clone_expr(package, *index, assigner),
-        ),
-        ExprKind::UpdateIndex(container, index, value) => ExprKind::UpdateIndex(
-            clone_expr(package, *container, assigner),
-            clone_expr(package, *index, assigner),
-            clone_expr(package, *value, assigner),
-        ),
-        ExprKind::UpdateField(record, field, value) => ExprKind::UpdateField(
-            clone_expr(package, *record, assigner),
-            field.clone(),
-            clone_expr(package, *value, assigner),
-        ),
-        ExprKind::Range(start, step, end) => ExprKind::Range(
-            start.map(|part| clone_expr(package, part, assigner)),
-            step.map(|part| clone_expr(package, part, assigner)),
-            end.map(|part| clone_expr(package, part, assigner)),
-        ),
-        _ => expr.kind.clone(),
-    };
+    }
 
-    alloc_expr(package, assigner, expr.ty.clone(), new_kind, expr.span)
+    alloc_expr(package, assigner, expr.ty, new_kind, expr.span)
 }
 
-fn callee_is_function(package: &Package, callee: ExprId) -> bool {
+/// Checks callable kind, not whether evaluating the function is unobservable.
+pub(super) fn callee_has_function_kind(package: &Package, callee: ExprId) -> bool {
     matches!(
         &package.get_expr(callee).ty,
         Ty::Arrow(arrow) if arrow.kind == CallableKind::Function

@@ -2631,6 +2631,8 @@ fn shor_sample_full_pipeline_reachable_items() {
         }
         operation ApplyActionIfGreaterThanOrEqualConstant_Qubit__AdjCtl__X_(invertControl : Bool, c : BigInt, x : Qubit[], target : Qubit) : Unit is Adj + Ctl {
             body ... {
+                mutable __branch_guard : Bool = false;
+                mutable __branch_guard_1 : Bool = false;
                 let bitWidth : Int = Length(x);
                 if c == 0L {
                     if (not invertControl) {
@@ -2663,7 +2665,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 let _end_id_52844 : Int = _range_id_52831.End;
                                 while ((_step_id_52839 > 0) and (_index_id_52834 <= _end_id_52844)) or ((_step_id_52839 < 0) and (_index_id_52834 >= _end_id_52844)) {
                                     let i : Int = _index_id_52834;
-                                    if (cNormalized &&& (1L <<< (i + 1))) != 0L {
+                                    __branch_guard = (cNormalized &&& (1L <<< (i + 1))) != 0L;
+                                    if __branch_guard {
                                         AND(cs1[i], xNormalized[i + 1], qs[i])
                                     } else {
                                         ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
@@ -2713,12 +2716,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_52887 : Int = _range_id_52874.End;
                                     while ((_step_id_52882 > 0) and (_index_id_52877 <= _end_id_52887)) or ((_step_id_52882 < 0) and (_index_id_52877 >= _end_id_52887)) {
                                         let i_1 : Int = _index_id_52877;
-                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
-                                            AND
-                                        } else {
-                                            ApplyOrAssuming0Target
-                                        };
-                                        if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                        __branch_guard_1 = (cNormalized &&& (1L <<< (i_1 + 1))) != 0L;
+                                        if __branch_guard_1 {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
                                             Adjoint ApplyOrAssuming0Target(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
@@ -2740,6 +2739,8 @@ fn shor_sample_full_pipeline_reachable_items() {
 
             }
             adjoint ... {
+                mutable __branch_guard : Bool = false;
+                mutable __branch_guard_1 : Bool = false;
                 let bitWidth : Int = Length(x);
                 if c == 0L {
                     if (not invertControl) {
@@ -2772,7 +2773,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 let _end_id_52930 : Int = _range_id_52917.End;
                                 while ((_step_id_52925 > 0) and (_index_id_52920 <= _end_id_52930)) or ((_step_id_52925 < 0) and (_index_id_52920 >= _end_id_52930)) {
                                     let i : Int = _index_id_52920;
-                                    if (cNormalized &&& (1L <<< (i + 1))) != 0L {
+                                    __branch_guard = (cNormalized &&& (1L <<< (i + 1))) != 0L;
+                                    if __branch_guard {
                                         AND(cs1[i], xNormalized[i + 1], qs[i])
                                     } else {
                                         ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
@@ -2822,12 +2824,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_52973 : Int = _range_id_52960.End;
                                     while ((_step_id_52968 > 0) and (_index_id_52963 <= _end_id_52973)) or ((_step_id_52968 < 0) and (_index_id_52963 >= _end_id_52973)) {
                                         let i_1 : Int = _index_id_52963;
-                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
-                                            AND
-                                        } else {
-                                            ApplyOrAssuming0Target
-                                        };
-                                        if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                        __branch_guard_1 = (cNormalized &&& (1L <<< (i_1 + 1))) != 0L;
+                                        if __branch_guard_1 {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
                                             Adjoint ApplyOrAssuming0Target(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
@@ -2849,6 +2847,8 @@ fn shor_sample_full_pipeline_reachable_items() {
 
             }
             controlled (ctls, ...) {
+                mutable __branch_guard : Bool = false;
+                mutable __branch_guard_1 : Bool = false;
                 let bitWidth : Int = Length(x);
                 if c == 0L {
                     if (not invertControl) {
@@ -2881,7 +2881,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 let _end_id_53016 : Int = _range_id_53003.End;
                                 while ((_step_id_53011 > 0) and (_index_id_53006 <= _end_id_53016)) or ((_step_id_53011 < 0) and (_index_id_53006 >= _end_id_53016)) {
                                     let i : Int = _index_id_53006;
-                                    if (cNormalized &&& (1L <<< (i + 1))) != 0L {
+                                    __branch_guard = (cNormalized &&& (1L <<< (i + 1))) != 0L;
+                                    if __branch_guard {
                                         AND(cs1[i], xNormalized[i + 1], qs[i])
                                     } else {
                                         ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
@@ -2931,12 +2932,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_53059 : Int = _range_id_53046.End;
                                     while ((_step_id_53054 > 0) and (_index_id_53049 <= _end_id_53059)) or ((_step_id_53054 < 0) and (_index_id_53049 >= _end_id_53059)) {
                                         let i_1 : Int = _index_id_53049;
-                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
-                                            AND
-                                        } else {
-                                            ApplyOrAssuming0Target
-                                        };
-                                        if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                        __branch_guard_1 = (cNormalized &&& (1L <<< (i_1 + 1))) != 0L;
+                                        if __branch_guard_1 {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
                                             Adjoint ApplyOrAssuming0Target(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
@@ -2958,6 +2955,8 @@ fn shor_sample_full_pipeline_reachable_items() {
 
             }
             controlled adjoint (ctls, ...) {
+                mutable __branch_guard : Bool = false;
+                mutable __branch_guard_1 : Bool = false;
                 let bitWidth : Int = Length(x);
                 if c == 0L {
                     if (not invertControl) {
@@ -2990,7 +2989,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 let _end_id_53102 : Int = _range_id_53089.End;
                                 while ((_step_id_53097 > 0) and (_index_id_53092 <= _end_id_53102)) or ((_step_id_53097 < 0) and (_index_id_53092 >= _end_id_53102)) {
                                     let i : Int = _index_id_53092;
-                                    if (cNormalized &&& (1L <<< (i + 1))) != 0L {
+                                    __branch_guard = (cNormalized &&& (1L <<< (i + 1))) != 0L;
+                                    if __branch_guard {
                                         AND(cs1[i], xNormalized[i + 1], qs[i])
                                     } else {
                                         ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
@@ -3040,12 +3040,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_53145 : Int = _range_id_53132.End;
                                     while ((_step_id_53140 > 0) and (_index_id_53135 <= _end_id_53145)) or ((_step_id_53140 < 0) and (_index_id_53135 >= _end_id_53145)) {
                                         let i_1 : Int = _index_id_53135;
-                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
-                                            AND
-                                        } else {
-                                            ApplyOrAssuming0Target
-                                        };
-                                        if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                        __branch_guard_1 = (cNormalized &&& (1L <<< (i_1 + 1))) != 0L;
+                                        if __branch_guard_1 {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
                                             Adjoint ApplyOrAssuming0Target(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
