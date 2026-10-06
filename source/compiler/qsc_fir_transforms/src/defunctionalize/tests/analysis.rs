@@ -1334,23 +1334,7 @@ fn constructor_and_factory_return_field_projection_resolve_distinctly() {
         "#;
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
-        .map(|(id, _)| id)
-        .collect();
-    let reachable_expr_ids =
-        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-    let collapsed_spans =
-        super::super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
-    let result = defunc_analysis::analyze(
-        &mut fir_store,
-        fir_pkg_id,
-        &reachable,
-        &Default::default(),
-        &collapsed_spans,
-        &[],
-    );
+    let result = super::run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
 
     assert_eq!(
         result.direct_call_sites.len(),
@@ -2402,7 +2386,10 @@ fn callable_returning_partial_application_resolves_statically() {
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty__closure_(register, target, [true]);
+                {
+                    let __capture : Bool[] = [true];
+                    ApplyOp_Empty__closure_(register, target, __capture)
+                };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
@@ -2511,7 +2498,10 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty__closure_(register, target, [true]);
+                {
+                    let __capture : Bool[] = [true];
+                    ApplyOp_Empty__closure_(register, target, __capture)
+                };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
@@ -2629,7 +2619,10 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
             }
             operation Main() : Unit {
                 let bits : Bool[] = [true];
-                UseOracle_Empty__closure_(Length(bits), bits);
+                {
+                    let __capture : Bool[] = bits;
+                    UseOracle_Empty__closure_(Length(bits), __capture)
+                };
             }
             operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole_1)
@@ -2793,7 +2786,10 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
                 let value : Int = 1;
-                ApplyOp_Empty__closure_(register, target, value);
+                {
+                    let __capture : Int = value;
+                    ApplyOp_Empty__closure_(register, target, __capture)
+                };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
@@ -2837,7 +2833,7 @@ fn analysis_callable_from_constant_callable_array_loop() {
               site: hof=ApplyOp<AdjCtl>, arg=Global(X, Body)
             lattice states:
               callable Main:
-                7: Multi([H:Body, X:Body])"#]],
+                7: Dynamic"#]],
     );
     check_rewrite(
         source,
@@ -2882,10 +2878,13 @@ fn analysis_callable_from_constant_callable_array_loop() {
                     mutable _index_id_53 : Int = 0;
                     while _index_id_53 < _len_id_48 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_44[_index_id_53];
-                        if _index_id_53 == 0 {
-                            ApplyOp_AdjCtl__H_(q)
-                        } else {
-                            ApplyOp_AdjCtl__X_(q)
+                        {
+                            [(), ()][_index_id_53];
+                            if (_index_id_53 == 0) or (_index_id_53 == -2) {
+                                ApplyOp_AdjCtl__H_(q)
+                            } else {
+                                ApplyOp_AdjCtl__X_(q)
+                            }
                         };
                         _index_id_53 += 1;
                     }
@@ -3039,10 +3038,13 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
                     let _end_id_178 : Int = _range_id_165.End;
                     while ((_step_id_173 > 0) and (_index_id_168 <= _end_id_178)) or ((_step_id_173 < 0) and (_index_id_168 >= _end_id_178)) {
                         let idx : Int = _index_id_168;
-                        if idx == 0 {
-                            _lambda_5(__capture_0, (controls[idx], targets))
-                        } else {
-                            _lambda_6(__capture_1, (controls[idx], targets))
+                        {
+                            [(), ()][idx];
+                            if (idx == 0) or (idx == -2) {
+                                _lambda_5(__capture_0, (controls[idx], targets))
+                            } else {
+                                _lambda_6(__capture_1, (controls[idx], targets))
+                            }
                         };
                         _index_id_168 += _step_id_173;
                     }
@@ -3060,10 +3062,9 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
 
 /// A closure callable-array forwarded through a struct-literal field and fully
 /// consumed by an indexed dispatch inside the callee leaves the source-array
-/// local dead in the reachable caller. Closure cleanup blanks each element to
-/// unit, so retaining the array would leave its element blocks arrow-typed with
-/// unit tails. The dead binding must be removed before the `PostDefunc`
-/// invariant walk observes it; this exercises that walk over the same shape as
+/// local dead in the reachable caller. The dead binding must be removed before
+/// the `PostDefunc` invariant walk observes it; this exercises that walk over
+/// the same shape as
 /// `indexed_closure_callable_array_loop_dispatches_closures`.
 #[test]
 fn indexed_closure_callable_array_loop_passes_invariants() {
@@ -3327,10 +3328,13 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                     let _end_id_227 : Int = _range_id_214.End;
                     while ((_step_id_222 > 0) and (_index_id_217 <= _end_id_227)) or ((_step_id_222 < 0) and (_index_id_217 >= _end_id_227)) {
                         let ancillaIdx : Int = _index_id_217;
-                        if ancillaIdx == 0 {
-                            _lambda_6(__capture_0, (ancillas[ancillaIdx], allTargets))
-                        } else {
-                            _lambda_7(__capture_1, (ancillas[ancillaIdx], allTargets))
+                        {
+                            [(), ()][ancillaIdx];
+                            if (ancillaIdx == 0) or (ancillaIdx == -2) {
+                                _lambda_6(__capture_0, (ancillas[ancillaIdx], allTargets))
+                            } else {
+                                _lambda_7(__capture_1, (ancillas[ancillaIdx], allTargets))
+                            }
                         };
                         _index_id_217 += _step_id_222;
                     }
@@ -3538,7 +3542,11 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
             operation Main() : Unit {
                 let first : Int = 1;
                 let second : Int = 2;
-                Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, first, second);
+                {
+                    let __capture : Int = first;
+                    let __capture_1 : Int = second;
+                    Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, __capture, __capture_1)
+                };
             }
             operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
                 ApplyParityOperation(arg, hole, hole_1)
@@ -3581,10 +3589,13 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                     let _end_id_235 : Int = _range_id_222.End;
                     while ((_step_id_230 > 0) and (_index_id_225 <= _end_id_235)) or ((_step_id_230 < 0) and (_index_id_225 >= _end_id_235)) {
                         let ancillaIdx : Int = _index_id_225;
-                        if ancillaIdx == 0 {
-                            _lambda_6(__capture_0, (ancillas[ancillaIdx], allTargets))
-                        } else {
-                            _lambda_7(__capture_1, (ancillas[ancillaIdx], allTargets))
+                        {
+                            [(), ()][ancillaIdx];
+                            if (ancillaIdx == 0) or (ancillaIdx == -2) {
+                                _lambda_6(__capture_0, (ancillas[ancillaIdx], allTargets))
+                            } else {
+                                _lambda_7(__capture_1, (ancillas[ancillaIdx], allTargets))
+                            }
                         };
                         _index_id_225 += _step_id_230;
                     }
@@ -3803,10 +3814,13 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                     let _end_id_232 : Int = _range_id_219.End;
                     while ((_step_id_227 > 0) and (_index_id_222 <= _end_id_232)) or ((_step_id_227 < 0) and (_index_id_222 >= _end_id_232)) {
                         let ancillaIdx : Int = _index_id_222;
-                        if ancillaIdx == 0 {
-                            _lambda_7(__capture_0, (ancillas[ancillaIdx], allTargets))
-                        } else {
-                            _lambda_8(__capture_1, (ancillas[ancillaIdx], allTargets))
+                        {
+                            [(), ()][ancillaIdx];
+                            if (ancillaIdx == 0) or (ancillaIdx == -2) {
+                                _lambda_7(__capture_0, (ancillas[ancillaIdx], allTargets))
+                            } else {
+                                _lambda_8(__capture_1, (ancillas[ancillaIdx], allTargets))
+                            }
                         };
                         _index_id_222 += _step_id_227;
                     }
@@ -3931,7 +3945,10 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                     mutable _index_id_127 : Int = 0;
                     while _index_id_127 < _len_id_122 {
                         let value : Int = _array_id_118[_index_id_127];
-                        ApplyOp_Empty__closure_(register, target, value);
+                        {
+                            let __capture : Int = value;
+                            ApplyOp_Empty__closure_(register, target, __capture)
+                        };
                         _index_id_127 += 1;
                     }
 
@@ -5324,10 +5341,13 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
                     while _index_id_45 < _len_id_40 {
                         let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_45 == 0 {
-                            S(q)
-                        } else {
-                            T(q)
+                        {
+                            [(), ()][_index_id_45];
+                            if (_index_id_45 == 0) or (_index_id_45 == -2) {
+                                S(q)
+                            } else {
+                                T(q)
+                            }
                         };
                         _index_id_45 += 1;
                         __quantum__rt__qubit_release(q);
@@ -6103,10 +6123,13 @@ fn operand_block_tuple_pattern_dispatch_resolves_field_path() {
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let z : Int = {
                             let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = ops[i];
-                            if i == 0 {
-                                I(q)
-                            } else {
-                                X(q)
+                            {
+                                [(), ()][i];
+                                if (i == 0) or (i == -2) {
+                                    I(q)
+                                } else {
+                                    X(q)
+                                }
                             };
                             0
                         } + 1;
@@ -6178,12 +6201,15 @@ fn pure_arithmetic_array_index_dispatch_reuses_index_expression() {
                         let i : Int = _index_id_43;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let op : (Qubit => Unit is Adj + Ctl) = ops[i + 1];
-                        if (i + 1) == 0 {
-                            I(q)
-                        } else if (i + 1) == 1 {
-                            X(q)
-                        } else {
-                            Y(q)
+                        {
+                            [(), (), ()][i + 1];
+                            if ((i + 1) == 0) or ((i + 1) == -3) {
+                                I(q)
+                            } else if ((i + 1) == 1) or ((i + 1) == -2) {
+                                X(q)
+                            } else {
+                                Y(q)
+                            }
                         };
                         _index_id_43 += _step_id_48;
                         __quantum__rt__qubit_release(q);
@@ -6222,7 +6248,8 @@ fn pure_array_index_dispatch_reuses_index_expression() {
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     assert!(
-        after.contains("if i == 0") && after.contains("else if i == 1"),
+        after.contains("if (i == 0) or (i == -3)")
+            && after.contains("else if (i == 1) or (i == -2)"),
         "pure index dispatch should reuse the original block index:\n{after}"
     );
     assert!(
@@ -6271,12 +6298,17 @@ fn pure_array_index_dispatch_reuses_index_expression() {
                         let op : (Qubit => Unit is Adj + Ctl) = ops[{
                             i
                         }];
-                        if i == 0 {
-                            I(q)
-                        } else if i == 1 {
-                            X(q)
-                        } else {
-                            Y(q)
+                        {
+                            [(), (), ()][{
+                                i
+                            }];
+                            if (i == 0) or (i == -3) {
+                                I(q)
+                            } else if (i == 1) or (i == -2) {
+                                X(q)
+                            } else {
+                                Y(q)
+                            }
                         };
                         _index_id_44 += _step_id_49;
                         __quantum__rt__qubit_release(q);
@@ -6316,8 +6348,8 @@ fn impure_array_index_dispatch_hoists_index_expression() {
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     assert!(
         after.contains("let index : Int = {")
-            && after.contains("if index == 0")
-            && after.contains("else if index == 1"),
+            && after.contains("if (index == 0) or (index == -3)")
+            && after.contains("else if (index == 1) or (index == -2)"),
         "side-effecting index should be hoisted and reused by the dispatch:\n{after}"
     );
     assert!(
@@ -6368,16 +6400,16 @@ fn impure_array_index_dispatch_hoists_index_expression() {
                             X(q);
                             i
                         };
-                        let op : (Qubit => Unit is Adj + Ctl) = ops[{
-                            X(q);
-                            i
-                        }];
-                        if index == 0 {
-                            I(q)
-                        } else if index == 1 {
-                            X(q)
-                        } else {
-                            Y(q)
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[index];
+                        {
+                            [(), (), ()][index];
+                            if (index == 0) or (index == -3) {
+                                I(q)
+                            } else if (index == 1) or (index == -2) {
+                                X(q)
+                            } else {
+                                Y(q)
+                            }
                         };
                         _index_id_48 += _step_id_53;
                         __quantum__rt__qubit_release(q);
@@ -6555,13 +6587,18 @@ fn assignop_andl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
+                mutable __branch_guard : Bool = false;
                 mutable f : (Int -> Int) = Foo;
                 mutable b : Bool = false;
-                b and= {
-                    f = Bar;
-                    false
+                {
+                    __branch_guard = b;
+                    b = __branch_guard and {
+                        f = Bar;
+                        false
+                    }
+
                 };
-                if b {
+                if __branch_guard {
                     Bar(5)
                 } else {
                     Foo(5)
@@ -6853,4 +6890,171 @@ fn another_callable_parameter_does_not_supply_capture_type() {
         captures.is_none(),
         "another callable's parameter must not replace missing scoped type evidence",
     );
+}
+
+/// Specializing a call site deletes the callable argument expression from the
+/// call, and the argument-removal family that performs the deletion carries no
+/// purity guard of its own. An inline producer call is therefore classified by
+/// `consumed_callable_expr_disposition` before the call site is accepted: here
+/// `GetOp` applies `X` before returning the callable it produces, nothing
+/// relocates or replays that `X`, and no binding exists to retain it, so the
+/// disposition is `Retained` and the call site is declined.
+///
+/// Before that gate existed the argument was dropped outright and the `X`
+/// silently disappeared, changing the program's measured result. Declining
+/// converts a wrong answer into an actionable diagnostic.
+#[test]
+fn inline_effectful_producer_callable_argument_is_declined() {
+    check_errors(
+        r#"
+        operation GetOp(q : Qubit) : (Qubit => Unit) {
+            X(q);
+            X
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(GetOp(q), q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+/// The same gate for a producer that is pure but *fallible*. `GetOp` is a
+/// `function` with no effects, so it passes side-effect freedom, but `1 /
+/// divisor` can fail and the discard proof requires totality. Dropping the
+/// argument turned a program that failed with a division error into one that
+/// succeeded.
+#[test]
+fn inline_fallible_factory_callable_argument_is_declined() {
+    check_errors(
+        r#"
+        function GetOp(divisor : Int) : Qubit => Unit {
+            let ignored = 1 / divisor;
+            X
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(GetOp(0), q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+/// The gate must not decline a producer it can prove pure and total. `MakeOp`
+/// has no effects and cannot fail, so its evaluation is `Discarded` and the
+/// call site specializes exactly as before, with the inline argument removed.
+#[test]
+fn inline_total_factory_callable_argument_still_specializes() {
+    check_errors(
+        r#"
+        function MakeOp() : Qubit => Unit {
+            X
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(MakeOp(), q);
+        }
+        "#,
+        &expect!["(no error)"],
+    );
+}
+
+#[test]
+fn capture_admissibility_assignment_store_order() {
+    let sources = [
+        (
+            r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable angle = 0.0;
+            let op = Rx(angle, _);
+            set angle = { op(q); 3.141592653589793 };
+            op(q);
+        }
+        "#,
+            2,
+        ),
+        (
+            r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable angle = 0.0;
+            let op = Rx(angle, _);
+            set angle += { op(q); 3.141592653589793 };
+            op(q);
+        }
+        "#,
+            2,
+        ),
+        (
+            r#"
+        newtype Config = (Angle : Double);
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable config = Config(0.0);
+            let op = Rx(config::Angle, _);
+            set config w/= Angle <- { op(q); 3.141592653589793 };
+            op(q);
+        }
+        "#,
+            2,
+        ),
+        (
+            r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable angles = [0.0];
+            let op = Rx(angles[0], _);
+            set angles w/= 0 <- { op(q); 3.141592653589793 };
+            op(q);
+        }
+        "#,
+            0,
+        ),
+    ];
+
+    // Replaying a mutable operand is declined even before a write. The fallible
+    // index read instead gets an immutable capture binding during the prepass,
+    // so its stored value remains admissible on both sides of the assignment.
+    for (source, expected_unresolved) in sources {
+        let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+        let result = super::run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
+        let package = fir_store.get(fir_pkg_id);
+        let direct_op_calls = result
+            .direct_call_sites
+            .iter()
+            .filter(|site| {
+                let span = package.get_expr(site.call_expr_id).span;
+                &source[span.lo as usize..span.hi as usize] == "op(q)"
+            })
+            .count();
+        let unresolved_op_calls = result
+            .unresolved_direct_call_sites
+            .iter()
+            .filter(|site| {
+                let span = package.get_expr(site.expr).span;
+                &source[span.lo as usize..span.hi as usize] == "op(q)"
+            })
+            .count();
+        assert_eq!(
+            unresolved_op_calls, expected_unresolved,
+            "replayed mutable operands must remain unresolved"
+        );
+        assert_eq!(
+            direct_op_calls,
+            2 - expected_unresolved,
+            "stored indexed captures must be recordable before and after the store"
+        );
+    }
 }

@@ -5,6 +5,320 @@
 
 use indoc::formatdoc;
 
+pub(super) fn recursive_capture_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        ("Repeat(x->x+offset,3)", 34),
+        ("Repeat(Add(offset,_),3)", 34),
+        ("Repeat(Make(offset),3)", 34),
+        ("Repeat(x->x+offset+extra,3)", 46),
+        ("Repeat(x->x+values[0],3)", 34),
+        ("RepeatPair((x->x+offset,3))", 34),
+        ("RepeatStruct(new Payload { F=x->x+offset, N=3 })", 34),
+        ("RepeatTwo(x->x+offset,x->x+extra,3)", 52),
+        ("RepeatSwap(x->x+offset,x->x+extra,3)", 33),
+        ("RepeatNext(Make(offset),3)", 19),
+        ("Repeat(Inc,3)", 10),
+    ]
+    .into_iter()
+    .map(|(entry, expected)| {
+        let source = formatdoc! {r#"
+            struct Payload {{ F : Int -> Int, N : Int }}
+            function Inc(n : Int) : Int {{ n+1 }}
+            function Add(offset : Int, n : Int) : Int {{ offset+n }}
+            function Make(offset : Int) : Int -> Int {{ x->x+offset }}
+            function Repeat(f : Int -> Int, n : Int) : Int {{
+                if n==0 {{ f(0) }} else {{ f(n)+Repeat(f,n-1) }}
+            }}
+            function RepeatPair(pair : (Int -> Int, Int)) : Int {{
+                let (f,n)=pair;
+                if n==0 {{ f(0) }} else {{ f(n)+RepeatPair((f,n-1)) }}
+            }}
+            function RepeatStruct(p : Payload) : Int {{
+                if p.N==0 {{ p.F(0) }} else {{
+                    p.F(p.N)+RepeatStruct(new Payload {{ F=p.F, N=p.N-1 }})
+                }}
+            }}
+            function RepeatTwo(f : Int -> Int, g : Int -> Int, n : Int) : Int {{
+                if n==0 {{ f(0)+g(0) }} else {{ f(n)+g(n)+RepeatTwo(f,g,n-1) }}
+            }}
+            function RepeatSwap(f : Int -> Int, g : Int -> Int, n : Int) : Int {{
+                if n==0 {{ f(0)+g(0) }} else {{ f(n)+RepeatSwap(g,f,n-1) }}
+            }}
+            function RepeatNext(f : Int -> Int, n : Int) : Int {{
+                if n==0 {{ f(0) }} else {{ f(n)+RepeatNext(Make(n),n-1) }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                let offset=7;
+                let extra=3;
+                let values=[7];
+                {entry}
+            }}
+        "#};
+        (source, expected)
+    })
+}
+
+pub(super) fn recursive_capture_control_cases(functor: &str) -> Vec<(String, i64)> {
+    let double_control = functor.matches("Controlled").count() == 2;
+    let states: &[(bool, bool)] = if double_control {
+        &[(false, false), (false, true), (true, false), (true, true)]
+    } else {
+        &[(false, false), (true, false)]
+    };
+    states.iter().map(|&(outer, inner)| {
+        let args = if double_control {
+            "[outer], ([inner], (op,2,target))"
+        } else {
+            "[outer], (op,2,target)"
+        };
+        let source = formatdoc! {r#"
+            operation Repeat(op : Qubit => Unit is Adj + Ctl, n : Int, q : Qubit) : Unit is Adj + Ctl {{
+                if n>0 {{ op(q); Repeat(op,n-1,q); }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                use outer=Qubit();
+                use inner=Qubit();
+                use target=Qubit();
+                if {outer} {{ X(outer); }}
+                if {inner} {{ X(inner); }}
+                let angle=1.5707963267948966;
+                let op=Ry(angle,_);
+                {functor} Repeat({args});
+                Reset(outer);
+                Reset(inner);
+                if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+            }}
+        "#};
+        (source,i64::from(outer && (!double_control || inner)))
+    }).collect()
+}
+
+pub(super) fn effectful_short_circuit_guard_cases() -> impl Iterator<Item = (String, i64)> {
+    ["and", "or"].into_iter().flat_map(|operator| {
+        [false, true].map(move |flag| {
+            let rhs_runs = if operator == "and" { flag } else { !flag };
+            let value = if operator == "and" { flag } else { true };
+            let expected = 100 * i64::from(value) + if rhs_runs { 6 } else { 4 };
+            let source = formatdoc! {r#"
+                function Inc(n : Int) : Int {{ n+1 }}
+                function Twice(n : Int) : Int {{ 2*n }}
+                function Guard(flag : Bool) : Bool {{ Message("guard"); flag }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable f=Inc;
+                    let value=Guard({flag}) {operator} {{ Message("rhs"); set f=Twice; true }};
+                    Message("ready");
+                    100*(if value {{ 1 }} else {{ 0 }})+f(3)
+                }}
+            "#};
+            (source, expected)
+        })
+    })
+}
+
+pub(super) fn mutating_short_circuit_guard_cases() -> impl Iterator<Item = (String, i64)> {
+    [("and", false, 601), ("or", true, 600)]
+        .into_iter()
+        .map(|(operator, initial, expected)| {
+            let source = formatdoc! {r#"
+                function Inc(n : Int) : Int {{ n+1 }}
+                function Twice(n : Int) : Int {{ 2*n }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag={initial};
+                    mutable f=Inc;
+                    let unused={{ set flag=not flag; flag }} {operator} {{ set f=Twice; true }};
+                    100*f(3)+(if flag {{ 1 }} else {{ 0 }})
+                }}
+            "#};
+            (source, expected)
+        })
+}
+
+pub(super) fn compound_short_circuit_guard_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        ("and", true, 600),
+        ("and", false, 400),
+        ("or", false, 601),
+        ("or", true, 401),
+    ]
+    .into_iter()
+    .map(|(operator, initial, expected)| {
+        let rhs = operator == "or";
+        let source = formatdoc! {r#"
+                function Inc(n : Int) : Int {{ n+1 }}
+                function Twice(n : Int) : Int {{ 2*n }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag={initial};
+                    mutable f=Inc;
+                    set flag {operator}= {{ Message("rhs"); set f=Twice; {rhs} }};
+                    Message("ready");
+                    100*f(3)+(if flag {{ 1 }} else {{ 0 }})
+                }}
+            "#};
+        (source, expected)
+    })
+}
+
+pub(super) const MEASURED_SHORT_CIRCUIT_GUARD: &str = r#"
+    function Inc(n : Int) : Int { n+1 }
+    function Twice(n : Int) : Int { 2*n }
+    @EntryPoint() operation Main() : Int {
+        use q=Qubit();
+        X(q);
+        mutable f=Inc;
+        let unused=(MResetZ(q) == One) and { set f=Twice; true };
+        f(3)
+    }
+"#;
+
+pub(super) fn nested_inline_struct_capture_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        (
+            r#"Sum(Read(new Payload {
+                Head=Log("inner-head",1), F=Add(Log("inner-capture",2),_), Tail=Log("inner-tail",3)
+            }), new Payload {
+                Head=Log("outer-head",4), F=Add(Log("outer-capture",5),_), Tail=Log("outer-tail",6)
+            })"#,
+            619,
+        ),
+        (
+            r#"SumLast(new Payload {
+                Head=Log("outer-head",4), F=Add(Log("outer-capture",5),_), Tail=Log("outer-tail",6)
+            }, Read(new Payload {
+                Head=Log("inner-head",1), F=Add(Log("inner-capture",2),_), Tail=Log("inner-tail",3)
+            }))"#,
+            619,
+        ),
+        (
+            r#"Sum(Sum(Read(new Payload {
+                Head=Log("first-head",1), F=Add(Log("first-capture",2),_), Tail=Log("first-tail",3)
+            }), new Payload {
+                Head=Log("second-head",4), F=Add(Log("second-capture",5),_), Tail=Log("second-tail",6)
+            }), new Payload {
+                Head=Log("third-head",7), F=Add(Log("third-capture",8),_), Tail=Log("third-tail",9)
+            })"#,
+            1428,
+        ),
+    ]
+    .into_iter()
+    .map(|(body, expected)| {
+        let source = formatdoc! {r#"
+            struct Payload {{ Head : Int, F : Int -> Int, Tail : Int }}
+            function Log(label : String, n : Int) : Int {{ Message(label); n }}
+            function Add(n : Int, x : Int) : Int {{ n+x }}
+            function Read(p : Payload) : Int {{ 100*p.Head+10*p.F(2)+p.Tail }}
+            function Sum(n : Int, p : Payload) : Int {{ n+Read(p) }}
+            function SumLast(p : Payload, n : Int) : Int {{ Read(p)+n }}
+            @EntryPoint() operation Main() : Int {{ {body} }}
+        "#};
+        (source, expected)
+    })
+}
+
+pub(super) fn inline_struct_capture_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        (
+            "Read(new Payload { Tail=Log(\"tail\",7), F=Add(Log(\"capture\",3),_), Head=Log(\"head\",4) })",
+            457,
+        ),
+        (
+            "ReadNested((Log(\"prefix\",9), new Payload { Tail=Log(\"tail\",7), F=Add(Log(\"capture\",3),_), Head=Log(\"head\",4) }))",
+            466,
+        ),
+        (
+            "Read(new Payload { ...Original(), F=Add(Log(\"capture\",3),_), Head=Log(\"head\",4) })",
+            457,
+        ),
+        (
+            "Read(new Payload { Head=n, F=Add(Log(\"capture\",{set n+=1;n}),_), Tail=n })",
+            31,
+        ),
+        (
+            "Read(new Payload { Tail=n, F=Add(Log(\"capture\",{set n+=1;n}),_), Head=n })",
+            130,
+        ),
+        (
+            "Read(new Payload { F=Add(Log(\"capture\",{set n+=1;n}),_), Tail=n, Head=n })",
+            131,
+        ),
+        (
+            "Read(new Payload { Tail=Log(\"tail\",7), F={Message(\"field\");Add(Log(\"capture\",3),_)}, Head=Log(\"head\",4) })",
+            457,
+        ),
+    ]
+    .into_iter()
+    .map(|(body, expected)| {
+        let source = formatdoc! {r#"
+            struct Payload {{ Head : Int, F : Int -> Int, Tail : Int }}
+            function Log(label : String, n : Int) : Int {{ Message(label); n }}
+            function Add(n : Int, x : Int) : Int {{ n+x }}
+            function Inc(n : Int) : Int {{ n+1 }}
+            function Original() : Payload {{
+                Message("copy");
+                new Payload {{ Head=4, F=Inc, Tail=7 }}
+            }}
+            function Read(p : Payload) : Int {{ 100*p.Head+10*p.F(2)+p.Tail }}
+            function ReadNested(pair : (Int, Payload)) : Int {{
+                let (prefix, p)=pair;
+                prefix+100*p.Head+10*p.F(2)+p.Tail
+            }}
+            @EntryPoint() operation Main() : Int {{
+                mutable n=0;
+                {body}
+            }}
+        "#};
+        (source, expected)
+    })
+}
+
+pub(super) fn direct_struct_capture_control_cases(functor: &str) -> Vec<(String, i64)> {
+    let double_control = functor.matches("Controlled").count() == 2;
+    let control_states: &[(bool, bool)] = if double_control {
+        &[(false, false), (false, true), (true, false), (true, true)]
+    } else {
+        &[(false, false), (true, false)]
+    };
+    let mut cases = Vec::new();
+    for &(outer, inner) in control_states {
+        for (setup, payload) in [
+            ("", "new Payload { Head=Head(), Q=target, F=Ry(Angle(),_) }"),
+            (
+                "let head=Head(); let op=Ry(Angle(),_);",
+                "new Payload { Head=head, Q=target, F=op }",
+            ),
+        ] {
+            let args = if double_control {
+                format!("[outer], ([inner], {payload})")
+            } else {
+                format!("[outer], {payload}")
+            };
+            let enabled = outer && (!double_control || inner);
+            let source = formatdoc! {r#"
+                struct Payload {{ Head : Int, F : Qubit => Unit is Adj + Ctl, Q : Qubit }}
+                function Head() : Int {{ Message("head"); 4 }}
+                function Angle() : Double {{ Message("capture"); 1.5707963267948966 }}
+                operation Apply(p : Payload) : Unit is Adj + Ctl {{
+                    if p.Head == 4 {{ p.F(p.Q); }}
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    use outer=Qubit();
+                    use inner=Qubit();
+                    use target=Qubit();
+                    if {outer} {{ X(outer); }}
+                    if {inner} {{ X(inner); }}
+                    if {enabled} {{ H(target); }}
+                    {setup}
+                    {functor} Apply({args});
+                    Reset(outer);
+                    Reset(inner);
+                    if MResetZ(target) == One {{ 1 }} else {{ 0 }}
+                }}
+            "#};
+            cases.push((source, i64::from(enabled && !functor.contains("Adjoint"))));
+        }
+    }
+    cases
+}
+
 pub(super) const PARTIAL_APPLICATION_CAPTURE_TIMING: &str = r#"
     function Logged(value : Int) : Int { Message($"capture:{value}"); value }
     function Add(offset : Int, x : Int) : Int { offset+x }

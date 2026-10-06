@@ -9,6 +9,8 @@
 //!
 //! # Responsibilities
 //!
+//! - Bind inline struct operands in source order when a callable field creates
+//!   captures, before specialization moves those captures into call arguments.
 //! - Expose immutable capture bindings from closure-construction blocks at
 //!   their original evaluation point, rather than replaying their initializers
 //!   when the closure is invoked.
@@ -22,14 +24,22 @@
 //! - Run the adjacent aggregate-alias promotion that replaces
 //!   `let pair = aggregate; let (...) = pair;` with direct aggregate
 //!   destructuring when `pair` has a callable-typed field and no other uses.
+//! - Snapshot observable short-circuit guards and branch guards overwritten by
+//!   selected bodies or compound stores, preserving the original decision.
 //! - Run the identity-closure peephole that replaces `(args) => f(args)`
 //!   closures with direct references to `f` (via
 //!   [`identity_closure_peephole`]).
 //!
 
+use crate::fir_builder::{
+    alloc_assign_expr, alloc_block, alloc_bool_lit, alloc_expr, alloc_expr_stmt, alloc_local_var,
+    alloc_local_var_expr, alloc_semi_stmt, functored_specs,
+};
+use crate::walk_utils::{for_each_expr, for_each_expr_in_block};
 use qsc_data_structures::span::Span;
+use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
+    BinOp, Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
     Mutability, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt,
     StmtId, StmtKind, UnOp,
 };
@@ -41,8 +51,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// [`promote_single_use_callable_locals`], [`promote_adjacent_aggregate_callable_aliases`],
 /// and [`identity_closure_peephole`] for details.
 ///
-/// Only expressions in `reachable_expr_ids` are scanned for promotion candidates
-/// and identity-closure patterns, restricting analysis to entry-reachable code.
+/// The reachable expression set bounds operand normalization and promotion.
+/// Newly allocated initializers are included in the same pass so their capture
+/// bindings are exposed before call-site analysis.
 ///
 /// Returns the map of collapsed identity-closure call expressions to the spans
 /// that should be re-stamped onto their rewritten call sites.
@@ -50,12 +61,467 @@ pub(super) fn run(
     store: &mut PackageStore,
     package_id: PackageId,
     reachable_expr_ids: &[ExprId],
+    assigner: &mut Assigner,
 ) -> FxHashMap<ExprId, Span> {
+    snapshot_branch_guards(store.get_mut(package_id), assigner);
+    let mut reachable_expr_ids = reachable_expr_ids.to_vec();
+    let initializers = materialize_inline_struct_captures(
+        store.get_mut(package_id),
+        &reachable_expr_ids,
+        assigner,
+    );
+    reachable_expr_ids.extend(initializers);
+    let reachable_expr_ids = reachable_expr_ids.as_slice();
     expose_closure_capture_bindings(store.get_mut(package_id), reachable_expr_ids);
     inline_static_closure_captures(store, package_id, reachable_expr_ids);
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
+    decompose_assignment_tuple_aliases(store.get_mut(package_id), assigner);
     identity_closure_peephole(store, package_id, reachable_expr_ids)
+}
+
+/// Keeps inline struct operands ahead of specialization's capture relocation.
+///
+/// # Before
+/// ```text
+/// Read(new Payload { Tail=Log("tail"), F=Add(Log("capture"), _), Head=Log("head") })
+/// ```
+/// # After
+/// ```text
+/// {
+///     let tail = Log("tail");
+///     let f = Add(Log("capture"), _);
+///     let head = Log("head");
+///     Read(new Payload { Tail=tail, F=f, Head=head })
+/// }
+/// ```
+///
+/// Tuple operands and struct copy sources retain their original evaluation
+/// order. Only direct item callees qualify, so evaluating the callee cannot
+/// itself depend on writes in the arguments. The returned initializer IDs let
+/// [`expose_closure_capture_bindings`] process the new callable bindings.
+/// Fresh initializers are normalized in this pass too: moving a nested call to
+/// a new ID must not hide its inline struct captures from the original walk.
+fn materialize_inline_struct_captures(
+    pkg: &mut Package,
+    reachable: &[ExprId],
+    assigner: &mut Assigner,
+) -> Vec<ExprId> {
+    let mut initializers = Vec::new();
+    let mut pending = reachable.to_vec();
+    let mut next = 0;
+    while let Some(&expr_id) = pending.get(next) {
+        next += 1;
+        let expr = pkg.get_expr(expr_id).clone();
+        let ExprKind::Call(callee, args) = expr.kind else {
+            continue;
+        };
+        let (base, _) = super::types::peel_body_functors(pkg, callee);
+        if !matches!(pkg.get_expr(base).kind, ExprKind::Var(Res::Item(_), _))
+            || !has_inline_struct_capture(pkg, args)
+        {
+            continue;
+        }
+        let mut statements = Vec::new();
+        let first_new_initializer = initializers.len();
+        bind_struct_argument_operands(pkg, args, assigner, &mut statements, &mut initializers);
+        pending.extend_from_slice(&initializers[first_new_initializer..]);
+        let call =
+            crate::fir_builder::alloc_expr(pkg, assigner, expr.ty.clone(), expr.kind, expr.span);
+        statements.push(crate::fir_builder::alloc_expr_stmt(
+            pkg, assigner, call, expr.span,
+        ));
+        let block = crate::fir_builder::alloc_block(pkg, assigner, statements, expr.ty, expr.span);
+        pkg.exprs.get_mut(expr_id).expect("call exists").kind = ExprKind::Block(block);
+    }
+    initializers
+}
+
+fn has_inline_struct_capture(pkg: &Package, id: ExprId) -> bool {
+    match &pkg.get_expr(id).kind {
+        ExprKind::Tuple(items) => items
+            .iter()
+            .any(|&item| has_inline_struct_capture(pkg, item)),
+        ExprKind::Struct(_, _, fields) => fields.iter().any(|field| {
+            (matches!(pkg.get_expr(field.value).ty, Ty::Arrow(_))
+                && matches!(pkg.get_expr(field.value).kind, ExprKind::Block(_))
+                && !crate::walk_utils::expr_is_safe_to_discard(pkg, pkg.id, field.value))
+                || has_inline_struct_capture(pkg, field.value)
+        }),
+        _ => false,
+    }
+}
+
+/// Reuses aggregate nodes but replaces each evaluated leaf with a stored read.
+/// Moving the leaf's kind to a fresh initializer avoids an additional reference
+/// from an orphaned aggregate preventing capture-binding exposure.
+fn bind_struct_argument_operands(
+    pkg: &mut Package,
+    id: ExprId,
+    assigner: &mut Assigner,
+    statements: &mut Vec<StmtId>,
+    initializers: &mut Vec<ExprId>,
+) {
+    let expr = pkg.get_expr(id).clone();
+    match expr.kind {
+        ExprKind::Tuple(items) => {
+            for item in items {
+                bind_struct_argument_operands(pkg, item, assigner, statements, initializers);
+            }
+        }
+        ExprKind::Struct(_, copy, fields) => {
+            if let Some(copy) = copy {
+                bind_struct_argument_operands(pkg, copy, assigner, statements, initializers);
+            }
+            for field in fields {
+                bind_struct_argument_operands(pkg, field.value, assigner, statements, initializers);
+            }
+        }
+        ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _) => {}
+        _ => {
+            let init = crate::fir_builder::alloc_expr(
+                pkg,
+                assigner,
+                expr.ty.clone(),
+                expr.kind,
+                expr.span,
+            );
+            let (local, statement) = crate::fir_builder::alloc_local_var(
+                pkg,
+                assigner,
+                "_.struct_operand",
+                &expr.ty,
+                init,
+                Mutability::Immutable,
+            );
+            statements.push(statement);
+            initializers.push(init);
+            pkg.exprs.get_mut(id).expect("operand exists").kind =
+                ExprKind::Var(Res::Local(local), Vec::new());
+        }
+    }
+}
+
+/// Stores callable-selection guards when a short-circuit condition cannot be
+/// safely replayed or the selected body or compound store can overwrite it.
+///
+/// # Before
+/// ```text
+/// let value = Guard() and { set f = Times2; true };
+/// f(3)
+/// ```
+/// # After
+/// ```text
+/// mutable guard = false;
+/// let value = { set guard = Guard(); guard and { set f = Times2; true } };
+/// f(3)   // later dispatch reads guard instead of evaluating Guard() again
+/// ```
+///
+/// The declaration dominates later dispatch; the assignment remains at the
+/// original evaluation point, including inside loops and short-circuit operands.
+/// Guards without callable selection, and stable discard-safe guards, are left
+/// unchanged. Ordinary `If` selection already has its own evaluation-preserving
+/// rewrite and is snapshotted here only for operands overwritten by its body.
+pub(super) fn snapshot_branch_guards(pkg: &mut Package, assigner: &mut Assigner) {
+    let mut roots = Vec::new();
+    if let Some(entry) = pkg.entry {
+        let mut expressions = Vec::new();
+        for_each_expr(pkg, entry, &mut |id, _| expressions.push(id));
+        roots.push((None, expressions));
+    }
+    for (_, item) in &pkg.items {
+        if let ItemKind::Callable(decl) = &item.kind
+            && let CallableImpl::Spec(specs) = &decl.implementation
+        {
+            for spec in std::iter::once(&specs.body).chain(functored_specs(specs)) {
+                let mut expressions = Vec::new();
+                for_each_expr_in_block(pkg, spec.block, &mut |id, _| expressions.push(id));
+                roots.push((Some(spec.block), expressions));
+            }
+        }
+    }
+
+    for (root, expressions) in roots {
+        let mut declarations = Vec::new();
+        for id in expressions {
+            let expr = pkg.get_expr(id).clone();
+            let Some(condition) = branch_guard_to_snapshot(pkg, &expr) else {
+                continue;
+            };
+
+            let condition_ty = pkg.get_expr(condition).ty.clone();
+            let initial = alloc_bool_lit(pkg, assigner, false, expr.span);
+            let (local, declaration) = alloc_local_var(
+                pkg,
+                assigner,
+                "_.branch_guard",
+                &condition_ty,
+                initial,
+                Mutability::Mutable,
+            );
+            declarations.push(declaration);
+            let target =
+                alloc_local_var_expr(pkg, assigner, local, condition_ty.clone(), expr.span);
+            let assignment = alloc_assign_expr(pkg, assigner, target, condition, expr.span);
+            let save = alloc_semi_stmt(pkg, assigner, assignment, expr.span);
+            let read = alloc_local_var_expr(pkg, assigner, local, condition_ty.clone(), expr.span);
+            let kind = match expr.kind {
+                ExprKind::If(_, body, otherwise) => ExprKind::If(read, body, otherwise),
+                ExprKind::BinOp(op, _, rhs) => ExprKind::BinOp(op, read, rhs),
+                ExprKind::AssignOp(op, lhs, rhs) => {
+                    let value = alloc_expr(
+                        pkg,
+                        assigner,
+                        condition_ty,
+                        ExprKind::BinOp(op, read, rhs),
+                        expr.span,
+                    );
+                    ExprKind::Assign(lhs, value)
+                }
+                _ => unreachable!("only conditional expressions are selected"),
+            };
+            let selected = alloc_expr(pkg, assigner, expr.ty.clone(), kind, expr.span);
+            let tail = alloc_expr_stmt(pkg, assigner, selected, expr.span);
+            let block = alloc_block(pkg, assigner, vec![save, tail], expr.ty, expr.span);
+            pkg.exprs.get_mut(id).expect("guard expression exists").kind = ExprKind::Block(block);
+        }
+        if declarations.is_empty() {
+            continue;
+        }
+        if let Some(root) = root {
+            let block = pkg.blocks.get_mut(root).expect("root block exists");
+            declarations.append(&mut block.stmts);
+            block.stmts = declarations;
+        } else if let Some(entry) = pkg.entry {
+            let expr = pkg.get_expr(entry).clone();
+            let tail = alloc_expr_stmt(pkg, assigner, entry, expr.span);
+            declarations.push(tail);
+            let block = alloc_block(pkg, assigner, declarations, expr.ty.clone(), expr.span);
+            pkg.entry = Some(alloc_expr(
+                pkg,
+                assigner,
+                expr.ty,
+                ExprKind::Block(block),
+                expr.span,
+            ));
+        }
+    }
+}
+
+fn branch_guard_to_snapshot(pkg: &Package, expression: &Expr) -> Option<ExprId> {
+    let (condition, branches) = match &expression.kind {
+        ExprKind::If(condition, body, otherwise) => (
+            *condition,
+            std::iter::once(*body).chain(*otherwise).collect::<Vec<_>>(),
+        ),
+        ExprKind::BinOp(BinOp::AndL | BinOp::OrL, condition, rhs)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, condition, rhs) => (*condition, vec![*rhs]),
+        _ => return None,
+    };
+    // `and=`/`or=` store the resulting value back into their own guard operand,
+    // even when the RHS only writes a different callable local.
+    let mut writes: FxHashSet<_> = super::analysis::assignment_written_locals(pkg, expression)
+        .into_iter()
+        .collect();
+    let mut selects_callable = super::ty_contains_arrow(&expression.ty);
+    for branch in branches {
+        crate::walk_utils::for_each_expr(pkg, branch, &mut |_, expr| {
+            writes.extend(super::analysis::assignment_written_locals(pkg, expr));
+            if let ExprKind::Assign(_, value)
+            | ExprKind::AssignField(_, _, value)
+            | ExprKind::AssignIndex(_, _, value) = expr.kind
+            {
+                selects_callable |= super::ty_contains_arrow(&pkg.get_expr(value).ty);
+            }
+        });
+    }
+    if !selects_callable {
+        return None;
+    }
+    if matches!(
+        expression.kind,
+        ExprKind::BinOp(BinOp::AndL | BinOp::OrL, _, _)
+            | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, _, _)
+    ) && !crate::walk_utils::expr_is_safe_to_discard(pkg, pkg.id, condition)
+    {
+        return Some(condition);
+    }
+    let mut overwritten = false;
+    crate::walk_utils::for_each_expr(pkg, condition, &mut |_, expr| {
+        if let ExprKind::Var(Res::Local(local), _) = expr.kind {
+            overwritten |= writes.contains(&local);
+        }
+    });
+    overwritten.then_some(condition)
+}
+
+fn decompose_assignment_tuple_aliases(pkg: &mut Package, assigner: &mut Assigner) {
+    let candidates: Vec<_> = collect_promotion_scopes(pkg)
+        .into_iter()
+        .flat_map(|scope| {
+            let mut needed = FxHashSet::default();
+            let mut captured = FxHashSet::default();
+            for &expr_id in &scope.exprs {
+                match &pkg.get_expr(expr_id).kind {
+                    ExprKind::Assign(lhs, rhs)
+                        if matches!(pkg.get_expr(*lhs).kind, ExprKind::Tuple(_)) =>
+                    {
+                        crate::walk_utils::for_each_expr(pkg, *rhs, &mut |_, expr| {
+                            if let ExprKind::Var(Res::Local(local), _) = expr.kind {
+                                needed.insert(local);
+                            }
+                        });
+                    }
+                    ExprKind::Closure(locals, _) => captured.extend(locals.iter().copied()),
+                    _ => {}
+                }
+            }
+            let bindings: Vec<_> = scope
+                .stmts
+                .iter()
+                .flat_map(|stmt_id| {
+                    let StmtKind::Local(Mutability::Immutable, pat_id, init) =
+                        pkg.get_stmt(*stmt_id).kind
+                    else {
+                        return Vec::new();
+                    };
+                    collect_callable_tuple_bindings(pkg, pat_id)
+                        .into_iter()
+                        .map(|(local, pat_id)| (local, pat_id, init, *stmt_id))
+                        .collect()
+                })
+                .collect();
+            loop {
+                let previous = needed.len();
+                for &(local, _, init, _) in &bindings {
+                    if needed.contains(&local) {
+                        crate::walk_utils::for_each_expr(pkg, init, &mut |_, expr| {
+                            if let ExprKind::Var(Res::Local(dependency), _) = expr.kind {
+                                needed.insert(dependency);
+                            }
+                        });
+                    }
+                }
+                if previous == needed.len() {
+                    break;
+                }
+            }
+            bindings
+                .into_iter()
+                .filter(|(local, _, _, _)| needed.contains(local))
+                .map(|(local, pat_id, _, stmt_id)| {
+                    let reads: Vec<_> = scope
+                        .exprs
+                        .iter()
+                        .copied()
+                        .filter(|expr_id| {
+                            matches!(pkg.get_expr(*expr_id).kind,
+                            ExprKind::Var(Res::Local(var), _) if var == local)
+                        })
+                        .collect();
+                    (pat_id, reads, captured.contains(&local).then_some(stmt_id))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    for (pat_id, reads, captured_stmt) in candidates {
+        decompose_tuple_alias(pkg, assigner, pat_id, &reads, captured_stmt);
+    }
+}
+
+fn decompose_tuple_alias(
+    pkg: &mut Package,
+    assigner: &mut Assigner,
+    pat_id: PatId,
+    reads: &[ExprId],
+    captured_stmt: Option<qsc_fir::fir::StmtId>,
+) {
+    let capture_pat = captured_stmt.map(|_| {
+        let mut pat = pkg.get_pat(pat_id).clone();
+        pat.id = assigner.next_pat();
+        let id = pat.id;
+        pkg.pats.insert(id, pat);
+        id
+    });
+    decompose_tuple_pattern(pkg, assigner, pat_id);
+    if let (Some(stmt_id), Some(capture_pat)) = (captured_stmt, capture_pat) {
+        let span = pkg.get_stmt(stmt_id).span;
+        let value = tuple_pattern_value(pkg, assigner, pat_id, span);
+        let aggregate_binding = crate::fir_builder::alloc_local_stmt(
+            pkg,
+            assigner,
+            Mutability::Immutable,
+            capture_pat,
+            value,
+            span,
+        );
+        for (_, block) in pkg.blocks.iter_mut() {
+            if let Some(position) = block.stmts.iter().position(|id| *id == stmt_id) {
+                block.stmts.insert(position + 1, aggregate_binding);
+                break;
+            }
+        }
+    }
+    for &expr_id in reads {
+        let span = pkg.get_expr(expr_id).span;
+        let replacement = tuple_pattern_value(pkg, assigner, pat_id, span);
+        let kind = pkg.get_expr(replacement).kind.clone();
+        pkg.exprs.get_mut(expr_id).expect("tuple read exists").kind = kind;
+    }
+}
+
+fn collect_callable_tuple_bindings(pkg: &Package, pat_id: PatId) -> Vec<(LocalVarId, PatId)> {
+    let mut pending = vec![pat_id];
+    let mut bindings = Vec::new();
+    while let Some(pat_id) = pending.pop() {
+        let pat = pkg.get_pat(pat_id);
+        match &pat.kind {
+            PatKind::Tuple(children) => pending.extend(children.iter().copied()),
+            PatKind::Bind(ident)
+                if matches!(pat.ty, Ty::Tuple(_)) && ty_contains_arrow(&pat.ty) =>
+            {
+                bindings.push((ident.id, pat_id));
+            }
+            _ => {}
+        }
+    }
+    bindings
+}
+
+fn decompose_tuple_pattern(pkg: &mut Package, assigner: &mut Assigner, pat_id: PatId) {
+    let pat = pkg.get_pat(pat_id).clone();
+    if let (PatKind::Bind(ident), Ty::Tuple(types)) = (pat.kind, pat.ty) {
+        crate::fir_builder::decompose_binding(pkg, assigner, pat_id, &ident.name, &types);
+        let PatKind::Tuple(children) = pkg.get_pat(pat_id).kind.clone() else {
+            unreachable!("decomposed pattern is a tuple")
+        };
+        for child in children {
+            decompose_tuple_pattern(pkg, assigner, child);
+        }
+    }
+}
+
+fn tuple_pattern_value(
+    pkg: &mut Package,
+    assigner: &mut Assigner,
+    pat_id: PatId,
+    span: qsc_fir::fir::PackageSpan,
+) -> ExprId {
+    let pat = pkg.get_pat(pat_id).clone();
+    match pat.kind {
+        PatKind::Bind(ident) => {
+            crate::fir_builder::alloc_local_var_expr(pkg, assigner, ident.id, pat.ty, span)
+        }
+        PatKind::Tuple(children) => {
+            let values = children
+                .into_iter()
+                .map(|child| tuple_pattern_value(pkg, assigner, child, span))
+                .collect();
+            crate::fir_builder::alloc_tuple_expr(pkg, assigner, values, pat.ty, span)
+        }
+        PatKind::Discard => unreachable!("decomposed binding has no discarded fields"),
+    }
 }
 
 /// A planned normalization of one partial-application closure: the statically
@@ -91,6 +557,7 @@ struct ClosureCaptureInlining {
 /// # Before
 /// ```text
 /// let f = {
+///     Message("creating");
 ///     let capture = Logged(17);
 ///     Closure([capture], target)
 /// };
@@ -100,6 +567,7 @@ struct ClosureCaptureInlining {
 ///
 /// # After
 /// ```text
+/// Message("creating");
 /// let capture = Logged(17);
 /// let f = Closure([capture], target);
 /// Message("ready");
@@ -108,10 +576,11 @@ struct ClosureCaptureInlining {
 ///
 /// # Eligibility
 /// - The reachable initializer belongs to an immutable callable binding and
-///   consists of a nonempty immutable-binding prefix followed by a closure.
-/// - At least one prefix initializer is not proven side-effect-free and total.
+///   consists of immutable bindings and expression statements followed by a
+///   closure, possibly through nested tail blocks.
+/// - At least one prefix expression is not proven side-effect-free and total.
 ///   Proven discard-safe prefixes retain their existing expression-replay path.
-/// - The binding statement, initializer expression, and initializer block each
+/// - The binding statement, initializer expression, and each traversed block
 ///   have one incoming reference. Shared candidates are left alone rather than
 ///   exposing the same locals in multiple contexts.
 ///
@@ -189,37 +658,13 @@ fn expose_closure_capture_bindings(pkg: &mut Package, reachable_expr_ids: &[Expr
                 && stmt_uses.get(&stmt_id) == Some(&1)
                 && expr_uses.get(&init_id) == Some(&1)
                 && matches!(pkg.get_expr(init_id).ty, Ty::Arrow(_))
-                && let ExprKind::Block(capture_block_id) = pkg.get_expr(init_id).kind
-                && block_uses.get(&capture_block_id) == Some(&1)
+                && let Some((prefix, tail)) = closure_initializer_prefix(pkg, init_id, &block_uses)
             {
-                let capture_stmts = &pkg.get_block(capture_block_id).stmts;
-                // Move the complete binding prefix, including dependencies among
-                // captures. An effectful or fallible initializer makes its original
-                // evaluation point significant; all-discard-safe prefixes stay put.
-                if let Some((&tail_stmt, prefix)) = capture_stmts.split_last()
-                    && !prefix.is_empty()
-                    && prefix.iter().all(|&stmt| {
-                        matches!(
-                            pkg.get_stmt(stmt).kind,
-                            StmtKind::Local(Mutability::Immutable, _, _)
-                        )
-                    })
-                    && prefix.iter().any(|&stmt| {
-                        let StmtKind::Local(_, _, value) = pkg.get_stmt(stmt).kind else {
-                            return false;
-                        };
-                        !crate::walk_utils::expr_is_safe_to_discard(pkg, pkg.id, value)
-                    })
-                    && let StmtKind::Expr(tail) = pkg.get_stmt(tail_stmt).kind
-                    && matches!(pkg.get_expr(tail).kind, ExprKind::Closure(..))
-                {
-                    // Splice before `let f`, preserving creation-time evaluation.
-                    // The closure still names the same locals, now visible to
-                    // subsequent rewritten calls in this enclosing block.
-                    statements.extend_from_slice(prefix);
-                    let closure = pkg.get_expr(tail).kind.clone();
-                    pkg.exprs.get_mut(init_id).expect("initializer exists").kind = closure;
-                }
+                // Splice the complete prefix before `let f`, preserving both
+                // capture dependencies and any surrounding effects.
+                statements.extend(prefix);
+                let closure = pkg.get_expr(tail).kind.clone();
+                pkg.exprs.get_mut(init_id).expect("initializer exists").kind = closure;
             }
             // Keep the original callable binding (and all unrelated statements)
             // in order; later defunc cleanup decides whether the binding is dead.
@@ -227,6 +672,39 @@ fn expose_closure_capture_bindings(pkg: &mut Package, reachable_expr_ids: &[Expr
         }
         pkg.blocks.get_mut(block_id).expect("block exists").stmts = statements;
     }
+}
+
+/// Follows only unconditional tail blocks; effects inside conditional branches
+/// remain there. Mutable declarations and item statements are not moved.
+fn closure_initializer_prefix(
+    pkg: &Package,
+    mut expr: ExprId,
+    block_uses: &FxHashMap<BlockId, usize>,
+) -> Option<(Vec<StmtId>, ExprId)> {
+    let mut prefix = Vec::new();
+    let mut needs_storage = false;
+    while let ExprKind::Block(block) = pkg.get_expr(expr).kind {
+        if block_uses.get(&block) != Some(&1) {
+            return None;
+        }
+        let (&tail, statements) = pkg.get_block(block).stmts.split_last()?;
+        for &statement in statements {
+            let (StmtKind::Local(Mutability::Immutable, _, value)
+            | StmtKind::Semi(value)
+            | StmtKind::Expr(value)) = pkg.get_stmt(statement).kind
+            else {
+                return None;
+            };
+            needs_storage |= !crate::walk_utils::expr_is_safe_to_discard(pkg, pkg.id, value);
+            prefix.push(statement);
+        }
+        let StmtKind::Expr(tail) = pkg.get_stmt(tail).kind else {
+            return None;
+        };
+        expr = tail;
+    }
+    (needs_storage && matches!(pkg.get_expr(expr).kind, ExprKind::Closure(..)))
+        .then_some((prefix, expr))
 }
 
 /// Normalizes a partial-application closure into the capture-free explicit-lambda
@@ -552,7 +1030,7 @@ fn plan_closure_capture_inlining(
 }
 
 /// Promotes an adjacent, single-use aggregate local into a following tuple
-/// destructure. This preserves evaluation order because there is no intervening
+/// binding or assignment. This preserves evaluation order because there is no intervening
 /// statement between the alias binding and its only use.
 fn promote_adjacent_aggregate_callable_aliases(store: &mut PackageStore, package_id: PackageId) {
     let block_ids: Vec<_> = {
@@ -574,8 +1052,8 @@ fn promote_adjacent_aggregate_callable_aliases(store: &mut PackageStore, package
 ///
 /// Each pass scans adjacent statement pairs: when the first is an immutable
 /// `let` binding whose init is a callable-bearing aggregate and the second
-/// destructures that binding with exactly one use, the alias statement is
-/// elided and the destructure is repointed directly at the original init.
+/// destructures or assigns that binding with exactly one use, the alias statement is
+/// elided and the consuming RHS is repointed directly at the original init.
 /// The loop re-runs because removing one alias may expose the next.
 fn promote_adjacent_aggregate_callable_aliases_in_block(pkg: &mut Package, block_id: BlockId) {
     loop {
@@ -593,13 +1071,28 @@ fn promote_adjacent_aggregate_callable_aliases_in_block(pkg: &mut Package, block
                     stmt_ids[index + 1],
                 )
             {
-                if let StmtKind::Local(_, _, expr_id) = &mut pkg
-                    .stmts
-                    .get_mut(stmt_ids[index + 1])
-                    .expect("statement should exist")
-                    .kind
-                {
-                    *expr_id = init_expr_id;
+                match pkg.get_stmt(stmt_ids[index + 1]).kind {
+                    StmtKind::Local(_, _, _) => {
+                        if let StmtKind::Local(_, _, expr_id) = &mut pkg
+                            .stmts
+                            .get_mut(stmt_ids[index + 1])
+                            .expect("statement should exist")
+                            .kind
+                        {
+                            *expr_id = init_expr_id;
+                        }
+                    }
+                    StmtKind::Semi(assign_id) => {
+                        if let ExprKind::Assign(_, rhs_id) = &mut pkg
+                            .exprs
+                            .get_mut(assign_id)
+                            .expect("assignment should exist")
+                            .kind
+                        {
+                            *rhs_id = init_expr_id;
+                        }
+                    }
+                    _ => unreachable!("promotion requires a binding or assignment"),
                 }
                 retained.push(stmt_ids[index + 1]);
                 changed = true;
@@ -628,7 +1121,7 @@ fn promote_adjacent_aggregate_callable_aliases_in_block(pkg: &mut Package, block
 /// The pair is promotable when:
 /// 1. `alias_stmt_id` is an immutable `let` binding whose type contains an
 ///    arrow (callable-bearing aggregate).
-/// 2. `use_stmt_id` destructures that exact binding via a tuple pattern.
+/// 2. `use_stmt_id` destructures that exact binding via a tuple pattern or target.
 /// 3. The alias local has exactly one use in the enclosing block, which is
 ///    the `use_stmt_id` reference.
 ///
@@ -653,12 +1146,23 @@ fn aggregate_alias_promotion_init(
     }
 
     let use_stmt = pkg.get_stmt(use_stmt_id);
-    let StmtKind::Local(_, use_pat_id, use_expr_id) = use_stmt.kind else {
-        return None;
+    let use_expr_id = match use_stmt.kind {
+        StmtKind::Local(_, use_pat_id, use_expr_id)
+            if matches!(pkg.get_pat(use_pat_id).kind, PatKind::Tuple(_)) =>
+        {
+            use_expr_id
+        }
+        StmtKind::Semi(assign_id) => {
+            let ExprKind::Assign(lhs_id, rhs_id) = pkg.get_expr(assign_id).kind else {
+                return None;
+            };
+            if !matches!(pkg.get_expr(lhs_id).kind, ExprKind::Tuple(_)) {
+                return None;
+            }
+            rhs_id
+        }
+        _ => return None,
     };
-    if !matches!(pkg.get_pat(use_pat_id).kind, PatKind::Tuple(_)) {
-        return None;
-    }
     if !matches!(pkg.get_expr(use_expr_id).kind, ExprKind::Var(Res::Local(var), _) if var == alias_ident.id)
     {
         return None;
@@ -707,7 +1211,7 @@ fn local_has_exactly_one_use_in_block(
 /// the pre-pass promotions are best-effort simplifications, not correctness
 /// requirements. A missed callable hidden behind a UDT wrapper is still
 /// handled correctly by the full analysis phase, which uses the heavier
-/// [`super::specialize::ty_contains_arrow_through_udts`] variant with store
+/// [`super::ty_contains_arrow_through_udts`] variant with store
 /// access.
 fn ty_contains_arrow(ty: &Ty) -> bool {
     match ty {

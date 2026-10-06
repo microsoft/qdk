@@ -1509,7 +1509,10 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     qubitIndices = [0],
                     signs = [1]
                 };
-                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(1, 1, params);
+                {
+                    let __capture : __UDT_Item_1__Package_2_ = params;
+                    MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(1, 1, __capture)
+                };
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -2067,4 +2070,80 @@ fn branch_local_capture_applied_outside_scope_declines_to_dynamic() {
         direct_source,
         &expect!["callable argument could not be resolved statically"],
     );
+}
+
+#[test]
+fn effectful_producer_returning_consumed_closure_declines_to_dynamic() {
+    let source = r#"
+        operation MakeOp(q : Qubit) : Qubit => Unit {
+            X(q);
+            Rx(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOp(q);
+            ApplyOp(op, q);
+        }
+        "#;
+    // An actionable diagnostic, not an internal assert. The diagnostic must
+    // survive the fixpoint loop's per-iteration `DynamicCallable` retain; a
+    // decline raised on one iteration and not re-derived on the last would be
+    // dropped silently.
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_pipeline(source);
+}
+
+#[test]
+fn negative_index_callable_dispatch_preserves_semantics() {
+    for source in [
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            ops[-2](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            ops[-1](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [X, size = 2];
+            ops[-1](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            let index = if MResetZ(q) == Zero { -2 } else { -2 };
+            ops[index](q);
+            MResetZ(q)
+        }
+        "#,
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let ops = [I, X];
+            ops[-3](q);
+            MResetZ(q)
+        }
+        "#,
+    ] {
+        crate::test_utils::check_semantic_equivalence(source);
+    }
 }
