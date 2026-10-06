@@ -5081,20 +5081,9 @@ fn reaching_def_mutable_nested_branches() {
     );
 }
 
-/// Documents defunctionalization's behavior when it runs *in isolation* on a
-/// side-effecting `if` condition. The `check_rewrite` helper invokes only
-/// `defunctionalize`, so the condition `{ Y(q); true }` has not been hoisted
-/// and the resulting snapshot still references it twice (once in the original
-/// mutable assignment and once in the synthesized branch dispatch).
-///
-/// In the production pipeline this duplication never reaches codegen: the
-/// `cond_normalize` pass runs immediately before `defunctionalize` and rewrites
-/// such conditions into a single-evaluation `let __cond = { Y(q); true }; if
-/// __cond { .. }` form, so each side effect is emitted exactly once. The
-/// end-to-end guarantee is covered by
-/// `cond_normalize::tests::full_pipeline_runs_with_side_effecting_condition`
-/// and the QIR-level
-/// `codegen::tests::defunctionalize_nested_condition_dispatch_evaluates_measurement_once`.
+/// Defunctionalization must preserve a side-effecting selection even when run
+/// without the earlier condition-normalization pass. Its guard snapshot runs
+/// Y once; both the mutable assignment and subsequent dispatch read that value.
 #[test]
 fn callable_in_mutable_with_side_effects_in_if_expr() {
     let source = r#"
@@ -5109,6 +5098,7 @@ fn callable_in_mutable_with_side_effects_in_if_expr() {
         }
         "#;
     check_invariants(source);
+    crate::test_utils::check_semantic_equivalence(source);
     check_rewrite(
         source,
         &expect![[r#"
@@ -5141,21 +5131,21 @@ fn callable_in_mutable_with_side_effects_in_if_expr() {
                 op(q);
             }
             operation Main() : Unit {
+                mutable __branch_guard : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if {
-                    Y(q);
-                    true
-                }
                 {
-                    op = X;
+                    __branch_guard = {
+                        Y(q);
+                        true
+                    };
+                    if __branch_guard {
+                        op = X;
+                    }
+
                 }
 
-                if {
-                    Y(q);
-                    true
-                }
-                {
+                if __branch_guard {
                     ApplyOp_AdjCtl__X_(q)
                 } else {
                     ApplyOp_AdjCtl__H_(q)

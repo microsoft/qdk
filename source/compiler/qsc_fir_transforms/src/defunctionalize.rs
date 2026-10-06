@@ -258,7 +258,7 @@ pub(crate) fn defunctionalize(
                 let (_, expressions) = collect_reachable_scope(store, owner, &reachable);
                 prepass::normalize_capture_operands(store.get_mut(owner), &expressions, assigner);
             }
-            prepass::snapshot_branch_guards(store.get_mut(owner), assigner);
+            crate::cond_normalize::normalize_callable_selections(store.get_mut(owner), assigner);
         }
 
         let analysis = analysis::analyze(
