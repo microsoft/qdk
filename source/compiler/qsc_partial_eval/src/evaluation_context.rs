@@ -12,7 +12,7 @@ use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
 use std::{collections::hash_map::Entry, rc::Rc};
 
-use crate::{ScopeDbgContext, is_static_value};
+use crate::{ScopeDbgContext, is_static_value, map_rir_literal_to_eval_value};
 
 /// Struct that keeps track of the active RIR blocks (where RIR instructions are added) and the active scopes (which
 /// correspond to the Q#'s program call stack).
@@ -233,6 +233,55 @@ impl Scope {
             .get(local_var_id)
             .expect("local classcial variable value does not exist")
             .value
+    }
+
+    /// Updates the classical local variable values based on the current hybrid local variable values.
+    pub fn update_classical_locals_from_hybrid_locals(&mut self) {
+        for (local_var_id, hybrid_value) in &self.hybrid_vars {
+            let update_value = match hybrid_value {
+                Value::Var(hybrid_var) => {
+                    // Check to see if there is a static literal value currently tracked for this variable,
+                    // and if so, use it to update the classical local variable value instead.
+                    if let Some(literal) = self.get_static_value(hybrid_var.id.into())
+                        && let Some(literal_val) =
+                            map_rir_literal_to_eval_value(*literal, hybrid_var.ty)
+                    {
+                        literal_val
+                    } else {
+                        hybrid_value.clone()
+                    }
+                }
+                _ => hybrid_value.clone(),
+            };
+            if let Some(classical_var) = self.env.get_mut(*local_var_id) {
+                classical_var.value = update_value;
+            }
+        }
+    }
+
+    /// Collects the local variable values that have been updated based on the current hybrid local variable values,
+    /// allowing callers to choose how to update those in tracked mapping themselves.
+    pub fn collect_updated_local_values(&mut self) -> Vec<(LocalVarId, Value)> {
+        let mut updated_values = Vec::new();
+        for (local_var_id, hybrid_value) in &self.hybrid_vars {
+            if let Value::Var(hybrid_var) = hybrid_value
+                && let Some(literal) = self.get_static_value(hybrid_var.id.into())
+                && let Some(literal_val) = map_rir_literal_to_eval_value(*literal, hybrid_var.ty)
+            {
+                // If there is a tracked static literal value for this hybrid variable, use that to check for changes
+                // against the classical local variable value instead of the variable itself.
+                if let Some(classical_value) = self.env.get(*local_var_id).map(|var| &var.value)
+                    && classical_value != &literal_val
+                {
+                    updated_values.push((*local_var_id, classical_value.clone()));
+                }
+            } else if let Some(classical_value) = self.env.get(*local_var_id).map(|var| &var.value)
+                && classical_value != hybrid_value
+            {
+                updated_values.push((*local_var_id, classical_value.clone()));
+            }
+        }
+        updated_values
     }
 
     /// Gets the value of a hybrid local variable.

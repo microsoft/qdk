@@ -453,7 +453,7 @@ impl Env {
             .find_map(|scope| scope.bindings.get(id))
     }
 
-    fn get_mut(&mut self, id: LocalVarId) -> Option<&mut Variable> {
+    pub fn get_mut(&mut self, id: LocalVarId) -> Option<&mut Variable> {
         self.scopes
             .iter_mut()
             .rev()
@@ -2584,7 +2584,7 @@ fn eval_binop_lte(lhs_val: Value, rhs_val: Value) -> Value {
             let rhs = rhs_val.unwrap_double();
             Value::Bool(val <= rhs)
         }
-        _ => panic!("value doesn't support binop lte"),
+        _ => panic!("value doesn't support binop lte: {lhs_val:?} {rhs_val:?}"),
     }
 }
 

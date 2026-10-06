@@ -1263,6 +1263,7 @@ impl<'a> PartialEvaluator<'a> {
         let expr = self.package_store.get_expr(store_expr_id);
         let scope_exec_graph = self.get_current_scope_exec_graph().clone();
         let scope = self.eval_context.get_current_scope_mut();
+        scope.update_classical_locals_from_hybrid_locals();
         let exec_graph = scope_exec_graph.get_range(&expr.exec_graph_range);
         let mut state = State::new(
             current_package_id,
@@ -1297,17 +1298,14 @@ impl<'a> PartialEvaluator<'a> {
             Err((error, _)) => Err(Error::from(error)),
         };
 
-        // If this was an assign expression, update the bindings in the hybrid side to keep them in sync and to insert
-        // store instructions for variables of type `Bool`, `Int` or `Double`.
-        if let Ok(EvalControlFlow::Continue(_)) = eval_result {
-            let expr = self.get_expr(expr_id);
-            if let ExprKind::Assign(lhs_expr_id, _)
-            | ExprKind::AssignField(lhs_expr_id, _, _)
-            | ExprKind::AssignIndex(lhs_expr_id, _, _)
-            | ExprKind::AssignOp(_, lhs_expr_id, _) = &expr.kind
-            {
-                self.update_hybrid_bindings_from_classical_bindings(*lhs_expr_id)?;
-            }
+        // Static expressions or sub-expressions may have updated variable values, so we need to collect and apply those updates
+        // to the hybrid maps (potentially updating static variable mappings as well).
+        for (local_var_id, new_value) in self
+            .eval_context
+            .get_current_scope_mut()
+            .collect_updated_local_values()
+        {
+            self.update_hybrid_local(local_var_id, new_value)?;
         }
 
         eval_result
@@ -4150,7 +4148,7 @@ impl<'a> PartialEvaluator<'a> {
                 //
                 // Since expressions call expressions to the `Length` intrinsic will be offloaded to the evaluator,
                 // the evaluator environment also needs to track some non-classical variables.
-                self.update_hybrid_local(lhs_expr, *local_var_id, value.clone())?;
+                self.update_hybrid_local(*local_var_id, value.clone())?;
                 self.update_classical_local(*local_var_id, value);
             }
             (ExprKind::Tuple(exprs), Value::Tuple(values, _)) => {
@@ -4185,12 +4183,7 @@ impl<'a> PartialEvaluator<'a> {
             .update_variable_in_top_frame(local_var_id, value);
     }
 
-    fn update_hybrid_local(
-        &mut self,
-        local_expr: &Expr,
-        local_var_id: LocalVarId,
-        value: Value,
-    ) -> Result<(), Error> {
+    fn update_hybrid_local(&mut self, local_var_id: LocalVarId, value: Value) -> Result<(), Error> {
         let bound_value = self
             .eval_context
             .get_current_scope()
@@ -4215,51 +4208,9 @@ impl<'a> PartialEvaluator<'a> {
                 }
             }
         } else {
-            // Verify that we are not updating a value that does not have a backing variable from a dynamic branch
-            // because it is unsupported.
-            if self
-                .eval_context
-                .get_current_scope()
-                .is_currently_evaluating_branch()
-            {
-                let error_message = format!(
-                    "re-assignment within a dynamic branch is unsupported for type {}",
-                    local_expr.ty
-                );
-                let error =
-                    Error::Unexpected(error_message, self.get_expr_package_span(local_expr.id));
-                return Err(error);
-            }
             self.eval_context
                 .get_current_scope_mut()
                 .update_hybrid_local_value(local_var_id, value);
-        }
-        Ok(())
-    }
-
-    fn update_hybrid_bindings_from_classical_bindings(
-        &mut self,
-        lhs_expr_id: ExprId,
-    ) -> Result<(), Error> {
-        let lhs_expr = &self.get_expr(lhs_expr_id);
-        match &lhs_expr.kind {
-            ExprKind::Hole => {
-                // Nothing to bind to.
-            }
-            ExprKind::Var(Res::Local(local_var_id), _) => {
-                let classical_value = self
-                    .eval_context
-                    .get_current_scope()
-                    .get_classical_local_value(*local_var_id)
-                    .clone();
-                self.update_hybrid_local(lhs_expr, *local_var_id, classical_value)?;
-            }
-            ExprKind::Tuple(exprs) => {
-                for expr_id in exprs {
-                    self.update_hybrid_bindings_from_classical_bindings(*expr_id)?;
-                }
-            }
-            _ => unreachable!("unassignable pattern should be disallowed by compiler"),
         }
         Ok(())
     }
