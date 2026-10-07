@@ -102,3 +102,52 @@ def test_qsharp_trace_backend_from_callable(context: Context):
         MEAS_Z,
         MEAS_RESET_Z,
     }
+
+
+# Branches on measurement results both explicitly and via measurement-based
+# uncomputation (`Adjoint AND`), as used by LCU/qubitization block encodings.
+BRANCHING_PROGRAM_BODY = """
+    use (a, b, t, r) = (Qubit(), Qubit(), Qubit(), Qubit());
+    for _ in 1..100 {
+        H(a);
+        H(b);
+        if M(a) == One {
+            X(r);
+        }
+        within {
+            AND(a, b, t);
+        } apply {
+            CNOT(t, r);
+        }
+    }
+"""
+
+
+def _assert_identical_traces(first, second):
+    assert str(first) == str(second)
+    assert first.num_gates == second.num_gates
+    assert first.depth == second.depth
+    assert first.gate_counts == second.gate_counts
+
+
+def test_qsharp_trace_backend_is_deterministic_from_entry_expr():
+    program = "{" + BRANCHING_PROGRAM_BODY + "}"
+
+    first = QSharpApplication(program, use_trace_backend=True).get_trace()
+    second = QSharpApplication(program, use_trace_backend=True).get_trace()
+
+    _assert_identical_traces(first, second)
+
+
+def test_qsharp_trace_backend_is_deterministic_from_callable(context: Context):
+    context.eval(
+        "namespace TestTraceDeterminism { operation Entry() : Unit {"
+        + BRANCHING_PROGRAM_BODY
+        + "} }"
+    )
+    entry = context.code.TestTraceDeterminism.Entry
+
+    first = QSharpApplication(entry, use_trace_backend=True).get_trace()
+    second = QSharpApplication(entry, use_trace_backend=True).get_trace()
+
+    _assert_identical_traces(first, second)

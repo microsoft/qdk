@@ -244,6 +244,43 @@ fn measurement_branch_is_observed_both_ways_over_multiple_runs() {
 }
 
 #[test]
+fn measurement_dependent_branching_produces_identical_traces() {
+    // Mixes an explicit branch on a measurement with measurement-based
+    // uncomputation (`Adjoint AND`), which is how block encodings typically
+    // pick up measurement-dependent control flow.
+    let source = indoc! {
+        "
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use (a, b, t, r) = (Qubit(), Qubit(), Qubit(), Qubit());
+                for _ in 1..100 {
+                    H(a);
+                    H(b);
+                    if M(a) == One {
+                        X(r);
+                    }
+                    within {
+                        AND(a, b, t);
+                    } apply {
+                        CNOT(t, r);
+                    }
+                }
+            }
+        }
+        "
+    };
+
+    let first = run_trace(source);
+    let second = run_trace(source);
+
+    assert_eq!(first.to_string(), second.to_string());
+    assert_eq!(first.num_gates(), second.num_gates());
+    assert_eq!(first.depth(), second.depth());
+    assert_eq!(first.gate_counts(), second.gate_counts());
+}
+
+#[test]
 fn repeat_estimates_creates_repeated_block() {
     let trace = run_trace(indoc! {
         "

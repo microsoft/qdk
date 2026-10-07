@@ -8,12 +8,11 @@ use qsc::{
     Backend, BackendResult,
     interpret::{self, GenericReceiver, Interpreter, Value},
 };
-use rand::RngExt;
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 
 use crate::{Trace, instruction_ids};
 
-#[derive(Default)]
 pub struct TraceBuilder {
     trace: Trace,
     qubit_id_map: FxHashMap<usize, usize>,
@@ -23,6 +22,26 @@ pub struct TraceBuilder {
     next_free: usize,
     live_qubits: usize,
     max_live_qubits: usize,
+    /// Source of outcomes for measurements that are not post-selected. Seeded with a
+    /// fixed value (consistent with the logical counts backend) so that tracing the
+    /// same program always produces the same trace.
+    rng: StdRng,
+}
+
+impl Default for TraceBuilder {
+    fn default() -> Self {
+        Self {
+            trace: Trace::default(),
+            qubit_id_map: FxHashMap::default(),
+            post_select_measurements: FxHashMap::default(),
+            repeat_frames: Vec::new(),
+            free_list: Vec::new(),
+            next_free: 0,
+            live_qubits: 0,
+            max_live_qubits: 0,
+            rng: StdRng::seed_from_u64(0),
+        }
+    }
 }
 
 enum PendingOperation {
@@ -115,7 +134,7 @@ impl TraceBuilder {
     fn measurement_result(&mut self, q: usize) -> bool {
         self.post_select_measurements
             .remove(&q)
-            .unwrap_or_else(|| rand::rng().random_bool(0.5))
+            .unwrap_or_else(|| self.rng.random_bool(0.5))
     }
 }
 
