@@ -1,9 +1,111 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{CompilationContext, check_last_statement_compute_properties};
+use super::{
+    CompilationContext, check_callable_compute_properties, check_last_statement_compute_properties,
+};
 use expect_test::expect;
 use qsc_data_structures::target::Profile;
+
+/// Destructuring an opaque tuple records the enclosing initializer for every local.
+/// That three-element initializer must not be mistaken for args' two-element tuple.
+#[test]
+fn check_rca_for_controlled_call_with_destructured_argument() {
+    let mut context = CompilationContext::default();
+    context.update(
+        r#"
+        operation Target() : Unit is Ctl {}
+        let packed : (Int, (Qubit[], Unit), Bool) = (1, ([], ()), true);
+        let (_, args, _) = packed;
+        Controlled Target(args);
+        "#,
+    );
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+/// An opaque value must supply all three input leaves, not just the two outer
+/// pattern elements. The empty target keeps the expected compute kind static.
+#[test]
+fn check_rca_for_controlled_call_with_opaque_nested_input() {
+    let mut context = CompilationContext::default();
+    context.update(
+        r#"
+        operation Target((a : Int, b : Int), c : Int) : Unit is Ctl {}
+        mutable args : (Qubit[], ((Int, Int), Int)) = ([], ((1, 2), 3));
+        Controlled Target(args);
+        "#,
+    );
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_controlled_call_preserves_block_argument_effects() {
+    let mut context = CompilationContext::default();
+    context.update(
+        r#"
+        operation Target() : Unit is Ctl {}
+        operation Probe() : Unit {
+            use q = Qubit();
+            Controlled Target({ let measured = M(q) == One; ([], ()) });
+        }
+        "#,
+    );
+    // Resolving the block tail must not discard runtime features from earlier statements.
+    check_callable_compute_properties(
+        &context.fir_store,
+        context.get_compute_properties(),
+        "Probe",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_controlled_call_with_dynamic_opaque_nested_input() {
+    let mut context = CompilationContext::default();
+    context.update(
+        r#"
+        operation Target((a : Bool, b : Bool), c : Bool) : Unit is Ctl {
+            let value = a ? 1.0 | 2.0;
+        }
+        use q = Qubit();
+        mutable args : (Qubit[], ((Bool, Bool), Bool)) =
+            ([], ((M(q) == One, false), false));
+        Controlled Target(args);
+        "#,
+    );
+    // Dynamic input must select Target's dynamic parameter application, including
+    // the double-valued expression in its body, not merely retain argument features.
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
 
 #[test]
 fn check_rca_for_call_to_cyclic_function_with_classical_argument() {

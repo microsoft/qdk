@@ -92,6 +92,84 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn controlled_noop_tuple_alias_matches_literal_input_in_base_qir() {
+    let source = |call| {
+        format!(
+            r#"
+            operation Target() : Unit is Ctl {{}}
+            @EntryPoint(Base)
+            operation Main() : Unit {{ {call} }}
+            "#
+        )
+    };
+    let literal =
+        compile_source_to_qir(&source("Controlled Target([], ());"), Profile::Base.into());
+    let qir = compile_source_to_qir(
+        &source("let args : (Qubit[], Unit) = ([], ()); Controlled Target(args);"),
+        Profile::Base.into(),
+    );
+    assert_eq!(qir, literal);
+    assert!(!qir.contains("call void @__quantum__qis__"), "{qir}");
+}
+
+/// RCA must accept literal, aliased, and opaque controlled arguments without changing
+/// code generation. Empty controls leave two X gates on one qubit; the pair also lets
+/// the simulator verify that the allocated qubit is released in the zero state.
+#[test]
+fn controlled_tuple_values_and_aliases_match_literal_inputs_in_base_qir() {
+    let source = |call| {
+        format!(
+            r#"
+            function MakeArgs() : (Qubit[], Unit) {{ ([], ()) }}
+            operation Target() : Unit is Ctl {{
+                body (...) {{
+                    use q = Qubit();
+                    X(q);
+                    X(q);
+                }}
+                controlled (controls, ...) {{
+                    use q = Qubit();
+                    Controlled X(controls, q);
+                    Controlled X(controls, q);
+                }}
+            }}
+            @EntryPoint() operation Main() : Unit {{ {call} }}
+        "#
+        )
+    };
+    let literal =
+        compile_source_to_qir(&source("Controlled Target([], ());"), Profile::Base.into());
+    assert_eq!(
+        literal
+            .matches("call void @__quantum__qis__x__body")
+            .count(),
+        2
+    );
+    assert!(
+        literal.contains(r#""required_num_qubits"="1""#),
+        "{literal}"
+    );
+
+    for call in [
+        "let args : (Qubit[], Unit) = ([], ()); Controlled Target(args);",
+        "let args : (Qubit[], Unit) = ([], ()); let alias = args; Controlled Target(alias);",
+        "mutable args : (Qubit[], Unit) = ([], ()); Controlled Target(args);",
+        "Controlled Target({ let args : (Qubit[], Unit) = ([], ()); args });",
+        "Controlled Target(MakeArgs());",
+        "let packed : (Int, (Qubit[], Unit), Bool) = (1, ([], ()), true); let (_, args, _) = packed; Controlled Target(args);",
+        "let inner : (Qubit[], Unit) = ([], ()); let args : (Qubit[], (Qubit[], Unit)) = ([], inner); Controlled Controlled Target(args);",
+        "mutable args : (Qubit[], (Qubit[], Unit)) = ([], ([], ())); Controlled Controlled Target(args);",
+    ] {
+        let source = source(call);
+        let qir = compile_source_to_qir(&source, Profile::Base.into());
+        assert_eq!(qir, literal, "{call}");
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source.replace("@EntryPoint()", ""));
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::unit());
+    }
+}
+
+#[test]
 fn dump_operation_is_codegen_noop_across_restricted_profiles() {
     let source = r#"
         namespace Test {
