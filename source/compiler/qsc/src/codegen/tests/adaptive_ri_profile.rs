@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 use expect_test::expect;
-use qdk_openqasm::source;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
 use super::{compile_source_to_qir, compile_source_to_qir_from_ast, compile_source_to_rir};
