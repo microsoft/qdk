@@ -92,6 +92,55 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn generic_lambda_dependencies_compile_through_executable_entries() {
+    check_generic_lambda_dependency_qir(compile_source_to_qir);
+}
+
+#[test]
+fn generic_lambda_dependencies_compile_through_incremental_entries() {
+    check_generic_lambda_dependency_qir(|source, capabilities| {
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        interpreter
+            .qirgen("Main()")
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)))
+    });
+}
+
+fn check_generic_lambda_dependency_qir(compile: impl Fn(&str, TargetCapabilityFlags) -> String) {
+    let definitions = r#"
+        function Id<'T>(x : 'T) : 'T { x }
+        function Outer<'T>(x : 'T) : 'T {
+            let f = y -> Id(y);
+            f(x)
+        }
+    "#;
+    for (main, profile, expected) in [
+        (
+            "operation Main() : Unit { let _ = Outer(1); }",
+            Profile::Base,
+            None,
+        ),
+        (
+            "operation Main() : Int { Outer(7) }",
+            Profile::AdaptiveRIF,
+            Some(7),
+        ),
+    ] {
+        let source = format!("{definitions}\n{main}");
+        let qir = compile(&source, profile.into());
+        if let Some(expected) = expected {
+            assert_single_integer_output(&qir, expected);
+        } else {
+            assert!(
+                qir.contains("call void @__quantum__rt__tuple_record_output(i64 0,"),
+                "{profile:?}: {qir}"
+            );
+        }
+    }
+}
+
+#[test]
 fn controlled_noop_tuple_alias_matches_literal_input_in_base_qir() {
     let source = |call| {
         format!(
