@@ -1,0 +1,57 @@
+version: v1.1.0
+
+# This file will build the Dockerfile for both architectures,
+# and then create a multi-architecture manifest for it.
+#
+# It needs to use the docker:29-cli image for the buildx commands.
+#
+# Run with something like:
+#
+# BRANCH=main
+# IMAGE_TAG=20261007
+# az acr run --registry "$ACR_NAME" \
+#   --set imageTag="$IMAGE_TAG" \
+#   --file manifest-task.yaml \
+#   https://github.com/microsoft/qdk.git#${BRANCH}:.ado/images/qdk-base
+
+steps:
+  - cmd: >
+      docker:29-cli
+      buildx build
+      --platform linux/amd64
+      --build-arg BASE_REGISTRY=$Registry
+      --tag $Registry/qdk-base:{{.Values.imageTag}}-amd64
+      --push
+      .
+    entryPoint: docker
+
+  - cmd: >
+      docker:29-cli
+      buildx build
+      --platform linux/arm64
+      --build-arg BASE_REGISTRY=$Registry
+      --tag $Registry/qdk-base:{{.Values.imageTag}}-arm64
+      --push
+      .
+    entryPoint: docker
+
+  - cmd: >
+      docker:29-cli
+      buildx imagetools create
+      --tag $Registry/qdk-base:{{.Values.imageTag}}
+      $Registry/qdk-base:{{.Values.imageTag}}-amd64
+      $Registry/qdk-base:{{.Values.imageTag}}-arm64
+    entryPoint: docker
+
+  - cmd: >
+      docker:29-cli
+      buildx imagetools create
+      --tag $Registry/qdk-base:latest
+      $Registry/qdk-base:{{.Values.imageTag}}
+    entryPoint: docker
+
+  - cmd: >
+      docker:29-cli
+      buildx imagetools inspect
+      $Registry/qdk-base:{{.Values.imageTag}}
+    entryPoint: docker

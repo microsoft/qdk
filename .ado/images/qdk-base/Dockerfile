@@ -1,0 +1,42 @@
+ARG BASE_REGISTRY=qdkacr-cfgqhwddajdaebhg.azurecr.io
+# To build from upstream ubi8, set BASE_REGISTRY=registry.access.redhat.com
+
+FROM ${BASE_REGISTRY}/ubi8/ubi:8.10@sha256:8827ae684e58fbdb93c8893e48731bae36d5cdd302a6efebee8e01707145c85e
+
+# Install basic software building packages: git, gcc, make, etc.
+# Installing the python3.11 package sets `/usr/bin/python3` as python3.11 (via /etc/alternatives)
+# The tar, gzip, and xz packages are needed for handling compressed archives
+# The curl, jq, and unzip packages are needed for Azure Artifacts and the msrustup installer
+# The "*-devel" packages are needed if building Python from source
+RUN dnf install -y \
+        python3.11 \
+        python3.11-pip \
+        git \
+        gcc \
+        gcc-c++ \
+        make \
+        cmake \
+        ninja-build \
+        tar \
+        gzip \
+        xz \
+        curl \
+        jq \
+        unzip \
+        openssl-devel zlib-devel bzip2-devel libffi-devel xz-devel sqlite-devel \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+WORKDIR /work
+
+# Sanity checks
+RUN cat /etc/redhat-release \
+    && ldd --version \
+    && uname -m \
+    && python3 -VV \
+    && git --version \
+    && gcc --version \
+    && ninja --version \
+    && cmake --version
+
+CMD ["bash"]
