@@ -1,13 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{Error, ErrorKind};
+use super::{Error, ErrorKind, InstantiationError};
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{ItemId, PrimField, Res},
     ty::{
         Arrow, ClassConstraint, FunctorSet, FunctorSetValue, GenericArg, InferFunctorId, InferTyId,
-        Prim, Scheme, Ty, TypeParameter, Udt,
+        ParamId, Prim, Scheme, Ty, TypeParameter, Udt, instantiate_ty,
     },
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -20,6 +20,174 @@ use std::{
 
 const MAX_TY_RECURSION_DEPTH: i8 = 100;
 const MAX_TY_SIZE: usize = 100;
+
+pub(super) fn validate_instantiation(
+    parameters: &[(ParamId, TypeParameter)],
+    candidates: &FxHashMap<ParamId, GenericArg>,
+    udts: &FxHashMap<ItemId, Udt>,
+    span: Span,
+) -> Result<(), Vec<InstantiationError>> {
+    let mut errors = Vec::new();
+    if parameters.len() != candidates.len() {
+        errors.push(InstantiationError {
+            parameter: None,
+            error: Error(ErrorKind::InstantiationArity(
+                parameters.len(),
+                candidates.len(),
+                span,
+            )),
+        });
+    }
+    let mut seen = FxHashSet::default();
+    // Solver substitution mutably borrows arrow fields, even in concrete types.
+    // Keep its copies independent of any read borrows held by the caller.
+    let mut concrete_candidates = FxHashMap::default();
+    for (id, parameter) in parameters {
+        let candidate = if seen.insert(*id) {
+            match (parameter, candidates.get(id)) {
+                (_, None) => Err(ErrorKind::MissingArgument(*id, span)),
+                (TypeParameter::Ty { .. }, Some(GenericArg::Ty(ty))) => {
+                    instantiate_concrete_ty(ty, &FxHashMap::default(), udts, span)
+                        .map(GenericArg::Ty)
+                }
+                (TypeParameter::Functor(_), Some(GenericArg::Functor(functors))) => {
+                    concrete_functors(*functors, span).map(|()| GenericArg::Functor(*functors))
+                }
+                _ => Err(ErrorKind::InstantiationKind(*id, span)),
+            }
+        } else {
+            Err(ErrorKind::DuplicateParameter(*id, span))
+        };
+        match candidate {
+            Ok(candidate) => {
+                concrete_candidates.insert(*id, candidate);
+            }
+            Err(error) => errors.push(InstantiationError {
+                parameter: Some(*id),
+                error: Error(error),
+            }),
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    for (id, parameter) in parameters {
+        let mut constraints = VecDeque::new();
+        match (parameter, &concrete_candidates[id]) {
+            (TypeParameter::Ty { bounds, .. }, GenericArg::Ty(ty)) => {
+                for bound in &bounds.0 {
+                    match instantiate_bound(bound, &concrete_candidates, udts, span) {
+                        Ok(bound) => {
+                            constraints.push_back(into_constraint(ty.clone(), &bound, span));
+                        }
+                        Err(error) => errors.push(InstantiationError {
+                            parameter: Some(*id),
+                            error: Error(error),
+                        }),
+                    }
+                }
+            }
+            (TypeParameter::Functor(expected), GenericArg::Functor(actual)) => {
+                constraints.push_back(Constraint::Superset {
+                    expected: *expected,
+                    actual: *actual,
+                    span,
+                });
+            }
+            _ => unreachable!("argument kinds were checked"),
+        }
+        // Solve each parameter separately to retain ownership of derived diagnostics.
+        // Unlike inference, validation cannot default or leave obligations unresolved.
+        let mut solver = Solver::new();
+        solver.solve(udts, &mut constraints);
+        if solver.incomplete
+            || !solver.pending_tys.is_empty()
+            || !solver.pending_functors.is_empty()
+        {
+            solver
+                .errors
+                .push(Error(ErrorKind::UnresolvedConstraints(span)));
+        }
+        errors.extend(solver.errors.into_iter().map(|error| InstantiationError {
+            parameter: Some(*id),
+            error,
+        }));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn instantiate_bound(
+    bound: &ClassConstraint,
+    candidates: &FxHashMap<ParamId, GenericArg>,
+    udts: &FxHashMap<ItemId, Udt>,
+    span: Span,
+) -> Result<ClassConstraint, ErrorKind> {
+    let mut bound = bound.clone();
+    if let ClassConstraint::Exp { power: ty } | ClassConstraint::Iterable { item: ty } = &mut bound
+    {
+        *ty = instantiate_concrete_ty(ty, candidates, udts, span)?;
+    }
+    Ok(bound)
+}
+
+fn instantiate_concrete_ty(
+    ty: &Ty,
+    candidates: &FxHashMap<ParamId, GenericArg>,
+    udts: &FxHashMap<ItemId, Udt>,
+    span: Span,
+) -> Result<Ty, ErrorKind> {
+    let ty = instantiate_ty(|id| candidates.get(id), ty).map_err(|error| match error {
+        qsc_hir::ty::InstantiationError::Kind(id) => ErrorKind::InstantiationKind(id, span),
+        _ => unreachable!("type substitution only checks argument kinds"),
+    })?;
+    concrete_ty(&ty, udts, &mut FxHashSet::default(), span)?;
+    Ok(ty)
+}
+
+fn concrete_functors(functors: FunctorSet, span: Span) -> Result<(), ErrorKind> {
+    if matches!(functors, FunctorSet::Value(_)) {
+        Ok(())
+    } else {
+        Err(ErrorKind::NonConcreteFunctor(functors, span))
+    }
+}
+
+fn concrete_ty(
+    ty: &Ty,
+    udts: &FxHashMap<ItemId, Udt>,
+    visited: &mut FxHashSet<ItemId>,
+    span: Span,
+) -> Result<(), ErrorKind> {
+    match ty {
+        Ty::Prim(_) => Ok(()),
+        Ty::Array(item) => concrete_ty(item, udts, visited, span),
+        Ty::Tuple(items) => items
+            .iter()
+            .try_for_each(|item| concrete_ty(item, udts, visited, span)),
+        Ty::Arrow(arrow) => {
+            concrete_ty(&arrow.input.borrow(), udts, visited, span)?;
+            concrete_ty(&arrow.output.borrow(), udts, visited, span)?;
+            concrete_functors(*arrow.functors.borrow(), span)
+        }
+        Ty::Udt(_, Res::Item(id)) => {
+            let udt = udts
+                .get(id)
+                .ok_or(ErrorKind::MissingTypeDefinition(*id, span))?;
+            if visited.insert(*id) {
+                concrete_ty(&udt.get_pure_ty(), udts, visited, span)?;
+            }
+            Ok(())
+        }
+        Ty::Param { .. } | Ty::Infer(_) | Ty::Err | Ty::Udt(_, _) => {
+            Err(ErrorKind::NonConcreteType(ty.into(), span))
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 struct Solution {
@@ -535,11 +703,7 @@ impl Inferrer {
 
     /// Solves for all variables given the accumulated constraints.
     pub(super) fn solve(&mut self, udts: &FxHashMap<ItemId, Udt>) -> Vec<Error> {
-        while let Some(constraint) = self.constraints.pop_front() {
-            for constraint in self.solver.constrain(udts, constraint).into_iter().rev() {
-                self.constraints.push_front(constraint);
-            }
-        }
+        self.solver.solve(udts, &mut self.constraints);
         let unresolved_ty_errs = self.find_unresolved_types();
         self.solver.default_functors(self.next_functor);
         self.solver
@@ -590,6 +754,7 @@ struct Solver {
     pending_tys: FxHashMap<InferTyId, Vec<Class>>,
     pending_functors: FxHashMap<InferFunctorId, FunctorSetValue>,
     errors: Vec<Error>,
+    incomplete: bool,
 }
 
 impl Solver {
@@ -599,6 +764,15 @@ impl Solver {
             pending_tys: FxHashMap::default(),
             pending_functors: FxHashMap::default(),
             errors: Vec::new(),
+            incomplete: false,
+        }
+    }
+
+    fn solve(&mut self, udts: &FxHashMap<ItemId, Udt>, constraints: &mut VecDeque<Constraint>) {
+        while let Some(constraint) = constraints.pop_front() {
+            for derived in self.constrain(udts, constraint).into_iter().rev() {
+                constraints.push_front(derived);
+            }
         }
     }
 
@@ -673,6 +847,9 @@ impl Solver {
         {
             self.unify(&expected, &actual, span)
         } else {
+            // Source inference diagnoses unresolved variables later. Concrete validation
+            // must also know that this obligation was not checked.
+            self.incomplete = true;
             Vec::new()
         }
     }
