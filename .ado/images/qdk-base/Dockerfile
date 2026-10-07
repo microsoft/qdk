@@ -29,7 +29,12 @@ RUN dnf install -y \
 
 WORKDIR /work
 
-# Sanity checks
+# Sanity checks. As of Oct 7, 2026:
+# - Python 3.11.13
+# - git version 2.43.7
+# - gcc (GCC) 8.5.0 20210514 (Red Hat 8.5.0-29)
+# - Ninja 1.8.2
+# - cmake version 3.26.5
 RUN cat /etc/redhat-release \
     && ldd --version \
     && uname -m \

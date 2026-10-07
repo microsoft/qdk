@@ -12,7 +12,7 @@ version: v1.1.0
 # az acr run --registry "$ACR_NAME" \
 #   --set imageTag="$IMAGE_TAG" \
 #   --file manifest-task.yaml \
-#   https://github.com/microsoft/qdk.git#${BRANCH}:.ado/images/qdk-base
+#   "https://github.com/microsoft/qdk.git#${BRANCH}:.ado/images/qdk-base"
 
 steps:
   - cmd: >
