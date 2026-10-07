@@ -56,7 +56,7 @@ internal operation ControllableGlobalPhase(theta : Double) : Unit is Ctl {
     }
 }
 
-// Global phase intrinsic, which only has affect in simulation and is a no-op otherwise.
+// Global phase intrinsic, which only has effect in simulation and is a no-op otherwise.
 internal operation GlobalPhase(theta : Double) : Unit {
     body intrinsic;
 }
