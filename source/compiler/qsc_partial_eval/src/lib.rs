@@ -4121,16 +4121,16 @@ impl<'a> PartialEvaluator<'a> {
         match value {
             Value::Var(var) => {
                 let var_id = self.resource_manager.next_var();
-                let elem_var = Var {
+                let copy_var = Var {
                     id: var_id.into(),
                     ty: var.ty,
                 };
                 // Insert a store instruction.
                 let value_operand = map_eval_var_to_rir_var(var);
-                let rir_var = map_eval_var_to_rir_var(elem_var);
+                let rir_var = map_eval_var_to_rir_var(copy_var);
                 let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
                 self.get_current_rir_block_mut().0.push(store_ins);
-                Value::Var(elem_var)
+                Value::Var(copy_var)
             }
             val => val,
         }
