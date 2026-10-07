@@ -2740,6 +2740,59 @@ mod given_interpreter {
             is_unit_with_output_eval_entry(&result, &output, "hello there...");
         }
 
+        /// The generated entry must reach the explicit user failure in both library
+        /// and executable modes. Compilation errors are not an acceptable substitute.
+        #[test]
+        fn generated_generic_entry_reports_source_located_user_failure() {
+            let source = indoc! {r#"
+                @EntryPoint()
+                operation Main<'T>() : 'T {
+                    fail "unreachable"
+                }
+            "#};
+            // Base validates transformed FIR; Unrestricted interprets directly.
+            for profile in [Profile::Base, Profile::Unrestricted] {
+                for package_type in [PackageType::Lib, PackageType::Exe] {
+                    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+                    let mut interpreter = Interpreter::new(
+                        SourceMap::new([("test".into(), source.into())], None),
+                        package_type,
+                        profile.into(),
+                        LanguageFeatures::default(),
+                        store,
+                        &[(std_id, None)],
+                        Default::default(),
+                    )
+                    .unwrap_or_else(|errors| panic!("{profile:?}: {errors:?}"));
+                    let (result, _) = entry(&mut interpreter);
+                    let errors =
+                        result.expect_err("entry must fail normally rather than be rejected");
+                    assert!(
+                        matches!(errors.as_slice(), [crate::interpret::Error::Eval(_)]),
+                        "{profile:?}: {errors:?}"
+                    );
+                    assert_eq!(
+                        errors[0].code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.Eval.UserFail"
+                    );
+                    let labels: Vec<_> = errors
+                        .iter()
+                        .flat_map(|error| error.labels().into_iter().flatten())
+                        .collect();
+                    assert_eq!(labels.len(), 1, "{errors:?}");
+                    let code = errors[0].source_code().expect("source-located failure");
+                    let contents = code
+                        .read_span(labels[0].inner(), 0, 0)
+                        .expect("failure span");
+                    assert!(
+                        std::str::from_utf8(contents.data())
+                            .expect("source text")
+                            .contains("fail \"unreachable\"")
+                    );
+                }
+            }
+        }
+
         #[test]
         fn invalid_partial_application_should_fail_not_panic() {
             // Found via fuzzing, see #2363

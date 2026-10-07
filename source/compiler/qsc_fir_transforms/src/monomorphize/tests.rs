@@ -178,6 +178,91 @@ fn assert_unique_reachable_specializations(
     }
 }
 
+/// The HIR-generated argument vector must reach FIR intact; monomorphization
+/// should consume it without a second defaulting or inference policy.
+/// Nested and foreign calls retain their own concrete arguments rather than
+/// inheriting the entry's Unit defaults.
+#[test]
+fn generated_generic_entries_lower_defaults_and_specialize_the_entry_reference() {
+    for (library, source, expected_args, expected_value) in [
+        (
+            None,
+            "function Make<'T>(value : 'T) : Unit -> 'T { () -> value }
+             function Main<'T : Eq, 'U : Show>() : Int { let f = Make(42); f() }",
+            2,
+            qsc_eval::val::Value::Int(42),
+        ),
+        (
+            None,
+            "@EntryPoint() operation Main<'T : Show>() : 'T[] { [] }",
+            1,
+            qsc_eval::val::Value::Array(Vec::new().into()),
+        ),
+        (
+            None,
+            "@EntryPoint() operation Main<'T : Eq>() : Bool {
+                let values : 'T[] = [];
+                values == []
+            }",
+            1,
+            qsc_eval::val::Value::Bool(true),
+        ),
+        (
+            Some(
+                "namespace Lib {
+                function Identity<'T>(value : 'T) : 'T { value }
+                export Identity;
+            }",
+            ),
+            "@EntryPoint() operation Main<'T>() : Int { Lib.Identity(42) }",
+            1,
+            qsc_eval::val::Value::Int(42),
+        ),
+    ] {
+        let (mut store, package_id) = match library {
+            Some(library) => compile_to_fir_with_library(library, source),
+            None => crate::test_utils::compile_to_fir(source),
+        };
+        let foreign_owner =
+            library.map(|_| find_library_callable(&store, package_id, "Identity").package);
+        let package = store.get(package_id);
+        let entry_id = package.entry.expect("entry");
+        let ExprKind::Call(callee, _) = package.get_expr(entry_id).kind else {
+            panic!("generated call");
+        };
+        let ExprKind::Var(Res::Item(original), args) = &package.get_expr(callee).kind else {
+            panic!("entry callee");
+        };
+        let original = *original;
+        assert_eq!(
+            args,
+            &vec![GenericArg::Ty(Ty::UNIT); expected_args],
+            "{source}"
+        );
+        let entry_type = package.get_expr(entry_id).ty.clone();
+
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        monomorphize(&mut store, package_id, &mut assigners);
+        let package = store.get(package_id);
+        let ExprKind::Var(Res::Item(specialized), args) = &package.get_expr(callee).kind else {
+            panic!("specialized entry callee");
+        };
+        assert_ne!(*specialized, original);
+        assert!(args.is_empty());
+        assert_eq!(package.get_expr(entry_id).ty, entry_type);
+        let ItemKind::Callable(decl) = &package.get_item(original.item).kind else {
+            panic!("original declaration");
+        };
+        assert_eq!(decl.generics.len(), expected_args);
+        if let Some(owner) = foreign_owner {
+            assert_unique_reachable_specializations(&store, package_id, owner, &["Identity<Int>"]);
+        }
+        let result = crate::run_pipeline_with_diagnostics(&mut store, package_id);
+        assert_pipeline_succeeded("generic entry defaults", &result);
+        assert_eq!(try_eval_fir_entry(&store, package_id), Ok(expected_value));
+    }
+}
+
 /// Compiles Q# source, runs monomorphization, and snapshots all callables
 /// in the user package showing name, generic-param count, input type, and
 /// output type. Sorted for determinism.

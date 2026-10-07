@@ -83,7 +83,7 @@ fn test_prepare_package_store() {
     expect![[r#"
         Package:
             entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 7 [24-28] [Type (Unit => Unit)]: Var: Item 1 (Package 3)
                 Expr 6 [28-30] [Type Unit]: Unit
             Item 0 [0-40] (Public):
                 Namespace (Ident 5 [0-40] "test"): Item 1
@@ -161,7 +161,7 @@ fn missing_dependency_doesnt_force_failure() {
     expect![[r#"
         Package:
             entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 7 [24-28] [Type (Unit => Unit)]: Var: Item 1 (Package 3)
                 Expr 6 [28-30] [Type Unit]: Unit
             Item 0 [0-40] (Public):
                 Namespace (Ident 5 [0-40] "test"): Item 1
@@ -267,7 +267,7 @@ fn dependency_error() {
     expect![[r#"
         Package:
             entry expression: Expr 8 [0-0] [Type Unit]: Call:
-                Expr 7 [24-28] [Type Unit]: Var: Item 1 (Package 3)
+                Expr 7 [24-28] [Type (Unit => Unit)]: Var: Item 1 (Package 3)
                 Expr 6 [28-30] [Type Unit]: Unit
             Item 0 [0-40] (Public):
                 Namespace (Ident 5 [0-40] "test"): Item 1
