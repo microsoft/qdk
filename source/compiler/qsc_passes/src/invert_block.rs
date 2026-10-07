@@ -101,6 +101,10 @@ impl BlockInverter<'_> {
                 );
             }
 
+            // Only divergence can give a well-typed iterable Unit type.
+            // Evaluate it once rather than trying to reverse a value it cannot produce.
+            Ty::Tuple(items) if items.is_empty() => return iterable.clone(),
+
             _ => panic!("iterable should be array or range"),
         }
 
