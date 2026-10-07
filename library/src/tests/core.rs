@@ -115,3 +115,37 @@ fn check_range_reverse_1_7_10() {
         ),
     );
 }
+
+#[test]
+fn check_range_reverse_various_steps() {
+    for range in [
+        "0..1..5",
+        "0..2..5",
+        "-5..1..0",
+        "-5..2..0",
+        "5..-1..0",
+        "5..-2..0",
+        "0..-1..5",
+        "-5..-1..0",
+        "0..-10..5",
+        "5..10..0",
+    ] {
+        test_expression(
+            &format!(
+                "{{
+                    let range = {range};
+                    mutable forward = [];
+                    for element in range {{
+                        set forward += [element];
+                    }}
+                    mutable reverse = [];
+                    for element in RangeReverse(range) {{
+                        set reverse += [element];
+                    }}
+                    reverse == Std.Arrays.Reversed(forward)
+                }}"
+            ),
+            &Value::Bool(true),
+        );
+    }
+}

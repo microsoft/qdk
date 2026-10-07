@@ -2672,9 +2672,16 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
                 Jump(1)
             Block 4:Block:
                 Variable(7, Integer) = Store Variable(6, Integer)
-                Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer)
-                Variable(9, Integer) = Store Variable(8, Integer)
-                Call id(4), args( Variable(9, Integer), Tag(0, 3), )
+                Variable(8, Integer) = Ashr Variable(7, Integer), Integer(63)
+                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+                Variable(10, Integer) = Sub Variable(9, Integer), Variable(8, Integer)
+                Variable(11, Integer) = Shl Variable(3, Integer), Variable(10, Integer)
+                Variable(12, Integer) = Ashr Variable(3, Integer), Variable(10, Integer)
+                Variable(13, Integer) = BitwiseXor Variable(11, Integer), Variable(12, Integer)
+                Variable(14, Integer) = BitwiseAnd Variable(13, Integer), Variable(8, Integer)
+                Variable(15, Integer) = BitwiseXor Variable(11, Integer), Variable(14, Integer)
+                Variable(16, Integer) = Store Variable(15, Integer)
+                Call id(4), args( Variable(16, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
@@ -2751,9 +2758,16 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer)
-                Variable(5, Integer) = Store Variable(4, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(4, Integer) = Ashr Variable(3, Integer), Integer(63)
+                Variable(5, Integer) = BitwiseXor Variable(3, Integer), Variable(4, Integer)
+                Variable(6, Integer) = Sub Variable(5, Integer), Variable(4, Integer)
+                Variable(7, Integer) = Ashr Integer(1), Variable(6, Integer)
+                Variable(8, Integer) = Shl Integer(1), Variable(6, Integer)
+                Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+                Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
+                Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
+                Variable(12, Integer) = Store Variable(11, Integer)
+                Call id(4), args( Variable(12, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -2761,6 +2775,139 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
             Block 3:Block:
                 Variable(2, Integer) = Store Integer(1)
                 Jump(1)"#]],
+    );
+}
+
+#[test]
+fn integer_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_negative_classical_integer() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i <<< -1
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(1),
+        &expect![[r#"
+        Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Integer) = Ashr Variable(3, Integer), Integer(1)
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+            Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn integer_bitwise_right_shift_with_lhs_dynamic_integer_and_rhs_negative_classical_integer() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i >>> -1
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(1),
+        &expect![[r#"
+        Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Integer) = Shl Variable(3, Integer), Integer(1)
+            Variable(5, Integer) = Store Variable(4, Integer)
+            Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+            Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn integer_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_too_large_raises_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i <<< 64
+            }
+        }
+        "#,
+    });
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("integer too large for operation", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 150 } })"#
+        ]],
+    );
+}
+
+#[test]
+fn integer_bitwise_right_shift_with_lhs_dynamic_integer_and_rhs_too_negative_raises_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0 | 1;
+                i >>> -64
+            }
+        }
+        "#,
+    });
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("integer too large for operation", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 151 } })"#
+        ]],
+    );
+}
+
+#[test]
+fn integer_bitwise_left_shift_with_negative_dynamic_amount() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                X(q);
+                let k = MResetZ(q) == One ? -1 | 1;
+                1024 <<< k
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(1),
+        &expect![[r#"
+        Block:
+            Variable(3, Integer) = Store Variable(2, Integer)
+            Variable(4, Integer) = Ashr Variable(3, Integer), Integer(63)
+            Variable(5, Integer) = BitwiseXor Variable(3, Integer), Variable(4, Integer)
+            Variable(6, Integer) = Sub Variable(5, Integer), Variable(4, Integer)
+            Variable(7, Integer) = Shl Integer(1024), Variable(6, Integer)
+            Variable(8, Integer) = Ashr Integer(1024), Variable(6, Integer)
+            Variable(9, Integer) = BitwiseXor Variable(7, Integer), Variable(8, Integer)
+            Variable(10, Integer) = BitwiseAnd Variable(9, Integer), Variable(4, Integer)
+            Variable(11, Integer) = BitwiseXor Variable(7, Integer), Variable(10, Integer)
+            Variable(12, Integer) = Store Variable(11, Integer)
+            Call id(5), args( Variable(12, Integer), Tag(0, 3), )
+            Return Integer(0)"#]],
     );
 }
 

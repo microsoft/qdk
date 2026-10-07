@@ -22,6 +22,8 @@ jobs:
       matrix:
         platform: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.platform }}
+    env:
+      QDK_LIB_OVERRIDE_MICROSOFT_QDK: ${{ github.workspace }}
     permissions:
       issues: write
     steps:

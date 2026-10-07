@@ -2681,7 +2681,7 @@ fn assignupdate_out_of_range_err() {
 }
 
 #[test]
-fn assignupdate_expr_negative_index_works() {
+fn assignupdate_expr_negative_index_err() {
     check_expr(
         "",
         indoc! {"{
@@ -2689,7 +2689,20 @@ fn assignupdate_expr_negative_index_works() {
             set x w/= -1 <- 4;
             x
         }"},
-        &expect!["[1, 2, 4]"],
+        &expect![[r#"
+            InvalidNegativeInt(
+                -1,
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 43,
+                        hi: 45,
+                    },
+                },
+            )
+        "#]],
     );
 }
 
@@ -2881,7 +2894,7 @@ fn assignupdate_expr_using_range_out_of_range_err() {
 }
 
 #[test]
-fn assignupdate_expr_using_range_negative_index_works() {
+fn assignupdate_expr_using_range_negative_index_err() {
     check_expr(
         "",
         indoc! {"{
@@ -2889,7 +2902,20 @@ fn assignupdate_expr_using_range_negative_index_works() {
             set x w/= -1..0 <- [10, 11, 12, 13];
             x
         }"},
-        &expect!["[11, 2, 3, 10]"],
+        &expect![[r#"
+            InvalidNegativeInt(
+                -1,
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 46,
+                        hi: 51,
+                    },
+                },
+            )
+        "#]],
     );
 }
 
