@@ -595,7 +595,9 @@ impl<'a> PartialEvaluator<'a> {
         // Set the value at the specified index or range.
         let update_result = match index_value {
             Value::Int(index) => {
-                update_index_single(array, index, update_value, index_expr_package_span)
+                let elem_value = self.copy_value_if_needed(update_value);
+
+                update_index_single(array, index, elem_value, index_expr_package_span)
             }
             Value::Range(range) => update_index_range(
                 array,
@@ -1450,22 +1452,7 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(value_expr_id),
             ));
         };
-        let elem_value = match value {
-            Value::Var(var) => {
-                let var_id = self.resource_manager.next_var();
-                let elem_var = Var {
-                    id: var_id.into(),
-                    ty: var.ty,
-                };
-                // Insert a store instruction.
-                let value_operand = map_eval_var_to_rir_var(var);
-                let rir_var = map_eval_var_to_rir_var(elem_var);
-                let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
-                self.get_current_rir_block_mut().0.push(store_ins);
-                Value::Var(elem_var)
-            }
-            val => val,
-        };
+        let elem_value = self.copy_value_if_needed(value);
 
         let size_control_flow = self.try_eval_expr(size_expr_id)?;
         let EvalControlFlow::Continue(size) = size_control_flow else {
@@ -2820,22 +2807,7 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(*expr_id),
                 ));
             }
-            let elem_value = match control_flow.into_value() {
-                Value::Var(var) => {
-                    let var_id = self.resource_manager.next_var();
-                    let elem_var = Var {
-                        id: var_id.into(),
-                        ty: var.ty,
-                    };
-                    // Insert a store instruction.
-                    let value_operand = map_eval_var_to_rir_var(var);
-                    let rir_var = map_eval_var_to_rir_var(elem_var);
-                    let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
-                    self.get_current_rir_block_mut().0.push(store_ins);
-                    Value::Var(elem_var)
-                }
-                val => val,
-            };
+            let elem_value = self.copy_value_if_needed(control_flow.into_value());
 
             values.push(elem_value);
         }
@@ -2852,22 +2824,7 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(*expr_id),
                 ));
             }
-            let elem_value = match control_flow.into_value() {
-                Value::Var(var) => {
-                    let var_id = self.resource_manager.next_var();
-                    let elem_var = Var {
-                        id: var_id.into(),
-                        ty: var.ty,
-                    };
-                    // Insert a store instruction.
-                    let value_operand = map_eval_var_to_rir_var(var);
-                    let rir_var = map_eval_var_to_rir_var(elem_var);
-                    let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
-                    self.get_current_rir_block_mut().0.push(store_ins);
-                    Value::Var(elem_var)
-                }
-                val => val,
-            };
+            let elem_value = self.copy_value_if_needed(control_flow.into_value());
 
             values.push(elem_value);
         }
@@ -4155,6 +4112,25 @@ impl<'a> PartialEvaluator<'a> {
                 format!("unsupported value type in conversion {args_value:?}"),
                 args_span,
             )),
+        }
+    }
+
+    fn copy_value_if_needed(&mut self, value: Value) -> Value {
+        match value {
+            Value::Var(var) => {
+                let var_id = self.resource_manager.next_var();
+                let elem_var = Var {
+                    id: var_id.into(),
+                    ty: var.ty,
+                };
+                // Insert a store instruction.
+                let value_operand = map_eval_var_to_rir_var(var);
+                let rir_var = map_eval_var_to_rir_var(elem_var);
+                let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
+                self.get_current_rir_block_mut().0.push(store_ins);
+                Value::Var(elem_var)
+            }
+            val => val,
         }
     }
 

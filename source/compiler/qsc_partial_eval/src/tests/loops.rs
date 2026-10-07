@@ -1243,14 +1243,15 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
                     Variable(1, Boolean) = Store Variable(0, Boolean)
                     Branch Variable(1, Boolean), 2, 3
                 Block 1: Block:
-                    Variable(3, Integer) = Store Integer(0)
+                    Variable(3, Double) = Store Variable(2, Double)
+                    Variable(4, Integer) = Store Integer(0)
                     Call id(4), args( Double(0), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(1)
-                    Variable(4, Double) = Store Variable(2, Double)
-                    Call id(4), args( Variable(4, Double), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(2)
+                    Variable(4, Integer) = Store Integer(1)
+                    Variable(5, Double) = Store Variable(3, Double)
+                    Call id(4), args( Variable(5, Double), Qubit(0), )
+                    Variable(4, Integer) = Store Integer(2)
                     Call id(4), args( Double(2), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(3)
+                    Variable(4, Integer) = Store Integer(3)
                     Call id(5), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 2: Block:

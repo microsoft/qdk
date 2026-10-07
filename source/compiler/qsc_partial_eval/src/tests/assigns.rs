@@ -660,9 +660,10 @@ fn array_of_bools_update_element_at_index_with_dynamic_content() {
                 Call id(2), args( Qubit(1), Result(1), )
                 Variable(3, Boolean) = Call id(3), args( Result(1), )
                 Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Integer(2), Tag(0, 3), )
                 Call id(5), args( Variable(2, Boolean), Tag(1, 5), )
-                Call id(5), args( Variable(4, Boolean), Tag(2, 5), )
+                Call id(5), args( Variable(5, Boolean), Tag(2, 5), )
                 Return Integer(0)"#]],
     );
 }
