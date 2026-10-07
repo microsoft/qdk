@@ -2138,7 +2138,9 @@ fn emitting_loop_avoids_propagating_static_variable_mappings_from_body() {
         }
     "#});
 
-    assert_blocks(&program, &expect![[r#"
+    assert_blocks(
+        &program,
+        &expect![[r#"
         Blocks:
         Block 0:Block:
             Call id(1), args( Pointer, )
@@ -2169,5 +2171,6 @@ fn emitting_loop_avoids_propagating_static_variable_mappings_from_body() {
             Jump(1)
         Block 6:Block:
             Call id(3), args( Variable(6, Qubit), )
-            Return"#]]);
+            Return"#]],
+    );
 }
