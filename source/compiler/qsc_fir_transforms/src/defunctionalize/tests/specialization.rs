@@ -6415,7 +6415,7 @@ fn cross_function_closure_capture_threads_correct_value() {
             function MakeRotation(base : Int) : (Qubit => Unit) {
                 return {
                     let arg : Int = base;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -6798,7 +6798,7 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                 }
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-                ()
+                / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -7456,7 +7456,7 @@ fn single_element_producer_tuple_param_drops_slot_and_threads_capture() {
             function Make(angle : Double) : (Qubit => Unit) {
                 return {
                     let arg : Double = angle;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation ApplyTup(ops : ((Qubit => Unit), )) : Unit {

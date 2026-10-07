@@ -1161,16 +1161,12 @@ fn controlled_functor_count_saturates_without_overflow() {
 }
 
 #[test]
-fn newtype_ctor_callable_field_cleanup() {
-    // Pins the cleanup behavior for closures inside legacy-`newtype` UDT
-    // constructor argument subtrees. The UDT-ctor guard in
-    // `cleanup_consumed_closures` lets these closures be replaced after
-    // their specialized callable is produced, ensuring convergence.
-    //
-    // Uses both `Choose(true)` and `Choose(false)` so each conditional
-    // branch is specialized at least once; otherwise a literal-conditioned
-    // projection leaves the unused branch's closure as dead-code and
-    // convergence cannot succeed independently of the UDT-ctor guard.
+fn consumed_newtype_callable_fields_keep_typed_replacements_and_live_data() {
+    // Specialize both Choose branches. Offset reads keep the constructed values
+    // live after callable reads become direct calls. The snapshot stops after
+    // defunctionalization, before UDT erasure removes the constructor calls.
+    // The unused F field still needs an Int -> Int value, so cleanup uses a
+    // stand-in rather than the lifted target with its incompatible (Int,) input.
     let source = r#"
         namespace Test {
           newtype Choice = (F : Int -> Int, Offset : Int);
@@ -1231,9 +1227,9 @@ fn newtype_ctor_callable_field_cleanup() {
             newtype Choice = ((Int -> Int), Int);
             function Choose(flag : Bool) : __UDT_Item_1__Package_2_ {
                 if flag {
-                    Choice((), 100)
+                    Choice(__defunc_consumed_closure_6, 100)
                 } else {
-                    Choice((), 7)
+                    Choice(__defunc_consumed_closure_6, 7)
                 }
 
             }
@@ -1255,6 +1251,9 @@ fn newtype_ctor_callable_field_cleanup() {
             }
             function _lambda_5(x : Int, ) : Int {
                 x * 2
+            }
+            function __defunc_consumed_closure_6(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
             }
             // entry
             Main()
@@ -1554,7 +1553,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                 }
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-                ()
+                / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -2150,4 +2149,25 @@ fn negative_index_callable_dispatch_preserves_semantics() {
     ] {
         crate::test_utils::check_semantic_equivalence(source);
     }
+}
+
+/// A factory that only constructs a partial application remains eligible for
+/// specialization: expect no diagnostics and valid post-defunctionalization FIR.
+#[test]
+fn pure_partial_application_factory_specializes_without_residual_errors() {
+    let source = r#"
+        function MakeOp() : Qubit => Unit is Adj + Ctl {
+            Rx(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOp();
+            ApplyOp(op, q);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    check_invariants(source);
 }

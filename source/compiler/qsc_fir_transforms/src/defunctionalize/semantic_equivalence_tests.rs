@@ -8,6 +8,7 @@
 use indoc::formatdoc;
 #[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
+use qsc_eval::val::{Result as MeasurementResult, Value};
 
 use super::test_cases;
 
@@ -1221,6 +1222,264 @@ fn conditional_controlled_hof_callees_preserve_arguments() {
             }
         }
     }
+}
+
+#[test]
+fn nested_closures_preserve_producer_capture_values() {
+    for (source, expected) in test_cases::nested_environment_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+/// The nested operation must retain its captured pi angle, not the caller's
+/// zero-valued sentinel. Both rotation directions flip the qubit; empty controls
+/// exercise functor nesting, and trace comparison also checks the applied gates.
+#[test]
+fn nested_operation_captures_preserve_rotation_effects_through_functors() {
+    for functor in [
+        "",
+        "Adjoint",
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+    ] {
+        let args = match functor.matches("Controlled").count() {
+            0 => "q",
+            1 => "[], q",
+            _ => "[], ([], q)",
+        };
+        let source = formatdoc! {r#"
+            function Make(angle : Double) : Qubit => Unit is Adj + Ctl {{
+                let inner : Qubit => Unit is Adj + Ctl = q=>Ry(angle,q);
+                let ops=[inner];
+                q=>{{ let op=ops[0]; op(q); }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                let sentinel=0.0;
+                let op=Make(3.141592653589793);
+                use q=Qubit();
+                {functor} op({args});
+                if MResetZ(q) == One {{ 1 }} else {{ 0 }}
+            }}
+        "#};
+        check_callable_result(&source, 1);
+    }
+}
+
+#[test]
+fn data_only_factory_uses_preserve_other_closure_captures() {
+    for (source, expected) in test_cases::surviving_producer_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn data_only_factory_uses_preserve_functor_wrapped_closure_captures() {
+    for source in test_cases::surviving_producer_functor_cases() {
+        check_callable_result(&source, 7);
+    }
+}
+
+/// Copying the capture expression must preserve the free `outer` reference and
+/// freshen `inner` without changing its binding: `3 + (1 + (3 + 1) * 2) = 12`.
+#[test]
+fn copied_capture_block_preserves_free_and_bound_locals() {
+    check_callable_result(
+        r#"
+        function Make(offset : Int) : Int -> Int { x->x+offset }
+        @EntryPoint() operation Main() : Int {
+            let outer=3;
+            let f=Make({let inner=outer+1;inner*2});
+            outer+f(1)
+        }
+        "#,
+        12,
+    );
+}
+
+#[test]
+fn indirect_factory_calls_preserve_returned_closure_captures() {
+    for (source, expected) in test_cases::indirect_factory_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn capturing_indirect_factory_preserves_outer_and_returned_captures() {
+    check_callable_result(test_cases::CAPTURING_INDIRECT_FACTORY, 108);
+}
+
+/// Exercise both reaching factory values. Previously consumed direct closures
+/// contribute 120; the indirect result contributes 6 or 9 according to the branch.
+#[test]
+fn conditional_factory_assignment_preserves_both_returned_closure_behaviors() {
+    for choose_second in [false, true] {
+        let source = formatdoc! {r#"
+            function Make(n : Int) : Int -> Int {{ x->x+n }}
+            function Other(n : Int) : Int -> Int {{ x->x+2*n }}
+            @EntryPoint() operation Main() : Int {{
+                let first=Make(1);
+                let second=Other(1);
+                mutable factory=Make;
+                for i in 0..0 {{ if {choose_second} {{ set factory=Other; }} }}
+                let deferred=factory(3);
+                100*first(0)+10*second(0)+deferred(3)
+            }}
+        "#};
+        check_callable_result(&source, if choose_second { 129 } else { 126 });
+    }
+}
+
+/// Relay's `make:3` message must occur once before `ready`, not be removed or
+/// replayed when reconstructing the returned closure.
+#[test]
+fn indirect_factory_call_preserves_message_order_and_capture_values() {
+    check_callable_result(
+        r#"
+        function Make(n : Int) : Int -> Int { x->x+n }
+        function Relay(n : Int) : Int -> Int { Message($"make:{n}"); Make(n) }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            mutable factory=Relay;
+            for i in 0..0 { set factory=Relay; }
+            let deferred=factory(3);
+            Message("ready");
+            100*direct(0)+deferred(3)
+        }
+        "#,
+        106,
+    );
+}
+
+/// Reading only `data.N` must not authorize cleanup of the same factory's
+/// callable-valued result used through `factory`: `100 * 1 + 9 + (3 + 3) = 115`.
+#[test]
+fn data_only_factory_use_preserves_indirectly_called_closure() {
+    check_callable_result(
+        r#"
+        struct Box { F : Int -> Int, N : Int }
+        function Make(n : Int) : Box { new Box { F=x->x+n, N=n } }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            let data=Make(9);
+            mutable factory=Make;
+            for i in 0..0 { set factory=Make; }
+            let deferred=factory(3);
+            100*direct.F(0)+data.N+deferred.F(deferred.N)
+        }
+        "#,
+        115,
+    );
+}
+
+/// Consuming Make's closure in the library's Direct function must not change
+/// the capture returned by a later indirect call from the user package.
+#[test]
+fn indirect_foreign_factory_preserves_returned_closure_captures() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : Int -> Int { x->x+n }
+            function Direct() : Int { let f=Make(1); f(0) }
+            export Make, Direct;
+        }
+    "#;
+    let source = r#"
+        import Lib.*;
+        @EntryPoint() operation Main() : Int {
+            let direct=Direct();
+            mutable factory=Make;
+            for i in 0..0 { set factory=Make; }
+            let deferred=factory(3);
+            100*direct+deferred(3)
+        }
+    "#;
+    assert_eq!(
+        crate::test_utils::eval_qsharp_original_with_library(library, source),
+        Ok(qsc_eval::val::Value::Int(106)),
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+}
+
+#[test]
+fn higher_order_consumers_preserve_transitive_factory_captures() {
+    for (source, expected) in test_cases::protected_owner_producer_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+/// Specializing Consumer for Inc must keep the deferred Relay -> Make chain.
+/// The direct closure contributes 100; the deferred closure computes `(3 + 1) + 3`.
+#[test]
+fn specialized_consumer_preserves_deferred_factory_capture_values() {
+    check_callable_result(
+        r#"
+        function Make(n : Int) : Int -> Int { x->x+n }
+        function Relay(n : Int) : Int -> Int { Make(n) }
+        function Inc(n : Int) : Int { n+1 }
+        function Consumer(f : Int -> Int, n : Int) : Int {
+            mutable value=Relay(0);
+            for i in 0..0 { set value=Relay(n); }
+            value(f(n))
+        }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            100*direct(0)+Consumer(Inc,3)
+        }
+        "#,
+        107,
+    );
+}
+
+/// Consumer must retain both factory evaluations, producing `relay:0` then
+/// `relay:3` exactly once each, while the final closure uses the updated capture.
+#[test]
+fn higher_order_consumer_preserves_factory_message_order_and_capture_values() {
+    check_callable_result(
+        r#"
+        function Make(n : Int) : Int -> Int { x->x+n }
+        function Relay(n : Int) : Int -> Int { Message($"relay:{n}"); Make(n) }
+        function Consumer(n : Int) : Int {
+            mutable value=Relay(0);
+            for i in 0..0 { set value=Relay(n); }
+            value(n)
+        }
+        function Apply(f : Int -> Int, n : Int) : Int { f(n) }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            100*direct(0)+Apply(Consumer,3)
+        }
+        "#,
+        106,
+    );
+}
+
+/// The user specializes Apply for a foreign Consumer. Cleanup must preserve
+/// Consumer's library-local Relay -> Make dependency and its updated capture.
+#[test]
+fn foreign_higher_order_consumer_preserves_transitive_factory_captures() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : Int -> Int { x->x+n }
+            function Relay(n : Int) : Int -> Int { Make(n) }
+            function Direct() : Int { let f=Make(1); f(0) }
+            function Consumer(n : Int) : Int {
+                mutable value=Relay(0);
+                for i in 0..0 { set value=Relay(n); }
+                value(n)
+            }
+            export Direct, Consumer;
+        }
+    "#;
+    let source = r#"
+        import Lib.*;
+        function Apply(f : Int -> Int, n : Int) : Int { f(n) }
+        @EntryPoint() operation Main() : Int { 100*Direct()+Apply(Consumer,3) }
+    "#;
+    assert_eq!(
+        crate::test_utils::eval_qsharp_original_with_library(library, source),
+        Ok(qsc_eval::val::Value::Int(106)),
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
 }
 
 #[test]
@@ -5946,4 +6205,430 @@ fn check_aggregate_rewrite_result(source: &str, expected: i64) {
     }
     assert!(checked > 0, "expected a specialized Run call:\n{source}");
     check_callable_result(source, expected);
+}
+
+/// Shared lambda targets must not merge different captured scalars or nested
+/// callable values, including captures changed by recursive factory calls.
+/// The operation case additionally distinguishes Step from Adjoint Step by
+/// their X versus Z trace, not just by the final returned value.
+#[test]
+fn wrapped_closures_preserve_distinct_captures_and_functor_effects() {
+    for (declarations, call, expected) in [
+        (
+            "function Make(n : Int) : Int -> Int { x -> x+n }",
+            "Apply(Make(2), 1)*100+Apply(Make(5), 1)",
+            306,
+        ),
+        (
+            "function Make(n : Int) : Int -> Int { x -> x*n }\n\
+             function Wrap(f : Int -> Int, n : Int) : Int -> Int { x -> f(x)+n }",
+            "Apply(Wrap(Make(2), 1), 5)*100+Apply(Wrap(Make(3), 4), 5)",
+            1119,
+        ),
+        (
+            "function Make(n : Int) : Int -> Int { x -> x+n }\n\
+             function Rec(f : Int -> Int, n : Int) : Int {\n\
+                 if n == 0 { f(1) } else { f(n)*100+Rec(Make(n), n-1) }\n\
+             }",
+            "Rec(Make(5), 2)",
+            1002,
+        ),
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+            {declarations}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            @EntryPoint() operation Main() : Int {{ {call} }}
+        "#},
+            expected,
+        );
+    }
+    let source = r#"
+        operation Step(q : Qubit) : Unit is Adj {
+            body ... { X(q); }
+            adjoint ... { Z(q); }
+        }
+        function Wrap(f : Qubit => Unit is Adj) : Qubit => Unit is Adj { q => f(q) }
+        operation Apply(f : Qubit => Unit is Adj, q : Qubit) : Unit { f(q); }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit();
+            let first = Wrap(Step); let second = Wrap(Adjoint Step);
+            Apply(first, q); Apply(second, q); X(q);
+        }
+    "#;
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert_eq!(result, Ok(Value::unit()));
+    expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Z", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, QubitRelease(0)]"#]]
+        .assert_eq(&format!("{trace:?}"));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+/// Exercise direct and transitive forwarding, with straight-line or loop
+/// reassignment. The direct closure keeps capture 1; the deferred closure uses 3.
+/// Removing the direct use must not remove the deferred factory's environment.
+#[test]
+fn forwarded_factories_preserve_independent_direct_and_deferred_captures() {
+    for (forward, assignment, direct, expected) in [
+        (
+            "Make(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "direct(0)*10+",
+            13,
+        ),
+        (
+            "Relay(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "direct(0)*10+",
+            13,
+        ),
+        ("Make(n)", "set deferred = Forward(3);", "direct(0)*10+", 13),
+        (
+            "Make(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "",
+            3,
+        ),
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+            function Make(n : Int) : Int -> Int {{ x -> x+n }}
+            function Relay(n : Int) : Int -> Int {{ Make(n) }}
+            function Forward(n : Int) : Int -> Int {{ {forward} }}
+            @EntryPoint() operation Main() : Int {{
+                let direct = Make(1);
+                mutable deferred = Forward(0);
+                {assignment}
+                {direct}deferred(0)
+            }}
+        "#},
+            expected,
+        );
+    }
+}
+
+/// Vary the factory's container, forwarding depth, and reassignment shape.
+/// Retained closures must use the updated capture and retain any non-callable
+/// fields. Omitting the direct closure use removes only its contribution of 10.
+#[test]
+fn callable_aggregate_factories_preserve_captures_and_noncallable_fields() {
+    for (declarations, result, expected) in [
+        (
+            "function Make(n : Int) : (Int -> Int, Int) { (x -> x+n, n) }",
+            "let (a, _) = direct; let (f, n) = deferred; a(0)*10+f(0)+n",
+            16,
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }\n\
+          function Make(n : Int) : Box { new Box { F = x -> x+n, N = n } }",
+            "direct::F(0)*10+deferred::F(0)+deferred::N",
+            16,
+        ),
+        (
+            "function Make(n : Int) : (Int -> Int)[] { [x -> x+n] }",
+            "direct[0](0)*10+deferred[0](0)",
+            13,
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }\n\
+             function Make(n : Int) : Box { new Box { F = x -> x+n, N = n } }",
+            "let dataOnly = Make(9); direct::F(0)*10+deferred::F(0)+deferred::N+dataOnly::N",
+            25,
+        ),
+        (
+            "function Produce(n : Int) : (Int -> Int, Int) { (x -> x+n, n) }\n\
+          function Relay(n : Int) : (Int -> Int, Int) { Produce(n) }\n\
+          function Make(n : Int) : (Int -> Int, Int) { Relay(n) }",
+            "let (a, _) = direct; let (f, n) = deferred; a(0)*10+f(0)+n",
+            16,
+        ),
+    ] {
+        for update in [
+            "for i in 0..0 { set deferred = Make(3); }",
+            "set deferred = Make(3);",
+        ] {
+            for consume_direct in [true, false] {
+                let result = if consume_direct {
+                    result.to_string()
+                } else {
+                    result
+                        .replace("a(0)*10+", "")
+                        .replace("direct::F(0)*10+", "")
+                        .replace("direct[0](0)*10+", "")
+                };
+                check_callable_result(
+                    &formatdoc! {r#"
+                {declarations}
+                @EntryPoint() operation Main() : Int {{
+                    let direct = Make(1);
+                    mutable deferred = Make(0);
+                    {update}
+                    {result}
+                }}
+            "#},
+                    if consume_direct {
+                        expected
+                    } else {
+                        expected - 10
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// Reassignment must replace either a named callable or an earlier factory
+/// result, without overwriting the independent direct closure's capture.
+/// The result combines the direct capture 1 and updated capture 3 as `10 + 3`.
+#[test]
+fn reassigned_factory_result_preserves_captures_with_either_initializer() {
+    for initializer in ["Add1", "Make(0)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Make(n : Int) : Int -> Int {{ x -> x + n }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        let direct = Make(1);
+                        mutable deferred = {initializer};
+                        for index in 0..0 {{ set deferred = Make(3); }}
+                        direct(0) * 10 + deferred(0)
+                    }}
+                }}
+            "#},
+            13,
+        );
+    }
+}
+
+/// Alternate calls between closures with different nested offsets and scales.
+/// Direct and higher-order dispatch must use each instance's own environment.
+#[test]
+fn distinct_nested_closures_preserve_direct_and_forwarded_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                value -> inner(value) * scale
+            }
+            function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+            @EntryPoint()
+            operation Main() : (Int, Int, Int, Int) {
+                let first = Wrap(Make(3), 2);
+                let second = Wrap(Make(17), 5);
+                (first(1), Invoke(second, 2), Invoke(first, 3), second(4))
+            }
+        }
+    "#},
+        Value::Tuple(
+            vec![
+                Value::Int(8),
+                Value::Int(95),
+                Value::Int(12),
+                Value::Int(105),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn nested_closure_preserves_mixed_direct_and_forwarded_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        &nested_closure_source("let first = Wrap(Make(3), 2); (first(1), Invoke(first, 3))"),
+        Value::Tuple(vec![Value::Int(8), Value::Int(12)].into(), None),
+    );
+}
+
+fn nested_closure_source(body: &str) -> String {
+    formatdoc! {r#"
+        function Make(offset : Int) : Int -> Int {{ value -> value+offset }}
+        function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {{
+            value -> inner(value)*scale
+        }}
+        function Invoke(callable : Int -> Int, value : Int) : Int {{ callable(value) }}
+        @EntryPoint()
+        operation Main() : (Int, Int) {{ {body} }}
+    "#}
+}
+
+#[test]
+fn nested_closure_preserves_direct_call_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        &nested_closure_source("let first = Wrap(Make(3), 2); (first(1), first(3))"),
+        Value::Tuple(vec![Value::Int(8), Value::Int(12)].into(), None),
+    );
+}
+
+#[test]
+fn nested_closure_preserves_higher_order_call_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        &nested_closure_source(
+            "let first = Wrap(Make(3), 2); (Invoke(first, 1), Invoke(first, 3))",
+        ),
+        Value::Tuple(vec![Value::Int(8), Value::Int(12)].into(), None),
+    );
+}
+
+/// Identical conditional arms leave an indexed closure value live even when
+/// per-candidate specializations exist. Cleanup must not replace it with a
+/// stand-in. Zero-angle rotations keep both results Zero; trace comparison still
+/// detects the wrong gate, a missing invocation, or duplicated effects.
+#[test]
+fn unresolved_indexed_dispatch_preserves_live_closure_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+            @EntryPoint()
+            operation Main() : (Result, Result) {
+                use q = Qubit();
+                use target = Qubit();
+                let a = 0.0;
+                let ops = [q0 => Rx(a, q0), q0 => Ry(a, q0)];
+                let m = MResetZ(q);
+                let idx = m == One ? 0 | 1;
+                let cond2 = m == One;
+                let f = cond2 ? ops[idx] | ops[idx];
+                Run(f, target);
+                return (m, MResetZ(target));
+            }
+        }
+    "#},
+        Value::Tuple(
+            vec![Value::Result(MeasurementResult::Val(false)); 2].into(),
+            None,
+        ),
+    );
+}
+
+/// Specialization makes `MakeOp` unreachable without removing or replaying the
+/// surrounding effects. The trace must retain X, H, Rx, H, Y in order; the
+/// producer's orphaned closure can be removed later with its item.
+#[test]
+fn orphaned_producer_body_preserves_caller_evaluation_order() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            operation InnerOp(angle : Double, q : Qubit) : Unit {
+                Rx(angle, q);
+            }
+            function MakeOp(angle : Double) : Qubit => Unit {
+                return InnerOp(angle, _);
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                X(q);
+                let op = MakeOp(1.5707963267948966);
+                ApplyOp(op, q);
+                Y(q);
+                MResetZ(q)
+            }
+        }
+    "#},
+        Value::Result(MeasurementResult::Val(false)),
+    );
+}
+
+/// Both `Choose` branches are specialized, but `Offset` reads keep their aggregate
+/// values live. Replacing the unused callable fields must preserve the direct
+/// calls' results and effects: X, three H, Z, four Y, then Reset.
+/// The result `11 + 20 + 100 + 7 = 138` also checks the retained data fields.
+#[test]
+fn consumed_aggregate_fields_preserve_direct_dispatch_results_and_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            newtype Choice = (F : Int -> Int, Offset : Int);
+
+            function Choose(flag : Bool) : Choice {
+                if flag {
+                    Choice(x -> x + 1, 100)
+                } else {
+                    Choice(x -> x * 2, 7)
+                }
+            }
+
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let selectedT = Choose(true);
+                let selectedF = Choose(false);
+                let fT = selectedT::F;
+                let fF = selectedF::F;
+                X(q);
+                for _ in 1..fT(2) {
+                    H(q);
+                }
+                Z(q);
+                for _ in 1..fF(2) {
+                    Y(q);
+                }
+                Reset(q);
+                fT(10) + fF(10) + selectedT::Offset + selectedF::Offset
+            }
+        }
+    "#},
+        Value::Int(138),
+    );
+}
+
+/// Table lookup exercises capturing closures inside library aggregate values.
+/// Address |1> selects data[1] = [true], so the output must measure One.
+/// Trace comparison also checks that cleanup preserves the library's gate sequence.
+#[test]
+fn table_lookup_preserves_result_and_effects_after_closure_cleanup() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use address = Qubit[1];
+                use output = Qubit[1];
+                X(address[0]);
+                Std.TableLookup.Select([[false], [true]], address, output);
+                let result = MResetZ(output[0]);
+                ResetAll(address);
+                result
+            }
+        }
+    "#},
+        Value::Result(MeasurementResult::Val(true)),
+    );
+}
+
+/// `MakeRot` only constructs a partial application, so specialization may consume
+/// its result. The captured pi rotation must still execute once, yielding One
+/// with the same effect trace before and after transformation.
+#[test]
+fn pure_partial_application_factory_preserves_rotation_effects_after_specialization() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            function MakeRot(angle : Double) : Qubit => Unit is Adj + Ctl {
+                Rx(angle, _)
+            }
+            operation ApplyOp(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = MakeRot(3.141592653589793);
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#},
+        Value::Result(MeasurementResult::Val(true)),
+    );
 }

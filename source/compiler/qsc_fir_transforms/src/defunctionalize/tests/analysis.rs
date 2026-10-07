@@ -3625,7 +3625,7 @@ fn callable_returning_partial_application_resolves_statically() {
             operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Bool[] = bits;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -3737,7 +3737,7 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
             operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Bool[] = bits;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -3858,7 +3858,7 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
             operation Encode(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 {
                     let arg : Bool[] = bits;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 }
 
             }
@@ -4024,7 +4024,7 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
             function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = value;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -5179,7 +5179,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
             function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = value;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {

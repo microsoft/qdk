@@ -6,6 +6,7 @@
 //! agreed operand order and applies recorded producer-to-caller substitutions.
 
 use super::types::{CaptureScope, CaptureSubstitution, CapturedVar};
+use crate::cloner::clone_expr_within_package;
 use crate::fir_builder::{alloc_expr, alloc_local_var_expr};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::PackageSpan;
@@ -47,8 +48,9 @@ pub(super) fn captures_belong_to_destination(
 
 /// Materializes capture operands for rewritten call arguments in capture order.
 ///
-/// Reuses recorded expressions when no substitutions are needed; otherwise
-/// reconstructs supported expression forms with caller operands substituted.
+/// Reconstructs recorded expressions with caller operands substituted. Even
+/// substitution-free literals need fresh IDs: their producer may remain live
+/// for other fields, and an expression cannot belong to both callable bodies.
 /// Bare captures become local reads. The ownership assertion is debug-only;
 /// callers must establish destination ownership before requesting a write.
 pub(super) fn allocate_capture_exprs(
@@ -67,21 +69,17 @@ pub(super) fn allocate_capture_exprs(
     let mut ids = Vec::with_capacity(captures.len());
     for capture in captures {
         if let Some(expr_id) = capture.expr {
-            if capture.caller_substitutions.is_empty() {
-                ids.push(expr_id);
-            } else {
-                let substitutions: FxHashMap<LocalVarId, &CaptureSubstitution> = capture
-                    .caller_substitutions
-                    .iter()
-                    .map(|substitution| (substitution.local, substitution))
-                    .collect();
-                ids.push(clone_capture_literal_with_substitutions(
-                    package,
-                    expr_id,
-                    &substitutions,
-                    assigner,
-                ));
-            }
+            let substitutions: FxHashMap<LocalVarId, &CaptureSubstitution> = capture
+                .caller_substitutions
+                .iter()
+                .map(|substitution| (substitution.local, substitution))
+                .collect();
+            ids.push(clone_capture_literal_with_substitutions(
+                package,
+                expr_id,
+                &substitutions,
+                assigner,
+            ));
             continue;
         }
 
@@ -97,8 +95,8 @@ pub(super) fn allocate_capture_exprs(
 }
 
 /// The expression children reconstructed by capture substitution. `None` means
-/// the node is kept verbatim: analysis must reject any producer locals beneath
-/// it. Both admission and cloning use this contract, including Parallel limits.
+/// the node is copied without substitution: analysis must reject any producer
+/// locals beneath it. Both admission and cloning use this contract, including Parallel limits.
 /// Callers separately reject operation calls; function kind alone is not purity.
 pub(super) fn capture_expr_children(kind: &mut ExprKind) -> Option<Vec<&mut ExprId>> {
     Some(match kind {
@@ -147,12 +145,15 @@ fn clone_capture_literal_with_substitutions(
     substitutions: &FxHashMap<LocalVarId, &CaptureSubstitution>,
     assigner: &mut Assigner,
 ) -> ExprId {
+    if substitutions.is_empty() {
+        return clone_expr_within_package(package, expr_id, assigner);
+    }
     let expr = package.get_expr(expr_id).clone();
     if let ExprKind::Var(Res::Local(var), _) = &expr.kind
         && let Some(substitution) = substitutions.get(var)
     {
         if substitution.substitutions.is_empty() {
-            return substitution.expr;
+            return clone_expr_within_package(package, substitution.expr, assigner);
         }
         let nested = substitution
             .substitutions
@@ -173,6 +174,8 @@ fn clone_capture_literal_with_substitutions(
             *child =
                 clone_capture_literal_with_substitutions(package, *child, substitutions, assigner);
         }
+    } else {
+        return clone_expr_within_package(package, expr_id, assigner);
     }
 
     alloc_expr(package, assigner, expr.ty, new_kind, expr.span)

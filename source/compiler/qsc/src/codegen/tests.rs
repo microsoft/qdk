@@ -7082,3 +7082,75 @@ fn assert_single_integer_output(qir: &str, expected: i64) {
     assert_eq!(records.len(), 1, "{qir}");
     assert!(records[0].contains(&format!("i64 {expected},")), "{qir}");
 }
+
+/// A direct use consumes one library closure while a forwarded, reassigned
+/// aggregate still needs its own closure and data field. The QIR must record
+/// `1 * 10 + (3 + 3)`, preserving both captured values and the deferred field.
+#[test]
+fn foreign_forwarded_closure_aggregates_preserve_captures_and_data_in_qir() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : (Int -> Int, Int) { (x -> x + n, n) }
+            function Forward(n : Int) : (Int -> Int, Int) { Make(n) }
+            function Apply(pair : (Int -> Int, Int)) : Int {
+                let (f, n) = pair;
+                f(0) + n
+            }
+            export Make, Forward, Apply;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint()
+        operation Main() : Int {
+            let (first, _) = Lib.Make(1);
+            mutable deferred = Lib.Forward(0);
+            for index in 0..0 { set deferred = Lib.Forward(3); }
+            first(0) * 10 + Lib.Apply(deferred)
+        }
+    "#;
+    assert_single_integer_output(
+        &compile_source_to_qir_with_library(library, source, Profile::AdaptiveRIF.into()),
+        16,
+    );
+}
+
+/// Base QIR cannot return integer values, so make each computed value control
+/// a gate count on a different qubit. The emitted calls must contain eight Xs
+/// for the direct call and twelve for the higher-order call, in that order.
+#[test]
+fn nested_closure_captures_preserve_values_in_base_qir() {
+    let qir = compile_source_to_qir(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                    value -> inner(value) * scale
+                }
+                function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+                @EntryPoint()
+                operation Main() : Unit {
+                    let first = Wrap(Make(3), 2);
+                    use qubits = Qubit[2];
+                    for _ in 1..first(1) { X(qubits[0]); }
+                    for _ in 1..Invoke(first, 3) { X(qubits[1]); }
+                }
+            }
+        "#},
+        Profile::Base.into(),
+    );
+    let gates: Vec<_> = qir
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("call void @__quantum__qis__"))
+        .collect();
+    let expected: Vec<_> = std::iter::repeat_n(
+        "call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))",
+        8,
+    )
+    .chain(std::iter::repeat_n(
+        "call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))",
+        12,
+    ))
+    .collect();
+    assert_eq!(gates, expected, "{qir}");
+}

@@ -1514,7 +1514,7 @@ fn analysis_bernstein_vazirani_sample_shape() {
             function EncodeIntegerAsParityOperation(bitStringAsInt : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = bitStringAsInt;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
