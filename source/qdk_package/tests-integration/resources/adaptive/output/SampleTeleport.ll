@@ -5,6 +5,8 @@ define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_1 = alloca i1
   %var_17 = alloca i64
+  %var_18 = alloca i64
+  %var_23 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   store i1 false, ptr %var_1
   call void @H(ptr inttoptr (i64 0 to ptr))
@@ -23,8 +25,8 @@ block_2:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
   %var_13 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 %var_13, ptr %var_1
-  %var_25 = load i1, ptr %var_1
-  br i1 %var_25, label %block_3, label %block_4
+  %var_27 = load i1, ptr %var_1
+  br i1 %var_27, label %block_3, label %block_4
 block_3:
   call void @Z(ptr inttoptr (i64 1 to ptr))
   br label %block_4
@@ -35,18 +37,22 @@ block_4:
   store i64 0, ptr %var_17
   br label %block_5
 block_5:
-  %var_27 = load i64, ptr %var_17
-  %var_18 = icmp slt i64 %var_27, 2
-  br i1 %var_18, label %block_6, label %block_7
+  %var_29 = load i64, ptr %var_17
+  store i64 %var_29, ptr %var_18
+  %var_31 = load i64, ptr %var_18
+  %var_19 = icmp slt i64 %var_31, 2
+  br i1 %var_19, label %block_6, label %block_7
 block_6:
-  %var_28 = load i64, ptr %var_17
-  %var_29_offset_chk = icmp slt i64 %var_28, 0
-  %var_29_offset = select i1 %var_29_offset_chk, i64 1, i64 0
-  %var_29 = getelementptr [2 x ptr], ptr @array0, i64 %var_29_offset, i64 %var_28
-  %var_19 = load ptr, ptr %var_29
-  call void @Reset(ptr %var_19)
-  %var_22 = add i64 %var_28, 1
-  store i64 %var_22, ptr %var_17
+  %var_32 = load i64, ptr %var_17
+  %var_33_offset_chk = icmp slt i64 %var_32, 0
+  %var_33_offset = select i1 %var_33_offset_chk, i64 1, i64 0
+  %var_33 = getelementptr [2 x ptr], ptr @array0, i64 %var_33_offset, i64 %var_32
+  %var_20 = load ptr, ptr %var_33
+  call void @Reset(ptr %var_20)
+  store i64 %var_32, ptr %var_23
+  %var_35 = load i64, ptr %var_23
+  %var_24 = add i64 %var_35, 1
+  store i64 %var_24, ptr %var_17
   br label %block_5
 block_7:
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
@@ -99,9 +105,9 @@ block_12:
   ret void
 }
 
-define internal void @Reset(ptr %var_21) {
+define internal void @Reset(ptr %var_22) {
 block_13:
-  call void @__quantum__qis__reset__body(ptr %var_21)
+  call void @__quantum__qis__reset__body(ptr %var_22)
   ret void
 }
 

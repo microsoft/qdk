@@ -15,11 +15,11 @@ block_0:
   br i1 %var_1, label %block_2, label %block_1
 block_1:
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  %var_4 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+  %var_5 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
   br label %block_2
 block_2:
-  %var_7 = phi i1 [true, %block_0], [%var_4, %block_1]
-  br i1 %var_7, label %block_3, label %block_4
+  %var_8 = phi i1 [true, %block_0], [%var_5, %block_1]
+  br i1 %var_8, label %block_3, label %block_4
 block_3:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
