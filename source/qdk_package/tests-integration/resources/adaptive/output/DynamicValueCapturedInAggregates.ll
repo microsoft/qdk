@@ -3,6 +3,7 @@
 @2 = internal constant [6 x i8] c"2_t1t\00"
 @3 = internal constant [8 x i8] c"3_t1t0i\00"
 @4 = internal constant [8 x i8] c"4_t1t1i\00"
+@5 = internal constant [6 x i8] c"5_t2i\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -32,16 +33,18 @@ block_2:
   store i64 3, ptr %var_2
   %var_19 = load i64, ptr %var_8
   store i64 %var_19, ptr %var_3
+  store i64 5, ptr %var_1
   store i64 7, ptr %var_1
-  %var_22 = load i64, ptr %var_3
-  store i64 %var_22, ptr %var_10
-  call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
-  %var_24 = load i64, ptr %var_7
-  call void @__quantum__rt__int_record_output(i64 %var_24, ptr @1)
+  %var_23 = load i64, ptr %var_3
+  store i64 %var_23, ptr %var_10
+  call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
+  %var_25 = load i64, ptr %var_7
+  call void @__quantum__rt__int_record_output(i64 %var_25, ptr @1)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @2)
   call void @__quantum__rt__int_record_output(i64 3, ptr @3)
-  %var_25 = load i64, ptr %var_10
-  call void @__quantum__rt__int_record_output(i64 %var_25, ptr @4)
+  %var_26 = load i64, ptr %var_10
+  call void @__quantum__rt__int_record_output(i64 %var_26, ptr @4)
+  call void @__quantum__rt__int_record_output(i64 5, ptr @5)
   ret i64 0
 }
 

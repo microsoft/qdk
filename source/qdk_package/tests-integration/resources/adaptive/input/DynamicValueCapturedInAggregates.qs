@@ -1,5 +1,5 @@
 namespace Test {
-    operation Main() : (Int, (Int, Int)) {
+    operation Main() : (Int, (Int, Int), Int) {
         use q = Qubit();
         X(q);
         mutable n = 0;
@@ -11,7 +11,9 @@ namespace Test {
         }
         let a = [n];
         (b, c) = (c, b);
+        n = 5;
+        let a2 = [n, size = 2];
         n = 7;
-        (a[0], (b, c))
+        (a[0], (b, c), a2[1])
     }
 }

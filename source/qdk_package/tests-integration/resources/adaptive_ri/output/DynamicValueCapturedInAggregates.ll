@@ -6,6 +6,7 @@
 @2 = internal constant [6 x i8] c"2_t1t\00"
 @3 = internal constant [8 x i8] c"3_t1t0i\00"
 @4 = internal constant [8 x i8] c"4_t1t1i\00"
+@5 = internal constant [6 x i8] c"5_t2i\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
@@ -19,11 +20,12 @@ block_1:
 block_2:
   %var_11 = phi i64 [0, %block_0], [4, %block_1]
   %var_10 = phi i64 [0, %block_0], [2, %block_1]
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 3, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
   call void @__quantum__rt__int_record_output(i64 3, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
   call void @__quantum__rt__int_record_output(i64 %var_11, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 5, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))
   ret i64 0
 }
 
