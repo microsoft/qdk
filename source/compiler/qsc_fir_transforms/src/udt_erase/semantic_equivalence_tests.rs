@@ -1053,3 +1053,40 @@ fn struct_construction_and_copy_preserve_field_positions() {
         }
     }
 }
+
+#[test]
+fn nested_struct_copy_preserves_callable_snapshot_before_mutating_source() {
+    let source = indoc! {r#"
+        namespace Test {
+            struct Choice { Callable : Int -> Int, Weight : Int }
+            struct Envelope { Inner : Choice, Tag : Int }
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function UseEnvelope(envelope : Envelope) : Int {
+                envelope.Inner.Callable(2) * 1000 + envelope.Inner.Weight * 10 + envelope.Tag
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable original = new Envelope {
+                    Inner = new Choice { Callable = Make(3), Weight = 7 }, Tag = 2
+                };
+                let copied = new Envelope {
+                    ...original,
+                    Inner = new Choice {
+                        ...original.Inner,
+                        Weight = {
+                            set original = new Envelope {
+                                Inner = new Choice { Callable = Make(17), Weight = 19 }, Tag = 5
+                            };
+                            11
+                        }
+                    }
+                };
+                UseEnvelope(copied) * 100000 + UseEnvelope(original)
+            }
+        }
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(511_219_195)));
+    crate::test_utils::check_semantic_equivalence(source);
+}

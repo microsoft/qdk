@@ -3923,3 +3923,210 @@ operation Main() : Result {
 "#;
     crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
 }
+
+fn eval_entry_with_output(
+    store: &fir::PackageStore,
+    package_id: PackageId,
+) -> (Result<qsc_eval::val::Value, String>, String) {
+    let mut output = Vec::new();
+    let result = qsc_eval::eval(
+        package_id,
+        Some(42),
+        store.get(package_id).entry_exec_graph.clone(),
+        fir::ExecGraphConfig::NoDebug,
+        store,
+        &mut qsc_eval::Env::default(),
+        &mut qsc_eval::backend::TracingBackend::no_tracer(&mut qsc_eval::backend::SparseSim::new()),
+        &mut qsc_eval::output::GenericReceiver::new(&mut output),
+    )
+    .map_err(|(error, _)| format!("{error:?}"));
+    (
+        result,
+        String::from_utf8(output).expect("valid receiver output"),
+    )
+}
+
+/// Library-owned captures must not reorder or replay caller-side field effects.
+/// A failing final field preserves the emitted prefix and never invokes the closure.
+#[test]
+fn library_deep_capture_preserves_field_output_order_snapshot_and_failure_prefix() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to_with_library, compile_to_fir_with_library,
+    };
+
+    let library = indoc! {r#"
+        namespace TestLib {
+            newtype Inner = (Bias : Int, Action : Int -> Int);
+            function Shift(offset : Int) : Int -> Int { value -> offset + value }
+            function Evaluate(payload : (Int, (Int, Inner)), value : Int) : Int {
+                let (scale, (offset, inner)) = payload;
+                let action = inner::Action;
+                scale * action(value) + offset + inner::Bias
+            }
+            function Make(payload : (Int, (Int, Inner))) : Int -> Int {
+                value -> Evaluate(payload, value)
+            }
+            export Inner, Shift, Make;
+        }
+    "#};
+    for (last_value, output) in [
+        ("5", "field 2\nfield 3\nfield 5\n"),
+        ("-5", "field 2\nfield 3\nfield -5\n"),
+    ] {
+        let user = indoc::formatdoc! {r#"
+            import TestLib.*;
+            operation Mark(value : Int) : Int {{
+                Message($"field {{value}}");
+                if value < 0 {{ fail "field producer failed"; }}
+                value
+            }}
+            function Forward(action : Int -> Int) : Int -> Int {{ action }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable seed = 7;
+                let action = Make((Mark(2), (Mark(3), Inner(Mark({last_value}), Shift(seed)))));
+                set seed = 100;
+                Forward(action)(1)
+            }}
+        "#};
+        let (original, package_id) = compile_to_fir_with_library(library, &user);
+        let library_id =
+            crate::test_utils::find_library_callable(&original, package_id, "Make").package;
+        assert!(original.get(library_id).exprs.values().any(|expr| {
+            matches!(&expr.kind, fir::ExprKind::Closure(captures, _) if !captures.is_empty())
+        }));
+        assert_no_dangling_cross_package_closures(&original);
+        let expected = eval_entry_with_output(&original, package_id);
+        assert_eq!(expected.1, output);
+        if last_value == "5" {
+            assert_eq!(expected.0, Ok(qsc_eval::val::Value::Int(24)));
+        } else {
+            assert!(
+                expected
+                    .0
+                    .as_ref()
+                    .expect_err("producer must fail")
+                    .contains("field producer failed")
+            );
+        }
+        let (normalized, normalized_id) =
+            compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Defunc);
+        assert_no_dangling_cross_package_closures(&normalized);
+        assert!(!normalized.get(normalized_id).pats.values().any(|pat| {
+            matches!(&pat.kind, fir::PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+        }), "the entry package must not acquire bindings for the library-owned capture");
+        assert!(
+            normalized.get(library_id).exprs.values().any(|expr| {
+                matches!(&expr.kind, fir::ExprKind::Closure(captures, target)
+                if !captures.is_empty() && original.get(library_id).items.contains_key(*target))
+            }),
+            "the original library closure and its owner must remain available"
+        );
+        let (full, full_id) =
+            compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Full);
+        let actual = eval_entry_with_output(&full, full_id);
+        assert_eq!(actual.1, output);
+        assert_eq!(actual, expected);
+    }
+}
+
+/// A foreign UDT remains nominal and opaque. A callable sibling may expand the
+/// surrounding tuple, but must preserve the original payload's owner and value.
+#[test]
+fn foreign_udt_capture_preserves_owner_and_snapshot_beside_normalized_arrow() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to_with_library, compile_to_fir_with_library,
+    };
+    use qsc_fir::ty::Ty;
+
+    let library = indoc! {r#"
+        namespace TestLib {
+            newtype Payload = (Bias : Int, Offset : Int);
+            export Payload;
+        }
+    "#};
+    for replace_payload in [false, true] {
+        let replacement = if replace_payload {
+            "set payload = Payload(50, seed);"
+        } else {
+            ""
+        };
+        for (mixed, binding, answer) in [
+            (
+                false,
+                "let environment = payload; let saved = value -> Evaluate(environment, value);",
+                11,
+            ),
+            (
+                true,
+                "let environment = (payload, Add17); let saved = value -> { let (opaque, action) = environment; Evaluate(opaque, value) + action(value) };",
+                29,
+            ),
+        ] {
+            let user = indoc::formatdoc! {r#"
+            import TestLib.*;
+            function Add17(value : Int) : Int {{ 17 + value }}
+            function Evaluate(payload : Payload, value : Int) : Int {{
+                payload::Bias + payload::Offset + value
+            }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable seed = 7;
+                mutable payload = Payload(3, seed);
+                {binding}
+                set seed = 100;
+                {replacement}
+                saved(1)
+            }}
+        "#};
+            let (original, package_id) = compile_to_fir_with_library(library, &user);
+            let foreign_item = (&original)
+                .into_iter()
+                .find_map(|(owner, package)| {
+                    package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Ty(ident, _) if ident.name.as_ref() == "Payload")
+                    .then_some(ItemId { package: owner, item: item_id })
+            })
+                })
+                .expect("foreign type exists");
+            assert_ne!(foreign_item.package, package_id);
+            assert!(original.get(package_id).exprs.values().any(|expr| {
+                matches!(&expr.kind, fir::ExprKind::Closure(captures, _) if captures.len() == 1)
+            }));
+            let expected = eval_entry_with_output(&original, package_id);
+            assert_eq!(
+                expected,
+                (Ok(qsc_eval::val::Value::Int(answer)), String::new())
+            );
+            let (normalized, normalized_id) =
+                compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Defunc);
+            let leaves: Vec<_> = normalized.get(normalized_id).pats.values().filter(|pat| {
+            matches!(&pat.kind, fir::PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+        }).collect();
+            assert_eq!(!leaves.is_empty(), mixed);
+            if mixed {
+                assert!(
+                    leaves
+                        .iter()
+                        .any(|pat| pat.ty == Ty::Udt(fir::Res::Item(foreign_item)))
+                );
+                assert!(leaves.iter().any(|pat| matches!(&pat.ty, Ty::Arrow(_))));
+            }
+            assert!(matches!(
+                &normalized
+                    .get(foreign_item.package)
+                    .items
+                    .get(foreign_item.item)
+                    .expect("foreign owner retained")
+                    .kind,
+                ItemKind::Ty(_, _)
+            ));
+            assert_no_dangling_cross_package_closures(&normalized);
+            let (full, full_id) =
+                compile_and_run_pipeline_to_with_library(library, &user, PipelineStage::Full);
+            assert_eq!(eval_entry_with_output(&full, full_id), expected);
+        }
+    }
+}
