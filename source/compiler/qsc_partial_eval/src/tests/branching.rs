@@ -2414,23 +2414,24 @@ fn short_circuit_andl_with_potentially_skipped_mutable_update_with_literal() {
     assert_blocks(
         &program,
         &expect![[r#"
-        Blocks:
-        Block 0:Block:
-            Call id(1), args( Pointer, )
-            Variable(0, Integer) = Store Integer(0)
-            Call id(2), args( Qubit(0), Result(0), )
-            Variable(1, Boolean) = Call id(3), args( Result(0), )
-            Variable(2, Boolean) = Store Variable(1, Boolean)
-            Variable(3, Boolean) = Store Bool(false)
-            Branch Variable(2, Boolean), 2, 1
-        Block 1:Block:
-            Variable(4, Integer) = Store Variable(0, Integer)
-            Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-            Return Integer(0)
-        Block 2:Block:
-            Variable(0, Integer) = Store Integer(5)
-            Variable(3, Boolean) = Store Bool(true)
-            Jump(1)"#]],
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(false)
+                Branch Variable(3, Boolean), 2, 1
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(5)
+                Variable(4, Boolean) = Store Bool(true)
+                Jump(1)"#]],
     );
 }
 
@@ -2456,15 +2457,16 @@ fn short_circuit_orl_with_potentially_skipped_mutable_update_with_literal() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(1, Boolean) = Call id(3), args( Result(0), )
                 Variable(2, Boolean) = Store Variable(1, Boolean)
-                Variable(3, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 1, 2
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(true)
+                Branch Variable(3, Boolean), 1, 2
             Block 1:Block:
-                Variable(4, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(4, Integer), Tag(0, 3), )
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
-                Variable(3, Boolean) = Store Bool(true)
+                Variable(4, Boolean) = Store Bool(true)
                 Jump(1)"#]],
     );
 }
