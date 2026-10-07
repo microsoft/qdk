@@ -556,7 +556,7 @@ fn composite_while_return_survives_full_pipeline() {
 }
 
 #[test]
-fn mixed_full_pipeline_semantic_regression_preserves_result() {
+fn generics_struct_updates_tuple_comparison_and_hof_calls_preserve_result() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         namespace Test {
@@ -2048,5 +2048,62 @@ fn branch_dispatched_factories_keep_direct_lambda_calls_with_capture_arguments()
             [0, 1],
             "both branch arms must call the shared lambda with their own captured bit"
         );
+    }
+}
+
+/// Keep promoted call signatures valid and execute combinations that distinguish
+/// both the captured preparation flag and rotation angle.
+#[test]
+fn captured_struct_callables_preserve_promoted_signatures_and_results() {
+    for (enabled, rotation, expected) in [
+        (true, "0.0", true),
+        (false, "3.141592653589793", true),
+        (true, "3.141592653589793", false),
+    ] {
+        let source = format!(
+            r#"
+        namespace Test {{
+            struct CallableFields {{
+                StatePrep : Qubit[] => Unit,
+                ControlledOp : (Qubit, Qubit[]) => Unit,
+            }}
+
+            operation Run(params : CallableFields) : Result {{
+                use qubits = Qubit[2];
+                let phase = qubits[0];
+                let systems = qubits[1..1];
+                X(phase);
+                params.StatePrep(systems);
+                params.ControlledOp(phase, systems);
+                let result = MResetZ(systems[0]);
+                Reset(phase);
+                result
+            }}
+
+            @EntryPoint()
+            operation Main() : Result {{
+                let enabled = {enabled};
+                let rotation = {rotation};
+                let prep = register => {{ if enabled {{ X(register[0]); }} }};
+                let controlled_op = (control, register) => {{
+                    Controlled Rx([control], (rotation, register[0]));
+                }};
+                Run(new CallableFields {{ StatePrep = prep, ControlledOp = controlled_op }})
+            }}
+        }}
+    "#
+        );
+
+        let expected = Value::Result(qsc_eval::val::Result::Val(expected));
+        let (mut store, pkg_id, _) = compile_and_lower(&source);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected.clone()));
+        run_pipeline_to_successfully(&mut store, pkg_id, PipelineStage::ArgPromote);
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostArgPromote);
+
+        let (mut store, pkg_id, _) = compile_and_lower(&source);
+        run_pipeline_successfully(&mut store, pkg_id);
+        validate(store.get(pkg_id), &store);
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected));
     }
 }

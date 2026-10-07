@@ -7154,3 +7154,223 @@ fn nested_closure_captures_preserve_values_in_base_qir() {
     .collect();
     assert_eq!(gates, expected, "{qir}");
 }
+
+/// Check the computed value as an `AdaptiveRIF` integer output and as a Base
+/// rotation operand. This verifies emitted data, not merely successful compilation.
+/// These fixtures also protect existing tuple-alias behavior; the isolated
+/// prepass tests assert that environment normalization itself runs.
+fn assert_classical_capture_result_in_qir(source: &str, expected: i32) {
+    let adaptive = format!(
+        "{source}\nnamespace Entry {{
+            @EntryPoint() operation Main() : Int {{ Test.Compute() }}
+        }}"
+    );
+    assert_single_integer_output(
+        &compile_source_to_qir(&adaptive, Profile::AdaptiveRIF.into()),
+        i64::from(expected),
+    );
+    let base = format!(
+        "{source}\nnamespace Entry {{
+            @EntryPoint() operation Main() : Unit {{
+                use q = Qubit();
+                Rz(Std.Convert.IntAsDouble(Test.Compute()), q);
+            }}
+        }}"
+    );
+    let qir = compile_source_to_qir(&base, Profile::Base.into());
+    let gates: Vec<_> = qir
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("call void @__quantum__qis__"))
+        .collect();
+    assert_eq!(gates.len(), 1, "{qir}");
+    let angle = gates[0]
+        .strip_prefix("call void @__quantum__qis__rz__body(double ")
+        .expect("expected a rotation with a constant angle")
+        .split(',')
+        .next()
+        .expect("rotation angle")
+        .parse::<f64>()
+        .expect("constant double");
+    // Every i32 is exactly representable as f64; no tolerance is needed here.
+    assert_eq!(angle.to_bits(), f64::from(expected).to_bits(), "{qir}");
+}
+
+#[test]
+fn nonadjacent_callable_tuple_snapshot_preserves_original_values_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            function Compute() : Int {
+                mutable (value, callable) = (14, Add11);
+                let pair = (value, callable);
+                set value = 9;
+                set callable = Times3;
+                set (value, callable) = pair;
+                value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_capture_result_in_qir(source, 1413);
+}
+
+#[test]
+fn nested_callable_tuple_snapshot_preserves_scalar_and_callable_values_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            function Compute() : Int {
+                mutable (value, callable) = (14, Add11);
+                let (tag, saved) = (3, (value, callable));
+                set (value, callable) = (9, Times3);
+                set (value, callable) = saved;
+                tag * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_capture_result_in_qir(source, 31_413);
+}
+
+#[test]
+fn captured_callable_tuple_snapshot_survives_reassignment_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            function Compute() : Int {
+                mutable (value, callable) = (14, Add11);
+                let saved = (value, callable);
+                let observe = input -> {
+                    let (stored, action) = saved;
+                    stored * 100 + action(input)
+                };
+                set (value, callable) = (9, Times3);
+                let before = observe(2);
+                set (value, callable) = saved;
+                before * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_capture_result_in_qir(source, 14_131_413);
+}
+
+#[test]
+fn forwarded_callable_tuple_preserves_original_capture_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Forward(pair : (Int, Int -> Int)) : (Int, Int -> Int) { pair }
+            function Compute() : Int {
+                mutable offset = 3;
+                mutable (value, callable) = (14, {
+                    let captured = offset;
+                    input -> input + captured
+                });
+                let saved = Forward((value, callable));
+                set offset = 17;
+                set (value, callable) = (9, {
+                    let captured = offset;
+                    input -> input + captured
+                });
+                let forwarded = Forward(saved);
+                set (value, callable) = forwarded;
+                offset * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_capture_result_in_qir(source, 171_405);
+}
+
+#[test]
+fn nested_wrapper_array_preserves_distinct_capture_values_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                value -> inner(value) * scale
+            }
+            function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+            function Compute() : Int {
+                let wrappers = [Wrap(Wrap(Make(3), 2), 3), Wrap(Wrap(Make(17), 5), 7)];
+                mutable answer = 0;
+                for index in 0..0 {
+                    set answer = 1000 * Invoke(wrappers[index], 1) + wrappers[1 - index](1);
+                }
+                answer
+            }
+        }
+    "#;
+    assert_classical_capture_result_in_qir(source, 24_630);
+}
+
+#[test]
+fn controlled_struct_factory_preserves_control_and_target_qubits_in_qir() {
+    let source = r#"
+        struct PauliSelectParams {
+            paulis : Pauli[][],
+            qubitIndices : Int[],
+            signs : Int[]
+        }
+
+        operation ApplySelect(params : PauliSelectParams, systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+            if Length(params.signs) != 0 {
+                X(systems[0]);
+            }
+        }
+
+        operation ApplyPrepare(systems : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            let params = new PauliSelectParams {
+                paulis = [[PauliX]],
+                qubitIndices = [0],
+                signs = [1]
+            };
+            let sel = ApplySelect(params, _, _);
+            MakeControlledPrepSelPrepCircuit(ApplyPrepare, sel, 1, 1);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    let gates: Vec<_> = qir
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("call void @__quantum__qis__"))
+        .collect();
+    assert_eq!(
+        gates,
+        [
+            "call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))"
+        ],
+        "{qir}"
+    );
+}
