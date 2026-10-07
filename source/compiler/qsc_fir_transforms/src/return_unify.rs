@@ -33,7 +33,9 @@
 //!   synthesized for unsupported types — defaultable types use a `T` slot,
 //!   resolvable non-defaultable types use a `T[]` slot). Processing continues
 //!   for the remaining callables.
-//! - **Qubit release is folded in.**
+//! - **Qubit lifetimes are preserved.** The HIR allocation rewrite has already inserted
+//!   release calls, including for discarded bindings. Return unification must preserve
+//!   their execution order and avoid running block-exit releases again after an early return.
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   [`crate::exec_graph_rebuild`] repairs exec graphs later.
 
