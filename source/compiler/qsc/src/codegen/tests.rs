@@ -6307,40 +6307,46 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_1 = alloca i64
-          %var_3 = alloca i1
+          %var_2 = alloca i64
+          %var_5 = alloca i1
+          %var_10 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           store i64 0, ptr %var_1
           br label %block_1
         block_1:
-          %var_10 = load i64, ptr %var_1
-          %var_2 = icmp sle i64 %var_10, 0
-          store i1 true, ptr %var_3
-          br i1 %var_2, label %block_2, label %block_3
+          %var_13 = load i64, ptr %var_1
+          store i64 %var_13, ptr %var_2
+          %var_15 = load i64, ptr %var_2
+          %var_3 = icmp sle i64 %var_15, 0
+          store i1 true, ptr %var_5
+          br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_13 = load i1, ptr %var_3
-          br i1 %var_13, label %block_4, label %block_5
+          %var_18 = load i1, ptr %var_5
+          br i1 %var_18, label %block_4, label %block_5
         block_3:
-          store i1 false, ptr %var_3
+          store i1 false, ptr %var_5
           br label %block_2
         block_4:
-          %var_14 = load i64, ptr %var_1
-          %var_15_offset_chk = icmp slt i64 %var_14, 0
-          %var_15_offset = select i1 %var_15_offset_chk, i64 1, i64 0
-          %var_15 = getelementptr [1 x ptr], ptr @array0, i64 %var_15_offset, i64 %var_14
-          %var_4 = load ptr, ptr %var_15
+          %var_19 = load i64, ptr %var_1
+          %var_20_offset_chk = icmp slt i64 %var_19, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [1 x ptr], ptr @array0, i64 %var_20_offset, i64 %var_19
+          %var_6 = load ptr, ptr %var_20
           call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %var_5, label %block_6, label %block_7
+          %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_7, label %block_6, label %block_7
         block_5:
           call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
           ret i64 0
         block_6:
-          call void @X(ptr %var_4)
+          call void @X(ptr %var_6)
           br label %block_7
         block_7:
-          %var_16 = load i64, ptr %var_1
-          %var_8 = add i64 %var_16, 1
-          store i64 %var_8, ptr %var_1
+          %var_21 = load i64, ptr %var_1
+          store i64 %var_21, ptr %var_10
+          %var_23 = load i64, ptr %var_10
+          %var_11 = add i64 %var_23, 1
+          store i64 %var_11, ptr %var_1
           br label %block_1
         }
 
@@ -6350,9 +6356,9 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
 
         declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
-        define internal void @X(ptr %var_7) {
+        define internal void @X(ptr %var_9) {
         block_8:
-          call void @__quantum__qis__x__body(ptr %var_7)
+          call void @__quantum__qis__x__body(ptr %var_9)
           ret void
         }
 

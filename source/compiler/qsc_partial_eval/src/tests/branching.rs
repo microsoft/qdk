@@ -2072,8 +2072,9 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(0)
-                Branch Variable(4, Boolean), 5, 4
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Integer), Integer(0)
+                Branch Variable(5, Boolean), 5, 4
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2082,23 +2083,23 @@ fn if_expression_with_dynamic_operand_from_hybrid_integers_array() {
                 Jump(1)
             Block 4:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(5, Boolean) = Call id(3), args( Result(1), )
-                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
-                Branch Variable(6, Boolean), 7, 8
+                Variable(6, Boolean) = Call id(3), args( Result(1), )
+                Variable(7, Boolean) = Icmp Eq, Variable(6, Boolean), Bool(false)
+                Branch Variable(7, Boolean), 7, 8
             Block 5:Block:
                 Call id(4), args( Qubit(1), )
                 Jump(4)
             Block 6:Block:
-                Variable(8, Integer) = Store Variable(7, Integer)
+                Variable(9, Integer) = Store Variable(8, Integer)
                 Call id(5), args( Integer(2), Tag(0, 3), )
                 Call id(6), args( Variable(3, Integer), Tag(1, 5), )
-                Call id(6), args( Variable(8, Integer), Tag(2, 5), )
+                Call id(6), args( Variable(9, Integer), Tag(2, 5), )
                 Return Integer(0)
             Block 7:Block:
-                Variable(7, Integer) = Store Integer(0)
+                Variable(8, Integer) = Store Integer(0)
                 Jump(6)
             Block 8:Block:
-                Variable(7, Integer) = Store Integer(1)
+                Variable(8, Integer) = Store Integer(1)
                 Jump(6)"#]],
     );
 }
@@ -2325,8 +2326,9 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Double) = Store Variable(2, Double)
-                Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(0)
-                Branch Variable(4, Boolean), 5, 4
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Boolean) = Fcmp Oeq, Variable(4, Double), Double(0)
+                Branch Variable(5, Boolean), 5, 4
             Block 2:Block:
                 Variable(2, Double) = Store Double(0.1)
                 Jump(1)
@@ -2335,23 +2337,23 @@ fn if_expression_with_dynamic_operand_from_hybrid_doubles_array() {
                 Jump(1)
             Block 4:Block:
                 Call id(2), args( Qubit(1), Result(1), )
-                Variable(5, Boolean) = Call id(3), args( Result(1), )
-                Variable(6, Boolean) = Icmp Eq, Variable(5, Boolean), Bool(false)
-                Branch Variable(6, Boolean), 7, 8
+                Variable(6, Boolean) = Call id(3), args( Result(1), )
+                Variable(7, Boolean) = Icmp Eq, Variable(6, Boolean), Bool(false)
+                Branch Variable(7, Boolean), 7, 8
             Block 5:Block:
                 Call id(4), args( Qubit(1), )
                 Jump(4)
             Block 6:Block:
-                Variable(8, Double) = Store Variable(7, Double)
+                Variable(9, Double) = Store Variable(8, Double)
                 Call id(5), args( Integer(2), Tag(0, 3), )
                 Call id(6), args( Variable(3, Double), Tag(1, 5), )
-                Call id(6), args( Variable(8, Double), Tag(2, 5), )
+                Call id(6), args( Variable(9, Double), Tag(2, 5), )
                 Return Integer(0)
             Block 7:Block:
-                Variable(7, Double) = Store Double(0.1)
+                Variable(8, Double) = Store Double(0.1)
                 Jump(6)
             Block 8:Block:
-                Variable(7, Double) = Store Double(1.1)
+                Variable(8, Double) = Store Double(1.1)
                 Jump(6)"#]],
     );
 }

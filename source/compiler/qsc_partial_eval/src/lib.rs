@@ -1541,6 +1541,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             lhs_control_flow.into_value()
         };
+        let lhs_value = self.copy_value_if_needed(lhs_value);
         let bin_op_control_flow = self.eval_bin_op(
             bin_op,
             lhs_value,
@@ -1573,6 +1574,7 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(lhs_expr_id),
             ));
         };
+        let lhs_value = self.copy_value_if_needed(lhs_value);
 
         // Now that we have a LHS value, evaluate the binary operation, which will properly consider short-circuiting
         // logic in the case of Boolean operations.
