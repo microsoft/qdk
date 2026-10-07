@@ -55,11 +55,12 @@ pub mod qir {
     /// - `SyntheticEntry`: the prepared FIR carries a self-contained synthetic
     ///   entry expression; build QIR via `entry_from_codegen_fir` + `fir_to_qir`.
     /// - `ReinvokeOriginal`: the original target must be re-invoked through
-    ///   `fir_to_qir_from_callable` with the recorded callable id and args.
+    ///   `fir_to_qir_from_callable` with the recorded callable ID, functors, and args.
     pub enum CallableArgsBackend {
         SyntheticEntry,
         ReinvokeOriginal {
             callable: qsc_fir::fir::StoreItemId,
+            functor: FunctorApp,
             args: Value,
         },
     }
@@ -751,14 +752,15 @@ pub mod qir {
 
     /// Seeds the package entry with a synthetic `Call(target, args)` expression.
     ///
-    /// Builds args matching the target callable's pure input type: callable-typed positions
-    /// are filled with Var references to the concrete callables from the `args` Value;
-    /// non-callable positions get typed placeholder literals (which are never evaluated —
-    /// they exist only to make the Call structurally valid for defunctionalization).
+    /// Lowers runtime arguments against the instantiated input type and wraps
+    /// the target with its applied functors. Captured callable arguments add
+    /// local bindings so the entry can be evaluated without reinvocation.
+    #[allow(clippy::too_many_lines)]
     fn seed_entry_with_call_to_target(
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         target_callable: qsc_fir::fir::StoreItemId,
+        functor: FunctorApp,
         args: &Value,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) {
@@ -771,7 +773,13 @@ pub mod qir {
         };
         let span = callable_decl.span;
         let input_pat = package.get_pat(callable_decl.input);
-        let formal_input_ty = resolve_udt_ty(fir_store, &input_pat.ty);
+        let mut formal_input_ty = resolve_udt_ty(fir_store, &input_pat.ty);
+        for _ in 0..functor.controlled {
+            formal_input_ty = qsc_fir::ty::Ty::Tuple(vec![
+                qsc_fir::ty::Ty::Array(Box::new(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit))),
+                formal_input_ty,
+            ]);
+        }
         let formal_output_ty = resolve_udt_ty(fir_store, &callable_decl.output);
         let (generic_args, input_ty, output_ty, arrow_ty) = instantiate_synthetic_target_arrow(
             callable_decl.generics.as_slice(),
@@ -800,14 +808,17 @@ pub mod qir {
             &mut pending_stmts,
         );
 
-        // Create callee Var expression referencing the target callable.
+        let base_ty = callable_ty_before_runtime_functor(&arrow_ty, functor)
+            .expect("controlled target signature");
+        // The item reference has the original input; the wrappers supply the
+        // target's controlled layers rather than those of any callable argument.
         let callee_expr_id = assigner.next_expr();
         package.exprs.insert(
             callee_expr_id,
             qsc_fir::fir::Expr {
                 id: callee_expr_id,
                 span,
-                ty: arrow_ty,
+                ty: base_ty.clone(),
                 kind: qsc_fir::fir::ExprKind::Var(
                     qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
                         package: target_callable.package,
@@ -819,6 +830,9 @@ pub mod qir {
                     ..qsc_fir::fir::ExecGraphIdx::ZERO,
             },
         );
+
+        let callee_expr_id =
+            wrap_expr_with_functor_app(package, &mut assigner, callee_expr_id, &base_ty, functor);
 
         // Create Call expression: Call(callee, args) with output type.
         let call_expr_id = assigner.next_expr();
@@ -1636,10 +1650,42 @@ pub mod qir {
         }
     }
 
+    fn callable_ty_before_runtime_functor(
+        ty: &qsc_fir::ty::Ty,
+        functor: FunctorApp,
+    ) -> Option<qsc_fir::ty::Ty> {
+        let qsc_fir::ty::Ty::Arrow(arrow) = ty else {
+            return None;
+        };
+        let mut input = arrow.input.as_ref();
+        for _ in 0..functor.controlled {
+            let qsc_fir::ty::Ty::Tuple(inputs) = input else {
+                return None;
+            };
+            let [controls, rest] = inputs.as_slice() else {
+                return None;
+            };
+            if !matches!(
+                controls,
+                qsc_fir::ty::Ty::Array(item)
+                    if matches!(item.as_ref(), qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit))
+            ) {
+                return None;
+            }
+            input = rest;
+        }
+        Some(qsc_fir::ty::Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
+            kind: arrow.kind,
+            input: Box::new(input.clone()),
+            output: arrow.output.clone(),
+            functors: arrow.functors,
+        })))
+    }
+
     /// Wraps a callable expression with the FIR functor operations in `functor`.
     ///
-    /// Adjoint is applied before each controlled application to match the runtime
-    /// `FunctorApp` representation used by interpreter values.
+    /// `ty` is the unwrapped callable type. Apply adjoint once, then add an input
+    /// control layer for each controlled application in the runtime value.
     fn wrap_expr_with_functor_app(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
@@ -1648,6 +1694,7 @@ pub mod qir {
         functor: FunctorApp,
     ) -> qsc_fir::fir::ExprId {
         let mut current_id = expr_id;
+        let mut current_ty = ty.clone();
         if functor.adjoint {
             current_id = wrap_expr_with_functor(
                 package,
@@ -1658,11 +1705,18 @@ pub mod qir {
             );
         }
         for _ in 0..functor.controlled {
+            let qsc_fir::ty::Ty::Arrow(arrow) = &mut current_ty else {
+                unreachable!("functor operand must have an arrow type");
+            };
+            *arrow.input = qsc_fir::ty::Ty::Tuple(vec![
+                qsc_fir::ty::Ty::Array(Box::new(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit))),
+                *arrow.input.clone(),
+            ]);
             current_id = wrap_expr_with_functor(
                 package,
                 assigner,
                 current_id,
-                ty,
+                &current_ty,
                 qsc_fir::fir::Functor::Ctl,
             );
         }
@@ -1956,11 +2010,29 @@ pub mod qir {
     /// pin-based approach when args contain runtime identities that cannot be
     /// represented as FIR values.
     ///
-    /// The original target is pinned for DCE survival so that `fir_to_qir_from_callable`
-    /// can still use the original ID for partial evaluation.
+    /// The reinvocation path pins the original target for partial evaluation;
+    /// a self-contained synthetic entry does not need it pinned.
     pub fn prepare_codegen_fir_from_callable_args(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
+        args: &Value,
+        capabilities: TargetCapabilityFlags,
+    ) -> Result<(CodegenFir, CallableArgsBackend), Vec<Error>> {
+        prepare_codegen_fir_from_callable_args_with_functor(
+            package_store,
+            callable,
+            FunctorApp::default(),
+            args,
+            capabilities,
+        )
+    }
+
+    /// Prepares an invocation of the selected runtime specialization, preserving
+    /// its functors in either the synthetic entry or the reinvocation backend.
+    pub fn prepare_codegen_fir_from_callable_args_with_functor(
+        package_store: &PackageStore,
+        callable: qsc_hir::hir::ItemId,
+        functor: FunctorApp,
         args: &Value,
         capabilities: TargetCapabilityFlags,
     ) -> Result<(CodegenFir, CallableArgsBackend), Vec<Error>> {
@@ -1972,6 +2044,30 @@ pub mod qir {
             item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
         };
 
+        if functor != FunctorApp::default() {
+            let Some(qsc_hir::hir::Item {
+                kind: qsc_hir::hir::ItemKind::Callable(decl),
+                ..
+            }) = package_store
+                .get(callable.package)
+                .and_then(|unit| unit.package.items.get(callable.item))
+            else {
+                return Err(vec![Error::NotACallable]);
+            };
+            let required = match (functor.adjoint, functor.controlled > 0) {
+                (false, false) => qsc_hir::ty::FunctorSetValue::Empty,
+                (true, false) => qsc_hir::ty::FunctorSetValue::Adj,
+                (false, true) => qsc_hir::ty::FunctorSetValue::Ctl,
+                (true, true) => qsc_hir::ty::FunctorSetValue::CtlAdj,
+            };
+            if decl.functors.intersect(&required) != required {
+                return Err(vec![Error::InvalidRuntimeCallableFunctor {
+                    callable: target_callable,
+                    functor,
+                }]);
+            }
+        }
+
         if concrete_callables.is_empty() {
             let codegen_fir =
                 prepare_codegen_fir_from_callable(package_store, callable, capabilities)?;
@@ -1979,6 +2075,7 @@ pub mod qir {
                 codegen_fir,
                 CallableArgsBackend::ReinvokeOriginal {
                     callable: target_callable,
+                    functor,
                     args: args.clone(),
                 },
             ));
@@ -2000,6 +2097,7 @@ pub mod qir {
                 codegen_fir,
                 CallableArgsBackend::ReinvokeOriginal {
                     callable: target_callable,
+                    functor,
                     args: args.clone(),
                 },
             ));
@@ -2014,12 +2112,13 @@ pub mod qir {
         let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
         normalize_callable_signatures(&mut fir_store, &concrete_callables);
 
-        // Build synthetic Call(Var(target), args) as the entry expression.
+        // Build a synthetic invocation, including the target's applied functors.
         // This makes the target and all callable args entry-reachable for pipeline transforms.
         seed_entry_with_call_to_target(
             &mut fir_store,
             fir_package_id,
             target_callable,
+            functor,
             args,
             &callable_types,
         );

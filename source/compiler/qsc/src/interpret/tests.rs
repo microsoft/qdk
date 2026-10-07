@@ -1305,6 +1305,560 @@ mod given_interpreter {
             "#]].assert_eq(&res);
         }
 
+        fn runtime_target_fixture(
+            source: &str,
+            target: &str,
+            args: &str,
+        ) -> (Interpreter, Value, Value) {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRIF.into(),
+            );
+            line(&mut interpreter, source)
+                .0
+                .expect("source declarations compile");
+            let target = line(&mut interpreter, target)
+                .0
+                .expect("source target evaluates");
+            let args = line(&mut interpreter, args)
+                .0
+                .expect("source arguments evaluate");
+            (interpreter, target, args)
+        }
+
+        fn static_target_circuit(
+            interpreter: &mut Interpreter,
+            entry: crate::interpret::CircuitEntryPoint,
+        ) -> Result<qsc_circuit::Circuit, Vec<crate::interpret::Error>> {
+            interpreter.circuit(
+                entry,
+                crate::interpret::CircuitGenerationMethod::Static,
+                qsc_circuit::TracerConfig {
+                    max_operations: 1000,
+                    max_loop_iterations: None,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
+            )
+        }
+
+        fn assert_runtime_target_backend(
+            interpreter: &Interpreter,
+            target: &Value,
+            args: &Value,
+            synthetic: bool,
+        ) {
+            use crate::codegen::qir::{
+                CallableArgsBackend, prepare_codegen_fir_from_callable_args_with_functor,
+            };
+            let (id, functor) =
+                Interpreter::hir_callable_from_value(target).expect("global target");
+            let (_, backend) = prepare_codegen_fir_from_callable_args_with_functor(
+                interpreter.compiler.package_store(),
+                id,
+                functor,
+                &Interpreter::remap_value_for_codegen(args.clone()),
+                interpreter.capabilities,
+            )
+            .expect("source-derived target prepares");
+            assert_eq!(
+                matches!(backend, CallableArgsBackend::SyntheticEntry),
+                synthetic
+            );
+            if let CallableArgsBackend::ReinvokeOriginal {
+                functor: actual, ..
+            } = backend
+            {
+                assert_eq!(actual, functor, "reinvocation retains the target functor");
+            }
+        }
+
+        #[test]
+        fn runtime_target_adjoint_executes_adjoint_instead_of_body() {
+            let (mut interpreter, target, args) = runtime_target_fixture(
+                r#"operation Target() : Unit is Adj {
+                    body (...) {}
+                    adjoint (...) { fail "adjoint"; }
+                }"#,
+                "Adjoint Target",
+                "()",
+            );
+            // Dropping the runtime adjoint would run the empty body and succeed.
+            let errors = interpreter
+                .qirgen_from_callable(&target, args)
+                .expect_err("the adjoint, not the body, must execute");
+            let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+                panic!("{errors:?}");
+            };
+            assert_eq!(
+                error.to_string(),
+                "partial evaluation failed with error: program failed: adjoint"
+            );
+        }
+
+        #[test]
+        fn runtime_target_functors_preserve_rz_angle_and_order_in_both_backends() {
+            use crate::interpret::CircuitEntryPoint;
+            let source = r#"
+                function EmptyControls() : Qubit[] { [] }
+                operation Target(theta : Double) : Unit is Adj + Ctl {
+                    use q = Qubit(); Z(q); Rz(theta, q); S(q);
+                }
+                function Identity(x : Double) : Double { x }
+                operation Higher(f : Double -> Double, theta : Double) : Unit is Adj + Ctl {
+                    Target(f(theta));
+                }
+            "#;
+            for (name, input, synthetic) in [
+                ("Target", "0.25", false),
+                ("Higher", "(Identity, 0.25)", true),
+            ] {
+                // Body and double-adjoint are compatibility controls; the other
+                // cases must retain the runtime value's selected specialization.
+                for (prefix, controls, adjoint) in [
+                    ("", 0, false),
+                    ("Adjoint ", 0, true),
+                    ("Adjoint Adjoint ", 0, false),
+                    ("Controlled ", 1, false),
+                    ("Controlled Adjoint ", 1, true),
+                    ("Controlled Controlled Adjoint ", 2, true),
+                ] {
+                    let target_expr = format!("{prefix}{name}");
+                    let mut args_expr = input.to_string();
+                    for _ in 0..controls {
+                        args_expr = format!("(EmptyControls(), {args_expr})");
+                    }
+                    let invocation = format!("({target_expr})({args_expr})");
+                    let (mut interpreter, target, args) =
+                        runtime_target_fixture(source, &target_expr, &args_expr);
+                    assert_runtime_target_backend(&interpreter, &target, &args, synthetic);
+                    let actual = interpreter
+                        .qirgen_from_callable(&target, args.clone())
+                        .unwrap_or_else(|error| panic!("{invocation}: {error:?}"));
+                    let expected = interpreter.qirgen(&invocation).expect("source QIR");
+                    let gates = |qir: &str| {
+                        qir.lines()
+                            .filter(|line| line.contains("call void @__quantum__qis__"))
+                            .map(|line| line.trim().to_string())
+                            .collect::<Vec<_>>()
+                    };
+                    let actual_gates = gates(&actual);
+                    assert_eq!(actual_gates, gates(&expected), "{invocation}");
+                    assert_eq!(actual_gates.len(), 3, "{invocation}: {actual}");
+                    let angle = if adjoint { "-0.25" } else { "0.25" };
+                    assert!(
+                        actual_gates[1].contains(&format!("rz__body(double {angle},")),
+                        "{invocation}: {actual}"
+                    );
+                    assert!(
+                        actual_gates[0].contains(if adjoint { "s__adj" } else { "z__body" }),
+                        "{invocation}: {actual}"
+                    );
+                    assert!(
+                        actual_gates[2].contains(if adjoint { "z__body" } else { "s__body" }),
+                        "{invocation}: {actual}"
+                    );
+
+                    let actual = static_target_circuit(
+                        &mut interpreter,
+                        CircuitEntryPoint::Callable(target, args),
+                    )
+                    .unwrap_or_else(|error| panic!("{invocation}: {error:?}"));
+                    let expected = static_target_circuit(
+                        &mut interpreter,
+                        CircuitEntryPoint::EntryExpr(invocation.clone()),
+                    )
+                    .expect("source static circuit");
+                    assert_eq!(
+                        actual.display_no_locations().to_string(),
+                        expected.display_no_locations().to_string(),
+                        "{invocation}"
+                    );
+                    let rotations: Vec<_> = actual
+                        .component_grid
+                        .iter()
+                        .flat_map(|column| &column.components)
+                        .filter(|operation| operation.gate() == "Rz")
+                        .collect();
+                    assert_eq!(rotations.len(), 1, "{invocation}: {actual}");
+                    assert_eq!(
+                        rotations[0].args(),
+                        [if adjoint { "-0.2500" } else { "0.2500" }],
+                        "{invocation}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn runtime_target_control_depth_preserves_explicit_specialization_gate_order() {
+            use crate::interpret::CircuitEntryPoint;
+            let source = r#"
+                function EmptyControls() : Qubit[] { [] }
+                operation Target(theta : Double) : Unit is Adj + Ctl {
+                    body (...) { use q = Qubit(); Rz(theta, q); }
+                    adjoint (...) { use q = Qubit(); Rz(-theta, q); }
+                    controlled (controls, ...) {
+                        use (control, q) = (Qubit(), Qubit());
+                        Controlled X(controls + [control], q);
+                        Rz(theta, q);
+                        Controlled X(controls + [control], q);
+                    }
+                    controlled adjoint (controls, ...) {
+                        use (control, q) = (Qubit(), Qubit());
+                        Controlled X(controls + [control], q);
+                        Rz(-theta, q);
+                        Controlled X(controls + [control], q);
+                    }
+                }
+                function Identity(value : Double) : Double { value }
+                operation Higher(f : Double -> Double, theta : Double) : Unit is Adj + Ctl {
+                    Target(f(theta));
+                }
+            "#;
+            for (name, input) in [("Target", "0.25"), ("Higher", "(Identity, 0.25)")] {
+                for (prefix, depth, adjoint) in [
+                    ("Controlled ", 1, false),
+                    ("Controlled Adjoint ", 1, true),
+                    ("Controlled Controlled Adjoint ", 2, true),
+                ] {
+                    let target = format!("{prefix}{name}");
+                    let mut args = input.to_string();
+                    for _ in 0..depth {
+                        args = format!("(EmptyControls(), {args})");
+                    }
+                    let (mut interpreter, target_value, args_value) =
+                        runtime_target_fixture(source, &target, &args);
+                    let (_, functor) =
+                        Interpreter::hir_callable_from_value(&target_value).expect("source target");
+                    assert_eq!(functor.controlled, depth, "{target}");
+                    let qir = interpreter
+                        .qirgen_from_callable(&target_value, args_value.clone())
+                        .unwrap_or_else(|error| panic!("{target}: {error:?}"));
+                    let gates: Vec<_> = qir
+                        .lines()
+                        .filter(|line| line.contains("call void @__quantum__qis__"))
+                        .collect();
+                    assert_eq!(gates.len(), 3, "{target}: {qir}");
+                    assert!(
+                        gates[0].contains("cx__body") && gates[2].contains("cx__body"),
+                        "{target}: {qir}"
+                    );
+                    let angle = if adjoint { "-0.25" } else { "0.25" };
+                    assert!(
+                        gates[1].contains(&format!("rz__body(double {angle},")),
+                        "{target}: {qir}"
+                    );
+                    let circuit = static_target_circuit(
+                        &mut interpreter,
+                        CircuitEntryPoint::Callable(target_value, args_value),
+                    )
+                    .unwrap_or_else(|error| panic!("{target}: {error:?}"));
+                    let gates: Vec<_> = circuit
+                        .component_grid
+                        .iter()
+                        .flat_map(|column| &column.components)
+                        .filter_map(|operation| {
+                            if let qsc_circuit::Operation::Unitary(gate) = operation {
+                                Some(gate)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    assert_eq!(
+                        gates
+                            .iter()
+                            .map(|gate| gate.gate.as_str())
+                            .collect::<Vec<_>>(),
+                        ["X", "Rz", "X"],
+                        "{target}: {circuit}"
+                    );
+                    assert_eq!(
+                        gates
+                            .iter()
+                            .map(|gate| gate.controls.len())
+                            .collect::<Vec<_>>(),
+                        [1, 0, 1],
+                        "{target}: {circuit}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn runtime_target_nested_controls_flatten_all_layers_and_preserve_unit_input() {
+            // Observe the flattened control count without applying gates to
+            // qubits allocated in the interpreter's separate simulation state.
+            let source = r#"
+                operation Target() : Unit is Ctl {
+                    body (...) {}
+                    controlled (controls, ...) {
+                        use q = Qubit();
+                        Rz(Std.Convert.IntAsDouble(Length(controls)), q);
+                    }
+                }
+                use qs = Qubit[3];
+            "#;
+            let (mut interpreter, target, args) = runtime_target_fixture(
+                source,
+                "Controlled Controlled Target",
+                "([qs[2]], ([qs[0], qs[1]], ()))",
+            );
+            let qir = interpreter
+                .qirgen_from_callable(&target, args.clone())
+                .expect("nested control layers compile");
+            let gates: Vec<_> = qir
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("call void @__quantum__qis__"))
+                .collect();
+            assert_eq!(
+                gates,
+                [
+                    "call void @__quantum__qis__rz__body(double 3.0, %Qubit* inttoptr (i64 0 to %Qubit*))",
+                ],
+                "{qir}"
+            );
+        }
+
+        #[test]
+        fn runtime_target_duplicate_controls_report_qubit_uniqueness_at_target() {
+            let source = r#"
+                function EmptyControls() : Qubit[] { [] }
+                operation Target(q : Qubit) : Unit is Ctl {
+                    body (...) {}
+                    controlled (controls, ...) {}
+                }
+                use qs = Qubit[3];
+            "#;
+            for args in [
+                "([qs[0], qs[0]], (EmptyControls(), qs[2]))",
+                "([qs[0]], ([qs[0]], qs[2]))",
+                "([qs[0]], ([qs[1]], qs[0]))",
+            ] {
+                let (mut interpreter, target, args) =
+                    runtime_target_fixture(source, "Controlled Controlled Target", args);
+                let errors = interpreter
+                    .qirgen_from_callable(&target, args)
+                    .expect_err("duplicate control or target qubits must be rejected");
+                let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+                    panic!("{errors:?}");
+                };
+                assert_eq!(
+                    error.code().expect("diagnostic code").to_string(),
+                    "Qdk.Qsc.PartialEval.EvaluationFailed"
+                );
+                assert_eq!(
+                    error.to_string(),
+                    "partial evaluation failed with error: qubits in invocation are not unique"
+                );
+                let labels: Vec<_> = error.labels().expect("target label").collect();
+                assert_eq!(labels.len(), 1);
+                let (location, span) = error.resolve_span(labels[0].inner());
+                assert!(
+                    location.contents[span.offset()..span.offset() + span.len()]
+                        .contains("operation Target"),
+                    "{errors:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn runtime_target_and_callable_argument_adjoints_compose_independently() {
+            let source = r#"
+                operation Rotate(theta : Double) : Unit is Adj {
+                    use q = Qubit();
+                    Rz(theta, q);
+                }
+                operation Higher(op : Double => Unit is Adj, theta : Double) : Unit is Adj {
+                    op(theta);
+                }
+            "#;
+            for (target, argument, angle) in [
+                ("Higher", "Adjoint Rotate", "-0.25"),
+                ("Adjoint Higher", "Rotate", "-0.25"),
+                ("Adjoint Higher", "Adjoint Rotate", "0.25"),
+            ] {
+                let (mut interpreter, target, args) =
+                    runtime_target_fixture(source, target, &format!("({argument}, 0.25)"));
+                assert_runtime_target_backend(&interpreter, &target, &args, true);
+                let qir = interpreter
+                    .qirgen_from_callable(&target, args.clone())
+                    .expect("target and argument adjoints compile");
+                let gates: Vec<_> = qir
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| line.starts_with("call void @__quantum__qis__"))
+                    .collect();
+                assert_eq!(gates.len(), 1, "{qir}");
+                assert!(
+                    gates[0].starts_with(&format!(
+                        "call void @__quantum__qis__rz__body(double {angle},"
+                    )),
+                    "{qir}"
+                );
+                let circuit = static_target_circuit(
+                    &mut interpreter,
+                    crate::interpret::CircuitEntryPoint::Callable(target, args),
+                )
+                .expect("static circuit preserves both adjoints");
+                let rotations: Vec<_> = circuit
+                    .component_grid
+                    .iter()
+                    .flat_map(|column| &column.components)
+                    .filter(|operation| operation.gate() == "Rz")
+                    .collect();
+                assert_eq!(rotations.len(), 1, "{circuit}");
+                assert_eq!(rotations[0].args(), [format!("{angle}00")]);
+            }
+        }
+
+        #[test]
+        fn runtime_target_unsupported_functors_report_diagnostic_before_codegen() {
+            use crate::interpret::{CircuitEntryPoint, Error};
+            use qsc_data_structures::functors::FunctorApp;
+
+            let source = r#"
+                operation Plain(value : Int) : Unit {}
+                operation AdjointOnly(value : Int) : Unit is Adj {}
+                operation ControlledOnly(value : Int) : Unit is Ctl {}
+                function Identity(value : Int) : Int { value }
+            "#;
+            for (name, functor) in [
+                (
+                    "Plain",
+                    FunctorApp {
+                        adjoint: true,
+                        controlled: 0,
+                    },
+                ),
+                (
+                    "AdjointOnly",
+                    FunctorApp {
+                        adjoint: false,
+                        controlled: 1,
+                    },
+                ),
+                (
+                    "ControlledOnly",
+                    FunctorApp {
+                        adjoint: true,
+                        controlled: 1,
+                    },
+                ),
+                (
+                    "Identity",
+                    FunctorApp {
+                        adjoint: true,
+                        controlled: 0,
+                    },
+                ),
+            ] {
+                let (mut interpreter, target, args) = runtime_target_fixture(source, name, "0");
+                let Value::Global(id, _) = target else {
+                    panic!("source target must be a global");
+                };
+                // Source type checking rejects these applications, so construct the
+                // invalid runtime value to exercise the callable API's own validation.
+                let target = Value::Global(id, functor);
+                let qir_errors = interpreter
+                    .qirgen_from_callable(&target, args.clone())
+                    .expect_err("unsupported target functor must be rejected");
+                let circuit_errors = static_target_circuit(
+                    &mut interpreter,
+                    CircuitEntryPoint::Callable(target, args),
+                )
+                .expect_err("static circuit must reject unsupported target functor");
+                for errors in [qir_errors, circuit_errors] {
+                    let [
+                        Error::InvalidRuntimeCallableFunctor {
+                            callable,
+                            functor: actual,
+                        },
+                    ] = errors.as_slice()
+                    else {
+                        panic!("{name}: {errors:?}");
+                    };
+                    assert_eq!(*callable, id);
+                    assert_eq!(*actual, functor);
+                    assert_eq!(
+                        errors[0].code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.Interpret.InvalidRuntimeCallableFunctor"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn runtime_target_failing_adjoint_preserves_user_failure_and_source_location() {
+            use crate::interpret::{CircuitEntryPoint, Error};
+            let source = r#"
+                operation Target(value : Int) : Unit is Adj {
+                    body (...) {}
+                    adjoint (...) { fail "adjoint selected"; }
+                }
+                function Identity(value : Int) : Int { value }
+                operation Higher(f : Int -> Int, value : Int) : Unit is Adj {
+                    Target(f(value));
+                }
+            "#;
+            for (target, args) in [("Adjoint Target", "0"), ("Adjoint Higher", "(Identity, 0)")] {
+                let (mut interpreter, target_value, args_value) =
+                    runtime_target_fixture(source, target, args);
+                let mut output = Cursor::new(Vec::new());
+                let original = interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut output),
+                        target_value,
+                        args_value,
+                    )
+                    .expect_err("selected source adjoint must fail");
+                assert!(
+                    matches!(original.as_slice(), [Error::Eval(_)]),
+                    "{original:?}"
+                );
+                assert_eq!(
+                    original[0].code().expect("diagnostic code").to_string(),
+                    "Qdk.Qsc.Eval.UserFail"
+                );
+                for circuit in [false, true] {
+                    let (mut interpreter, target_value, args_value) =
+                        runtime_target_fixture(source, target, args);
+                    let errors = if circuit {
+                        static_target_circuit(
+                            &mut interpreter,
+                            CircuitEntryPoint::Callable(target_value, args_value),
+                        )
+                        .expect_err("static circuit must invoke the failing adjoint")
+                    } else {
+                        interpreter
+                            .qirgen_from_callable(&target_value, args_value)
+                            .expect_err("QIR must invoke the failing adjoint")
+                    };
+                    let [Error::PartialEvaluation(error)] = errors.as_slice() else {
+                        panic!("{errors:?}")
+                    };
+                    assert_eq!(
+                        error.code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.PartialEval.EvaluationFailed"
+                    );
+                    assert_eq!(
+                        error.to_string(),
+                        "partial evaluation failed with error: program failed: adjoint selected"
+                    );
+                    let labels: Vec<_> = error.labels().expect("source label").collect();
+                    assert_eq!(labels.len(), 1);
+                    let (location, span) = error.resolve_span(labels[0].inner());
+                    assert_eq!(
+                        &location.contents[span.offset()..span.offset() + span.len()],
+                        r#"fail "adjoint selected""#,
+                        "{target}, circuit={circuit}"
+                    );
+                }
+            }
+        }
+
         fn assert_qir_has_three_h_gates(qir: &str) {
             assert!(
                 qir.contains("define i64 @ENTRYPOINT__main()"),

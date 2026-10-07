@@ -90,6 +90,7 @@ pub fn partially_evaluate_call(
     package_store: &PackageStore,
     compute_properties: &PackageStoreComputeProperties,
     callable: StoreItemId,
+    functor: FunctorApp,
     args: Value,
     capabilities: TargetCapabilityFlags,
     config: PartialEvalConfig,
@@ -101,7 +102,7 @@ pub fn partially_evaluate_call(
         capabilities,
         config,
     );
-    partial_evaluator.invoke(callable, args)
+    partial_evaluator.invoke(callable, functor, args)
 }
 
 /// A partial evaluation error.
@@ -549,9 +550,13 @@ impl<'a> PartialEvaluator<'a> {
         self.extract_program(ret_val, output_ty, output_span)
     }
 
-    fn invoke(mut self, callable: StoreItemId, args: Value) -> Result<Program, Error> {
-        // Evaluate the callalbe.
-        let ret_val = self.eval_global_call(callable, args)?.into_value();
+    fn invoke(
+        mut self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+        args: Value,
+    ) -> Result<Program, Error> {
+        let ret_val = self.eval_global_call(callable, functor, args)?.into_value();
         let global = self
             .package_store
             .get_global(callable)
@@ -1810,6 +1815,7 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_global_call(
         &mut self,
         store_item_id: StoreItemId,
+        functor: FunctorApp,
         args: Value,
     ) -> Result<EvalControlFlow, Error> {
         let global = self
@@ -1824,21 +1830,27 @@ impl<'a> PartialEvaluator<'a> {
         // Set up the scope for the call, which allows additional error checking if the callable was
         // previously unresolved.
         let spec_decl = if let CallableImpl::Spec(spec_impl) = &callable_decl.implementation {
-            get_spec_decl(spec_impl, FunctorApp::default())
+            get_spec_decl(spec_impl, functor)
         } else {
             panic!("global call to intrinsic function not supported");
         };
 
+        let controls = spec_decl.input.map(|input| {
+            (
+                StorePatId::from((store_item_id.package, input)),
+                functor.controlled,
+            )
+        });
         let (args, ctls_arg, arrays) = self.resolve_args(
             (store_item_id.package, callable_decl.input).into(),
             args,
-            None,
-            None,
+            Some(map_fir_package_span_to_hir(callable_decl.span)),
+            controls,
             None,
         )?;
         let call_scope = Scope::new(
             store_item_id.package,
-            Some((store_item_id.item, FunctorApp::default())),
+            Some((store_item_id.item, functor)),
             args,
             ctls_arg,
             false,
@@ -1847,12 +1859,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
-        let value = self.eval_expr_call_to_spec(
-            call_scope,
-            store_item_id,
-            FunctorApp::default(),
-            spec_decl,
-        )?;
+        let value = self.eval_expr_call_to_spec(call_scope, store_item_id, functor, spec_decl)?;
         Ok(EvalControlFlow::Continue(value))
     }
 

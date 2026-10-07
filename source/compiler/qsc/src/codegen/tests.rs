@@ -2618,16 +2618,19 @@ fn callable_args_to_qir(
             )
             .unwrap_or_else(|e| panic!("fir_to_qir failed: {e:?}"))
         }
-        CallableArgsBackend::ReinvokeOriginal { callable, args } => {
-            qsc_codegen::qir::fir_to_qir_from_callable(
-                &codegen_fir.fir_store,
-                capabilities,
-                &codegen_fir.compute_properties,
-                callable,
-                args,
-            )
-            .unwrap_or_else(|e| panic!("fir_to_qir_from_callable failed: {e:?}"))
-        }
+        CallableArgsBackend::ReinvokeOriginal {
+            callable,
+            functor,
+            args,
+        } => qsc_codegen::qir::fir_to_qir_from_callable(
+            &codegen_fir.fir_store,
+            capabilities,
+            &codegen_fir.compute_properties,
+            callable,
+            functor,
+            args,
+        )
+        .unwrap_or_else(|e| panic!("fir_to_qir_from_callable failed: {e:?}")),
     }
 }
 

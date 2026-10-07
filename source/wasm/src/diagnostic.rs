@@ -319,6 +319,7 @@ fn interpret_error_labels(err: &interpret::Error) -> Vec<Label> {
         | interpret::Error::UnsupportedRuntimeCapabilities
         | interpret::Error::Circuit(_)
         | interpret::Error::NotAnOperation
-        | interpret::Error::NotACallable => Vec::new(),
+        | interpret::Error::NotACallable
+        | interpret::Error::InvalidRuntimeCallableFunctor { .. } => Vec::new(),
     }
 }
