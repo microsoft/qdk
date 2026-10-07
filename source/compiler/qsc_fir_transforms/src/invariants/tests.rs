@@ -347,9 +347,8 @@ fn divergent_while_true_fail_body_passes_block_tail() {
 
 #[test]
 fn divergent_repeat_fail_body_passes_block_tail() {
-    // Repeat lowering appends a synthetic condition update after the original
-    // body and wraps it in a while loop. The divergence check must still see
-    // the earlier fail when validating the enclosing non-Unit callable body.
+    // Compatibility coverage: the Int tail remains well-typed even though the
+    // lowered repeat body fails before reaching it.
     let source = r#"
         namespace Test {
             @EntryPoint(Adaptive)
@@ -1214,4 +1213,102 @@ fn structural_check_admits_every_stage() {
             "every structural stage is in scope"
         );
     }
+}
+
+#[test]
+fn earlier_eager_failure_allows_non_unit_block_without_value_tail() {
+    for body in [
+        "fail \"expected\";",
+        "{ fail \"expected\"; 0 };",
+        "let value = { fail \"expected\"; 0 };",
+        "if true { fail \"expected\"; } else { fail \"other\"; }",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ {body} (); 42 }}");
+        let (mut store, pkg_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+        let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+        // Remove the value tail before simplification can discard unreachable
+        // statements. The preceding failure, not the Unit tail, justifies this block.
+        store
+            .get_mut(pkg_id)
+            .blocks
+            .get_mut(body_id)
+            .expect("body block")
+            .stmts
+            .pop()
+            .expect("value tail");
+        let package = store.get(pkg_id);
+        let last = *package.get_block(body_id).stmts.last().expect("Unit tail");
+        let StmtKind::Semi(tail) = package.get_stmt(last).kind else {
+            panic!("expected a semicolon-terminated Unit tail");
+        };
+        assert_eq!(package.get_expr(tail).ty, Ty::UNIT);
+        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+    }
+}
+
+#[test]
+fn unexecuted_failures_do_not_exempt_mismatched_block_tails() {
+    for body in [
+        "if false { fail \"unreachable\"; } ()",
+        "let unused = false and (fail \"unreachable\"); ()",
+        "let unused = true or (fail \"unreachable\"); ()",
+        "mutable unused = false; set unused and= (fail \"unreachable\"); ()",
+        "mutable unused = true; set unused or= (fail \"unreachable\"); ()",
+        "let unused = if false { fail \"unreachable\" } else { true }; ()",
+        "let unused : Int -> Int = x -> { fail \"unreachable\"; x }; ()",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ {{ {body} }} 0 }}");
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original(&source),
+            Ok(qsc_eval::val::Value::Int(0)),
+            "{body}"
+        );
+        let (mut store, pkg_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+        let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+        let removed = store
+            .get_mut(pkg_id)
+            .blocks
+            .get_mut(body_id)
+            .expect("body block should exist")
+            .stmts
+            .pop();
+        assert!(removed.is_some(), "body should have a value tail to remove");
+
+        assert_panics_with("Non-Unit block-tail invariant violation", || {
+            check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+        });
+    }
+}
+
+#[test]
+fn removing_the_value_tail_from_a_non_unit_block_is_rejected() {
+    // Compile valid source, then remove its `42` tail from FIR while retaining
+    // the block's Int type. Unlike a guaranteed failure, `();` cannot justify
+    // the missing value, so this negative control must still be rejected.
+    let source = r#"
+        @EntryPoint()
+        operation Main() : Int {
+            ();
+            42
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
+    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+    store
+        .get_mut(pkg_id)
+        .blocks
+        .get_mut(body_id)
+        .expect("body should exist")
+        .stmts
+        .pop()
+        .expect("body should have a value tail to remove");
+    let package = store.get(pkg_id);
+    let tail_id = *package.get_block(body_id).stmts.last().expect("Unit tail");
+    let StmtKind::Semi(expr_id) = package.get_stmt(tail_id).kind else {
+        panic!("tail should be a semicolon-terminated expression");
+    };
+    assert_eq!(package.get_expr(expr_id).ty, Ty::UNIT);
+    assert_panics_with("ends with Semi Expr", || {
+        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+    });
 }

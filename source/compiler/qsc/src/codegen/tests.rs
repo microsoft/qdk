@@ -7221,9 +7221,7 @@ fn nested_closure_captures_preserve_values_in_base_qir() {
 
 /// Check the computed value as an `AdaptiveRIF` integer output and as a Base
 /// rotation operand. This verifies emitted data, not merely successful compilation.
-/// These fixtures also protect existing tuple-alias behavior; the isolated
-/// prepass tests assert that environment normalization itself runs.
-fn assert_classical_capture_result_in_qir(source: &str, expected: i32) {
+fn assert_classical_result_in_qir(source: &str, expected: i32) {
     let adaptive = format!(
         "{source}\nnamespace Entry {{
             @EntryPoint() operation Main() : Int {{ Test.Compute() }}
@@ -7276,7 +7274,7 @@ fn nonadjacent_callable_tuple_snapshot_preserves_original_values_in_qir() {
             }
         }
     "#;
-    assert_classical_capture_result_in_qir(source, 1413);
+    assert_classical_result_in_qir(source, 1413);
 }
 
 #[test]
@@ -7294,7 +7292,7 @@ fn nested_callable_tuple_snapshot_preserves_scalar_and_callable_values_in_qir() 
             }
         }
     "#;
-    assert_classical_capture_result_in_qir(source, 31_413);
+    assert_classical_result_in_qir(source, 31_413);
 }
 
 #[test]
@@ -7317,7 +7315,7 @@ fn captured_callable_tuple_snapshot_survives_reassignment_in_qir() {
             }
         }
     "#;
-    assert_classical_capture_result_in_qir(source, 14_131_413);
+    assert_classical_result_in_qir(source, 14_131_413);
 }
 
 #[test]
@@ -7343,7 +7341,7 @@ fn forwarded_callable_tuple_preserves_original_capture_in_qir() {
             }
         }
     "#;
-    assert_classical_capture_result_in_qir(source, 171_405);
+    assert_classical_result_in_qir(source, 171_405);
 }
 
 #[test]
@@ -7365,7 +7363,7 @@ fn nested_wrapper_array_preserves_distinct_capture_values_in_qir() {
             }
         }
     "#;
-    assert_classical_capture_result_in_qir(source, 24_630);
+    assert_classical_result_in_qir(source, 24_630);
 }
 
 #[test]
@@ -7436,5 +7434,71 @@ fn controlled_struct_factory_preserves_control_and_target_qubits_in_qir() {
             "call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))"
         ],
         "{qir}"
+    );
+}
+
+#[test]
+fn unselected_non_unit_helper_with_semicolon_failure_records_forty_two() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                function Deferred() : Int {
+                    fail "expected";
+                }
+                if false { Deferred() } else { 42 }
+            }
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+    assert_single_integer_output(&qir, 42);
+}
+
+#[test]
+fn non_unit_entry_with_eager_failure_reports_original_user_error() {
+    use miette::Diagnostic;
+
+    for body in [
+        "fail \"expected\";",
+        "[fail \"expected\"];",
+        "{ let value = { fail \"expected\"; 0 }; while false {} }",
+    ] {
+        let source =
+            format!("namespace Test {{ @EntryPoint() operation Main() : Int {{ {body} }} }}");
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRIF.into())
+            .expect_err("executed fail should return an evaluation error");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("expected a partial-evaluation failure, got: {errors:?}")
+        };
+        assert_eq!(
+            error.code().expect("diagnostic code").to_string(),
+            "Qdk.Qsc.PartialEval.EvaluationFailed"
+        );
+        assert_eq!(
+            error.to_string(),
+            "partial evaluation failed with error: program failed: expected"
+        );
+        let labels: Vec<_> = error.labels().expect("failure source").collect();
+        assert_eq!(labels.len(), 1);
+        let (location, span) = error.resolve_span(labels[0].inner());
+        assert_eq!(
+            &location.contents[span.offset()..span.offset() + span.len()],
+            "fail \"expected\""
+        );
+    }
+}
+
+#[test]
+fn return_in_while_condition_emits_forty_two_in_base_and_adaptive_qir() {
+    assert_classical_result_in_qir(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Compute() : Int {
+                    while ({ return 42; 0 }) < 1 {}
+                    0
+                }
+            }
+        "#},
+        42,
     );
 }

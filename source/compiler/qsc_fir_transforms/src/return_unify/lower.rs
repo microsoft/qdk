@@ -296,9 +296,10 @@ pub(super) struct FlagContext<'a> {
 ///   [`FinalTrailingExprStrategy::Lazy`], or under `Preserve` but the trailing
 ///   expression itself still contains a `return`.
 ///
-/// Under `FinalTrailingExprStrategy::Preserve` with no nested return, the
-/// trailing expression is left untouched so a block that already produces its
-/// value can keep it verbatim.
+/// Under [`FinalTrailingExprStrategy::Preserve`] with no nested return, only
+/// trailing values accepted by [`expr_is_safe_to_discard`] are kept verbatim.
+/// Potentially effectful or failing tails are guarded so an earlier return
+/// suppresses their evaluation without changing the block's output type.
 ///
 /// # Transformation
 ///
@@ -407,9 +408,22 @@ fn transform_block_stmts_with_flags(
                     new_stmts.push(lazy_continuation);
                     break;
                 }
-                // Preserve with no nested return: the block already produces its
-                // value here, so keep the trailing expression exactly as-is.
+                // Preserve safe trailing values; guard work that an earlier
+                // return must suppress without changing the block's type.
                 FinalTrailingExprStrategy::Preserve => {
+                    let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind else {
+                        unreachable!("trailing statement must be an expression");
+                    };
+                    if !expr_is_safe_to_discard(package, flag_context.package_id, expr_id) {
+                        new_stmts.extend(guard_trailing_value(
+                            package,
+                            assigner,
+                            expr_id,
+                            flag_context,
+                            arrow_default_cache,
+                        ));
+                        continue;
+                    }
                     new_stmts.push(stmt_id);
                     continue;
                 }
@@ -433,6 +447,36 @@ fn transform_block_stmts_with_flags(
     }
 
     new_stmts
+}
+
+fn guard_trailing_value(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+) -> [StmtId; 2] {
+    let expr = package.get_expr(expr_id).clone();
+    let (result, binding) = alloc_local_var(
+        package,
+        assigner,
+        symbols::TRAILING_RESULT,
+        &expr.ty,
+        expr_id,
+        Mutability::Immutable,
+    );
+    let guarded = guard_stmt_with_flag(
+        package,
+        assigner,
+        flag_context,
+        binding,
+        arrow_default_cache,
+    );
+    let value = alloc_local_var_expr(package, assigner, result, expr.ty, expr.span);
+    [
+        guarded,
+        alloc_expr_stmt(package, assigner, value, expr.span),
+    ]
 }
 
 /// Rewrites a single statement for the flag-threaded block and appends it to
@@ -711,9 +755,9 @@ fn transform_while_stmt(
 /// operand position (e.g. a `Call` argument) or inside a `Local` binding's
 /// initializer — so no raw `Return` survives to trip `check_no_returns`.
 ///
-/// The `While` arm performs the loop rewrite (flag-guarded condition + return
-/// replacement in the body). Nested *statement sequences* — a `Block` and the
-/// branch blocks of an `If` — are delegated to the canonical
+/// The `While` arm checks the return flag before evaluating the condition and,
+/// if the condition can return, again before entering the body. Nested statement
+/// sequences — a `Block` and the branch blocks of an `If` — are delegated to the canonical
 /// [`replace_returns_in_expr`]/[`replace_returns_in_block`] family so that any
 /// statement following a return-bearing statement inside them is wrapped in
 /// `if not __has_returned { … }` (via [`transform_block_stmts_with_flags`]).
@@ -739,7 +783,7 @@ fn transform_while_in_expr(
     let expr = package.get_expr(expr_id).clone();
     match &expr.kind {
         ExprKind::While(cond_id, body_block_id) => {
-            let cond_id = *cond_id;
+            let mut cond_id = *cond_id;
             let body_block_id = *body_block_id;
 
             if contains_return_in_expr(package, cond_id) {
@@ -749,6 +793,17 @@ fn transform_while_in_expr(
                     cond_id,
                     flag_context,
                     arrow_default_cache,
+                );
+                let not_returned =
+                    create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
+                cond_id = alloc_bin_op_expr(
+                    package,
+                    assigner,
+                    BinOp::AndL,
+                    cond_id,
+                    not_returned,
+                    Ty::Prim(Prim::Bool),
+                    package.synthetic_span(),
                 );
             }
 
@@ -1182,6 +1237,9 @@ fn replace_returns_in_condition_expr(
     flag_context: &FlagContext<'_>,
     arrow_default_cache: &mut ArrowDefaultCache,
 ) {
+    if !contains_return_in_expr(package, expr_id) {
+        return;
+    }
     let expr = package.get_expr(expr_id).clone();
     match &expr.kind {
         ExprKind::Return(inner_id) => {
@@ -1195,44 +1253,48 @@ fn replace_returns_in_condition_expr(
             );
         }
         ExprKind::Block(block_id) => {
-            let bid = *block_id;
-            let stmts = package.get_block(bid).stmts.clone();
-            let last_stmt = stmts.last().copied();
-
-            for stmt_id in stmts {
-                let expr_ids: Vec<ExprId> = {
-                    let stmt = package.get_stmt(stmt_id);
-                    match &stmt.kind {
-                        StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => {
-                            vec![*e]
-                        }
-                        StmtKind::Item(_) => vec![],
-                    }
-                };
-
-                for e in expr_ids {
-                    if Some(stmt_id) == last_stmt
-                        && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_))
-                    {
-                        replace_returns_in_condition_expr(
-                            package,
-                            assigner,
-                            e,
-                            flag_context,
-                            arrow_default_cache,
-                        );
-                    } else {
-                        replace_returns_in_expr(
-                            package,
-                            assigner,
-                            e,
-                            flag_context,
-                            arrow_default_cache,
-                        );
-                    }
-                }
+            let mut stmts = package.get_block(*block_id).stmts.clone();
+            let bool_ty = Ty::Prim(Prim::Bool);
+            let initial = alloc_bool_lit(package, assigner, false, expr.span);
+            let (result, binding) = alloc_local_var(
+                package,
+                assigner,
+                symbols::WHILE_CONDITION,
+                &bool_ty,
+                initial,
+                Mutability::Mutable,
+            );
+            if let Some(&last) = stmts.last()
+                && let StmtKind::Expr(value) = package.get_stmt(last).kind
+            {
+                replace_returns_in_condition_expr(
+                    package,
+                    assigner,
+                    value,
+                    flag_context,
+                    arrow_default_cache,
+                );
+                let write = create_assign_expr(package, assigner, result, value, &bool_ty);
+                stmts.pop();
+                stmts.push(alloc_semi_stmt(package, assigner, write, expr.span));
             }
-
+            let mut guarded = transform_block_stmts_with_flags(
+                package,
+                assigner,
+                &stmts,
+                flag_context,
+                arrow_default_cache,
+                FlagBlockOutput::Unit,
+            );
+            guarded.insert(0, binding);
+            let value = alloc_local_var_expr(package, assigner, result, bool_ty.clone(), expr.span);
+            guarded.push(alloc_expr_stmt(package, assigner, value, expr.span));
+            let block = package
+                .blocks
+                .get_mut(*block_id)
+                .expect("condition block must exist");
+            block.stmts = guarded;
+            block.ty = bool_ty;
             resync_expr_ty_from_children(package, expr_id);
         }
         ExprKind::If(cond_id, then_id, else_opt) => {

@@ -14,9 +14,8 @@ use indoc::indoc;
 /// the package, runs `unify_returns` directly, captures a second snapshot,
 /// and asserts the concatenated `BEFORE` / `AFTER` string matches `expect`.
 ///
-/// Shape-sensitive alternative to [`check_no_returns`]. Prefer behavior-only
-/// assertions for the majority of tests; reserve this for cases where the
-/// rewriting shape is itself under test.
+/// Use this for rewrite-shape contracts; semantic-equivalence tests cover
+/// return values and effects.
 fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
@@ -75,7 +74,9 @@ fn hoist_return_in_call_argument_shape_snapshot() {
 }
 
 #[test]
-fn while_condition_return_shape_snapshot() {
+fn while_condition_return_guards_condition_and_body_shape_snapshot() {
+    // Check both the per-iteration result and the flag test after condition
+    // evaluation, which prevents a returning condition from entering the body.
     check_before_after(
         indoc! {r#"
             namespace Test {
@@ -122,20 +123,22 @@ fn while_condition_return_shape_snapshot() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                while ((not __has_returned)) and if true {
-                    if true {
+                while ((not __has_returned)) and (if true {
+                    mutable __while_condition : Bool = false;
+                    __while_condition = if true {
+                        mutable __while_condition_1 : Bool = false;
                         {
                             __ret_val = 31;
                             __has_returned = true;
                         };
+                        __while_condition_1
                     } else {
                         false
-                    }
-
+                    };
+                    __while_condition
                 } else {
                     false
-                }
-                {
+                } and ((not __has_returned))) {
                     let _ : Int = 0;
                 }
 
