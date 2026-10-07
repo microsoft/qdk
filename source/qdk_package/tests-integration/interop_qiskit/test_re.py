@@ -90,9 +90,9 @@ def test_estimate_qiskit_rgqft_multiplier_without_tranpspile() -> None:
     assert res.logical_counts == LogicalCounts(
         {
             "numQubits": 16,
-            "tCount": 140,
-            "rotationCount": 532,
-            "rotationDepth": 369,
+            "tCount": 154,
+            "rotationCount": 574,
+            "rotationDepth": 376,
             "cczCount": 0,
             "ccixCount": 0,
             "measurementCount": 0,
@@ -114,9 +114,9 @@ def test_estimate_qiskit_rgqft_multiplier_in_threadpool() -> None:
     assert res.logical_counts == LogicalCounts(
         {
             "numQubits": 16,
-            "tCount": 140,
-            "rotationCount": 532,
-            "rotationDepth": 369,
+            "tCount": 154,
+            "rotationCount": 574,
+            "rotationDepth": 376,
             "cczCount": 0,
             "ccixCount": 0,
             "measurementCount": 0,

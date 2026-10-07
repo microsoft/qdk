@@ -806,3 +806,71 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]].assert_eq(&qir);
 }
+
+#[test]
+fn triply_controlled_r1_generates_successive_calls_to_rz_to_implement_relative_phase() {
+    let source = "
+    operation Main() : Unit {
+        use (ctls, q) = (Qubit[3], Qubit());
+        Controlled R1(ctls, (Std.Math.PI() / 2.0, q));
+    }
+    ";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 5 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.7853981633974483, %Qubit* inttoptr (i64 3 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 5 to %Qubit*), %Qubit* inttoptr (i64 3 to %Qubit*))
+          call void @__quantum__qis__rz__body(double -0.7853981633974483, %Qubit* inttoptr (i64 3 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 5 to %Qubit*), %Qubit* inttoptr (i64 3 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 5 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.39269908169872414, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__rz__body(double -0.39269908169872414, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.19634954084936207, %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__rz__body(double -0.19634954084936207, %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.19634954084936207, %Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__ccx__body(%Qubit*, %Qubit*, %Qubit*)
+
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
+
+        declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+
+        declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="6" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]]
+    .assert_eq(&qir);
+}

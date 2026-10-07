@@ -44,20 +44,20 @@ internal operation ApplyGlobalPhase(theta : Double) : Unit is Ctl + Adj {
 // that can interfere with runtime capabilities analysis.
 internal operation ControllableGlobalPhase(theta : Double) : Unit is Ctl {
     body ... {
-        GlobalPhase([], theta);
+        GlobalPhase(theta);
     }
     controlled (ctls, ...) {
         if Length(ctls) == 0 {
-            GlobalPhase([], theta);
+            GlobalPhase(theta);
         } else {
             Controlled Rz(ctls[1...], (theta, ctls[0]));
-            GlobalPhase(ctls[1...], theta / 2.0);
+            Controlled ControllableGlobalPhase(ctls[1...], theta / 2.0);
         }
     }
 }
 
-// Global phase intrinsic, which only has affect in simulation and is a no-op otherwise.
-internal operation GlobalPhase(ctls : Qubit[], theta : Double) : Unit {
+// Global phase intrinsic, which only has effect in simulation and is a no-op otherwise.
+internal operation GlobalPhase(theta : Double) : Unit {
     body intrinsic;
 }
 
