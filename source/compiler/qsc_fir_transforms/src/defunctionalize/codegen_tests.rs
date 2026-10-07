@@ -396,6 +396,37 @@ fn conditional_hof_callees_generate_correct_argument_qir() {
 }
 
 #[test]
+fn nested_closures_preserve_producer_capture_values_in_qir() {
+    for (source, expected) in test_cases::nested_environment_capture_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn data_only_factory_uses_preserve_other_closure_captures_in_qir() {
+    for (source, expected) in test_cases::surviving_producer_capture_cases()
+        .chain(test_cases::surviving_producer_functor_cases().map(|source| (source, 7)))
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn indirect_factory_calls_preserve_returned_closure_captures_in_qir() {
+    for (source, expected) in test_cases::indirect_factory_cases() {
+        check_qir_int_result(&source, expected);
+    }
+    check_qir_int_result(test_cases::CAPTURING_INDIRECT_FACTORY, 108);
+}
+
+#[test]
+fn higher_order_consumers_preserve_transitive_factory_captures_in_qir() {
+    for (source, expected) in test_cases::protected_owner_producer_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
 fn recursive_specializations_record_capture_results() {
     for (source, expected) in test_cases::recursive_capture_cases() {
         check_qir_int_result(&source, expected);

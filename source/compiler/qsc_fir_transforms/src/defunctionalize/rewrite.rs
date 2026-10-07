@@ -449,8 +449,8 @@ pub(super) fn rewrite(
     // array element type keeps `remove_dead_callable_local_from_callable` from
     // pruning it. Tracing the forwarded value back to its source-array local
     // lets the closure-bearing cleanup remove the now-dead binding instead of
-    // leaving an array of blanked (unit) closure elements — an arrow-typed
-    // block with a unit tail — stranded in a reachable caller.
+    // leaving an array of neutralized closure elements stranded in a reachable
+    // caller.
     let mut hof_consumed_source_arrays = FxHashSet::default();
 
     // Lowest-index fallback for rows lacking an exact parameter-position match.

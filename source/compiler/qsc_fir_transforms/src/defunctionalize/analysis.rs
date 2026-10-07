@@ -2490,7 +2490,9 @@ fn materialize_capture_exprs_from_state(
 fn expr_contains_local_reference(pkg: &Package, expr_id: ExprId) -> bool {
     let mut contains_local = false;
     crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_expr_id, expr| {
-        if matches!(expr.kind, ExprKind::Var(Res::Local(_), _)) {
+        if matches!(expr.kind, ExprKind::Var(Res::Local(_), _))
+            || matches!(&expr.kind, ExprKind::Closure(captures, _) if !captures.is_empty())
+        {
             contains_local = true;
         }
     });

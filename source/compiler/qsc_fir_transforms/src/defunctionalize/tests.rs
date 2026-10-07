@@ -1381,3 +1381,34 @@ fn identical_conditional_arms_over_indexed_array_keep_both_candidates() {
         );
     }
 }
+
+/// A conditional with identical indexed arms can leave dispatch unresolved
+/// even when per-candidate specializations exist. Those partial specializations
+/// must not authorize cleanup of closures still read through `ops[idx]`.
+///
+/// Checks the full-pipeline FIR for consumed-closure stand-ins. The companion
+/// semantic regression verifies that the surviving dispatch executes the
+/// original operations rather than invoking a fail-bodied replacement.
+#[test]
+fn dispatched_closure_array_emits_no_consumed_closure_stand_in() {
+    let source = r#"
+        operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let a = 1.0;
+            let ops = [q0 => Rx(a, q0), q0 => Ry(a, q0)];
+            let idx = MResetZ(q) == One ? 0 | 1;
+            let cond2 = MResetZ(q) == One;
+            let f = cond2 ? ops[idx] | ops[idx];
+            Run(f, q);
+        }
+    "#;
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert!(
+        !rendered.contains("__defunc_consumed_closure"),
+        "a consumed-closure stand-in survived into emitted code:\n{rendered}"
+    );
+}

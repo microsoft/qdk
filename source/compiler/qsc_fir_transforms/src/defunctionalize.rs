@@ -26,12 +26,12 @@
 //!   collapses identity closures such as `(a) => f(a)` down to `f`. Analysis
 //!   finds callable parameters and concrete call sites. Specialize clones a HOF
 //!   once per concrete argument combination, deduplicated by [`types::SpecKey`].
-//!   Rewrite redirects call
-//!   sites, drops the callable argument, and threads captured values through as
-//!   extra arguments. A final closure-cleanup step is convergence-critical: it
-//!   replaces eligible consumed closures with `Tuple([])`, subject to local
-//!   dependency and producer-owner protection. Consumption identifies cleanup
-//!   candidates, not proof that every occurrence of their target is dead.
+//!   Rewrite redirects call sites, drops the callable argument, and threads
+//!   captured values through as extra arguments. Cleanup replaces eligible
+//!   consumed closures with typed callable references, subject to local
+//!   dependency and producer-owner protection. Cleanup and convergence counting
+//!   share the same consumption predicate; a consumed target alone does not
+//!   prove that every occurrence is dead.
 //!   The iteration cap scales dynamically between
 //!   `MIN_ITERATIONS` and `MAX_ITERATIONS`. If no error was recorded, remaining
 //!   work produces [`Error::DynamicCallable`] for unresolved direct calls, or
@@ -88,11 +88,12 @@ use crate::reachability::{collect_reachable_from_entry, collect_reachable_packag
 use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::{PackageSpan, Span};
+use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Expr, ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
-    PackageStore, Res, StoreExprId, StoreItemId,
+    Expr, ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Mutability, Package, PackageId,
+    PackageLookup, PackageStore, PatKind, Res, StmtKind, StoreExprId, StoreItemId,
 };
-use qsc_fir::ty::Ty;
+use qsc_fir::ty::{Arrow, FunctorSet, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 use types::{
     AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey,
@@ -124,6 +125,7 @@ fn apply_target_input_at_control_path(
         _ => target_input.clone(),
     }
 }
+
 /// Lower bound on the analysis => specialize => rewrite iteration limit.
 ///
 /// This is a floor on the iteration budget, not the number of iterations run:
@@ -207,22 +209,34 @@ pub(crate) fn defunctionalize(
     // `emit_fixpoint_error`), so transient forwarding calls resolved by a later
     // specialization never reach that terminal state.
     let mut unresolved_direct_call_sites: Vec<StoreExprId> = Vec::new();
-
     // Callables outside a rewritten package that are side-effect free and total.
     // Dead-binding cleanup needs them to prove that discarding a producer call
     // is unobservable, and the package set does not change during the loop.
+    // Include foreign functions proven discardable, not just known intrinsics,
+    // so call-site admission and cleanup use the same effect-safety proof.
     let total_foreign = {
         let mut total = crate::walk_utils::collect_total_foreign_callables(store);
         crate::walk_utils::extend_with_discardable_foreign_callables(store, &mut total);
         total
     };
 
+    // Rewriting a closure callee mutates its occurrence into `Var(Item(.lambda))`.
+    // Preserve prior occurrence-local operands so the next analysis can retain
+    // them without attaching runtime values to the global lambda item.
     let mut preserved_direct_lambda_calls = Vec::new();
 
     // Capture the initial callable-value count for before/after progress
     // tracking, mirroring LLVM's DevirtSCCRepeatedPass: detect when an
     // iteration fails to reduce the remaining work set.
-    let (_, mut prev_remaining_count, _, _) = remaining_callable_value_info(store, package_id);
+    // Use the same consumption-aware count as later iterations, initially with
+    // no consumed targets.
+    let mut consumed_closures = ConsumedClosures::default();
+    let (_, mut prev_remaining_count, _, _) =
+        remaining_callable_value_info(store, package_id, &consumed_closures);
+
+    // Fail-bodied stand-ins for consumed closures with incompatible lifted
+    // signatures. Cache across iterations, with one item per signature and package.
+    let mut stand_ins = ClosureStandInCache::default();
 
     while iteration_count < max_iterations {
         iteration_count += 1;
@@ -281,9 +295,7 @@ pub(crate) fn defunctionalize(
         // `Dynamic`; emission is deferred to `emit_fixpoint_error` so calls
         // that are only transiently `Dynamic` never produce spurious errors.
         unresolved_direct_call_sites.clone_from(&analysis.unresolved_direct_call_sites);
-
         let spec_map = run_specialization(store, &analysis, assigners, &mut errors, &mut warnings);
-
         // Fold this pass's specializations into the cumulative per-HOF budget
         // and fail closed if any HOF has now required more distinct
         // specializations than the hard cap allows. This backstops the
@@ -325,15 +337,26 @@ pub(crate) fn defunctionalize(
 
         #[cfg(debug_assertions)]
         crate::invariants::debug_check_local_scopes(store, package_id);
-        // Closures consumed by specialization can live in foreign bodies (a
-        // closure passed to a HOF inside a relocated generic body), so cleanup
-        // runs once per package that owns a consumed closure.
+        // Recompute reachability after rewriting: orphaned producers need no
+        // closure cleanup and can be removed later by item DCE. Cleanup and
+        // convergence share the resulting package-qualified consumption state.
+        let post_rewrite_reachable = collect_reachable_from_entry(store, package_id);
+        consumed_closures =
+            ConsumedClosures::new(store, &specialized_closure_targets, &specialized_items);
+        let live_producers = live_callable_producer_items(
+            store,
+            package_id,
+            &post_rewrite_reachable,
+            &consumed_closures,
+        );
+        consumed_closures.skipped.extend(live_producers);
         cleanup_consumed_closures_per_package(
             store,
             package_id,
-            &reachable,
-            &specialized_closure_targets,
-            &specialized_items,
+            &post_rewrite_reachable,
+            &consumed_closures,
+            assigners,
+            &mut stand_ins,
         );
 
         let converged = check_convergence(
@@ -343,6 +366,7 @@ pub(crate) fn defunctionalize(
             iteration_count,
             &mut max_iterations,
             &mut prev_remaining_count,
+            &consumed_closures,
         );
         if converged {
             break;
@@ -369,6 +393,7 @@ pub(crate) fn defunctionalize(
         package_id,
         iteration_count,
         &unresolved_direct_call_sites,
+        &consumed_closures,
         &mut errors,
     );
     errors.extend(warnings);
@@ -592,6 +617,18 @@ fn track_specialized_closures(
                     cs.call_expr_id, cs.call_pkg_id,
                 );
             }
+            // Per-candidate specializations do not prove the whole dispatch was
+            // rewritten. Without a combined specialization, keep its closures
+            // live rather than replacing values the original call may still invoke.
+            if let Some(group) = groups.get(&(cs.call_pkg_id, cs.call_expr_id))
+                && group.len() > 1
+                && !spec_map.contains_key(&build_combined_spec_key_for_group(
+                    group[0].hof_item_id,
+                    group,
+                ))
+            {
+                continue;
+            }
             specialized_closure_targets.insert(StoreItemId::from((cs.call_pkg_id, *target)));
         }
     }
@@ -628,8 +665,10 @@ fn check_convergence(
     iteration_count: usize,
     max_iterations: &mut usize,
     prev_remaining_count: &mut usize,
+    consumed: &ConsumedClosures,
 ) -> bool {
-    let (has_remaining, remaining_count, _, _) = remaining_callable_value_info(store, package_id);
+    let (has_remaining, remaining_count, _, _) =
+        remaining_callable_value_info(store, package_id, consumed);
 
     let made_progress = remaining_count < *prev_remaining_count || !analysis.call_sites.is_empty();
     *prev_remaining_count = remaining_count;
@@ -667,10 +706,11 @@ fn emit_fixpoint_error(
     package_id: PackageId,
     iteration_count: usize,
     unresolved_direct_call_sites: &[StoreExprId],
+    consumed: &ConsumedClosures,
     errors: &mut Vec<Error>,
 ) {
     let (has_remaining, remaining_count, owner, span) =
-        remaining_callable_value_info(store, package_id);
+        remaining_callable_value_info(store, package_id, consumed);
     if has_remaining && errors.is_empty() {
         if unresolved_direct_call_sites.is_empty() {
             errors.push(Error::FixpointNotReached(
@@ -689,79 +729,412 @@ fn emit_fixpoint_error(
     }
 }
 
+/// Package-qualified bookkeeping shared by cleanup and remaining-work counting.
+///
+/// A closure occurrence is eligible only when its target is consumed, its owner
+/// is not skipped, and no live value dependency protects it. This type stores
+/// the first two conditions; [`collect_live_call_arg_exprs`] supplies the third.
+/// Consuming one use of a target does not make all its closure occurrences dead.
+#[derive(Default)]
+struct ConsumedClosures {
+    /// Closure target callables consumed by specialization or direct-call
+    /// rewrite. Accumulated across iterations by [`track_specialized_closures`].
+    targets: FxHashSet<StoreItemId>,
+    /// Items whose closures are left alone: every specialized clone produced so
+    /// far, plus producers needed by surviving callable-value dependencies.
+    skipped: FxHashSet<StoreItemId>,
+}
+
+/// [`ConsumedClosures`] projected to the local item ids of one package.
+struct ConsumedClosuresInPackage {
+    targets: FxHashSet<LocalItemId>,
+    skipped: FxHashSet<LocalItemId>,
+}
+
+impl ConsumedClosures {
+    /// Starts an iteration's state with cumulative consumed targets and specialized
+    /// items. Protects those items and their direct callees; the driver then adds
+    /// transitive live producers before cleanup and convergence counting.
+    fn new(
+        store: &PackageStore,
+        specialized_targets: &FxHashSet<StoreItemId>,
+        specialized_items: &FxHashSet<StoreItemId>,
+    ) -> Self {
+        let mut skipped = specialized_items.clone();
+        skipped.extend(items_called_from_skipped_items(store, specialized_items));
+        Self {
+            targets: specialized_targets.clone(),
+            skipped,
+        }
+    }
+
+    /// Whether there are no consumed targets.
+    fn is_empty(&self) -> bool {
+        self.targets.is_empty()
+    }
+
+    /// Narrows both sets to the local item ids of `pkg_id`.
+    fn project(&self, pkg_id: PackageId) -> ConsumedClosuresInPackage {
+        ConsumedClosuresInPackage {
+            targets: project_to_package(&self.targets, pkg_id),
+            skipped: project_to_package(&self.skipped, pkg_id),
+        }
+    }
+}
+
+impl ConsumedClosuresInPackage {
+    /// Whether this package owns any consumed closure targets.
+    fn has_targets(&self) -> bool {
+        !self.targets.is_empty()
+    }
+
+    /// True when closures inside `item_id` are left alone this iteration.
+    fn item_is_skipped(&self, item_id: LocalItemId) -> bool {
+        self.skipped.contains(&item_id)
+    }
+
+    /// Whether the target is consumed and the owner is not skipped.
+    ///
+    /// `None` denotes the package entry, which is never a skipped owner.
+    /// Callers must also exclude occurrences protected by live value dependencies.
+    fn set_conditions_hold(&self, owner_item: Option<LocalItemId>, target: LocalItemId) -> bool {
+        self.targets.contains(&target)
+            && !owner_item.is_some_and(|item_id| self.item_is_skipped(item_id))
+    }
+}
+
+/// Narrows a cross-package item set to the local item ids belonging to
+/// `pkg_id`.
+fn project_to_package(items: &FxHashSet<StoreItemId>, pkg_id: PackageId) -> FxHashSet<LocalItemId> {
+    items
+        .iter()
+        .filter(|id| id.package == pkg_id)
+        .map(|id| id.item)
+        .collect()
+}
+
+/// Collects live call-argument subtrees and their local value dependencies.
+///
+/// Local reads, callees, arguments, and captures protect all possible reaching
+/// values, including initializers and assignments. Same-package UDT constructors
+/// are structural wrappers, so their arguments alone do not establish liveness.
+///
+/// `skipped` excludes owners protected from cleanup. Producer discovery passes
+/// an empty set: even an owner whose closures cannot be cleaned can still call
+/// a producer whose returned closure must remain live.
+fn collect_live_call_arg_exprs(
+    package: &Package,
+    package_id: PackageId,
+    reachable_item_ids: &[LocalItemId],
+    skipped: &FxHashSet<LocalItemId>,
+) -> FxHashSet<ExprId> {
+    let mut call_arg_exprs: FxHashSet<ExprId> = FxHashSet::default();
+    for &item_id in reachable_item_ids {
+        if skipped.contains(&item_id) {
+            continue;
+        }
+        let item = package.get_item(item_id);
+        if let ItemKind::Callable(decl) = &item.kind {
+            let mut nodes = Vec::new();
+            crate::walk_utils::for_each_node_in_callable(package, decl, &mut |node| {
+                nodes.push(node);
+            });
+            collect_live_call_argument_exprs(package, package_id, &nodes, &mut call_arg_exprs);
+        }
+    }
+    if let Some(entry_id) = package.entry {
+        let mut nodes = Vec::new();
+        crate::walk_utils::for_each_node_from_expr_root(package, entry_id, &mut |node| {
+            nodes.push(node);
+        });
+        collect_live_call_argument_exprs(package, package_id, &nodes, &mut call_arg_exprs);
+    }
+
+    call_arg_exprs
+}
+
+/// Finds callable-producing calls and factory values that remain live, then
+/// follows their producer chains across packages. All reachable owners are
+/// scanned, including specialized clones and their protected callees: skipping
+/// cleanup of an owner does not protect its transitive producers.
+fn live_callable_producer_items(
+    store: &PackageStore,
+    entry_package: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+    consumed: &ConsumedClosures,
+) -> FxHashSet<StoreItemId> {
+    let mut producers = FxHashSet::default();
+    if consumed.is_empty() {
+        return producers;
+    }
+    for package_id in collect_reachable_package_closure(entry_package, reachable) {
+        let package = store.get(package_id);
+        let items: Vec<_> = reachable_local_callables(package, package_id, reachable)
+            .map(|(item, _)| item)
+            .collect();
+        let protected =
+            collect_live_call_arg_exprs(package, package_id, &items, &FxHashSet::default());
+        let data_only = data_only_producer_results(store, package, &items);
+        let value_uses = callable_value_uses(package, &items);
+        for expr_id in protected {
+            if data_only.contains(&expr_id) {
+                continue;
+            }
+            if let Some(producer) = referenced_callable_producer(
+                store,
+                package,
+                package.get_expr(expr_id),
+                value_uses.contains(&expr_id),
+            ) {
+                producers.insert(producer);
+            }
+        }
+    }
+    // A live aggregate producer may forward through other factories whose
+    // return expressions are not themselves direct call operands.
+    let mut pending: Vec<_> = producers.iter().copied().collect();
+    while let Some(producer) = pending.pop() {
+        let package = store.get(producer.package);
+        let ItemKind::Callable(decl) = &package.get_item(producer.item).kind else {
+            continue;
+        };
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_, expr| {
+                if let Some(target) = referenced_callable_producer(store, package, expr, true)
+                    && producers.insert(target)
+                {
+                    pending.push(target);
+                }
+            },
+        );
+    }
+    producers
+}
+
+/// A factory retained as a value may be invoked indirectly even if analysis
+/// cannot resolve that call. Its closure-producing body must stay intact just
+/// like the body of a directly called producer.
+/// A reference used only as a direct callee is covered by its call expression;
+/// it must not independently undo the data-only-result exclusion above.
+fn referenced_callable_producer(
+    store: &PackageStore,
+    package: &Package,
+    expr: &Expr,
+    used_as_value: bool,
+) -> Option<StoreItemId> {
+    let factory = if let ExprKind::Call(callee, _) = expr.kind {
+        if !callable_output_contains_arrow(store, &expr.ty) {
+            return None;
+        }
+        let (base, _) = peel_body_functors(package, callee);
+        package.get_expr(base)
+    } else if used_as_value
+        && let Ty::Arrow(arrow) = &expr.ty
+        && callable_output_contains_arrow(store, &arrow.output)
+    {
+        expr
+    } else {
+        return None;
+    };
+    match factory.kind {
+        ExprKind::Var(Res::Item(item), _) => Some((item.package, item.item).into()),
+        ExprKind::Closure(_, target) => Some((package.id, target).into()),
+        _ => None,
+    }
+}
+
+/// Records value-position expression edges, excluding direct callee edges.
+/// An expression shared between both positions is still a value use.
+fn callable_value_uses(package: &Package, items: &[LocalItemId]) -> FxHashSet<ExprId> {
+    use crate::walk_utils::{CallableNode, DirectChild, for_each_direct_child};
+    let mut uses = FxHashSet::default();
+    let mut record = |node| match node {
+        CallableNode::Stmt(id) => match package.get_stmt(id).kind {
+            StmtKind::Local(_, _, value) | StmtKind::Expr(value) | StmtKind::Semi(value) => {
+                uses.insert(value);
+            }
+            StmtKind::Item(_) => {}
+        },
+        CallableNode::Expr(id) => match &package.get_expr(id).kind {
+            ExprKind::Call(_, args) => {
+                uses.insert(*args);
+            }
+            kind => for_each_direct_child(kind, |child| {
+                if let DirectChild::Expr(id) = child {
+                    uses.insert(id);
+                }
+            }),
+        },
+        CallableNode::Block(_) | CallableNode::Pat(_) => {}
+    };
+    for &item in items {
+        if let ItemKind::Callable(decl) = &package.get_item(item).kind {
+            crate::walk_utils::for_each_node_in_callable(package, decl, &mut record);
+        }
+    }
+    if let Some(entry) = package.entry {
+        crate::walk_utils::for_each_node_from_expr_root(package, entry, &mut record);
+        uses.insert(entry);
+    }
+    uses
+}
+
+/// A retained aggregate need not retain its consumed callable fields when every
+/// remaining use reads only non-callable data. Whole-value uses and captures
+/// remain live, as do shared initializer expressions.
+fn data_only_producer_results(
+    store: &PackageStore,
+    package: &Package,
+    items: &[LocalItemId],
+) -> FxHashSet<ExprId> {
+    use crate::walk_utils::{
+        CallableNode, for_each_node_from_expr_root, for_each_node_in_callable,
+    };
+    let mut scopes = Vec::new();
+    for &item in items {
+        if let ItemKind::Callable(decl) = &package.get_item(item).kind {
+            let mut nodes = Vec::new();
+            for_each_node_in_callable(package, decl, &mut |node| nodes.push(node));
+            scopes.push(nodes);
+        }
+    }
+    if let Some(entry) = package.entry {
+        let mut nodes = Vec::new();
+        for_each_node_from_expr_root(package, entry, &mut |node| nodes.push(node));
+        scopes.push(nodes);
+    }
+    let mut occurrences: FxHashMap<ExprId, usize> = FxHashMap::default();
+    for nodes in &scopes {
+        for node in nodes {
+            if let CallableNode::Expr(id) = node {
+                *occurrences.entry(*id).or_default() += 1;
+            }
+        }
+    }
+    let mut data_only = FxHashSet::default();
+    for nodes in &scopes {
+        for node in nodes {
+            let CallableNode::Stmt(statement) = node else {
+                continue;
+            };
+            let StmtKind::Local(Mutability::Immutable, pattern, initializer) =
+                package.get_stmt(*statement).kind
+            else {
+                continue;
+            };
+            let PatKind::Bind(binding) = &package.get_pat(pattern).kind else {
+                continue;
+            };
+            if occurrences.get(&initializer) != Some(&1)
+                || !callable_output_contains_arrow(store, &package.get_expr(initializer).ty)
+            {
+                continue;
+            }
+            let data_reads: FxHashSet<_> = nodes.iter().filter_map(|node| {
+                let CallableNode::Expr(id) = node else { return None };
+                let expr = package.get_expr(*id);
+                let ExprKind::Field(record, _) = expr.kind else { return None };
+                (matches!(package.get_expr(record).kind, ExprKind::Var(Res::Local(var), _) if var == binding.id)
+                    && !callable_output_contains_arrow(store, &expr.ty)).then_some(record)
+            }).collect();
+            let only_data = nodes.iter().all(|node| {
+                let CallableNode::Expr(id) = node else {
+                    return true;
+                };
+                match &package.get_expr(*id).kind {
+                    ExprKind::Var(Res::Local(var), _) if *var == binding.id => {
+                        data_reads.contains(id)
+                    }
+                    ExprKind::Closure(captures, _) => !captures.contains(&binding.id),
+                    _ => true,
+                }
+            });
+            if only_data {
+                data_only.insert(initializer);
+            }
+        }
+    }
+    data_only
+}
+
+fn callable_output_contains_arrow(store: &PackageStore, ty: &Ty) -> bool {
+    match ty {
+        Ty::Array(element) => callable_output_contains_arrow(store, element),
+        Ty::Tuple(elements) => elements
+            .iter()
+            .any(|ty| callable_output_contains_arrow(store, ty)),
+        Ty::Udt(Res::Item(item)) => {
+            let ItemKind::Ty(_, udt) = &store.get(item.package).get_item(item.item).kind else {
+                return false;
+            };
+            callable_output_contains_arrow(store, &udt.get_pure_ty())
+        }
+        Ty::Arrow(_) => true,
+        _ => false,
+    }
+}
+
+fn mixed_dispatch_is_specialized(
+    group: &[&CallSite],
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
+) -> bool {
+    partition_mixed_branch_split(group).is_some_and(|(dispatch, constants)| {
+        dispatch.iter().all(|candidate| {
+            let mut members = vec![*candidate];
+            members.extend(constants.iter().copied());
+            spec_map.contains_key(&build_combined_spec_key(candidate.hof_item_id, &members))
+        })
+    })
+}
+
 /// Runs [`cleanup_consumed_closures`] over every package in the entry-reachable
 /// closure that owns a consumed closure. Consumed closures can live in foreign
 /// bodies (a closure passed to a HOF inside a relocated generic body), so the
-/// cross-package `specialized_targets` / `skip_items` sets are projected to each
-/// package's local item ids before running the single-package cleanup there.
+/// cross-package [`ConsumedClosures`] sets are projected to each package's
+/// local item ids before running the single-package cleanup there.
 ///
-/// Owner protection includes direct callees of skipped specializations and
-/// reachable callables whose output is directly arrow-typed. It is not a
-/// transitive analysis of callable-bearing aggregate results.
+/// Each package is mutated with its own assigner, so a stand-in synthesized for
+/// a foreign package is minted into that package's id arena.
 fn cleanup_consumed_closures_per_package(
     store: &mut PackageStore,
     entry_pkg_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
-    specialized_targets: &FxHashSet<StoreItemId>,
-    skip_items: &FxHashSet<StoreItemId>,
+    consumed: &ConsumedClosures,
+    assigners: &mut PackageAssigners,
+    stand_ins: &mut ClosureStandInCache,
 ) {
-    if specialized_targets.is_empty() {
+    if consumed.is_empty() {
         return;
     }
 
-    // A specialization can still be the only live path to a producer. Keep
-    // producers called by tracked specializations intact for later analysis.
-    let mut deferred_items = items_called_from_skipped_items(store, skip_items);
-    // A producer retained for its effects or possible failure still needs a
-    // return value matching its signature, even when dispatch consumed that value.
-    for item_id in collect_reachable_from_entry(store, entry_pkg_id) {
-        let package = store.get(item_id.package);
-        if let ItemKind::Callable(decl) = &package.get_item(item_id.item).kind
-            && matches!(decl.output, Ty::Arrow(_))
-        {
-            deferred_items.insert(item_id);
-        }
-    }
-
     for pkg_id in collect_reachable_package_closure(entry_pkg_id, reachable) {
-        let targets_local: FxHashSet<LocalItemId> = specialized_targets
-            .iter()
-            .filter(|s| s.package == pkg_id)
-            .map(|s| s.item)
-            .collect();
-        if targets_local.is_empty() {
+        let consumed_local = consumed.project(pkg_id);
+        if !consumed_local.has_targets() {
             continue;
         }
-        let mut skip_local: FxHashSet<LocalItemId> = skip_items
-            .iter()
-            .filter(|s| s.package == pkg_id)
-            .map(|s| s.item)
-            .collect();
-        skip_local.extend(
-            deferred_items
-                .iter()
-                .filter(|s| s.package == pkg_id)
-                .map(|s| s.item),
-        );
         let local_item_ids: Vec<LocalItemId> = {
             let package = store.get(pkg_id);
             reachable_local_callables(package, pkg_id, reachable)
                 .map(|(id, _)| id)
                 .collect()
         };
+        let assigner = assigners.get_mut(store, pkg_id);
         let package = store.get_mut(pkg_id);
         cleanup_consumed_closures(
             package,
+            assigner,
             pkg_id,
-            &targets_local,
-            &skip_local,
+            &consumed_local,
             &local_item_ids,
+            stand_ins,
         );
     }
 }
 
-/// Finds direct callees of the tracked specializations so cleanup does not
-/// erase producer bodies that those clones can still invoke.
+/// Finds direct callees of the cumulative specialized items so cleanup preserves
+/// any producer bodies those specializations can still invoke.
 fn items_called_from_skipped_items(
     store: &PackageStore,
     skip_items: &FxHashSet<StoreItemId>,
@@ -792,86 +1165,43 @@ fn items_called_from_skipped_items(
     called_items
 }
 
-fn mixed_dispatch_is_specialized(
-    group: &[&CallSite],
-    spec_map: &FxHashMap<SpecKey, StoreItemId>,
-) -> bool {
-    partition_mixed_branch_split(group).is_some_and(|(dispatch, constants)| {
-        dispatch.iter().all(|candidate| {
-            let mut members = vec![*candidate];
-            members.extend(constants.iter().copied());
-            spec_map.contains_key(&build_combined_spec_key(candidate.hof_item_id, &members))
-        })
-    })
-}
-
 /// Replaces eligible closure expressions whose target was consumed by
-/// specialization or direct-call rewriting with Unit values, so dead closure
-/// nodes do not keep the fixpoint loop running.
+/// specialization or direct-call rewriting with a typed callable reference.
 ///
-/// A consumed target identifies cleanup candidates, not proof that every
-/// closure referencing it is dead. The dependency and owner filters below
-/// preserve occurrences still needed by surviving code.
+/// Applies the three conditions documented on [`ConsumedClosures`]. Live value
+/// dependencies and skipped owners retain their closures. Only post-rewrite
+/// reachable items are visited; orphaned producers remain intact until item DCE.
 ///
-/// Only closures with no surviving call-argument or local-read dependencies
-/// are eligible for cleanup. Closures that are still live as arguments to a
-/// call expression (e.g., in a multi-param HOF where only one param has been
-/// specialized so far) must survive to the next iteration, including closures
-/// passed through local bindings or aliases.
+/// Replacements must retain the closure's arrow type even when only non-callable
+/// fields of the containing aggregate are still read. A capture-free closure can
+/// reference its own target only when the full signatures match. Captures and
+/// tuple-wrapped lifted inputs can make those signatures differ.
 ///
-/// UDT-constructor `Call`s are an exception: their argument subtree is a
-/// structural wrapper, not a live HOF argument. Closures inside an unused
-/// wrapper remain eligible; a surviving local reference still protects them.
-///
-/// Rewrites `Expr.kind` to `Tuple([])` and `Expr.ty` to `Unit` for consumed
-/// closure expressions not protected by live dependencies.
-///
-/// `skip_items` protects accumulated specializations and producers selected
-/// by the caller. Their closure values may still be required by later analysis
-/// or by retained producer evaluation.
-///
-/// # Returns
-///
-/// The number of closure expressions replaced.
+/// Otherwise, [`ClosureStandInCache`] supplies a same-signature, fail-bodied
+/// placeholder. Eligibility must establish that the replaced value will not be
+/// invoked; the placeholder preserves the containing expression's type, not the
+/// closure's behavior. [`remaining_callable_value_info`] uses the same eligibility
+/// predicate when counting pending work.
 fn cleanup_consumed_closures(
     package: &mut Package,
+    assigner: &mut Assigner,
     package_id: PackageId,
-    specialized_targets: &FxHashSet<LocalItemId>,
-    skip_items: &FxHashSet<LocalItemId>,
+    consumed: &ConsumedClosuresInPackage,
     reachable_item_ids: &[LocalItemId],
-) -> usize {
-    if specialized_targets.is_empty() {
-        return 0;
+    stand_ins: &mut ClosureStandInCache,
+) {
+    if !consumed.has_targets() {
+        return;
     }
 
-    // Follow call arguments and local references through definitions within
-    // each callable's scope; local IDs from different callables must not mix.
-    let mut call_arg_exprs: FxHashSet<ExprId> = FxHashSet::default();
-    for &item_id in reachable_item_ids {
-        if skip_items.contains(&item_id) {
-            continue;
-        }
-        let item = package.get_item(item_id);
-        if let ItemKind::Callable(decl) = &item.kind {
-            let mut nodes = Vec::new();
-            crate::walk_utils::for_each_node_in_callable(package, decl, &mut |node| {
-                nodes.push(node);
-            });
-            collect_live_call_argument_exprs(package, package_id, &nodes, &mut call_arg_exprs);
-        }
-    }
-    if let Some(entry_id) = package.entry {
-        let mut nodes = Vec::new();
-        crate::walk_utils::for_each_node_from_expr_root(package, entry_id, &mut |node| {
-            nodes.push(node);
-        });
-        collect_live_call_argument_exprs(package, package_id, &nodes, &mut call_arg_exprs);
-    }
+    // Protect live dependencies before selecting replacements.
+    let call_arg_exprs =
+        collect_live_call_arg_exprs(package, package_id, reachable_item_ids, &consumed.skipped);
 
     // Collect consumed closures not protected by an owner or live dependency.
     let mut to_replace: Vec<ExprId> = Vec::new();
     for &item_id in reachable_item_ids {
-        if skip_items.contains(&item_id) {
+        if consumed.item_is_skipped(item_id) {
             continue;
         }
         let item = package.get_item(item_id);
@@ -881,7 +1211,7 @@ fn cleanup_consumed_closures(
                 &decl.implementation,
                 &mut |expr_id, expr| {
                     if let ExprKind::Closure(_, target) = &expr.kind
-                        && specialized_targets.contains(target)
+                        && consumed.set_conditions_hold(Some(item_id), *target)
                         && !call_arg_exprs.contains(&expr_id)
                     {
                         to_replace.push(expr_id);
@@ -894,7 +1224,7 @@ fn cleanup_consumed_closures(
     if let Some(entry_id) = package.entry {
         crate::walk_utils::for_each_expr(package, entry_id, &mut |expr_id, expr| {
             if let ExprKind::Closure(_, target) = &expr.kind
-                && specialized_targets.contains(target)
+                && consumed.set_conditions_hold(None, *target)
                 && !call_arg_exprs.contains(&expr_id)
             {
                 to_replace.push(expr_id);
@@ -902,14 +1232,88 @@ fn cleanup_consumed_closures(
         });
     }
 
-    let count = to_replace.len();
     for expr_id in to_replace {
-        let expr = package.exprs.get_mut(expr_id).expect("expr must exist");
-        expr.kind = ExprKind::Tuple(Vec::new());
-        expr.ty = Ty::UNIT;
-    }
+        let expr = package.get_expr(expr_id);
+        let ExprKind::Closure(captures, target) = &expr.kind else {
+            unreachable!("only closure expressions are collected for replacement")
+        };
 
-    count
+        let Ty::Arrow(arrow) = &expr.ty else {
+            unreachable!("a closure expression always carries an arrow type")
+        };
+        let ItemKind::Callable(decl) = &package.get_item(*target).kind else {
+            unreachable!("a closure target always refers to a callable")
+        };
+        // No captures does not guarantee matching signatures: a lifted `Int -> Int`
+        // lambda can still take `(Int,)`. Only reuse a target with the exact arrow
+        // signature; changing the expression's annotation cannot adapt its arguments.
+        let target_matches = captures.is_empty()
+            && decl.kind == arrow.kind
+            && package.get_pat(decl.input).ty == *arrow.input
+            && decl.output == *arrow.output
+            && FunctorSet::Value(decl.functors) == arrow.functors;
+        let replacement = if target_matches {
+            *target
+        } else {
+            // Cleanup proved the value is no longer invoked, but a surviving aggregate
+            // may still store it. Supply a correctly typed stand-in until later cleanup.
+            let arrow = arrow.clone();
+            stand_ins.get_or_insert(package, assigner, package_id, &arrow)
+        };
+
+        // The expression's own type is left alone: it is the arrow type the
+        // parent slot declares, and both replacements satisfy it.
+        let expr = package.exprs.get_mut(expr_id).expect("expr must exist");
+        expr.kind = ExprKind::Var(
+            Res::Item(ItemId {
+                package: package_id,
+                item: replacement,
+            }),
+            Vec::new(),
+        );
+    }
+}
+
+/// Caches fail-bodied stand-ins for neutralized closures whose lifted targets
+/// cannot be referenced with the closure's arrow type.
+///
+/// The package-qualified key prevents a cached [`LocalItemId`] from being reused
+/// in another package. Within each package, identical arrow types share an item.
+#[derive(Default)]
+struct ClosureStandInCache {
+    items: FxHashMap<(PackageId, String), LocalItemId>,
+}
+
+impl ClosureStandInCache {
+    fn get_or_insert(
+        &mut self,
+        package: &mut Package,
+        assigner: &mut Assigner,
+        package_id: PackageId,
+        arrow: &Arrow,
+    ) -> LocalItemId {
+        // `Arrow`'s `Display` renders kind, input, output, and functors, so the
+        // rendered form distinguishes every signature the stand-in must match.
+        let key = (package_id, arrow.to_string());
+        if let Some(&id) = self.items.get(&key) {
+            return id;
+        }
+        let FunctorSet::Value(functors) = arrow.functors else {
+            unreachable!("monomorphization resolves every functor parameter before this pass")
+        };
+        let id = crate::fir_builder::alloc_fail_callable(
+            package,
+            assigner,
+            "__defunc_consumed_closure",
+            "consumed closure stand-in invoked",
+            arrow.kind,
+            &arrow.input,
+            &arrow.output,
+            functors,
+        );
+        self.items.insert(key, id);
+        id
+    }
 }
 
 /// Protects expressions that surviving call arguments or local reads depend on from
@@ -917,8 +1321,8 @@ fn cleanup_consumed_closures(
 ///
 /// Specializing one use of a lifted target does not make every closure for that
 /// target dead. Another call may still receive it through an alias, an assignment,
-/// or a capturing closure. Clearing that initializer to `Unit` would destroy a
-/// live callable value and can strand an arrow-typed block without a valid tail.
+/// or a capturing closure. Replacing that initializer with a fail-bodied
+/// stand-in would destroy a still-invoked callable value despite keeping its type.
 /// Reads in alias bindings and assignments also matter after dispatch is gone:
 /// a retained alias cycle must still evaluate callable-valued initializers.
 ///
@@ -1017,13 +1421,20 @@ fn is_udt_ctor_call(package: &Package, package_id: PackageId, callee_id: ExprId)
 /// Checks whether any reachable callable value still requires
 /// defunctionalization work.
 ///
+/// Counts arrow-bearing input patterns, closures, and indirect calls through
+/// arrow-typed locals or computed values. Only closures consult `consumed`:
+/// occurrences eligible for cleanup do not count, whether or not replacement
+/// has run. The live-dependency walk is recomputed using current reachability.
+///
 /// Returns `(has_remaining, count, first_package, first_span)` in a single
 /// reachability scan.
 fn remaining_callable_value_info(
     store: &PackageStore,
     package_id: PackageId,
+    consumed: &ConsumedClosures,
 ) -> (bool, usize, PackageId, Span) {
     let reachable = collect_reachable_from_entry(store, package_id);
+    let consumed_scopes = collect_consumed_closure_scopes(store, package_id, &reachable, consumed);
     let mut count = 0;
     let mut first_package = package_id;
     let mut first_span = Span::default();
@@ -1055,11 +1466,14 @@ fn remaining_callable_value_info(
                 record_remaining(store_id.package, input_pat.span.span);
             }
 
+            let scope = consumed_scopes.get(&store_id.package);
             crate::walk_utils::for_each_expr_in_callable_impl(
                 package,
                 &decl.implementation,
-                &mut |_expr_id, expr| {
-                    if matches!(expr.kind, ExprKind::Closure(_, _)) {
+                &mut |expr_id, expr| {
+                    if let ExprKind::Closure(_, target) = &expr.kind
+                        && !closure_is_consumed(scope, Some(store_id.item), *target, expr_id)
+                    {
                         record_remaining(store_id.package, expr.span.span);
                     }
                     // Count indirect calls through locals and computed values.
@@ -1081,8 +1495,11 @@ fn remaining_callable_value_info(
 
     let package = store.get(package_id);
     if let Some(entry_id) = package.entry {
-        crate::walk_utils::for_each_expr(package, entry_id, &mut |_expr_id, expr| {
-            if matches!(expr.kind, ExprKind::Closure(_, _)) {
+        let scope = consumed_scopes.get(&package_id);
+        crate::walk_utils::for_each_expr(package, entry_id, &mut |expr_id, expr| {
+            if let ExprKind::Closure(_, target) = &expr.kind
+                && !closure_is_consumed(scope, None, *target, expr_id)
+            {
                 record_remaining(package_id, expr.span.span);
             }
             // Same indirect-call check as callable body walker.
@@ -1165,6 +1582,67 @@ fn indirect_callee_id(package: &Package, expr: &Expr) -> Option<ExprId> {
     ) && ty_contains_arrow(&callee.ty))
     .then_some(base)
 }
+
+/// The per-package inputs the remaining-work count needs to decide whether a
+/// closure is already consumed.
+struct ConsumedClosureScope {
+    /// The two set conditions, projected to this package.
+    consumed: ConsumedClosuresInPackage,
+    /// Expression ids inside a live call-argument subtree in this package.
+    call_args: FxHashSet<ExprId>,
+}
+
+/// Builds counting scopes only for reachable packages with consumed targets,
+/// using the same package projection and live-dependency walk as cleanup.
+fn collect_consumed_closure_scopes(
+    store: &PackageStore,
+    package_id: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+    consumed: &ConsumedClosures,
+) -> FxHashMap<PackageId, ConsumedClosureScope> {
+    let mut scopes = FxHashMap::default();
+    if consumed.is_empty() {
+        return scopes;
+    }
+
+    for pkg_id in collect_reachable_package_closure(package_id, reachable) {
+        let consumed_local = consumed.project(pkg_id);
+        if !consumed_local.has_targets() {
+            continue;
+        }
+        let package = store.get(pkg_id);
+        let local_item_ids: Vec<LocalItemId> =
+            reachable_local_callables(package, pkg_id, reachable)
+                .map(|(id, _)| id)
+                .collect();
+        let call_args =
+            collect_live_call_arg_exprs(package, pkg_id, &local_item_ids, &consumed_local.skipped);
+        scopes.insert(
+            pkg_id,
+            ConsumedClosureScope {
+                consumed: consumed_local,
+                call_args,
+            },
+        );
+    }
+
+    scopes
+}
+
+/// Applies cleanup's full eligibility predicate to exclude replaced or
+/// replaceable closure occurrences from the remaining-work count.
+fn closure_is_consumed(
+    scope: Option<&ConsumedClosureScope>,
+    owner_item: Option<LocalItemId>,
+    target: LocalItemId,
+    expr_id: ExprId,
+) -> bool {
+    scope.is_some_and(|scope| {
+        scope.consumed.set_conditions_hold(owner_item, target)
+            && !scope.call_args.contains(&expr_id)
+    })
+}
+
 /// Checks for an arrow at the root or beneath tuple fields.
 ///
 /// UDTs and arrays are opaque to this narrow predicate. That is not a statement
