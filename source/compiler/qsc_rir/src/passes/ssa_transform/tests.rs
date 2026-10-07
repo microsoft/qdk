@@ -4256,3 +4256,205 @@ fn ssa_transform_mutable_parameter_versioned() {
             tags:
     "#]].assert_eq(&program.to_string());
 }
+
+#[test]
+fn ssa_transform_point_in_time_copies_survive_overwrites_and_repeated_copies() {
+    // Copies of a variable that are later overwritten, or copied, overwritten, and copied again,
+    // must still resolve correctly once the copied variable is stored to.
+    let cond = Variable::new_boolean(VariableId(0));
+    let source = Variable::new_integer(VariableId(1));
+    let copy = Variable::new_integer(VariableId(2));
+    let overwritten_copy = Variable::new_integer(VariableId(3));
+    let recopied = Variable::new_integer(VariableId(4));
+    let copy_of_copy = Variable::new_integer(VariableId(5));
+    let sum_source = Variable::new_integer(VariableId(6));
+    let sum_copies = Variable::new_integer(VariableId(7));
+    let sum_rest = Variable::new_integer(VariableId(8));
+
+    let mut program = new_program();
+    program.callables.insert(
+        CallableId(1),
+        Callable {
+            name: "dynamic_bool".to_string(),
+            input_type: Vec::new(),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
+            body: None,
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(CallableId(1), Vec::new(), Some(cond), None),
+            Instruction::Store(Operand::Literal(Literal::Integer(0)), source),
+            Instruction::Branch(cond, BlockId(1), BlockId(2), None),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(1),
+        Block(vec![
+            Instruction::Store(Operand::Literal(Literal::Integer(1)), source),
+            Instruction::Jump(BlockId(2)),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(2),
+        Block(vec![
+            Instruction::Store(Operand::Variable(source), copy),
+            Instruction::Store(Operand::Variable(source), overwritten_copy),
+            Instruction::Store(Operand::Literal(Literal::Integer(10)), overwritten_copy),
+            Instruction::Store(Operand::Variable(source), recopied),
+            Instruction::Store(Operand::Literal(Literal::Integer(20)), recopied),
+            Instruction::Store(Operand::Variable(source), recopied),
+            Instruction::Store(Operand::Literal(Literal::Integer(2)), source),
+            Instruction::Store(Operand::Variable(copy), copy_of_copy),
+            Instruction::Store(Operand::Literal(Literal::Integer(3)), source),
+            Instruction::Add(
+                Operand::Variable(source),
+                Operand::Variable(copy),
+                sum_source,
+            ),
+            Instruction::Add(
+                Operand::Variable(overwritten_copy),
+                Operand::Variable(recopied),
+                sum_copies,
+            ),
+            Instruction::Add(
+                Operand::Variable(copy_of_copy),
+                Operand::Variable(sum_source),
+                sum_rest,
+            ),
+            Instruction::Return(None),
+        ]),
+    );
+
+    // Before
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Variable(1, Integer) = Store Integer(0)
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Variable(1, Integer) = Store Integer(1)
+                    Jump(2)
+                Block 2: Block:
+                    Variable(2, Integer) = Store Variable(1, Integer)
+                    Variable(3, Integer) = Store Variable(1, Integer)
+                    Variable(3, Integer) = Store Integer(10)
+                    Variable(4, Integer) = Store Variable(1, Integer)
+                    Variable(4, Integer) = Store Integer(20)
+                    Variable(4, Integer) = Store Variable(1, Integer)
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(5, Integer) = Store Variable(2, Integer)
+                    Variable(1, Integer) = Store Integer(3)
+                    Variable(6, Integer) = Add Variable(1, Integer), Variable(2, Integer)
+                    Variable(7, Integer) = Add Variable(3, Integer), Variable(4, Integer)
+                    Variable(8, Integer) = Add Variable(5, Integer), Variable(6, Integer)
+                    Return
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+
+    // After
+    transform_program(&mut program);
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: dynamic_bool
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Boolean
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Variable(0, Boolean) = Call id(1), args( )
+                    Branch Variable(0, Boolean), 1, 2
+                Block 1: Block:
+                    Jump(2)
+                Block 2: Block:
+                    Variable(9, Integer) = Phi ( [Integer(0), 0], [Integer(1), 1], )
+                    Variable(6, Integer) = Add Integer(3), Variable(9, Integer)
+                    Variable(7, Integer) = Add Integer(10), Variable(9, Integer)
+                    Variable(8, Integer) = Add Variable(9, Integer), Variable(6, Integer)
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
+#[ignore = "timing-based scaling check, run explicitly with `cargo test --release -p qsc_rir -- --ignored`"]
+fn ssa_transform_time_scales_linearly_with_stores_in_block() {
+    // Every store adds a variable mapping, so a store that scans the whole variable map makes the
+    // transform quadratic in the number of stores in a block. Quadrupling the stores should take about
+    // four times as long; a quadratic transform would take about sixteen times as long.
+    fn program_with_stores(num_stores: u32) -> Program {
+        let mut instrs = Vec::new();
+        let mut previous = Operand::Literal(Literal::Integer(0));
+        for id in 0..num_stores {
+            let var = Variable::new_integer(VariableId(id));
+            instrs.push(Instruction::Store(previous, var));
+            instrs.push(Instruction::Store(
+                Operand::Literal(Literal::Integer(id.into())),
+                var,
+            ));
+            previous = Operand::Variable(var);
+        }
+        instrs.push(Instruction::Return(Some(previous)));
+        let mut program = new_program();
+        program.blocks.insert(BlockId(0), Block(instrs));
+        program
+    }
+
+    fn min_transform_secs(num_stores: u32) -> f64 {
+        (0..3)
+            .map(|_| {
+                let mut program = program_with_stores(num_stores);
+                let start = std::time::Instant::now();
+                transform_to_ssa_directly(&mut program);
+                start.elapsed().as_secs_f64()
+            })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    const NUM_STORES: u32 = 25_000;
+    let small = min_transform_secs(NUM_STORES);
+    let large = min_transform_secs(4 * NUM_STORES);
+    assert!(
+        large < 8.0 * small,
+        "quadrupling the stores in a block took {:.1}x as long ({small:.3}s vs {large:.3}s)",
+        large / small
+    );
+}

@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use crate::rir::{
     Block, BlockId, Instruction, Operand, OperandMapping, Program, Variable, VariableId,
 };
@@ -143,6 +146,9 @@ pub(crate) fn map_variable_use_in_block(
 ) {
     let instrs = block.0.drain(..).collect::<Vec<_>>();
 
+    // Built lazily on the first store that updates the map, so blocks without such stores don't pay for it.
+    let mut deep_mapping_index: Option<DeepMappingIndex> = None;
+
     for mut instr in instrs {
         match &mut instr {
             // Track the new value of the variable and omit the store instruction.
@@ -155,7 +161,9 @@ pub(crate) fn map_variable_use_in_block(
                 {
                     *operand = Operand::Variable(mapped_var);
                 } else {
-                    update_variable_mapping(var_map, operand, var);
+                    let deep_mapping_index =
+                        deep_mapping_index.get_or_insert_with(|| build_deep_mapping_index(var_map));
+                    update_variable_mapping(var_map, deep_mapping_index, operand, var);
                     continue;
                 }
             }
@@ -228,24 +236,64 @@ pub(crate) fn map_variable_use_in_block(
     }
 }
 
+/// Reverse index from a variable to the variables whose mapping is a deep mapping to it. It lets a store
+/// find the deep mappings to downgrade without scanning the whole variable map, which would make
+/// processing a block quadratic in the number of stores. Entries can go stale when a variable is
+/// remapped, so they are re-checked against the variable map before use.
+type DeepMappingIndex = FxHashMap<VariableId, Vec<VariableId>>;
+
+fn build_deep_mapping_index(var_map: &FxHashMap<VariableId, OperandMapping>) -> DeepMappingIndex {
+    let mut index = DeepMappingIndex::default();
+    for (var_id, mapping) in var_map {
+        if let OperandMapping::Deep(Operand::Variable(target)) = mapping {
+            index.entry(target.variable_id).or_default().push(*var_id);
+        }
+    }
+    index
+}
+
 fn update_variable_mapping(
     var_map: &mut FxHashMap<VariableId, OperandMapping>,
-    operand: &mut Operand,
-    var: &mut Variable,
+    deep_mapping_index: &mut DeepMappingIndex,
+    operand: &Operand,
+    var: &Variable,
 ) {
     // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
     // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
     // copy of the operand. However, it will create a mapping that matches the last mapping of the operand, ensuring
     // that a shallow mapping is not incorrectly treated as a deep mapping.
-    var_map.insert(var.variable_id, operand.last_mapping(var_map));
+    let new_mapping = operand.last_mapping(var_map);
+    var_map.insert(var.variable_id, new_mapping);
+    if let OperandMapping::Deep(Operand::Variable(target)) = new_mapping {
+        deep_mapping_index
+            .entry(target.variable_id)
+            .or_default()
+            .push(var.variable_id);
+    }
 
     // For all existing deep mappings to this variable, downgrade them to shallow mappings.
     // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
-    for mapping in var_map.values_mut() {
-        if let OperandMapping::Deep(Operand::Variable(existing)) = mapping
-            && existing == var
-        {
-            *mapping = OperandMapping::Shallow(Operand::Variable(*existing));
+    // Only the variables recorded in the index for this variable are visited, and each is re-checked since its entry may be stale.
+    // Downgraded and stale entries are dropped; an entry is kept only if it is still a deep mapping to this variable id with a
+    // different type, mirroring the full-variable comparison used to decide what to downgrade.
+    if let Some(mut dependents) = deep_mapping_index.remove(&var.variable_id) {
+        dependents.retain(|dependent| {
+            let Some(mapping) = var_map.get_mut(dependent) else {
+                return false;
+            };
+            match *mapping {
+                OperandMapping::Deep(Operand::Variable(existing)) if existing == *var => {
+                    *mapping = OperandMapping::Shallow(Operand::Variable(existing));
+                    false
+                }
+                OperandMapping::Deep(Operand::Variable(existing)) => {
+                    existing.variable_id == var.variable_id
+                }
+                _ => false,
+            }
+        });
+        if !dependents.is_empty() {
+            deep_mapping_index.insert(var.variable_id, dependents);
         }
     }
 }
