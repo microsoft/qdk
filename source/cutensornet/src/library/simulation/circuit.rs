@@ -11,10 +11,15 @@ use thiserror::Error;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Gate {
     X { target: u32 },
+    Z { target: u32 },
     H { target: u32 },
     S { target: u32 },
+    SAdj { target: u32 },
+    T { target: u32 },
+    TAdj { target: u32 },
     Sx { target: u32 },
     Rx { theta: f64, target: u32 },
+    Ry { theta: f64, target: u32 },
     Rz { theta: f64, target: u32 },
     Cnot { control: u32, target: u32 },
     Cz { control: u32, target: u32 },
@@ -44,11 +49,23 @@ impl Gate {
             UnitaryOperation::X { target } => Self::X {
                 target: gate_qubit("X", target)?,
             },
+            UnitaryOperation::Z { target } => Self::Z {
+                target: gate_qubit("Z", target)?,
+            },
             UnitaryOperation::H { target } => Self::H {
                 target: gate_qubit("H", target)?,
             },
             UnitaryOperation::S { target } => Self::S {
                 target: gate_qubit("S", target)?,
+            },
+            UnitaryOperation::SAdj { target } => Self::SAdj {
+                target: gate_qubit("SAdj", target)?,
+            },
+            UnitaryOperation::T { target } => Self::T {
+                target: gate_qubit("T", target)?,
+            },
+            UnitaryOperation::TAdj { target } => Self::TAdj {
+                target: gate_qubit("TAdj", target)?,
             },
             UnitaryOperation::Sx { target } => Self::Sx {
                 target: gate_qubit("Sx", target)?,
@@ -56,6 +73,10 @@ impl Gate {
             UnitaryOperation::Rx { angle, target } => Self::Rx {
                 theta: angle,
                 target: gate_qubit("Rx", target)?,
+            },
+            UnitaryOperation::Ry { angle, target } => Self::Ry {
+                theta: angle,
+                target: gate_qubit("Ry", target)?,
             },
             UnitaryOperation::Rz { angle, target } => Self::Rz {
                 theta: angle,
@@ -75,12 +96,7 @@ impl Gate {
                 q2: gate_qubit("Rzz", q2)?,
             },
             UnitaryOperation::Y { .. } => return unsupported_operation("Y"),
-            UnitaryOperation::Z { .. } => return unsupported_operation("Z"),
-            UnitaryOperation::SAdj { .. } => return unsupported_operation("SAdj"),
             UnitaryOperation::SxAdj { .. } => return unsupported_operation("SxAdj"),
-            UnitaryOperation::T { .. } => return unsupported_operation("T"),
-            UnitaryOperation::TAdj { .. } => return unsupported_operation("TAdj"),
-            UnitaryOperation::Ry { .. } => return unsupported_operation("Ry"),
             UnitaryOperation::Cy { .. } => return unsupported_operation("Cy"),
             UnitaryOperation::Rxx { .. } => return unsupported_operation("Rxx"),
             UnitaryOperation::Ryy { .. } => return unsupported_operation("Ryy"),
@@ -99,16 +115,32 @@ impl From<Gate> for UnitaryOperation {
             Gate::X { target } => Self::X {
                 target: qubit(target),
             },
+            Gate::Z { target } => Self::Z {
+                target: qubit(target),
+            },
             Gate::H { target } => Self::H {
                 target: qubit(target),
             },
             Gate::S { target } => Self::S {
                 target: qubit(target),
             },
+            Gate::SAdj { target } => Self::SAdj {
+                target: qubit(target),
+            },
+            Gate::T { target } => Self::T {
+                target: qubit(target),
+            },
+            Gate::TAdj { target } => Self::TAdj {
+                target: qubit(target),
+            },
             Gate::Sx { target } => Self::Sx {
                 target: qubit(target),
             },
             Gate::Rx { theta, target } => Self::Rx {
+                angle: theta,
+                target: qubit(target),
+            },
+            Gate::Ry { theta, target } => Self::Ry {
                 angle: theta,
                 target: qubit(target),
             },
@@ -218,11 +250,18 @@ impl Circuit {
             use std::fmt::Write;
             match gate {
                 Gate::X { target } => write!(description, "x:{target};"),
+                Gate::Z { target } => write!(description, "z:{target};"),
                 Gate::H { target } => write!(description, "h:{target};"),
                 Gate::S { target } => write!(description, "s:{target};"),
+                Gate::SAdj { target } => write!(description, "sdg:{target};"),
+                Gate::T { target } => write!(description, "t:{target};"),
+                Gate::TAdj { target } => write!(description, "tdg:{target};"),
                 Gate::Sx { target } => write!(description, "sx:{target};"),
                 Gate::Rx { theta, target } => {
                     write!(description, "rx:{target}:{};", canonical_angle_bits(*theta))
+                }
+                Gate::Ry { theta, target } => {
+                    write!(description, "ry:{target}:{};", canonical_angle_bits(*theta))
                 }
                 Gate::Rz { theta, target } => {
                     write!(description, "rz:{target}:{};", canonical_angle_bits(*theta))
@@ -251,10 +290,17 @@ impl Circuit {
 /// range and distinct, rotation angles finite.
 fn validate_gate(qubit_count: u32, gate: Gate) -> Result<(), SimulationError> {
     match gate {
-        Gate::X { target } | Gate::H { target } | Gate::S { target } | Gate::Sx { target } => {
+        Gate::X { target }
+        | Gate::Z { target }
+        | Gate::H { target }
+        | Gate::S { target }
+        | Gate::SAdj { target }
+        | Gate::T { target }
+        | Gate::TAdj { target }
+        | Gate::Sx { target } => {
             validate_qubit(qubit_count, target)?;
         }
-        Gate::Rx { theta, target } | Gate::Rz { theta, target } => {
+        Gate::Rx { theta, target } | Gate::Ry { theta, target } | Gate::Rz { theta, target } => {
             validate_qubit(qubit_count, target)?;
             if !theta.is_finite() {
                 return Err(SimulationError::InvalidCircuit {
@@ -613,6 +659,26 @@ mod tests {
             (UnitaryOperation::H { target: 4 }, Gate::H { target: 4 }),
             (UnitaryOperation::S { target: 11 }, Gate::S { target: 11 }),
             (UnitaryOperation::Sx { target: 12 }, Gate::Sx { target: 12 }),
+            (UnitaryOperation::Z { target: 15 }, Gate::Z { target: 15 }),
+            (
+                UnitaryOperation::SAdj { target: 16 },
+                Gate::SAdj { target: 16 },
+            ),
+            (UnitaryOperation::T { target: 17 }, Gate::T { target: 17 }),
+            (
+                UnitaryOperation::TAdj { target: 18 },
+                Gate::TAdj { target: 18 },
+            ),
+            (
+                UnitaryOperation::Ry {
+                    angle: -0.4,
+                    target: 19,
+                },
+                Gate::Ry {
+                    theta: -0.4,
+                    target: 19,
+                },
+            ),
             (
                 UnitaryOperation::Cz {
                     control: 13,
@@ -685,18 +751,7 @@ mod tests {
     fn unsupported_unitary_operations_name_the_operation() {
         let operations = [
             (UnitaryOperation::Y { target: 0 }, "Y"),
-            (UnitaryOperation::Z { target: 0 }, "Z"),
-            (UnitaryOperation::SAdj { target: 0 }, "SAdj"),
             (UnitaryOperation::SxAdj { target: 0 }, "SxAdj"),
-            (UnitaryOperation::T { target: 0 }, "T"),
-            (UnitaryOperation::TAdj { target: 0 }, "TAdj"),
-            (
-                UnitaryOperation::Ry {
-                    angle: 0.5,
-                    target: 0,
-                },
-                "Ry",
-            ),
             (
                 UnitaryOperation::Cy {
                     control: 0,
@@ -808,6 +863,32 @@ mod tests {
     }
 
     #[test]
+    fn phase_gates_and_ry_are_accepted_and_described_with_their_own_tokens() {
+        let mut circuit = Circuit::new(2).expect("two-qubit circuit should be valid");
+        for gate in [
+            Gate::Z { target: 0 },
+            Gate::SAdj { target: 1 },
+            Gate::T { target: 0 },
+            Gate::TAdj { target: 1 },
+            Gate::Ry {
+                theta: 0.5,
+                target: 1,
+            },
+            Gate::Rx {
+                theta: 0.5,
+                target: 1,
+            },
+        ] {
+            circuit.push(gate).expect("in-range gate should be valid");
+        }
+        assert_eq!(
+            circuit.canonical_description(),
+            "width=2;z:0;sdg:1;t:0;tdg:1;\
+             ry:1:3fe0000000000000;rx:1:3fe0000000000000;"
+        );
+    }
+
+    #[test]
     fn circuit_rejects_non_finite_rotation_angles() {
         let mut circuit = Circuit::new(2).expect("two-qubit circuit should be valid");
 
@@ -822,6 +903,13 @@ mod tests {
             circuit.push(Gate::Rz {
                 theta: f64::INFINITY,
                 target: 1,
+            }),
+            Err(SimulationError::InvalidCircuit { .. })
+        ));
+        assert!(matches!(
+            circuit.push(Gate::Ry {
+                theta: f64::NEG_INFINITY,
+                target: 0,
             }),
             Err(SimulationError::InvalidCircuit { .. })
         ));
@@ -918,17 +1006,17 @@ mod tests {
         );
 
         let error =
-            ProjectedCircuit::from_fixed_outcome(&circuit).expect_err("T has no cuTensorNet gate");
+            ProjectedCircuit::from_fixed_outcome(&circuit).expect_err("Y has no cuTensorNet gate");
 
         assert!(matches!(
             error,
             ProjectedCircuitError::Conversion(
-                UnitaryOperationConversionError::UnsupportedOperation { operation: "T" }
+                UnitaryOperationConversionError::UnsupportedOperation { operation: "Y" }
             )
         ));
         assert_eq!(
             error.to_string(),
-            "unitary operation T is not supported by cuTensorNet"
+            "unitary operation Y is not supported by cuTensorNet"
         );
     }
 
@@ -1106,9 +1194,14 @@ mod tests {
                 Gate::Cnot { control, target } => {
                     simulator.mcx(&[control as usize], target as usize);
                 }
-                Gate::H { .. }
+                Gate::Z { .. }
+                | Gate::H { .. }
                 | Gate::S { .. }
+                | Gate::SAdj { .. }
+                | Gate::T { .. }
+                | Gate::TAdj { .. }
                 | Gate::Sx { .. }
+                | Gate::Ry { .. }
                 | Gate::Cz { .. }
                 | Gate::Rzz { .. } => {
                     panic!("the Trotter fixture contains only X, Rx, Rz and CNOT gates: {gate:?}")

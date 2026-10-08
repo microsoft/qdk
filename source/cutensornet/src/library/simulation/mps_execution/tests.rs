@@ -1144,6 +1144,23 @@ fn asymmetric_rx_uses_negative_imaginary_half_angle() {
 }
 
 #[test]
+fn asymmetric_ry_rotates_zero_toward_positive_one() {
+    let theta = 0.731;
+    let operator =
+        fixture_operator(Gate::Ry { theta, target: 1 }).expect("finite Ry should be valid");
+    let output = apply_one_site(
+        &operator.matrix,
+        [Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)],
+    );
+    let (sine, cosine) = (theta / 2.0).sin_cos();
+
+    // The transposed matrix would give Ry(-θ)|0⟩ = (cos, -sin).
+    assert_eq!(&*operator.modes, [1]);
+    assert_complex_close(output[0], Complex64::new(cosine, 0.0));
+    assert_complex_close(output[1], Complex64::new(sine, 0.0));
+}
+
+#[test]
 fn rz_phase_interferes_with_the_expected_sign() {
     let theta = 0.913;
     let hadamard = fixture_operator(Gate::H { target: 0 }).expect("H is valid");
@@ -1190,6 +1207,14 @@ fn operator_data_is_pinned_bit_for_bit() {
         ),
         (Gate::Rz { theta, target: 0 }, vec![minus, o, o, plus]),
         (Gate::S { target: 0 }, vec![l, o, o, c(0.0, 1.0)]),
+        (Gate::Z { target: 0 }, vec![l, o, o, c(-1.0, 0.0)]),
+        (Gate::SAdj { target: 0 }, vec![l, o, o, c(0.0, -1.0)]),
+        (Gate::T { target: 0 }, vec![l, o, o, c(h, h)]),
+        (Gate::TAdj { target: 0 }, vec![l, o, o, c(h, -h)]),
+        (
+            Gate::Ry { theta, target: 0 },
+            vec![c(cosine, 0.0), c(-sine, 0.0), c(sine, 0.0), c(cosine, 0.0)],
+        ),
         (
             Gate::Sx { target: 0 },
             vec![c(0.5, 0.5), c(0.5, -0.5), c(0.5, -0.5), c(0.5, 0.5)],
@@ -1234,6 +1259,17 @@ fn operators_copy_the_shared_table_on_their_operands_in_gate_order() {
         (Gate::X { target: 2 }, vec![2]),
         (Gate::H { target: 2 }, vec![2]),
         (Gate::S { target: 2 }, vec![2]),
+        (Gate::Z { target: 2 }, vec![2]),
+        (Gate::SAdj { target: 2 }, vec![2]),
+        (Gate::T { target: 2 }, vec![2]),
+        (Gate::TAdj { target: 2 }, vec![2]),
+        (
+            Gate::Ry {
+                theta: 0.4,
+                target: 2,
+            },
+            vec![2],
+        ),
         (Gate::Sx { target: 2 }, vec![2]),
         (
             Gate::Rx {

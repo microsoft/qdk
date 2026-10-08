@@ -566,9 +566,14 @@ fn apply_sparse_circuit(simulator: &mut qdk_simulators::SparseStateSim, circuit:
         match *gate {
             Gate::X { target } => simulator.x(target as usize),
             Gate::H { target } => simulator.h(target as usize),
+            Gate::Z { target } => simulator.z(target as usize),
             Gate::Rx { theta, target } => simulator.rx(theta, target as usize),
+            Gate::Ry { theta, target } => simulator.ry(theta, target as usize),
             Gate::Rz { theta, target } => simulator.rz(theta, target as usize),
             Gate::S { target } => simulator.s(target as usize),
+            Gate::SAdj { target } => simulator.sadj(target as usize),
+            Gate::T { target } => simulator.t(target as usize),
+            Gate::TAdj { target } => simulator.tadj(target as usize),
             Gate::Sx { target } => {
                 // SX = H . S . H exactly: (1/2)[[1+i, 1-i], [1-i, 1+i]].
                 simulator.h(target as usize);

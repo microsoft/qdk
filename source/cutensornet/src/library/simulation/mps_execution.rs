@@ -1600,10 +1600,15 @@ fn preparation_compute_seconds(timings: &StatePhaseTimings) -> f64 {
 fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
     let modes = match gate {
         Gate::X { target }
+        | Gate::Z { target }
         | Gate::H { target }
         | Gate::S { target }
+        | Gate::SAdj { target }
+        | Gate::T { target }
+        | Gate::TAdj { target }
         | Gate::Sx { target }
         | Gate::Rx { target, .. }
+        | Gate::Ry { target, .. }
         | Gate::Rz { target, .. } => vec![mode_id(target)?],
         Gate::Cnot { control, target } | Gate::Cz { control, target } => {
             vec![mode_id(control)?, mode_id(target)?]

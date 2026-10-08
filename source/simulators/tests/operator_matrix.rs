@@ -53,13 +53,21 @@ fn assert_rows_close(actual: &[Vec<Complex64>], expected: &[Vec<Complex64>]) {
     }
 }
 
-fn one_qubit_gates() -> [UnitaryOperation; 6] {
+fn one_qubit_gates() -> [UnitaryOperation; 11] {
     [
         UnitaryOperation::X { target: 0 },
+        UnitaryOperation::Z { target: 0 },
         UnitaryOperation::H { target: 0 },
         UnitaryOperation::S { target: 0 },
+        UnitaryOperation::SAdj { target: 0 },
+        UnitaryOperation::T { target: 0 },
+        UnitaryOperation::TAdj { target: 0 },
         UnitaryOperation::Sx { target: 0 },
         UnitaryOperation::Rx {
+            angle: 0.7,
+            target: 0,
+        },
+        UnitaryOperation::Ry {
             angle: 0.7,
             target: 0,
         },
@@ -103,6 +111,22 @@ fn constant_gates_match_their_textbook_matrices() {
         (
             UnitaryOperation::S { target: 0 },
             vec![vec![L, O], vec![O, I]],
+        ),
+        (
+            UnitaryOperation::Z { target: 0 },
+            vec![vec![L, O], vec![O, -L]],
+        ),
+        (
+            UnitaryOperation::SAdj { target: 0 },
+            vec![vec![L, O], vec![O, -I]],
+        ),
+        (
+            UnitaryOperation::T { target: 0 },
+            vec![vec![L, O], vec![O, (L + I) * FRAC_1_SQRT_2]],
+        ),
+        (
+            UnitaryOperation::TAdj { target: 0 },
+            vec![vec![L, O], vec![O, (L - I) * FRAC_1_SQRT_2]],
         ),
         (
             UnitaryOperation::Sx { target: 0 },
@@ -153,6 +177,17 @@ fn rotations_match_their_textbook_matrices_at_known_angles() {
         })),
         &[vec![c(h, 0.0), c(0.0, -h)], vec![c(0.0, -h), c(h, 0.0)]],
     );
+    // Ry(π/2) = (I - iY)/√2: the -1/√2 is M[0][1], so Ry(π/2)|0⟩ = |+⟩ and
+    // a transposed layout would give |-⟩.
+    let ry = table(UnitaryOperation::Ry {
+        angle: FRAC_PI_2,
+        target: 0,
+    });
+    assert_rows_close(
+        &rows(&ry),
+        &[vec![c(h, 0.0), c(-h, 0.0)], vec![c(h, 0.0), c(h, 0.0)]],
+    );
+    assert_rows_close(&[apply(&ry, &[L, O])], &[vec![c(h, 0.0), c(h, 0.0)]]);
     // Rz(π) = diag(-i, i).
     assert_rows_close(
         &rows(&table(UnitaryOperation::Rz {
@@ -217,6 +252,17 @@ fn square_roots_square_to_their_gates() {
         rows(&table(UnitaryOperation::X { target: 0 }))
     );
     assert_eq!(product(&s, &s), [vec![L, O], vec![O, -L]]);
+    let t = table(UnitaryOperation::T { target: 0 });
+    let t_adj = table(UnitaryOperation::TAdj { target: 0 });
+    let s_adj = table(UnitaryOperation::SAdj { target: 0 });
+    assert_rows_close(&product(&t, &t), &rows(&s));
+    assert_rows_close(&product(&t_adj, &t_adj), &rows(&s_adj));
+    assert_rows_close(&product(&s, &s_adj), &[vec![L, O], vec![O, L]]);
+    assert_rows_close(&product(&t, &t_adj), &[vec![L, O], vec![O, L]]);
+    assert_eq!(
+        product(&s, &s),
+        rows(&table(UnitaryOperation::Z { target: 0 }))
+    );
 }
 
 #[test]
@@ -255,12 +301,15 @@ fn shape_and_diagonality_are_reported() {
         assert_eq!(matrix.row_major().len(), 16);
     }
     let diagonal = |operation| table(operation).is_diagonal();
-    let [x, h, s, sx, rx, rz] = one_qubit_gates().map(diagonal);
-    let [cx, cz, rzz] = two_qubit_gates().map(diagonal);
+    // Order: X, Z, H, S, S†, T, T†, Sx, Rx, Ry, Rz.
     assert_eq!(
-        [x, h, s, sx, rx, rz, cx, cz, rzz],
-        [false, false, true, false, false, true, false, true, true]
+        one_qubit_gates().map(diagonal),
+        [
+            false, true, false, true, true, true, true, false, false, false, true
+        ]
     );
+    // Order: Cx, Cz, Rzz.
+    assert_eq!(two_qubit_gates().map(diagonal), [false, true, true]);
     assert!(basis_operator(true, true).is_diagonal());
     assert!(!basis_operator(false, true).is_diagonal());
 }
@@ -294,15 +343,7 @@ fn gates_outside_the_table_have_no_matrix() {
     for operation in [
         UnitaryOperation::I { target: 0 },
         UnitaryOperation::Y { target: 0 },
-        UnitaryOperation::Z { target: 0 },
-        UnitaryOperation::SAdj { target: 0 },
         UnitaryOperation::SxAdj { target: 0 },
-        UnitaryOperation::T { target: 0 },
-        UnitaryOperation::TAdj { target: 0 },
-        UnitaryOperation::Ry {
-            angle: 0.1,
-            target: 0,
-        },
         UnitaryOperation::Cy {
             control: 0,
             target: 1,

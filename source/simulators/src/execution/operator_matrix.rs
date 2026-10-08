@@ -12,9 +12,9 @@
 //! tensor network maps entries into its column-major axes with
 //! `tensornet::Indices::offset_of`.
 //!
-//! The layout must fix the orientation, not just the entries: every unitary
-//! in the table is symmetric, but |0⟩⟨1| is not, and its transpose |1⟩⟨0|
-//! would select the other branch.
+//! The layout must fix the orientation, not just the entries: Ry and |0⟩⟨1|
+//! are not symmetric, and their transposes are Ry(-θ) and |1⟩⟨0|, which
+//! rotate the other way and select the other branch.
 //!
 //! Which gates a backend accepts is its own decision; the table only defines
 //! their values.
@@ -92,10 +92,10 @@ const MINUS_ONE: Complex64 = Complex64::new(-1.0, 0.0);
 
 /// The matrix of `operation`, or `None` for gates outside the table.
 ///
-/// The table holds X, H, S, Sx, Rx, Rz, Cx, Cz and Rzz: the gates some
-/// backend accepts. `I` is omitted because backends drop it rather than
-/// apply it. Operands are ignored: the matrix is the same on any qubits, in
-/// the operand order of `operation`.
+/// The table holds X, Z, H, S, S†, T, T†, Sx, Rx, Ry, Rz, Cx, Cz and Rzz:
+/// the gates some backend accepts. `I` is omitted because backends drop it
+/// rather than apply it. Operands are ignored: the matrix is the same on any
+/// qubits, in the operand order of `operation`.
 #[must_use]
 pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
     let c = Complex64::new;
@@ -109,7 +109,16 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
             c(FRAC_1_SQRT_2, 0.0),
             c(-FRAC_1_SQRT_2, 0.0),
         ]),
+        UnitaryOperation::Z { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, MINUS_ONE]),
         UnitaryOperation::S { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, c(0.0, 1.0)]),
+        UnitaryOperation::SAdj { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, c(0.0, -1.0)]),
+        // T = diag(1, e^{iπ/4}), the square root of S.
+        UnitaryOperation::T { .. } => {
+            OperatorMatrix::One([ONE, ZERO, ZERO, c(FRAC_1_SQRT_2, FRAC_1_SQRT_2)])
+        }
+        UnitaryOperation::TAdj { .. } => {
+            OperatorMatrix::One([ONE, ZERO, ZERO, c(FRAC_1_SQRT_2, -FRAC_1_SQRT_2)])
+        }
         // SX = ((1 + i) I + (1 - i) X) / 2, the square root of X that QIR's
         // `sx` and the QDK simulators apply.
         UnitaryOperation::Sx { .. } => {
@@ -119,6 +128,13 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
         UnitaryOperation::Rx { angle, .. } => {
             let (sine, cosine) = (angle / 2.0).sin_cos();
             OperatorMatrix::One([c(cosine, 0.0), c(0.0, -sine), c(0.0, -sine), c(cosine, 0.0)])
+        }
+        // Ry(θ) = exp(-iθY/2) = [[cos(θ/2), -sin(θ/2)], [sin(θ/2), cos(θ/2)]].
+        // It is not symmetric: the -sin entry is M[0][1], so its transpose
+        // would apply Ry(-θ).
+        UnitaryOperation::Ry { angle, .. } => {
+            let (sine, cosine) = (angle / 2.0).sin_cos();
+            OperatorMatrix::One([c(cosine, 0.0), c(-sine, 0.0), c(sine, 0.0), c(cosine, 0.0)])
         }
         // Rz(θ) = exp(-iθZ/2) = diag(e^{-iθ/2}, e^{iθ/2}).
         UnitaryOperation::Rz { angle, .. } => {
@@ -150,12 +166,7 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
         }
         UnitaryOperation::I { .. }
         | UnitaryOperation::Y { .. }
-        | UnitaryOperation::Z { .. }
-        | UnitaryOperation::SAdj { .. }
         | UnitaryOperation::SxAdj { .. }
-        | UnitaryOperation::T { .. }
-        | UnitaryOperation::TAdj { .. }
-        | UnitaryOperation::Ry { .. }
         | UnitaryOperation::Cy { .. }
         | UnitaryOperation::Rxx { .. }
         | UnitaryOperation::Ryy { .. }
