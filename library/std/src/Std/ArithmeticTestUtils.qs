@@ -87,7 +87,7 @@ operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[
 
 @Config(not Unrestricted)
 operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[]) : Unit {
-    fail("ApplyClassicalFunction is not supported in this profile");
+    fail ("ApplyClassicalFunction is not supported in this profile");
 }
 
 
