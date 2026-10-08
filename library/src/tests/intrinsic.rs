@@ -4075,7 +4075,7 @@ fn test_apply_unitary_fails_when_matrix_not_unitary() {
 fn test_controlled_r1_matrix_correct() {
     // Verify that the matrix for n-controlled R1(theta) gate is exactly diag(1,1,...,1,e^i*theta).
     let theta = 1.23;
-    for n in 0..=3 {
+    for n in 0..=4 {
         let source = format!(
             "
             {{
