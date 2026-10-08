@@ -27,7 +27,6 @@ pub trait Receiver {
     fn message(&mut self, msg: &str) -> Result<(), Error>;
 }
 
-
 /// Receiver that stores everything it receives.
 #[derive(Debug, Default)]
 pub struct StoringReceiver {
@@ -39,7 +38,10 @@ pub struct StoringReceiver {
 impl StoringReceiver {
     #[must_use]
     pub fn last_matrix(&self) -> &[Vec<Complex64>] {
-        self.matrices.last().map(Vec::as_slice).expect("expected matrix")
+        self.matrices
+            .last()
+            .map(Vec::as_slice)
+            .expect("expected matrix")
     }
 }
 
