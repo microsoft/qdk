@@ -102,7 +102,7 @@ jobs:
         run: |
           # Extract from stderr log the panic message:
           PANIC_MESSAGE=`cat $STDERR_LOG_FNAME |
-            grep "panicked at" | sed "s|thread '<unnamed>' panicked at '\([^']*\).*|\1|"`
+            grep "panicked at" | sed "s|thread '<unnamed>' panicked at '\([^']*\).*|\1|" || true`
             # Explanation:
             # `cat $STDERR_LOG_FNAME |`: Display the contents of the stderr log file and pass the contents
             #     to the next command.
@@ -121,11 +121,15 @@ jobs:
             #     Second section (`\1`):
             #     If the sequence specified by the first section is found, then replace that sequence (the whole line)
             #     with the memory item 1 (`\1`), ending up in a panic message between the apostrophes.
+            # `|| true`: A missing panic is expected for non-panic crashes. It prevents `bash -e -o pipefail` from
+            #     terminating this step before the remaining issue metadata is collected.
             # PANIC_MESSAGE=`. . .`: The output of the command(s) between the backticks ('`') is saved in the
             #     env var PANIC_MESSAGE.
-          # If the failure is not panic-based then extract any ERROR message(s):
+          # If there is no Rust panic, look for a narrow set of explicit process-crash indicators:
           if [ "$PANIC_MESSAGE" == "" ]; then
-            PANIC_MESSAGE=`cat $STDERR_LOG_FNAME | grep "ERROR"`
+            PANIC_MESSAGE=`cat $STDERR_LOG_FNAME | grep -im 1 -E 'SIGSEGV|segmentation fault|core dump(ed)?' || true`
+              # `-i` ignores case, `-m 1` stops after the first match, and `-E` enables the regular expression.
+              # `|| true` allows metadata collection to continue if none of these strings is present.
           fi
           echo "PANIC_MESSAGE: '$PANIC_MESSAGE'"                # Output the PANIC_MESSAGE var value to the log
                                                                 # (optional, for workflow failure analysis and sanity check).
@@ -154,12 +158,12 @@ jobs:
               # Minimization failed, get the latest successful minimized input relative faile path:
               MINIMIZED_INPUT_RFPATH=`
                 cat $TMIN_LOG_FNAME | grep "CRASH_MIN: minimizing crash input: " | tail -n 1 |
-                sed "s|^.*\($ARTIFACTS_RDPATH/${{ matrix.target_name }}/[^\']*\).*|\1|"`
+                sed "s|^.*\($ARTIFACTS_RDPATH/${{ matrix.target_name }}/[^\']*\).*|\1|" || true`
             else
               # Minimization Succeeded, get the reported minimized input relative faile path::
               MINIMIZED_INPUT_RFPATH=`
                 cat $TMIN_LOG_FNAME | grep "failed to minimize beyond" |
-                sed "s|.*\($ARTIFACTS_RDPATH/${{ matrix.target_name }}/[^ ]*\).*|\1|" `
+                sed "s|.*\($ARTIFACTS_RDPATH/${{ matrix.target_name }}/[^ ]*\).*|\1|" || true`
             fi
             echo "MINIMIZED_INPUT_RFPATH: $MINIMIZED_INPUT_RFPATH"
             echo "MINIMIZED_INPUT_RFPATH=$MINIMIZED_INPUT_RFPATH" >> "$GITHUB_ENV"
@@ -182,7 +186,7 @@ jobs:
           echo "WF_AGENT_OS=${{ matrix.os }}" >> "$GITHUB_ENV"
 
           # Get the branch info:
-          BRANCH_INFO=`git branch | grep '*'`
+          BRANCH_INFO=`git branch | grep '*' || true`
           echo "BRANCH_INFO: '$BRANCH_INFO'"
           echo "BRANCH_INFO=$BRANCH_INFO" >> "$GITHUB_ENV"
 
