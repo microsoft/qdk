@@ -1161,6 +1161,20 @@ fn asymmetric_ry_rotates_zero_toward_positive_one() {
 }
 
 #[test]
+fn asymmetric_y_maps_zero_to_plus_i_one() {
+    let operator = fixture_operator(Gate::Y { target: 1 }).expect("Y is valid");
+    let output = apply_one_site(
+        &operator.matrix,
+        [Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)],
+    );
+
+    // The transposed matrix (-Y) would give -i|1⟩.
+    assert_eq!(&*operator.modes, [1]);
+    assert_complex_close(output[0], Complex64::new(0.0, 0.0));
+    assert_complex_close(output[1], Complex64::new(0.0, 1.0));
+}
+
+#[test]
 fn rz_phase_interferes_with_the_expected_sign() {
     let theta = 0.913;
     let hadamard = fixture_operator(Gate::H { target: 0 }).expect("H is valid");
@@ -1187,15 +1201,18 @@ fn operator_bits(matrix: &[Complex64Abi]) -> Vec<(u64, u64)> {
         .collect()
 }
 
+const PINNED_THETA: f64 = 0.731;
+
 #[test]
-fn operator_data_is_pinned_bit_for_bit() {
-    let theta = 0.731_f64;
+fn one_qubit_operator_data_is_pinned_bit_for_bit() {
+    let theta = PINNED_THETA;
     let (sine, cosine) = (theta / 2.0).sin_cos();
     let c = Complex64::new;
     let (o, l) = (c(0.0, 0.0), c(1.0, 0.0));
     let h = std::f64::consts::FRAC_1_SQRT_2;
     let (minus, plus) = (c(cosine, -sine), c(cosine, sine));
-    let cases = [
+    let (plus_i, minus_i, minus_one) = (c(0.0, 1.0), c(0.0, -1.0), c(-1.0, 0.0));
+    assert_operator_bits([
         (Gate::X { target: 0 }, vec![o, l, l, o]),
         (
             Gate::H { target: 0 },
@@ -1206,9 +1223,9 @@ fn operator_data_is_pinned_bit_for_bit() {
             vec![c(cosine, 0.0), c(0.0, -sine), c(0.0, -sine), c(cosine, 0.0)],
         ),
         (Gate::Rz { theta, target: 0 }, vec![minus, o, o, plus]),
-        (Gate::S { target: 0 }, vec![l, o, o, c(0.0, 1.0)]),
-        (Gate::Z { target: 0 }, vec![l, o, o, c(-1.0, 0.0)]),
-        (Gate::SAdj { target: 0 }, vec![l, o, o, c(0.0, -1.0)]),
+        (Gate::S { target: 0 }, vec![l, o, o, plus_i]),
+        (Gate::Z { target: 0 }, vec![l, o, o, minus_one]),
+        (Gate::SAdj { target: 0 }, vec![l, o, o, minus_i]),
         (Gate::T { target: 0 }, vec![l, o, o, c(h, h)]),
         (Gate::TAdj { target: 0 }, vec![l, o, o, c(h, -h)]),
         (
@@ -1219,12 +1236,63 @@ fn operator_data_is_pinned_bit_for_bit() {
             Gate::Sx { target: 0 },
             vec![c(0.5, 0.5), c(0.5, -0.5), c(0.5, -0.5), c(0.5, 0.5)],
         ),
+        (Gate::Y { target: 0 }, vec![o, minus_i, plus_i, o]),
+        (
+            Gate::SxAdj { target: 0 },
+            vec![c(0.5, -0.5), c(0.5, 0.5), c(0.5, 0.5), c(0.5, -0.5)],
+        ),
+    ]);
+}
+
+#[test]
+fn two_qubit_operator_data_is_pinned_bit_for_bit() {
+    let theta = PINNED_THETA;
+    let (sine, cosine) = (theta / 2.0).sin_cos();
+    let c = Complex64::new;
+    let (o, l) = (c(0.0, 0.0), c(1.0, 0.0));
+    let (minus, plus) = (c(cosine, -sine), c(cosine, sine));
+    let (diagonal, flip, equal) = (c(cosine, 0.0), c(0.0, -sine), c(0.0, sine));
+    let (plus_i, minus_i, minus_one) = (c(0.0, 1.0), c(0.0, -1.0), c(-1.0, 0.0));
+    assert_operator_bits([
+        (
+            Gate::Cy {
+                control: 0,
+                target: 1,
+            },
+            vec![l, o, o, o, o, l, o, o, o, o, o, minus_i, o, o, plus_i, o],
+        ),
+        (
+            Gate::Rxx {
+                theta,
+                q1: 0,
+                q2: 1,
+            },
+            vec![
+                diagonal, o, o, flip, o, diagonal, flip, o, o, flip, diagonal, o, flip, o, o,
+                diagonal,
+            ],
+        ),
+        (
+            Gate::Ryy {
+                theta,
+                q1: 0,
+                q2: 1,
+            },
+            vec![
+                diagonal, o, o, equal, o, diagonal, flip, o, o, flip, diagonal, o, equal, o, o,
+                diagonal,
+            ],
+        ),
+        (
+            Gate::Swap { q1: 0, q2: 1 },
+            vec![l, o, o, o, o, o, l, o, o, l, o, o, o, o, o, l],
+        ),
         (
             Gate::Cz {
                 control: 0,
                 target: 1,
             },
-            vec![l, o, o, o, o, l, o, o, o, o, l, o, o, o, o, c(-1.0, 0.0)],
+            vec![l, o, o, o, o, l, o, o, o, o, l, o, o, o, o, minus_one],
         ),
         (
             Gate::Cnot {
@@ -1241,7 +1309,10 @@ fn operator_data_is_pinned_bit_for_bit() {
             },
             vec![minus, o, o, o, o, plus, o, o, o, o, plus, o, o, o, o, minus],
         ),
-    ];
+    ]);
+}
+
+fn assert_operator_bits<const N: usize>(cases: [(Gate, Vec<Complex64>); N]) {
     for (gate, expected) in cases {
         let operator = fixture_operator(gate).expect("valid gate");
         let expected: Vec<_> = expected.into_iter().map(Complex64Abi::from).collect();
@@ -1271,6 +1342,8 @@ fn operators_copy_the_shared_table_on_their_operands_in_gate_order() {
             vec![2],
         ),
         (Gate::Sx { target: 2 }, vec![2]),
+        (Gate::Y { target: 2 }, vec![2]),
+        (Gate::SxAdj { target: 2 }, vec![2]),
         (
             Gate::Rx {
                 theta: 0.4,
@@ -1307,6 +1380,30 @@ fn operators_copy_the_shared_table_on_their_operands_in_gate_order() {
             },
             vec![3, 1],
         ),
+        (
+            Gate::Cy {
+                control: 3,
+                target: 1,
+            },
+            vec![3, 1],
+        ),
+        (
+            Gate::Rxx {
+                theta: 0.4,
+                q1: 3,
+                q2: 1,
+            },
+            vec![3, 1],
+        ),
+        (
+            Gate::Ryy {
+                theta: 0.4,
+                q1: 3,
+                q2: 1,
+            },
+            vec![3, 1],
+        ),
+        (Gate::Swap { q1: 3, q2: 1 }, vec![3, 1]),
     ];
     for (gate, modes) in gates {
         let operator = fixture_operator(gate).expect("valid gate");

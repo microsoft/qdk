@@ -11,6 +11,7 @@ use thiserror::Error;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Gate {
     X { target: u32 },
+    Y { target: u32 },
     Z { target: u32 },
     H { target: u32 },
     S { target: u32 },
@@ -18,19 +19,21 @@ pub enum Gate {
     T { target: u32 },
     TAdj { target: u32 },
     Sx { target: u32 },
+    SxAdj { target: u32 },
     Rx { theta: f64, target: u32 },
     Ry { theta: f64, target: u32 },
     Rz { theta: f64, target: u32 },
     Cnot { control: u32, target: u32 },
+    Cy { control: u32, target: u32 },
     Cz { control: u32, target: u32 },
+    Rxx { theta: f64, q1: u32, q2: u32 },
+    Ryy { theta: f64, q1: u32, q2: u32 },
     Rzz { theta: f64, q1: u32, q2: u32 },
+    Swap { q1: u32, q2: u32 },
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub(crate) enum UnitaryOperationConversionError {
-    #[error("unitary operation {operation} is not supported by cuTensorNet")]
-    UnsupportedOperation { operation: &'static str },
-
     #[error(
         "unitary operation {operation} uses qubit index {index}, which exceeds the cuTensorNet u32 range"
     )]
@@ -48,6 +51,9 @@ impl Gate {
             UnitaryOperation::I { .. } => return Ok(None),
             UnitaryOperation::X { target } => Self::X {
                 target: gate_qubit("X", target)?,
+            },
+            UnitaryOperation::Y { target } => Self::Y {
+                target: gate_qubit("Y", target)?,
             },
             UnitaryOperation::Z { target } => Self::Z {
                 target: gate_qubit("Z", target)?,
@@ -70,6 +76,9 @@ impl Gate {
             UnitaryOperation::Sx { target } => Self::Sx {
                 target: gate_qubit("Sx", target)?,
             },
+            UnitaryOperation::SxAdj { target } => Self::SxAdj {
+                target: gate_qubit("SxAdj", target)?,
+            },
             UnitaryOperation::Rx { angle, target } => Self::Rx {
                 theta: angle,
                 target: gate_qubit("Rx", target)?,
@@ -86,21 +95,33 @@ impl Gate {
                 control: gate_qubit("Cx", control)?,
                 target: gate_qubit("Cx", target)?,
             },
+            UnitaryOperation::Cy { control, target } => Self::Cy {
+                control: gate_qubit("Cy", control)?,
+                target: gate_qubit("Cy", target)?,
+            },
             UnitaryOperation::Cz { control, target } => Self::Cz {
                 control: gate_qubit("Cz", control)?,
                 target: gate_qubit("Cz", target)?,
+            },
+            UnitaryOperation::Rxx { angle, q1, q2 } => Self::Rxx {
+                theta: angle,
+                q1: gate_qubit("Rxx", q1)?,
+                q2: gate_qubit("Rxx", q2)?,
+            },
+            UnitaryOperation::Ryy { angle, q1, q2 } => Self::Ryy {
+                theta: angle,
+                q1: gate_qubit("Ryy", q1)?,
+                q2: gate_qubit("Ryy", q2)?,
             },
             UnitaryOperation::Rzz { angle, q1, q2 } => Self::Rzz {
                 theta: angle,
                 q1: gate_qubit("Rzz", q1)?,
                 q2: gate_qubit("Rzz", q2)?,
             },
-            UnitaryOperation::Y { .. } => return unsupported_operation("Y"),
-            UnitaryOperation::SxAdj { .. } => return unsupported_operation("SxAdj"),
-            UnitaryOperation::Cy { .. } => return unsupported_operation("Cy"),
-            UnitaryOperation::Rxx { .. } => return unsupported_operation("Rxx"),
-            UnitaryOperation::Ryy { .. } => return unsupported_operation("Ryy"),
-            UnitaryOperation::Swap { .. } => return unsupported_operation("Swap"),
+            UnitaryOperation::Swap { q1, q2 } => Self::Swap {
+                q1: gate_qubit("Swap", q1)?,
+                q2: gate_qubit("Swap", q2)?,
+            },
         };
         Ok(Some(gate))
     }
@@ -113,6 +134,9 @@ impl From<Gate> for UnitaryOperation {
         let qubit = |index: u32| usize::try_from(index).expect("u32 qubit indices fit in usize");
         match gate {
             Gate::X { target } => Self::X {
+                target: qubit(target),
+            },
+            Gate::Y { target } => Self::Y {
                 target: qubit(target),
             },
             Gate::Z { target } => Self::Z {
@@ -136,6 +160,9 @@ impl From<Gate> for UnitaryOperation {
             Gate::Sx { target } => Self::Sx {
                 target: qubit(target),
             },
+            Gate::SxAdj { target } => Self::SxAdj {
+                target: qubit(target),
+            },
             Gate::Rx { theta, target } => Self::Rx {
                 angle: theta,
                 target: qubit(target),
@@ -152,12 +179,30 @@ impl From<Gate> for UnitaryOperation {
                 control: qubit(control),
                 target: qubit(target),
             },
+            Gate::Cy { control, target } => Self::Cy {
+                control: qubit(control),
+                target: qubit(target),
+            },
             Gate::Cz { control, target } => Self::Cz {
                 control: qubit(control),
                 target: qubit(target),
             },
+            Gate::Rxx { theta, q1, q2 } => Self::Rxx {
+                angle: theta,
+                q1: qubit(q1),
+                q2: qubit(q2),
+            },
+            Gate::Ryy { theta, q1, q2 } => Self::Ryy {
+                angle: theta,
+                q1: qubit(q1),
+                q2: qubit(q2),
+            },
             Gate::Rzz { theta, q1, q2 } => Self::Rzz {
                 angle: theta,
+                q1: qubit(q1),
+                q2: qubit(q2),
+            },
+            Gate::Swap { q1, q2 } => Self::Swap {
                 q1: qubit(q1),
                 q2: qubit(q2),
             },
@@ -171,12 +216,6 @@ fn gate_qubit(
 ) -> Result<u32, UnitaryOperationConversionError> {
     u32::try_from(index)
         .map_err(|_| UnitaryOperationConversionError::QubitIndexOutOfRange { operation, index })
-}
-
-fn unsupported_operation(
-    operation: &'static str,
-) -> Result<Option<Gate>, UnitaryOperationConversionError> {
-    Err(UnitaryOperationConversionError::UnsupportedOperation { operation })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -250,6 +289,7 @@ impl Circuit {
             use std::fmt::Write;
             match gate {
                 Gate::X { target } => write!(description, "x:{target};"),
+                Gate::Y { target } => write!(description, "y:{target};"),
                 Gate::Z { target } => write!(description, "z:{target};"),
                 Gate::H { target } => write!(description, "h:{target};"),
                 Gate::S { target } => write!(description, "s:{target};"),
@@ -257,6 +297,7 @@ impl Circuit {
                 Gate::T { target } => write!(description, "t:{target};"),
                 Gate::TAdj { target } => write!(description, "tdg:{target};"),
                 Gate::Sx { target } => write!(description, "sx:{target};"),
+                Gate::SxAdj { target } => write!(description, "sxdg:{target};"),
                 Gate::Rx { theta, target } => {
                     write!(description, "rx:{target}:{};", canonical_angle_bits(*theta))
                 }
@@ -269,8 +310,25 @@ impl Circuit {
                 Gate::Cnot { control, target } => {
                     write!(description, "cx:{control}:{target};")
                 }
+                Gate::Cy { control, target } => {
+                    write!(description, "cy:{control}:{target};")
+                }
                 Gate::Cz { control, target } => {
                     write!(description, "cz:{control}:{target};")
+                }
+                Gate::Rxx { theta, q1, q2 } => {
+                    write!(
+                        description,
+                        "rxx:{q1}:{q2}:{};",
+                        canonical_angle_bits(*theta)
+                    )
+                }
+                Gate::Ryy { theta, q1, q2 } => {
+                    write!(
+                        description,
+                        "ryy:{q1}:{q2}:{};",
+                        canonical_angle_bits(*theta)
+                    )
                 }
                 Gate::Rzz { theta, q1, q2 } => {
                     write!(
@@ -279,6 +337,7 @@ impl Circuit {
                         canonical_angle_bits(*theta)
                     )
                 }
+                Gate::Swap { q1, q2 } => write!(description, "swap:{q1}:{q2};"),
             }
             .expect("writing to a String should not fail");
         }
@@ -291,57 +350,79 @@ impl Circuit {
 fn validate_gate(qubit_count: u32, gate: Gate) -> Result<(), SimulationError> {
     match gate {
         Gate::X { target }
+        | Gate::Y { target }
         | Gate::Z { target }
         | Gate::H { target }
         | Gate::S { target }
         | Gate::SAdj { target }
         | Gate::T { target }
         | Gate::TAdj { target }
-        | Gate::Sx { target } => {
-            validate_qubit(qubit_count, target)?;
-        }
+        | Gate::Sx { target }
+        | Gate::SxAdj { target } => validate_qubit(qubit_count, target),
         Gate::Rx { theta, target } | Gate::Ry { theta, target } | Gate::Rz { theta, target } => {
             validate_qubit(qubit_count, target)?;
-            if !theta.is_finite() {
-                return Err(SimulationError::InvalidCircuit {
-                    reason: "rotation angle must be finite".to_string(),
-                });
-            }
+            validate_angle(theta)
         }
-        Gate::Cnot { control, target } => {
-            validate_qubit(qubit_count, control)?;
-            validate_qubit(qubit_count, target)?;
-            if control == target {
-                return Err(SimulationError::InvalidCircuit {
-                    reason: "CNOT control and target must be different qubits".to_string(),
-                });
-            }
+        Gate::Cnot { control, target } => validate_pair(
+            qubit_count,
+            control,
+            target,
+            "CNOT control and target must be different qubits",
+        ),
+        Gate::Cy { control, target } => validate_pair(
+            qubit_count,
+            control,
+            target,
+            "CY control and target must be different qubits",
+        ),
+        Gate::Cz { control, target } => validate_pair(
+            qubit_count,
+            control,
+            target,
+            "CZ control and target must be different qubits",
+        ),
+        Gate::Rxx { theta, q1, q2 } => {
+            validate_pair(qubit_count, q1, q2, "Rxx requires two different qubits")?;
+            validate_angle(theta)
         }
-        Gate::Cz { control, target } => {
-            validate_qubit(qubit_count, control)?;
-            validate_qubit(qubit_count, target)?;
-            if control == target {
-                return Err(SimulationError::InvalidCircuit {
-                    reason: "CZ control and target must be different qubits".to_string(),
-                });
-            }
+        Gate::Ryy { theta, q1, q2 } => {
+            validate_pair(qubit_count, q1, q2, "Ryy requires two different qubits")?;
+            validate_angle(theta)
         }
         Gate::Rzz { theta, q1, q2 } => {
-            validate_qubit(qubit_count, q1)?;
-            validate_qubit(qubit_count, q2)?;
-            if q1 == q2 {
-                return Err(SimulationError::InvalidCircuit {
-                    reason: "Rzz requires two different qubits".to_string(),
-                });
-            }
-            if !theta.is_finite() {
-                return Err(SimulationError::InvalidCircuit {
-                    reason: "rotation angle must be finite".to_string(),
-                });
-            }
+            validate_pair(qubit_count, q1, q2, "Rzz requires two different qubits")?;
+            validate_angle(theta)
+        }
+        Gate::Swap { q1, q2 } => {
+            validate_pair(qubit_count, q1, q2, "SWAP requires two different qubits")
         }
     }
+}
+
+fn validate_pair(
+    qubit_count: u32,
+    first: u32,
+    second: u32,
+    same_qubit: &str,
+) -> Result<(), SimulationError> {
+    validate_qubit(qubit_count, first)?;
+    validate_qubit(qubit_count, second)?;
+    if first == second {
+        return Err(SimulationError::InvalidCircuit {
+            reason: same_qubit.to_string(),
+        });
+    }
     Ok(())
+}
+
+fn validate_angle(theta: f64) -> Result<(), SimulationError> {
+    if theta.is_finite() {
+        Ok(())
+    } else {
+        Err(SimulationError::InvalidCircuit {
+            reason: "rotation angle must be finite".to_string(),
+        })
+    }
 }
 
 fn validate_qubit(qubit_count: u32, qubit: u32) -> Result<(), SimulationError> {
@@ -653,13 +734,18 @@ mod tests {
     use tensornet::{Mps, MpsError};
 
     #[test]
-    fn supported_unitary_operations_map_to_gates() {
-        let operations = [
+    fn one_qubit_unitary_operations_map_to_gates() {
+        assert_operations_map_to_gates([
             (UnitaryOperation::X { target: 3 }, Gate::X { target: 3 }),
             (UnitaryOperation::H { target: 4 }, Gate::H { target: 4 }),
             (UnitaryOperation::S { target: 11 }, Gate::S { target: 11 }),
             (UnitaryOperation::Sx { target: 12 }, Gate::Sx { target: 12 }),
             (UnitaryOperation::Z { target: 15 }, Gate::Z { target: 15 }),
+            (UnitaryOperation::Y { target: 20 }, Gate::Y { target: 20 }),
+            (
+                UnitaryOperation::SxAdj { target: 21 },
+                Gate::SxAdj { target: 21 },
+            ),
             (
                 UnitaryOperation::SAdj { target: 16 },
                 Gate::SAdj { target: 16 },
@@ -680,16 +766,6 @@ mod tests {
                 },
             ),
             (
-                UnitaryOperation::Cz {
-                    control: 13,
-                    target: 14,
-                },
-                Gate::Cz {
-                    control: 13,
-                    target: 14,
-                },
-            ),
-            (
                 UnitaryOperation::Rx {
                     angle: 0.25,
                     target: 5,
@@ -707,6 +783,60 @@ mod tests {
                 Gate::Rz {
                     theta: -0.75,
                     target: 6,
+                },
+            ),
+        ]);
+    }
+
+    #[test]
+    fn two_qubit_unitary_operations_map_to_gates() {
+        assert_operations_map_to_gates([
+            (
+                UnitaryOperation::Cy {
+                    control: 23,
+                    target: 22,
+                },
+                Gate::Cy {
+                    control: 23,
+                    target: 22,
+                },
+            ),
+            (
+                UnitaryOperation::Rxx {
+                    angle: 0.3,
+                    q1: 24,
+                    q2: 25,
+                },
+                Gate::Rxx {
+                    theta: 0.3,
+                    q1: 24,
+                    q2: 25,
+                },
+            ),
+            (
+                UnitaryOperation::Ryy {
+                    angle: -0.6,
+                    q1: 27,
+                    q2: 26,
+                },
+                Gate::Ryy {
+                    theta: -0.6,
+                    q1: 27,
+                    q2: 26,
+                },
+            ),
+            (
+                UnitaryOperation::Swap { q1: 29, q2: 28 },
+                Gate::Swap { q1: 29, q2: 28 },
+            ),
+            (
+                UnitaryOperation::Cz {
+                    control: 13,
+                    target: 14,
+                },
+                Gate::Cz {
+                    control: 13,
+                    target: 14,
                 },
             ),
             (
@@ -731,8 +861,10 @@ mod tests {
                     q2: 10,
                 },
             ),
-        ];
+        ]);
+    }
 
+    fn assert_operations_map_to_gates<const N: usize>(operations: [(UnitaryOperation, Gate); N]) {
         for (operation, expected) in operations {
             assert_eq!(Gate::from_unitary_operation(operation), Ok(Some(expected)));
             assert_eq!(UnitaryOperation::from(expected), operation);
@@ -745,51 +877,6 @@ mod tests {
             Gate::from_unitary_operation(UnitaryOperation::I { target: 9 }),
             Ok(None)
         );
-    }
-
-    #[test]
-    fn unsupported_unitary_operations_name_the_operation() {
-        let operations = [
-            (UnitaryOperation::Y { target: 0 }, "Y"),
-            (UnitaryOperation::SxAdj { target: 0 }, "SxAdj"),
-            (
-                UnitaryOperation::Cy {
-                    control: 0,
-                    target: 1,
-                },
-                "Cy",
-            ),
-            (
-                UnitaryOperation::Rxx {
-                    angle: 0.5,
-                    q1: 0,
-                    q2: 1,
-                },
-                "Rxx",
-            ),
-            (
-                UnitaryOperation::Ryy {
-                    angle: 0.5,
-                    q1: 0,
-                    q2: 1,
-                },
-                "Ryy",
-            ),
-            (UnitaryOperation::Swap { q1: 0, q2: 1 }, "Swap"),
-        ];
-
-        for (operation, name) in operations {
-            let error = Gate::from_unitary_operation(operation)
-                .expect_err("unsupported operation should fail conversion");
-            assert_eq!(
-                error,
-                UnitaryOperationConversionError::UnsupportedOperation { operation: name }
-            );
-            assert_eq!(
-                error.to_string(),
-                format!("unitary operation {name} is not supported by cuTensorNet")
-            );
-        }
     }
 
     #[test]
@@ -889,6 +976,90 @@ mod tests {
     }
 
     #[test]
+    fn remaining_gates_are_accepted_and_described_in_operand_order() {
+        let mut circuit = Circuit::new(3).expect("three-qubit circuit should be valid");
+        for gate in [
+            Gate::Y { target: 2 },
+            Gate::SxAdj { target: 0 },
+            Gate::Cy {
+                control: 2,
+                target: 0,
+            },
+            Gate::Rxx {
+                theta: 0.5,
+                q1: 0,
+                q2: 2,
+            },
+            Gate::Ryy {
+                theta: 0.5,
+                q1: 2,
+                q2: 1,
+            },
+            Gate::Swap { q1: 1, q2: 0 },
+        ] {
+            circuit.push(gate).expect("in-range gate should be valid");
+        }
+        assert_eq!(
+            circuit.canonical_description(),
+            "width=3;y:2;sxdg:0;cy:2:0;\
+             rxx:0:2:3fe0000000000000;ryy:2:1:3fe0000000000000;swap:1:0;"
+        );
+    }
+
+    #[test]
+    fn two_qubit_gates_reject_a_repeated_operand_with_their_own_message() {
+        let mut circuit = Circuit::new(2).expect("two-qubit circuit should be valid");
+        for (gate, message) in [
+            (
+                Gate::Cy {
+                    control: 1,
+                    target: 1,
+                },
+                "CY control and target must be different qubits",
+            ),
+            (
+                Gate::Rxx {
+                    theta: 0.1,
+                    q1: 0,
+                    q2: 0,
+                },
+                "Rxx requires two different qubits",
+            ),
+            (
+                Gate::Ryy {
+                    theta: 0.1,
+                    q1: 1,
+                    q2: 1,
+                },
+                "Ryy requires two different qubits",
+            ),
+            (
+                Gate::Swap { q1: 0, q2: 0 },
+                "SWAP requires two different qubits",
+            ),
+        ] {
+            let Err(SimulationError::InvalidCircuit { reason }) = circuit.push(gate) else {
+                panic!("{gate:?} should be rejected");
+            };
+            assert_eq!(reason, message, "{gate:?}");
+        }
+        for gate in [
+            Gate::Y { target: 2 },
+            Gate::SxAdj { target: 2 },
+            Gate::Swap { q1: 0, q2: 2 },
+        ] {
+            assert!(
+                matches!(
+                    circuit.push(gate),
+                    Err(SimulationError::InvalidCircuit { .. })
+                ),
+                "{gate:?}"
+            );
+        }
+        assert!(circuit.gates().is_empty());
+    }
+
+    #[test]
     fn circuit_rejects_non_finite_rotation_angles() {
         let mut circuit = Circuit::new(2).expect("two-qubit circuit should be valid");
 
@@ -913,6 +1084,26 @@ mod tests {
             }),
             Err(SimulationError::InvalidCircuit { .. })
         ));
+        for gate in [
+            Gate::Rxx {
+                theta: f64::NAN,
+                q1: 0,
+                q2: 1,
+            },
+            Gate::Ryy {
+                theta: f64::INFINITY,
+                q1: 0,
+                q2: 1,
+            },
+        ] {
+            assert!(
+                matches!(
+                    circuit.push(gate),
+                    Err(SimulationError::InvalidCircuit { .. })
+                ),
+                "{gate:?}"
+            );
+        }
         assert!(circuit.gates().is_empty());
     }
 
@@ -995,29 +1186,29 @@ mod tests {
     }
 
     #[test]
-    fn fixed_outcome_conversion_names_the_first_unsupported_operation() {
+    #[cfg(target_pointer_width = "64")]
+    fn fixed_outcome_conversion_reports_qubits_outside_u32() {
+        let index = usize::try_from(u64::from(u32::MAX) + 1).expect("usize should be 64-bit");
         let circuit = fixed_outcome(
             1,
             vec![
                 FixedOutcomeOperation::Unitary(UnitaryOperation::H { target: 0 }),
-                FixedOutcomeOperation::Unitary(UnitaryOperation::T { target: 0 }),
-                FixedOutcomeOperation::Unitary(UnitaryOperation::Y { target: 0 }),
+                FixedOutcomeOperation::Unitary(UnitaryOperation::Swap { q1: 0, q2: index }),
             ],
         );
 
-        let error =
-            ProjectedCircuit::from_fixed_outcome(&circuit).expect_err("Y has no cuTensorNet gate");
+        let error = ProjectedCircuit::from_fixed_outcome(&circuit)
+            .expect_err("the operand has no cuTensorNet mode");
 
         assert!(matches!(
             error,
             ProjectedCircuitError::Conversion(
-                UnitaryOperationConversionError::UnsupportedOperation { operation: "Y" }
-            )
+                UnitaryOperationConversionError::QubitIndexOutOfRange {
+                    operation: "Swap",
+                    index: reported,
+                }
+            ) if reported == index
         ));
-        assert_eq!(
-            error.to_string(),
-            "unitary operation Y is not supported by cuTensorNet"
-        );
     }
 
     #[test]
@@ -1194,16 +1385,22 @@ mod tests {
                 Gate::Cnot { control, target } => {
                     simulator.mcx(&[control as usize], target as usize);
                 }
-                Gate::Z { .. }
+                Gate::Y { .. }
+                | Gate::Z { .. }
                 | Gate::H { .. }
                 | Gate::S { .. }
                 | Gate::SAdj { .. }
                 | Gate::T { .. }
                 | Gate::TAdj { .. }
                 | Gate::Sx { .. }
+                | Gate::SxAdj { .. }
                 | Gate::Ry { .. }
+                | Gate::Cy { .. }
                 | Gate::Cz { .. }
-                | Gate::Rzz { .. } => {
+                | Gate::Rxx { .. }
+                | Gate::Ryy { .. }
+                | Gate::Rzz { .. }
+                | Gate::Swap { .. } => {
                     panic!("the Trotter fixture contains only X, Rx, Rz and CNOT gates: {gate:?}")
                 }
             }

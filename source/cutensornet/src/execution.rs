@@ -286,7 +286,7 @@ pub struct MpsCost {
 /// Probability without an MPS; Probability mixed with Expectation or without
 /// outcomes; on ψ, more than one region, feedforward, reset or a query on an
 /// absent qubit; on ψ̃, outcomes that do not fix one accepted path (wrong
-/// count, a record failing a selection check) or an unsupported gate.
+/// count, a record failing a selection check).
 ///
 /// This is an internal cross-crate entrypoint for the Python native module.
 #[doc(hidden)]
@@ -667,10 +667,6 @@ mod tests {
             vec![gate(0), measure(0), ret()],
             vec![operation(5), operation(21)],
         );
-        let unsupported = prepared_program(
-            vec![gate(0), measure(0), ret()],
-            vec![operation(3), operation(21)],
-        );
         let mut z0 = PauliSum::new();
         z0.push_labels(Complex64::new(1.0, 0.0), "Z", &[0])
             .expect("the term is well formed");
@@ -708,13 +704,6 @@ mod tests {
                 Some(&[false, false]),
                 mps,
                 "the program has 1 results, but 2 outcomes were given",
-            ),
-            (
-                &unsupported,
-                vec![StateQuery::Probability],
-                Some(one_outcome),
-                mps,
-                "unitary operation Y is not supported by cuTensorNet",
             ),
         ];
 
@@ -796,17 +785,20 @@ mod tests {
     }
 
     #[test]
-    fn preflight_rejects_unsupported_unitary_before_device_discovery() {
-        let program = prepared_program(vec![gate(0), ret()], vec![operation(3)]);
+    fn preflight_accepts_every_unitary_operation() {
+        // I, X, Y, Z, H, S, S†, T, T†, SX, SX†, Rx, Ry, Rz, CX, CZ, Rxx, Ryy,
+        // Rzz, SWAP and CY, on qubits (0, 1) where they take two.
+        for operation_id in (0..=19).filter(|&id| id != 1).chain([24, 29]) {
+            let two_qubit_gate = Instruction { aux2: 1, ..gate(0) };
+            let program = prepared_program(
+                vec![two_qubit_gate, measure(0), ret()],
+                vec![operation(operation_id), operation(21)],
+            );
 
-        let error = prepare_mps_run(&program, 1, Some(42))
-            .expect_err("unsupported unitary should be rejected");
-
-        assert_eq!(
-            error.to_string(),
-            "consumer execution failed: unitary operation Y is not supported by cuTensorNet"
-        );
-        assert!(!error.is_environment_error());
+            prepare_mps_run(&program, 1, Some(42)).unwrap_or_else(|error| {
+                panic!("operation {operation_id} should pass the preflight: {error}")
+            });
+        }
     }
 
     #[test]

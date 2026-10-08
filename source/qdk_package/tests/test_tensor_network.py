@@ -36,6 +36,72 @@ from test_cpu_simulator import (
 # valid program.
 QIR = "not parsed"
 
+# Every gate callee the QIR lowering maps, on non-adjacent and reversed
+# operands. The tensor-network methods accept all of them (CCX through its
+# decomposition), so queries on it reach library discovery.
+EVERY_GATE_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__y__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__z__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__t__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__t__adj(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__rx__body(double 0.25, %Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__ry__body(double 0.25, %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__rz__body(double 0.25, %Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__cy__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__swap__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__rxx__body(double 0.25, %Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__ryy__body(double 0.25, %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+    call void @__quantum__qis__rzz__body(double 0.25, %Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+    call void @__quantum__rt__array_record_output(i64 3, i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__y__body(%Qubit*)
+declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__rx__body(double, %Qubit*)
+declare void @__quantum__qis__ry__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cy__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__swap__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__rxx__body(double, %Qubit*, %Qubit*)
+declare void @__quantum__qis__ryy__body(double, %Qubit*, %Qubit*)
+declare void @__quantum__qis__rzz__body(double, %Qubit*, %Qubit*)
+declare void @__quantum__qis__ccx__body(%Qubit*, %Qubit*, %Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="3" }
+"""
+
 # Rx(π/2) on qubit 0 and H on qubit 1: ⟨Y₀⟩ = -sin(π/2) = -1 and ⟨X₁⟩ = 1.
 # Y is the only non-symmetric Pauli, so a transposed Y would read ⟨Y₀⟩ = +1.
 RX_H_BASE_QIR = """\
@@ -336,12 +402,6 @@ def test_mps_probability_rejects_failing_selection_record_before_discovery(queri
         tensornetwork_qir(qir, queries, method="mps", outcomes=[1])
 
 
-def test_mps_probability_rejects_unsupported_gate_before_discovery():
-    qir = BELL_BASE_QIR.replace("__quantum__qis__h__body", "__quantum__qis__y__body")
-    with pytest.raises(ValueError, match="unitary operation Y is not supported"):
-        tensornetwork_qir(qir, [Probability()], method="mps", outcomes=[0, 0])
-
-
 @pytest.mark.parametrize("method", ["mps", "contraction"])
 def test_expectation_rejects_an_absent_qubit_before_discovery(
     method: Literal["mps", "contraction"],
@@ -362,7 +422,7 @@ def test_state_queries_report_unavailable_libraries_as_oserror(tmp_path: Path):
     # Same discovery override as the contraction test above, in a child process.
     # MPS Probability also runs on a program with measure-and-reset and on one
     # with a selection branch, which the Expectation route rejects before
-    # discovery.
+    # discovery. A program with every gate shows that none is rejected.
     script = """
 import json
 import platform
@@ -371,7 +431,7 @@ from qdk import stim
 from qdk.simulation import Cost, Expectation, Probability, tensornetwork_qir
 programs = json.loads(sys.stdin.read())
 select, _ = stim.compile("SELECT {\\n M 0\\n REQUIRE rec[-1]\\n}\\n")
-bell, mresetz = programs["bell"], programs["mresetz"]
+bell, mresetz, gates = programs["bell"], programs["mresetz"], programs["gates"]
 zz = Expectation([("ZZ", [0, 1], 1)])
 cases = (
     (bell, [zz], "mps", None),
@@ -380,6 +440,9 @@ cases = (
     (bell, [Probability()], "mps", [0, 0]),
     (mresetz, [Probability(), Cost()], "mps", [0, 0]),
     (select, [Cost(), Probability()], "mps", [0]),
+    (gates, [zz], "mps", None),
+    (gates, [zz], "contraction", None),
+    (gates, [Probability()], "mps", [0, 0, 0]),
 )
 for qir, queries, method, outcomes in cases:
     try:
@@ -394,7 +457,13 @@ for qir, queries, method, outcomes in cases:
 """
     result = subprocess.run(
         [sys.executable, "-c", script],
-        input=json.dumps({"bell": BELL_BASE_QIR, "mresetz": SX_CZ_MRESETZ_BASE_QIR}),
+        input=json.dumps(
+            {
+                "bell": BELL_BASE_QIR,
+                "mresetz": SX_CZ_MRESETZ_BASE_QIR,
+                "gates": EVERY_GATE_BASE_QIR,
+            }
+        ),
         text=True,
         capture_output=True,
         env={**os.environ, "QDK_CUTENSORNET_LIBRARY": str(tmp_path / "not-installed.so")},

@@ -12,9 +12,9 @@
 //! tensor network maps entries into its column-major axes with
 //! `tensornet::Indices::offset_of`.
 //!
-//! The layout must fix the orientation, not just the entries: Ry and |0⟩⟨1|
-//! are not symmetric, and their transposes are Ry(-θ) and |1⟩⟨0|, which
-//! rotate the other way and select the other branch.
+//! The layout must fix the orientation, not just the entries: Y, Ry, CY and
+//! |0⟩⟨1| are not symmetric, and their transposes (-Y, Ry(-θ), CY with -Y,
+//! |1⟩⟨0|) rotate the other way or select the other branch.
 //!
 //! Which gates a backend accepts is its own decision; the table only defines
 //! their values.
@@ -89,18 +89,21 @@ impl OperatorMatrix {
 const ZERO: Complex64 = Complex64::new(0.0, 0.0);
 const ONE: Complex64 = Complex64::new(1.0, 0.0);
 const MINUS_ONE: Complex64 = Complex64::new(-1.0, 0.0);
+const I: Complex64 = Complex64::new(0.0, 1.0);
+const MINUS_I: Complex64 = Complex64::new(0.0, -1.0);
 
 /// The matrix of `operation`, or `None` for gates outside the table.
 ///
-/// The table holds X, Z, H, S, S†, T, T†, Sx, Rx, Ry, Rz, Cx, Cz and Rzz:
-/// the gates some backend accepts. `I` is omitted because backends drop it
-/// rather than apply it. Operands are ignored: the matrix is the same on any
+/// The table holds every unitary operation except `I`, which backends drop
+/// rather than apply. Operands are ignored: the matrix is the same on any
 /// qubits, in the operand order of `operation`.
 #[must_use]
 pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
     let c = Complex64::new;
     let matrix = match operation {
         UnitaryOperation::X { .. } => OperatorMatrix::One([ZERO, ONE, ONE, ZERO]),
+        // Y = [[0, -i], [i, 0]]. It is not symmetric: its transpose is -Y.
+        UnitaryOperation::Y { .. } => OperatorMatrix::One([ZERO, MINUS_I, I, ZERO]),
         // Negative entries are written, not negated, so their zero imaginary
         // parts stay +0.0 and the values stay bit-identical across backends.
         UnitaryOperation::H { .. } => OperatorMatrix::One([
@@ -110,8 +113,8 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
             c(-FRAC_1_SQRT_2, 0.0),
         ]),
         UnitaryOperation::Z { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, MINUS_ONE]),
-        UnitaryOperation::S { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, c(0.0, 1.0)]),
-        UnitaryOperation::SAdj { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, c(0.0, -1.0)]),
+        UnitaryOperation::S { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, I]),
+        UnitaryOperation::SAdj { .. } => OperatorMatrix::One([ONE, ZERO, ZERO, MINUS_I]),
         // T = diag(1, e^{iπ/4}), the square root of S.
         UnitaryOperation::T { .. } => {
             OperatorMatrix::One([ONE, ZERO, ZERO, c(FRAC_1_SQRT_2, FRAC_1_SQRT_2)])
@@ -123,6 +126,10 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
         // `sx` and the QDK simulators apply.
         UnitaryOperation::Sx { .. } => {
             OperatorMatrix::One([c(0.5, 0.5), c(0.5, -0.5), c(0.5, -0.5), c(0.5, 0.5)])
+        }
+        // SX† = ((1 - i) I + (1 + i) X) / 2, the inverse of SX.
+        UnitaryOperation::SxAdj { .. } => {
+            OperatorMatrix::One([c(0.5, -0.5), c(0.5, 0.5), c(0.5, 0.5), c(0.5, -0.5)])
         }
         // Rx(θ) = exp(-iθX/2) = cos(θ/2) I - i sin(θ/2) X.
         UnitaryOperation::Rx { angle, .. } => {
@@ -147,6 +154,14 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
             ZERO, ZERO, ZERO, ONE, //
             ZERO, ZERO, ONE, ZERO,
         ]),
+        // CY applies Y to the target (second operand) when the control (first
+        // operand) is 1. Swapping the operands gives a different matrix.
+        UnitaryOperation::Cy { .. } => OperatorMatrix::Two([
+            ONE, ZERO, ZERO, ZERO, //
+            ZERO, ONE, ZERO, ZERO, //
+            ZERO, ZERO, ZERO, MINUS_I, //
+            ZERO, ZERO, I, ZERO,
+        ]),
         UnitaryOperation::Cz { .. } => OperatorMatrix::Two([
             ONE, ZERO, ZERO, ZERO, //
             ZERO, ONE, ZERO, ZERO, //
@@ -164,13 +179,36 @@ pub fn unitary_matrix(operation: UnitaryOperation) -> Option<OperatorMatrix> {
                 ZERO, ZERO, ZERO, equal,
             ])
         }
-        UnitaryOperation::I { .. }
-        | UnitaryOperation::Y { .. }
-        | UnitaryOperation::SxAdj { .. }
-        | UnitaryOperation::Cy { .. }
-        | UnitaryOperation::Rxx { .. }
-        | UnitaryOperation::Ryy { .. }
-        | UnitaryOperation::Swap { .. } => return None,
+        // Rxx(θ) = exp(-iθX⊗X/2) = cos(θ/2) I - i sin(θ/2) X⊗X.
+        UnitaryOperation::Rxx { angle, .. } => {
+            let (sine, cosine) = (angle / 2.0).sin_cos();
+            let (diagonal, flip) = (c(cosine, 0.0), c(0.0, -sine));
+            OperatorMatrix::Two([
+                diagonal, ZERO, ZERO, flip, //
+                ZERO, diagonal, flip, ZERO, //
+                ZERO, flip, diagonal, ZERO, //
+                flip, ZERO, ZERO, diagonal,
+            ])
+        }
+        // Ryy(θ) = exp(-iθY⊗Y/2) = cos(θ/2) I - i sin(θ/2) Y⊗Y. Y⊗Y is -1 on
+        // |00⟩↔|11⟩ and +1 on |01⟩↔|10⟩, hence the opposite signs.
+        UnitaryOperation::Ryy { angle, .. } => {
+            let (sine, cosine) = (angle / 2.0).sin_cos();
+            let (diagonal, equal, differ) = (c(cosine, 0.0), c(0.0, sine), c(0.0, -sine));
+            OperatorMatrix::Two([
+                diagonal, ZERO, ZERO, equal, //
+                ZERO, diagonal, differ, ZERO, //
+                ZERO, differ, diagonal, ZERO, //
+                equal, ZERO, ZERO, diagonal,
+            ])
+        }
+        UnitaryOperation::Swap { .. } => OperatorMatrix::Two([
+            ONE, ZERO, ZERO, ZERO, //
+            ZERO, ZERO, ONE, ZERO, //
+            ZERO, ONE, ZERO, ZERO, //
+            ZERO, ZERO, ZERO, ONE,
+        ]),
+        UnitaryOperation::I { .. } => return None,
     };
     Some(matrix)
 }

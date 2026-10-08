@@ -1600,6 +1600,7 @@ fn preparation_compute_seconds(timings: &StatePhaseTimings) -> f64 {
 fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
     let modes = match gate {
         Gate::X { target }
+        | Gate::Y { target }
         | Gate::Z { target }
         | Gate::H { target }
         | Gate::S { target }
@@ -1607,13 +1608,19 @@ fn fixture_operator(gate: Gate) -> Result<OwnedOperator, SimulationError> {
         | Gate::T { target }
         | Gate::TAdj { target }
         | Gate::Sx { target }
+        | Gate::SxAdj { target }
         | Gate::Rx { target, .. }
         | Gate::Ry { target, .. }
         | Gate::Rz { target, .. } => vec![mode_id(target)?],
-        Gate::Cnot { control, target } | Gate::Cz { control, target } => {
+        Gate::Cnot { control, target }
+        | Gate::Cy { control, target }
+        | Gate::Cz { control, target } => {
             vec![mode_id(control)?, mode_id(target)?]
         }
-        Gate::Rzz { q1, q2, .. } => vec![mode_id(q1)?, mode_id(q2)?],
+        Gate::Rxx { q1, q2, .. }
+        | Gate::Ryy { q1, q2, .. }
+        | Gate::Rzz { q1, q2, .. }
+        | Gate::Swap { q1, q2 } => vec![mode_id(q1)?, mode_id(q2)?],
     };
     let matrix = unitary_matrix(gate.into())
         .expect("the shared operator table defines every cuTensorNet gate");

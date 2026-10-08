@@ -485,9 +485,9 @@ FixedOutcomeCircuit ──ProjectedCircuit::from_fixed_outcome──▶ gates + 
 P̃ = ⟨ψ̃|ψ̃⟩ = ⟨ψ̃|I₀|ψ̃⟩      (r = b, or r = 0 after a reset)
 ```
 
-`ProjectedCircuit` converts one fixed-outcome path in order: supported
-unitaries become `Gate`s (`I` is dropped, the first unsupported gate is
-named), and each measurement becomes the rank-one operator |r⟩⟨b| from the
+`ProjectedCircuit` converts one fixed-outcome path in order: unitaries
+become `Gate`s (`I` is dropped; every other `UnitaryOperation` has a gate, so
+only a qubit index beyond `u32` is rejected), and each measurement becomes the rank-one operator |r⟩⟨b| from the
 shared `basis_operator` table, applied as a non-unitary tensor operator.
 Nothing renormalizes, so the state's norm is the Probability. It is read
 once from the expectation of the identity on site 0, which must agree with
@@ -541,7 +541,7 @@ MPS (exact Probability is `method="contraction"`), without outcomes, or with
 an `Expectation` in the same call; an outcome count that does not match the
 program's results; a record that fails a selection check
 (`ResultMeasuredAgain`); a reset of a qubit that is not in a known basis
-state; and the first unsupported gate. Only then is cuTensorNet discovered;
+state; and a qubit index beyond `u32`. Only then is cuTensorNet discovered;
 discovery, native and cleanup failures raise `OSError`. `Probability` is
 `P_pass`, as for contraction (`TODO(selection-normalization)` in the
 execution README).

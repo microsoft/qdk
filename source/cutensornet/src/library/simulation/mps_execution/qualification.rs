@@ -57,7 +57,165 @@ fn basis_state(width: usize, index: usize) -> Vec<Complex64> {
 fn b0_qualification_cases() -> Vec<(&'static str, Circuit, Vec<Complex64>)> {
     let mut cases = b0_basis_order_cases();
     cases.extend(b0_rotation_cases());
+    cases.extend(b0_gate_cases());
     cases
+}
+
+/// A dense state with the given `(index, amplitude)` entries and zeros elsewhere.
+fn sparse_state(width: usize, entries: &[(usize, Complex64)]) -> Vec<Complex64> {
+    let mut state = basis_state(width, 0);
+    state[0] = Complex64::new(0.0, 0.0);
+    for &(index, amplitude) in entries {
+        state[index] = amplitude;
+    }
+    state
+}
+
+/// One textbook case per gate beyond the original set, with exact amplitudes
+/// (including the global phase). Inputs are chosen so that a transposed matrix,
+/// swapped operands or a sign error changes the result: Y, CY and Ryy are not
+/// symmetric, and the two-qubit gates also run on non-adjacent and reversed
+/// operands.
+#[allow(
+    clippy::too_many_lines,
+    reason = "the textbook table reads best as one list of labeled cases"
+)]
+fn b0_gate_cases() -> Vec<(&'static str, Circuit, Vec<Complex64>)> {
+    let c = Complex64::new;
+    let h = FRAC_1_SQRT_2;
+    let theta = 0.731;
+    let (sine, cosine) = (theta / 2.0_f64).sin_cos();
+    let after_h = |gate: Gate| circuit_with_gates(2, &[Gate::H { target: 0 }, gate]);
+    vec![
+        (
+            "z-after-h",
+            after_h(Gate::Z { target: 0 }),
+            sparse_state(2, &[(0, c(h, 0.0)), (1, c(-h, 0.0))]),
+        ),
+        (
+            "sdg-after-h",
+            after_h(Gate::SAdj { target: 0 }),
+            sparse_state(2, &[(0, c(h, 0.0)), (1, c(0.0, -h))]),
+        ),
+        (
+            "t-after-h",
+            after_h(Gate::T { target: 0 }),
+            sparse_state(2, &[(0, c(h, 0.0)), (1, c(0.5, 0.5))]),
+        ),
+        (
+            "tdg-after-h",
+            after_h(Gate::TAdj { target: 0 }),
+            sparse_state(2, &[(0, c(h, 0.0)), (1, c(0.5, -0.5))]),
+        ),
+        (
+            // Ry(θ)|0⟩ = cos|0⟩ + sin|1⟩; its transpose would give -sin.
+            "asymmetric-ry",
+            circuit_with_gates(2, &[Gate::Ry { theta, target: 0 }]),
+            sparse_state(2, &[(0, c(cosine, 0.0)), (1, c(sine, 0.0))]),
+        ),
+        (
+            // Y|0⟩ = i|1⟩; its transpose would give -i.
+            "asymmetric-y-q1",
+            circuit_with_gates(2, &[Gate::Y { target: 1 }]),
+            sparse_state(2, &[(2, c(0.0, 1.0))]),
+        ),
+        (
+            "sxdg-q0",
+            circuit_with_gates(2, &[Gate::SxAdj { target: 0 }]),
+            sparse_state(2, &[(0, c(0.5, -0.5)), (1, c(0.5, 0.5))]),
+        ),
+        (
+            "cy-0-1-active",
+            circuit_with_gates(
+                2,
+                &[
+                    Gate::X { target: 0 },
+                    Gate::Cy {
+                        control: 0,
+                        target: 1,
+                    },
+                ],
+            ),
+            sparse_state(2, &[(3, c(0.0, 1.0))]),
+        ),
+        (
+            "cy-0-1-inactive",
+            circuit_with_gates(
+                2,
+                &[
+                    Gate::X { target: 1 },
+                    Gate::Cy {
+                        control: 0,
+                        target: 1,
+                    },
+                ],
+            ),
+            basis_state(2, 2),
+        ),
+        (
+            // Y|1⟩ = -i|0⟩ on the target q0, with the control q1 set.
+            "cy-1-0-active",
+            circuit_with_gates(
+                2,
+                &[
+                    Gate::X { target: 1 },
+                    Gate::X { target: 0 },
+                    Gate::Cy {
+                        control: 1,
+                        target: 0,
+                    },
+                ],
+            ),
+            sparse_state(2, &[(2, c(0.0, -1.0))]),
+        ),
+        (
+            "swap-non-adjacent",
+            circuit_with_gates(3, &[Gate::X { target: 0 }, Gate::Swap { q1: 0, q2: 2 }]),
+            basis_state(3, 4),
+        ),
+        (
+            // Rxx(θ)|000⟩ = cos|000⟩ - i sin|101⟩ on q0 and q2.
+            "rxx-non-adjacent",
+            circuit_with_gates(
+                3,
+                &[Gate::Rxx {
+                    theta,
+                    q1: 0,
+                    q2: 2,
+                }],
+            ),
+            sparse_state(3, &[(0, c(cosine, 0.0)), (5, c(0.0, -sine))]),
+        ),
+        (
+            // Y⊗Y|00⟩ = -|11⟩, so Ryy(θ)|00⟩ = cos|00⟩ + i sin|11⟩.
+            "ryy-equal-bits",
+            circuit_with_gates(
+                2,
+                &[Gate::Ryy {
+                    theta,
+                    q1: 1,
+                    q2: 0,
+                }],
+            ),
+            sparse_state(2, &[(0, c(cosine, 0.0)), (3, c(0.0, sine))]),
+        ),
+        (
+            // Y⊗Y|10⟩ = +|01⟩, so Ryy(θ) maps q0 = 1 to cos|q0=1⟩ - i sin|q1=1⟩.
+            "ryy-different-bits",
+            circuit_with_gates(
+                2,
+                &[
+                    Gate::X { target: 0 },
+                    Gate::Ryy {
+                        theta,
+                        q1: 0,
+                        q2: 1,
+                    },
+                ],
+            ),
+            sparse_state(2, &[(1, c(cosine, 0.0)), (2, c(0.0, -sine))]),
+        ),
+    ]
 }
 
 fn b0_basis_order_cases() -> Vec<(&'static str, Circuit, Vec<Complex64>)> {
@@ -562,9 +720,16 @@ fn run_trotter_query_qualification(
 }
 
 fn apply_sparse_circuit(simulator: &mut qdk_simulators::SparseStateSim, circuit: &Circuit) {
+    // Rzz(theta) = CNOT(q1, q2) . (I (x) Rz(theta)) . CNOT(q1, q2), exactly.
+    fn rzz(simulator: &mut qdk_simulators::SparseStateSim, theta: f64, q1: usize, q2: usize) {
+        simulator.mcx(&[q1], q2);
+        simulator.rz(theta, q2);
+        simulator.mcx(&[q1], q2);
+    }
     for gate in circuit.gates() {
         match *gate {
             Gate::X { target } => simulator.x(target as usize),
+            Gate::Y { target } => simulator.y(target as usize),
             Gate::H { target } => simulator.h(target as usize),
             Gate::Z { target } => simulator.z(target as usize),
             Gate::Rx { theta, target } => simulator.rx(theta, target as usize),
@@ -580,17 +745,51 @@ fn apply_sparse_circuit(simulator: &mut qdk_simulators::SparseStateSim, circuit:
                 simulator.s(target as usize);
                 simulator.h(target as usize);
             }
+            Gate::SxAdj { target } => {
+                // SX† = H . S† . H exactly: (1/2)[[1-i, 1+i], [1+i, 1-i]].
+                simulator.h(target as usize);
+                simulator.sadj(target as usize);
+                simulator.h(target as usize);
+            }
             Gate::Cnot { control, target } => {
                 simulator.mcx(&[control as usize], target as usize);
+            }
+            Gate::Cy { control, target } => {
+                simulator.mcy(&[control as usize], target as usize);
             }
             Gate::Cz { control, target } => {
                 simulator.mcz(&[control as usize], target as usize);
             }
-            Gate::Rzz { theta, q1, q2 } => {
-                // Rzz(theta) = CNOT(q1, q2) . (I (x) Rz(theta)) . CNOT(q1, q2)
+            Gate::Rxx { theta, q1, q2 } => {
+                // Rxx = (H (x) H) . Rzz . (H (x) H), because H Z H = X.
+                let (q1, q2) = (q1 as usize, q2 as usize);
+                simulator.h(q1);
+                simulator.h(q2);
+                rzz(simulator, theta, q1, q2);
+                simulator.h(q1);
+                simulator.h(q2);
+            }
+            Gate::Ryy { theta, q1, q2 } => {
+                // Ryy = (SH (x) SH) . Rzz . (HS† (x) HS†), because
+                // S H Z H S† = S X S† = Y.
+                let (q1, q2) = (q1 as usize, q2 as usize);
+                for qubit in [q1, q2] {
+                    simulator.sadj(qubit);
+                    simulator.h(qubit);
+                }
+                rzz(simulator, theta, q1, q2);
+                for qubit in [q1, q2] {
+                    simulator.h(qubit);
+                    simulator.s(qubit);
+                }
+            }
+            Gate::Rzz { theta, q1, q2 } => rzz(simulator, theta, q1 as usize, q2 as usize),
+            Gate::Swap { q1, q2 } => {
+                // Three CNOTs exchange the amplitudes; `swap_qubit_ids` would
+                // only relabel the qubits.
                 let (q1, q2) = (q1 as usize, q2 as usize);
                 simulator.mcx(&[q1], q2);
-                simulator.rz(theta, q2);
+                simulator.mcx(&[q2], q1);
                 simulator.mcx(&[q1], q2);
             }
         }
@@ -632,6 +831,108 @@ fn maximum_global_phase_error(actual: &[Complex64], expected: &[Complex64]) -> f
         .zip(expected)
         .map(|(actual, expected)| (*actual - phase * *expected).norm())
         .fold(0.0_f64, f64::max)
+}
+
+/// A seeded random circuit over every cuTensorNet gate, with operands drawn
+/// from the whole register, so most two-qubit gates act on non-adjacent and
+/// reversed operands.
+fn random_circuit(width: u32, gate_count: usize, seed: u64) -> Circuit {
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut gates = Vec::with_capacity(gate_count);
+    for _ in 0..gate_count {
+        let target = rng.random_range(0..width);
+        let other = (target + rng.random_range(1..width)) % width;
+        let theta = rng.random_range(-std::f64::consts::PI..std::f64::consts::PI);
+        let (q1, q2, control) = (target, other, other);
+        gates.push(match rng.random_range(0..20) {
+            0 => Gate::X { target },
+            1 => Gate::Y { target },
+            2 => Gate::Z { target },
+            3 => Gate::H { target },
+            4 => Gate::S { target },
+            5 => Gate::SAdj { target },
+            6 => Gate::T { target },
+            7 => Gate::TAdj { target },
+            8 => Gate::Sx { target },
+            9 => Gate::SxAdj { target },
+            10 => Gate::Rx { theta, target },
+            11 => Gate::Ry { theta, target },
+            12 => Gate::Rz { theta, target },
+            13 => Gate::Cnot { control, target },
+            14 => Gate::Cy { control, target },
+            15 => Gate::Cz { control, target },
+            16 => Gate::Rxx { theta, q1, q2 },
+            17 => Gate::Ryy { theta, q1, q2 },
+            18 => Gate::Rzz { theta, q1, q2 },
+            _ => Gate::Swap { q1, q2 },
+        });
+    }
+    circuit_with_gates(width, &gates)
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+#[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
+#[allow(
+    clippy::used_underscore_binding,
+    reason = "the Phase 2 library guard is intentionally unused outside this internal fixture"
+)]
+fn b6_random_circuit_parity_matches_qdk_sparse_oracle() {
+    use qdk_simulators::SparseStateSim;
+
+    /// The bond cap exceeds 2^(width/2), so the MPS is exact up to round-off
+    /// accumulated over a few hundred gates.
+    const PARITY_LIMIT: f64 = 1.0e-10;
+
+    let availability = crate::discover().expect("native libraries should be available");
+    let policy = ExecutionPolicy::base_qualification()
+        .without_absolute_cutoff()
+        .validate()
+        .expect("B6 policy should be valid");
+    let mut session = MpsSession::new(Arc::clone(&availability.libraries), policy)
+        .expect("native session should be created");
+
+    for (width, gate_count, seed) in [(4_u32, 120, 11_u64), (7, 240, 23), (10, 400, 47)] {
+        let label = format!("random-w{width}-g{gate_count}-s{seed}");
+        let circuit = random_circuit(width, gate_count, seed);
+        let width_usize = usize::try_from(width).expect("width should fit usize");
+
+        let mut oracle = SparseStateSim::new(None);
+        for expected in 0..width_usize {
+            assert_eq!(oracle.allocate(), expected, "{label}: oracle qubit order");
+        }
+        apply_sparse_circuit(&mut oracle, &circuit);
+        let expected = sparse_dense_state(&mut oracle, width_usize);
+
+        let started = Instant::now();
+        let result = session
+            .simulate(&circuit, StateReadout::FullAmplitudes)
+            .unwrap_or_else(|error| panic!("{label} failed: {error}"));
+        let elapsed = started.elapsed();
+        let actual = result
+            .amplitudes()
+            .expect("full-amplitude readout should return amplitudes");
+        let error = maximum_global_phase_error(actual, &expected);
+        let norm = actual.iter().map(Complex64::norm_sqr).sum::<f64>();
+
+        println!("case={label}");
+        println!("circuit={}", circuit.canonical_description());
+        println!("maximum_bond={}", result.report.maximum_bond);
+        println!("norm={norm:.17e}");
+        println!("maximum_global_phase_error={error:.17e}");
+        println!("simulation_elapsed_seconds={:.9}", elapsed.as_secs_f64());
+        assert!(
+            error <= PARITY_LIMIT,
+            "{label}: MPS and sparse oracle differ by {error:.3e} after removing the global \
+             phase (limit {PARITY_LIMIT:.3e})"
+        );
+    }
+
+    let cleanup = session.close();
+    println!("cleanup={cleanup:?}");
+    cleanup.expect("native session cleanup should succeed");
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
