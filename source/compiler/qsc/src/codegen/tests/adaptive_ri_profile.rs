@@ -835,16 +835,12 @@ fn triply_controlled_r1_generates_successive_calls_to_rz_to_implement_relative_p
           call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 5 to %Qubit*))
           call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
           call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 0.39269908169872414, %Qubit* inttoptr (i64 4 to %Qubit*))
           call void @__quantum__qis__rz__body(double 0.39269908169872414, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__rz__body(double -0.39269908169872414, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 4 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__ccx__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 4 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 0.19634954084936207, %Qubit* inttoptr (i64 1 to %Qubit*))
-          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
-          call void @__quantum__qis__rz__body(double -0.19634954084936207, %Qubit* inttoptr (i64 1 to %Qubit*))
-          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 0.19634954084936207, %Qubit* inttoptr (i64 2 to %Qubit*))
           call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
