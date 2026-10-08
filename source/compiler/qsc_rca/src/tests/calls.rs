@@ -7,6 +7,110 @@ use super::{
 use expect_test::expect;
 use qsc_data_structures::target::Profile;
 
+fn assert_call_sites_must_inline(
+    context: &CompilationContext,
+    name: &str,
+    expected: bool,
+    count: usize,
+) {
+    use crate::{ComputeKind, ComputePropertiesLookup, RuntimeFeatureFlags};
+    use qsc_fir::fir::{ExprKind, ItemKind, PackageLookup, Res};
+
+    let mut found = 0;
+    for (package_id, package) in &context.fir_store {
+        for (expr_id, expr) in &package.exprs {
+            let ExprKind::Call(callee, _) = expr.kind else {
+                continue;
+            };
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+                continue;
+            };
+            let ItemKind::Callable(decl) =
+                &context.fir_store.get(item.package).get_item(item.item).kind
+            else {
+                continue;
+            };
+            if decl.name.name.as_ref() != name {
+                continue;
+            }
+            let properties = context
+                .get_compute_properties()
+                .get_expr((package_id, expr_id).into(), false);
+            let must_inline = matches!(properties.inherent, ComputeKind::Dynamic { runtime_features, .. }
+                if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+            assert_eq!(
+                must_inline, expected,
+                "{name} at {package_id}/{expr_id}: {properties:?}"
+            );
+            found += 1;
+        }
+    }
+    assert_eq!(found, count, "the test must cover all expected call sites");
+}
+
+#[test]
+fn recursive_callable_return_sites_are_marked_must_be_inlined() {
+    for profile in [Profile::Adaptive, Profile::AdaptiveRIF] {
+        for (output, value) in [
+            ("Qubit => Unit", "Flip"),
+            ("(Int, Qubit => Unit)", "(7, Flip)"),
+            ("(Qubit => Unit)[]", "[Flip]"),
+            ("Holder", "Holder(Flip)"),
+        ] {
+            let mut context = CompilationContext::new(profile.into());
+            context.update(&format!(
+                r#"
+                newtype Holder = (Qubit => Unit);
+                operation Flip(q : Qubit) : Unit {{ X(q); }}
+                function Make(n : Int) : {output} {{
+                    if n == 0 {{ {value} }} else {{ Make(n - 1) }}
+                }}
+                Make(2)
+            "#
+            ));
+            // Include the recursive self-call, which bypasses normal callee analysis.
+            assert_call_sites_must_inline(&context, "Make", profile == Profile::Adaptive, 2);
+        }
+    }
+}
+
+#[test]
+fn callable_input_sites_are_marked_even_when_the_argument_is_not_invoked() {
+    for (input, argument) in [
+        ("op : Qubit => Unit", "Flip"),
+        ("ops : (Qubit => Unit)[]", "[Flip]"),
+        ("pair : (Int, Qubit => Unit)", "(7, Flip)"),
+        ("holder : Holder", "Holder(Flip)"),
+    ] {
+        let mut context = CompilationContext::new(Profile::Adaptive.into());
+        context.update(&format!(
+            r#"
+            newtype Holder = (Qubit => Unit);
+            operation Flip(q : Qubit) : Unit {{ X(q); }}
+            operation Apply({input}, q : Qubit) : Unit {{ X(q); }}
+            operation Outer(q : Qubit) : Unit {{ Apply({argument}, q); }}
+            use q = Qubit();
+            Outer(q)
+        "#
+        ));
+        assert_call_sites_must_inline(&context, "Apply", true, 1);
+        assert_call_sites_must_inline(&context, "Outer", false, 1);
+    }
+}
+
+#[test]
+fn static_callable_factories_do_not_acquire_runtime_features() {
+    let mut context = CompilationContext::new(Profile::Adaptive.into());
+    context.update("function Make() : Int -> Int { x -> x + 1 } Make()");
+    check_last_statement_compute_properties(
+        context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
 /// Destructuring an opaque tuple records the enclosing initializer for every local.
 /// That three-element initializer must not be mistaken for args' two-element tuple.
 #[test]

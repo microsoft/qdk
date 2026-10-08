@@ -92,6 +92,51 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn recursive_callable_factory_is_inlined_in_adaptive_qir() {
+    let source = r#"
+        namespace Test {
+            operation Flip(q : Qubit) : Unit { X(q); }
+
+            function Make(n : Int) : Qubit => Unit {
+                if n == 0 {
+                    Flip
+                } else {
+                    let next = Make(n - 1);
+                    next
+                }
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Make(2)(q);
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [Profile::Adaptive, Profile::AdaptiveRIF] {
+        let capabilities = profile.into();
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        let incremental_qir = interpreter
+            .qirgen("Test.Main()")
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        for qir in [compile_source_to_qir(source, capabilities), incremental_qir] {
+            assert!(!qir.contains("@Make"), "factory must be inlined: {qir}");
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{qir}"
+            );
+            assert!(
+                qir.contains("call void @__quantum__rt__result_record_output"),
+                "{qir}"
+            );
+        }
+    }
+}
+
+#[test]
 fn generic_lambda_dependencies_compile_through_executable_entries() {
     check_generic_lambda_dependency_qir(compile_source_to_qir);
 }

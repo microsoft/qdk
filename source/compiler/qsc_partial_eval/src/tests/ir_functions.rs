@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests for QIR "IR function" emission in the partial evaluator. Eligible user-package,
-//! non-composite specializations returning Unit or a scalar (Int/Double/Bool) are emitted as
+//! Tests for QIR "IR function" emission in the partial evaluator. Eligible
+//! specializations returning Unit or a scalar (Int/Double/Bool) are emitted as
 //! `Regular` RIR callables with bodies and called via `Instruction::Call` instead of being inlined.
 //! Scalar-returning callables bind a fresh call-site output variable. Every ineligible callable
-//! (including `Result`/`Qubit` returns) continues to inline, preserving the previous behavior.
+//! (including callable-valued inputs and non-scalar returns) continues to inline.
 
 use super::{
     assert_blocks, assert_callable, get_rir_program, get_rir_program_with_adaptive_profile,
@@ -316,6 +316,164 @@ fn recursive_callee_is_emitted() {
                 "X",
             ]"#]],
     );
+}
+
+#[test]
+fn recursive_operation_factory_is_inlined_before_calling_returned_operation() {
+    let source = r#"
+        namespace Test {
+            operation Flip(q : Qubit) : Unit { X(q); }
+            function Make(n : Int) : Qubit => Unit {
+                if n == 0 {
+                    Flip
+                } else {
+                    let next = Make(n - 1);
+                    next
+                }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Make(2)(q);
+                MResetZ(q)
+            }
+        }
+        "#;
+
+    for keep_rca_inline_hint in [true, false] {
+        let capabilities = qsc_data_structures::target::Profile::Adaptive.into();
+        let mut context = super::CompilationContext::new(source, capabilities);
+        if !keep_rca_inline_hint {
+            // The emitter must validate the resolved return ABI even if a
+            // call-site analysis result lacks the inline hint.
+            for (package_id, _) in &context.fir_store {
+                for properties in context
+                    .compute_properties
+                    .get_mut(package_id, false)
+                    .exprs
+                    .values_mut()
+                {
+                    if let qsc_rca::ComputeKind::Dynamic {
+                        runtime_features, ..
+                    } = &mut properties.inherent
+                    {
+                        runtime_features.remove(qsc_rca::RuntimeFeatureFlags::MustBeInlined);
+                    }
+                }
+            }
+        }
+        let program = crate::partially_evaluate(
+            &context.fir_store,
+            &context.compute_properties,
+            &context.entry,
+            capabilities,
+            crate::PartialEvalConfig {
+                generate_debug_metadata: false,
+            },
+        )
+        .expect("the recursive factory must inline");
+        assert_ir_function_names(
+            &program,
+            &expect![[r#"
+        [
+            "Flip",
+            "X",
+        ]"#]],
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), )
+            Call id(5), args( Qubit(0), Result(0), )
+            Call id(6), args( Result(0), Tag(0, 3), )
+            Return Integer(0)
+        Block 1:Block:
+            Call id(3), args( Variable(0, Qubit), )
+            Return
+        Block 2:Block:
+            Call id(4), args( Variable(1, Qubit), )
+            Return"#]],
+        );
+    }
+}
+
+#[test]
+fn recursive_factories_with_callable_payloads_are_inlined() {
+    for (output, value, invocation) in [
+        (
+            "Int -> Int",
+            "x -> x + 1",
+            "if Make(2)(3) == 4 { Flip(q); }",
+        ),
+        (
+            "(Int, Qubit => Unit)",
+            "(7, Flip)",
+            "let (n, op) = Make(2); if n == 7 { op(q); }",
+        ),
+        ("(Qubit => Unit)[]", "[Flip]", "Make(2)[0](q);"),
+    ] {
+        let source = format!(
+            r#"
+            namespace Test {{
+                operation Flip(q : Qubit) : Unit {{ X(q); }}
+                function Make(n : Int) : {output} {{
+                    if n == 0 {{ {value} }} else {{ Make(n - 1) }}
+                }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    {invocation}
+                    MResetZ(q)
+                }}
+            }}
+        "#
+        );
+        let program = get_rir_program_with_adaptive_profile(&source);
+        assert_eq!(ir_function_names(&program), ["Flip", "X"], "{source}");
+    }
+}
+
+#[test]
+fn callable_input_parameters_are_inlined_instead_of_emitted_as_operands() {
+    // These helpers use FIR without the transform pipeline, so the signature
+    // guard is exercised even when defunctionalization has not removed arrows.
+    for (input, body, argument) in [
+        ("op : Qubit => Unit", "op(q);", "Flip"),
+        ("ops : (Qubit => Unit)[]", "ops[0](q);", "[Flip]"),
+        (
+            "pair : (Int, Qubit => Unit)",
+            "let (_, op) = pair; op(q);",
+            "(7, Flip)",
+        ),
+        ("f : Int -> Int", "if f(3) == 4 { Flip(q); }", "x -> x + 1"),
+    ] {
+        let source = format!(
+            r#"
+            namespace Test {{
+                operation Flip(q : Qubit) : Unit {{ X(q); }}
+                operation Apply({input}, q : Qubit) : Unit {{ {body} }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    Apply({argument}, q);
+                    MResetZ(q)
+                }}
+            }}
+        "#
+        );
+        let program = get_rir_program_with_adaptive_profile(&source);
+        assert_ir_function_names(
+            &program,
+            &expect![[r#"
+            [
+                "Flip",
+                "X",
+            ]"#]],
+        );
+    }
 }
 
 #[test]

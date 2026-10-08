@@ -2177,10 +2177,8 @@ impl<'a> PartialEvaluator<'a> {
 
     /// Determines whether a resolved callable specialization is eligible to be emitted as a QIR
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
-    /// of being inlined. The base phase emits VOID (Unit-returning) and scalar-returning
-    /// (Int/Double/Bool) user-package specializations with non-composite scalar/qubit signatures.
-    /// Every callable that does not satisfy ALL of the criteria below continues to inline exactly as
-    /// before, preserving behavior.
+    /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
+    /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
     fn is_ir_function_eligible(
         &self,
         store_item_id: StoreItemId,
@@ -2224,10 +2222,20 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Every flattened input-parameter leaf must be a non-composite scalar/qubit type that can
-        // be threaded as an RIR variable operand. Composite (tuple/array/arrow) leaves, as well as
-        // `Result` leaves (which have no evaluator-variable representation), force the whole callable
-        // to inline.
+        // Validate the resolved return ABI independently of call-site RCA.
+        // Callable values and aggregates cannot be returned as RIR variables
+        // and must be resolved by inlining.
+        if callable_decl.output != Ty::UNIT
+            && !matches!(
+                callable_decl.output,
+                Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+            )
+        {
+            return false;
+        }
+
+        // Every flattened input leaf must map to both an RIR operand and an
+        // evaluator variable. Callable and composite leaves force inlining.
         let callable_package = self.package_store.get(store_item_id.package);
         for param in callable_package.derive_callable_input_params(callable_decl) {
             let Ok(rir_ty) = map_fir_type_to_rir_type(&param.ty) else {
@@ -2291,7 +2299,7 @@ impl<'a> PartialEvaluator<'a> {
         scanner.found
     }
 
-    /// Emits an eligible user-package specialization as a QIR "IR function": a `Regular` RIR callable
+    /// Emits an eligible specialization as a QIR "IR function": a `Regular` RIR callable
     /// with a body, evaluated once with its parameters threaded as RIR variable operands, and
     /// deduplicated per `(StoreItemId, FunctorSetValue)`. At the call site an `Instruction::Call` to
     /// the emitted callable is generated instead of inlining the body.
@@ -2400,8 +2408,7 @@ impl<'a> PartialEvaluator<'a> {
 
         // Map the callable's return type to the RIR output type. VOID (Unit-returning) IR functions
         // have no output type; scalar (Int/Double/Bool) returns carry a typed output that is bound to
-        // a call-site output variable. Eligibility (criterion 5) guarantees the return type is Unit
-        // or one of these scalars, so the mapping below cannot fail for an eligible callable.
+        // a call-site output variable. is_ir_function_eligible validates this return ABI.
         let output_type = if callable_decl.output == Ty::UNIT {
             None
         } else {
@@ -2478,8 +2485,8 @@ impl<'a> PartialEvaluator<'a> {
         let callable_id = self.resource_manager.next_callable();
         self.program.callables.insert(callable_id, callable);
         // Cache the emitted callable before evaluating its body so that any structural self-reference
-        // observes the reserved id rather than re-entering emission. The IR-function eligibility
-        // predicate already excludes recursive specializations, so this is defense-in-depth.
+        // observes the reserved id rather than re-entering emission. Eligible recursive
+        // specializations refer back to this reserved callable.
         self.ir_function_callables
             .insert((store_item_id, functor_set_value), callable_id);
 
