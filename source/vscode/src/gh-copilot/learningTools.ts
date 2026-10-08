@@ -16,7 +16,7 @@ import {
   type SolutionCheckResult,
 } from "../learning/index.js";
 import { CopilotToolError } from "./types.js";
-import { LearningState } from "../learning/types.js";
+import type { LearningState, NotebookReveal } from "../learning/types.js";
 
 /**
  * Compact snapshot of the learner's current position and progress.
@@ -233,7 +233,7 @@ export class LearningTools {
     });
   }
 
-  // ─── Navigation & actions (open the panel) ───
+  // ─── Navigation & actions (show the active learning surface) ───
 
   /**
    * Show the current learning activity.
@@ -242,7 +242,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       await this.showActivity();
-      return { state: this.serializeState(true) }; // no-ops for notebooks, so editor state is more accurate
+      return { state: this.serializeState(true) }; // Use the notebook editor position when available
     });
   }
 
@@ -287,7 +287,7 @@ export class LearningTools {
         await this.service.switchCourse(courseId, "chat");
       }
       await this.service.goTo(input, "chat");
-      await this.showActivity();
+      await this.showActivity(input.activityId ? "currentActivity" : "top");
       return { state: this.serializeState(false) }; // workspace state is correct after goto
     });
   }
@@ -384,8 +384,11 @@ export class LearningTools {
     }
   }
 
-  private async showActivity(): Promise<void> {
-    await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
+  private async showActivity(reveal?: NotebookReveal): Promise<void> {
+    await vscode.commands.executeCommand(
+      "qsharp-vscode.learningShowActivity",
+      reveal,
+    );
   }
 
   private getCurrentFileUri(): vscode.Uri {
