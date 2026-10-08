@@ -110,7 +110,7 @@ pub const PHASEESTIMATION_EXPECT_DEBUG: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 249358"];
 pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 95778"];
-pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 16491"];
+pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 16161"];
 pub const PHASEFLIPCODE_EXPECT: Expect = expect![[r#"
     STATE:
     |000⟩: 0.4743+0.0000𝑖
@@ -190,7 +190,7 @@ pub const SIMPLEPHASEESTIMATION_EXPECT_CIRCUIT: Expect =
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 39770"];
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 12627"];
+    expect!["generated QIR of length 12314"];
 pub const SIMPLEVQE_EXPECT: Expect = expect![[r#"
    Beginning descent from value 0.43300000000000005.
    Value improved to 0.35300000000000004.
