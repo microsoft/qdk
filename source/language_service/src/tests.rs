@@ -3,7 +3,9 @@
 
 use crate::{
     Encoding, LanguageService, Update, UpdateHandler, VersionWaitResult,
-    protocol::{DiagnosticUpdate, ErrorKind, TestCallables, WorkspaceConfigurationUpdate},
+    protocol::{
+        DiagnosticUpdate, ErrorKind, NotebookMetadata, TestCallables, WorkspaceConfigurationUpdate,
+    },
     push_update,
 };
 use expect_test::{Expect, expect};
@@ -233,6 +235,108 @@ async fn completions_requested_after_document_load() {
         .items
         .iter()
         .any(|item| item.label == "DumpMachine")
+    );
+}
+
+#[tokio::test]
+async fn notebook_completions_include_items_from_package_dependencies() {
+    let fs = Rc::new(RefCell::new(FsNode::Dir(
+        [
+            dir(
+                "project",
+                [
+                    file(
+                        "qsharp.json",
+                        r#"{ "dependencies": { "MyDep": { "path": "../dependency" } } }"#,
+                    ),
+                    dir(
+                        "src",
+                        [file(
+                            "main.qs",
+                            "namespace Project { function ProjectFunction() : Unit {} }",
+                        )],
+                    ),
+                ],
+            ),
+            dir(
+                "dependency",
+                [
+                    file("qsharp.json", r#"{ }"#),
+                    dir(
+                        "src",
+                        [file(
+                            "dependency.qs",
+                            "namespace Main { export DependencyFunction; function DependencyFunction() : Unit {} }",
+                        )],
+                    ),
+                ],
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    )));
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut update_handler =
+        create_update_handler_with_file_system(&mut ls, &errors, &test_cases, fs);
+
+    ls.update_notebook_document(
+        "notebook.ipynb",
+        NotebookMetadata {
+            project_root: Some("project".to_string()),
+            ..NotebookMetadata::default()
+        },
+        [("cell1", 1, "")].into_iter(),
+    );
+    update_handler.apply_pending().await;
+
+    let completion = ls
+        .get_completions("cell1", Position { line: 0, column: 0 })
+        .items
+        .into_iter()
+        .find(|item| item.label == "DependencyFunction")
+        .expect("expected a completion from the project dependency");
+
+    assert_eq!(
+        completion.detail.as_deref(),
+        Some("function DependencyFunction() : Unit")
+    );
+    let import_edits = completion
+        .additional_text_edits
+        .expect("expected the completion to add an import");
+    assert_eq!(import_edits.len(), 1);
+    assert_eq!(
+        import_edits[0].new_text,
+        "import MyDep.DependencyFunction;\n"
+    );
+
+    ls.update_notebook_document(
+        "notebook.ipynb",
+        NotebookMetadata {
+            project_root: Some("project".to_string()),
+            ..NotebookMetadata::default()
+        },
+        [("cell1", 2, "import MyDep.DependencyFunction;\nDependencyF")].into_iter(),
+    );
+    update_handler.apply_pending().await;
+
+    let completion = ls
+        .get_completions(
+            "cell1",
+            Position {
+                line: 1,
+                column: 11,
+            },
+        )
+        .items
+        .into_iter()
+        .find(|item| item.label == "DependencyFunction")
+        .expect("expected a completion for the imported dependency item");
+
+    assert!(
+        completion.additional_text_edits.is_none(),
+        "an already imported item should not add another import"
     );
 }
 
@@ -651,6 +755,20 @@ fn create_update_handler<'a>(
     received_errors: &'a RefCell<Vec<ErrorInfo>>,
     received_test_cases: &'a RefCell<Vec<TestCallables>>,
 ) -> UpdateHandler<'a> {
+    create_update_handler_with_file_system(
+        ls,
+        received_errors,
+        received_test_cases,
+        TEST_FS.with(Clone::clone),
+    )
+}
+
+fn create_update_handler_with_file_system<'a>(
+    ls: &mut LanguageService,
+    received_errors: &'a RefCell<Vec<ErrorInfo>>,
+    received_test_cases: &'a RefCell<Vec<TestCallables>>,
+    fs: Rc<RefCell<FsNode>>,
+) -> UpdateHandler<'a> {
     ls.create_update_handler(
         |update: DiagnosticUpdate| {
             let project_errors = update.errors.iter().filter_map(|error| match error {
@@ -679,9 +797,7 @@ fn create_update_handler<'a>(
             let mut v = received_test_cases.borrow_mut();
             v.push(update);
         },
-        TestProjectHost {
-            fs: TEST_FS.with(Clone::clone),
-        },
+        TestProjectHost { fs },
     )
 }
 
