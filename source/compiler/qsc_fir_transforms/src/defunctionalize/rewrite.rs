@@ -5983,6 +5983,8 @@ fn build_branch_tree<E: Copy>(
         build_call,
     );
 
-    // `g` is referenced once here -- no AndL, no re-evaluation.
+    // Producer guards may remain live in another callable. Give this dispatch
+    // its own subtree, still evaluating the guard only once per decision.
+    let g = crate::cloner::clone_expr_within_package(package, g, assigner);
     alloc_if_expr(package, span, result_ty, g, then_id, else_id, assigner)
 }

@@ -12,6 +12,88 @@ use qsc_eval::val::{Result as MeasurementResult, Value};
 
 use super::test_cases;
 
+#[test]
+fn conditional_factory_assignment_preserves_selected_callable() {
+    for (selection, expected) in [
+        ("if true { set f = Twice(g); }", 12),
+        ("if false { set f = Twice(g); }", 4),
+        ("if false {} else { set f = Twice(g); }", 12),
+        ("if true { if true { set f = Twice(g); } }", 12),
+        ("if true { set f = Twice(g); } set g = Inc;", 12),
+        ("if true { set g = Inc; set f = Twice(g); }", 5),
+        ("if true { let alias = g; set f = Twice(alias); }", 12),
+    ] {
+        for invocation in ["Apply(f, 3)", "f(3)", "let saved = f; Apply(saved, 3)"] {
+            let declarations = if invocation == "f(3)" {
+                "function Dbl(x : Int) : Int { 2 * x }\nfunction Inc(x : Int) : Int { x + 1 }"
+            } else {
+                "function Inc(x : Int) : Int { x + 1 }\nfunction Dbl(x : Int) : Int { 2 * x }"
+            };
+            let source = formatdoc! {r#"
+                {declarations}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function Twice(f : Int -> Int) : Int -> Int {{
+                    Message("factory");
+                    x -> f(f(x))
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable f = Inc;
+                    mutable g = Dbl;
+                    {selection}
+                    {invocation}
+                }}
+            "#};
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                Value::Int(expected),
+            );
+        }
+    }
+}
+
+#[test]
+fn conditional_factory_assignment_preserves_quantum_result_across_profiles() {
+    use crate::test_utils::{
+        assert_pipeline_stage_succeeds, compile_to_fir_with_capabilities,
+        try_eval_fir_entry_with_trace,
+    };
+    use qsc_data_structures::target::Profile;
+
+    let source = r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Dbl(x : Int) : Int { 2 * x }
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        function Twice(f : Int -> Int) : Int -> Int { x -> f(f(x)) }
+        @EntryPoint() operation Main() : Result {
+            mutable f = Inc;
+            mutable g = Dbl;
+            if true { set f = Twice(g); }
+            use q = Qubit();
+            if Apply(f, 3) == 12 { X(q); }
+            MResetZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+            let (mut store, package) = compile_to_fir_with_capabilities(source, profile.into());
+            let expected = try_eval_fir_entry_with_trace(&store, package);
+            assert_eq!(expected.0, Ok(Value::Result(MeasurementResult::Val(true))));
+            assert_pipeline_stage_succeeds("conditional factory", &mut store, package, stage);
+            crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+            assert_eq!(
+                try_eval_fir_entry_with_trace(&store, package),
+                expected,
+                "{profile:?}/{stage:?}"
+            );
+        }
+    }
+}
+
 pub(super) fn mixed_dispatch_owned_argument_cases() -> Vec<(String, i64)> {
     let mut cases = Vec::new();
     for flag in [false, true] {

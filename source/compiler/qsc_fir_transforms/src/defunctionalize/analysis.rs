@@ -2439,6 +2439,7 @@ fn without_stale_guards(locals: &LocalState, resolved: CalleeLattice) -> CalleeL
 /// callee's analyzed `LocalState`, substituting producing-function parameters
 /// with the caller-scope argument expressions in `param_substitutions`, so
 /// rewrite can re-emit the captures as caller-scope arguments.
+/// An unresolved capture makes the entire lattice dynamic, not a concrete candidate.
 fn materialize_capture_exprs_from_state(
     pkg: &Package,
     state: &LocalState,
@@ -2449,7 +2450,7 @@ fn materialize_capture_exprs_from_state(
 ) -> CalleeLattice {
     match resolved {
         CalleeLattice::Single(concrete) => {
-            CalleeLattice::Single(materialize_capture_exprs_in_callable(
+            CalleeLattice::from_concrete(materialize_capture_exprs_in_callable(
                 pkg,
                 state,
                 param_substitutions,
@@ -2469,17 +2470,18 @@ fn materialize_capture_exprs_from_state(
                 {
                     return CalleeLattice::Dynamic;
                 }
-                materialized.push((
-                    materialize_capture_exprs_in_callable(
-                        pkg,
-                        state,
-                        param_substitutions,
-                        caller_owner,
-                        caller_mutable_bindings,
-                        concrete,
-                    ),
-                    condition,
-                ));
+                let concrete = materialize_capture_exprs_in_callable(
+                    pkg,
+                    state,
+                    param_substitutions,
+                    caller_owner,
+                    caller_mutable_bindings,
+                    concrete,
+                );
+                if matches!(concrete, ConcreteCallable::Dynamic) {
+                    return CalleeLattice::Dynamic;
+                }
+                materialized.push((concrete, condition));
             }
             CalleeLattice::Multi(materialized)
         }
