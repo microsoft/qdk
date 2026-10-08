@@ -28,7 +28,7 @@ block_3:
 block_4:
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_7 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   store i1 %var_7, ptr %var_0
   %var_24 = load i1, ptr %var_0
   br i1 %var_24, label %block_6, label %block_7
@@ -39,9 +39,9 @@ block_5:
   %var_13 = icmp slt i64 %var_22, 5
   %var_14 = icmp eq i64 %var_22, 10
   call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
-  call void @__quantum__rt__bool_record_output(i1 %var_12, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 %var_13, ptr @2)
-  call void @__quantum__rt__bool_record_output(i1 %var_14, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_12, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_13, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @3)
   ret i64 0
 block_6:
   call void @X(ptr inttoptr (i64 0 to ptr))
@@ -68,7 +68,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_11) {
 block_9:
@@ -80,7 +80,7 @@ declare void @__quantum__qis__reset__body(ptr) #1
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
 attributes #1 = { "irreversible" }

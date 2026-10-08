@@ -45,7 +45,7 @@ block_5:
   call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @H(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-  %var_36 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_36 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   store i1 %var_36, ptr %var_38
   store i64 0, ptr %var_39
   br label %block_7
@@ -81,7 +81,7 @@ block_11:
   store i64 %var_58, ptr %var_46
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
   %var_60 = load i1, ptr %var_45
-  call void @__quantum__rt__bool_record_output(i1 %var_60, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_60, ptr @1)
   %var_61 = load i64, ptr %var_46
   call void @__quantum__rt__int_record_output(i64 %var_61, ptr @2)
   ret i64 0
@@ -96,17 +96,17 @@ block_13:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 1 to ptr))
   store i1 true, ptr %var_23
-  %var_24 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_24 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   br i1 %var_24, label %block_15, label %block_16
 block_14:
   %var_80 = load i64, ptr %var_13
   %var_14 = icmp slt i64 %var_80, 3
   br i1 %var_14, label %block_17, label %block_18
 block_15:
-  %var_26 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_26 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   br i1 %var_26, label %block_19, label %block_20
 block_16:
-  %var_29 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_29 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   br i1 %var_29, label %block_21, label %block_22
 block_17:
   %var_83 = load i64, ptr %var_13
@@ -192,7 +192,7 @@ declare void @__quantum__qis__rx__body(double, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @X(ptr %var_28) {
 block_32:
@@ -218,7 +218,7 @@ declare void @__quantum__qis__reset__body(ptr) #1
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 declare void @__quantum__rt__int_record_output(i64, ptr)
 

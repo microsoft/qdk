@@ -340,7 +340,7 @@ fn call_to_qir(
 ) -> String {
     let args = args
         .iter()
-        .map(|arg| ToQir::<String>::to_qir(arg, program))
+        .map(|arg| i1_zeroext(&ToQir::<String>::to_qir(arg, program)))
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
@@ -349,7 +349,7 @@ fn call_to_qir(
         format!(
             "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
-            ToQir::<String>::to_qir(&callable.output_type, program),
+            zeroext_i1(&ToQir::<String>::to_qir(&callable.output_type, program)),
             callable_name
         )
     } else {
@@ -633,10 +633,10 @@ impl ToQir<String> for rir::Callable {
         let input_type = self
             .input_type
             .iter()
-            .map(|t| ToQir::<String>::to_qir(t, program))
+            .map(|t| i1_zeroext(&ToQir::<String>::to_qir(t, program)))
             .collect::<Vec<_>>()
             .join(", ");
-        let output_type = ToQir::<String>::to_qir(&self.output_type, program);
+        let output_type = zeroext_i1(&ToQir::<String>::to_qir(&self.output_type, program));
         let Some(entry_id) = self.body else {
             let callable_name = llvm_global_name(&self.name);
             return format!(
@@ -777,4 +777,12 @@ fn get_module_metadata(program: &rir::Program) -> String {
     }
     writeln!(metadata_def, "!{}}}", index - 1).expect("writing to string should succeed");
     metadata_def + &flags
+}
+
+fn zeroext_i1(input: &str) -> String {
+    input.replace("i1", "zeroext i1")
+}
+
+fn i1_zeroext(input: &str) -> String {
+    input.replace("i1", "i1 zeroext")
 }

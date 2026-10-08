@@ -19,14 +19,14 @@ block_0:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @Reset(ptr inttoptr (i64 0 to ptr))
   call void @Reset(ptr inttoptr (i64 1 to ptr))
-  %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   store i1 %var_5, ptr %var_6
-  %var_7 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   %var_8 = icmp eq i1 %var_7, false
-  %var_9 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  %var_10 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_10 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   %var_11 = icmp eq i1 %var_9, %var_10
-  %var_12 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_12 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   %var_13 = icmp eq i1 %var_12, false
   br i1 %var_13, label %block_1, label %block_2
 block_1:
@@ -44,13 +44,13 @@ block_3:
   store i1 %var_25, ptr %var_18
   call void @__quantum__rt__tuple_record_output(i64 4, ptr @0)
   %var_27 = load i1, ptr %var_15
-  call void @__quantum__rt__bool_record_output(i1 %var_27, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_27, ptr @1)
   %var_28 = load i1, ptr %var_16
-  call void @__quantum__rt__bool_record_output(i1 %var_28, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_28, ptr @2)
   %var_29 = load i1, ptr %var_17
-  call void @__quantum__rt__bool_record_output(i1 %var_29, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_29, ptr @3)
   %var_30 = load i1, ptr %var_18
-  call void @__quantum__rt__bool_record_output(i1 %var_30, ptr @4)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_30, ptr @4)
   ret i64 0
 }
 
@@ -82,11 +82,11 @@ block_6:
 
 declare void @__quantum__qis__reset__body(ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
 attributes #1 = { "irreversible" }
