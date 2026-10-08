@@ -294,35 +294,33 @@ impl UnaryOpExpr {
 }
 
 /// Rust's `i64::Shl` panics if the rhs is greater than 63,
-/// and `i64::overflowing_shl` doesn't behaves as expected
-/// so we need to implement our own `overflowing_shl`.
-fn overflowing_shl(mut lhs: i64, mut rhs: i64) -> i64 {
-    while rhs > 0 {
-        if rhs >= 64 {
-            lhs <<= 63;
-            rhs -= 63;
-        } else {
-            lhs <<= rhs;
-            rhs = 0;
-        }
+/// and `i64::overflowing_shl` masks the rhs instead of shifting
+/// all the bits out, so we need to implement our own `overflowing_shl`.
+///
+/// This must run in constant time, since the rhs can be any `i64`.
+fn overflowing_shl(lhs: i64, rhs: i64) -> i64 {
+    assert!(rhs >= 0, "shift amount should be non-negative");
+    match rhs {
+        0 => lhs,
+        1..=63 => lhs << rhs,
+        _ => 0,
     }
-    lhs
 }
 
 /// Rust's `i64::Shr` panics if the rhs is greater than 63,
-/// and `i64::overflowing_shr` doesn't behaves as expected
-/// so we need to implement our own `overflowing_shr`.
-fn overflowing_shr(mut lhs: i64, mut rhs: i64) -> i64 {
-    while rhs > 0 {
-        if rhs >= 64 {
-            lhs >>= 63;
-            rhs -= 63;
-        } else {
-            lhs >>= rhs;
-            rhs = 0;
-        }
+/// and `i64::overflowing_shr` masks the rhs instead of shifting
+/// all the bits out, so we need to implement our own `overflowing_shr`.
+///
+/// This must run in constant time, since the rhs can be any `i64`.
+/// `UInt` values use an `i64` representation, so the shift must reinterpret
+/// the value as unsigned to avoid sign extension.
+fn overflowing_shr(lhs: i64, rhs: i64) -> i64 {
+    assert!(rhs >= 0, "shift amount should be non-negative");
+    match rhs {
+        0 => lhs,
+        1..=63 => i64::from_ne_bytes((u64::from_ne_bytes(lhs.to_ne_bytes()) >> rhs).to_ne_bytes()),
+        _ => 0,
     }
-    lhs
 }
 
 impl BinaryOpExpr {
@@ -366,20 +364,26 @@ impl BinaryOpExpr {
                     Type::UInt(..) => {
                         rewrap_lit!(lhs, Int(lhs), Int(overflowing_shl(lhs, rhs)))
                     }
-                    Type::Angle(..) => {
-                        rewrap_lit!(lhs, Angle(lhs), Angle(lhs << rhs))
-                    }
+                    Type::Angle(..) => rewrap_lit!(lhs, Angle(lhs), {
+                        if rhs >= i64::from(lhs.size) {
+                            Angle(angle::Angle::new(0, lhs.size))
+                        } else {
+                            Angle(lhs << rhs)
+                        }
+                    }),
                     Type::Bit(..) => rewrap_lit!(lhs, Bit(lhs), {
                         // The Spec says "The shift operators shift bits off the end."
                         // Therefore if the rhs is > 0 the value becomes zero.
                         Bit(rhs == 0 && lhs)
                     }),
-                    Type::BitArray(..) => {
-                        rewrap_lit!(lhs, Bitstring(lhs, size), {
-                            let mask = BigInt::from((1 << size) - 1);
+                    Type::BitArray(..) => rewrap_lit!(lhs, Bitstring(lhs, size), {
+                        if rhs >= i64::from(size) {
+                            Bitstring(BigInt::ZERO, size)
+                        } else {
+                            let mask = (BigInt::from(1) << size) - 1;
                             Bitstring((lhs << rhs) & mask, size)
-                        })
-                    }
+                        }
+                    }),
                     _ => None,
                 }
             }
@@ -401,17 +405,27 @@ impl BinaryOpExpr {
 
                 match lhs_ty {
                     Type::UInt(..) => rewrap_lit!(lhs, Int(lhs), Int(overflowing_shr(lhs, rhs))),
-                    Type::Angle(..) => {
-                        rewrap_lit!(lhs, Angle(lhs), Angle(lhs >> rhs))
-                    }
+                    Type::Angle(..) => rewrap_lit!(lhs, Angle(lhs), {
+                        if rhs >= i64::from(lhs.size) {
+                            // Angles are unsigned, so there's no sign extension
+                            Angle(angle::Angle::new(0, lhs.size))
+                        } else {
+                            Angle(lhs >> rhs)
+                        }
+                    }),
                     Type::Bit(..) => rewrap_lit!(lhs, Bit(lhs), {
                         // The Spec says "The shift operators shift bits off the end."
                         // Therefore if the rhs is > 0 the value becomes zero.
                         Bit(rhs == 0 && lhs)
                     }),
-                    Type::BitArray(..) => {
-                        rewrap_lit!(lhs, Bitstring(lhs, size), Bitstring(lhs >> rhs, size))
-                    }
+                    Type::BitArray(..) => rewrap_lit!(lhs, Bitstring(lhs, size), {
+                        if rhs >= i64::from(size) {
+                            // A Bitstring has no sign bit to extend
+                            Bitstring(BigInt::ZERO, size)
+                        } else {
+                            Bitstring(lhs >> rhs, size)
+                        }
+                    }),
                     _ => None,
                 }
             }
