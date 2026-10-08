@@ -798,6 +798,7 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
                 Branch Variable(1, Boolean), 2, 3
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)

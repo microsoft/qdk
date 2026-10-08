@@ -15,7 +15,7 @@ block_1:
 block_2:
   br label %block_3
 block_3:
-  %var_14 = phi i64 [7, %block_1], [3, %block_2]
+  %var_16 = phi i64 [7, %block_1], [3, %block_2]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
   %var_6 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
@@ -25,10 +25,10 @@ block_4:
 block_5:
   br label %block_6
 block_6:
-  %var_15 = phi i64 [5, %block_4], [2, %block_5]
-  %var_10 = mul i64 %var_15, %var_14
-  %var_11 = add i64 %var_10, 1
-  call void @__quantum__rt__int_record_output(i64 %var_11, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  %var_17 = phi i64 [5, %block_4], [2, %block_5]
+  %var_11 = mul i64 %var_17, %var_16
+  %var_13 = add i64 %var_11, 1
+  call void @__quantum__rt__int_record_output(i64 %var_13, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
   ret i64 0
 }
 

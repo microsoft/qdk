@@ -3,8 +3,8 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(ptr null)
-  %var_17 = call i64 @A(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__rt__int_record_output(i64 %var_17, ptr @0)
+  %var_19 = call i64 @A(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__int_record_output(i64 %var_19, ptr @0)
   ret i64 0
 }
 
@@ -28,13 +28,13 @@ block_3:
   store i64 2, ptr %var_13
   br label %block_4
 block_4:
-  %var_20 = load i64, ptr %var_13
-  store i64 %var_20, ptr %var_14
-  %var_22 = load i64, ptr %var_14
-  %var_23 = load i64, ptr %var_10
-  %var_15 = mul i64 %var_22, %var_23
-  %var_16 = add i64 %var_15, 1
-  ret i64 %var_16
+  %var_22 = load i64, ptr %var_13
+  store i64 %var_22, ptr %var_14
+  %var_24 = load i64, ptr %var_14
+  %var_25 = load i64, ptr %var_10
+  %var_16 = mul i64 %var_24, %var_25
+  %var_18 = add i64 %var_16, 1
+  ret i64 %var_18
 }
 
 define internal i64 @B(ptr %var_4) {
@@ -51,8 +51,8 @@ block_7:
   store i64 3, ptr %var_8
   br label %block_8
 block_8:
-  %var_26 = load i64, ptr %var_8
-  ret i64 %var_26
+  %var_28 = load i64, ptr %var_8
+  ret i64 %var_28
 }
 
 define internal void @X(ptr %var_5) {

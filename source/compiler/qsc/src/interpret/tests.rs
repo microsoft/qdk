@@ -2091,7 +2091,7 @@ mod given_interpreter {
                 "expected measurement comparisons to lower through read_result, got:\n{qir}"
             );
             assert!(
-                qir.contains("icmp eq i1 %var_5, %var_6"),
+                qir.contains("icmp eq i1 %var_7, %var_8"),
                 "expected result-to-result equality to lower to an i1 comparison, got:\n{qir}"
             );
         }
@@ -2131,13 +2131,13 @@ mod given_interpreter {
                   call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-                  %var_2 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-                  %var_3 = icmp eq i1 %var_2, false
+                  %var_3 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  %var_4 = icmp eq i1 %var_3, false
                   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
                   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
                   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
                   call void @__quantum__rt__bool_record_output(i1 zeroext %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
-                  call void @__quantum__rt__bool_record_output(i1 zeroext %var_3, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 zeroext %var_4, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
                   ret i64 0
                 }
 

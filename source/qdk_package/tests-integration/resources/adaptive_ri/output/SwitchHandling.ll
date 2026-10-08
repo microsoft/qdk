@@ -15,30 +15,30 @@ block_0:
 block_1:
   br label %block_2
 block_2:
-  %var_17 = phi i64 [0, %block_0], [1, %block_1]
-  %var_9 = shl i64 %var_17, 1
-  %var_10 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
-  br i1 %var_10, label %block_3, label %block_4
+  %var_22 = phi i64 [0, %block_0], [1, %block_1]
+  %var_10 = shl i64 %var_22, 1
+  %var_11 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+  br i1 %var_11, label %block_3, label %block_4
 block_3:
-  %var_12 = add i64 %var_9, 1
+  %var_14 = add i64 %var_10, 1
   br label %block_4
 block_4:
-  %var_18 = phi i64 [%var_9, %block_2], [%var_12, %block_3]
+  %var_23 = phi i64 [%var_10, %block_2], [%var_14, %block_3]
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  %var_14 = icmp eq i64 %var_18, 0
-  br i1 %var_14, label %block_5, label %block_6
+  %var_17 = icmp eq i64 %var_23, 0
+  br i1 %var_17, label %block_5, label %block_6
 block_5:
   br label %block_13
 block_6:
-  %var_15 = icmp eq i64 %var_18, 1
-  br i1 %var_15, label %block_7, label %block_8
+  %var_19 = icmp eq i64 %var_23, 1
+  br i1 %var_19, label %block_7, label %block_8
 block_7:
   call void @__quantum__qis__ry__body(double 3.141592653589793, %Qubit* inttoptr (i64 2 to %Qubit*))
   br label %block_12
 block_8:
-  %var_16 = icmp eq i64 %var_18, 2
-  br i1 %var_16, label %block_9, label %block_10
+  %var_21 = icmp eq i64 %var_23, 2
+  br i1 %var_21, label %block_9, label %block_10
 block_9:
   call void @__quantum__qis__rz__body(double 3.141592653589793, %Qubit* inttoptr (i64 2 to %Qubit*))
   br label %block_11

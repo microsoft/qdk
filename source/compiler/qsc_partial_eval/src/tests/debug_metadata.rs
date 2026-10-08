@@ -491,17 +491,18 @@ fn branch_due_to_binop_short_circuit() {
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=7
                 Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=6
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
-                Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=10
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Bool(false)
+                Branch Variable(2, Boolean), 2, 1 !dbg dbg_location=10
             Block 1:Block:
-                Variable(5, Boolean) = Store Variable(2, Boolean)
+                Variable(6, Boolean) = Store Variable(3, Boolean)
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=9
-                Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=8
-                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
-                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Variable(4, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=8
+                Variable(5, Boolean) = Icmp Eq, Variable(4, Boolean), Bool(false)
+                Variable(3, Boolean) = Store Variable(5, Boolean)
                 Jump(1)
 
             dbg_scopes:

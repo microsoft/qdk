@@ -1041,21 +1041,21 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
         block_1:
           br label %block_2
         block_2:
-          %var_187 = phi i1 [true, %block_0], [false, %block_1]
+          %var_191 = phi i1 [true, %block_0], [false, %block_1]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
           %var_11 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
           br i1 %var_11, label %block_3, label %block_4
         block_3:
           br label %block_4
         block_4:
-          %var_188 = phi i1 [%var_187, %block_2], [false, %block_3]
+          %var_192 = phi i1 [%var_191, %block_2], [false, %block_3]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
           %var_13 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
           br i1 %var_13, label %block_5, label %block_6
         block_5:
           br label %block_6
         block_6:
-          %var_189 = phi i1 [%var_188, %block_4], [false, %block_5]
+          %var_193 = phi i1 [%var_192, %block_4], [false, %block_5]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -1067,26 +1067,26 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
-          %var_25 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 3 to %Result*))
-          br i1 %var_25, label %block_7, label %block_8
+          %var_26 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 3 to %Result*))
+          br i1 %var_26, label %block_7, label %block_8
         block_7:
           br label %block_8
         block_8:
-          %var_190 = phi i1 [true, %block_6], [false, %block_7]
+          %var_194 = phi i1 [true, %block_6], [false, %block_7]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 4 to %Result*))
-          %var_27 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 4 to %Result*))
-          br i1 %var_27, label %block_9, label %block_10
+          %var_28 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 4 to %Result*))
+          br i1 %var_28, label %block_9, label %block_10
         block_9:
           br label %block_10
         block_10:
-          %var_191 = phi i1 [%var_190, %block_8], [false, %block_9]
+          %var_195 = phi i1 [%var_194, %block_8], [false, %block_9]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 5 to %Result*))
-          %var_29 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 5 to %Result*))
-          br i1 %var_29, label %block_11, label %block_12
+          %var_30 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 5 to %Result*))
+          br i1 %var_30, label %block_11, label %block_12
         block_11:
           br label %block_12
         block_12:
-          %var_192 = phi i1 [%var_191, %block_10], [false, %block_11]
+          %var_196 = phi i1 [%var_195, %block_10], [false, %block_11]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -1145,26 +1145,26 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 6 to %Result*))
-          %var_122 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
-          br i1 %var_122, label %block_13, label %block_14
+          %var_124 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
+          br i1 %var_124, label %block_13, label %block_14
         block_13:
           br label %block_14
         block_14:
-          %var_193 = phi i1 [true, %block_12], [false, %block_13]
+          %var_197 = phi i1 [true, %block_12], [false, %block_13]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 7 to %Result*))
-          %var_124 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
-          br i1 %var_124, label %block_15, label %block_16
+          %var_126 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
+          br i1 %var_126, label %block_15, label %block_16
         block_15:
           br label %block_16
         block_16:
-          %var_194 = phi i1 [%var_193, %block_14], [false, %block_15]
+          %var_198 = phi i1 [%var_197, %block_14], [false, %block_15]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 8 to %Result*))
-          %var_126 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
-          br i1 %var_126, label %block_17, label %block_18
+          %var_128 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
+          br i1 %var_128, label %block_17, label %block_18
         block_17:
           br label %block_18
         block_18:
-          %var_195 = phi i1 [%var_194, %block_16], [false, %block_17]
+          %var_199 = phi i1 [%var_198, %block_16], [false, %block_17]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -1203,32 +1203,32 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 9 to %Result*))
-          %var_179 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
-          br i1 %var_179, label %block_19, label %block_20
+          %var_182 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
+          br i1 %var_182, label %block_19, label %block_20
         block_19:
           br label %block_20
         block_20:
-          %var_196 = phi i1 [true, %block_18], [false, %block_19]
+          %var_200 = phi i1 [true, %block_18], [false, %block_19]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 10 to %Result*))
-          %var_181 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 10 to %Result*))
-          br i1 %var_181, label %block_21, label %block_22
+          %var_184 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 10 to %Result*))
+          br i1 %var_184, label %block_21, label %block_22
         block_21:
           br label %block_22
         block_22:
-          %var_197 = phi i1 [%var_196, %block_20], [false, %block_21]
+          %var_201 = phi i1 [%var_200, %block_20], [false, %block_21]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 11 to %Result*))
-          %var_183 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 11 to %Result*))
-          br i1 %var_183, label %block_23, label %block_24
+          %var_186 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 11 to %Result*))
+          br i1 %var_186, label %block_23, label %block_24
         block_23:
           br label %block_24
         block_24:
-          %var_198 = phi i1 [%var_197, %block_22], [false, %block_23]
+          %var_202 = phi i1 [%var_201, %block_22], [false, %block_23]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__rt__array_record_output(i64 4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 zeroext %var_189, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 zeroext %var_192, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 zeroext %var_195, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 zeroext %var_198, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_193, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_196, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_199, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_202, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
           ret i64 0
         }
 
@@ -1461,12 +1461,12 @@ fn explicit_return_tuple_keeps_dynamic_integer_output() {
         block_2:
           br label %block_3
         block_3:
-          %var_9 = phi i64 [1, %block_1], [2, %block_2]
+          %var_13 = phi i64 [1, %block_1], [2, %block_2]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-          %var_5 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+          %var_6 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
           call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-          call void @__quantum__rt__int_record_output(i64 %var_9, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 zeroext %var_5, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+          call void @__quantum__rt__int_record_output(i64 %var_13, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
           ret i64 0
         }
 
@@ -5927,9 +5927,12 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_5 = alloca i64
-          %var_8 = alloca i64
-          %var_9 = alloca [2 x i64]
+          %var_3 = alloca i64
+          %var_6 = alloca i64
+          %var_7 = alloca i64
+          %var_10 = alloca i64
+          %var_11 = alloca i64
+          %var_12 = alloca [2 x i64]
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -5941,38 +5944,44 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           store i64 0, ptr %var_2
           br label %block_3
         block_3:
+          %var_15 = load i64, ptr %var_2
+          store i64 %var_15, ptr %var_3
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-          br i1 %var_3, label %block_4, label %block_5
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_4, label %block_4, label %block_5
         block_4:
-          store i64 1, ptr %var_5
+          store i64 1, ptr %var_6
           br label %block_6
         block_5:
-          store i64 0, ptr %var_5
+          store i64 0, ptr %var_6
           br label %block_6
         block_6:
+          %var_18 = load i64, ptr %var_6
+          store i64 %var_18, ptr %var_7
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-          %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-          br i1 %var_6, label %block_7, label %block_8
+          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+          br i1 %var_8, label %block_7, label %block_8
         block_7:
-          store i64 1, ptr %var_8
+          store i64 1, ptr %var_10
           br label %block_9
         block_8:
-          store i64 0, ptr %var_8
+          store i64 0, ptr %var_10
           br label %block_9
         block_9:
-          %var_14 = load i64, ptr %var_2
-          %var_15 = load i64, ptr %var_5
-          %var_9_0 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 0
-          store i64 %var_14, ptr %var_9_0
-          %var_9_1 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 1
-          store i64 %var_15, ptr %var_9_1
-          %var_17 = load i64, ptr %var_8
-          %var_18_offset_chk = icmp slt i64 %var_17, 0
-          %var_18_offset = select i1 %var_18_offset_chk, i64 1, i64 0
-          %var_18 = getelementptr [2 x i64], ptr %var_9, i64 %var_18_offset, i64 %var_17
-          %var_10 = load i64, ptr %var_18
-          call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+          %var_21 = load i64, ptr %var_10
+          store i64 %var_21, ptr %var_11
+          %var_23 = load i64, ptr %var_3
+          %var_24 = load i64, ptr %var_7
+          %var_12_0 = getelementptr [2 x i64], ptr %var_12, i64 0, i64 0
+          store i64 %var_23, ptr %var_12_0
+          %var_12_1 = getelementptr [2 x i64], ptr %var_12, i64 0, i64 1
+          store i64 %var_24, ptr %var_12_1
+          %var_26 = load i64, ptr %var_11
+          %var_27_offset_chk = icmp slt i64 %var_26, 0
+          %var_27_offset = select i1 %var_27_offset_chk, i64 1, i64 0
+          %var_27 = getelementptr [2 x i64], ptr %var_12, i64 %var_27_offset, i64 %var_26
+          %var_13 = load i64, ptr %var_27
+          call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
           ret i64 0
         }
 
@@ -6029,8 +6038,10 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_5 = alloca i64
+          %var_3 = alloca i64
+          %var_6 = alloca i64
           %var_7 = alloca i64
+          %var_9 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6042,20 +6053,24 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
           store i64 0, ptr %var_2
           br label %block_3
         block_3:
+          %var_11 = load i64, ptr %var_2
+          store i64 %var_11, ptr %var_3
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-          br i1 %var_3, label %block_4, label %block_5
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_4, label %block_4, label %block_5
         block_4:
-          store i64 1, ptr %var_5
+          store i64 1, ptr %var_6
           br label %block_6
         block_5:
-          store i64 0, ptr %var_5
+          store i64 0, ptr %var_6
           br label %block_6
         block_6:
-          %var_10 = load i64, ptr %var_2
-          store i64 %var_10, ptr %var_7
-          %var_12 = load i64, ptr %var_7
-          call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+          %var_14 = load i64, ptr %var_6
+          store i64 %var_14, ptr %var_7
+          %var_16 = load i64, ptr %var_3
+          store i64 %var_16, ptr %var_9
+          %var_18 = load i64, ptr %var_9
+          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
           ret i64 0
         }
 
@@ -6115,13 +6130,19 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_2 = alloca i64
-          %var_5 = alloca i64
-          %var_8 = alloca i64
+          %var_3 = alloca i64
+          %var_6 = alloca i64
+          %var_7 = alloca i64
+          %var_10 = alloca i64
           %var_11 = alloca i64
           %var_14 = alloca i64
-          %var_17 = alloca i64
-          %var_18 = alloca [2 x i64]
-          %var_19 = alloca [3 x i64]
+          %var_15 = alloca i64
+          %var_18 = alloca i64
+          %var_19 = alloca i64
+          %var_22 = alloca i64
+          %var_23 = alloca i64
+          %var_24 = alloca [2 x i64]
+          %var_25 = alloca [3 x i64]
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
@@ -6133,83 +6154,95 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           store i64 0, ptr %var_2
           br label %block_3
         block_3:
+          %var_30 = load i64, ptr %var_2
+          store i64 %var_30, ptr %var_3
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-          br i1 %var_3, label %block_4, label %block_5
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_4, label %block_4, label %block_5
         block_4:
-          store i64 1, ptr %var_5
+          store i64 1, ptr %var_6
           br label %block_6
         block_5:
-          store i64 0, ptr %var_5
+          store i64 0, ptr %var_6
           br label %block_6
         block_6:
+          %var_33 = load i64, ptr %var_6
+          store i64 %var_33, ptr %var_7
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-          %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-          br i1 %var_6, label %block_7, label %block_8
+          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+          br i1 %var_8, label %block_7, label %block_8
         block_7:
-          store i64 1, ptr %var_8
+          store i64 1, ptr %var_10
           br label %block_9
         block_8:
-          store i64 0, ptr %var_8
+          store i64 0, ptr %var_10
           br label %block_9
         block_9:
+          %var_36 = load i64, ptr %var_10
+          store i64 %var_36, ptr %var_11
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))
-          %var_9 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
-          br i1 %var_9, label %block_10, label %block_11
+          %var_12 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+          br i1 %var_12, label %block_10, label %block_11
         block_10:
-          store i64 1, ptr %var_11
+          store i64 1, ptr %var_14
           br label %block_12
         block_11:
-          store i64 0, ptr %var_11
+          store i64 0, ptr %var_14
           br label %block_12
         block_12:
+          %var_39 = load i64, ptr %var_14
+          store i64 %var_39, ptr %var_15
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 4 to ptr))
-          %var_12 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
-          br i1 %var_12, label %block_13, label %block_14
+          %var_16 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+          br i1 %var_16, label %block_13, label %block_14
         block_13:
-          store i64 1, ptr %var_14
+          store i64 1, ptr %var_18
           br label %block_15
         block_14:
-          store i64 0, ptr %var_14
+          store i64 0, ptr %var_18
           br label %block_15
         block_15:
+          %var_42 = load i64, ptr %var_18
+          store i64 %var_42, ptr %var_19
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 5 to ptr))
-          %var_15 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
-          br i1 %var_15, label %block_16, label %block_17
+          %var_20 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+          br i1 %var_20, label %block_16, label %block_17
         block_16:
-          store i64 1, ptr %var_17
+          store i64 1, ptr %var_22
           br label %block_18
         block_17:
-          store i64 0, ptr %var_17
+          store i64 0, ptr %var_22
           br label %block_18
         block_18:
-          %var_28 = load i64, ptr %var_2
-          %var_29 = load i64, ptr %var_5
-          %var_18_0 = getelementptr [2 x i64], ptr %var_18, i64 0, i64 0
-          store i64 %var_28, ptr %var_18_0
-          %var_18_1 = getelementptr [2 x i64], ptr %var_18, i64 0, i64 1
-          store i64 %var_29, ptr %var_18_1
-          %var_31 = load i64, ptr %var_8
-          %var_32 = load i64, ptr %var_11
-          %var_33 = load i64, ptr %var_14
-          %var_19_0 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 0
-          store i64 %var_31, ptr %var_19_0
-          %var_19_1 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 1
-          store i64 %var_32, ptr %var_19_1
-          %var_19_2 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 2
-          store i64 %var_33, ptr %var_19_2
-          %var_35 = load i64, ptr %var_17
-          %var_36_offset_chk = icmp slt i64 %var_35, 0
-          %var_36_offset = select i1 %var_36_offset_chk, i64 1, i64 0
-          %var_36 = getelementptr [2 x i64], ptr %var_18, i64 %var_36_offset, i64 %var_35
-          %var_20 = load i64, ptr %var_36
-          %var_37_offset_chk = icmp slt i64 %var_35, 0
-          %var_37_offset = select i1 %var_37_offset_chk, i64 1, i64 0
-          %var_37 = getelementptr [3 x i64], ptr %var_19, i64 %var_37_offset, i64 %var_35
-          %var_21 = load i64, ptr %var_37
+          %var_45 = load i64, ptr %var_22
+          store i64 %var_45, ptr %var_23
+          %var_47 = load i64, ptr %var_3
+          %var_48 = load i64, ptr %var_7
+          %var_24_0 = getelementptr [2 x i64], ptr %var_24, i64 0, i64 0
+          store i64 %var_47, ptr %var_24_0
+          %var_24_1 = getelementptr [2 x i64], ptr %var_24, i64 0, i64 1
+          store i64 %var_48, ptr %var_24_1
+          %var_50 = load i64, ptr %var_11
+          %var_51 = load i64, ptr %var_15
+          %var_52 = load i64, ptr %var_19
+          %var_25_0 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 0
+          store i64 %var_50, ptr %var_25_0
+          %var_25_1 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 1
+          store i64 %var_51, ptr %var_25_1
+          %var_25_2 = getelementptr [3 x i64], ptr %var_25, i64 0, i64 2
+          store i64 %var_52, ptr %var_25_2
+          %var_54 = load i64, ptr %var_23
+          %var_55_offset_chk = icmp slt i64 %var_54, 0
+          %var_55_offset = select i1 %var_55_offset_chk, i64 1, i64 0
+          %var_55 = getelementptr [2 x i64], ptr %var_24, i64 %var_55_offset, i64 %var_54
+          %var_26 = load i64, ptr %var_55
+          %var_56_offset_chk = icmp slt i64 %var_54, 0
+          %var_56_offset = select i1 %var_56_offset_chk, i64 1, i64 0
+          %var_56 = getelementptr [3 x i64], ptr %var_25, i64 %var_56_offset, i64 %var_54
+          %var_28 = load i64, ptr %var_56
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-          call void @__quantum__rt__int_record_output(i64 %var_20, ptr @1)
-          call void @__quantum__rt__int_record_output(i64 %var_21, ptr @2)
+          call void @__quantum__rt__int_record_output(i64 %var_26, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_28, ptr @2)
           ret i64 0
         }
 
@@ -6274,40 +6307,46 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           %var_1 = alloca i64
-          %var_3 = alloca i1
+          %var_2 = alloca i64
+          %var_5 = alloca i1
+          %var_10 = alloca i64
           call void @__quantum__rt__initialize(ptr null)
           store i64 0, ptr %var_1
           br label %block_1
         block_1:
-          %var_10 = load i64, ptr %var_1
-          %var_2 = icmp sle i64 %var_10, 0
-          store i1 true, ptr %var_3
-          br i1 %var_2, label %block_2, label %block_3
+          %var_13 = load i64, ptr %var_1
+          store i64 %var_13, ptr %var_2
+          %var_15 = load i64, ptr %var_2
+          %var_3 = icmp sle i64 %var_15, 0
+          store i1 true, ptr %var_5
+          br i1 %var_3, label %block_2, label %block_3
         block_2:
-          %var_13 = load i1, ptr %var_3
-          br i1 %var_13, label %block_4, label %block_5
+          %var_18 = load i1, ptr %var_5
+          br i1 %var_18, label %block_4, label %block_5
         block_3:
-          store i1 false, ptr %var_3
+          store i1 false, ptr %var_5
           br label %block_2
         block_4:
-          %var_14 = load i64, ptr %var_1
-          %var_15_offset_chk = icmp slt i64 %var_14, 0
-          %var_15_offset = select i1 %var_15_offset_chk, i64 1, i64 0
-          %var_15 = getelementptr [1 x ptr], ptr @array0, i64 %var_15_offset, i64 %var_14
-          %var_4 = load ptr, ptr %var_15
+          %var_19 = load i64, ptr %var_1
+          %var_20_offset_chk = icmp slt i64 %var_19, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [1 x ptr], ptr @array0, i64 %var_20_offset, i64 %var_19
+          %var_6 = load ptr, ptr %var_20
           call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %var_5, label %block_6, label %block_7
+          %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_7, label %block_6, label %block_7
         block_5:
           call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
           ret i64 0
         block_6:
-          call void @X(ptr %var_4)
+          call void @X(ptr %var_6)
           br label %block_7
         block_7:
-          %var_16 = load i64, ptr %var_1
-          %var_8 = add i64 %var_16, 1
-          store i64 %var_8, ptr %var_1
+          %var_21 = load i64, ptr %var_1
+          store i64 %var_21, ptr %var_10
+          %var_23 = load i64, ptr %var_10
+          %var_11 = add i64 %var_23, 1
+          store i64 %var_11, ptr %var_1
           br label %block_1
         }
 
@@ -6317,9 +6356,9 @@ fn array_entry_used_as_argument_to_callable_with_inner_branch() {
 
         declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
-        define internal void @X(ptr %var_7) {
+        define internal void @X(ptr %var_9) {
         block_8:
-          call void @__quantum__qis__x__body(ptr %var_7)
+          call void @__quantum__qis__x__body(ptr %var_9)
           ret void
         }
 

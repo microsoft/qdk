@@ -595,7 +595,9 @@ impl<'a> PartialEvaluator<'a> {
         // Set the value at the specified index or range.
         let update_result = match index_value {
             Value::Int(index) => {
-                update_index_single(array, index, update_value, index_expr_package_span)
+                let elem_value = self.copy_value_if_needed(update_value);
+
+                update_index_single(array, index, elem_value, index_expr_package_span)
             }
             Value::Range(range) => update_index_range(
                 array,
@@ -1450,6 +1452,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(value_expr_id),
             ));
         };
+        let elem_value = self.copy_value_if_needed(value);
+
         let size_control_flow = self.try_eval_expr(size_expr_id)?;
         let EvalControlFlow::Continue(size) = size_control_flow else {
             return Err(Error::Unexpected(
@@ -1461,7 +1465,8 @@ impl<'a> PartialEvaluator<'a> {
         // We assume the size of the array is a classical value because otherwise it would have been rejected before
         // getting to the partial evaluation stage.
         let size = size.unwrap_int();
-        let values = vec![value; TryFrom::try_from(size).expect("could not convert size value")];
+        let values =
+            vec![elem_value; TryFrom::try_from(size).expect("could not convert size value")];
         Ok(EvalControlFlow::Continue(Value::Array(values.into())))
     }
 
@@ -1536,6 +1541,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             lhs_control_flow.into_value()
         };
+        let lhs_value = self.copy_value_if_needed(lhs_value);
         let bin_op_control_flow = self.eval_bin_op(
             bin_op,
             lhs_value,
@@ -1568,6 +1574,7 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(lhs_expr_id),
             ));
         };
+        let lhs_value = self.copy_value_if_needed(lhs_value);
 
         // Now that we have a LHS value, evaluate the binary operation, which will properly consider short-circuiting
         // logic in the case of Boolean operations.
@@ -2802,7 +2809,9 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(*expr_id),
                 ));
             }
-            values.push(control_flow.into_value());
+            let elem_value = self.copy_value_if_needed(control_flow.into_value());
+
+            values.push(elem_value);
         }
         Ok(EvalControlFlow::Continue(Value::Array(values.into())))
     }
@@ -2817,7 +2826,9 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(*expr_id),
                 ));
             }
-            values.push(control_flow.into_value());
+            let elem_value = self.copy_value_if_needed(control_flow.into_value());
+
+            values.push(elem_value);
         }
         Ok(EvalControlFlow::Continue(Value::Tuple(values.into(), None)))
     }
@@ -4103,6 +4114,25 @@ impl<'a> PartialEvaluator<'a> {
                 format!("unsupported value type in conversion {args_value:?}"),
                 args_span,
             )),
+        }
+    }
+
+    fn copy_value_if_needed(&mut self, value: Value) -> Value {
+        match value {
+            Value::Var(var) => {
+                let var_id = self.resource_manager.next_var();
+                let copy_var = Var {
+                    id: var_id.into(),
+                    ty: var.ty,
+                };
+                // Insert a store instruction.
+                let value_operand = map_eval_var_to_rir_var(var);
+                let rir_var = map_eval_var_to_rir_var(copy_var);
+                let store_ins = Instruction::Store(Operand::Variable(value_operand), rir_var);
+                self.get_current_rir_block_mut().0.push(store_ins);
+                Value::Var(copy_var)
+            }
+            val => val,
         }
     }
 

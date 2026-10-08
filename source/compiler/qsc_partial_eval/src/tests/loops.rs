@@ -130,21 +130,24 @@ fn unitary_call_within_a_for_loop() {
                 Variable(0, Integer) = Store Integer(1)
                 Jump(1)
             Block 1:Block:
-                Variable(1, Boolean) = Icmp Sle, Variable(0, Integer), Integer(3)
-                Variable(2, Boolean) = Store Bool(true)
-                Branch Variable(1, Boolean), 3, 4
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Sle, Variable(1, Integer), Integer(3)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(true)
+                Branch Variable(3, Boolean), 3, 4
             Block 2:Block:
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Branch Variable(2, Boolean), 5, 2
+                Branch Variable(4, Boolean), 5, 2
             Block 4:Block:
-                Variable(2, Boolean) = Store Bool(false)
+                Variable(4, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
                 Call id(2), args( Qubit(0), )
-                Variable(3, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Variable(6, Integer) = Add Variable(5, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(6, Integer)
                 Jump(1)"#]],
     );
 }
@@ -245,15 +248,17 @@ fn unitary_call_within_a_while_loop() {
                 Variable(0, Integer) = Store Integer(0)
                 Jump(1)
             Block 1:Block:
-                Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(3)
-                Branch Variable(1, Boolean), 3, 2
+                Variable(1, Integer) = Store Variable(0, Integer)
+                Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(3)
+                Branch Variable(2, Boolean), 3, 2
             Block 2:Block:
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
                 Call id(2), args( Qubit(0), )
-                Variable(2, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(2, Integer)
+                Variable(3, Integer) = Store Variable(0, Integer)
+                Variable(4, Integer) = Add Variable(3, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(4, Integer)
                 Jump(1)"#]],
     );
 }
@@ -365,11 +370,13 @@ fn unitary_call_within_a_repeat_until_loop() {
                 Return Integer(0)
             Block 3:Block:
                 Call id(2), args( Qubit(0), )
-                Variable(2, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(2, Integer)
-                Variable(3, Boolean) = Icmp Sge, Variable(0, Integer), Integer(3)
-                Variable(4, Boolean) = LogicalNot Variable(3, Boolean)
-                Variable(1, Boolean) = Store Variable(4, Boolean)
+                Variable(2, Integer) = Store Variable(0, Integer)
+                Variable(3, Integer) = Add Variable(2, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(3, Integer)
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Boolean) = Icmp Sge, Variable(4, Integer), Integer(3)
+                Variable(6, Boolean) = LogicalNot Variable(5, Boolean)
+                Variable(1, Boolean) = Store Variable(6, Boolean)
                 Jump(1)"#]],
     );
 }
@@ -462,8 +469,8 @@ fn rotation_call_within_a_for_loop() {
                         [0]: Double
                         [1]: Qubit
                     input_vars:
-                        [0]: 4
-                        [1]: 5
+                        [0]: 6
+                        [1]: 7
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -488,20 +495,25 @@ fn rotation_call_within_a_for_loop() {
                     Variable(0, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(3)
-                    Branch Variable(1, Boolean), 3, 2
+                    Variable(1, Integer) = Store Variable(0, Integer)
+                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(3)
+                    Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 3: Block:
-                    Variable(2, Double) = Index Array(0), Variable(0, Integer)
-                    Variable(3, Double) = Store Variable(2, Double)
-                    Call id(2), args( Variable(3, Double), Qubit(0), )
-                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(6, Integer)
+                    Variable(3, Double) = Index Array(0), Variable(0, Integer)
+                    Variable(4, Double) = Store Variable(3, Double)
+                    Variable(5, Double) = Store Variable(4, Double)
+                    Call id(2), args( Variable(5, Double), Qubit(0), )
+                    Variable(10, Integer) = Store Variable(0, Integer)
+                    Variable(11, Integer) = Add Variable(10, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(11, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
+                    Variable(8, Double) = Store Variable(6, Double)
+                    Variable(9, Qubit) = Store Variable(7, Qubit)
+                    Call id(3), args( Variable(8, Double), Variable(9, Qubit), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -609,8 +621,8 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                         [0]: Double
                         [1]: Qubit
                     input_vars:
-                        [0]: 5
-                        [1]: 6
+                        [0]: 7
+                        [1]: 8
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -636,35 +648,43 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                     Variable(1, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(2)
-                    Branch Variable(2, Boolean), 3, 2
+                    Variable(2, Integer) = Store Variable(1, Integer)
+                    Variable(3, Boolean) = Icmp Slt, Variable(2, Integer), Integer(2)
+                    Branch Variable(3, Boolean), 3, 2
                 Block 2: Block:
                     Variable(0, Integer) = Store Integer(1)
-                    Variable(8, Integer) = Store Integer(0)
+                    Variable(13, Integer) = Store Integer(0)
                     Jump(5)
                 Block 3: Block:
-                    Variable(3, Double) = Index Array(0), Variable(1, Integer)
-                    Variable(4, Double) = Store Variable(3, Double)
-                    Call id(2), args( Variable(4, Double), Qubit(0), )
-                    Variable(7, Integer) = Add Variable(1, Integer), Integer(1)
-                    Variable(1, Integer) = Store Variable(7, Integer)
+                    Variable(4, Double) = Index Array(0), Variable(1, Integer)
+                    Variable(5, Double) = Store Variable(4, Double)
+                    Variable(6, Double) = Store Variable(5, Double)
+                    Call id(2), args( Variable(6, Double), Qubit(0), )
+                    Variable(11, Integer) = Store Variable(1, Integer)
+                    Variable(12, Integer) = Add Variable(11, Integer), Integer(1)
+                    Variable(1, Integer) = Store Variable(12, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(5, Double), Variable(6, Qubit), )
+                    Variable(9, Double) = Store Variable(7, Double)
+                    Variable(10, Qubit) = Store Variable(8, Qubit)
+                    Call id(3), args( Variable(9, Double), Variable(10, Qubit), )
                     Return
                 Block 5: Block:
-                    Variable(9, Boolean) = Icmp Slt, Variable(8, Integer), Integer(2)
-                    Branch Variable(9, Boolean), 7, 6
+                    Variable(14, Integer) = Store Variable(13, Integer)
+                    Variable(15, Boolean) = Icmp Slt, Variable(14, Integer), Integer(2)
+                    Branch Variable(15, Boolean), 7, 6
                 Block 6: Block:
                     Variable(0, Integer) = Store Integer(2)
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 7: Block:
-                    Variable(10, Double) = Index Array(1), Variable(8, Integer)
-                    Variable(11, Double) = Store Variable(10, Double)
-                    Call id(2), args( Variable(11, Double), Qubit(0), )
-                    Variable(12, Integer) = Add Variable(8, Integer), Integer(1)
-                    Variable(8, Integer) = Store Variable(12, Integer)
+                    Variable(16, Double) = Index Array(1), Variable(13, Integer)
+                    Variable(17, Double) = Store Variable(16, Double)
+                    Variable(18, Double) = Store Variable(17, Double)
+                    Call id(2), args( Variable(18, Double), Qubit(0), )
+                    Variable(19, Integer) = Store Variable(13, Integer)
+                    Variable(20, Integer) = Add Variable(19, Integer), Integer(1)
+                    Variable(13, Integer) = Store Variable(20, Integer)
                     Jump(5)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -752,7 +772,9 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 1: Block:
-                    Call id(3), args( Variable(2, Double), Variable(3, Qubit), )
+                    Variable(4, Double) = Store Variable(2, Double)
+                    Variable(5, Qubit) = Store Variable(3, Qubit)
+                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -822,17 +844,19 @@ fn for_loop_over_qubits() {
                     Variable(1, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(3)
-                    Branch Variable(2, Boolean), 3, 2
+                    Variable(2, Integer) = Store Variable(1, Integer)
+                    Variable(3, Boolean) = Icmp Slt, Variable(2, Integer), Integer(3)
+                    Branch Variable(3, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 3: Block:
-                    Variable(3, Qubit) = Index Array(0), Variable(1, Integer)
-                    Variable(4, Qubit) = Store Variable(3, Qubit)
-                    Call id(2), args( Variable(4, Qubit), )
-                    Variable(5, Integer) = Add Variable(1, Integer), Integer(1)
-                    Variable(1, Integer) = Store Variable(5, Integer)
+                    Variable(4, Qubit) = Index Array(0), Variable(1, Integer)
+                    Variable(5, Qubit) = Store Variable(4, Qubit)
+                    Call id(2), args( Variable(5, Qubit), )
+                    Variable(6, Integer) = Store Variable(1, Integer)
+                    Variable(7, Integer) = Add Variable(6, Integer), Integer(1)
+                    Variable(1, Integer) = Store Variable(7, Integer)
                     Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -936,8 +960,8 @@ fn for_loop_over_empty_array_emits_successfully() {
                         [0]: Double
                         [1]: Qubit
                     input_vars:
-                        [0]: 4
-                        [1]: 5
+                        [0]: 6
+                        [1]: 7
                     output_type: <VOID>
                     body: 4
                 Callable 3: Callable:
@@ -962,20 +986,25 @@ fn for_loop_over_empty_array_emits_successfully() {
                     Variable(0, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(0)
-                    Branch Variable(1, Boolean), 3, 2
+                    Variable(1, Integer) = Store Variable(0, Integer)
+                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(0)
+                    Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 3: Block:
-                    Variable(2, Double) = Index Array(0), Variable(0, Integer)
-                    Variable(3, Double) = Store Variable(2, Double)
-                    Call id(2), args( Variable(3, Double), Qubit(0), )
-                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(6, Integer)
+                    Variable(3, Double) = Index Array(0), Variable(0, Integer)
+                    Variable(4, Double) = Store Variable(3, Double)
+                    Variable(5, Double) = Store Variable(4, Double)
+                    Call id(2), args( Variable(5, Double), Qubit(0), )
+                    Variable(10, Integer) = Store Variable(0, Integer)
+                    Variable(11, Integer) = Add Variable(10, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(11, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
+                    Variable(8, Double) = Store Variable(6, Double)
+                    Variable(9, Qubit) = Store Variable(7, Qubit)
+                    Call id(3), args( Variable(8, Double), Variable(9, Qubit), )
                     Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -1047,16 +1076,19 @@ fn rotation_call_within_a_while_loop() {
                     Variable(0, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(3)
-                    Branch Variable(1, Boolean), 3, 2
+                    Variable(1, Integer) = Store Variable(0, Integer)
+                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(3)
+                    Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 3: Block:
-                    Variable(2, Double) = Index Array(0), Variable(0, Integer)
-                    Call id(2), args( Variable(2, Double), Qubit(0), )
-                    Variable(3, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(3, Integer)
+                    Variable(3, Double) = Index Array(0), Variable(0, Integer)
+                    Variable(4, Double) = Store Variable(3, Double)
+                    Call id(2), args( Variable(4, Double), Qubit(0), )
+                    Variable(5, Integer) = Store Variable(0, Integer)
+                    Variable(6, Integer) = Add Variable(5, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(6, Integer)
                     Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -1128,18 +1160,22 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
                     Variable(0, Integer) = Store Integer(0)
                     Jump(1)
                 Block 1: Block:
-                    Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(3)
-                    Branch Variable(1, Boolean), 3, 2
+                    Variable(1, Integer) = Store Variable(0, Integer)
+                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(3)
+                    Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 3: Block:
-                    Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Index Array(0), Variable(0, Integer)
-                    Variable(4, Double) = Fadd Variable(2, Double), Variable(3, Double)
-                    Call id(2), args( Variable(4, Double), Qubit(0), )
-                    Variable(5, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(5, Integer)
+                    Variable(4, Double) = Store Variable(3, Double)
+                    Variable(5, Double) = Index Array(0), Variable(0, Integer)
+                    Variable(6, Double) = Fadd Variable(4, Double), Variable(5, Double)
+                    Variable(7, Double) = Store Variable(6, Double)
+                    Call id(2), args( Variable(7, Double), Qubit(0), )
+                    Variable(8, Integer) = Store Variable(0, Integer)
+                    Variable(9, Integer) = Add Variable(8, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(9, Integer)
                     Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
@@ -1229,13 +1265,15 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
                     Variable(1, Boolean) = Store Variable(0, Boolean)
                     Branch Variable(1, Boolean), 2, 3
                 Block 1: Block:
-                    Variable(3, Integer) = Store Integer(0)
+                    Variable(3, Double) = Store Variable(2, Double)
+                    Variable(4, Integer) = Store Integer(0)
                     Call id(4), args( Double(0), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(1)
-                    Call id(4), args( Variable(2, Double), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(2)
+                    Variable(4, Integer) = Store Integer(1)
+                    Variable(5, Double) = Store Variable(3, Double)
+                    Call id(4), args( Variable(5, Double), Qubit(0), )
+                    Variable(4, Integer) = Store Integer(2)
                     Call id(4), args( Double(2), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(3)
+                    Variable(4, Integer) = Store Integer(3)
                     Call id(5), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 2: Block:
@@ -1379,29 +1417,32 @@ fn mutable_bool_updated_in_loop() {
                 Variable(1, Integer) = Store Integer(1)
                 Jump(1)
             Block 1:Block:
-                Variable(2, Boolean) = Icmp Sle, Variable(1, Integer), Integer(3)
-                Variable(3, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 3, 4
+                Variable(2, Integer) = Store Variable(1, Integer)
+                Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Bool(true)
+                Branch Variable(4, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Branch Variable(3, Boolean), 5, 2
+                Branch Variable(5, Boolean), 5, 2
             Block 4:Block:
-                Variable(3, Boolean) = Store Bool(false)
+                Variable(5, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
-                Variable(4, Boolean) = LogicalNot Variable(0, Boolean)
-                Branch Variable(4, Boolean), 7, 6
+                Variable(6, Boolean) = LogicalNot Variable(0, Boolean)
+                Branch Variable(6, Boolean), 7, 6
             Block 6:Block:
-                Variable(7, Integer) = Add Variable(1, Integer), Integer(1)
-                Variable(1, Integer) = Store Variable(7, Integer)
+                Variable(9, Integer) = Store Variable(1, Integer)
+                Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
+                Variable(1, Integer) = Store Variable(10, Integer)
                 Jump(1)
             Block 7:Block:
                 Call id(2), args( Qubit(0), Result(0), )
-                Variable(5, Boolean) = Call id(3), args( Result(0), )
-                Variable(6, Boolean) = Store Variable(5, Boolean)
-                Variable(0, Boolean) = Store Variable(6, Boolean)
+                Variable(7, Boolean) = Call id(3), args( Result(0), )
+                Variable(8, Boolean) = Store Variable(7, Boolean)
+                Variable(0, Boolean) = Store Variable(8, Boolean)
                 Jump(6)"#]],
     );
 }
@@ -1474,36 +1515,41 @@ fn mutable_int_updated_in_loop() {
                 Variable(1, Integer) = Store Integer(1)
                 Jump(1)
             Block 1:Block:
-                Variable(2, Boolean) = Icmp Sle, Variable(1, Integer), Integer(3)
-                Variable(3, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 3, 4
+                Variable(2, Integer) = Store Variable(1, Integer)
+                Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Bool(true)
+                Branch Variable(4, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Branch Variable(3, Boolean), 5, 2
+                Branch Variable(5, Boolean), 5, 2
             Block 4:Block:
-                Variable(3, Boolean) = Store Bool(false)
+                Variable(5, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
-                Variable(4, Boolean) = Icmp Sgt, Variable(0, Integer), Integer(0)
-                Variable(5, Boolean) = Store Bool(false)
-                Branch Variable(4, Boolean), 7, 6
+                Variable(6, Integer) = Store Variable(0, Integer)
+                Variable(7, Boolean) = Icmp Sgt, Variable(6, Integer), Integer(0)
+                Variable(8, Boolean) = Store Variable(7, Boolean)
+                Variable(9, Boolean) = Store Bool(false)
+                Branch Variable(8, Boolean), 7, 6
             Block 6:Block:
-                Branch Variable(5, Boolean), 9, 8
+                Branch Variable(9, Boolean), 9, 8
             Block 7:Block:
                 Call id(2), args( Qubit(0), Result(0), )
-                Variable(6, Boolean) = Call id(3), args( Result(0), )
-                Variable(7, Boolean) = Store Variable(6, Boolean)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(10, Boolean) = Call id(3), args( Result(0), )
+                Variable(11, Boolean) = Store Variable(10, Boolean)
+                Variable(9, Boolean) = Store Variable(11, Boolean)
                 Jump(6)
             Block 8:Block:
-                Variable(9, Integer) = Add Variable(1, Integer), Integer(1)
-                Variable(1, Integer) = Store Variable(9, Integer)
+                Variable(13, Integer) = Store Variable(1, Integer)
+                Variable(14, Integer) = Add Variable(13, Integer), Integer(1)
+                Variable(1, Integer) = Store Variable(14, Integer)
                 Jump(1)
             Block 9:Block:
-                Variable(8, Integer) = Mul Integer(-1), Variable(0, Integer)
-                Variable(0, Integer) = Store Variable(8, Integer)
+                Variable(12, Integer) = Mul Integer(-1), Variable(0, Integer)
+                Variable(0, Integer) = Store Variable(12, Integer)
                 Jump(8)"#]],
     );
 }
@@ -1541,44 +1587,48 @@ fn mutable_double_updated_in_loop_unrolled() {
                 Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
                 Variable(1, Integer) = Store Integer(2)
-                Variable(4, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1)
-                Variable(5, Boolean) = Store Bool(false)
-                Branch Variable(4, Boolean), 4, 3
+                Variable(4, Double) = Store Variable(0, Double)
+                Variable(5, Boolean) = Fcmp Ogt, Variable(4, Double), Double(0.1)
+                Variable(6, Boolean) = Store Variable(5, Boolean)
+                Variable(7, Boolean) = Store Bool(false)
+                Branch Variable(6, Boolean), 4, 3
             Block 2:Block:
                 Variable(0, Double) = Store Double(-1.1)
                 Jump(1)
             Block 3:Block:
-                Branch Variable(5, Boolean), 6, 5
+                Branch Variable(7, Boolean), 6, 5
             Block 4:Block:
                 Call id(2), args( Qubit(0), Result(1), )
-                Variable(6, Boolean) = Call id(3), args( Result(1), )
-                Variable(7, Boolean) = Store Variable(6, Boolean)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(8, Boolean) = Call id(3), args( Result(1), )
+                Variable(9, Boolean) = Store Variable(8, Boolean)
+                Variable(7, Boolean) = Store Variable(9, Boolean)
                 Jump(3)
             Block 5:Block:
                 Variable(1, Integer) = Store Integer(3)
-                Variable(9, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1)
-                Variable(10, Boolean) = Store Bool(false)
-                Branch Variable(9, Boolean), 8, 7
+                Variable(11, Double) = Store Variable(0, Double)
+                Variable(12, Boolean) = Fcmp Ogt, Variable(11, Double), Double(0.1)
+                Variable(13, Boolean) = Store Variable(12, Boolean)
+                Variable(14, Boolean) = Store Bool(false)
+                Branch Variable(13, Boolean), 8, 7
             Block 6:Block:
-                Variable(8, Double) = Fmul Double(-1), Variable(0, Double)
-                Variable(0, Double) = Store Variable(8, Double)
+                Variable(10, Double) = Fmul Double(-1), Variable(0, Double)
+                Variable(0, Double) = Store Variable(10, Double)
                 Jump(5)
             Block 7:Block:
-                Branch Variable(10, Boolean), 10, 9
+                Branch Variable(14, Boolean), 10, 9
             Block 8:Block:
                 Call id(2), args( Qubit(0), Result(2), )
-                Variable(11, Boolean) = Call id(3), args( Result(2), )
-                Variable(12, Boolean) = Store Variable(11, Boolean)
-                Variable(10, Boolean) = Store Variable(12, Boolean)
+                Variable(15, Boolean) = Call id(3), args( Result(2), )
+                Variable(16, Boolean) = Store Variable(15, Boolean)
+                Variable(14, Boolean) = Store Variable(16, Boolean)
                 Jump(7)
             Block 9:Block:
                 Variable(1, Integer) = Store Integer(4)
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 10:Block:
-                Variable(13, Double) = Fmul Double(-1), Variable(0, Double)
-                Variable(0, Double) = Store Variable(13, Double)
+                Variable(17, Double) = Fmul Double(-1), Variable(0, Double)
+                Variable(0, Double) = Store Variable(17, Double)
                 Jump(9)"#]],
     );
 }
@@ -1618,36 +1668,41 @@ fn mutable_double_updated_in_loop() {
                 Variable(1, Integer) = Store Integer(1)
                 Jump(1)
             Block 1:Block:
-                Variable(2, Boolean) = Icmp Sle, Variable(1, Integer), Integer(3)
-                Variable(3, Boolean) = Store Bool(true)
-                Branch Variable(2, Boolean), 3, 4
+                Variable(2, Integer) = Store Variable(1, Integer)
+                Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Variable(5, Boolean) = Store Bool(true)
+                Branch Variable(4, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
-                Branch Variable(3, Boolean), 5, 2
+                Branch Variable(5, Boolean), 5, 2
             Block 4:Block:
-                Variable(3, Boolean) = Store Bool(false)
+                Variable(5, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
-                Variable(4, Boolean) = Fcmp Ogt, Variable(0, Double), Double(0.1)
-                Variable(5, Boolean) = Store Bool(false)
-                Branch Variable(4, Boolean), 7, 6
+                Variable(6, Double) = Store Variable(0, Double)
+                Variable(7, Boolean) = Fcmp Ogt, Variable(6, Double), Double(0.1)
+                Variable(8, Boolean) = Store Variable(7, Boolean)
+                Variable(9, Boolean) = Store Bool(false)
+                Branch Variable(8, Boolean), 7, 6
             Block 6:Block:
-                Branch Variable(5, Boolean), 9, 8
+                Branch Variable(9, Boolean), 9, 8
             Block 7:Block:
                 Call id(2), args( Qubit(0), Result(0), )
-                Variable(6, Boolean) = Call id(3), args( Result(0), )
-                Variable(7, Boolean) = Store Variable(6, Boolean)
-                Variable(5, Boolean) = Store Variable(7, Boolean)
+                Variable(10, Boolean) = Call id(3), args( Result(0), )
+                Variable(11, Boolean) = Store Variable(10, Boolean)
+                Variable(9, Boolean) = Store Variable(11, Boolean)
                 Jump(6)
             Block 8:Block:
-                Variable(9, Integer) = Add Variable(1, Integer), Integer(1)
-                Variable(1, Integer) = Store Variable(9, Integer)
+                Variable(13, Integer) = Store Variable(1, Integer)
+                Variable(14, Integer) = Add Variable(13, Integer), Integer(1)
+                Variable(1, Integer) = Store Variable(14, Integer)
                 Jump(1)
             Block 9:Block:
-                Variable(8, Double) = Fmul Double(-1), Variable(0, Double)
-                Variable(0, Double) = Store Variable(8, Double)
+                Variable(12, Double) = Fmul Double(-1), Variable(0, Double)
+                Variable(0, Double) = Store Variable(12, Double)
                 Jump(8)"#]],
     );
 }
@@ -1736,12 +1791,13 @@ fn result_array_index_range_in_for_loop_unrolled() {
                     Jump(1)
                 Block 3: Block:
                     Variable(3, Integer) = Store Integer(2)
-                    Variable(9, Integer) = Store Variable(2, Integer)
-                    Call id(4), args( Variable(9, Integer), Tag(0, 3), )
+                    Variable(10, Integer) = Store Variable(2, Integer)
+                    Call id(4), args( Variable(10, Integer), Tag(0, 3), )
                     Return Integer(0)
                 Block 4: Block:
-                    Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
-                    Variable(2, Integer) = Store Variable(8, Integer)
+                    Variable(8, Integer) = Store Variable(2, Integer)
+                    Variable(9, Integer) = Add Variable(8, Integer), Integer(1)
+                    Variable(2, Integer) = Store Variable(9, Integer)
                     Jump(3)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
@@ -1988,13 +2044,14 @@ fn classical_while_inside_dynamic_while_folds_mutable_variable() {
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Branch Variable(2, Boolean), 3, 2
             Block 2:Block:
-                Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(6, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
                 Variable(3, Integer) = Store Integer(0)
-                Variable(4, Integer) = Add Variable(0, Integer), Integer(3)
-                Variable(0, Integer) = Store Variable(4, Integer)
+                Variable(4, Integer) = Store Variable(0, Integer)
+                Variable(5, Integer) = Add Variable(4, Integer), Integer(3)
+                Variable(0, Integer) = Store Variable(5, Integer)
                 Jump(1)"#]],
     );
 }

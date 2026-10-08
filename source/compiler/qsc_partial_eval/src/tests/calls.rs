@@ -383,7 +383,8 @@ fn calls_to_unitary_that_conditionally_calls_intrinsic_with_dynamic_bool() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Variable(0, Boolean) = Call id(3), args( Result(0), )
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 3
             Block 1:Block:
                 Call id(6), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)

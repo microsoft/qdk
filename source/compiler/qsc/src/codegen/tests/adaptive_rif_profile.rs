@@ -99,12 +99,12 @@ fn tuple_comparison_generates_qir_after_pipeline() {
           %var_1 = icmp eq i1 %var_0, false
           br i1 %var_1, label %block_1, label %block_2
         block_1:
-          %var_3 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
-          %var_4 = icmp eq i1 %var_3, false
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+          %var_5 = icmp eq i1 %var_4, false
           br label %block_2
         block_2:
-          %var_6 = phi i1 [false, %block_0], [%var_4, %block_1]
-          call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          %var_7 = phi i1 [false, %block_0], [%var_5, %block_1]
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 
@@ -659,18 +659,18 @@ fn dynamic_double_intrinsic() {
         block_2:
           br label %block_3
         block_3:
-          %var_9 = phi double [0.0, %block_1], [1.0, %block_2]
-          %var_4 = fadd double 1.0, %var_9
+          %var_21 = phi double [0.0, %block_1], [1.0, %block_2]
+          %var_4 = fadd double 1.0, %var_21
           call void @OpA(double %var_4, %Qubit* inttoptr (i64 0 to %Qubit*))
-          %var_5 = fmul double 2.0, %var_9
-          call void @__quantum__qis__rx__body(double %var_5, %Qubit* inttoptr (i64 0 to %Qubit*))
-          %var_6 = fdiv double %var_9, 3.0
-          call void @__quantum__qis__ry__body(double %var_6, %Qubit* inttoptr (i64 0 to %Qubit*))
-          %var_7 = fsub double %var_9, 4.0
-          call void @__quantum__qis__rz__body(double %var_7, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @OpA(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rx__body(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__rt__double_record_output(double %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          %var_6 = fmul double 2.0, %var_21
+          call void @__quantum__qis__rx__body(double %var_6, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_10 = fdiv double %var_21, 3.0
+          call void @__quantum__qis__ry__body(double %var_10, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_14 = fsub double %var_21, 4.0
+          call void @__quantum__qis__rz__body(double %var_14, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @OpA(double %var_21, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__rx__body(double %var_21, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__rt__double_record_output(double %var_21, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
           ret i64 0
         }
 

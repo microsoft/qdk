@@ -152,10 +152,14 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(0, Double), Variable(1, Qubit), )
+                Variable(2, Double) = Store Variable(0, Double)
+                Variable(3, Qubit) = Store Variable(1, Qubit)
+                Call id(3), args( Variable(2, Double), Variable(3, Qubit), )
                 Return
             Block 2:Block:
-                Call id(4), args( Variable(2, Double), Variable(3, Qubit), )
+                Variable(6, Double) = Store Variable(4, Double)
+                Variable(7, Qubit) = Store Variable(5, Qubit)
+                Call id(4), args( Variable(6, Double), Variable(7, Qubit), )
                 Return"#]],
     );
 }
@@ -752,11 +756,12 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Integer) = Call id(2), args( Qubit(0), )
-                Call id(5), args( Variable(5, Integer), Tag(0, 3), )
+                Variable(6, Integer) = Call id(2), args( Qubit(0), )
+                Call id(5), args( Variable(6, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Variable(1, Integer) = Alloca
+                Variable(4, Integer) = Alloca
                 Variable(1, Integer) = Store Integer(0)
                 Call id(3), args( Variable(0, Qubit), Result(0), )
                 Variable(2, Boolean) = Call id(4), args( Result(0), )
@@ -765,11 +770,13 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
                 Variable(1, Integer) = Store Integer(5)
                 Jump(3)
             Block 3:Block:
-                Variable(7, Integer) = Load Variable(1, Integer)
-                Variable(4, Integer) = Add Variable(7, Integer), Integer(1)
-                Variable(1, Integer) = Store Variable(4, Integer)
-                Variable(9, Integer) = Load Variable(1, Integer)
-                Return Variable(9, Integer)"#]],
+                Variable(8, Integer) = Load Variable(1, Integer)
+                Variable(4, Integer) = Store Variable(8, Integer)
+                Variable(10, Integer) = Load Variable(4, Integer)
+                Variable(5, Integer) = Add Variable(10, Integer), Integer(1)
+                Variable(1, Integer) = Store Variable(5, Integer)
+                Variable(12, Integer) = Load Variable(1, Integer)
+                Return Variable(12, Integer)"#]],
     );
 }
 
@@ -858,14 +865,18 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Variable(9, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
+                Variable(3, Double) = Store Variable(1, Double)
+                Variable(4, Qubit) = Store Variable(2, Qubit)
+                Call id(3), args( Variable(3, Double), Variable(4, Qubit), )
                 Return Variable(1, Double)
             Block 2:Block:
-                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Variable(7, Double) = Store Variable(5, Double)
+                Variable(8, Qubit) = Store Variable(6, Qubit)
+                Call id(4), args( Variable(7, Double), Variable(8, Qubit), )
                 Return"#]],
     );
 }
@@ -931,14 +942,18 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Variable(9, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
                 Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
-                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
+                Variable(3, Double) = Store Variable(1, Double)
+                Variable(4, Qubit) = Store Variable(2, Qubit)
+                Call id(3), args( Variable(3, Double), Variable(4, Qubit), )
                 Return Variable(1, Double)
             Block 2:Block:
-                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Variable(7, Double) = Store Variable(5, Double)
+                Variable(8, Qubit) = Store Variable(6, Qubit)
+                Call id(4), args( Variable(7, Double), Variable(8, Qubit), )
                 Return"#]],
     );
 }

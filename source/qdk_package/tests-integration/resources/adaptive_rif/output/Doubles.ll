@@ -22,150 +22,150 @@ block_1:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   br label %block_2
 block_2:
-  %var_86 = phi double [0.0, %block_0], [1.0, %block_1]
+  %var_152 = phi double [0.0, %block_0], [1.0, %block_1]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
   %var_6 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
   br i1 %var_6, label %block_3, label %block_4
 block_3:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_8 = fadd double %var_86, 1.0
-  %var_9 = fmul double %var_8, 1.0
-  %var_10 = fsub double %var_9, 1.0
-  %var_11 = fdiv double %var_10, 1.0
-  %var_12 = fadd double %var_11, 1.0
+  %var_9 = fadd double %var_152, 1.0
+  %var_11 = fmul double %var_9, 1.0
+  %var_13 = fsub double %var_11, 1.0
+  %var_15 = fdiv double %var_13, 1.0
+  %var_17 = fadd double %var_15, 1.0
   br label %block_4
 block_4:
-  %var_87 = phi double [%var_86, %block_2], [%var_12, %block_3]
+  %var_153 = phi double [%var_152, %block_2], [%var_17, %block_3]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
-  %var_13 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
-  br i1 %var_13, label %block_5, label %block_6
+  %var_18 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
+  br i1 %var_18, label %block_5, label %block_6
 block_5:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_15 = fadd double %var_87, 1.0
-  %var_16 = fmul double %var_15, 1.0
-  %var_17 = fsub double %var_16, 1.0
-  %var_18 = fdiv double %var_17, 1.0
-  %var_19 = fadd double %var_18, 1.0
+  %var_21 = fadd double %var_153, 1.0
+  %var_23 = fmul double %var_21, 1.0
+  %var_25 = fsub double %var_23, 1.0
+  %var_27 = fdiv double %var_25, 1.0
+  %var_29 = fadd double %var_27, 1.0
   br label %block_6
 block_6:
-  %var_88 = phi double [%var_87, %block_4], [%var_19, %block_5]
+  %var_154 = phi double [%var_153, %block_4], [%var_29, %block_5]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
-  %var_20 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 3 to %Result*))
-  br i1 %var_20, label %block_7, label %block_8
+  %var_30 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 3 to %Result*))
+  br i1 %var_30, label %block_7, label %block_8
 block_7:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_22 = fadd double %var_88, 1.0
-  %var_23 = fmul double %var_22, 1.0
-  %var_24 = fsub double %var_23, 1.0
-  %var_25 = fdiv double %var_24, 1.0
-  %var_26 = fadd double %var_25, 1.0
+  %var_33 = fadd double %var_154, 1.0
+  %var_35 = fmul double %var_33, 1.0
+  %var_37 = fsub double %var_35, 1.0
+  %var_39 = fdiv double %var_37, 1.0
+  %var_41 = fadd double %var_39, 1.0
   br label %block_8
 block_8:
-  %var_89 = phi double [%var_88, %block_6], [%var_26, %block_7]
+  %var_155 = phi double [%var_154, %block_6], [%var_41, %block_7]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 4 to %Result*))
-  %var_27 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 4 to %Result*))
-  br i1 %var_27, label %block_9, label %block_10
+  %var_42 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 4 to %Result*))
+  br i1 %var_42, label %block_9, label %block_10
 block_9:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_29 = fadd double %var_89, 1.0
-  %var_30 = fmul double %var_29, 1.0
-  %var_31 = fsub double %var_30, 1.0
-  %var_32 = fdiv double %var_31, 1.0
-  %var_33 = fadd double %var_32, 1.0
+  %var_45 = fadd double %var_155, 1.0
+  %var_47 = fmul double %var_45, 1.0
+  %var_49 = fsub double %var_47, 1.0
+  %var_51 = fdiv double %var_49, 1.0
+  %var_53 = fadd double %var_51, 1.0
   br label %block_10
 block_10:
-  %var_90 = phi double [%var_89, %block_8], [%var_33, %block_9]
+  %var_156 = phi double [%var_155, %block_8], [%var_53, %block_9]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 5 to %Result*))
-  %var_34 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 5 to %Result*))
-  br i1 %var_34, label %block_11, label %block_12
+  %var_54 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 5 to %Result*))
+  br i1 %var_54, label %block_11, label %block_12
 block_11:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_36 = fadd double %var_90, 1.0
-  %var_37 = fmul double %var_36, 1.0
-  %var_38 = fsub double %var_37, 1.0
-  %var_39 = fdiv double %var_38, 1.0
-  %var_40 = fadd double %var_39, 1.0
+  %var_57 = fadd double %var_156, 1.0
+  %var_59 = fmul double %var_57, 1.0
+  %var_61 = fsub double %var_59, 1.0
+  %var_63 = fdiv double %var_61, 1.0
+  %var_65 = fadd double %var_63, 1.0
   br label %block_12
 block_12:
-  %var_91 = phi double [%var_90, %block_10], [%var_40, %block_11]
+  %var_157 = phi double [%var_156, %block_10], [%var_65, %block_11]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 6 to %Result*))
-  %var_41 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
-  br i1 %var_41, label %block_13, label %block_14
+  %var_66 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
+  br i1 %var_66, label %block_13, label %block_14
 block_13:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_43 = fadd double %var_91, 1.0
-  %var_44 = fmul double %var_43, 1.0
-  %var_45 = fsub double %var_44, 1.0
-  %var_46 = fdiv double %var_45, 1.0
-  %var_47 = fadd double %var_46, 1.0
+  %var_69 = fadd double %var_157, 1.0
+  %var_71 = fmul double %var_69, 1.0
+  %var_73 = fsub double %var_71, 1.0
+  %var_75 = fdiv double %var_73, 1.0
+  %var_77 = fadd double %var_75, 1.0
   br label %block_14
 block_14:
-  %var_92 = phi double [%var_91, %block_12], [%var_47, %block_13]
+  %var_158 = phi double [%var_157, %block_12], [%var_77, %block_13]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 7 to %Result*))
-  %var_48 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
-  br i1 %var_48, label %block_15, label %block_16
+  %var_78 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
+  br i1 %var_78, label %block_15, label %block_16
 block_15:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_50 = fadd double %var_92, 1.0
-  %var_51 = fmul double %var_50, 1.0
-  %var_52 = fsub double %var_51, 1.0
-  %var_53 = fdiv double %var_52, 1.0
-  %var_54 = fadd double %var_53, 1.0
+  %var_81 = fadd double %var_158, 1.0
+  %var_83 = fmul double %var_81, 1.0
+  %var_85 = fsub double %var_83, 1.0
+  %var_87 = fdiv double %var_85, 1.0
+  %var_89 = fadd double %var_87, 1.0
   br label %block_16
 block_16:
-  %var_93 = phi double [%var_92, %block_14], [%var_54, %block_15]
+  %var_159 = phi double [%var_158, %block_14], [%var_89, %block_15]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 8 to %Result*))
-  %var_55 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
-  br i1 %var_55, label %block_17, label %block_18
+  %var_90 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
+  br i1 %var_90, label %block_17, label %block_18
 block_17:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_57 = fadd double %var_93, 1.0
-  %var_58 = fmul double %var_57, 1.0
-  %var_59 = fsub double %var_58, 1.0
-  %var_60 = fdiv double %var_59, 1.0
-  %var_61 = fadd double %var_60, 1.0
+  %var_93 = fadd double %var_159, 1.0
+  %var_95 = fmul double %var_93, 1.0
+  %var_97 = fsub double %var_95, 1.0
+  %var_99 = fdiv double %var_97, 1.0
+  %var_101 = fadd double %var_99, 1.0
   br label %block_18
 block_18:
-  %var_94 = phi double [%var_93, %block_16], [%var_61, %block_17]
+  %var_160 = phi double [%var_159, %block_16], [%var_101, %block_17]
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 9 to %Result*))
-  %var_62 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
-  br i1 %var_62, label %block_19, label %block_20
+  %var_102 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
+  br i1 %var_102, label %block_19, label %block_20
 block_19:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_64 = fadd double %var_94, 1.0
-  %var_65 = fmul double %var_64, 1.0
-  %var_66 = fsub double %var_65, 1.0
-  %var_67 = fdiv double %var_66, 1.0
-  %var_68 = fadd double %var_67, 1.0
+  %var_105 = fadd double %var_160, 1.0
+  %var_107 = fmul double %var_105, 1.0
+  %var_109 = fsub double %var_107, 1.0
+  %var_111 = fdiv double %var_109, 1.0
+  %var_113 = fadd double %var_111, 1.0
   br label %block_20
 block_20:
-  %var_95 = phi double [%var_94, %block_18], [%var_68, %block_19]
+  %var_161 = phi double [%var_160, %block_18], [%var_113, %block_19]
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  %var_69 = fptosi double %var_95 to i64
-  %var_71 = sitofp i64 %var_69 to double
-  %var_73 = fcmp ogt double %var_95, 5.0
-  %var_74 = fcmp olt double %var_95, 5.0
-  %var_75 = fcmp oge double %var_95, 10.0
-  %var_76 = fcmp oeq double %var_95, 10.0
-  %var_77 = fcmp one double %var_95, 10.0
+  %var_114 = fptosi double %var_161 to i64
+  %var_116 = sitofp i64 %var_114 to double
+  %var_120 = fcmp ogt double %var_161, 5.0
+  %var_123 = fcmp olt double %var_161, 5.0
+  %var_126 = fcmp oge double %var_161, 10.0
+  %var_129 = fcmp oeq double %var_161, 10.0
+  %var_132 = fcmp one double %var_161, 10.0
   call void @__quantum__rt__tuple_record_output(i64 8, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__double_record_output(double %var_95, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_73, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_74, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_75, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_76, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 zeroext %var_77, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @6, i64 0, i64 0))
-  call void @__quantum__rt__int_record_output(i64 %var_69, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @7, i64 0, i64 0))
-  call void @__quantum__rt__double_record_output(double %var_71, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @8, i64 0, i64 0))
+  call void @__quantum__rt__double_record_output(double %var_161, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_120, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_123, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_126, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_129, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_132, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @6, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_114, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @7, i64 0, i64 0))
+  call void @__quantum__rt__double_record_output(double %var_116, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @8, i64 0, i64 0))
   ret i64 0
 }
 
