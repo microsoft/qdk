@@ -5,9 +5,17 @@
 
 use expect_test::expect;
 use indoc::indoc;
-use qsc::{SparseSim, interpret::Value, target::Profile};
+use num_complex::Complex64 as Complex;
+use qsc::{
+    SparseSim,
+    interpret::{Value, output::StoringReceiver},
+    target::Profile,
+};
 
-use super::{test_expression, test_expression_fails, test_expression_with_lib_and_profile_and_sim};
+use super::{
+    assert_matrices_close, test_expression, test_expression_fails,
+    test_expression_with_lib_and_profile_and_sim, test_expression_with_receiver,
+};
 
 // These tests verify multi-controlled decomposition logic for gate operations. Each test
 // manually allocates 2N qubits, performs the decomposed operation from the library on the first N,
@@ -4061,4 +4069,33 @@ fn test_apply_unitary_fails_when_matrix_not_unitary() {
         "});
 
     expect!["intrinsic callable `Apply` failed: matrix is not unitary"].assert_eq(&err);
+}
+
+#[test]
+fn test_controlled_r1_matrix_correct() {
+    // Verify that the matrix for n-controlled R1(theta) gate is exactly diag(1,1,...,1,e^i*theta).
+    let theta = 1.23;
+    for n in 0..=3 {
+        let source = format!(
+            "
+            {{
+                Std.Diagnostics.DumpOperation(
+                    {n} + 1,
+                    qs => Controlled R1(qs[0..{n}-1], ({theta}, qs[{n}]))
+                );
+            }}"
+        );
+        let mut receiver = StoringReceiver::default();
+        test_expression_with_receiver(&source, &mut receiver, &Value::unit());
+        let actual_matrix = receiver.last_matrix();
+
+        let dimension = 1 << (n + 1);
+        let mut expected = vec![vec![Complex::new(0.0, 0.0); dimension]; dimension];
+        for (i, row) in expected.iter_mut().enumerate() {
+            row[i] = Complex::new(1.0, 0.0);
+        }
+        expected[dimension - 1][dimension - 1] = Complex::from_polar(1.0, theta);
+
+        assert_matrices_close(actual_matrix, &expected);
+    }
 }

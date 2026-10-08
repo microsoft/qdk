@@ -27,6 +27,39 @@ pub trait Receiver {
     fn message(&mut self, msg: &str) -> Result<(), Error>;
 }
 
+
+/// Receiver that stores everything it receives.
+#[derive(Debug, Default)]
+pub struct StoringReceiver {
+    pub states: Vec<(Vec<(BigUint, Complex64)>, usize)>,
+    pub matrices: Vec<Vec<Vec<Complex64>>>,
+    pub messages: Vec<String>,
+}
+
+impl StoringReceiver {
+    #[must_use]
+    pub fn last_matrix(&self) -> &[Vec<Complex64>] {
+        self.matrices.last().map(Vec::as_slice).expect("expected matrix")
+    }
+}
+
+impl Receiver for StoringReceiver {
+    fn state(&mut self, state: Vec<(BigUint, Complex64)>, qubit_count: usize) -> Result<(), Error> {
+        self.states.push((state, qubit_count));
+        Ok(())
+    }
+
+    fn matrix(&mut self, matrix: Vec<Vec<Complex64>>) -> Result<(), Error> {
+        self.matrices.push(matrix);
+        Ok(())
+    }
+
+    fn message(&mut self, msg: &str) -> Result<(), Error> {
+        self.messages.push(msg.to_owned());
+        Ok(())
+    }
+}
+
 pub struct GenericReceiver<'a> {
     writer: &'a mut dyn Write,
 }
@@ -119,5 +152,34 @@ impl Receiver for CursorReceiver<'_> {
 
     fn message(&mut self, msg: &str) -> Result<(), Error> {
         writeln!(self.cursor, "{msg}").map_err(|_| Error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Receiver, StoringReceiver};
+    use num_bigint::BigUint;
+    use num_complex::Complex64;
+
+    #[test]
+    fn storing_receiver_records_all_output() {
+        let state = vec![(BigUint::from(1_u8), Complex64::new(0.0, 1.0))];
+        let matrix = vec![vec![Complex64::new(1.0, 0.0)]];
+        let mut receiver = StoringReceiver::default();
+
+        receiver
+            .state(state.clone(), 1)
+            .expect("storing state should succeed");
+        receiver
+            .matrix(matrix.clone())
+            .expect("storing matrix should succeed");
+        receiver
+            .message("message")
+            .expect("storing message should succeed");
+
+        assert_eq!(receiver.states, vec![(state, 1)]);
+        assert_eq!(receiver.matrices, vec![matrix]);
+        assert_eq!(receiver.messages, vec!["message"]);
+        assert_eq!(receiver.last_matrix(), receiver.matrices[0].as_slice());
     }
 }

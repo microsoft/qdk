@@ -17,9 +17,10 @@ mod state_preparation;
 mod table_lookup;
 
 use indoc::indoc;
+use num_complex::Complex64 as Complex;
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, SparseSim,
-    interpret::{self, GenericReceiver, Interpreter, Value},
+    interpret::{self, GenericReceiver, Interpreter, Value, output::Receiver},
     target::Profile,
 };
 
@@ -64,7 +65,30 @@ pub fn test_expression_with_lib_and_profile_and_sim(
 ) -> String {
     let mut stdout = vec![];
     let mut out = GenericReceiver::new(&mut stdout);
+    let result = eval_expression_with_lib_and_profile_and_sim(expr, lib, profile, sim, &mut out);
+    assert_value_eq(expected, result);
 
+    String::from_utf8(stdout).expect("stdout should be valid utf8")
+}
+
+pub fn test_expression_with_receiver(expr: &str, receiver: &mut impl Receiver, expected: &Value) {
+    let result = eval_expression_with_lib_and_profile_and_sim(
+        expr,
+        "",
+        Profile::Unrestricted,
+        &mut SparseSim::default(),
+        receiver,
+    );
+    assert_value_eq(expected, result);
+}
+
+fn eval_expression_with_lib_and_profile_and_sim(
+    expr: &str,
+    lib: &str,
+    profile: Profile,
+    sim: &mut impl Backend,
+    receiver: &mut impl Receiver,
+) -> Value {
     let sources = SourceMap::new([("test".into(), lib.into())], Some(expr.into()));
 
     let (std_id, store) = qsc::compile::package_store_with_stdlib(profile.into());
@@ -80,10 +104,12 @@ pub fn test_expression_with_lib_and_profile_and_sim(
     )
     .expect("test should compile");
 
-    let result = interpreter
-        .eval_entry_with_sim(sim, &mut out)
-        .expect("test should run successfully");
+    interpreter
+        .eval_entry_with_sim(sim, receiver)
+        .expect("test should run successfully")
+}
 
+fn assert_value_eq(expected: &Value, result: Value) {
     match (&expected, result) {
         (&Value::Tuple(tup1, _), Value::Tuple(tup2, _)) if tup1.len() == tup2.len() => {
             // If both values are tuples of the same length, we crack them open and compare elements
@@ -101,8 +127,6 @@ pub fn test_expression_with_lib_and_profile_and_sim(
         }
         (&expected, result) => assert_eq!(expected, &result),
     }
-
-    String::from_utf8(stdout).expect("stdout should be valid utf8")
 }
 
 pub fn test_expression_fails_with_lib_and_profile_and_sim(
@@ -159,6 +183,21 @@ fn assert_doubles_almost_equal(val1: f64, val2: f64) {
         ((val1 - val2).abs() / (val1_abs + val2_abs)) < 1e-15,
         "Significant difference between expected and actual values: val1={val1}, val2={val2}."
     );
+}
+
+fn assert_matrices_close(actual: &[Vec<Complex>], expected: &[Vec<Complex>]) {
+    const TOLERANCE: f64 = 1e-10;
+
+    assert_eq!(actual.len(), expected.len());
+    for (row, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+        assert_eq!(actual.len(), expected.len());
+        for (column, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+            assert!(
+                (*actual - *expected).norm() < TOLERANCE,
+                "matrix entry ({row}, {column}) was {actual:?}, expected {expected:?}"
+            );
+        }
+    }
 }
 
 //
