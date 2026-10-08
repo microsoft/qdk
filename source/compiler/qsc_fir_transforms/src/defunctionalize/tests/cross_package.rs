@@ -870,9 +870,9 @@ fn analysis_apply_operation_power_ca_consumer() {
                 apply_power_of_u(1, target);
             }
             operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
-                _lambda_4(1, target);
+                _lambda_4((1, target), );
             }
-            operation _lambda_4(hole : Int, hole_1 : Qubit[]) : Unit is Adj + Ctl {
+            operation _lambda_4((hole : Int, hole_1 : Qubit[]), ) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
                 }

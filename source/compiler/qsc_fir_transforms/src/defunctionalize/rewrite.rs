@@ -3769,14 +3769,18 @@ fn create_direct_branch_call(
     let captures = resolve_rewrite_captures(package, orig_callee.id, capture_source);
     let (_, outer_functor) = peel_body_functors(package, orig_callee.id);
     let controlled_layers = usize::from(outer_functor.controlled);
-    let package_direct_lambda_input = match &direct_call_site.callable {
+    let target_input = match &direct_call_site.callable {
+        ConcreteCallable::Closure { target, .. } => match &package.get_item(*target).kind {
+            ItemKind::Callable(decl) => Some(package.get_pat(decl.input).ty.clone()),
+            ItemKind::Ty(..) => None,
+        },
         ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
             direct_lambda_packaged_input(package, item_id.item)
         }
         _ => None,
     };
-    let package_direct_lambda = matches!(
-        package_direct_lambda_input.as_ref(),
+    let pack_args = matches!(
+        target_input.as_ref(),
         Some(target_input)
             if apply_target_input_at_control_path(&orig_args.ty, target_input, controlled_layers)
                 != orig_args.ty
@@ -3784,9 +3788,7 @@ fn create_direct_branch_call(
 
     let (item_id, functor, callee_ty) = match &direct_call_site.callable {
         ConcreteCallable::Global { item_id, functor } => {
-            let callee_ty = if item_id.package == package_id
-                && package_direct_lambda_input.is_some()
-            {
+            let callee_ty = if item_id.package == package_id && target_input.is_some() {
                 build_direct_global_callee_ty(package, *item_id, &orig_callee.ty, controlled_layers)
                     .unwrap_or_else(|| orig_callee.ty.clone())
             } else {
@@ -3819,7 +3821,7 @@ fn create_direct_branch_call(
         destination,
         &captures,
         controlled_layers,
-        package_direct_lambda,
+        pack_args,
         assigner,
     );
     let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
@@ -3836,13 +3838,14 @@ fn create_direct_branch_call(
 
 /// Assembles the argument-tuple expressions for a direct-call branch,
 /// including any capture values that must accompany a closure branch.
+/// `pack_args` retains the target's tuple wrapper even when it has no captures.
 fn build_direct_branch_args_data(
     package: &mut Package,
     orig_args: &Expr,
     destination: CaptureScope,
     captures: &[CapturedVar],
     controlled_layers: usize,
-    package_direct_lambda: bool,
+    pack_args: bool,
     assigner: &mut Assigner,
 ) -> (ExprKind, Ty) {
     if controlled_layers > 0 {
@@ -3853,7 +3856,7 @@ fn build_direct_branch_args_data(
                 destination,
                 captures,
                 0,
-                package_direct_lambda,
+                pack_args,
                 assigner,
             );
         };
@@ -3864,7 +3867,7 @@ fn build_direct_branch_args_data(
                 destination,
                 captures,
                 0,
-                package_direct_lambda,
+                pack_args,
                 assigner,
             );
         };
@@ -3875,7 +3878,7 @@ fn build_direct_branch_args_data(
                 destination,
                 captures,
                 0,
-                package_direct_lambda,
+                pack_args,
                 assigner,
             );
         }
@@ -3887,7 +3890,7 @@ fn build_direct_branch_args_data(
             destination,
             captures,
             controlled_layers - 1,
-            package_direct_lambda,
+            pack_args,
             assigner,
         );
 
@@ -3905,7 +3908,7 @@ fn build_direct_branch_args_data(
         );
     }
 
-    if captures.is_empty() && !package_direct_lambda {
+    if captures.is_empty() && !pack_args {
         return (orig_args.kind.clone(), orig_args.ty.clone());
     }
 
@@ -7511,6 +7514,11 @@ fn alloc_if_expr(
 ///
 /// Returns the `ExprId` of the root dispatch expression; callers write its
 /// `kind`/`ty` back into the original call expression.
+///
+/// Each completed leaf is deep-copied as a unit so its captures, argument
+/// subtrees, and prefix-local bindings remain owned by that branch.
+/// Guards are copied too: a returned callable can bring a condition whose
+/// expression nodes still belong to its producer.
 fn build_branch_tree<E: Copy>(
     package: &mut Package,
     span: PackageSpan,
@@ -7592,7 +7600,7 @@ fn build_branch_tree<E: Copy>(
         build_call,
     );
 
-    // `g` is referenced once here -- no AndL, no re-evaluation.
+    let g = crate::cloner::clone_expr_within_package(package, g, assigner);
     alloc_if_expr(package, span, result_ty, g, then_id, else_id, assigner)
 }
 

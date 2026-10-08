@@ -4559,8 +4559,8 @@ fn specialize_closure_target_callable_capture(
 /// ```
 ///
 /// # Mutations
-/// - Rewrites the input `Pat` node in place (or replaces `decl.input` when
-///   flattening a single-element tuple).
+/// - Rewrites the input `Pat` node in place, preserving the outer tuple required
+///   by runtime closure calls even when no captures remain.
 fn remove_capture_from_closure_target(
     package: &mut Package,
     target_item_id: LocalItemId,
@@ -4601,24 +4601,13 @@ fn remove_capture_from_closure_target(
                 .map(|(_, t)| t.clone())
                 .collect();
 
-            if new_pats.len() == 1 {
-                // Flatten single-element tuple.
-                let item = package
-                    .items
-                    .get_mut(target_item_id)
-                    .expect("item not found");
-                if let ItemKind::Callable(ref mut decl) = item.kind {
-                    decl.input = new_pats[0];
-                }
+            let pat_mut = package.pats.get_mut(input_pat_id).expect("pat not found");
+            pat_mut.kind = PatKind::Tuple(new_pats);
+            pat_mut.ty = if new_tys.is_empty() {
+                Ty::UNIT
             } else {
-                let pat_mut = package.pats.get_mut(input_pat_id).expect("pat not found");
-                pat_mut.kind = PatKind::Tuple(new_pats);
-                pat_mut.ty = if new_tys.is_empty() {
-                    Ty::UNIT
-                } else {
-                    Ty::Tuple(new_tys)
-                };
-            }
+                Ty::Tuple(new_tys)
+            };
         }
         PatKind::Bind(_) if capture_idx == 0 => {
             // Only parameter is the capture — replace with unit.
