@@ -34,8 +34,16 @@ fn check_flow_value(source: &str, expected: i64) {
 }
 
 #[test]
-fn conditional_factory_assignment_keeps_unresolved_candidates_dynamic() {
-    for body in ["x -> f(f(x))", "if true { x -> f(f(x)) } else { Inc }"] {
+fn unresolved_factory_captures_defer_whole_dispatch_without_losing_known_candidates() {
+    // A mutable capture can be unresolved before factory specialization. The
+    // whole dispatch must then stay dynamic, whichever producer branch holds it.
+    // The immutable-capture control must retain both statically known choices.
+    for (binding, body, unresolved) in [
+        ("mutable", "x -> f(f(x))", true),
+        ("mutable", "if true { x -> f(f(x)) } else { Inc }", true),
+        ("mutable", "if false { Inc } else { x -> f(f(x)) }", true),
+        ("let", "x -> f(f(x))", false),
+    ] {
         let source = format!(
             r#"
             function Inc(x : Int) : Int {{ x + 1 }}
@@ -44,7 +52,7 @@ fn conditional_factory_assignment_keeps_unresolved_candidates_dynamic() {
             function Twice(f : Int -> Int) : Int -> Int {{ {body} }}
             @EntryPoint() operation Main() : Int {{
                 mutable f = Inc;
-                mutable g = Dbl;
+                {binding} g = Dbl;
                 if true {{ set f = Twice(g); }}
                 Apply(f, 3)
             }}
@@ -58,12 +66,27 @@ fn conditional_factory_assignment_keeps_unresolved_candidates_dynamic() {
             .iter()
             .filter(|site| site.hof_item_id.package == package && site.hof_item_id.item == apply)
             .collect();
-        assert_eq!(
-            sites.len(),
-            1,
-            "the unresolved branch must not become a concrete alternative"
-        );
-        assert!(matches!(sites[0].callable_arg, ConcreteCallable::Dynamic));
+        if unresolved {
+            assert_eq!(
+                sites.len(),
+                1,
+                "an unresolved alternative must defer the entire dispatch"
+            );
+            assert!(matches!(sites[0].callable_arg, ConcreteCallable::Dynamic));
+        } else {
+            assert_eq!(
+                sites.len(),
+                2,
+                "both the factory closure and original Inc must remain known"
+            );
+            assert!(
+                sites
+                    .iter()
+                    .all(|site| !matches!(site.callable_arg, ConcreteCallable::Dynamic))
+            );
+        }
+        // Full lowering also checks that producer-owned guards were copied,
+        // rather than sharing ExprIds with the generated dispatch.
         check_flow_value(&source, 12);
     }
 }

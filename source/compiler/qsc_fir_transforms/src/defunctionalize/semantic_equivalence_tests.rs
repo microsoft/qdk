@@ -13,7 +13,7 @@ use qsc_eval::val::{Result as MeasurementResult, Value};
 use super::test_cases;
 
 #[test]
-fn conditional_factory_assignment_preserves_selected_callable() {
+fn conditional_factory_assignment_preserves_target_and_capture_time() {
     for (selection, expected) in [
         ("if true { set f = Twice(g); }", 12),
         ("if false { set f = Twice(g); }", 4),
@@ -23,7 +23,14 @@ fn conditional_factory_assignment_preserves_selected_callable() {
         ("if true { set g = Inc; set f = Twice(g); }", 5),
         ("if true { let alias = g; set f = Twice(alias); }", 12),
     ] {
-        for invocation in ["Apply(f, 3)", "f(3)", "let saved = f; Apply(saved, 3)"] {
+        for (invocation, effect) in [
+            ("Apply(f, 3)", ""),
+            ("f(3)", ""),
+            ("let saved = f; Apply(saved, 3)", ""),
+            ("Apply(f, 3)", r#"Message("factory");"#),
+            ("f(3)", r#"Message("factory");"#),
+            ("let saved = f; Apply(saved, 3)", r#"Message("factory");"#),
+        ] {
             let declarations = if invocation == "f(3)" {
                 "function Dbl(x : Int) : Int { 2 * x }\nfunction Inc(x : Int) : Int { x + 1 }"
             } else {
@@ -33,7 +40,7 @@ fn conditional_factory_assignment_preserves_selected_callable() {
                 {declarations}
                 function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
                 function Twice(f : Int -> Int) : Int -> Int {{
-                    Message("factory");
+                    {effect}
                     x -> f(f(x))
                 }}
                 @EntryPoint() operation Main() : Int {{
@@ -52,14 +59,14 @@ fn conditional_factory_assignment_preserves_selected_callable() {
 }
 
 #[test]
-fn conditional_factory_assignment_preserves_quantum_result_across_profiles() {
+fn conditional_factory_assignment_preserves_fir_values_and_gate_order_across_profiles() {
     use crate::test_utils::{
         assert_pipeline_stage_succeeds, compile_to_fir_with_capabilities,
         try_eval_fir_entry_with_trace,
     };
     use qsc_data_structures::target::Profile;
 
-    let source = r#"
+    let function_source = r#"
         function Inc(x : Int) : Int { x + 1 }
         function Dbl(x : Int) : Int { 2 * x }
         function Apply(f : Int -> Int, x : Int) : Int { f(x) }
@@ -73,23 +80,51 @@ fn conditional_factory_assignment_preserves_quantum_result_across_profiles() {
             MResetZ(q)
         }
     "#;
-    for profile in [
-        Profile::Base,
-        Profile::AdaptiveRI,
-        Profile::AdaptiveRIF,
-        Profile::Adaptive,
+    let operation_source = r#"
+        function Twice(op : Qubit => Unit is Adj + Ctl) : Qubit => Unit is Adj + Ctl {
+            q => { op(q); op(q); }
+        }
+        @EntryPoint() operation Main() : Result {
+            mutable selected = X;
+            mutable inner = Z;
+            if true { set selected = Twice(inner); }
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            Controlled selected([control], target);
+            Reset(control);
+            MResetZ(target)
+        }
+    "#;
+    // The first source must apply X after computing 12. The second must keep
+    // the controlled pair of Z gates, not the old X target. These are FIR
+    // execution checks under each profile, not QIR-runtime certification.
+    for (case, source, result) in [
+        ("function factory", function_source, true),
+        ("controlled operation factory", operation_source, false),
     ] {
-        for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
-            let (mut store, package) = compile_to_fir_with_capabilities(source, profile.into());
-            let expected = try_eval_fir_entry_with_trace(&store, package);
-            assert_eq!(expected.0, Ok(Value::Result(MeasurementResult::Val(true))));
-            assert_pipeline_stage_succeeds("conditional factory", &mut store, package, stage);
-            crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
-            assert_eq!(
-                try_eval_fir_entry_with_trace(&store, package),
-                expected,
-                "{profile:?}/{stage:?}"
-            );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            for stage in [crate::PipelineStage::Defunc, crate::PipelineStage::Full] {
+                let (mut store, package) = compile_to_fir_with_capabilities(source, profile.into());
+                let expected = try_eval_fir_entry_with_trace(&store, package);
+                assert_eq!(
+                    expected.0,
+                    Ok(Value::Result(MeasurementResult::Val(result))),
+                    "original {case}/{profile:?}"
+                );
+                assert_pipeline_stage_succeeds("conditional factory", &mut store, package, stage);
+                crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+                assert_eq!(
+                    try_eval_fir_entry_with_trace(&store, package),
+                    expected,
+                    "{case}/{profile:?}/{stage:?}"
+                );
+            }
         }
     }
 }

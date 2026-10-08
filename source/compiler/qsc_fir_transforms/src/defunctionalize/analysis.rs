@@ -2439,7 +2439,9 @@ fn without_stale_guards(locals: &LocalState, resolved: CalleeLattice) -> CalleeL
 /// callee's analyzed `LocalState`, substituting producing-function parameters
 /// with the caller-scope argument expressions in `param_substitutions`, so
 /// rewrite can re-emit the captures as caller-scope arguments.
-/// An unresolved capture makes the entire lattice dynamic, not a concrete candidate.
+/// An unresolved capture makes the entire lattice dynamic. Keeping an unknown
+/// inside `Single` or `Multi` would let specialization discard that choice and
+/// incorrectly retain only a known target from another branch.
 fn materialize_capture_exprs_from_state(
     pkg: &Package,
     state: &LocalState,
@@ -2448,17 +2450,18 @@ fn materialize_capture_exprs_from_state(
     caller_mutable_bindings: &FxHashSet<LocalVarId>,
     resolved: CalleeLattice,
 ) -> CalleeLattice {
+    let materialize = |concrete| {
+        materialize_capture_exprs_in_callable(
+            pkg,
+            state,
+            param_substitutions,
+            caller_owner,
+            caller_mutable_bindings,
+            concrete,
+        )
+    };
     match resolved {
-        CalleeLattice::Single(concrete) => {
-            CalleeLattice::from_concrete(materialize_capture_exprs_in_callable(
-                pkg,
-                state,
-                param_substitutions,
-                caller_owner,
-                caller_mutable_bindings,
-                concrete,
-            ))
-        }
+        CalleeLattice::Single(concrete) => CalleeLattice::from_concrete(materialize(concrete)),
         CalleeLattice::Multi(entries) => {
             let mut materialized = Vec::with_capacity(entries.len());
             for (concrete, condition) in entries {
@@ -2470,14 +2473,7 @@ fn materialize_capture_exprs_from_state(
                 {
                     return CalleeLattice::Dynamic;
                 }
-                let concrete = materialize_capture_exprs_in_callable(
-                    pkg,
-                    state,
-                    param_substitutions,
-                    caller_owner,
-                    caller_mutable_bindings,
-                    concrete,
-                );
+                let concrete = materialize(concrete);
                 if matches!(concrete, ConcreteCallable::Dynamic) {
                     return CalleeLattice::Dynamic;
                 }

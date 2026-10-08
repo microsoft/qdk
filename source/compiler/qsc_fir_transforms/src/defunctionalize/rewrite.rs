@@ -5904,6 +5904,8 @@ fn alloc_if_expr(
 /// `kind`/`ty` back into the original call expression.
 /// Each completed leaf is deep-copied as a unit so its captures, argument
 /// subtrees, and prefix-local bindings remain owned by that branch.
+/// Guards are copied too: a returned callable can bring a condition whose
+/// expression nodes still belong to its producer.
 fn build_branch_tree<E: Copy>(
     package: &mut Package,
     span: PackageSpan,
@@ -5983,8 +5985,6 @@ fn build_branch_tree<E: Copy>(
         build_call,
     );
 
-    // Producer guards may remain live in another callable. Give this dispatch
-    // its own subtree, still evaluating the guard only once per decision.
     let g = crate::cloner::clone_expr_within_package(package, g, assigner);
     alloc_if_expr(package, span, result_ty, g, then_id, else_id, assigner)
 }
