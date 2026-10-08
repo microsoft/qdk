@@ -279,6 +279,26 @@ pub(crate) fn call<B: Backend>(
             )
             .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
+        "__quantum__qis__mx__body" => Ok(Value::Result(
+            sim.mx(
+                arg.unwrap_qubit()
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                    .0,
+                call_stack,
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
+        )),
+        "__quantum__qis__my__body" => Ok(Value::Result(
+            sim.my(
+                arg.unwrap_qubit()
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                    .0,
+                call_stack,
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
+        )),
         "__quantum__qis__mresetz__body" => Ok(Value::Result(
             sim.mresetz(
                 arg.unwrap_qubit()

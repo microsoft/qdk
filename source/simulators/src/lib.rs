@@ -38,6 +38,14 @@ pub enum OutputRecord {
     Double(f64),
 }
 
+/// Pauli bases for intrinsic measurements.
+#[derive(PartialEq)]
+pub enum Pauli {
+    X,
+    Y,
+    Z,
+}
+
 pub trait Simulator {
     type Noise: Default;
     type StateDumpData;

@@ -45,6 +45,12 @@ pub trait Backend {
     fn m(&mut self, _q: usize) -> Result<val::Result, String> {
         Err("m operation not implemented".to_string())
     }
+    fn mx(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("mx operation not implemented".to_string())
+    }
+    fn my(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("my operation not implemented".to_string())
+    }
     fn mresetz(&mut self, _q: usize) -> Result<val::Result, String> {
         Err("mresetz operation not implemented".to_string())
     }
@@ -255,6 +261,28 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.measure(stack, "M", q, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn mx(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mx(q)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MX", q, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn my(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.my(q)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "MY", q, &r);
         }
         Ok(r)
     }
@@ -816,6 +844,34 @@ impl Backend for SparseSim {
             return Ok(val::Result::Loss);
         }
         Ok(val::Result::Val(self.sim.measure(q)))
+    }
+
+    fn mx(&mut self, q: usize) -> Result<val::Result, String> {
+        // TODO: Check for noise type
+        self.apply_faults(|noise| &noise.mz, &[q]);
+        if self.is_qubit_lost(q) {
+            self.lost_qubits.set_bit(q as u64, false);
+            return Ok(val::Result::Loss);
+        }
+        self.sim.h(q);
+        let res = self.sim.measure(q);
+        self.sim.h(q);
+        Ok(val::Result::Val(res))
+    }
+
+    fn my(&mut self, q: usize) -> Result<val::Result, String> {
+        // TODO: Check for noise type
+        self.apply_faults(|noise| &noise.mz, &[q]);
+        if self.is_qubit_lost(q) {
+            self.lost_qubits.set_bit(q as u64, false);
+            return Ok(val::Result::Loss);
+        }
+        self.sim.sadj(q);
+        self.sim.h(q);
+        let res = self.sim.measure(q);
+        self.sim.h(q);
+        self.sim.s(q);
+        Ok(val::Result::Val(res))
     }
 
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {

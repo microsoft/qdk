@@ -12,6 +12,7 @@ mod matrix_testing;
 #[cfg(test)]
 mod tests;
 
+use crate::Pauli;
 use index_map::IndexMap;
 use ndarray::{Array2, s};
 use nearly_zero::NearlyZero;
@@ -172,7 +173,7 @@ impl SparseStateSim {
     /// no longer valid for use in other functions and will cause an error if used.
     /// # Panics
     ///
-    /// The function will panic if the given id does not correpsond to an allocated qubit.
+    /// The function will panic if the given id does not correspond to an allocated qubit.
     pub fn release(&mut self, id: usize) {
         if self.id_map.iter().count() == 1 {
             // This is a release of the last qubit.
@@ -320,6 +321,25 @@ impl SparseStateSim {
         let res = random_sample < prob;
         self.collapse(loc, res, prob);
         res
+    }
+
+    /// Measures the qubit with the given id, collapsing the state based on the measured result.
+    /// # Panics
+    ///
+    /// This funciton will panic if the given identifier does not correspond to an allocated qubit.
+    #[must_use]
+    pub fn measure_pauli(&mut self, id: usize, pauli: Pauli) -> bool {
+        if pauli == Pauli::Z {
+            return self.measure(id);
+        }
+        todo!("Measurement in the X or Y basis is not yet implemented.")
+        // else {
+        //     // We only need to flush the queue here if there are pending H, Rx, or Ry operations.
+        //     // Any operations in `self.op_queue` will get applied when `check_joint_probability`
+        //     // iterates through the state vector.
+        //     self.maybe_flush_queue(&[id], FlushLevel::HRxRy);
+
+        // }
     }
 
     /// Forces the collapse of the qubit with the given id to the specified value,
