@@ -45,7 +45,7 @@ export type LayoutScope = {
 
 /**
  * Complete geometry for a rendered circuit. Built by [`processOperations`](process.ts) and threaded
- * through [`Sqore.compose`](sqore.ts) to the editor.
+ * through [`renderCircuit`](circuitRenderer.ts) to the editor.
  */
 export type LayoutMap = {
   /**

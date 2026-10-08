@@ -19,6 +19,7 @@ import {
 import { HelpPage } from "./help";
 import { DocumentationView, IDocFile } from "./docview";
 import "./webview.css";
+import type { CircuitSvgSaveMessage } from "../circuitSvgProtocol.js";
 
 import DOMPurify from "dompurify";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -78,6 +79,15 @@ type State =
 const loadingState: State = { viewType: "loading", panelId: "" };
 const helpState: State = { viewType: "help" };
 let state: State = loadingState;
+
+function exportCircuitSvg(contents: string, suggestedName: string) {
+  const message: CircuitSvgSaveMessage = {
+    type: "qdk.circuit/save-svg",
+    suggestedName,
+    contents,
+  };
+  vscodeApi.postMessage(message);
+}
 
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
@@ -230,7 +240,12 @@ function App({ state }: { state: State }) {
         />
       );
     case "circuit":
-      return <CircuitPanel {...state.props}></CircuitPanel>;
+      return (
+        <CircuitPanel
+          {...state.props}
+          onExportSvg={exportCircuitSvg}
+        ></CircuitPanel>
+      );
     case "help":
       return <HelpPage />;
     case "documentation":
