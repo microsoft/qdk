@@ -37,7 +37,6 @@ operation ApplyGlobalPhase(theta : Double) : Unit is Ctl + Adj {
         if Length(ctls) == 0 {
             GlobalPhase(theta);
         } elif Length(ctls) == 1 {
-            let control = ctls[0];
             Rz(theta, ctls[0]);
             GlobalPhase(theta / 2.0);
         } elif Length(ctls) == 2 {
@@ -47,12 +46,11 @@ operation ApplyGlobalPhase(theta : Double) : Unit is Ctl + Adj {
         } else {
             let remainingControls = ctls[1...];
             use aux = Qubit[Length(ctls) - 2];
-            let combinedControl = aux[Length(aux) - 1];
             within {
                 CollectControls(remainingControls, aux, 0);
                 AdjustForSingleControl(remainingControls, aux);
             } apply {
-                Controlled ApplyGlobalPhase([ctls[0], combinedControl], theta);
+                Controlled ApplyGlobalPhase([ctls[0], aux[Length(aux) - 1]], theta);
             }
         }
     }
