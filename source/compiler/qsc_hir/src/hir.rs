@@ -327,7 +327,7 @@ impl Package {
     }
 }
 
-/// An item.
+/// The HIR counterpart of an AST Item (a declaration that can be in the top level of a namespace).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     /// The ID.
@@ -376,7 +376,7 @@ impl Display for Item {
     }
 }
 
-/// An item kind.
+/// The kind of an Item (a declaration that can appear at the top level of a namespace).
 #[derive(Clone, Debug, PartialEq)]
 pub enum ItemKind {
     /// A `function` or `operation` declaration.
