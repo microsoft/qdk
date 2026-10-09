@@ -1912,7 +1912,7 @@ fn unop_not_int() {
         "",
         "not 0",
         &expect![[r##"
-            #1 0-5 "not 0" : Int
+            #1 0-5 "not 0" : Bool
             #2 4-5 "0" : Int
             Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 4, hi: 5 }))))
         "##]],
