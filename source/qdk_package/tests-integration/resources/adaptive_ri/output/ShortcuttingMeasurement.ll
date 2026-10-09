@@ -11,11 +11,11 @@ block_0:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
   br i1 %var_1, label %block_2, label %block_1
 block_1:
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  %var_4 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+  %var_4 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
   br label %block_2
 block_2:
   %var_7 = phi i1 [true, %block_0], [%var_4, %block_1]
@@ -43,7 +43,7 @@ declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
 
 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
-declare i1 @__quantum__rt__read_result(%Result*)
+declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
 declare void @__quantum__qis__reset__body(%Qubit*) #1
 

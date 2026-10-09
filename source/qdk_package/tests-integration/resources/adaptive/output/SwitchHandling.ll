@@ -44,7 +44,7 @@ block_5:
   %var_48 = load i64, ptr %var_9
   %var_15 = shl i64 %var_48, 1
   store i64 %var_15, ptr %var_9
-  %var_16 = call i1 @__quantum__rt__read_result(ptr %var_13)
+  %var_16 = call zeroext i1 @__quantum__rt__read_result(ptr %var_13)
   br i1 %var_16, label %block_7, label %block_9
 block_6:
   store i64 0, ptr %var_20
@@ -119,7 +119,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_24) {
 block_22:

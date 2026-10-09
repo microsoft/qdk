@@ -106,8 +106,8 @@ pub const BOOL_EXPECT_DEBUG: Expect = expect![[r#"
     2 equals 2
     true"#]];
 pub const BOOL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const BOOL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 959"];
-pub const BOOL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1109"];
+pub const BOOL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 975"];
+pub const BOOL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1125"];
 pub const BREAKANDCONTINUE_EXPECT: Expect = expect!["(8, 147, 9)"];
 pub const BREAKANDCONTINUE_EXPECT_DEBUG: Expect = expect!["(8, 147, 9)"];
 pub const BREAKANDCONTINUE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
@@ -414,7 +414,7 @@ pub const REPEATUNTILLOOPS_EXPECT_CIRCUIT: Expect =
     expect!["compilation error: cannot have a loop with a dynamic condition"];
 pub const REPEATUNTILLOOPS_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["compilation error: cannot have a loop with a dynamic condition"];
-pub const REPEATUNTILLOOPS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2203"];
+pub const REPEATUNTILLOOPS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 2219"];
 pub const RESULT_EXPECT: Expect = expect![[r#"
     Measurement: Zero
     Zero"#]];

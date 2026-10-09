@@ -85,51 +85,51 @@ fn tuple_comparison_generates_qir_after_pipeline() {
     );
 
     expect![[r#"
-            %Result = type opaque
-            %Qubit = type opaque
+        %Result = type opaque
+        %Qubit = type opaque
 
-            @0 = internal constant [4 x i8] c"0_b\00"
+        @0 = internal constant [4 x i8] c"0_b\00"
 
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-              call void @__quantum__rt__initialize(i8* null)
-              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-              %var_1 = icmp eq i1 %var_0, false
-              br i1 %var_1, label %block_1, label %block_2
-            block_1:
-              %var_3 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
-              %var_4 = icmp eq i1 %var_3, false
-              br label %block_2
-            block_2:
-              %var_6 = phi i1 [false, %block_0], [%var_4, %block_1]
-              call void @__quantum__rt__bool_record_output(i1 %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          %var_1 = icmp eq i1 %var_0, false
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          %var_3 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+          %var_4 = icmp eq i1 %var_3, false
+          br label %block_2
+        block_2:
+          %var_6 = phi i1 [false, %block_0], [%var_4, %block_1]
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
 
-            declare void @__quantum__rt__initialize(i8*)
+        declare void @__quantum__rt__initialize(i8*)
 
-            declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__rt__read_result(%Result*)
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
-            declare void @__quantum__rt__bool_record_output(i1, i8*)
+        declare void @__quantum__rt__bool_record_output(i1 zeroext, i8*)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
 
-            !0 = !{i32 1, !"qir_major_version", i32 1}
-            !1 = !{i32 7, !"qir_minor_version", i32 0}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-        "#]]
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]]
             .assert_eq(&qir);
 }
 
@@ -456,53 +456,53 @@ fn dynamic_integer_with_branch_and_phi_supported() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     expect![[r#"
-            %Result = type opaque
-            %Qubit = type opaque
+        %Result = type opaque
+        %Qubit = type opaque
 
-            @0 = internal constant [4 x i8] c"0_i\00"
+        @0 = internal constant [4 x i8] c"0_i\00"
 
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-              call void @__quantum__rt__initialize(i8* null)
-              call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-              %var_1 = icmp eq i1 %var_0, false
-              br i1 %var_1, label %block_1, label %block_2
-            block_1:
-              br label %block_3
-            block_2:
-              br label %block_3
-            block_3:
-              %var_4 = phi i64 [0, %block_1], [1, %block_2]
-              call void @__quantum__rt__int_record_output(i64 %var_4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          %var_1 = icmp eq i1 %var_0, false
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_4 = phi i64 [0, %block_1], [1, %block_2]
+          call void @__quantum__rt__int_record_output(i64 %var_4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
 
-            declare void @__quantum__rt__initialize(i8*)
+        declare void @__quantum__rt__initialize(i8*)
 
-            declare void @__quantum__qis__h__body(%Qubit*)
+        declare void @__quantum__qis__h__body(%Qubit*)
 
-            declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__rt__read_result(%Result*)
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
-            declare void @__quantum__rt__int_record_output(i64, i8*)
+        declare void @__quantum__rt__int_record_output(i64, i8*)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
 
-            !0 = !{i32 1, !"qir_major_version", i32 1}
-            !1 = !{i32 7, !"qir_minor_version", i32 0}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-        "#]].assert_eq(&qir);
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]].assert_eq(&qir);
 }
 
 #[test]
@@ -517,53 +517,53 @@ fn dynamic_double_with_branch_and_phi_supported() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     expect![[r#"
-            %Result = type opaque
-            %Qubit = type opaque
+        %Result = type opaque
+        %Qubit = type opaque
 
-            @0 = internal constant [4 x i8] c"0_d\00"
+        @0 = internal constant [4 x i8] c"0_d\00"
 
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-              call void @__quantum__rt__initialize(i8* null)
-              call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-              %var_1 = icmp eq i1 %var_0, false
-              br i1 %var_1, label %block_1, label %block_2
-            block_1:
-              br label %block_3
-            block_2:
-              br label %block_3
-            block_3:
-              %var_4 = phi double [0.0, %block_1], [1.0, %block_2]
-              call void @__quantum__rt__double_record_output(double %var_4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          %var_1 = icmp eq i1 %var_0, false
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_4 = phi double [0.0, %block_1], [1.0, %block_2]
+          call void @__quantum__rt__double_record_output(double %var_4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
 
-            declare void @__quantum__rt__initialize(i8*)
+        declare void @__quantum__rt__initialize(i8*)
 
-            declare void @__quantum__qis__h__body(%Qubit*)
+        declare void @__quantum__qis__h__body(%Qubit*)
 
-            declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__rt__read_result(%Result*)
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
-            declare void @__quantum__rt__double_record_output(double, i8*)
+        declare void @__quantum__rt__double_record_output(double, i8*)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
 
-            !0 = !{i32 1, !"qir_major_version", i32 1}
-            !1 = !{i32 7, !"qir_minor_version", i32 0}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-        "#]].assert_eq(&qir);
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]].assert_eq(&qir);
 }
 
 #[test]
@@ -641,71 +641,71 @@ fn dynamic_double_intrinsic() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     expect![[r#"
-            %Result = type opaque
-            %Qubit = type opaque
+        %Result = type opaque
+        %Qubit = type opaque
 
-            @0 = internal constant [4 x i8] c"0_d\00"
+        @0 = internal constant [4 x i8] c"0_d\00"
 
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-              call void @__quantum__rt__initialize(i8* null)
-              call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-              %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-              %var_1 = icmp eq i1 %var_0, false
-              br i1 %var_1, label %block_1, label %block_2
-            block_1:
-              br label %block_3
-            block_2:
-              br label %block_3
-            block_3:
-              %var_9 = phi double [0.0, %block_1], [1.0, %block_2]
-              %var_4 = fadd double 1.0, %var_9
-              call void @OpA(double %var_4, %Qubit* inttoptr (i64 0 to %Qubit*))
-              %var_5 = fmul double 2.0, %var_9
-              call void @__quantum__qis__rx__body(double %var_5, %Qubit* inttoptr (i64 0 to %Qubit*))
-              %var_6 = fdiv double %var_9, 3.0
-              call void @__quantum__qis__ry__body(double %var_6, %Qubit* inttoptr (i64 0 to %Qubit*))
-              %var_7 = fsub double %var_9, 4.0
-              call void @__quantum__qis__rz__body(double %var_7, %Qubit* inttoptr (i64 0 to %Qubit*))
-              call void @OpA(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
-              call void @__quantum__qis__rx__body(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
-              call void @__quantum__rt__double_record_output(double %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          %var_1 = icmp eq i1 %var_0, false
+          br i1 %var_1, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_9 = phi double [0.0, %block_1], [1.0, %block_2]
+          %var_4 = fadd double 1.0, %var_9
+          call void @OpA(double %var_4, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_5 = fmul double 2.0, %var_9
+          call void @__quantum__qis__rx__body(double %var_5, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_6 = fdiv double %var_9, 3.0
+          call void @__quantum__qis__ry__body(double %var_6, %Qubit* inttoptr (i64 0 to %Qubit*))
+          %var_7 = fsub double %var_9, 4.0
+          call void @__quantum__qis__rz__body(double %var_7, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @OpA(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__rx__body(double %var_9, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__rt__double_record_output(double %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
 
-            declare void @__quantum__rt__initialize(i8*)
+        declare void @__quantum__rt__initialize(i8*)
 
-            declare void @__quantum__qis__h__body(%Qubit*)
+        declare void @__quantum__qis__h__body(%Qubit*)
 
-            declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-            declare i1 @__quantum__rt__read_result(%Result*)
+        declare zeroext i1 @__quantum__rt__read_result(%Result*)
 
-            declare void @OpA(double, %Qubit*)
+        declare void @OpA(double, %Qubit*)
 
-            declare void @__quantum__qis__rx__body(double, %Qubit*)
+        declare void @__quantum__qis__rx__body(double, %Qubit*)
 
-            declare void @__quantum__qis__ry__body(double, %Qubit*)
+        declare void @__quantum__qis__ry__body(double, %Qubit*)
 
-            declare void @__quantum__qis__rz__body(double, %Qubit*)
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
 
-            declare void @__quantum__rt__double_record_output(double, i8*)
+        declare void @__quantum__rt__double_record_output(double, i8*)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
 
-            !0 = !{i32 1, !"qir_major_version", i32 1}
-            !1 = !{i32 7, !"qir_minor_version", i32 0}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-        "#]].assert_eq(&qir);
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]].assert_eq(&qir);
 }
 
 #[test]

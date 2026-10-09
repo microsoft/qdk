@@ -58,7 +58,7 @@ block_5:
   %var_60_offset = select i1 %var_60_offset_chk, i64 1, i64 0
   %var_60 = getelementptr [5 x ptr], ptr @array1, i64 %var_60_offset, i64 %var_59
   %var_15 = load ptr, ptr %var_60
-  %var_17 = call i1 @__quantum__rt__read_result(ptr %var_15)
+  %var_17 = call zeroext i1 @__quantum__rt__read_result(ptr %var_15)
   br i1 %var_17, label %block_7, label %block_9
 block_6:
   store i64 0, ptr %var_24
@@ -129,7 +129,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_28) {
 block_13:

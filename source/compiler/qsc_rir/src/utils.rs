@@ -141,6 +141,8 @@ pub(crate) fn map_variable_use_in_block(
     var_map: &mut FxHashMap<VariableId, OperandMapping>,
     var_stor_to_keep: &FxHashSet<VariableId>,
 ) {
+    let mut reverse_deep_map = populate_reverse_deep_map(var_map);
+
     let instrs = block.0.drain(..).collect::<Vec<_>>();
 
     for mut instr in instrs {
@@ -155,7 +157,7 @@ pub(crate) fn map_variable_use_in_block(
                 {
                     *operand = Operand::Variable(mapped_var);
                 } else {
-                    update_variable_mapping(var_map, operand, var);
+                    update_variable_mapping(var_map, &mut reverse_deep_map, operand, var);
                     continue;
                 }
             }
@@ -228,8 +230,24 @@ pub(crate) fn map_variable_use_in_block(
     }
 }
 
+fn populate_reverse_deep_map(
+    var_map: &FxHashMap<VariableId, OperandMapping>,
+) -> FxHashMap<VariableId, FxHashSet<VariableId>> {
+    let mut reverse_deep_map: FxHashMap<VariableId, FxHashSet<VariableId>> = FxHashMap::default();
+    for (key, value) in var_map {
+        if let OperandMapping::Deep(Operand::Variable(mapped_var)) = value {
+            reverse_deep_map
+                .entry(mapped_var.variable_id)
+                .or_default()
+                .insert(*key);
+        }
+    }
+    reverse_deep_map
+}
+
 fn update_variable_mapping(
     var_map: &mut FxHashMap<VariableId, OperandMapping>,
+    reverse_deep_map: &mut FxHashMap<VariableId, FxHashSet<VariableId>>,
     operand: &mut Operand,
     var: &mut Variable,
 ) {
@@ -237,15 +255,31 @@ fn update_variable_mapping(
     // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
     // copy of the operand. However, it will create a mapping that matches the last mapping of the operand, ensuring
     // that a shallow mapping is not incorrectly treated as a deep mapping.
-    var_map.insert(var.variable_id, operand.last_mapping(var_map));
+    let new_mapping = operand.terminal_mapping(var_map);
+    let old_mapping = var_map.insert(var.variable_id, new_mapping);
+    if let Some(OperandMapping::Deep(Operand::Variable(prior_var))) = old_mapping {
+        reverse_deep_map
+            .entry(prior_var.variable_id)
+            .or_default()
+            .remove(&var.variable_id);
+    }
+    if let OperandMapping::Deep(Operand::Variable(mapped_var)) = new_mapping {
+        reverse_deep_map
+            .entry(mapped_var.variable_id)
+            .or_default()
+            .insert(var.variable_id);
+    }
 
     // For all existing deep mappings to this variable, downgrade them to shallow mappings.
     // This ensures those previous mappings represent the value at the time they were created, rather than the new value being stored.
-    for mapping in var_map.values_mut() {
-        if let OperandMapping::Deep(Operand::Variable(existing)) = mapping
-            && existing == var
-        {
-            *mapping = OperandMapping::Shallow(Operand::Variable(*existing));
+    if let Some(deep_mappings) = reverse_deep_map.get_mut(&var.variable_id) {
+        for &mapped_var_id in deep_mappings.iter() {
+            if let Some(mapping) = var_map.get_mut(&mapped_var_id)
+                && let OperandMapping::Deep(Operand::Variable(existing)) = mapping
+                && existing.variable_id == var.variable_id
+            {
+                *mapping = OperandMapping::Shallow(Operand::Variable(*existing));
+            }
         }
     }
 }
@@ -259,8 +293,10 @@ impl Operand {
         }
     }
 
+    /// Returns the terminal mapping for this operand, following the chain of variable mappings until a
+    /// literal value, a terminal deep mapping, or a shallow mapping is reached.
     #[must_use]
-    pub(crate) fn last_mapping(
+    pub(crate) fn terminal_mapping(
         &self,
         var_map: &FxHashMap<VariableId, OperandMapping>,
     ) -> OperandMapping {

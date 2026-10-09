@@ -34,7 +34,7 @@ block_3:
 block_4:
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_7 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   store i1 %var_7, ptr %var_0
   %var_37 = load i1, ptr %var_0
   br i1 %var_37, label %block_6, label %block_7
@@ -52,11 +52,11 @@ block_5:
   call void @__quantum__rt__tuple_record_output(i64 8, ptr @0)
   %var_35 = load double, ptr %var_25
   call void @__quantum__rt__double_record_output(double %var_35, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 %var_20, ptr @2)
-  call void @__quantum__rt__bool_record_output(i1 %var_21, ptr @3)
-  call void @__quantum__rt__bool_record_output(i1 %var_22, ptr @4)
-  call void @__quantum__rt__bool_record_output(i1 %var_23, ptr @5)
-  call void @__quantum__rt__bool_record_output(i1 %var_24, ptr @6)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_20, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_21, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_22, ptr @4)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_23, ptr @5)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_24, ptr @6)
   call void @__quantum__rt__int_record_output(i64 %var_16, ptr @7)
   call void @__quantum__rt__double_record_output(double %var_18, ptr @8)
   ret i64 0
@@ -97,7 +97,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_15) {
 block_9:
@@ -111,7 +111,7 @@ declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
 declare void @__quantum__rt__double_record_output(double, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 declare void @__quantum__rt__int_record_output(i64, ptr)
 

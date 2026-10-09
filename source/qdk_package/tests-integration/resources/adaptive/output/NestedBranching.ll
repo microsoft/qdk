@@ -38,26 +38,26 @@ block_0:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
   store i64 0, ptr %var_4
-  %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
   %var_6 = icmp eq i1 %var_5, false
   br i1 %var_6, label %block_1, label %block_2
 block_1:
-  %var_7 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   %var_8 = icmp eq i1 %var_7, false
   store i1 false, ptr %var_9
   br i1 %var_8, label %block_3, label %block_5
 block_2:
-  %var_22 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_22 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   %var_23 = icmp eq i1 %var_22, false
   store i1 false, ptr %var_24
   br i1 %var_23, label %block_4, label %block_6
 block_3:
-  %var_10 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_10 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   %var_11 = icmp eq i1 %var_10, false
   store i1 %var_11, ptr %var_9
   br label %block_5
 block_4:
-  %var_25 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_25 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   %var_26 = icmp eq i1 %var_25, false
   store i1 %var_26, ptr %var_24
   br label %block_6
@@ -71,7 +71,7 @@ block_7:
   store i64 0, ptr %var_4
   br label %block_11
 block_8:
-  %var_12 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_12 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   %var_13 = icmp eq i1 %var_12, false
   store i1 false, ptr %var_14
   br i1 %var_13, label %block_12, label %block_15
@@ -79,20 +79,20 @@ block_9:
   store i64 4, ptr %var_4
   br label %block_13
 block_10:
-  %var_27 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_27 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   %var_28 = icmp eq i1 %var_27, false
   store i1 false, ptr %var_29
   br i1 %var_28, label %block_14, label %block_17
 block_11:
   br label %block_16
 block_12:
-  %var_15 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_15 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   store i1 %var_15, ptr %var_14
   br label %block_15
 block_13:
   br label %block_16
 block_14:
-  %var_30 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_30 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   store i1 %var_30, ptr %var_29
   br label %block_17
 block_15:
@@ -108,7 +108,7 @@ block_18:
   store i64 1, ptr %var_4
   br label %block_23
 block_19:
-  %var_17 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_17 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 false, ptr %var_19
   br i1 %var_17, label %block_24, label %block_29
 block_20:
@@ -119,13 +119,13 @@ block_21:
   store i64 5, ptr %var_4
   br label %block_27
 block_22:
-  %var_32 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_32 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
   store i1 false, ptr %var_34
   br i1 %var_32, label %block_28, label %block_31
 block_23:
   br label %block_11
 block_24:
-  %var_20 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_20 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   %var_21 = icmp eq i1 %var_20, false
   store i1 %var_21, ptr %var_19
   br label %block_29
@@ -147,7 +147,7 @@ block_26:
 block_27:
   br label %block_13
 block_28:
-  %var_35 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+  %var_35 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
   %var_36 = icmp eq i1 %var_35, false
   store i1 %var_36, ptr %var_34
   br label %block_31
@@ -183,7 +183,7 @@ block_35:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 4 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 5 to ptr), ptr inttoptr (i64 5 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 6 to ptr), ptr inttoptr (i64 6 to ptr))
-  %var_54 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+  %var_54 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
   %var_55 = icmp eq i1 %var_54, false
   br i1 %var_55, label %block_40, label %block_41
 block_36:
@@ -199,11 +199,11 @@ block_39:
   call void @X(ptr %var_131)
   br label %block_43
 block_40:
-  %var_56 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+  %var_56 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
   %var_57 = icmp eq i1 %var_56, false
   br i1 %var_57, label %block_44, label %block_45
 block_41:
-  %var_64 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+  %var_64 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
   %var_65 = icmp eq i1 %var_64, false
   store i1 false, ptr %var_66
   br i1 %var_65, label %block_46, label %block_51
@@ -218,15 +218,15 @@ block_43:
   store i64 %var_52, ptr %var_45
   br label %block_30
 block_44:
-  %var_58 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_58 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_59 = icmp eq i1 %var_58, false
   br i1 %var_59, label %block_47, label %block_48
 block_45:
-  %var_60 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_60 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_61 = icmp eq i1 %var_60, false
   br i1 %var_61, label %block_49, label %block_50
 block_46:
-  %var_67 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+  %var_67 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
   store i1 %var_67, ptr %var_66
   br label %block_51
 block_47:
@@ -251,25 +251,25 @@ block_52:
 block_53:
   br label %block_56
 block_54:
-  %var_69 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+  %var_69 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
   %var_70 = icmp eq i1 %var_69, false
   br i1 %var_70, label %block_57, label %block_58
 block_55:
-  %var_75 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+  %var_75 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
   store i1 false, ptr %var_77
   br i1 %var_75, label %block_59, label %block_65
 block_56:
   br label %block_60
 block_57:
-  %var_71 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_71 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_72 = icmp eq i1 %var_71, false
   br i1 %var_72, label %block_61, label %block_62
 block_58:
-  %var_73 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_73 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_74 = icmp eq i1 %var_73, false
   br i1 %var_74, label %block_63, label %block_64
 block_59:
-  %var_78 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+  %var_78 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
   %var_79 = icmp eq i1 %var_78, false
   store i1 %var_79, ptr %var_77
   br label %block_65
@@ -302,11 +302,11 @@ block_67:
 block_68:
   br label %block_73
 block_69:
-  %var_80 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+  %var_80 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
   %var_81 = icmp eq i1 %var_80, false
   br i1 %var_81, label %block_74, label %block_75
 block_70:
-  %var_86 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+  %var_86 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
   %var_87 = icmp eq i1 %var_86, false
   br i1 %var_87, label %block_76, label %block_77
 block_71:
@@ -321,7 +321,7 @@ block_71:
   br label %block_66
 block_72:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 7 to ptr), ptr inttoptr (i64 7 to ptr))
-  %var_97 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 7 to ptr))
+  %var_97 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 7 to ptr))
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @1)
   call void @__quantum__rt__array_record_output(i64 3, ptr @2)
@@ -336,24 +336,24 @@ block_72:
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 4 to ptr), ptr @10)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 5 to ptr), ptr @11)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 6 to ptr), ptr @12)
-  call void @__quantum__rt__bool_record_output(i1 %var_97, ptr @13)
+  call void @__quantum__rt__bool_record_output(i1 zeroext %var_97, ptr @13)
   ret i64 0
 block_73:
   br label %block_78
 block_74:
-  %var_82 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_82 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_83 = icmp eq i1 %var_82, false
   br i1 %var_83, label %block_79, label %block_80
 block_75:
-  %var_84 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_84 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_85 = icmp eq i1 %var_84, false
   br i1 %var_85, label %block_81, label %block_82
 block_76:
-  %var_88 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_88 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_89 = icmp eq i1 %var_88, false
   br i1 %var_89, label %block_83, label %block_84
 block_77:
-  %var_90 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+  %var_90 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
   %var_91 = icmp eq i1 %var_90, false
   br i1 %var_91, label %block_85, label %block_86
 block_78:
@@ -414,7 +414,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-declare i1 @__quantum__rt__read_result(ptr) #2
+declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
 define internal void @Reset(ptr %var_41) {
 block_95:
@@ -450,7 +450,7 @@ declare void @__quantum__rt__result_record_output(ptr, ptr)
 
 declare void @__quantum__rt__int_record_output(i64, ptr)
 
-declare void @__quantum__rt__bool_record_output(i1, ptr)
+declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="8" "required_num_results"="8" }
 attributes #1 = { "irreversible" }

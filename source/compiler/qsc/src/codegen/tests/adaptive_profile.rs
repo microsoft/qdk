@@ -464,7 +464,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
           br label %block_4
         block_6:
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_10 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_10 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           store i1 %var_10, ptr %var_1
           br label %block_1
         }
@@ -481,7 +481,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
@@ -560,7 +560,7 @@ fn result_array_dynamic_index_succeeds() {
           %var_22_offset = select i1 %var_22_offset_chk, i64 1, i64 0
           %var_22 = getelementptr [4 x ptr], ptr @array0, i64 %var_22_offset, i64 %var_21
           %var_6 = load ptr, ptr %var_22
-          %var_7 = call i1 @__quantum__rt__read_result(ptr %var_6)
+          %var_7 = call zeroext i1 @__quantum__rt__read_result(ptr %var_6)
           br i1 %var_7, label %block_6, label %block_7
         block_5:
           %var_18 = load i64, ptr %var_2
@@ -584,7 +584,7 @@ fn result_array_dynamic_index_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -667,7 +667,7 @@ fn result_array_while_loop_dynamic_index_succeeds() {
           %var_18_offset = select i1 %var_18_offset_chk, i64 1, i64 0
           %var_18 = getelementptr [4 x ptr], ptr @array0, i64 %var_18_offset, i64 %var_17
           %var_5 = load ptr, ptr %var_18
-          %var_6 = call i1 @__quantum__rt__read_result(ptr %var_5)
+          %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr %var_5)
           br i1 %var_6, label %block_4, label %block_5
         block_3:
           %var_14 = load i64, ptr %var_2
@@ -699,7 +699,7 @@ fn result_array_while_loop_dynamic_index_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -753,7 +753,7 @@ fn mutable_result_variable_succeeds() {
           call void @H(ptr inttoptr (i64 0 to ptr))
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           store ptr inttoptr (i64 0 to ptr), ptr %var_1
-          %var_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_2, label %block_1, label %block_2
         block_1:
           call void @X(ptr inttoptr (i64 0 to ptr))
@@ -780,7 +780,7 @@ fn mutable_result_variable_succeeds() {
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         define internal void @X(ptr %var_4) {
         block_4:
@@ -840,12 +840,12 @@ fn result_variables_with_default_values_succeeds() {
           %var_0 = alloca ptr
           %var_1 = alloca ptr
           call void @__quantum__rt__initialize(ptr null)
-          call void @__quantum__rt__write_result(i1 false, ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__rt__write_result(i1 true, ptr inttoptr (i64 2 to ptr))
+          call void @__quantum__rt__write_result(i1 zeroext false, ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__write_result(i1 zeroext true, ptr inttoptr (i64 2 to ptr))
           store ptr inttoptr (i64 1 to ptr), ptr %var_0
           store ptr inttoptr (i64 2 to ptr), ptr %var_1
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_2, label %block_1, label %block_2
         block_1:
           store ptr inttoptr (i64 2 to ptr), ptr %var_0
@@ -865,7 +865,7 @@ fn result_variables_with_default_values_succeeds() {
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         define internal void @Reset(ptr %var_5) {
         block_3:
@@ -879,7 +879,7 @@ fn result_variables_with_default_values_succeeds() {
 
         declare void @__quantum__rt__result_record_output(ptr, ptr)
 
-        declare void @__quantum__rt__write_result(i1, ptr)
+        declare void @__quantum__rt__write_result(i1 zeroext, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
@@ -1123,7 +1123,7 @@ fn static_while_inside_emit_while_succeeds() {
           br label %block_1
         block_1:
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_1, label %block_2, label %block_3
         block_2:
           store i64 0, ptr %var_3
@@ -1154,7 +1154,7 @@ fn static_while_inside_emit_while_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -1322,7 +1322,7 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
           %var_5 = load ptr, ptr %var_20
           call void @H(ptr %var_5)
           call void @__quantum__qis__mresetz__body(ptr %var_5, ptr inttoptr (i64 0 to ptr))
-          %var_8 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_8 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           store i1 %var_8, ptr %var_0
           %var_22 = load i1, ptr %var_0
           br i1 %var_22, label %block_4, label %block_5
@@ -1330,7 +1330,7 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
           %var_16 = load i1, ptr %var_2
           store i1 %var_16, ptr %var_11
           %var_18 = load i1, ptr %var_11
-          call void @__quantum__rt__bool_record_output(i1 %var_18, ptr @0)
+          call void @__quantum__rt__bool_record_output(i1 zeroext %var_18, ptr @0)
           ret i64 0
         block_4:
           store i1 true, ptr %var_2
@@ -1354,9 +1354,9 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
-        declare void @__quantum__rt__bool_record_output(i1, ptr)
+        declare void @__quantum__rt__bool_record_output(i1 zeroext, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="1" }
         attributes #1 = { "irreversible" }
@@ -2283,7 +2283,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
           %var_3 = alloca i64
           store i64 1, ptr %var_3
           call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-          %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_4, label %block_2, label %block_3
         block_2:
           store i64 2, ptr %var_3
@@ -2295,7 +2295,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -2362,7 +2362,7 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
           %var_3 = alloca i64
           store i64 0, ptr %var_3
           call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-          %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_4, label %block_2, label %block_3
         block_2:
           store i64 5, ptr %var_3
@@ -2377,7 +2377,7 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -2506,11 +2506,11 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-282)
                 1 = SubProgram name=Foo location=(2-29)
-                2 = SubProgram name=MResetZ location=(1-182457)
+                2 = SubProgram name=MResetZ location=(1-182456)
             dbg_locations:
                 [1]: scope=0 location=(2-363)
                 [2]: scope=1 location=(2-112) inlined_at=1
-                [3]: scope=2 location=(1-182506) inlined_at=2
+                [3]: scope=2 location=(1-182505) inlined_at=2
                 [4]: scope=1 location=(2-109) inlined_at=1
             tags:
                 [0]: 0_i
@@ -2657,7 +2657,7 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
           call void @__quantum__rt__initialize(ptr null)
           store i64 0, ptr %var_0
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_1, label %block_1, label %block_2
         block_1:
           store i64 2, ptr %var_0
@@ -2675,7 +2675,7 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
@@ -2725,7 +2725,7 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
           call void @__quantum__rt__initialize(ptr null)
           store i64 0, ptr %var_0
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
           br i1 %var_1, label %block_1, label %block_2
         block_1:
           store i64 2, ptr %var_0
@@ -2734,7 +2734,7 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
           %var_10 = load i64, ptr %var_0
           store i64 %var_10, ptr %var_4
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          %var_5 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
           br i1 %var_5, label %block_3, label %block_4
         block_3:
           store i64 7, ptr %var_0
@@ -2751,7 +2751,7 @@ fn point_in_time_copy_of_mutable_variable_maintains_value_after_original_mutable
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr) #2
+        declare zeroext i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
