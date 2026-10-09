@@ -64,20 +64,29 @@ pub(super) fn run(
     assigner: &mut Assigner,
 ) -> FxHashMap<ExprId, Span> {
     snapshot_branch_guards(store.get_mut(package_id), assigner);
-    let mut reachable_expr_ids = reachable_expr_ids.to_vec();
-    let initializers = materialize_inline_struct_captures(
-        store.get_mut(package_id),
-        &reachable_expr_ids,
-        assigner,
-    );
-    reachable_expr_ids.extend(initializers);
+    let reachable_expr_ids =
+        normalize_capture_operands(store.get_mut(package_id), reachable_expr_ids, assigner);
     let reachable_expr_ids = reachable_expr_ids.as_slice();
-    expose_closure_capture_bindings(store.get_mut(package_id), reachable_expr_ids);
     inline_static_closure_captures(store, package_id, reachable_expr_ids);
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
     decompose_assignment_tuple_aliases(store.get_mut(package_id), assigner);
     identity_closure_peephole(store, package_id, reachable_expr_ids)
+}
+
+/// Normalizes capture creation in the supplied reachable expression IDs. Callee
+/// control-flow rewriting calls this again for fresh branch-local arguments
+/// before analysis observes them.
+pub(super) fn normalize_capture_operands(
+    package: &mut Package,
+    reachable_expr_ids: &[ExprId],
+    assigner: &mut Assigner,
+) -> Vec<ExprId> {
+    let mut reachable_expr_ids = reachable_expr_ids.to_vec();
+    let initializers = materialize_inline_struct_captures(package, &reachable_expr_ids, assigner);
+    reachable_expr_ids.extend(initializers);
+    expose_closure_capture_bindings(package, &reachable_expr_ids);
+    reachable_expr_ids
 }
 
 /// Keeps inline struct operands ahead of specialization's capture relocation.

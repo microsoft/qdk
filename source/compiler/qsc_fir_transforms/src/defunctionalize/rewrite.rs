@@ -871,11 +871,15 @@ fn rewrite_direct_call(
 /// Move invocation inside callee control flow before collecting callable facts.
 /// Blocks retain their effects and capture bindings; branches select once before
 /// arguments run. Each step consumes a block or conditional on the callee spine.
+/// Each invocation receives a deep argument copy so later normalization cannot
+/// share branch-local temporaries across alternatives. Returns whether new calls
+/// were created and need capture normalization.
 pub(super) fn normalize_direct_callee_control_flow(
     package: &mut Package,
     mut pending: Vec<ExprId>,
     assigner: &mut Assigner,
-) {
+) -> bool {
+    let mut changed = false;
     while let Some(id) = pending.pop() {
         let call = package.get_expr(id).clone();
         let ExprKind::Call(callee, args) = call.kind else {
@@ -905,8 +909,7 @@ pub(super) fn normalize_direct_callee_control_flow(
             let callee = alloc_functor_wrapped_expr(
                 package, assigner, value.kind, functor, &callee_ty, value.span,
             );
-            let argument = package.get_expr(args).clone();
-            let args = alloc_expr(package, assigner, argument.ty, argument.kind, argument.span);
+            let args = crate::cloner::clone_expr_within_package(package, args, assigner);
             let invocation =
                 alloc_call_expr(package, assigner, callee, args, call.ty.clone(), call.span);
             pending.push(invocation);
@@ -922,7 +925,9 @@ pub(super) fn normalize_direct_callee_control_flow(
             ))
         };
         package.exprs.get_mut(id).expect("call exists").kind = kind;
+        changed = true;
     }
+    changed
 }
 
 /// Rewrites a direct call whose callee has multiple possible concrete
