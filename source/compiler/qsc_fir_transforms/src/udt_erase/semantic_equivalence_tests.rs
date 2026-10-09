@@ -37,6 +37,167 @@ fn callable_capability_weakening_preserves_constructor_shape_and_gate_behavior()
     }
 }
 
+#[test]
+fn complex_arithmetic_erases_to_scalar_values_without_losing_operand_effects() {
+    for (expression, real, imag) in [
+        ("(1.0 + 2.0i) + (3.0 + 4.0i)", 4.0, 6.0),
+        ("Complex(1.0, 2.0) + 3.0i", 1.0, 5.0),
+        ("(1.0 + 2.0i) - (3.0 + 4.0i)", -2.0, -2.0),
+        ("(1.0 + 2.0i) * (3.0 + 4.0i)", -5.0, 10.0),
+        ("-(1.0 + 2.0i)", -1.0, -2.0),
+        ("3.0 - 2.0i", 3.0, -2.0),
+        ("2.0i - 3.0", -3.0, 2.0),
+    ] {
+        let source = format!(
+            r#"
+            @EntryPoint() operation Main() : (Double, Double) {{
+                let value = {expression};
+                (value.Real, value.Imag)
+            }}
+        "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Tuple(
+                vec![
+                    qsc_eval::val::Value::Double(real),
+                    qsc_eval::val::Value::Double(imag),
+                ]
+                .into(),
+                None,
+            ),
+        );
+        let (mut store, package) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::UdtErase);
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Tuple(
+                vec![
+                    qsc_eval::val::Value::Double(real),
+                    qsc_eval::val::Value::Double(imag),
+                ]
+                .into(),
+                None
+            ))
+        );
+        let qir = crate::test_utils::generate_qir(&source);
+        assert_eq!(
+            qir.matches("call void @__quantum__rt__double_record_output")
+                .count(),
+            2,
+            "{qir}"
+        );
+    }
+
+    let source = r#"
+        function Mark(label : String, value : Complex) : Complex { Message(label); value }
+        @EntryPoint() operation Main() : (Double, Double, Double, Double) {
+            mutable value = Complex(1.0, 2.0);
+            let sum = Mark("lhs", value) + {
+                set value = Complex(7.0, 8.0);
+                Mark("rhs", Complex(3.0, 4.0))
+            };
+            set value *= { Message("assign"); set value = Complex(9.0, 10.0); Complex(2.0, 0.0) };
+            (sum.Real, sum.Imag, value.Real, value.Imag)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        source,
+        qsc_eval::val::Value::Tuple(
+            [4.0, 6.0, 14.0, 16.0]
+                .into_iter()
+                .map(qsc_eval::val::Value::Double)
+                .collect::<Vec<_>>()
+                .into(),
+            None,
+        ),
+        "lhs\nrhs\nassign\n",
+    );
+}
+
+#[test]
+fn complex_lowering_preserves_user_failure_and_does_not_reinterpret_ordinary_tuples() {
+    let source = r#"
+        function Stop() : Complex { fail "complex operand"; }
+        @EntryPoint() operation Main() : Double {
+            let z = Complex(1.0, 2.0) + Stop();
+            z.Real
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence(source);
+    let (store, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
+    assert!(
+        crate::test_utils::try_eval_fir_entry(&store, package)
+            .expect_err("a failing Complex operand must still fail")
+            .contains("complex operand")
+    );
+    let ordinary = r#"
+        newtype Pair = (Real : Double, Imag : Double);
+        @EntryPoint() operation Main() : (Double, Double, Bool) {
+            let p = Pair(1.0, 2.0);
+            let values = [(1.0, 2.0)] + [(3.0, 4.0)];
+            (p::Real, p::Imag, values == [(1.0, 2.0), (3.0, 4.0)])
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        ordinary,
+        qsc_eval::val::Value::Tuple(
+            vec![
+                qsc_eval::val::Value::Double(1.0),
+                qsc_eval::val::Value::Double(2.0),
+                qsc_eval::val::Value::Bool(true),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn measurement_dependent_complex_components_generate_scalar_qir() {
+    for measured_one in [false, true] {
+        let source = format!(
+            r#"
+            @EntryPoint() operation Main() : Double {{
+                use q = Qubit();
+                {preparation}
+                let real = MResetZ(q) == One ? 2.0 | 1.0;
+                let z = Complex(real, 3.0) * Complex(2.0, 1.0);
+                z.Real + z.Imag
+            }}
+        "#,
+            preparation = if measured_one { "X(q);" } else { "" }
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Double(if measured_one { 9.0 } else { 6.0 }),
+        );
+        let (store, package_id) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Full);
+        for profile in [
+            qsc_data_structures::target::Profile::AdaptiveRIF,
+            qsc_data_structures::target::Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let properties = qsc_rca::Analyzer::init(&store, capabilities).analyze_all();
+            let package = store.get(package_id);
+            let entry = qsc_partial_eval::ProgramEntry {
+                exec_graph: package.entry_exec_graph.clone(),
+                expr: (package_id, package.entry.expect("entry expression")).into(),
+            };
+            let qir = qsc_codegen::qir::fir_to_qir(&store, capabilities, &properties, &entry)
+                .expect("dynamic Complex scalar lowering");
+            assert!(qir.contains("fmul double"), "{qir}");
+            assert!(
+                qir.contains("call void @__quantum__rt__double_record_output"),
+                "{qir}"
+            );
+        }
+    }
+}
+
 fn check_integer_semantics_and_qir(source: &str, expected: i64) {
     crate::test_utils::check_semantic_equivalence_with_expected(
         source,
