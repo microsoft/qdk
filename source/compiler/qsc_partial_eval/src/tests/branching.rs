@@ -2426,7 +2426,7 @@ fn short_circuit_andl_with_potentially_skipped_mutable_update_with_literal() {
                 Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
                 Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(0, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
@@ -2462,7 +2462,7 @@ fn short_circuit_orl_with_potentially_skipped_mutable_update_with_literal() {
                 Branch Variable(3, Boolean), 1, 2
             Block 1:Block:
                 Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(0, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
