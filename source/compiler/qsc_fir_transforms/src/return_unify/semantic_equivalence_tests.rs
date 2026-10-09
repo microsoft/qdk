@@ -20,6 +20,254 @@ use qsc_fir::{
 };
 
 #[test]
+fn non_defaultable_tails_preserve_returned_payload_and_run_effects_only_on_fallthrough() {
+    for stop in [false, true] {
+        for (output, returned, tail, read, tag, expected_tag) in [
+            ("Qubit", "q", "q", "value", "0", 0),
+            (
+                "(Qubit, Int)",
+                "(q, 7)",
+                "(q, 9)",
+                "Fst(value)",
+                "Snd(value)",
+                if stop { 7 } else { 9 },
+            ),
+            (
+                "Payload",
+                "new Payload { Q = q, Tag = 7 }",
+                "new Payload { Q = q, Tag = 9 }",
+                "value.Q",
+                "value.Tag",
+                if stop { 7 } else { 9 },
+            ),
+        ] {
+            let source = format!(
+                r#"
+                struct Payload {{ Q : Qubit, Tag : Int }}
+                operation Tail(q : Qubit) : {output} {{
+                    Message("tail");
+                    use temporary = Qubit();
+                    {tail}
+                }}
+                operation Run(stop : Bool, q : Qubit, other : Qubit) : {output} {{
+                    {{ if stop {{ return {returned}; }} Tail(other) }}
+                }}
+                @EntryPoint() operation Main() : (Result, Result, Int) {{
+                    use q = Qubit();
+                    use other = Qubit();
+                    let value = Run({stop}, q, other);
+                    X({read});
+                    (MResetZ(q), MResetZ(other), {tag})
+                }}
+            "#
+            );
+            // The helper compares messages and allocation/release/gate traces as
+            // well as the explicit value, so a skipped Tail must do no work.
+            check_value(
+                &source,
+                Value::Tuple(
+                    vec![
+                        Value::Result(qsc_eval::val::Result::Val(stop)),
+                        Value::Result(qsc_eval::val::Result::Val(!stop)),
+                        Value::Int(expected_tag),
+                    ]
+                    .into(),
+                    None,
+                ),
+            );
+        }
+    }
+}
+
+#[test]
+fn non_block_conditional_returns_skip_remaining_operands_and_preserve_fallthrough_values() {
+    for stop in [false, true] {
+        for (body, expected) in [
+            (
+                "let v = stop ? 1 + (return 1) | 2; v",
+                if stop { 1 } else { 2 },
+            ),
+            (
+                "let v = stop ? Inc(return 1) | 2; v",
+                if stop { 1 } else { 2 },
+            ),
+            (
+                "let v = stop ? Inc(2) | Inc(return 1); v",
+                if stop { 3 } else { 1 },
+            ),
+            (
+                "let v = stop ? Inc(return 1) | Inc(return 2); v",
+                if stop { 1 } else { 2 },
+            ),
+            (
+                "let v = stop ? Inc(stop ? (return 4) | 0) | 2; v",
+                if stop { 4 } else { 2 },
+            ),
+            (
+                "if false {} elif (stop ? (return 1) | false) {} 0",
+                i64::from(stop),
+            ),
+            (
+                "while (stop ? Truth(return 1) | false) {} 0",
+                i64::from(stop),
+            ),
+        ] {
+            let source = format!(
+                r#"
+                function Inc(x : Int) : Int {{ Message("inc"); x + 1 }}
+                function Truth(b : Bool) : Bool {{ Message("truth"); b }}
+                function Run(stop : Bool) : Int {{ {body} }}
+                @EntryPoint() operation Main() : Int {{ Run({stop}) }}
+            "#
+            );
+            check_value(&source, Value::Int(expected));
+        }
+    }
+}
+
+#[test]
+fn logical_assignment_returns_preserve_all_short_circuit_paths_and_generate_qir() {
+    for (operator, rhs) in [
+        ("and", "r or (return false)"),
+        ("or", "r and (return true)"),
+    ] {
+        for initial in [false, true] {
+            for measured_one in [false, true] {
+                let preparation = if measured_one { "X(q);" } else { "" };
+                // Keep the qubit in Main: this isolates returning RHS lowering
+                // from conditional cleanup in a resource-owning callable.
+                let source = format!(
+                    r#"
+                    function Run(r : Bool, initial : Bool) : Bool {{
+                        mutable value = initial;
+                        set value {operator}= {{ Message("rhs"); {rhs} }};
+                        Message("continuation");
+                        value
+                    }}
+                    @EntryPoint() operation Main() : Bool {{
+                        use q = Qubit();
+                        {preparation}
+                        Run(MResetZ(q) == One, {initial})
+                    }}
+                "#
+                );
+                let expected = if operator == "and" {
+                    initial && measured_one
+                } else {
+                    initial || measured_one
+                };
+                check_value(&source, Value::Bool(expected));
+                let qir = crate::test_utils::generate_qir(&source);
+                assert!(qir.contains("@ENTRYPOINT__main"), "{qir}");
+            }
+        }
+    }
+}
+
+#[test]
+fn short_circuit_assignment_skips_disabled_rhs_and_calls_after_return() {
+    for (operator, initial, expected) in [("and", false, false), ("or", true, true)] {
+        for enabled in [false, true] {
+            let initial = if enabled { !initial } else { initial };
+            let source = format!(
+                r#"
+                function Use(b : Bool) : Bool {{ fail "call after return"; }}
+                @EntryPoint() operation Main() : Bool {{
+                    mutable value = {initial};
+                    set value {operator}= Use(return {{ Message("rhs"); {expected} }});
+                    Message("continuation");
+                    value
+                }}
+            "#
+            );
+            check_value(&source, Value::Bool(expected));
+        }
+    }
+}
+
+#[test]
+fn nested_returns_preserve_operand_effect_order_and_do_not_overwrite_the_inner_return() {
+    for (a, b, expected) in [
+        (false, false, 1_949),
+        (false, true, 19),
+        (true, false, 123),
+        (true, true, 12),
+    ] {
+        let source = format!(
+            r#"
+            function Identity(x : Int) : Int {{ Message("identity"); x }}
+            @EntryPoint() operation Main() : Int {{
+                mutable marker = 1;
+                let value = {a}
+                    ? Identity({{
+                        set marker = marker * 10 + 2;
+                        if {b} {{ return marker; }}
+                        marker
+                    }})
+                    | Identity({{
+                        set marker = marker * 10 + 9;
+                        if {b} {{ return marker; }}
+                        marker
+                    }});
+                set marker = marker * 10 + 3;
+                return value + (Identity({a} ? (return marker) | marker) * 10);
+            }}
+        "#
+        );
+        // The marker encodes operand order; receiver output also proves that
+        // Identity is not called when its argument returns from Main.
+        check_value(&source, Value::Int(expected));
+    }
+}
+
+#[test]
+fn logical_assignment_returning_int_preserves_bool_rhs_type_and_generates_qir() {
+    for measured_one in [false, true] {
+        let preparation = if measured_one { "X(q);" } else { "" };
+        let source = format!(
+            r#"
+            function Run(r : Bool) : Int {{
+                mutable value = true;
+                set value and= (r or (return 17));
+                if value {{ 3 }} else {{ 5 }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                use q = Qubit();
+                {preparation}
+                Run(MResetZ(q) == One)
+            }}
+        "#
+        );
+        check_value(&source, Value::Int(if measured_one { 3 } else { 17 }));
+        let qir = crate::test_utils::generate_qir(&source);
+        assert!(qir.contains("@ENTRYPOINT__main"), "{qir}");
+    }
+}
+
+#[test]
+fn non_defaultable_failing_tail_is_skipped_after_return_and_preserves_failure_on_fallthrough() {
+    for stop in [false, true] {
+        let source = format!(
+            r#"
+            operation Tail(q : Qubit) : Qubit {{ fail "tail failure"; }}
+            operation Run(q : Qubit) : Qubit {{
+                {{ if {stop} {{ return q; }} Tail(q) }}
+            }}
+            @EntryPoint() operation Main() : Result {{
+                use q = Qubit();
+                MResetZ(Run(q))
+            }}
+        "#
+        );
+        if stop {
+            check_value(&source, Value::Result(qsc_eval::val::Result::Val(false)));
+        } else {
+            check_preserved_failure(&source, "tail failure", vec![QubitAllocate(0)]);
+        }
+    }
+}
+
+#[test]
 fn semicolon_failure_in_non_unit_body_preserves_user_error() {
     check_non_unit_failure("fail \"expected\";");
 }

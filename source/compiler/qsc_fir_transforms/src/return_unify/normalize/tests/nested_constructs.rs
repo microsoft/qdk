@@ -292,21 +292,24 @@ fn if_elseif_if_return_deep() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_67 : Int = if M(q) == One {
                     1
-                } else if M(q) == Zero {
-                    if M(q) == One {
-                        {
-                            let _generated_ident_55 : Int = 2;
-                            __quantum__rt__qubit_release(q);
+                } else {
+                    if M(q) == Zero {
+                        if M(q) == One {
                             {
-                                __ret_val = _generated_ident_55;
-                                __has_returned = true;
+                                let _generated_ident_55 : Int = 2;
+                                __quantum__rt__qubit_release(q);
+                                {
+                                    __ret_val = _generated_ident_55;
+                                    __has_returned = true;
+                                };
                             };
-                        };
+                        }
+
+                        3
+                    } else {
+                        4
                     }
 
-                    3
-                } else {
-                    4
                 };
                 if (not __has_returned) {
                     __quantum__rt__qubit_release(q);

@@ -128,6 +128,7 @@ fn if_else_chain_return_in_deepest_else() {
                                     __has_returned = true;
                                 };
                             };
+                            __ret_val
                         }
 
                     }

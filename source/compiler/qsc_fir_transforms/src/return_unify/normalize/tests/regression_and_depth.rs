@@ -650,19 +650,26 @@ fn if_elseif_elseif_else_return_in_last_arm() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_66 : Int = if M(q) == One {
                     1
-                } else if M(q) == Zero {
-                    2
-                } else if M(q) == One {
-                    3
                 } else {
-                    {
-                        let _generated_ident_54 : Int = 4;
-                        __quantum__rt__qubit_release(q);
-                        {
-                            __ret_val = _generated_ident_54;
-                            __has_returned = true;
-                        };
-                    };
+                    if M(q) == Zero {
+                        2
+                    } else {
+                        if M(q) == One {
+                            3
+                        } else {
+                            {
+                                let _generated_ident_54 : Int = 4;
+                                __quantum__rt__qubit_release(q);
+                                {
+                                    __ret_val = _generated_ident_54;
+                                    __has_returned = true;
+                                };
+                            };
+                            __ret_val
+                        }
+
+                    }
+
                 };
                 if (not __has_returned) {
                     __quantum__rt__qubit_release(q);

@@ -246,6 +246,7 @@ fn local_init_retype_in_call_arg_fix() {
                         __has_returned = true;
                     }
 
+                    __ret_val
                 } else {
                     0
                 };
