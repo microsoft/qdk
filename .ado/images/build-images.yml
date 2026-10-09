@@ -1,4 +1,5 @@
-name: qdk-build-images-$(BuildId)
+name: qdk-build-image-$(BuildId)
+# This pipeline builds the qdk-build container image for the manylinux builds.
 
 trigger:
   branches:
