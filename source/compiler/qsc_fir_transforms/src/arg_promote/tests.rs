@@ -3080,12 +3080,8 @@ fn build_leaf_tuple_interior_whole_tuple_read_preserves_values() {
 }
 
 #[test]
-fn whole_tuple_copy_assignment_is_decomposed() {
-    // `set x = y;` copies the whole tuple value `y` into `x`. By `TupleDecompose2`
-    // the copy-assignment normalization and tuple-decompose have split the copy into
-    // per-element assignments and scalar-replaced both `x` and `y`, leaving no
-    // `(Int, Int)` tuple local. The value semantics are guarded by the paired
-    // `whole_tuple_copy_assignment_preserves_evaluated_values` test below.
+fn whole_tuple_copy_saves_source_fields_before_scalar_stores() {
+    // This pins the lowered shape; the paired semantic test below checks 34.
     check_at_stage(
         "function Main() : Unit { mutable x = (1, 2); let y = (3, 4); x = y; }",
         PipelineStage::TupleDecompose2,
@@ -3093,8 +3089,10 @@ fn whole_tuple_copy_assignment_is_decomposed() {
             function Main() : Unit {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
                 let (y_0 : Int, y_1 : Int) = (3, 4);
-                x_0 = y_0;
-                x_1 = y_1;
+                let __tuple_rhs_0 : Int = y_0;
+                let __tuple_rhs_1 : Int = y_1;
+                x_0 = __tuple_rhs_0;
+                x_1 = __tuple_rhs_1;
             }
             // entry
             Main()
@@ -3108,7 +3106,7 @@ fn whole_tuple_copy_assignment_preserves_evaluated_values() {
     // place-valued elements make every position observable. With y = (3, 4) the
     // copy `set x = y;` must yield x.0 = 3, x.1 = 4, so the result is
     // 3 * 10 + 4 = 34. A swapped-index copy bug would change the number.
-    check_semantic_equivalence(
+    crate::test_utils::check_semantic_equivalence_with_expected(
         "@EntryPoint()
             function Main() : Int {
                 mutable x = (0, 0);
@@ -3117,6 +3115,7 @@ fn whole_tuple_copy_assignment_preserves_evaluated_values() {
                 let (a, b) = x;
                 a * 10 + b
             }",
+        qsc_eval::val::Value::Int(34),
     );
 }
 
@@ -3144,18 +3143,10 @@ fn whole_tuple_copy_assignment_partial_decompose_with_whole_use() {
 }
 
 #[test]
-fn nested_whole_tuple_copy_assignment_preserves_values() {
-    // A nested copy `set x = y;` where both are `(Int, (Int, Int))` fully
-    // decomposes to scalar leaves across the fixed point. The interesting part
-    // is that the inner copy is *regenerated* mid-loop: round 1 normalizes the
-    // top level to `set x = (y::0, y::1)` and tuple-decompose splits it into
-    // `set x_0 = y::0; set x_1 = y::1` while scalar-replacing `y`, which rewrites
-    // `y::1` into the bare `Var(y_1)`. That leaves a fresh `set x_1 = y_1`
-    // whole-tuple Var-to-Var copy, which the *next* round re-normalizes and
-    // decomposes. This is why copy-assignment normalization must run every
-    // fixed-point iteration rather than once up front. The end state shown here is
-    // stable by `TupleDecompose2`; the value semantics are guarded by the paired
-    // `nested_whole_tuple_copy_assignment_preserves_evaluated_values` test below.
+fn nested_tuple_copy_scalarizes_rhs_snapshots_through_fixpoint() {
+    // Saving the inner tuple introduces another whole-value copy. Later rounds
+    // must normalize and scalarize that copy too. This asserts the final shape;
+    // the paired semantic test below checks 789.
     check_at_stage(
         "function Main() : Unit { mutable x = (0, (0, 0)); let y = (7, (8, 9)); x = y; }",
         PipelineStage::TupleDecompose2,
@@ -3163,9 +3154,14 @@ fn nested_whole_tuple_copy_assignment_preserves_values() {
             function Main() : Unit {
                 mutable (x_0 : Int, (x_1_0 : Int, x_1_1 : Int)) = (0, (0, 0));
                 let (y_0 : Int, (y_1_0 : Int, y_1_1 : Int)) = (7, (8, 9));
-                x_0 = y_0;
-                x_1_0 = y_1_0;
-                x_1_1 = y_1_1;
+                let __tuple_rhs_0 : Int = y_0;
+                let __tuple_rhs_1_0 : Int = y_1_0;
+                let __tuple_rhs_1_1 : Int = y_1_1;
+                x_0 = __tuple_rhs_0;
+                let __tuple_rhs_0_1 : Int = __tuple_rhs_1_0;
+                let __tuple_rhs_1 : Int = __tuple_rhs_1_1;
+                x_1_0 = __tuple_rhs_0_1;
+                x_1_1 = __tuple_rhs_1;
             }
             // entry
             Main()
@@ -3178,7 +3174,7 @@ fn nested_whole_tuple_copy_assignment_preserves_evaluated_values() {
     // Value guard for the nested copy: with y = (7, (8, 9)) the element-wise
     // copy must yield 7 * 100 + 8 * 10 + 9 = 789. A cross-wired leaf copy would
     // change the number.
-    check_semantic_equivalence(
+    crate::test_utils::check_semantic_equivalence_with_expected(
         "@EntryPoint()
             function Main() : Int {
                 mutable x = (0, (0, 0));
@@ -3187,5 +3183,6 @@ fn nested_whole_tuple_copy_assignment_preserves_evaluated_values() {
                 let (a, (b, c)) = x;
                 a * 100 + b * 10 + c
             }",
+        qsc_eval::val::Value::Int(789),
     );
 }
