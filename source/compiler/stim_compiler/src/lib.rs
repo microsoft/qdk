@@ -13,6 +13,7 @@ mod error;
 pub mod lex;
 pub mod parser;
 pub mod qir;
+pub mod semantic;
 
 pub fn compile(
     src: &str,
@@ -21,7 +22,7 @@ pub fn compile(
     // Create an Arc of `source` so that each error can reference
     // the source without making copies of a potentially large string.
     let src_ref = Arc::new(src.to_string());
-    let (circuit, parser_errors) = parse(src);
+    let (ast, parser_errors) = parse(src);
     if !parser_errors.is_empty() {
         return Err(parser_errors
             .into_iter()
@@ -29,7 +30,15 @@ pub fn compile(
             .map(|e| Report::new(e).with_source_code(src_ref.clone()))
             .collect());
     }
-    compile_to_qir(&circuit, noise).map_err(|errors| {
+    let (semantic_ast, semantic_errors) = semantic::lower(ast);
+    if !semantic_errors.is_empty() {
+        return Err(semantic_errors
+            .into_iter()
+            .map(Error::from)
+            .map(|e| Report::new(e).with_source_code(src_ref.clone()))
+            .collect());
+    }
+    compile_to_qir(&semantic_ast, noise).map_err(|errors| {
         errors
             .into_iter()
             .map(Error::from)
