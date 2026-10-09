@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir::tests::check;
+use super::check;
 use expect_test::expect;
 use indoc::indoc;
 
@@ -101,32 +101,34 @@ fn notleaked_just_beyond_available_records_is_out_of_bounds() {
 }
 
 #[test]
-fn annotation_records_are_out_of_bounds() {
-    let source = indoc! {"
-        DETECTOR rec[-1]
-        OBSERVABLE_INCLUDE(0) rec[-1]
-    "};
+fn detector_record_is_out_of_bounds() {
     check(
-        source,
+        "DETECTOR rec[-1]",
         &expect![[r#"
-            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
+        Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-              x measurement record is out of bounds
-               ,-[1:10]
-             1 | DETECTOR rec[-1]
-               :          ^^^^^^^
-             2 | OBSERVABLE_INCLUDE(0) rec[-1]
-               `----
+          x measurement record is out of bounds
+           ,----
+         1 | DETECTOR rec[-1]
+           :          ^^^^^^^
+           `----
+    "#]],
+    );
+}
 
-            Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
+#[test]
+fn observable_include_record_is_out_of_bounds() {
+    check(
+        "OBSERVABLE_INCLUDE(0) rec[-1]",
+        &expect![[r#"
+        Qdk.Stim.Semantic.MeasurementRecordOutOfBounds
 
-              x measurement record is out of bounds
-               ,-[2:23]
-             1 | DETECTOR rec[-1]
-             2 | OBSERVABLE_INCLUDE(0) rec[-1]
-               :                       ^^^^^^^
-               `----
-        "#]],
+          x measurement record is out of bounds
+           ,----
+         1 | OBSERVABLE_INCLUDE(0) rec[-1]
+           :                       ^^^^^^^
+           `----
+    "#]],
     );
 }
 
@@ -260,14 +262,6 @@ fn repeats_append_expected_records() {
 
 #[test]
 fn record_count_overflow_yields_error() {
-    // UNDO THESE COMMENTS AFTER HANDLING REPEAT COUNTS CORRECTLY
-    // let direct_repeat = indoc! {"
-    //     REPEAT 18446744073709551615 {
-    //       M 0 1
-    //     }
-    // "};
-    // check(direct_repeat, &expect![[r#""#]]);
-
     let nested_repeats = indoc! {"
         REPEAT 4294967295 {
           REPEAT 4294967295 {

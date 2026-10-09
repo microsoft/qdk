@@ -99,6 +99,16 @@ pub fn args_span(args: &[Arg]) -> Span {
     }
 }
 
+pub fn targets_span(targets: &[Target]) -> Span {
+    let (first, rest) = targets
+        .split_first()
+        .expect("target list must not be empty");
+    Span {
+        lo: first.span.lo,
+        hi: rest.last().unwrap_or(first).span.hi,
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum ArgValue {
     Default(f64),
@@ -169,7 +179,7 @@ impl Display for TargetKind {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Pauli {
     X,
     Y,
