@@ -123,6 +123,27 @@ fn format_expr(
     let expr = package.get_expr(expr_id);
     let indent = "  ".repeat(depth);
     match &expr.kind {
+        ExprKind::Block(block) => {
+            let statements = package
+                .get_block(*block)
+                .stmts
+                .iter()
+                .map(|id| match package.get_stmt(*id).kind {
+                    StmtKind::Expr(value) | StmtKind::Semi(value) => {
+                        format_expr(package, value, depth + 1)
+                    }
+                    StmtKind::Local(_, _, value) => {
+                        format!(
+                            "{indent}  local init:\n{}",
+                            format_expr(package, value, depth + 2)
+                        )
+                    }
+                    StmtKind::Item(item) => format!("{indent}  Item({item})"),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("{indent}Block(ty={}):\n{statements}", expr.ty)
+        }
         ExprKind::BinOp(op, lhs, rhs) => {
             let op_str = match op {
                 BinOp::Eq => "Eq",
@@ -419,7 +440,7 @@ fn dynamic_tuple_eq_qir_succeeds() {
 }
 
 #[test]
-fn nested_tuple_eq_recursively_decomposes_inner_elements() {
+fn nested_tuple_equality_compares_scalar_fields_in_order() {
     let source = indoc! {"
             operation Main() : Bool {
                 use q1 = Qubit();
@@ -490,7 +511,7 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
 }
 
 #[test]
-fn nested_tuple_neq_recursively_decomposes_inner_elements() {
+fn nested_tuple_inequality_compares_scalar_fields_in_order() {
     let source = indoc! {"
             function Main() : Bool {
                 ((1, 2), (3, 4)) != ((1, 5), (3, 4))
@@ -498,21 +519,22 @@ fn nested_tuple_neq_recursively_decomposes_inner_elements() {
         "};
     check(
         source,
-        &expect![[r#"BinOp(OrL, ty=Bool):
-  BinOp(OrL, ty=Bool):
-    BinOp(Neq, ty=Bool):
-      Lit(Int(1), ty=Int)
-      Lit(Int(1), ty=Int)
-    BinOp(Neq, ty=Bool):
-      Lit(Int(2), ty=Int)
-      Lit(Int(5), ty=Int)
-  BinOp(OrL, ty=Bool):
-    BinOp(Neq, ty=Bool):
-      Lit(Int(3), ty=Int)
-      Lit(Int(3), ty=Int)
-    BinOp(Neq, ty=Bool):
-      Lit(Int(4), ty=Int)
-      Lit(Int(4), ty=Int)"#]],
+        &expect![[r#"
+            BinOp(OrL, ty=Bool):
+              BinOp(OrL, ty=Bool):
+                BinOp(Neq, ty=Bool):
+                  Lit(Int(1), ty=Int)
+                  Lit(Int(1), ty=Int)
+                BinOp(Neq, ty=Bool):
+                  Lit(Int(2), ty=Int)
+                  Lit(Int(5), ty=Int)
+              BinOp(OrL, ty=Bool):
+                BinOp(Neq, ty=Bool):
+                  Lit(Int(3), ty=Int)
+                  Lit(Int(3), ty=Int)
+                BinOp(Neq, ty=Bool):
+                  Lit(Int(4), ty=Int)
+                  Lit(Int(4), ty=Int)"#]],
     );
     check_before_after(
         source,
@@ -546,18 +568,19 @@ fn helper_callable_tuple_neq_is_lowered() {
                 Helper()
             }
         "},
-        &expect![[r#"callable Helper:
-  expr:
-    BinOp(OrL, ty=Bool):
-      BinOp(Neq, ty=Bool):
-        Lit(Int(0), ty=Int)
-        Lit(Int(0), ty=Int)
-      BinOp(Neq, ty=Bool):
-        Lit(Int(0), ty=Int)
-        Lit(Int(1), ty=Int)
-callable Main:
-  expr:
-    Call(11, 12, ty=Bool)"#]],
+        &expect![[r#"
+            callable Helper:
+              expr:
+                BinOp(OrL, ty=Bool):
+                  BinOp(Neq, ty=Bool):
+                    Lit(Int(0), ty=Int)
+                    Lit(Int(0), ty=Int)
+                  BinOp(Neq, ty=Bool):
+                    Lit(Int(0), ty=Int)
+                    Lit(Int(1), ty=Int)
+            callable Main:
+              expr:
+                Call(11, 12, ty=Bool)"#]],
     );
 }
 
@@ -613,6 +636,94 @@ fn tuple_compare_lower_is_idempotent() {
     crate::tuple_compare_lower::lower_tuple_comparisons(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "tuple_compare_lower should be idempotent");
+}
+
+#[test]
+fn literal_tuple_comparisons_avoid_extra_bindings_and_linear_boolean_depth() {
+    // Allocation is a compatibility control: the old lowering already avoided
+    // these tuples. The depth check guards against flattening a balanced source
+    // into a long chain for recursive consumers.
+    let mut comparisons = [
+        "(1, 2) == (1, 2)",
+        "(a, b) != (3, 4)",
+        "((a, b), 3) == ((1, 2), 3)",
+        "((a, 2), (b, 3)) != ((1, 2), (2, 3))",
+    ]
+    .map(str::to_string)
+    .to_vec();
+    for depth in [5, 8] {
+        let mut tuple = "a".to_string();
+        for _ in 0..depth {
+            tuple = format!("({tuple}, {tuple})");
+        }
+        for operator in ["==", "!="] {
+            comparisons.push(format!("{tuple} {operator} {tuple}"));
+        }
+    }
+    for comparison in comparisons {
+        let source = format!(
+            "@EntryPoint() function Main() : Bool {{ let a = 1; let b = 2; {comparison} }}"
+        );
+        for stage in [PipelineStage::TupleCompLower, PipelineStage::Full] {
+            let (store, package_id) = compile_and_run_pipeline_to(&source, stage);
+            let package = store.get(package_id);
+            let callable = crate::test_utils::find_callable(package, "Main");
+            let mut tuples = 0;
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &callable.implementation,
+                &mut |_, expr| {
+                    if matches!(&expr.kind, ExprKind::Tuple(elements) if !elements.is_empty()) {
+                        tuples += 1;
+                    }
+                },
+            );
+            assert_eq!(tuples, 0, "{stage:?}: {source}");
+
+            let item = crate::test_utils::callable_id_by_name(package, "Main");
+            let bindings = crate::tuple_decompose::collect_all_block_ids_in_callable(package, item)
+                .iter()
+                .flat_map(|id| &package.get_block(*id).stmts)
+                .filter(|id| matches!(package.get_stmt(**id).kind, StmtKind::Local(..)))
+                .count();
+            assert_eq!(
+                bindings, 2,
+                "only source bindings a and b should remain: {stage:?}"
+            );
+
+            let CallableImpl::Spec(spec) = &callable.implementation else {
+                panic!("Main must have a body");
+            };
+            let tail = package.get_stmt(
+                *package
+                    .get_block(spec.body.block)
+                    .stmts
+                    .last()
+                    .expect("tail"),
+            );
+            let StmtKind::Expr(root) = tail.kind else {
+                panic!("Main must end in the comparison");
+            };
+            let mut pending = vec![(root, 0_u32)];
+            let mut depth = 0;
+            let mut leaves = 0_usize;
+            while let Some((id, level)) = pending.pop() {
+                depth = depth.max(level);
+                if let ExprKind::BinOp(BinOp::AndL | BinOp::OrL, lhs, rhs) =
+                    package.get_expr(id).kind
+                {
+                    pending.push((lhs, level + 1));
+                    pending.push((rhs, level + 1));
+                } else {
+                    leaves += 1;
+                }
+            }
+            assert!(
+                depth <= leaves.next_power_of_two().ilog2(),
+                "{stage:?}: {leaves} scalar comparisons must have logarithmic depth, got {depth}"
+            );
+        }
+    }
 }
 
 #[test]
