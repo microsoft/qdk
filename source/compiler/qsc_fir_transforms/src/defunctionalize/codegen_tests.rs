@@ -6,6 +6,93 @@
 use super::test_cases;
 
 #[test]
+fn recursive_specializations_record_capture_results() {
+    for (source, expected) in test_cases::recursive_capture_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn controlled_recursive_specializations_generate_qir() {
+    for functor in [
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+        "Controlled Adjoint",
+        "Adjoint Controlled Controlled",
+    ] {
+        for (source, _) in test_cases::recursive_capture_control_cases(functor) {
+            let qir = crate::test_utils::generate_qir(&source);
+            assert_eq!(
+                qir.lines()
+                    .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+                    .count(),
+                1,
+                "{source}\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn short_circuit_guard_snapshots_record_expected_values() {
+    for (source, expected) in test_cases::effectful_short_circuit_guard_cases()
+        .chain(test_cases::mutating_short_circuit_guard_cases())
+        .chain(test_cases::compound_short_circuit_guard_cases())
+    {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn measured_short_circuit_guard_generates_qir() {
+    let qir = crate::test_utils::generate_qir(test_cases::MEASURED_SHORT_CIRCUIT_GUARD);
+    assert_eq!(
+        qir.lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .count(),
+        1,
+        "{qir}"
+    );
+}
+
+#[test]
+fn nested_inline_struct_captures_record_expected_values() {
+    for (source, expected) in test_cases::nested_inline_struct_capture_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn inline_struct_captures_record_expected_values() {
+    for (source, expected) in test_cases::inline_struct_capture_cases() {
+        check_qir_int_result(&source, expected);
+    }
+}
+
+#[test]
+fn direct_controlled_struct_captures_generate_qir() {
+    for functor in [
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+        "Controlled Adjoint",
+        "Adjoint Controlled Controlled",
+    ] {
+        for (source, _) in test_cases::direct_struct_capture_control_cases(functor) {
+            let qir = crate::test_utils::generate_qir(&source);
+            assert_eq!(
+                qir.lines()
+                    .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+                    .count(),
+                1,
+                "{source}\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
 fn partial_application_capture_snapshots_generate_qir() {
     check_qir_int_result(test_cases::PARTIAL_APPLICATION_CAPTURE_TIMING, 18);
     check_qir_int_result(test_cases::PARTIAL_APPLICATION_MUTATING_CAPTURE, 134);

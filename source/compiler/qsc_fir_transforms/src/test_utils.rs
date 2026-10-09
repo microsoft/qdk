@@ -1224,6 +1224,17 @@ fn eval_fir_entry_with_observables(
     (result, tracer.ops, out)
 }
 
+/// Evaluates FIR with its quantum trace for explicit test preconditions.
+/// Semantic-equivalence assertions additionally compare receiver output.
+#[cfg(test)]
+pub(crate) fn try_eval_fir_entry_with_trace(
+    store: &fir::PackageStore,
+    pkg_id: fir::PackageId,
+) -> (Result<qsc_eval::val::Value, String>, Vec<TraceOp>) {
+    let (result, trace, _) = eval_fir_entry_with_observables(store, pkg_id);
+    (result, trace)
+}
+
 /// Compiles Q# source to FIR with cached core/std HIR setup and evaluates the
 /// entry exec graph.
 ///
