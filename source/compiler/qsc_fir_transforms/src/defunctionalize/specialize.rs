@@ -3906,15 +3906,7 @@ pub(super) fn dispatch_layout_types_compatible(actual: &Ty, expected: &Ty) -> bo
 /// the expected set. An empty requirement accepts any set; otherwise unresolved
 /// sets must be equal. Unlike frontend inference, this adds no constraints.
 fn dispatch_functors_compatible(actual: FunctorSet, expected: FunctorSet) -> bool {
-    match (actual, expected) {
-        (_, FunctorSet::Value(FunctorSetValue::Empty))
-        | (FunctorSet::Value(FunctorSetValue::CtlAdj), FunctorSet::Value(_))
-        | (FunctorSet::Value(FunctorSetValue::Adj), FunctorSet::Value(FunctorSetValue::Adj))
-        | (FunctorSet::Value(FunctorSetValue::Ctl), FunctorSet::Value(FunctorSetValue::Ctl)) => {
-            true
-        }
-        _ => actual == expected,
-    }
+    crate::fir_builder::functors_satisfy(actual, expected)
 }
 
 /// Builds the `ExprKind` and `Ty` for a tuple of the given elements, collapsing

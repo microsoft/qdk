@@ -1926,6 +1926,7 @@ fn deferrable_residue_preserves_local_binding_type_checks() {
         &mut result,
         &mut assigners,
         &exemptions,
+        &[],
     ));
     assert_panics_with("has type Prim(Int) but initializer Expr", || {
         crate::finalize_pipeline(

@@ -28,6 +28,198 @@ use crate::{
     PipelineStage, run_pipeline_to_with_diagnostics, run_signature_preserving_subpipeline,
 };
 
+#[test]
+fn pinned_shared_callee_rewrites_preserve_423_across_packages_and_handoff() {
+    for foreign in [false, true] {
+        for nominal in [false, true] {
+            let (declaration, ty, fields, argument) = if nominal {
+                (
+                    "struct Pair { First : Int, Second : Int }",
+                    "Pair",
+                    "100 * pair.First + 10 * pair.Second",
+                    "new Pair { First = 4, Second = 2 }",
+                )
+            } else {
+                (
+                    "",
+                    "(Int, Int)",
+                    "100 * Fst(pair) + 10 * Snd(pair)",
+                    "(4, 2)",
+                )
+            };
+            let definitions = format!(
+                r#"
+                {declaration}
+                function Read(pair : {ty}, last : Int) : Int {{ {fields} + last }}
+                operation Pinned() : Int {{ Read({argument}, 3) }}
+                export Read;
+            "#
+            );
+            let entry_argument = if nominal {
+                "new Lib.Pair { First = 1, Second = 2 }"
+            } else {
+                "(1, 2)"
+            };
+            let library = format!(
+                "namespace Lib {{ {definitions} {} }}",
+                if nominal { "export Pair;" } else { "" }
+            );
+            let main =
+                format!("@EntryPoint() operation Main() : Int {{ Lib.Read({entry_argument}, 3) }}");
+            let (mut store, package) = if foreign {
+                compile_to_fir_with_library(&library, &main)
+            } else {
+                compile_to_fir(&format!("{library}\nnamespace Test {{ {main} }}"))
+            };
+            let pinned = find_callable_in_any_package(&store, "Pinned");
+            assert_eq!(
+                crate::test_utils::try_eval_fir_callable(&store, pinned),
+                Ok(qsc_eval::val::Value::Int(423))
+            );
+            let result = run_pipeline_to_with_diagnostics(
+                &mut store,
+                package,
+                PipelineStage::Full,
+                &[pinned],
+            );
+            assert!(result.is_success(), "{:?}", result.errors);
+            assert_eq!(
+                crate::test_utils::try_eval_fir_entry(&store, package),
+                Ok(qsc_eval::val::Value::Int(123))
+            );
+            assert_eq!(
+                crate::test_utils::try_eval_fir_callable(&store, pinned),
+                Ok(qsc_eval::val::Value::Int(423))
+            );
+            let result = run_signature_preserving_subpipeline(&mut store, package, &[pinned]);
+            assert!(result.is_success(), "{:?}", result.errors);
+            assert_eq!(
+                crate::test_utils::try_eval_fir_callable(&store, pinned),
+                Ok(qsc_eval::val::Value::Int(423))
+            );
+        }
+    }
+}
+
+#[test]
+fn pinned_tuple_signature_and_first_class_shared_use_prevent_abi_changes() {
+    for (first_class, pin_shared) in [(false, false), (false, true), (true, false)] {
+        let source = format!(
+            r#"
+            function Read(pair : (Int, Int), last : Int) : Int {{
+                100 * Fst(pair) + 10 * Snd(pair) + last
+            }}
+            operation Pinned(pair : (Int, Int), last : Int) : Int {{
+                {body}
+            }}
+            @EntryPoint() operation Main() : Int {{ Read((1, 2), 3) }}
+        "#,
+            body = if first_class {
+                "let f = Read; f(pair, last)"
+            } else {
+                "Read(pair, last)"
+            }
+        );
+        let (mut store, package) = compile_to_fir(&source);
+        let pinned = find_callable_in_any_package(&store, "Pinned");
+        let read = find_callable_in_any_package(&store, "Read");
+        let input = |store: &PackageStore, item: StoreItemId| {
+            let pkg = store.get(item.package);
+            let ItemKind::Callable(decl) = &pkg.get_item(item.item).kind else {
+                panic!("callable")
+            };
+            pkg.get_pat(decl.input).ty.clone()
+        };
+        let pinned_input = input(&store, pinned);
+        let read_input = input(&store, read);
+        let pins = if pin_shared {
+            vec![pinned, read]
+        } else {
+            vec![pinned]
+        };
+        let result =
+            run_pipeline_to_with_diagnostics(&mut store, package, PipelineStage::Full, &pins);
+        assert!(result.is_success(), "{:?}", result.errors);
+        assert_eq!(input(&store, pinned), pinned_input);
+        if first_class || pin_shared {
+            assert_eq!(
+                input(&store, read),
+                read_input,
+                "pinned roots and first-class references must keep their ABI"
+            );
+        } else {
+            assert_ne!(
+                input(&store, read),
+                read_input,
+                "the shared callee should still promote"
+            );
+        }
+        let result = run_signature_preserving_subpipeline(&mut store, package, &[pinned]);
+        assert!(result.is_success(), "{:?}", result.errors);
+        invariants::check_with_seeds(
+            &store,
+            package,
+            InvariantLevel::PostSignaturePreserving,
+            &[pinned],
+        );
+    }
+}
+
+#[test]
+fn pinned_callers_preserve_shared_controlled_and_adjoint_argument_layouts() {
+    for invocation in [
+        "Read((q, 2), 3)",
+        "Adjoint Read((q, 2), 3)",
+        "Controlled Read([], ((q, 2), 3))",
+        "Controlled Controlled Read([], ([], ((q, 2), 3)))",
+    ] {
+        let library = format!(
+            r#"
+            namespace Lib {{
+                operation Read(pair : (Qubit, Int), last : Int) : Unit is Adj + Ctl {{
+                    let (q, first) = pair;
+                    if first + last == 5 {{ X(q); }}
+                }}
+                operation Pinned() : Result {{
+                    use q = Qubit();
+                    {invocation};
+                    MResetZ(q)
+                }}
+                export Read;
+            }}
+        "#
+        );
+        let (mut store, package) = compile_to_fir_with_library(
+            &library,
+            r#"
+            @EntryPoint() operation Main() : Result {
+                use q = Qubit();
+                Lib.Read((q, 2), 3);
+                MResetZ(q)
+            }
+        "#,
+        );
+        let pinned = find_callable_in_any_package(&store, "Pinned");
+        let expected = Ok(qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(
+            true,
+        )));
+        assert_eq!(
+            crate::test_utils::try_eval_fir_callable(&store, pinned),
+            expected
+        );
+        let result =
+            run_pipeline_to_with_diagnostics(&mut store, package, PipelineStage::Full, &[pinned]);
+        assert!(result.is_success(), "{:?}", result.errors);
+        let result = run_signature_preserving_subpipeline(&mut store, package, &[pinned]);
+        assert!(result.is_success(), "{:?}", result.errors);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_callable(&store, pinned),
+            expected,
+            "{invocation}"
+        );
+    }
+}
+
 /// A pinned (non-entry-reachable) operation that takes an arrow-typed argument
 /// and early-returns inside a measurement-dependent (dynamic) branch. The `op`
 /// parameter is never defunctionalized because the callable is not

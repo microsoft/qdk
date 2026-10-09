@@ -6,7 +6,7 @@ The production FIR-to-FIR rewrite pipeline. It runs after FIR lowering and befor
 
 - **It is one pipeline, not a toolbox of independent passes.** The passes are ordered and assume each other's output. Several intermediate states deliberately violate FIR invariants that later passes restore, so running a pass in isolation or reordering passes is generally unsound. Treat `run_pipeline_with_diagnostics` (and the staged `run_pipeline_to_with_diagnostics`) as the only supported way to invoke them.
 
-- **Rewrites are entry-reachability-driven.** Most passes inspect what is reachable from the package entry expression and only mutate that. UDT erasure is the main exception: it is still reachability-scoped but works at package granularity across the reachable package closure (target package plus any package with an entry-reachable callable; unreachable packages are left alone).
+- **Rewrites are reachability-driven.** Most passes start from the package entry expression. UDT erasure includes pinned roots and works at package granularity across that reachable closure. Argument promotion includes pinned bodies and dependencies in safety checks and caller rewrites, but preserves pinned root signatures.
 
 - **One `PackageAssigners` pool is threaded through the pipeline.** Each package has its own ID space and reuses its own `Assigner` across passes. Allocate copied guards and other synthesized nodes with the owning package's assigner, not the entry package's. The trailing metadata passes only delete nodes or rebuild derived data.
 
@@ -44,6 +44,11 @@ dependent direct or higher-order calls wait for fresh capture analysis. Direct c
 when their callee gains control flow that needs normalization. Closure cleanup treats
 computed callees as live dependencies, just like call arguments; consuming one
 use does not make another invocation disposable.
+
+Callable capability weakening does not change value layout: an adjointable or
+controllable operation can populate a less-capable operation binding without
+adding tuple wrappers. Assignment checks retain nominal identity, tuple shape,
+callable kind and input/output compatibility; they do not allow capability upgrades.
 
 ## Where to look
 

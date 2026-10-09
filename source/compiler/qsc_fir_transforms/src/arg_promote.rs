@@ -22,6 +22,9 @@
 //!   `Var(Res::Item)` with `Ty::Arrow` outside a `Call` callee position) or as
 //!   a closure target, since indirect dispatch requires a stable parameter
 //!   layout (this also covers partial-application cases).
+//! - **Pinned callers:** entry and pinned roots share safety analysis and caller
+//!   rewriting. Pinned roots keep their signatures; their callees may promote
+//!   only when every retained use can follow the changed layout.
 //! - **Per iteration:** reachability scan → eligibility analysis
 //!   ([`check_candidates`]) → safety filters
 //!   ([`collect_first_class_callables`], [`collect_closure_targets`]) →
@@ -55,7 +58,7 @@ use crate::fir_builder::{
     functored_specs,
 };
 use crate::package_assigners::PackageAssigners;
-use crate::reachability::collect_reachable_from_entry;
+use crate::reachability::collect_reachable_with_seeds;
 use crate::walk_utils::{
     ParamUse, classify_uses_in_block, collect_expr_ids_in_entry_and_local_callables,
     collect_expr_ids_in_local_callables, for_each_expr, for_each_expr_in_callable_impl,
@@ -132,20 +135,32 @@ type ParamLeafRemap = (LocalVarId, Ty, LeafRemap);
 /// # Panics
 ///
 /// Panics if the package has no entry expression. The reachability scans
-/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// in this pass go through [`collect_reachable_with_seeds`], which asserts
 /// `package.entry.is_some()`.
+#[cfg(test)]
 pub fn arg_promote(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) -> bool {
+    arg_promote_with_pins(store, package_id, assigners, &[])
+}
+
+/// Includes pinned bodies and dependencies in safety checks and caller rewrites,
+/// while retaining the pinned roots' externally visible input signatures.
+pub(crate) fn arg_promote_with_pins(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    pinned: &[StoreItemId],
+) -> bool {
     let mut tmp_counter: u32 = 0;
-    let changed = promote_to_fixed_point(store, package_id, assigners, &mut tmp_counter);
-    normalize_reachable_call_arg_types(store, package_id, assigners);
+    let changed = promote_to_fixed_point(store, package_id, assigners, &mut tmp_counter, pinned);
+    normalize_reachable_call_arg_types(store, package_id, assigners, pinned);
     changed
 }
 
-/// Iterates promotion rounds until no more candidates are found.
+/// Iterates entry- and pin-reachable promotion rounds until no candidates remain.
 ///
 /// Each iteration peels one level of tuple nesting from eligible parameters,
 /// rewrites their bodies and call sites, then recomputes reachability for
@@ -163,26 +178,35 @@ pub(crate) fn promote_to_fixed_point(
     package_id: PackageId,
     assigners: &mut PackageAssigners,
     tmp_counter: &mut u32,
+    pinned: &[StoreItemId],
 ) -> bool {
     let mut changed = false;
     loop {
-        let candidates = find_promotion_candidates(store, package_id);
+        let candidates = find_promotion_candidates(store, package_id, pinned);
         if candidates.is_empty() {
             break;
         }
         changed = true;
-        apply_promotions(store, package_id, assigners, &candidates, tmp_counter);
+        apply_promotions(
+            store,
+            package_id,
+            assigners,
+            &candidates,
+            tmp_counter,
+            pinned,
+        );
     }
     changed
 }
 
 /// Finds all eligible promotion candidates in the current reachable set,
-/// excluding callables used as first-class values or closure targets.
+/// excluding pinned roots, first-class values and closure targets.
 fn find_promotion_candidates(
     store: &PackageStore,
     package_id: PackageId,
+    pinned: &[StoreItemId],
 ) -> Vec<ArgPromoCandidate> {
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, pinned);
 
     // The entry callable lives in the true entry package only; resolving it
     // there keeps its input ABI excluded from flattening regardless of how many
@@ -211,7 +235,7 @@ fn find_promotion_candidates(
         // The entry-point callable's input is the program's externally-visible
         // ABI and must never be flattened, regardless of its input shape.
         // This is a forward looking check as all inputs are currently `Unit`
-        if Some(owner) == entry_item {
+        if Some(owner) == entry_item || pinned.contains(&owner) {
             continue;
         }
         if first_class.contains(&owner) || closure_targets.contains(&owner) {
@@ -246,6 +270,7 @@ fn apply_promotions(
     assigners: &mut PackageAssigners,
     candidates: &[ArgPromoCandidate],
     tmp_counter: &mut u32,
+    pinned: &[StoreItemId],
 ) {
     // Group candidates by their declaring callable so each callable's entire
     // input is flattened exactly once, dissolving all inter-parameter
@@ -294,7 +319,7 @@ fn apply_promotions(
     let promoted_map: FxHashMap<StoreItemId, PromotionResult> =
         promotions.into_iter().map(|p| (p.item_id, p)).collect();
 
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, pinned);
     let mut caller_pkgs: Vec<PackageId> = Vec::new();
     for store_id in &reachable {
         if !caller_pkgs.contains(&store_id.package) {
@@ -336,8 +361,9 @@ pub(crate) fn normalize_reachable_call_arg_types(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
+    pinned: &[StoreItemId],
 ) {
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, pinned);
 
     // Snapshot every reachable callable's current input type, package-qualified,
     // so a direct call to a foreign promoted callee resolves to the callee's own

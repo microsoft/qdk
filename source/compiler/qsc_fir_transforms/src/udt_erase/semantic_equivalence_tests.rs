@@ -4,6 +4,39 @@
 use indoc::formatdoc;
 use indoc::indoc;
 
+#[test]
+fn callable_capability_weakening_preserves_constructor_shape_and_gate_behavior() {
+    for body in [
+        "let op : Qubit => Unit = H; op(q);",
+        "let g = F(H, 1) w/ N <- 2; g::Op(q);",
+        "let g = new S { Op = H, N = 1 }; g.Op(q);",
+        "let ops : (Qubit => Unit)[] = [H]; ops[0](q);",
+    ] {
+        let source = format!(
+            r#"
+            newtype F = (Op : Qubit => Unit is Adj, N : Int);
+            struct S {{ Op : Qubit => Unit, N : Int }}
+            @EntryPoint() operation Main() : Result {{
+                use q = Qubit();
+                {body}
+                H(q);
+                MResetZ(q)
+            }}
+        "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+        );
+        let qir = crate::test_utils::generate_qir(&source);
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__h__body").count(),
+            2,
+            "{qir}"
+        );
+    }
+}
+
 fn check_integer_semantics_and_qir(source: &str, expected: i64) {
     crate::test_utils::check_semantic_equivalence_with_expected(
         source,

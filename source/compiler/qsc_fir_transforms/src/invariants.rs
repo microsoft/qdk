@@ -1622,7 +1622,7 @@ fn check_spec_decl_types(
 /// - `check_local_pat_for_nested_tuple_arrow` after tuple-decompose, unless
 ///   deferred residue is allowed to continue downstream.
 /// - `check_expr_types` on the initializer expression.
-/// - initializer-type equality at `PostReturnUnify` and `PostAll` (unresolved
+/// - initializer assignment compatibility at `PostReturnUnify` and `PostAll` (unresolved
 ///   types are tolerated only at the earlier checkpoint).
 ///
 /// Standalone expression statements are delegated directly to
@@ -1660,7 +1660,7 @@ fn check_stmt_types(
                     || matches!(init_ty, Ty::Err | Ty::Infer(_));
                 if !has_unresolved || level == InvariantLevel::PostAll {
                     assert!(
-                        pat_ty == init_ty,
+                        crate::fir_builder::types_assignable(init_ty, pat_ty),
                         "PostReturnUnify invariant violation: local binding Pat {pat} has type \
                          {pat_ty:?} but initializer Expr {expr} has type {init_ty:?}",
                     );

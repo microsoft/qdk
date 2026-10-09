@@ -375,6 +375,7 @@ fn run_pipeline_to_impl(
         &mut result,
         &mut assigners,
         &exemptions,
+        pinned_items,
     ) {
         return result;
     }
@@ -497,8 +498,9 @@ fn run_arg_promote_stages(
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
     exemptions: &invariants::InvariantExemptions,
+    pinned_items: &[StoreItemId],
 ) -> bool {
-    arg_promote::arg_promote(store, package_id, assigners);
+    arg_promote::arg_promote_with_pins(store, package_id, assigners, pinned_items);
     invariants::check_with_exemptions(
         store,
         package_id,
@@ -509,13 +511,20 @@ fn run_arg_promote_stages(
         return true;
     }
 
-    tuple_decompose_arg_promote_fixed_point(store, package_id, result, assigners, exemptions);
+    tuple_decompose_arg_promote_fixed_point(
+        store,
+        package_id,
+        result,
+        assigners,
+        exemptions,
+        pinned_items,
+    );
 
     // Call-argument-type normalization is idempotent and candidate-neutral, so
     // it is hoisted to run exactly once after the loop converges rather than
     // per round (per-round runs cause `(T,)` wrapping churn that pollutes
     // change detection).
-    arg_promote::normalize_reachable_call_arg_types(store, package_id, assigners);
+    arg_promote::normalize_reachable_call_arg_types(store, package_id, assigners, pinned_items);
     invariants::check_with_exemptions(
         store,
         package_id,
@@ -738,6 +747,7 @@ fn tuple_decompose_arg_promote_fixed_point(
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
     exemptions: &invariants::InvariantExemptions,
+    pinned_items: &[StoreItemId],
 ) {
     let mut rounds = 0;
     let mut arg_promote_tmp_counter = 0;
@@ -749,6 +759,7 @@ fn tuple_decompose_arg_promote_fixed_point(
             package_id,
             assigners,
             &mut arg_promote_tmp_counter,
+            pinned_items,
         );
         // One PostArgPromote check per round, after both passes have run.
         // tuple-decompose preserves the PostArgPromote invariants (it only
@@ -973,8 +984,9 @@ pub fn run_pipeline_with_diagnostics(
 /// `monomorphize`, `defunctionalize`, `udt_erase`, or `arg_promote`: the pinned
 /// target's signature (arrow params, and any residual UDT/struct shape the main
 /// pipeline already erased consistently) must be preserved so the runtime
-/// `ReinvokeOriginal` value still matches it. `arg_promote` already skips the
-/// pinned target because it is not entry-reachable; the remaining passes are
+/// `ReinvokeOriginal` value still matches it. The main argument-promotion pass
+/// explicitly preserves pinned root signatures while updating calls inside
+/// their bodies to shared promoted callees; the remaining passes are
 /// simply not invoked here. Validation therefore uses the off-axis
 /// [`InvariantLevel::PostSignaturePreserving`](invariants::InvariantLevel::PostSignaturePreserving)
 /// level, which forbids residual `Return` while allowing the preserved

@@ -26,6 +26,60 @@ use qsc_fir::fir::{CallableKind, ExprKind, LocalVarId};
 use qsc_fir::ty::{Arrow, FunctorSetValue, Prim};
 
 #[test]
+fn assignment_compatibility_allows_functor_weakening_but_rejects_type_and_capability_mismatches() {
+    use crate::fir_builder::types_assignable;
+    use qsc_fir::fir::{CallableKind, ItemId, LocalItemId, PackageId, Res};
+    use qsc_fir::ty::{FunctorSet, Ty};
+    let arrow = |input, output, functors| {
+        Ty::Arrow(Box::new(Arrow {
+            kind: CallableKind::Operation,
+            input: Box::new(input),
+            output: Box::new(output),
+            functors: FunctorSet::Value(functors),
+        }))
+    };
+    let strong = arrow(Ty::Prim(Prim::Qubit), Ty::UNIT, FunctorSetValue::CtlAdj);
+    let weak = arrow(Ty::Prim(Prim::Qubit), Ty::UNIT, FunctorSetValue::Empty);
+    assert!(types_assignable(&strong, &weak));
+    assert!(!types_assignable(&weak, &strong));
+    assert!(types_assignable(
+        &Ty::Array(Box::new(strong.clone())),
+        &Ty::Array(Box::new(weak.clone()))
+    ));
+    assert!(!types_assignable(&Ty::Tuple(vec![strong.clone()]), &weak));
+    assert!(!types_assignable(
+        &strong,
+        &arrow(Ty::Prim(Prim::Int), Ty::UNIT, FunctorSetValue::Empty)
+    ));
+    assert!(!types_assignable(
+        &strong,
+        &arrow(
+            Ty::Prim(Prim::Qubit),
+            Ty::Prim(Prim::Int),
+            FunctorSetValue::Empty
+        )
+    ));
+    let mut function = weak.clone();
+    if let Ty::Arrow(arrow) = &mut function {
+        arrow.kind = CallableKind::Function;
+    }
+    assert!(!types_assignable(&strong, &function));
+    let nominal = |id| {
+        Ty::Udt(Res::Item(ItemId {
+            package: PackageId::CORE,
+            item: LocalItemId::from(id),
+        }))
+    };
+    assert!(!types_assignable(&nominal(20usize), &nominal(21usize)));
+    // A consumer accepting any operation may stand in for one that only needs
+    // adjointable operations, but not the reverse.
+    let consume_weak = arrow(weak.clone(), Ty::UNIT, FunctorSetValue::Empty);
+    let consume_strong = arrow(strong.clone(), Ty::UNIT, FunctorSetValue::Empty);
+    assert!(types_assignable(&consume_weak, &consume_strong));
+    assert!(!types_assignable(&consume_strong, &consume_weak));
+}
+
+#[test]
 fn post_udt_erasure_rejects_restored_source_constructor_call() {
     let source = r#"
         newtype Data = (Value : Int);
