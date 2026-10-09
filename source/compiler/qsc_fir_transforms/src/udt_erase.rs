@@ -525,7 +525,7 @@ fn lower_identity_expr(package: &mut Package, udt_cache: &UdtCache, expr_id: Exp
                 };
                 let resolved_pure = resolve_ty(udt_cache, pure_ty);
                 let arg = package.exprs.get(arg_id).expect("arg should exist");
-                if resolve_ty(udt_cache, &arg.ty) != resolved_pure
+                if !fir_builder::types_assignable(&resolve_ty(udt_cache, &arg.ty), &resolved_pure)
                     && matches!(&resolved_pure, Ty::Tuple(_))
                 {
                     let expr = package.exprs.get_mut(expr_id).expect("expr should exist");

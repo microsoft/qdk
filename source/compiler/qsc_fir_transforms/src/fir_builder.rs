@@ -40,8 +40,44 @@ use qsc_fir::fir::{
 use rustc_hash::FxHashSet;
 
 use qsc_fir::fir::PackageSpan;
-use qsc_fir::ty::{Arrow, FunctorSetValue, Prim, Ty};
+use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
 use std::rc::Rc;
+
+/// Checks representation-preserving assignment compatibility after inference.
+/// Only callable capabilities may weaken; callable inputs are contravariant,
+/// outputs are covariant, and nominal identity and aggregate shape stay exact.
+pub(crate) fn types_assignable(actual: &Ty, expected: &Ty) -> bool {
+    match (actual, expected) {
+        (Ty::Array(actual), Ty::Array(expected)) => types_assignable(actual, expected),
+        (Ty::Tuple(actual), Ty::Tuple(expected)) => {
+            actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, e)| types_assignable(a, e))
+        }
+        (Ty::Arrow(actual), Ty::Arrow(expected)) => {
+            actual.kind == expected.kind
+                && types_assignable(&expected.input, &actual.input)
+                && types_assignable(&actual.output, &expected.output)
+                && functors_satisfy(actual.functors, expected.functors)
+        }
+        _ => actual == expected,
+    }
+}
+
+/// Tests concrete capability inclusion without inferring unresolved functor sets.
+pub(crate) fn functors_satisfy(actual: FunctorSet, expected: FunctorSet) -> bool {
+    match (actual, expected) {
+        (_, FunctorSet::Value(FunctorSetValue::Empty))
+        | (FunctorSet::Value(FunctorSetValue::CtlAdj), FunctorSet::Value(_))
+        | (FunctorSet::Value(FunctorSetValue::Adj), FunctorSet::Value(FunctorSetValue::Adj))
+        | (FunctorSet::Value(FunctorSetValue::Ctl), FunctorSet::Value(FunctorSetValue::Ctl)) => {
+            true
+        }
+        _ => actual == expected,
+    }
+}
 
 /// Allocates an `Expr` with the given kind and inserts it into the package.
 pub(crate) fn alloc_expr(
