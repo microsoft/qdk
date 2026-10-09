@@ -53,6 +53,8 @@ mod semantic_equivalence_tests;
 #[cfg(test)]
 mod test_cases;
 
+mod complex;
+
 use crate::EMPTY_EXEC_RANGE;
 use crate::fir_builder;
 use crate::package_assigners::PackageAssigners;
@@ -175,7 +177,9 @@ pub fn erase_udts_with_seeds(
 ///   output types in place.
 /// - Allocates field-extraction expressions and ordered operand bindings through
 ///   `assigner` for struct construction and field-update lowering.
+#[allow(clippy::too_many_lines)]
 fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: &mut Assigner) {
+    let complex_values = complex::find_values(package);
     // Parents can copy a child's kind, so every copied child must already be erased.
     let mut expr_ids = expressions_in_postorder(package);
     let mut next = 0;
@@ -187,6 +191,7 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: 
         let kind = expr.kind.clone();
         let expr_span = expr.span;
 
+        complex::lower(package, assigner, expr_id, &complex_values);
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.ty = new_ty;
 
