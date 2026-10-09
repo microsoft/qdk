@@ -36,7 +36,7 @@ pub struct CallableParam {
     pub field_path: Vec<usize>,
     /// The local variable bound by the parameter.
     pub param_var: LocalVarId,
-    /// The Arrow type of the parameter.
+    /// The callable-bearing parameter type: an arrow or an array of arrows.
     pub param_ty: Ty,
     /// Whether the owning HOF's input pattern is a tuple. Precomputed during
     /// analysis (which has `PackageStore` access) so later passes can derive
@@ -68,7 +68,7 @@ impl CallableParam {
     }
 }
 
-/// A call site where a HOF is called with a concrete callable argument.
+/// One resolved candidate, or a dynamic placeholder, for a HOF argument slot.
 #[derive(Clone, Debug)]
 pub struct CallSite {
     /// The Call expression.
@@ -117,6 +117,12 @@ pub struct DirectCallSite {
     pub call_pkg_id: PackageId,
     /// Resolved concrete callee.
     pub callable: ConcreteCallable,
+    /// Materialized operands captured by a same-package lifted lambda.
+    ///
+    /// These values belong to this call occurrence rather than the global
+    /// callable target: separate factory invocations share the lifted item but
+    /// can retain different partial-application operands.
+    pub captures: Vec<CapturedVar>,
     /// Branch-split guard list: a left-associated conjunction stored
     /// outermost-first. Selected when every guard is true; an empty list is the
     /// default (else) branch.
@@ -147,28 +153,70 @@ pub enum ConcreteCallable {
     Dynamic,
 }
 
+/// The local-variable identity domain that owns a capture operand.
+///
+/// Item IDs are local to the package being analyzed or rewritten. The enclosing
+/// call site's `call_pkg_id` supplies that package context; these scopes must
+/// not be compared or transported across packages without rebinding.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum CaptureScope {
+    /// Locals of a callable not tracked as a HOF specialization, including
+    /// lifted lambda parameters.
+    Callable(LocalItemId),
+    /// Locals of the package's entry expression, outside any callable item.
+    #[default]
+    Entry,
+    /// Locals allocated for a specialized HOF clone. This domain is distinct
+    /// from `Callable` even when the numeric item and local IDs coincide.
+    CloneScope(LocalItemId),
+}
+
+/// A local variable qualified by its owning identity domain within one package.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedLocal {
+    pub var: LocalVarId,
+    pub scope: CaptureScope,
+}
+
+impl ScopedLocal {
+    #[must_use]
+    pub fn new(var: LocalVarId, scope: CaptureScope) -> Self {
+        Self { var, scope }
+    }
+}
+
 /// A variable captured by a closure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapturedVar {
-    /// The captured local variable.
-    pub var: LocalVarId,
+    /// The captured local variable and the allocator domain that owns it.
+    pub local: ScopedLocal,
     /// The type of the captured variable.
     pub ty: Ty,
+    /// Capture-free callable identity, retained even when operand evaluation
+    /// materializes the value into a temporary.
+    pub static_callable: Option<(ItemId, FunctorApp)>,
     /// An optional initializer expression to reuse when the original local is
     /// scoped to a block that rewrite will erase.
     pub expr: Option<ExprId>,
-    /// Caller-scope substitutions to apply when `expr` is a producer-scope
-    /// compound literal (a struct/tuple/array constructor whose sub-exprs
-    /// reference the producing function's parameters).
-    ///
-    /// Each `(local, caller_expr)` entry maps a producer-parameter
-    /// [`LocalVarId`] appearing inside `expr` to the caller-scope argument
-    /// [`ExprId`] bound to that parameter at the call site. Rewrite deep-clones
-    /// `expr` and rebinds each recorded inner `Var(Res::Local(local))` leaf to
-    /// `caller_expr`, so the literal is reconstructed entirely from caller-scope
-    /// values instead of splicing unbound producer-scope locals into the
-    /// caller. Empty for scalar captures and for captures that need no remap.
-    pub caller_substitutions: Vec<(LocalVarId, ExprId)>,
+    /// Substitutions for producer-local references in `expr`. Nested
+    /// substitutions preserve each intervening caller's environment instead of
+    /// interpreting equal numeric local IDs as bindings in the same scope.
+    pub caller_substitutions: Vec<CaptureSubstitution>,
+}
+
+/// Replaces one local in a capture expression with an operand from its caller.
+///
+/// The replacement expression has its own substitution environment. Keeping
+/// these environments separate preserves transformations such as `Make(n+1)`
+/// when the returned closure crosses another function boundary.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CaptureSubstitution {
+    /// The local referenced by the containing expression.
+    pub local: LocalVarId,
+    /// Its replacement expression, in that expression's own local scope.
+    pub expr: ExprId,
+    /// Rebindings for locals within the replacement, not the containing expression.
+    pub substitutions: Vec<CaptureSubstitution>,
 }
 
 /// Maximum number of concrete callables tracked in a `Multi` lattice element
@@ -183,13 +231,14 @@ pub enum CalleeLattice {
     Bottom,
     /// Exactly one known callable.
     Single(ConcreteCallable),
-    /// Multiple known callables from conditional branches — up to
-    /// `MULTI_CAP` before degrading to `Dynamic`.
+    /// Multiple known candidates from conditional branches or callable arrays,
+    /// bounded by `MULTI_CAP` in the analysis joins and candidate collection.
     ///
     /// Each entry is `(callable, guards)`, where `guards` is a left-associated
     /// conjunction stored outermost-first; the entry is selected when every
-    /// guard is true. Exactly one trailing entry has an empty guard list,
-    /// denoting the default (else) branch.
+    /// guard is true. Conditional joins place the default arm last. Array
+    /// candidates and unconditional joins can instead have several empty guard
+    /// lists; rewrite must then recover an index discriminator.
     Multi(Vec<(ConcreteCallable, Vec<ExprId>)>),
     /// Too many or unknown callables — cannot resolve.
     Dynamic,
@@ -263,8 +312,8 @@ impl CalleeLattice {
     ///   the `condition` arm.
     /// - `Multi(s)` vs `Single(b)`: prepend `condition` onto every entry of
     ///   `s`, then append `(b,[])` as the trailing default.
-    /// - `Multi(s1)` vs `Multi(s2)`: if the callable sets are identical (the
-    ///   variable was not modified in the branch), keep `s1` unchanged.
+    /// - `Multi(s1)` vs `Multi(s2)`: if the full ordered chains, including
+    ///   guards, are identical, keep `s1` unchanged.
     ///   Otherwise merge: prepend `condition` onto every `s1` guard list, keep
     ///   `s2` guards as-is, and concatenate `s1`-then-`s2` **without**
     ///   deduplicating by callable identity — the same callable under
@@ -375,9 +424,7 @@ pub struct SpecKey {
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
 
-/// Hashable variant of [`ConcreteCallable`] used for deduplication. Closures
-/// are keyed only by their target and functor (captures are structural, not
-/// identity-defining).
+/// Hashable callable identity, including callable captures embedded into code.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ConcreteCallableKey {
     /// A direct global callable reference.
@@ -385,12 +432,11 @@ pub enum ConcreteCallableKey {
         item_id: ItemId,
         functor: FunctorApp,
     },
-    /// A closure keyed by target and functor.
+    /// A closure keyed by target, functor, occurrence and embedded callable identity.
     ///
-    /// Captured variables are intentionally omitted so that two closures
-    /// with identical targets and functors share a specialization; the
-    /// captured values are threaded as ordinary arguments at the call site
-    /// rather than being part of the dispatch identity.
+    /// Runtime captures are omitted; an embedded capture changes generated code
+    /// and therefore participates in identity. Only capture-free identities are
+    /// embedded, so recursive environments cannot expand the key indefinitely.
     ///
     /// The target is package-qualified (`StoreItemId`) so that closures with
     /// the same package-local id in different packages do not collide.
@@ -398,6 +444,7 @@ pub enum ConcreteCallableKey {
         target: StoreItemId,
         functor: FunctorApp,
         occurrence: Option<usize>,
+        embedded: Option<(ItemId, FunctorApp)>,
     },
 }
 
@@ -411,17 +458,17 @@ pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>
 pub struct AnalysisResult {
     /// Callable parameters with arrow types found in HOF declarations.
     pub callable_params: Vec<CallableParam>,
-    /// Call sites where HOFs are invoked with concrete callable arguments.
+    /// HOF argument candidates, including dynamic placeholders for diagnostics.
     pub call_sites: Vec<CallSite>,
     /// Direct calls whose callee resolves to a concrete callable value.
     pub direct_call_sites: Vec<DirectCallSite>,
-    /// Direct calls whose `Var(Res::Local)` callee resolved to `Dynamic`
-    /// (over-defined), recorded so the driver can emit a `DynamicCallable`
-    /// diagnostic with the call-site span. `Bottom` callees are excluded to
-    /// avoid spurious errors on intermediate fixpoint iterations.
+    /// Direct calls with unresolved callees or inadmissible capture operands,
+    /// recorded for call-site `DynamicCallable` diagnostics. Calls through the
+    /// owning HOF's unresolved parameter and `Bottom` callees are excluded to
+    /// avoid diagnosing transient forwarding states.
     pub unresolved_direct_call_sites: Vec<StoreExprId>,
-    /// Per-callable lattice states for all callable-typed local variables
-    /// after flow analysis.
+    /// Non-bottom lattice snapshots for entry-package callable locals, used
+    /// for diagnostics and tests.
     pub lattice_states: LatticeStates,
 }
 
@@ -440,18 +487,19 @@ pub struct AnalysisResult {
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     /// Emitted when a callable argument cannot be statically resolved to a
-    /// concrete set of callables, typically because the number of conditional
-    /// branches exceeds `MULTI_CAP`, a conditional has mismatched Multi
-    /// variants, or a mutable callable variable is reassigned in a loop.
+    /// concrete set of callables, for example when the candidate count exceeds
+    /// `MULTI_CAP`, a capture cannot be reconstructed in scope, or a mutable
+    /// callable variable is reassigned in a loop.
     ///
     /// This diagnostic is also emitted when a captured compound literal — a
-    /// struct, tuple, or array — cannot be safely rebuilt in the caller's
+    /// constructor or copy-update — cannot be rebuilt in the caller's
     /// scope. For example, a captured struct field whose value comes from an
     /// operation call cannot be duplicated or reordered out of the scope that
     /// produced it. Declining such a closure to a dynamic call site keeps the
-    /// original dispatch and produces this recoverable diagnostic instead of
-    /// generating incorrect code, which would be a hard error on the base
-    /// profile.
+    /// original dispatch for downstream analysis instead of inventing capture
+    /// operands. The pipeline defers this diagnostic on every target profile;
+    /// capability analysis and partial evaluation decide whether the residual
+    /// program can generate QIR.
     #[error("callable argument could not be resolved statically")]
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.DynamicCallable"))]
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
@@ -465,9 +513,9 @@ pub enum Error {
     /// single member. Failing closed here keeps the transform from emitting
     /// incorrect output for a shape it does not yet support.
     ///
-    /// Forwarding two or more callable arrays through one call is always
-    /// declined with this diagnostic rather than partially specialized, so this
-    /// unsupported shape can never turn into incorrect code.
+    /// The guard recognizes repeated, statically resolved callable-array
+    /// positions. It is not a blanket ban on every signature containing two
+    /// arrays; unresolved or singleton candidate sets can take other paths.
     #[error("higher-order function forwards more than one callable array, which is not supported")]
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.UnsupportedMultipleCallableArrays"))]
     #[diagnostic(help(
@@ -480,8 +528,9 @@ pub enum Error {
     /// without eliminating every reachable closure or arrow-typed parameter.
     /// The first field is the iteration count actually reached and the
     /// second is the number of remaining callable values. Suppressed when
-    /// any other diagnostic has already fired this pass so the root cause is
-    /// surfaced instead of a generic non-convergence report.
+    /// another error has already been recorded, or when unresolved direct
+    /// calls can instead receive `DynamicCallable` diagnostics. Warnings do not
+    /// suppress it.
     #[error(
         "defunctionalization did not converge within {0} iterations; {1} callable values remain"
     )]
@@ -512,7 +561,7 @@ pub enum Error {
     ),
 
     /// Fatal error emitted when a single HOF's cumulative specialization count,
-    /// summed across every fixpoint iteration, exceeds the hard cap. The string
+    /// deduplicated across every fixpoint iteration, exceeds the hard cap. The string
     /// is the HOF name and the second field is the cumulative distinct
     /// specialization count. This is the fatal backstop for the
     /// [`Error::ExcessiveSpecializations`] warning: the warning flags a HOF that
@@ -554,8 +603,8 @@ impl Error {
         }
     }
 
-    /// Returns `true` when the diagnostic is non-fatal to the FIR transform
-    /// pipeline.
+    /// Returns `true` for diagnostics surfaced on the pipeline's warning
+    /// channel. Deferred convergence diagnostics are classified separately.
     #[must_use]
     pub fn is_warning(&self) -> bool {
         matches!(self, Self::ExcessiveSpecializations(..))

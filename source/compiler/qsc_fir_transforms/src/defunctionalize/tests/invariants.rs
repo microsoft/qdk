@@ -14,7 +14,7 @@ use super::*;
 use expect_test::expect;
 
 // A partial application whose captured argument is computed by an effectful
-// call. The binding cannot be deleted, because `GetAngle` measures its qubit,
+// call. The binding cannot be deleted, because `GetAngle` applies `X` to its qubit,
 // but its callable value is consumed by the rewrite. Cleanup must drop that
 // dead value instead of blanking a closure that is still the result of an
 // arrow-typed block.
@@ -1585,9 +1585,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                 __quantum__rt__qubit_release(control);
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__ApplyPrepare__closure_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
-                / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+                / * closure item = 14 captures = [__capture_0, numSystemQubits, power] * / _lambda_7
             }
-            operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            operation _lambda_7(__capture_0 : __UDT_Item_1__Package_2_, numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
                     let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
@@ -1599,7 +1599,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                         while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled ApplyPrepare([control], systems);
-                            Controlled _lambda_8([control], (systems, ancilla));
+                            Controlled _lambda_8([control], (__capture_0, (systems, ancilla)));
                             _index_id_349 += _step_id_354;
                         }
 
@@ -1999,5 +1999,72 @@ fn fixpoint_residue_remains_authorized() {
     assert!(
         outcome.residue_items.contains(&main),
         "FixpointNotReached should authorize every terminal remaining owner"
+    );
+}
+
+#[test]
+fn branch_local_capture_applied_outside_scope_declines_to_dynamic() {
+    let source = r#"
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let flag = MResetZ(q) == One;
+            mutable op = H;
+            if flag {
+                let angle = 0.5;
+                op = Rx(angle, _);
+            }
+            ApplyOp(op, q);
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+
+    let direct_source = r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            let flag = MResetZ(q) == One;
+            mutable op = H;
+            if flag {
+                let angle = 0.5;
+                set op = Rx(angle, _);
+            }
+            op(q);
+        }
+        "#;
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(direct_source);
+    let result = super::run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
+    let package = fir_store.get(fir_pkg_id);
+    let direct_sites = result
+        .direct_call_sites
+        .iter()
+        .filter(|site| {
+            let span = package.get_expr(site.call_expr_id).span;
+            &direct_source[span.lo as usize..span.hi as usize] == "op(q)"
+        })
+        .count();
+    let unresolved_sites = result
+        .unresolved_direct_call_sites
+        .iter()
+        .filter(|site| {
+            let span = package.get_expr(site.expr).span;
+            &direct_source[span.lo as usize..span.hi as usize] == "op(q)"
+        })
+        .count();
+    assert_eq!(
+        direct_sites, 0,
+        "an inadmissible candidate should prevent every direct-site record"
+    );
+    assert_eq!(
+        unresolved_sites, 1,
+        "the rejected direct Multi should have one unresolved route"
+    );
+    check_errors(
+        direct_source,
+        &expect!["callable argument could not be resolved statically"],
     );
 }

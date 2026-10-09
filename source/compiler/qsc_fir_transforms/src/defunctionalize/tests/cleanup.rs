@@ -132,11 +132,19 @@ const UDT_CTOR_SOURCE: &str = r#"
     }
     "#;
 
+/// No reads can protect this binding, so tests isolate the cleanup filters.
+const UNUSED_LET_BOUND_SOURCE: &str = r#"
+    operation Main() : Unit {
+        let offset = 17;
+        let f = x -> x+offset;
+    }
+    "#;
+
 /// Filter step: the `specialized_targets.is_empty()` early return. With no
 /// consumed targets, the function returns 0 and leaves every closure intact.
 #[test]
 fn empty_specialized_targets_returns_zero_and_preserves_closure() {
-    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(LET_BOUND_SOURCE);
+    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(UNUSED_LET_BOUND_SOURCE);
     let (closure_expr, _target) = single_closure(fir_store.get(fir_pkg_id), &reachable_item_ids);
 
     let package = fir_store.get_mut(fir_pkg_id);
@@ -158,12 +166,172 @@ fn empty_specialized_targets_returns_zero_and_preserves_closure() {
     );
 }
 
+#[test]
+fn callable_argument_aliases_preserve_their_closure_initializers() {
+    let source = r#"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        operation Main() : Int {
+            let offset = 17;
+            let f = x -> x+offset;
+            let firstAlias = f;
+            let secondAlias = firstAlias;
+            Apply(secondAlias, 3)
+        }
+    "#;
+    let (mut store, package_id, reachable) = setup(source);
+    let (closure, target) = single_closure(store.get(package_id), &reachable);
+    let replaced = cleanup_consumed_closures(
+        store.get_mut(package_id),
+        package_id,
+        &FxHashSet::from_iter([target]),
+        &FxHashSet::default(),
+        &reachable,
+    );
+    assert_eq!(replaced, 0, "a live aliased argument is not consumed");
+    assert!(is_closure(store.get(package_id), closure));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn callable_argument_assignments_preserve_all_reaching_closures() {
+    let source = r#"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        operation Main() : Int {
+            let offset = 17;
+            mutable f = x -> x+offset;
+            set f = x -> x-offset;
+            Apply(f, 3)
+        }
+    "#;
+    let (mut store, package_id, reachable) = setup(source);
+    let closures = all_closures(store.get(package_id), &reachable);
+    assert_eq!(closures.len(), 2);
+    let targets = closures.iter().map(|(_, target)| *target).collect();
+    let replaced = cleanup_consumed_closures(
+        store.get_mut(package_id),
+        package_id,
+        &targets,
+        &FxHashSet::default(),
+        &reachable,
+    );
+    assert_eq!(
+        replaced, 0,
+        "both definitions of a live argument must survive"
+    );
+    for (closure, _) in closures {
+        assert!(is_closure(store.get(package_id), closure));
+    }
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn tuple_bound_argument_preserves_transitively_captured_closure() {
+    let source = r#"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        operation Main() : Int {
+            let offset = 17;
+            let f = x -> x+offset;
+            let (_, g) = (0, x -> 2*f(x));
+            Apply(g, 3)
+        }
+    "#;
+    let (mut store, package_id, reachable) = setup(source);
+    let closures = all_closures(store.get(package_id), &reachable);
+    assert_eq!(closures.len(), 2);
+    let targets = closures.iter().map(|(_, target)| *target).collect();
+    let replaced = cleanup_consumed_closures(
+        store.get_mut(package_id),
+        package_id,
+        &targets,
+        &FxHashSet::default(),
+        &reachable,
+    );
+    assert_eq!(
+        replaced, 0,
+        "the argument and its captured callable remain live"
+    );
+    for (closure, _) in closures {
+        assert!(is_closure(store.get(package_id), closure));
+    }
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn cyclic_callable_alias_assignments_preserve_live_closures_and_terminate() {
+    let source = r#"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        operation Main() : Int {
+            let offset = 17;
+            mutable first = x -> x+offset;
+            mutable second = first;
+            set first = second;
+            set second = first;
+            Apply(second, 3)
+        }
+    "#;
+    let (mut store, package_id, reachable) = setup(source);
+    let (closure, target) = single_closure(store.get(package_id), &reachable);
+    let replaced = cleanup_consumed_closures(
+        store.get_mut(package_id),
+        package_id,
+        &FxHashSet::from_iter([target]),
+        &FxHashSet::default(),
+        &reachable,
+    );
+    assert_eq!(replaced, 0);
+    assert!(is_closure(store.get(package_id), closure));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn unresolved_direct_callee_preserves_its_closure_initializer() {
+    let source = r#"
+        operation Main() : Int {
+            let offset = 17;
+            let f = x -> x+offset;
+            f(3)
+        }
+    "#;
+    let (mut store, package_id, reachable) = setup(source);
+    let (closure, target) = single_closure(store.get(package_id), &reachable);
+    let replaced = cleanup_consumed_closures(
+        store.get_mut(package_id),
+        package_id,
+        &FxHashSet::from_iter([target]),
+        &FxHashSet::default(),
+        &reachable,
+    );
+    assert_eq!(replaced, 0, "the callee still reads its closure value");
+    assert!(is_closure(store.get(package_id), closure));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn live_let_bound_callables_are_preserved_with_and_without_udt_wrapping() {
+    for source in [LET_BOUND_SOURCE, UDT_CTOR_SOURCE] {
+        let (mut store, package_id, reachable) = setup(source);
+        let (closure, target) = single_closure(store.get(package_id), &reachable);
+        let replaced = cleanup_consumed_closures(
+            store.get_mut(package_id),
+            package_id,
+            &FxHashSet::from_iter([target]),
+            &FxHashSet::default(),
+            &reachable,
+        );
+        assert_eq!(
+            replaced, 0,
+            "a surviving callable usage needs its initializer"
+        );
+        assert!(is_closure(store.get(package_id), closure));
+    }
+}
+
 /// Filter step: the `specialized_targets.contains(target)` membership test.
 /// When the set holds an unrelated callable id, the closure's target does not
 /// match, so the closure is preserved.
 #[test]
 fn non_matching_target_preserves_closure() {
-    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(LET_BOUND_SOURCE);
+    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(UNUSED_LET_BOUND_SOURCE);
     let package = fir_store.get(fir_pkg_id);
     let (closure_expr, target) = single_closure(package, &reachable_item_ids);
     // Use `Main` as a real-but-unrelated id that is not the closure target.
@@ -193,10 +361,10 @@ fn non_matching_target_preserves_closure() {
 }
 
 /// Filter step: the positive cleanup path. A consumed closure that is not a
-/// live call argument is replaced with the empty-tuple `Unit` value.
+/// read or live call argument is replaced with the empty-tuple `Unit` value.
 #[test]
 fn consumed_closure_outside_call_arg_is_cleaned() {
-    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(LET_BOUND_SOURCE);
+    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(UNUSED_LET_BOUND_SOURCE);
     let package = fir_store.get(fir_pkg_id);
     let (closure_expr, target) = single_closure(package, &reachable_item_ids);
 
@@ -227,7 +395,7 @@ fn consumed_closure_outside_call_arg_is_cleaned() {
 /// specialized) item is left untouched.
 #[test]
 fn closure_in_skipped_item_is_preserved() {
-    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(LET_BOUND_SOURCE);
+    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(UNUSED_LET_BOUND_SOURCE);
     let package = fir_store.get(fir_pkg_id);
     let (closure_expr, target) = single_closure(package, &reachable_item_ids);
     // The closure lives in `Main`'s body; skipping `Main` must suppress cleanup.
@@ -287,10 +455,17 @@ fn live_call_arg_closure_is_preserved() {
 
 /// Filter step: the `is_udt_ctor_call` exception. A closure inside a UDT
 /// constructor call-argument subtree is a structural wrapper, not a live HOF
-/// argument, so it remains eligible for cleanup.
+/// argument, so it remains eligible for cleanup when the wrapper is unused.
 #[test]
 fn udt_ctor_wrapped_closure_is_cleaned() {
-    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(UDT_CTOR_SOURCE);
+    let source = r#"
+        newtype W = (Int -> Int);
+        operation Main() : Unit {
+            let offset = 17;
+            let w = W(x -> x+offset);
+        }
+    "#;
+    let (mut fir_store, fir_pkg_id, reachable_item_ids) = setup(source);
     let package = fir_store.get(fir_pkg_id);
     let (closure_expr, target) = single_closure(package, &reachable_item_ids);
 
