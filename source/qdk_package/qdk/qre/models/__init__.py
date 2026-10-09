@@ -7,6 +7,7 @@ from .factories import (
     Litinski19Factory,
     MagicUpToClifford,
     RoundBasedFactory,
+    BlackBoxFactory,
 )
 from .qec import (
     SurfaceCode,
@@ -23,6 +24,7 @@ __all__ = [
     "GSJ24CCXFactory",
     "Litinski19Factory",
     "Majorana",
+    "BlackBoxFactory",
     "MagicUpToClifford",
     "NeutralAtom",
     "RoundBasedFactory",
