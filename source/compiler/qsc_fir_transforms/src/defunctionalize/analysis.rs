@@ -66,6 +66,8 @@ pub(super) struct LocalState {
     evaluated_callables: FxHashMap<ExprId, CalleeLattice>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
+    /// Producer bodies currently being traced, including through local bindings.
+    active_returns: Rc<FxHashSet<StoreItemId>>,
     /// Bindings visible at the current program point. Unlike `exprs`, this is
     /// restored when analysis leaves a lexical block.
     visible_bindings: FxHashSet<LocalVarId>,
@@ -410,6 +412,7 @@ fn collect_call_sites(
             evaluated_callables: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
+            active_returns: Rc::default(),
             visible_bindings: FxHashSet::default(),
             mutable_bindings: FxHashSet::default(),
             closure_capturable_var_types: FxHashMap::default(),
@@ -1616,6 +1619,7 @@ fn resolve_callee(
                 evaluated_callables: locals.evaluated_callables.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
+                active_returns: Rc::clone(&locals.active_returns),
                 visible_bindings: locals.visible_bindings.clone(),
                 mutable_bindings: locals.mutable_bindings.clone(),
                 closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
@@ -1811,6 +1815,7 @@ fn resolve_callee_projection(
                 evaluated_callables: FxHashMap::default(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
+                active_returns: Rc::clone(&locals.active_returns),
                 visible_bindings: locals.visible_bindings.clone(),
                 mutable_bindings: locals.mutable_bindings.clone(),
                 closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
@@ -2062,6 +2067,12 @@ fn resolve_callable_return(
     scoped_capture_vars: &FxHashSet<LocalVarId>,
     package_id: PackageId,
 ) -> CalleeLattice {
+    let producer = StoreItemId::from((item_id.package, item_id.item));
+    if caller_locals.active_returns.contains(&producer)
+        || caller_locals.active_returns.len() >= MAX_RESOLVE_DEPTH
+    {
+        return CalleeLattice::Dynamic;
+    }
     let callee_pkg = store.get(item_id.package);
     let callee_pkg_id = item_id.package;
     let item = callee_pkg.get_item(item_id.item);
@@ -2097,6 +2108,11 @@ fn resolve_callable_return(
         evaluated_callables: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
+        active_returns: {
+            let mut active = caller_locals.active_returns.as_ref().clone();
+            active.insert(producer);
+            Rc::new(active)
+        },
         visible_bindings: {
             let mut bindings = FxHashSet::default();
             collect_pat_local_bindings(callee_pkg, body_input, &mut bindings);
@@ -2116,13 +2132,10 @@ fn resolve_callable_return(
         package_id,
         callee_pkg_id,
     );
-    // Snapshot the parameter -> caller-argument expression map immediately
-    // after seeding and before the body is analyzed. The body's own local
-    // bindings can collide with caller-scope `LocalVarId`s, which would make
-    // a transitive walk over the merged `state.exprs` ambiguous. This clean
-    // snapshot lets capture resolution stop at a producing-function parameter
-    // and substitute the caller-scope argument bound to it.
-    let param_substitutions: FxHashMap<LocalVarId, ExprId> = state.exprs.clone();
+    // Snapshot caller arguments before analyzing producer-local bindings.
+    // Capture resolution must stop at a parameter rather than interpreting
+    // the caller's local IDs in the producer's scope.
+    let param_substitutions = state.condition_substitutions.clone();
     analyze_block_flow(
         callee_pkg,
         store,
@@ -3034,11 +3047,10 @@ fn seed_param_bindings_from_call(
     let pat = hof_package.get_pat(pat_id);
     match &pat.kind {
         PatKind::Bind(ident) => {
-            // These maps are package-local expression graphs. Foreign operands
-            // remain runtime parameters until specialization clones the body
-            // into their package; their raw IDs must never enter this graph.
+            // Caller expressions are not producer-local initializers: overlapping
+            // local IDs must be resolved only through the substitution map.
+            // Foreign expression IDs must never enter this package-local map.
             if caller_package_id == hof_package_id {
-                state.exprs.insert(ident.id, arg_expr_id);
                 state.condition_substitutions.insert(ident.id, arg_expr_id);
             }
             if matches!(pat.ty, Ty::Arrow(_)) {
@@ -3652,6 +3664,7 @@ fn build_callable_flow_state(
         evaluated_callables: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
+        active_returns: Rc::default(),
         visible_bindings: FxHashSet::default(),
         mutable_bindings: FxHashSet::default(),
         closure_capturable_var_types: collect_callable_param_types(pkg, callable_impl, input_pat),
