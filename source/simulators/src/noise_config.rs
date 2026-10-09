@@ -59,9 +59,9 @@ impl CumulativeNoiseConfig {
     /// Returns true if an idle fault has triggered.
     #[must_use]
     pub fn gen_idle_fault(&self, rng: &mut impl rand::Rng, idle_steps: u32) -> bool {
-        // With no idle noise configured the fault probability is always 0, so avoid
-        // consuming a random sample from `rng`.
-        if self.idle.is_noiseless() {
+        // With no elapsed time or no idle noise configured, avoid consuming
+        // a random sample for a fault whose probability is zero.
+        if idle_steps == 0 || self.idle.is_noiseless() {
             return false;
         }
         let sample: f32 = rng.random_range(0.0..1.0);
