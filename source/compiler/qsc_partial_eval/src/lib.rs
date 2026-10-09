@@ -2579,8 +2579,10 @@ impl<'a> PartialEvaluator<'a> {
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
         let cached_mappings = self.clone_current_static_var_map();
+        let qubit_state_before_branch = self.resource_manager.save_qubit_state();
         let if_true_block_id =
             self.eval_expr_if_branch(body_expr_id, continuation_block_node_id, maybe_if_expr_var)?;
+        let qubit_state_after_true = self.resource_manager.save_qubit_state();
 
         // Evaluate the otherwise expression (if any), and determine the block to branch to if the condition is false.
         let if_false_block_id = if let Some(otherwise_expr_id) = otherwise_expr_id {
@@ -2588,6 +2590,8 @@ impl<'a> PartialEvaluator<'a> {
             let post_if_true_mappings = self.clone_current_static_var_map();
             // Restore the cached mappings from before evaluating the true block.
             self.overwrite_current_static_var_map(cached_mappings);
+            self.resource_manager
+                .restore_qubit_state(qubit_state_before_branch);
             let if_false_block_id = self.eval_expr_if_branch(
                 otherwise_expr_id,
                 continuation_block_node_id,
@@ -2602,9 +2606,17 @@ impl<'a> PartialEvaluator<'a> {
             // the variable is no longer static across the if expression.
             self.keep_matching_static_var_mappings(&cached_mappings);
 
+            // With no otherwise branch, the false path leaves resources exactly
+            // as they were before the true branch was evaluated.
+            self.resource_manager
+                .restore_qubit_state(qubit_state_before_branch);
+
             // Since there is no otherwise block, we branch to the continuation block.
             continuation_block_node_id
         };
+
+        self.resource_manager
+            .merge_qubit_state(&qubit_state_after_true);
 
         // Finally, we insert the branch instruction.
         let condition_value_var = condition_value.unwrap_var();
