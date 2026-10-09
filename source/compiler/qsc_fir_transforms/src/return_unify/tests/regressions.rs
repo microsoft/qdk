@@ -87,6 +87,7 @@ fn triple_nested_if_return_with_else_return() {
                         __ret_val = 2;
                         __has_returned = true;
                     };
+                    __ret_val
                 };
                 if __has_returned {
                     __ret_val

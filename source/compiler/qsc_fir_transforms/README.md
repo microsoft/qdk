@@ -53,3 +53,10 @@ cargo test -p qsc_fir_transforms --features slow-proptest-tests   # + semantic-e
 ```
 
 Pass-local unit tests sit next to each pass; `tests/pipeline_integration.rs` drives full-pipeline and per-stage behavior.
+
+Return-normalization semantic tests compare explicit expected values, ordered
+quantum-operation and lifetime traces, and receiver output before and after the
+Full pipeline. They do not establish QIR support by themselves. The
+short-circuit-assignment codegen tests keep qubit ownership in the caller so they
+exercise return lowering independently of conditional qubit cleanup. The
+resource-owning #3836 case still requires the separate cleanup repair.
