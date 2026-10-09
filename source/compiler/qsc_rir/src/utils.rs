@@ -147,15 +147,18 @@ pub(crate) fn map_variable_use_in_block(
 
     for mut instr in instrs {
         match &mut instr {
-            // Track the new value of the variable and omit the store instruction.
+            // Track the new value of the variable and omit the store instruction,
+            // unless the variable or it's mapped source is in the set of stores to
+            // keep in which case any prior mapping should be removed.
             Instruction::Store(operand, var) => {
                 if var_stor_to_keep.contains(&var.variable_id) {
-                    // Only keep stores to variables that are in the set to keep.
                     *operand = operand.mapped(var_map);
+                    var_map.remove(&var.variable_id);
                 } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
                     && var_stor_to_keep.contains(&mapped_var.variable_id)
                 {
                     *operand = Operand::Variable(mapped_var);
+                    var_map.remove(&var.variable_id);
                 } else {
                     update_variable_mapping(var_map, &mut reverse_deep_map, operand, var);
                     continue;
@@ -248,8 +251,8 @@ fn populate_reverse_deep_map(
 fn update_variable_mapping(
     var_map: &mut FxHashMap<VariableId, OperandMapping>,
     reverse_deep_map: &mut FxHashMap<VariableId, FxHashSet<VariableId>>,
-    operand: &mut Operand,
-    var: &mut Variable,
+    operand: &Operand,
+    var: &Variable,
 ) {
     // Note this uses the mapped operand to make sure this variable points to whatever root literal or variable
     // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
