@@ -293,9 +293,7 @@ impl LoopUni<'_> {
 
         let item_ty = match &array_id.ty {
             Ty::Array(inner) => (**inner).clone(),
-            // If the type is not array, this is likely the special case where a short-circuiting expression is the iterable
-            // and the type is thus unknown. In that case, we can just use the type of the iteration variable pattern.
-            _ => iter.ty.clone(),
+            _ => unreachable!("array loop iterable has its contextual array type"),
         };
         let ns = self
             .core
@@ -602,7 +600,7 @@ impl LoopUni<'_> {
     /// while not .broke_<id> and cond { body' }
     /// ```
     ///
-    /// `body'` is the body after [`desugar_loop_body`]. Continue-only loops do
+    /// `body'` is the body after [`Self::desugar_loop_body`]. Continue-only loops do
     /// not need `.broke_<id>`, so they stay as `while cond { body' }`; a plain
     /// `while` has no loop step, so `continue` falls through to the next
     /// condition check.
@@ -795,9 +793,10 @@ impl MutVisitor for LoopUni<'_> {
                         *expr = self.visit_for_range(iter, iterable, block, expr.span);
                     }
                     Ty::Tuple(ref inner) if inner.is_empty() => {
-                        // The type checking would only allow unit in here in the case where the iterable expression is
-                        // short-circuiting (an explicit `fail` or `return`), so treat this as if it were an array
-                        // of the type defined by the iteration variable.
+                        // A divergent iterable may retain Unit as its bottom type.
+                        // Generated bindings and Length still require the array shape.
+                        let mut iterable = iterable;
+                        iterable.ty = Ty::Array(Box::new(iter.ty.clone()));
                         *expr = self.visit_for_array(iter, iterable, block, expr.span);
                     }
                     a => {
@@ -1319,7 +1318,7 @@ fn build_default_or_err(
 /// relocated into a guarded suffix block rather than guarded in place: a qubit
 /// allocation, whose binding scope must stay intact, or a non-defaultable `let`
 /// binding, which has no classical default to seed the divergence path. Any
-/// other statement is guarded in place by [`LoopUni::guard_stmt`].
+/// other statement is guarded in place by [`BreakContinueDesugar::guard_stmt`].
 fn requires_suffix_relocation(stmt: &Stmt) -> bool {
     match &stmt.kind {
         StmtKind::Qubit(..) => true,
@@ -1411,7 +1410,7 @@ pub(crate) fn check_no_break_continue(package: &Package) -> Vec<Error> {
     scan.errors
 }
 
-/// Read-only visitor that records a [`Error::BreakContinue`] for each use of `break`/`continue`.
+/// Read-only visitor that records an [`Error::UnsupportedBreakContinue`] for each residual `break`/`continue`.
 struct UnsupportedBreakContinueScan {
     errors: Vec<Error>,
 }

@@ -80,6 +80,7 @@ pub fn monomorphize(
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) {
+    complete_entry_generic_arguments(store, package_id);
     let instantiations = discover_instantiations(store, package_id);
     if !instantiations.is_empty() {
         // Create specialized callables, allocating each into the package that owns
@@ -97,6 +98,96 @@ pub fn monomorphize(
     // package. Holds even when no instantiation was discovered (a reachable
     // generic would have produced one).
     assert_no_reachable_generic(store, package_id);
+}
+
+/// Generated entry calls carry an instantiated arrow but no explicit generic
+/// vector. Complete that vector from the call's concrete input/output evidence
+/// before discovery; bare callable roots used for runtime reinvocation are not
+/// calls and must not be defaulted here.
+fn complete_entry_generic_arguments(store: &mut PackageStore, package_id: PackageId) {
+    let package = store.get(package_id);
+    let Some(entry) = package.entry else { return };
+    let ExprKind::Call(callee, argument) = package.get_expr(entry).kind else {
+        return;
+    };
+    let ExprKind::Var(Res::Item(target), args) = &package.get_expr(callee).kind else {
+        return;
+    };
+    if !args.is_empty() {
+        return;
+    }
+    let target_package = store.get(target.package);
+    let ItemKind::Callable(decl) = &target_package.get_item(target.item).kind else {
+        return;
+    };
+    if decl.generics.is_empty() {
+        return;
+    }
+    let mut inferred = FxHashMap::default();
+    let formal_input = &target_package.get_pat(decl.input).ty;
+    assert!(
+        infer_generic_ty_args(formal_input, &package.get_expr(argument).ty, &mut inferred),
+        "entry input evidence must agree with its declaration"
+    );
+    assert!(
+        infer_generic_ty_args(&decl.output, &package.get_expr(entry).ty, &mut inferred),
+        "entry output evidence must agree with its declaration"
+    );
+    let args: Vec<_> = decl
+        .generics
+        .iter()
+        .enumerate()
+        .map(|(index, parameter)| {
+            let id = ParamId::from(index);
+            match inferred.get(&id) {
+                Some(arg) if is_fully_concrete(std::slice::from_ref(arg)) => arg.clone(),
+                Some(GenericArg::Ty(ty)) => GenericArg::Ty(default_unobserved_entry_leaves(ty)),
+                _ => match parameter {
+                    TypeParameter::Ty { .. } => GenericArg::Ty(Ty::UNIT),
+                    TypeParameter::Functor(required) => {
+                        GenericArg::Functor(FunctorSet::Value(*required))
+                    }
+                },
+            }
+        })
+        .collect();
+    let signature = qsc_fir::ty::Scheme::new(
+        decl.generics.clone(),
+        Box::new(Arrow {
+            kind: decl.kind,
+            input: Box::new(formal_input.clone()),
+            output: Box::new(decl.output.clone()),
+            functors: FunctorSet::Value(decl.functors),
+        }),
+    )
+    .instantiate(&args)
+    .expect("entry generic arguments match declaration kinds");
+    let package = store.get_mut(package_id);
+    package.exprs.get_mut(entry).expect("entry exists").ty = *signature.output.clone();
+    let expression = package.exprs.get_mut(callee).expect("entry callee exists");
+    expression.ty = Ty::Arrow(Box::new(signature));
+    let ExprKind::Var(_, generic_args) = &mut expression.kind else {
+        unreachable!()
+    };
+    *generic_args = args;
+}
+
+fn default_unobserved_entry_leaves(ty: &Ty) -> Ty {
+    match ty {
+        Ty::Param(_) | Ty::Infer(_) => Ty::UNIT,
+        Ty::Array(item) => Ty::Array(Box::new(default_unobserved_entry_leaves(item))),
+        Ty::Tuple(items) => Ty::Tuple(items.iter().map(default_unobserved_entry_leaves).collect()),
+        Ty::Arrow(arrow) => Ty::Arrow(Box::new(Arrow {
+            kind: arrow.kind,
+            input: Box::new(default_unobserved_entry_leaves(&arrow.input)),
+            output: Box::new(default_unobserved_entry_leaves(&arrow.output)),
+            functors: match arrow.functors {
+                FunctorSet::Value(_) => arrow.functors,
+                _ => FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty),
+            },
+        })),
+        Ty::Err | Ty::Prim(_) | Ty::Udt(_) => ty.clone(),
+    }
 }
 
 /// Asserts the post-monomorphization invariant that no generic callable remains
@@ -1024,8 +1115,8 @@ fn specialize_one(
     (new_item_id, refs_out)
 }
 
-/// Scans a freshly created monomorphized callable for concrete generic
-/// references that require their own specializations.
+/// Scans a freshly created monomorphized callable and its transitive closure
+/// bodies for concrete generic references that require their own specializations.
 ///
 /// References to items already non-generic in the owning package (for example
 /// self-references from a recursive callable remapped by `set_self_item_remap`)
@@ -1036,15 +1127,21 @@ fn collect_new_generic_refs(
     owning_pkg_id: PackageId,
     new_local_id: LocalItemId,
 ) -> Vec<(StoreItemId, Vec<GenericArg>)> {
-    // Scan the newly created callable for additional concrete generic
-    // references that need their own specializations. Skip references to
-    // items in the owning package that are already non-generic (e.g.,
-    // self-references from recursive callables that were remapped by
-    // set_self_item_remap).
     let mut refs_out = Vec::new();
-    let created_item = owning_pkg.items.get(new_local_id).expect("just inserted");
-    if let ItemKind::Callable(created_decl) = &created_item.kind {
-        let new_refs = scan_for_concrete_generic_refs(owning_pkg_id, owning_pkg, created_decl);
+    let mut worklist = vec![new_local_id];
+    let mut seen_items = FxHashSet::default();
+    while let Some(item_id) = worklist.pop() {
+        if !seen_items.insert(item_id) {
+            continue;
+        }
+        let item = owning_pkg.get_item(item_id);
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        // Lifted lambdas may declare no generics themselves, but substitution in
+        // their cloned bodies can expose additional concrete generic dependencies.
+        worklist.extend(collect_closure_targets_in_callable(owning_pkg, decl));
+        let new_refs = scan_for_concrete_generic_refs(owning_pkg_id, owning_pkg, decl);
         for (ref_id, ref_args) in new_refs {
             if ref_id.package == owning_pkg_id
                 && let Some(ref_item) = owning_pkg.items.get(ref_id.item)

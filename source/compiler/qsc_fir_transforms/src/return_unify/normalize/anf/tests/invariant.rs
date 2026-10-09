@@ -259,11 +259,7 @@ fn entry_expression_never_directly_holds_a_return() {
 }
 
 #[test]
-fn skip_set_bypasses_non_unit_block_tail_check_for_residual_return_callable() {
-    // A callable left with a residual `Return` keeps its un-collapsed,
-    // non-single-exit body. The non-Unit block-tail check skips exactly that
-    // callable's per-callable fan-out, so checking at `PostReturnUnify` must not
-    // panic.
+fn skip_set_allows_intentionally_retained_return_callable() {
     let source = residual_return_entry_point_source();
 
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
@@ -274,24 +270,26 @@ fn skip_set_bypasses_non_unit_block_tail_check_for_residual_return_callable() {
         "fixture should leave a reachable callable with a residual Return",
     );
 
-    // The check panics on violation; returning normally is the positive
-    // assertion that the skip set covers the residual-`Return` callable.
-    invariants::check_non_unit_block_tails(&store, pkg_id, &reachable, &skip);
+    invariants::check_with_exemptions(
+        &store,
+        pkg_id,
+        invariants::InvariantLevel::PostReturnUnify,
+        &invariants::InvariantExemptions {
+            return_unify_skipped_items: skip,
+            ..invariants::InvariantExemptions::default()
+        },
+    );
 }
 
 #[test]
-fn residual_return_tail_trips_non_unit_block_tail_check_without_skip() {
-    // The negative control for the skip-set gating: with an empty skip set, the
-    // un-rewritten callable's residual `Return` body is checked and its
-    // non-single-exit, non-Unit block tail is rejected. This proves the skip in
-    // the positive control is load-bearing rather than vacuous.
+fn residual_return_is_rejected_without_an_explicit_skip() {
+    // Divergence can justify a tail-type mismatch, but cannot authorize a
+    // residual Return after return unification.
     let source = residual_return_entry_point_source();
 
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
-    let reachable = collect_reachable_from_entry(&store, pkg_id);
-
-    assert_panics_with("Non-Unit block-tail invariant violation", || {
-        invariants::check_non_unit_block_tails(&store, pkg_id, &reachable, &FxHashSet::default());
+    assert_panics_with("ExprKind::Return found after return unification", || {
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostReturnUnify);
     });
 }
 

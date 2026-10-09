@@ -1336,6 +1336,395 @@ mod given_interpreter {
         }
 
         #[test]
+        fn generated_generic_project_and_executable_entries_preserve_unreachable_failure() {
+            use qsc_data_structures::target::Profile;
+            use qsc_project::{FileSystem, ProjectType, StdFs};
+            let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("test_data/generic_entry");
+            // The empty manifest is the minimal reproduction, not an assumed production manifest.
+            assert_eq!(
+                std::fs::read_to_string(directory.join("qsharp.json"))
+                    .expect("fixture manifest")
+                    .trim(),
+                "{}"
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+                Profile::Unrestricted,
+            ] {
+                for package_type in [PackageType::Lib, PackageType::Exe] {
+                    let project = StdFs
+                        .load_project(&directory, None)
+                        .expect("source project loads");
+                    assert!(project.errors.is_empty(), "{:?}", project.errors);
+                    let ProjectType::QSharp(graph) = project.project_type else {
+                        panic!("Q# fixture")
+                    };
+                    let program = crate::packages::BuildableProgram::new(profile.into(), graph);
+                    assert!(program.dependency_errors.is_empty());
+                    let mut interpreter = Interpreter::new(
+                        SourceMap::new(program.user_code.sources, None),
+                        package_type,
+                        profile.into(),
+                        program.user_code.language_features,
+                        program.store,
+                        &program.user_code_dependencies,
+                        Default::default(),
+                    )
+                    .unwrap_or_else(|errors| panic!("{profile:?}: {errors:?}"));
+                    let (result, _) = entry(&mut interpreter);
+                    let errors =
+                        result.expect_err("entry must fail normally rather than be rejected");
+                    assert!(
+                        format!("{errors:?}").contains("unreachable"),
+                        "{profile:?}: {errors:?}"
+                    );
+                    let labels: Vec<_> = errors
+                        .iter()
+                        .flat_map(|error| error.labels().into_iter().flatten())
+                        .collect();
+                    assert_eq!(labels.len(), 1, "{errors:?}");
+                    let code = errors[0].source_code().expect("source-located failure");
+                    let contents = code
+                        .read_span(labels[0].inner(), 0, 0)
+                        .expect("failure span");
+                    assert!(
+                        std::str::from_utf8(contents.data())
+                            .expect("source text")
+                            .contains("fail \"unreachable\"")
+                    );
+                }
+            }
+        }
+
+        fn runtime_target_fixture(
+            source: &str,
+            target: &str,
+            args: &str,
+        ) -> (Interpreter, Value, Value) {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRIF.into(),
+            );
+            line(&mut interpreter, source)
+                .0
+                .expect("source declarations compile");
+            let target = line(&mut interpreter, target)
+                .0
+                .expect("source target evaluates");
+            let args = line(&mut interpreter, args)
+                .0
+                .expect("source arguments evaluate");
+            (interpreter, target, args)
+        }
+
+        fn static_target_circuit(
+            interpreter: &mut Interpreter,
+            entry: crate::interpret::CircuitEntryPoint,
+        ) -> Result<qsc_circuit::Circuit, Vec<crate::interpret::Error>> {
+            interpreter.circuit(
+                entry,
+                crate::interpret::CircuitGenerationMethod::Static,
+                qsc_circuit::TracerConfig {
+                    max_operations: 1000,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
+            )
+        }
+
+        fn assert_runtime_target_backend(
+            interpreter: &Interpreter,
+            target: &Value,
+            args: &Value,
+            synthetic: bool,
+        ) {
+            use crate::codegen::qir::{
+                CallableArgsBackend, prepare_codegen_fir_from_callable_args_with_functor,
+            };
+            let (id, functor) =
+                Interpreter::hir_callable_from_value(target).expect("global target");
+            let (_, backend) = prepare_codegen_fir_from_callable_args_with_functor(
+                interpreter.compiler.package_store(),
+                id,
+                functor,
+                &Interpreter::remap_value_for_codegen(args.clone()),
+                interpreter.capabilities,
+            )
+            .expect("source-derived target prepares");
+            assert_eq!(
+                matches!(backend, CallableArgsBackend::SyntheticEntry),
+                synthetic
+            );
+            if let CallableArgsBackend::ReinvokeOriginal {
+                functor: actual, ..
+            } = backend
+            {
+                assert_eq!(actual, functor, "reinvocation retains the target functor");
+            }
+        }
+
+        #[test]
+        fn runtime_target_functors_preserve_rz_angle_and_order_in_both_backends() {
+            use crate::interpret::CircuitEntryPoint;
+            let source = r#"
+                function EmptyControls() : Qubit[] { [] }
+                operation Target(theta : Double) : Unit is Adj + Ctl {
+                    use q = Qubit(); Z(q); Rz(theta, q); S(q);
+                }
+                function Identity(x : Double) : Double { x }
+                operation Higher(f : Double -> Double, theta : Double) : Unit is Adj + Ctl {
+                    Target(f(theta));
+                }
+            "#;
+            for (name, input, synthetic) in [
+                ("Target", "0.25", false),
+                ("Higher", "(Identity, 0.25)", true),
+            ] {
+                for (prefix, controls, adjoint) in [
+                    ("", 0, false),
+                    ("Adjoint ", 0, true),
+                    ("Adjoint Adjoint ", 0, false),
+                    ("Controlled ", 1, false),
+                    ("Controlled Adjoint ", 1, true),
+                    ("Controlled Controlled Adjoint ", 2, true),
+                ] {
+                    let target_expr = format!("{prefix}{name}");
+                    let mut args_expr = input.to_string();
+                    for _ in 0..controls {
+                        args_expr = format!("(EmptyControls(), {args_expr})");
+                    }
+                    let invocation = format!("({target_expr})({args_expr})");
+                    let (mut interpreter, target, args) =
+                        runtime_target_fixture(source, &target_expr, &args_expr);
+                    assert_runtime_target_backend(&interpreter, &target, &args, synthetic);
+                    let actual = interpreter
+                        .qirgen_from_callable(&target, args)
+                        .unwrap_or_else(|error| panic!("{invocation}: {error:?}"));
+                    let (mut original, _, _) =
+                        runtime_target_fixture(source, &target_expr, &args_expr);
+                    let expected = original.qirgen(&invocation).expect("source QIR");
+                    let gates = |qir: &str| {
+                        qir.lines()
+                            .filter(|line| line.contains("call void @__quantum__qis__"))
+                            .map(|line| line.trim().to_string())
+                            .collect::<Vec<_>>()
+                    };
+                    let actual_gates = gates(&actual);
+                    assert_eq!(actual_gates, gates(&expected), "{invocation}");
+                    assert_eq!(actual_gates.len(), 3, "{invocation}: {actual}");
+                    let angle = if adjoint { "-0.25" } else { "0.25" };
+                    assert!(
+                        actual_gates[1].contains(&format!("rz__body(double {angle},")),
+                        "{invocation}: {actual}"
+                    );
+                    assert!(
+                        actual_gates[0].contains(if adjoint { "s__adj" } else { "z__body" }),
+                        "{invocation}: {actual}"
+                    );
+                    assert!(
+                        actual_gates[2].contains(if adjoint { "z__body" } else { "s__body" }),
+                        "{invocation}: {actual}"
+                    );
+
+                    let (mut interpreter, target, args) =
+                        runtime_target_fixture(source, &target_expr, &args_expr);
+                    let actual = static_target_circuit(
+                        &mut interpreter,
+                        CircuitEntryPoint::Callable(target, args),
+                    )
+                    .unwrap_or_else(|error| panic!("{invocation}: {error:?}"));
+                    let (mut original, _, _) =
+                        runtime_target_fixture(source, &target_expr, &args_expr);
+                    let expected = static_target_circuit(
+                        &mut original,
+                        CircuitEntryPoint::EntryExpr(invocation.clone()),
+                    )
+                    .expect("source static circuit");
+                    assert_eq!(
+                        actual.display_no_locations().to_string(),
+                        expected.display_no_locations().to_string(),
+                        "{invocation}"
+                    );
+                    let rotations: Vec<_> = actual
+                        .component_grid
+                        .iter()
+                        .flat_map(|column| &column.components)
+                        .filter(|operation| operation.gate() == "Rz")
+                        .collect();
+                    assert_eq!(rotations.len(), 1, "{invocation}: {actual}");
+                    assert_eq!(
+                        rotations[0].args(),
+                        [if adjoint { "-0.2500" } else { "0.2500" }],
+                        "{invocation}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn runtime_target_control_depth_preserves_explicit_specialization_gate_order() {
+            use crate::interpret::CircuitEntryPoint;
+            let source = r#"
+                function EmptyControls() : Qubit[] { [] }
+                operation Target(theta : Double) : Unit is Adj + Ctl {
+                    body (...) { use q = Qubit(); Rz(theta, q); }
+                    adjoint (...) { use q = Qubit(); Rz(-theta, q); }
+                    controlled (controls, ...) {
+                        use (control, q) = (Qubit(), Qubit());
+                        Controlled X(controls + [control], q);
+                        Rz(theta, q);
+                        Controlled X(controls + [control], q);
+                    }
+                    controlled adjoint (controls, ...) {
+                        use (control, q) = (Qubit(), Qubit());
+                        Controlled X(controls + [control], q);
+                        Rz(-theta, q);
+                        Controlled X(controls + [control], q);
+                    }
+                }
+            "#;
+            for (target, args, depth, adjoint) in [
+                ("Controlled Target", "(EmptyControls(), 0.25)", 1, false),
+                (
+                    "Controlled Adjoint Target",
+                    "(EmptyControls(), 0.25)",
+                    1,
+                    true,
+                ),
+                (
+                    "Controlled Controlled Adjoint Target",
+                    "(EmptyControls(), (EmptyControls(), 0.25))",
+                    2,
+                    true,
+                ),
+            ] {
+                let (mut interpreter, target_value, args_value) =
+                    runtime_target_fixture(source, target, args);
+                let (_, functor) =
+                    Interpreter::hir_callable_from_value(&target_value).expect("source target");
+                assert_eq!(functor.controlled, depth, "{target}");
+                let qir = interpreter
+                    .qirgen_from_callable(&target_value, args_value)
+                    .unwrap_or_else(|error| panic!("{target}: {error:?}"));
+                let gates: Vec<_> = qir
+                    .lines()
+                    .filter(|line| line.contains("call void @__quantum__qis__"))
+                    .collect();
+                assert_eq!(gates.len(), 3, "{target}: {qir}");
+                let controlled_x = "cx__body";
+                assert!(
+                    gates[0].contains(controlled_x) && gates[2].contains(controlled_x),
+                    "{target}: {qir}"
+                );
+                let angle = if adjoint { "-0.25" } else { "0.25" };
+                assert!(
+                    gates[1].contains(&format!("rz__body(double {angle},")),
+                    "{target}: {qir}"
+                );
+                let (mut interpreter, target_value, args_value) =
+                    runtime_target_fixture(source, target, args);
+                let circuit = static_target_circuit(
+                    &mut interpreter,
+                    CircuitEntryPoint::Callable(target_value, args_value),
+                )
+                .unwrap_or_else(|error| panic!("{target}: {error:?}"));
+                let gates: Vec<_> = circuit
+                    .component_grid
+                    .iter()
+                    .flat_map(|column| &column.components)
+                    .filter_map(|operation| {
+                        if let qsc_circuit::Operation::Unitary(gate) = operation {
+                            Some(gate)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                assert_eq!(
+                    gates
+                        .iter()
+                        .map(|gate| gate.gate.as_str())
+                        .collect::<Vec<_>>(),
+                    ["X", "Rz", "X"],
+                    "{target}: {circuit}"
+                );
+                assert_eq!(
+                    gates
+                        .iter()
+                        .map(|gate| gate.controls.len())
+                        .collect::<Vec<_>>(),
+                    [1, 0, 1],
+                    "{target}: {circuit}"
+                );
+            }
+        }
+
+        #[test]
+        fn runtime_target_failing_adjoint_preserves_user_failure_and_source_location() {
+            use crate::interpret::{CircuitEntryPoint, Error};
+            let source = r#"
+                operation Target(value : Int) : Unit is Adj {
+                    body (...) {}
+                    adjoint (...) { fail "adjoint selected"; }
+                }
+                function Identity(value : Int) : Int { value }
+                operation Higher(f : Int -> Int, value : Int) : Unit is Adj {
+                    Target(f(value));
+                }
+            "#;
+            for (target, args) in [("Adjoint Target", "0"), ("Adjoint Higher", "(Identity, 0)")] {
+                let (mut interpreter, target_value, args_value) =
+                    runtime_target_fixture(source, target, args);
+                let mut output = Cursor::new(Vec::new());
+                let original = interpreter
+                    .invoke(
+                        &mut CursorReceiver::new(&mut output),
+                        target_value,
+                        args_value,
+                    )
+                    .expect_err("selected source adjoint must fail");
+                assert!(
+                    format!("{original:?}").contains("adjoint selected"),
+                    "{original:?}"
+                );
+                for circuit in [false, true] {
+                    let (mut interpreter, target_value, args_value) =
+                        runtime_target_fixture(source, target, args);
+                    let errors = if circuit {
+                        static_target_circuit(
+                            &mut interpreter,
+                            CircuitEntryPoint::Callable(target_value, args_value),
+                        )
+                        .expect_err("static circuit must invoke the failing adjoint")
+                    } else {
+                        interpreter
+                            .qirgen_from_callable(&target_value, args_value)
+                            .expect_err("QIR must invoke the failing adjoint")
+                    };
+                    let [Error::PartialEvaluation(error)] = errors.as_slice() else {
+                        panic!("{errors:?}")
+                    };
+                    assert!(error.to_string().contains("adjoint selected"), "{error}");
+                    let label = error
+                        .labels()
+                        .expect("source label")
+                        .next()
+                        .expect("failure label");
+                    let (location, span) =
+                        error.resolve_span(&(label.offset(), label.len()).into());
+                    assert_eq!(
+                        &location.contents[span.offset()..span.offset() + span.len()],
+                        r#"fail "adjoint selected""#,
+                        "{target}, circuit={circuit}"
+                    );
+                }
+            }
+        }
+
+        #[test]
         fn qirgen_does_not_corrupt_later_interpreter_eval_or_recompilation() {
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
             let (result, output) = line(
@@ -2915,12 +3304,10 @@ mod given_interpreter {
         }
 
         #[test]
-        fn restricted_profile_fatal_transform_error_reported_as_fir_transform() {
-            // A local callable forced to `Dynamic` by a loop reassignment cannot be
-            // resolved statically, so the defunctionalize stage of the FIR transform
-            // pipeline emits a fatal diagnostic. The construction-time gate must
-            // surface this as `Error::FirTransform` (mirroring codegen), not as a
-            // capability `Error::Pass`.
+        fn restricted_profile_resolvable_dynamic_callable_constructs_successfully() {
+            // Construction runs transforms and capability analysis, not partial
+            // evaluation. A loop-reassigned callable can remain unresolved at this
+            // stage without rejecting the restricted AdaptiveRI program.
             let source = indoc! { r#"
             namespace Test {
                 operation Foo(q : Qubit) : Unit {}
@@ -2950,23 +3337,11 @@ mod given_interpreter {
                 Default::default(),
             );
 
-            match result {
-                Ok(_) => panic!("expected a fatal FIR transform error for a dynamic callable"),
-                Err(errors) => {
-                    assert!(
-                        errors
-                            .iter()
-                            .all(|error| matches!(error, crate::interpret::Error::FirTransform(_))),
-                        "expected FIR transform errors, got {errors:?}"
-                    );
-                    assert!(
-                        errors
-                            .iter()
-                            .any(|error| format!("{error:?}").contains("DynamicCallable")),
-                        "expected a dynamic-callable transform diagnostic, got {errors:?}"
-                    );
-                }
-            }
+            assert!(
+                result.is_ok(),
+                "expected the deferred, resolvable dynamic callable to construct cleanly, got {:?}",
+                result.err()
+            );
         }
 
         #[test]

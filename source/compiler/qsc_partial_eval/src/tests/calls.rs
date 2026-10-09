@@ -1240,6 +1240,49 @@ fn call_to_unresolved_callee_with_classical_arg_allowed() {
 }
 
 #[test]
+fn call_to_loop_reassigned_local_callable_resolves_to_concrete_global() {
+    // This helper lowers directly to FIR without running defunctionalization.
+    // Partial evaluation resolves the loop-reassigned `f` to `Bar` and emits X.
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            operation Foo(q : Qubit) : Unit { H(q); }
+            operation Bar(q : Qubit) : Unit { X(q); }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable f = Foo;
+                for _ in 0..2 {
+                    f = Bar;
+                }
+                f(q);
+            }
+        }
+    "#});
+    assert_callable(
+        &program,
+        CallableId(2),
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__x__body
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
 fn call_to_unresolved_callee_with_dynamic_arg_fails() {
     let error = get_partial_evaluation_error_with_capabilities(
         indoc! {"

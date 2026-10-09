@@ -18,11 +18,13 @@
 //! - **Establishes [`crate::invariants::InvariantLevel::PostUdtErase`]:** no
 //!   `Ty::Udt`, `ExprKind::Struct`, UDT constructor call, UDT-targeted
 //!   `UpdateField`/`AssignField`, or `Field::Path` on non-tuple types remains.
+//! - Children are erased before a parent copies their kind, independently of
+//!   arena allocation order. Copied expressions retain the child's source span.
 //! - **Whole-closure scope — the pipeline outlier.** Unlike every other pass
 //!   (which rewrites the entry package only), this mutates the target package
-//!   *and every package reachable from its entry*, because entry-reachable
-//!   paths cross into library callables. UDT definitions are resolved from the
-//!   whole store via the UDT cache.
+//!   *and every package reachable from its entry or additional seeds*, because
+//!   these paths cross into library callables. UDT definitions are resolved
+//!   from the whole store via the UDT cache.
 //! - **Feeds [`crate::exec_graph_rebuild`].** Structurally mutates reachable
 //!   callable bodies in place; the pipeline driver unconditionally rebuilds the
 //!   exec graph of every reachable spec in every reachable package afterwards,
@@ -48,25 +50,40 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::EMPTY_EXEC_RANGE;
-use crate::cloner::FirCloner;
+use crate::fir_builder::{
+    alloc_block, alloc_expr, alloc_expr_stmt, alloc_local_var, alloc_local_var_expr,
+};
 use crate::package_assigners::PackageAssigners;
-use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::reachability::{collect_reachable_package_closure, collect_reachable_with_seeds};
+use crate::walk_utils::{DirectChild, for_each_direct_child};
+use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemKind, LocalItemId, Package,
-    PackageId, PackageStore, PatId, Res, StoreItemId,
+    BlockId, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemKind, LocalItemId,
+    Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, Res, StmtId, StmtKind,
+    StoreItemId,
 };
 use qsc_fir::ty::{Arrow, Ty};
 
 use qsc_fir::fir::PackageSpan;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Maps `StoreItemId` → pure `Ty` for every UDT definition
 /// in the store.
 type UdtCache = FxHashMap<StoreItemId, Ty>;
 
+/// Test convenience wrapper for entry-rooted UDT erasure without extra seeds.
+#[cfg(test)]
+pub fn erase_udts(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+) {
+    erase_udts_with_seeds(store, package_id, assigners, &[]);
+}
+
 /// Erases UDT types and UDT-shaped expressions in the target package's
-/// reachable package closure, while resolving UDT definitions from the
-/// whole store. Specifically, rewrites:
+/// entry- and seed-reachable package closure, while resolving UDT definitions
+/// from the whole store. Specifically, rewrites:
 ///
 /// - Every `Ty::Udt` to its pure tuple or scalar type (via `get_pure_ty()`)
 ///   on expressions, patterns, blocks, and callable signatures.
@@ -96,29 +113,29 @@ type UdtCache = FxHashMap<StoreItemId, Ty>;
 /// # Panics
 ///
 /// Panics if the package has no entry expression. The reachability scans
-/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// in this pass go through [`collect_reachable_with_seeds`], which asserts
 /// `package.entry.is_some()`.
-pub fn erase_udts(
+pub fn erase_udts_with_seeds(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
+    seeds: &[StoreItemId],
 ) {
     // Build a resolution cache from all UDT items across all packages.
     let udt_cache = build_udt_cache(store);
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
 
     // Erase UDTs in the target package and in any package that contains an
-    // entry-reachable callable. UDT definition lookup still spans the whole
-    // store so cross-package references resolve correctly.
+    // entry- or seed-reachable callable. UDT definition lookup still spans
+    // the whole store so cross-package references resolve correctly.
     let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
         .into_iter()
         .collect();
 
     for pkg_id in pkg_ids {
-        assigners.with_package(store, pkg_id, |store, owned| {
-            let mut cloner = FirCloner::from_assigner(owned);
-            erase_udts_in_package(store.get_mut(pkg_id), &udt_cache, &mut cloner);
-            (cloner.into_assigner(), ())
+        assigners.with_package(store, pkg_id, |store, mut assigner| {
+            erase_udts_in_package(store.get_mut(pkg_id), &udt_cache, &mut assigner);
+            (assigner, ())
         });
     }
 }
@@ -126,7 +143,7 @@ pub fn erase_udts(
 /// Erases UDT types and struct expressions in a single package, rewriting
 /// every expression type, pattern type, block type, callable signature,
 /// and struct construction in place. Called once per package in the
-/// entry-reachable closure.
+/// entry- and seed-reachable closure.
 ///
 /// # Before
 /// ```text
@@ -144,11 +161,11 @@ pub fn erase_udts(
 /// # Mutations
 /// - Rewrites `Expr.ty`, `Expr.kind`, `Pat.ty`, `Block.ty`, and callable
 ///   output types in place.
-/// - Allocates field-extraction `Expr` nodes through `cloner` for
+/// - Allocates field-extraction `Expr` nodes through `assigner` for
 ///   copy-update and field-update lowering.
-fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &mut FirCloner) {
-    // Rewrite all expression types and Struct expressions.
-    let expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
+fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: &mut Assigner) {
+    // Parents can copy a child's kind, so every copied child must already be erased.
+    let expr_ids = expressions_in_postorder(package);
     for expr_id in expr_ids {
         // Rewrite the expression's type.
         let expr = package.exprs.get(expr_id).expect("expr should exist");
@@ -163,21 +180,11 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
         if let ExprKind::Struct(_res, copy, fields) = &kind {
             if let Some(copy_id) = copy {
                 lower_copy_update_struct(
-                    package, cloner, udt_cache, expr_id, *copy_id, fields, expr_span,
+                    package, assigner, udt_cache, expr_id, *copy_id, fields, expr_span,
                 );
             } else {
-                let mut indexed: Vec<(usize, ExprId)> = fields
-                    .iter()
-                    .filter_map(|fa| {
-                        if let Field::Path(FieldPath { indices }) = &fa.field {
-                            indices.first().map(|&idx| (idx, fa.value))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                indexed.sort_by_key(|(idx, _)| *idx);
-                let values: Vec<ExprId> = indexed.into_iter().map(|(_, v)| v).collect();
+                let (values, mut stmts) =
+                    stage_struct_fields_for_tuple(package, assigner, udt_cache, fields, expr_span);
 
                 if values.len() == 1 {
                     // The expression type has already been resolved to the
@@ -195,21 +202,29 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
                     } else {
                         // newtype X = T: pure type is scalar T. Unwrap to
                         // the inner expression directly.
-                        let inner_expr = package
-                            .exprs
-                            .get(values[0])
-                            .expect("inner expr should exist");
-                        let inner_kind = inner_expr.kind.clone();
-                        let inner_ty = inner_expr.ty.clone();
+                        let inner_expr = package.get_expr(values[0]).clone();
                         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-                        expr_mut.kind = inner_kind;
-                        expr_mut.ty = resolve_ty(udt_cache, &inner_ty);
+                        expr_mut.kind = inner_expr.kind;
+                        expr_mut.ty = inner_expr.ty;
+                        expr_mut.span = inner_expr.span;
                     }
                 } else {
                     // Multi-field UDT: replace with a tuple of the field
                     // values in declaration order.
                     let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
                     expr_mut.kind = ExprKind::Tuple(values);
+                }
+                if !stmts.is_empty() {
+                    let value = package.get_expr(expr_id).clone();
+                    let value_id =
+                        alloc_expr(package, assigner, value.ty.clone(), value.kind, expr_span);
+                    stmts.push(alloc_expr_stmt(package, assigner, value_id, expr_span));
+                    let block = alloc_block(package, assigner, stmts, value.ty, expr_span);
+                    package
+                        .exprs
+                        .get_mut(expr_id)
+                        .expect("expr should exist")
+                        .kind = ExprKind::Block(block);
                 }
             }
         }
@@ -219,7 +234,7 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
 
         // Lower UpdateField and AssignField with Field::Path into tuple
         // constructions.
-        lower_field_updates(package, cloner, udt_cache, expr_id, &kind, expr_span);
+        lower_field_updates(package, assigner, udt_cache, expr_id, &kind, expr_span);
 
         // Lower Field read expressions on scalar-erased types (Field::Path
         // expressions where the record type is not a tuple).
@@ -264,6 +279,75 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
     }
 }
 
+fn expressions_in_postorder(package: &Package) -> Vec<ExprId> {
+    let roots: Vec<_> = package.exprs.iter().map(|(id, _)| (id, false)).collect();
+    let mut pending: Vec<_> = roots.into_iter().rev().collect();
+    let mut seen = FxHashSet::default();
+    let mut ordered = Vec::new();
+    while let Some((id, children_visited)) = pending.pop() {
+        if children_visited {
+            ordered.push(id);
+            continue;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        pending.push((id, true));
+        let mut children = Vec::new();
+        for_each_direct_child(&package.get_expr(id).kind, |child| match child {
+            DirectChild::Expr(child) => children.push(child),
+            DirectChild::Block(block) => {
+                for &statement in &package.get_block(block).stmts {
+                    match package.get_stmt(statement).kind {
+                        StmtKind::Expr(child)
+                        | StmtKind::Semi(child)
+                        | StmtKind::Local(_, _, child) => {
+                            children.push(child);
+                        }
+                        StmtKind::Item(_) => {}
+                    }
+                }
+            }
+        });
+        pending.extend(children.into_iter().rev().map(|id| (id, false)));
+    }
+    ordered
+}
+
+fn stage_struct_fields_for_tuple(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    udt_cache: &UdtCache,
+    fields: &[FieldAssign],
+    span: PackageSpan,
+) -> (Vec<ExprId>, Vec<StmtId>) {
+    let mut indexed: Vec<(usize, ExprId)> = fields
+        .iter()
+        .filter_map(|field| match &field.field {
+            Field::Path(path) => path.indices.first().map(|&index| (index, field.value)),
+            _ => None,
+        })
+        .collect();
+    let mut stmts = Vec::new();
+    if !indexed.windows(2).all(|pair| pair[0].0 <= pair[1].0) {
+        for (_, value) in &mut indexed {
+            let ty = resolve_ty(udt_cache, &package.get_expr(*value).ty);
+            let (local, stmt) = alloc_local_var(
+                package,
+                assigner,
+                "@struct_field",
+                &ty,
+                *value,
+                Mutability::Immutable,
+            );
+            stmts.push(stmt);
+            *value = alloc_local_var_expr(package, assigner, local, ty, span);
+        }
+        indexed.sort_by_key(|(index, _)| *index);
+    }
+    (indexed.into_iter().map(|(_, value)| value).collect(), stmts)
+}
+
 /// Eliminates a UDT constructor call if `kind` is `ExprKind::Call` whose
 /// callee resolves to an `ItemKind::Ty` item. After type resolution the
 /// constructor is an identity/wrapping function.
@@ -278,7 +362,7 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
 /// ```
 ///
 /// # Mutations
-/// - Rewrites `expr_id`'s `ExprKind` and `Ty` in place.
+/// - Rewrites `expr_id`'s kind, type, and source span from its erased argument.
 fn eliminate_udt_constructor_call(
     package: &mut Package,
     udt_cache: &UdtCache,
@@ -308,17 +392,17 @@ fn eliminate_udt_constructor_call(
     } else {
         // Argument type matches the erased constructor input (multi-field
         // or scalar newtype) — replace the call with the argument.
-        let arg = package.exprs.get(*arg_id).expect("arg should exist");
-        let arg_kind = arg.kind.clone();
-        let arg_ty = arg.ty.clone();
+        let arg = package.get_expr(*arg_id).clone();
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-        expr_mut.kind = arg_kind;
-        expr_mut.ty = resolve_ty(udt_cache, &arg_ty);
+        expr_mut.kind = arg.kind;
+        expr_mut.ty = arg.ty;
+        expr_mut.span = arg.span;
     }
 }
 
 /// Lowers a copy-update struct expression `new Foo { ...copy, X = val }`
-/// into a tuple construction, replacing the expression kind in place.
+/// into ordered source/replacement bindings followed by a tuple construction.
+/// Local sources with literal replacements retain a compact tuple form.
 ///
 /// # Before
 /// ```text
@@ -326,23 +410,62 @@ fn eliminate_udt_constructor_call(
 /// ```
 /// # After
 /// ```text
-/// Tuple([Field(copy, Path([0])), val])   // field 0 extracted, field 1 replaced
+/// Block([let source = copy; let replacement = val;
+///        Tuple([Field(source, Path([0])), replacement])])
 /// ```
 ///
 /// # Mutations
 /// - Rewrites `expr_id`'s `ExprKind` and `Ty` in place.
-/// - Allocates field-extraction `Expr` nodes through `cloner`.
+/// - Allocates field-extraction `Expr` nodes through `assigner`.
 fn lower_copy_update_struct(
     package: &mut Package,
-    cloner: &mut FirCloner,
+    assigner: &mut Assigner,
     udt_cache: &UdtCache,
     expr_id: ExprId,
     copy_id: ExprId,
     fields: &[FieldAssign],
     span: PackageSpan,
 ) {
-    // Check for a whole-value replacement (single-field UDT where the
-    // field path is empty).
+    let copy_ty = resolve_ty(udt_cache, &package.get_expr(copy_id).ty);
+    if let Some(values) =
+        try_build_literal_copy_update_fields(package, assigner, copy_id, fields, &copy_ty, span)
+    {
+        package
+            .exprs
+            .get_mut(expr_id)
+            .expect("expr should exist")
+            .kind = ExprKind::Tuple(values);
+        return;
+    }
+    let (source_local, source_stmt) = alloc_local_var(
+        package,
+        assigner,
+        "@copy_source",
+        &copy_ty,
+        copy_id,
+        Mutability::Immutable,
+    );
+    let source = alloc_local_var_expr(package, assigner, source_local, copy_ty.clone(), span);
+    let mut stmts = vec![source_stmt];
+    let mut replacements = Vec::with_capacity(fields.len());
+    for field in fields {
+        let ty = resolve_ty(udt_cache, &package.get_expr(field.value).ty);
+        let (local, stmt) = alloc_local_var(
+            package,
+            assigner,
+            "@copy_replacement",
+            &ty,
+            field.value,
+            Mutability::Immutable,
+        );
+        stmts.push(stmt);
+        replacements.push(FieldAssign {
+            span: field.span,
+            field: field.field.clone(),
+            value: alloc_local_var_expr(package, assigner, local, ty, span),
+        });
+    }
+    let fields = replacements.as_slice();
     let whole_value_replace = fields.iter().find_map(|fa| {
         if let Field::Path(FieldPath { indices }) = &fa.field
             && indices.is_empty()
@@ -352,22 +475,6 @@ fn lower_copy_update_struct(
         None
     });
 
-    if let Some(replacement) = whole_value_replace {
-        // Single-field UDT (scalar type): the copy-update replaces the
-        // entire value.
-        let replace_expr = package
-            .exprs
-            .get(replacement)
-            .expect("replacement should exist");
-        let replace_kind = replace_expr.kind.clone();
-        let replace_ty = replace_expr.ty.clone();
-        let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-        expr_mut.kind = replace_kind;
-        expr_mut.ty = resolve_ty(udt_cache, &replace_ty);
-        return;
-    }
-
-    // Build a map of field index → replacement ExprId.
     let updates: FxHashMap<usize, ExprId> = fields
         .iter()
         .filter_map(|fa| {
@@ -379,68 +486,88 @@ fn lower_copy_update_struct(
         })
         .collect();
 
-    // Resolve the type of the copy source to determine the tuple
-    // structure (may not yet be resolved due to ID ordering).
-    let copy_raw_ty = &package
-        .exprs
-        .get(copy_id)
-        .expect("copy source should exist")
-        .ty;
-    let copy_ty = resolve_ty(udt_cache, copy_raw_ty);
-
-    if let Ty::Tuple(elems) = &copy_ty {
-        // Multi-field UDT: build a tuple with replacements at updated
-        // indices and field extractions elsewhere.
+    let value = if let Some(replacement) = whole_value_replace {
+        replacement
+    } else if let Ty::Tuple(elems) = &copy_ty {
         let mut field_ids = Vec::with_capacity(elems.len());
-        for (j, elem_ty) in elems.iter().enumerate() {
-            if let Some(&replacement) = updates.get(&j) {
+        for (index, elem_ty) in elems.iter().enumerate() {
+            if let Some(&replacement) = updates.get(&index) {
                 field_ids.push(replacement);
             } else {
-                let field_id = alloc_field_expr(package, cloner, copy_id, j, elem_ty, span);
+                let field_id = alloc_field_expr(package, assigner, source, index, elem_ty, span);
                 field_ids.push(field_id);
             }
         }
-        let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-        expr_mut.kind = ExprKind::Tuple(field_ids);
+        alloc_expr(
+            package,
+            assigner,
+            copy_ty.clone(),
+            ExprKind::Tuple(field_ids),
+            span,
+        )
     } else {
-        // Single-field UDTs erase to scalars. Depending on how the field
-        // path was lowered upstream, the update may arrive as an empty path,
-        // index 0, or a field marker that no longer carries a useful path.
-        // Any explicit field assignment on a scalar-erased copy-update must
-        // therefore replace the whole value.
-        if let Some(&replacement) = updates
+        updates
             .get(&0)
             .or_else(|| fields.first().map(|fa| &fa.value))
-        {
-            let replace_expr = package
+            .copied()
+            .unwrap_or(source)
+    };
+    stmts.push(alloc_expr_stmt(package, assigner, value, span));
+    let block = alloc_block(package, assigner, stmts, copy_ty, span);
+    package
+        .exprs
+        .get_mut(expr_id)
+        .expect("expr should exist")
+        .kind = ExprKind::Block(block);
+}
+
+fn try_build_literal_copy_update_fields(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    copy_id: ExprId,
+    fields: &[FieldAssign],
+    copy_ty: &Ty,
+    span: PackageSpan,
+) -> Option<Vec<ExprId>> {
+    let Ty::Tuple(elements) = copy_ty else {
+        return None;
+    };
+    if !matches!(
+        package
+            .exprs
+            .get(copy_id)
+            .expect("copy source should exist")
+            .kind,
+        ExprKind::Var(Res::Local(_), _)
+    ) || !fields.iter().all(|field| {
+        matches!(
+            package
                 .exprs
-                .get(replacement)
-                .expect("replacement should exist");
-            let replace_kind = replace_expr.kind.clone();
-            let replace_ty = replace_expr.ty.clone();
-            let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-            expr_mut.kind = replace_kind;
-            expr_mut.ty = resolve_ty(udt_cache, &replace_ty);
-        } else {
-            // Defensive fallback: single-field UDT with no overrides after
-            // scalar erasure. The frontend should simplify copy-update
-            // expressions with zero overrides before they reach this point,
-            // making this path unreachable in practice. The fallback
-            // correctly propagates the copy source if it is ever hit.
-            debug_assert!(
-                false,
-                "copy-update with no field overrides on a scalar-erased single-field UDT \
-                 should be simplified before reaching lower_copy_update_struct"
-            );
-            let copy_expr = package
-                .exprs
-                .get(copy_id)
-                .expect("copy source should exist");
-            let copy_kind = copy_expr.kind.clone();
-            let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-            expr_mut.kind = copy_kind;
-        }
+                .get(field.value)
+                .expect("replacement should exist")
+                .kind,
+            ExprKind::Lit(_)
+        ) && matches!(&field.field, Field::Path(path) if path.indices.len() == 1)
+    }) {
+        return None;
     }
+    Some(
+        elements
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| {
+                fields
+                    .iter()
+                    .find_map(|field| {
+                        matches!(&field.field, Field::Path(path) if path.indices == [index])
+                            .then_some(field.value)
+                    })
+                    .unwrap_or_else(|| {
+                        alloc_field_expr(package, assigner, copy_id, index, ty, span)
+                    })
+            })
+            .collect(),
+    )
 }
 
 /// Lowers `UpdateField` and `AssignField` with `Field::Path` for a single
@@ -453,16 +580,21 @@ fn lower_copy_update_struct(
 /// ```
 /// # After
 /// ```text
-/// Tuple([Field(record, Path([0])), new_val])       // lowered tuple
+/// Block([let replacement = new_val; let source = record;
+///        Tuple([Field(source, Path([0])), replacement])])
 /// Assign(record, Tuple([Field(record, Path([0])), new_val]))
 /// ```
 ///
+/// Immutable updates evaluate the replacement before the record, unlike
+/// source-first struct copy updates. Both operands are staged once unless the
+/// record is a local read and the replacement is a literal.
+///
 /// # Mutations
 /// - Rewrites `expr_id`'s `ExprKind` in place.
-/// - Allocates field-extraction and update `Expr` nodes through `cloner`.
+/// - Allocates field-extraction and update `Expr` nodes through `assigner`.
 fn lower_field_updates(
     package: &mut Package,
-    cloner: &mut FirCloner,
+    assigner: &mut Assigner,
     udt_cache: &UdtCache,
     expr_id: ExprId,
     kind: &ExprKind,
@@ -481,15 +613,57 @@ fn lower_field_updates(
             .expect("record should exist")
             .ty;
         let record_ty = resolve_ty(udt_cache, record_raw_ty);
+        let mut stmts = Vec::new();
+        let (record, replacement) = if matches!(
+            package.get_expr(*record_id).kind,
+            ExprKind::Var(Res::Local(_), _)
+        ) && matches!(
+            package.get_expr(*replace_id).kind,
+            ExprKind::Lit(_)
+        ) {
+            (*record_id, *replace_id)
+        } else {
+            // Legacy w/ evaluates replacement first; field extraction must
+            // not duplicate the record or omit it for a scalar replacement.
+            let replacement_ty = resolve_ty(udt_cache, &package.get_expr(*replace_id).ty);
+            let (replacement_local, replacement_stmt) = alloc_local_var(
+                package,
+                assigner,
+                "@update_replacement",
+                &replacement_ty,
+                *replace_id,
+                Mutability::Immutable,
+            );
+            let (record_local, record_stmt) = alloc_local_var(
+                package,
+                assigner,
+                "@update_source",
+                &record_ty,
+                *record_id,
+                Mutability::Immutable,
+            );
+            stmts.extend([replacement_stmt, record_stmt]);
+            (
+                alloc_local_var_expr(package, assigner, record_local, record_ty.clone(), span),
+                alloc_local_var_expr(package, assigner, replacement_local, replacement_ty, span),
+            )
+        };
         let lowered = lower_update_field(
             package,
-            cloner,
-            *record_id,
+            assigner,
+            record,
             &path.indices,
-            *replace_id,
+            replacement,
             &record_ty,
             span,
         );
+        let lowered = if stmts.is_empty() {
+            lowered
+        } else {
+            let value = alloc_expr(package, assigner, record_ty.clone(), lowered, span);
+            stmts.push(alloc_expr_stmt(package, assigner, value, span));
+            ExprKind::Block(alloc_block(package, assigner, stmts, record_ty, span))
+        };
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.kind = lowered;
     }
@@ -505,14 +679,14 @@ fn lower_field_updates(
         let record_ty = resolve_ty(udt_cache, record_raw_ty);
         let lowered = lower_update_field(
             package,
-            cloner,
+            assigner,
             *record_id,
             &path.indices,
             *value_id,
             &record_ty,
             span,
         );
-        let update_expr_id = cloner.alloc_expr();
+        let update_expr_id = assigner.next_expr();
         package.exprs.insert(
             update_expr_id,
             Expr {
@@ -560,12 +734,11 @@ fn lower_scalar_field_read(
         // If the record type is not a tuple, this is a scalar-erased
         // single-field newtype. Replace the field read with the record.
         if !matches!(&record_ty, Ty::Tuple(_)) {
-            let record_expr = package.exprs.get(*record_id).expect("record should exist");
-            let record_kind = record_expr.kind.clone();
-            let record_ty_resolved = resolve_ty(udt_cache, &record_expr.ty);
+            let record_expr = package.get_expr(*record_id).clone();
             let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
-            expr_mut.kind = record_kind;
-            expr_mut.ty = record_ty_resolved;
+            expr_mut.kind = record_expr.kind;
+            expr_mut.ty = record_expr.ty;
+            expr_mut.span = record_expr.span;
         }
     }
 }
@@ -598,7 +771,7 @@ fn build_udt_cache(store: &PackageStore) -> UdtCache {
 /// simply the replacement expression's kind.
 fn lower_update_field(
     package: &mut Package,
-    cloner: &mut FirCloner,
+    assigner: &mut Assigner,
     record_id: ExprId,
     indices: &[usize],
     replace_id: ExprId,
@@ -613,7 +786,7 @@ fn lower_update_field(
                 idx < elems.len(),
                 "field path indices are guaranteed valid by frontend and prior-pass type checking"
             );
-            build_updated_tuple(package, cloner, record_id, idx, replace_id, elems, span)
+            build_updated_tuple(package, assigner, record_id, idx, replace_id, elems, span)
         }
 
         // Multi-level path on a tuple: recursively lower the inner update
@@ -624,14 +797,21 @@ fn lower_update_field(
                 "field path indices are guaranteed valid by frontend and prior-pass type checking"
             );
             // Extract the sub-record at position idx.
-            let sub_id = alloc_field_expr(package, cloner, record_id, idx, &elems[idx], span);
+            let sub_id = alloc_field_expr(package, assigner, record_id, idx, &elems[idx], span);
 
             // Recursively lower the inner path on the sub-record.
-            let inner_kind =
-                lower_update_field(package, cloner, sub_id, rest, replace_id, &elems[idx], span);
+            let inner_kind = lower_update_field(
+                package,
+                assigner,
+                sub_id,
+                rest,
+                replace_id,
+                &elems[idx],
+                span,
+            );
 
             // Wrap the recursive result in a new expression.
-            let inner_result_id = cloner.alloc_expr();
+            let inner_result_id = assigner.next_expr();
             package.exprs.insert(
                 inner_result_id,
                 Expr {
@@ -646,7 +826,7 @@ fn lower_update_field(
             // Build the outer tuple with the recursively updated element.
             build_updated_tuple(
                 package,
-                cloner,
+                assigner,
                 record_id,
                 idx,
                 inner_result_id,
@@ -693,10 +873,10 @@ fn lower_update_field(
 /// ```
 ///
 /// # Mutations
-/// - Allocates `Field` `Expr` nodes through `cloner` for non-updated positions.
+/// - Allocates `Field` `Expr` nodes through `assigner` for non-updated positions.
 fn build_updated_tuple(
     package: &mut Package,
-    cloner: &mut FirCloner,
+    assigner: &mut Assigner,
     record_id: ExprId,
     update_idx: usize,
     replace_id: ExprId,
@@ -712,7 +892,7 @@ fn build_updated_tuple(
         if j == update_idx {
             field_ids.push(replace_id);
         } else {
-            let field_id = alloc_field_expr(package, cloner, record_id, j, elem_ty, span);
+            let field_id = alloc_field_expr(package, assigner, record_id, j, elem_ty, span);
             field_ids.push(field_id);
         }
     }
@@ -722,16 +902,16 @@ fn build_updated_tuple(
 /// Allocates a new `Expr` with `ExprKind::Field(record_id, Path([index]))`.
 ///
 /// # Mutations
-/// - Inserts one `Expr` node through `cloner`.
+/// - Inserts one `Expr` node through `assigner`.
 fn alloc_field_expr(
     package: &mut Package,
-    cloner: &mut FirCloner,
+    assigner: &mut Assigner,
     record_id: ExprId,
     index: usize,
     ty: &Ty,
     span: PackageSpan,
 ) -> ExprId {
-    let field_id = cloner.alloc_expr();
+    let field_id = assigner.next_expr();
     package.exprs.insert(
         field_id,
         Expr {

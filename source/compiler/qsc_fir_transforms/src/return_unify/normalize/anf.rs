@@ -46,7 +46,10 @@ use crate::{
     return_unify::{is_type_defaultable, slot::singleton_array_index_read},
 };
 use crate::{
-    fir_builder::{alloc_bin_op_expr, alloc_expr, alloc_local_var, alloc_local_var_expr},
+    fir_builder::{
+        alloc_bin_op_expr, alloc_block, alloc_expr, alloc_expr_stmt, alloc_local_var,
+        alloc_local_var_expr,
+    },
     return_unify::slot::wrap_in_singleton_array,
 };
 
@@ -249,9 +252,9 @@ fn count_operand_returns_in_block(
 ///   unconditionally before either branch, so a `Return` buried there is
 ///   operand-position regardless of the `If`'s own context (the ANF lift
 ///   binds such a condition to a spine temp). A `While` condition keeps the
-///   current mode — it is re-evaluated each iteration and is never lifted, so
-///   its Returns are handled in place by flag lowering, not this measure. Both
-///   descend the branches/body only in operand mode.
+///   current mode: operand lifts stay in a per-iteration condition block,
+///   whose statements this measure visits independently. Both descend the
+///   branches/body only in operand mode.
 /// * Short-circuit `and`/`or` always recurse the LHS (unconditional) but the
 ///   RHS only in operand mode (its evaluation is conditional).
 /// * Every other eager compound recurses each child in operand mode.
@@ -575,11 +578,9 @@ fn is_value_stable_operand(package: &Package, expr_id: ExprId) -> bool {
 /// Scans unconditional operand sites in runtime order — the eager-compound
 /// children, the short-circuit **LHS only**, and an `If`'s **condition** — and
 /// for each operand recurses before considering that operand directly.
-/// `Block`/`While` are recursion leaves:
-/// each is lifted *whole* (its interior statements / condition / branches are
-/// separate blocks the fixpoint driver visits independently, and a `While`
-/// condition's returns are handled in place by `hoist_short_circuit` / flag
-/// lowering), never descended into here. An `If` is *not* a leaf: its
+/// `Block` interiors are visited independently. A `While` condition's operand
+/// lifts are enclosed in a condition block, never moved before the loop.
+/// The body is a separate block visited independently. An `If` is not a leaf: its
 /// condition is an unconditional operand site (see the `If` arm), while its
 /// branches are separate blocks visited independently.
 ///
@@ -827,17 +828,46 @@ pub(super) fn anf_lift_in_expr(
             generated_operand_reads,
         ),
 
-        // `Block`/`While` are recursion leaves. A `Block`/`While` in an operand
-        // slot is lifted *whole* by its parent (via `is_anf_lift_candidate`),
-        // never descended into here. A `While` condition is deliberately not an
-        // operand site: it is re-evaluated each iteration, so lifting it once to
-        // a spine temp would break per-iteration re-evaluation; its condition
-        // Returns are rewritten in place by `hoist_short_circuit` / consumed by
-        // flag lowering's `replace_returns_in_condition_expr`. The branches /
-        // loop body are separate blocks the fixpoint driver visits
-        // independently.
+        ExprKind::While(cond, body) => {
+            if !contains_return_in_expr(package, cond)
+                || matches!(package.get_expr(cond).kind, ExprKind::Block(_))
+            {
+                return None;
+            }
+            let mut stmts = anf_lift_in_expr(
+                package,
+                assigner,
+                package_id,
+                cond,
+                temp_counter,
+                generated_operand_reads,
+            )?;
+            let condition = package.get_expr(cond).clone();
+            stmts.push(alloc_expr_stmt(package, assigner, cond, condition.span));
+            let block = alloc_block(
+                package,
+                assigner,
+                stmts,
+                condition.ty.clone(),
+                condition.span,
+            );
+            let condition_id = alloc_expr(
+                package,
+                assigner,
+                condition.ty,
+                ExprKind::Block(block),
+                condition.span,
+            );
+            package
+                .exprs
+                .get_mut(expr_id)
+                .expect("while must exist")
+                .kind = ExprKind::While(condition_id, body);
+            Some(Vec::new())
+        }
+
+        // Block interiors are visited independently by the fixpoint driver.
         ExprKind::Block(_)
-        | ExprKind::While(_, _)
         | ExprKind::Closure(_, _)
         | ExprKind::Hole
         | ExprKind::Lit(_)

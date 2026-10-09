@@ -42,7 +42,7 @@ mod test_utils;
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode,
-    ExecGraphNode, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, Lit, LocalItemId,
+    ExecGraphNode, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, LocalItemId,
     LocalVarId, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res,
     SpecDecl, Stmt, StmtId, StmtKind, StoreItemId, StringComponent, UnOp,
 };
@@ -172,9 +172,9 @@ impl InvariantLevel {
 /// pipeline intentionally limits invariant enforcement to the entry-rooted
 /// reachability closure.
 ///
-/// This entry point checks every reachable callable. The pipeline uses
-/// `check_with_skip` to bypass the residual-`Return` checks on callables that
-/// return unification deliberately left un-rewritten.
+/// This entry point checks every reachable callable without exemptions. The
+/// pipeline uses `check_with_exemptions` for callables skipped by return
+/// unification and for item- or entry-specific defunctionalization residue.
 ///
 /// # Ordering
 ///
@@ -190,26 +190,35 @@ impl InvariantLevel {
 ///
 /// Panics with a descriptive message if any invariant is violated.
 pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: InvariantLevel) {
-    check_with_skip_and_seeds(store, package_id, level, &FxHashSet::default(), &[]);
+    check_with_exemptions_and_seeds(
+        store,
+        package_id,
+        level,
+        &InvariantExemptions::default(),
+        &[],
+    );
 }
 
-/// Like [`check`], but bypasses exactly the post-return-unification checks a
-/// residual `Return` can violate for the callables named in `skip`.
-///
-/// `skip` names callables that return unification deliberately left
-/// un-rewritten (their bodies still contain a residual `Return`). Those
-/// callables bypass only the absence-of-`Return` check, the single-exit
-/// non-Unit block-tail check, and the operand-position flag-write check —
-/// every other invariant still runs on them. The production pipeline passes
-/// the set returned by return unification; all other callers use [`check`]
-/// (an empty skip set), which checks every callable.
-pub(crate) fn check_with_skip(
+#[derive(Clone, Debug, Default)]
+pub(crate) struct InvariantExemptions {
+    /// Callables left un-rewritten by return unification; exempt from its
+    /// no-return, block-tail, and operand-position flag-write checks.
+    pub return_unify_skipped_items: FxHashSet<StoreItemId>,
+    /// Callables with deferred defunctionalization residue; exempt from
+    /// arrow-parameter, residual-closure, and nested tuple-arrow local checks.
+    pub defunc_residual_items: FxHashSet<StoreItemId>,
+    /// Allows residual closures in the entry expression, independently of
+    /// the callable-item exemptions.
+    pub entry_has_defunc_residue: bool,
+}
+
+pub(crate) fn check_with_exemptions(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
     level: InvariantLevel,
-    skip: &FxHashSet<StoreItemId>,
+    exemptions: &InvariantExemptions,
 ) {
-    check_with_skip_and_seeds(store, package_id, level, skip, &[]);
+    check_with_exemptions_and_seeds(store, package_id, level, exemptions, &[]);
 }
 
 /// Seed-rooted variant of [`check`] for the body-only signature-preserving
@@ -228,29 +237,33 @@ pub(crate) fn check_with_seeds(
     level: InvariantLevel,
     seeds: &[StoreItemId],
 ) {
-    check_with_skip_and_seeds(store, package_id, level, &FxHashSet::default(), seeds);
+    check_with_exemptions_and_seeds(
+        store,
+        package_id,
+        level,
+        &InvariantExemptions::default(),
+        seeds,
+    );
 }
 
-/// Shared implementation backing [`check`] and [`check_with_skip`], and the
+/// Shared implementation backing [`check`] and [`check_with_exemptions`], and the
 /// seed-rooted body-only signature-preserving sub-pipeline.
 ///
-/// `skip` bypasses the residual-`Return` checks for specific callables;
-/// `seeds` extends reachability roots beyond the entry expression so non
-/// entry-reachable pinned bodies (pinned `ReinvokeOriginal` target bodies and
-/// their transitive callees) are still validated.
+/// `exemptions` keeps return-unification skips separate from deferred
+/// defunctionalization residue, with the entry expression tracked independently
+/// of callable items. All other stage checks remain enforced.
 ///
-/// # Generic-target assumption
+/// `seeds` extends reachability beyond the entry expression to pinned
+/// `ReinvokeOriginal` target bodies and their transitive callees.
 ///
-/// Pinned `ReinvokeOriginal` targets are concrete user callables, so
-/// `PostSignaturePreserving` not enforcing [`StageCheck::Mono`] (no `Ty::Param`)
-/// is safe. If a generic target ever reaches this check, the no-`Ty::Param`
-/// invariant panics with a descriptive message, which serves as the assertion
-/// that the assumption was violated.
-pub(crate) fn check_with_skip_and_seeds(
+/// [`InvariantLevel::PostSignaturePreserving`] enforces only the postconditions
+/// of its body-only passes; it does not require pinned signatures to be
+/// monomorphized or reject `Ty::Param`.
+pub(crate) fn check_with_exemptions_and_seeds(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
     level: InvariantLevel,
-    skip: &FxHashSet<StoreItemId>,
+    exemptions: &InvariantExemptions,
     seeds: &[StoreItemId],
 ) {
     let package = store.get(package_id);
@@ -266,7 +279,7 @@ pub(crate) fn check_with_skip_and_seeds(
         check_id_references_in_reachable_items(store, &reachable, package_id);
     }
 
-    check_reachable_invariants(store, &reachable, level, skip);
+    check_reachable_invariants(store, &reachable, level, exemptions);
 
     // After all passes, `exec_graph_rebuild` rebuilds the exec graph of every
     // reachable spec in every reachable package. Validate that whole reachable
@@ -282,12 +295,29 @@ pub(crate) fn check_with_skip_and_seeds(
         }
 
         if level.enforces(StageCheck::ReturnUnify) {
-            check_non_unit_block_tails(store, package_id, &reachable, skip);
-            check_no_flag_writes_in_operand_position(store, &reachable, skip);
+            check_non_unit_block_tails(
+                store,
+                package_id,
+                &reachable,
+                &exemptions.return_unify_skipped_items,
+            );
+            check_no_flag_writes_in_operand_position(
+                store,
+                &reachable,
+                &exemptions.return_unify_skipped_items,
+            );
         }
 
         // Check type invariants on the entry expression tree.
-        check_expr_types(store, package, entry_id, level);
+        //
+        // Entry residue is independent of the callable-item exemptions.
+        check_expr_types(
+            store,
+            package,
+            entry_id,
+            level,
+            exemptions.entry_has_defunc_residue,
+        );
 
         // After all passes, validate the entry exec graph.
         if level == InvariantLevel::PostAll {
@@ -355,7 +385,7 @@ fn check_package_udt_erase_invariants_in_reachable_items(
     target_package_id: qsc_fir::fir::PackageId,
 ) {
     let check_node = |pkg: &Package, node: CallableNode| match node {
-        CallableNode::Expr(id) => check_expr_udt_erase_invariants(pkg, id),
+        CallableNode::Expr(id) => check_expr_udt_erase_invariants(store, pkg, id),
         CallableNode::Pat(id) => {
             check_type_udt_erase_invariants(&pkg.get_pat(id).ty, &format!("Pat {id}"));
         }
@@ -457,15 +487,30 @@ fn check_id_references_in_reachable_items(
 }
 
 /// Validates that a single expression satisfies post-UDT-erasure invariants:
-/// no `Ty::Udt` in its type, no `ExprKind::Struct`, no `Field::Path` in
-/// `UpdateField`/`AssignField`, and `Field::Path` only on tuple-typed records.
+/// no UDT type, struct construction, or direct UDT constructor call; no
+/// `Field::Path` in updates; and field projections only on tuple-typed records.
 ///
 /// # Panics
 ///
 /// Panics with a descriptive message if any UDT-erasure invariant is violated.
-fn check_expr_udt_erase_invariants(package: &Package, expr_id: ExprId) {
+fn check_expr_udt_erase_invariants(store: &PackageStore, package: &Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id);
     check_type_udt_erase_invariants(&expr.ty, &format!("Expr {expr_id}"));
+
+    if let ExprKind::Call(callee, _) = expr.kind
+        && let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind
+    {
+        // Rolled-back incremental declarations retain their name-binding error;
+        // only an existing type item proves a residual constructor.
+        assert!(
+            !store
+                .get(item.package)
+                .items
+                .get(item.item)
+                .is_some_and(|item| matches!(item.kind, ItemKind::Ty(..))),
+            "PostUdtErase invariant violation: Expr {expr_id} calls a UDT constructor"
+        );
+    }
 
     if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
         panic!(
@@ -534,8 +579,9 @@ fn check_type_udt_erase_invariants(ty: &Ty, context: &str) {
 /// # Panics
 ///
 /// Panics with a descriptive message if any non-Unit block lacks a matching
-/// trailing `StmtKind::Expr`. A trailing expression whose type differs from the
-/// block type is tolerated only when that expression diverges (`fail`/`return`).
+/// trailing `StmtKind::Expr` or divergent `StmtKind::Semi`. A trailing expression
+/// whose type differs from the block type is tolerated only when that expression
+/// diverges (`fail`/`return`).
 pub(crate) fn check_non_unit_block_tails(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
@@ -647,170 +693,140 @@ fn check_nested_block_expr_tails(package: &Package, expr_id: ExprId, context: &s
 ///
 /// # Panics
 ///
-/// Panics if the block has a non-Unit type but is empty, ends in a non-Expr
-/// statement, or ends in an expression whose type does not match the block
-/// type and does not diverge (`fail`/`return`). A divergent trailing expression
-/// is exempt because it never yields a value, so typeck may leave its type
-/// different from the enclosing block.
+/// Panics if the block has a non-Unit type but is empty, lacks a trailing Expr
+/// or divergent Semi statement, or ends in an expression whose type does not
+/// match the block type, unless a necessarily evaluated statement diverges
+/// (`fail`/`return`). Such a block never yields a value, so typeck may leave its
+/// tail type different from the enclosing block.
 fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str) {
+    if let Some(detail) = non_unit_block_tail_violation(package, block_id) {
+        panic!("Non-Unit block-tail invariant violation: {context} {detail}");
+    }
+}
+
+/// Returns a description of the non-Unit block-tail violation carried by
+/// `block_id`, or `None` when the block satisfies the invariant.
+///
+/// An earlier or trailing necessarily divergent statement makes the block's
+/// value type unobservable. Lazy or deferred failures do not exempt a mismatch.
+fn non_unit_block_tail_violation(package: &Package, block_id: BlockId) -> Option<String> {
     let block = package.get_block(block_id);
-    if block.ty == Ty::UNIT {
-        return;
+    if block.ty == Ty::UNIT || block_diverges(package, block_id) {
+        return None;
     }
 
     let Some(&stmt_id) = block.stmts.last() else {
-        panic!(
-            "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but has no trailing statement",
+        return Some(format!(
+            "Block {block_id} has type {:?} but has no trailing statement",
             block.ty,
-        );
+        ));
     };
 
     let stmt = package.get_stmt(stmt_id);
     let expr_id = match &stmt.kind {
         StmtKind::Expr(expr_id) => *expr_id,
         StmtKind::Semi(expr_id) => {
-            panic!(
-                "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but ends with Semi Expr {expr_id}",
+            if expr_diverges(package, *expr_id) {
+                return None;
+            }
+            return Some(format!(
+                "Block {block_id} has type {:?} but ends with Semi Expr {expr_id}",
                 block.ty,
-            );
+            ));
         }
         StmtKind::Local(..) => {
-            panic!(
-                "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but ends with a Local statement",
+            return Some(format!(
+                "Block {block_id} has type {:?} but ends with a Local statement",
                 block.ty,
-            );
+            ));
         }
         StmtKind::Item(_) => {
-            panic!(
-                "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but ends with an Item statement",
+            return Some(format!(
+                "Block {block_id} has type {:?} but ends with an Item statement",
                 block.ty,
-            );
+            ));
         }
     };
 
     let expr_ty = &package.get_expr(expr_id).ty;
-    // A divergent trailing expression (`fail`/`return`, or an `if`/block that
-    // always diverges) never yields a value, so typeck may leave it with a
-    // type that differs from the enclosing non-Unit block. Tolerate that
-    // mismatch; any non-divergent type mismatch is still a real violation.
-    assert!(
-        expr_ty == &block.ty || expr_diverges(package, expr_id),
-        "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but trailing Expr {expr_id} has type {expr_ty:?}",
-        block.ty,
-    );
+    if expr_ty == &block.ty || expr_diverges(package, expr_id) {
+        None
+    } else {
+        Some(format!(
+            "Block {block_id} has type {:?} but trailing Expr {expr_id} has type {expr_ty:?}",
+            block.ty,
+        ))
+    }
 }
 
 /// Returns `true` if evaluating `expr_id` never yields a value because it always
-/// diverges (via `fail`, `return`, or a compound control-flow expression whose
-/// evaluated path always diverges).
+/// diverges (via `fail` or `return`).
 ///
 /// Typeck assigns a divergent expression a fresh divergent type that defaults to
 /// `Unit` when left unconstrained, so a divergent trailing expression can
 /// legitimately carry a type that differs from its enclosing non-Unit block. The
-/// predicate stays conservative: any unrecognized shape is treated as
-/// non-divergent so genuine value-type mismatches still surface. A `while` body
-/// contributes only when the first condition is provably `true`; its condition
-/// always contributes when evaluating it diverges.
+/// Only necessarily evaluated children establish divergence. Lazy operands,
+/// conditional bodies and deferred closure bodies are handled separately.
 fn expr_diverges(package: &Package, expr_id: ExprId) -> bool {
-    expr_diverges_with_known_bools(package, expr_id, &FxHashMap::default())
-}
-
-fn expr_diverges_with_known_bools(
-    package: &Package,
-    expr_id: ExprId,
-    known_bools: &FxHashMap<LocalVarId, bool>,
-) -> bool {
-    match &package.get_expr(expr_id).kind {
+    let kind = &package.get_expr(expr_id).kind;
+    match kind {
         ExprKind::Fail(_) | ExprKind::Return(_) => true,
-        ExprKind::Block(block_id) => {
-            block_diverges_with_known_bools(package, *block_id, known_bools)
+        ExprKind::Block(block_id) => block_diverges(package, *block_id),
+        ExprKind::If(condition, then, otherwise) => {
+            expr_diverges(package, *condition)
+                || otherwise.is_some_and(|otherwise| {
+                    expr_diverges(package, *then) && expr_diverges(package, otherwise)
+                })
         }
-        ExprKind::If(cond, then, Some(els)) => {
-            let no_known_bools = FxHashMap::default();
-            let branch_known_bools = if known_bool_value(package, *cond, known_bools).is_some() {
-                known_bools
-            } else {
-                &no_known_bools
-            };
-            expr_diverges_with_known_bools(package, *then, branch_known_bools)
-                && expr_diverges_with_known_bools(package, *els, branch_known_bools)
+        ExprKind::While(condition, _)
+        | ExprKind::BinOp(BinOp::AndL | BinOp::OrL, condition, _)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, condition, _) => {
+            expr_diverges(package, *condition)
         }
-        ExprKind::While(cond, body) => {
-            expr_diverges_with_known_bools(package, *cond, known_bools)
-                || (known_bool_value(package, *cond, known_bools) == Some(true)
-                    && block_diverges_with_known_bools(package, *body, known_bools))
+        ExprKind::Array(_)
+        | ExprKind::ArrayLit(_)
+        | ExprKind::ArrayRepeat(..)
+        | ExprKind::Assign(..)
+        | ExprKind::AssignOp(..)
+        | ExprKind::AssignField(..)
+        | ExprKind::AssignIndex(..)
+        | ExprKind::BinOp(..)
+        | ExprKind::Call(..)
+        | ExprKind::Field(..)
+        | ExprKind::Index(..)
+        | ExprKind::Parallel(..)
+        | ExprKind::Range(..)
+        | ExprKind::Struct(..)
+        | ExprKind::String(_)
+        | ExprKind::UpdateIndex(..)
+        | ExprKind::Tuple(_)
+        | ExprKind::UnOp(..)
+        | ExprKind::UpdateField(..) => {
+            let mut diverges = false;
+            crate::walk_utils::for_each_direct_child(kind, |child| {
+                diverges |= match child {
+                    crate::walk_utils::DirectChild::Expr(child) => expr_diverges(package, child),
+                    crate::walk_utils::DirectChild::Block(block) => block_diverges(package, block),
+                };
+            });
+            diverges
         }
-        _ => false,
+        ExprKind::Closure(..) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(..) => false,
     }
 }
 
-/// Returns `true` if evaluating `block_id` cannot complete normally.
-///
-/// Loop unification lowers `repeat` to a block that initializes a synthetic
-/// Boolean condition to `true` before a `while`. Track that narrow constant
-/// fact so the guaranteed first iteration remains visible in FIR. Any other
-/// evaluated statement clears the facts because it may mutate a tracked local.
-fn block_diverges_with_known_bools(
-    package: &Package,
-    block_id: BlockId,
-    inherited_known_bools: &FxHashMap<LocalVarId, bool>,
-) -> bool {
+/// Returns `true` if evaluating a statement in `block_id` necessarily diverges.
+fn block_diverges(package: &Package, block_id: BlockId) -> bool {
     let block = package.get_block(block_id);
-    let mut known_bools = inherited_known_bools.clone();
-
-    for &stmt_id in &block.stmts {
-        match &package.get_stmt(stmt_id).kind {
-            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => {
-                if expr_diverges_with_known_bools(package, *expr_id, &known_bools) {
-                    return true;
-                }
-                known_bools.clear();
+    block
+        .stmts
+        .iter()
+        .any(|&stmt_id| match &package.get_stmt(stmt_id).kind {
+            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
+                expr_diverges(package, *expr_id)
             }
-            StmtKind::Local(_, pat_id, expr_id) => {
-                if expr_diverges_with_known_bools(package, *expr_id, &known_bools) {
-                    return true;
-                }
-
-                let value = known_bool_value(package, *expr_id, &known_bools);
-                let pat = package.get_pat(*pat_id);
-                if let (PatKind::Bind(ident), Ty::Prim(Prim::Bool), Some(value)) =
-                    (&pat.kind, &pat.ty, value)
-                {
-                    known_bools.insert(ident.id, value);
-                } else {
-                    known_bools.clear();
-                }
-            }
-            StmtKind::Item(_) => {}
-        }
-    }
-
-    false
-}
-
-/// Evaluates the side-effect-free Boolean subset used by synthesized loop
-/// conditions from literals and previously proven local values.
-fn known_bool_value(
-    package: &Package,
-    expr_id: ExprId,
-    known_bools: &FxHashMap<LocalVarId, bool>,
-) -> Option<bool> {
-    match &package.get_expr(expr_id).kind {
-        ExprKind::Lit(Lit::Bool(value)) => Some(*value),
-        ExprKind::Var(Res::Local(id), _) => known_bools.get(id).copied(),
-        ExprKind::UnOp(UnOp::NotL, operand) => {
-            known_bool_value(package, *operand, known_bools).map(|value| !value)
-        }
-        ExprKind::BinOp(BinOp::AndL, lhs, rhs) => Some(
-            known_bool_value(package, *lhs, known_bools)?
-                && known_bool_value(package, *rhs, known_bools)?,
-        ),
-        ExprKind::BinOp(BinOp::OrL, lhs, rhs) => Some(
-            known_bool_value(package, *lhs, known_bools)?
-                || known_bool_value(package, *rhs, known_bools)?,
-        ),
-        _ => None,
-    }
+            StmtKind::Item(_) => false,
+        })
 }
 
 /// Verifies that all IDs referenced inside blocks, stmts, exprs, and pats
@@ -964,22 +980,25 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 /// Depending on `level`, this dispatcher invokes:
 /// - `check_type_invariants` on callable output types.
 /// - `check_no_arrow_params` once defunctionalization should have removed
-///   callable-valued parameters. Pinned items are excluded from this check
-///   because they are specialization targets that intentionally retain
-///   arrow-typed parameters for callable-args codegen.
+///   callable-valued parameters, except for `exemptions.defunc_residual_items`.
+///   Pins outside the entry-rooted closure are not visited by the normal
+///   pipeline check; the seeded signature-preserving check permits their
+///   original arrow-typed parameters.
 /// - `check_callable_input_pattern_shapes` once tuple-decompose and argument promotion may
 ///   have synthesized tuple-shaped inputs.
 /// - `check_no_returns` once return unification should have removed
-///   `ExprKind::Return`.
-/// - `check_spec_decl_types` on the body and explicit specializations.
+///   `ExprKind::Return`, except for `exemptions.return_unify_skipped_items`.
+/// - `check_spec_decl_types` on the body and explicit specializations,
+///   permitting defunctionalization residue only for the exempted items.
 /// - `check_local_var_consistency` to ensure every local reference is still
 ///   backed by a binder.
-/// - `check_spec_exec_graph` once exec graphs have been rebuilt at `PostAll`.
+///
+/// Reachable-spec execution graphs are checked separately at `PostAll`.
 fn check_reachable_invariants(
     store: &PackageStore,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
-    skip: &FxHashSet<StoreItemId>,
+    exemptions: &InvariantExemptions,
 ) {
     for item_id in reachable {
         // Every structural pass runs across the whole reachable closure, so
@@ -1000,7 +1019,9 @@ fn check_reachable_invariants(
             // would otherwise go unchecked.
             check_pat_types(item_pkg, decl.input, level);
 
-            if enforces_stage(level, StageCheck::Defunc) {
+            if enforces_stage(level, StageCheck::Defunc)
+                && !exemptions.defunc_residual_items.contains(item_id)
+            {
                 check_no_arrow_params(item_pkg, decl);
             }
 
@@ -1008,15 +1029,24 @@ fn check_reachable_invariants(
                 check_callable_input_pattern_shapes(item_pkg, decl);
             }
 
-            if enforces_stage(level, StageCheck::ReturnUnify) && !skip.contains(item_id) {
+            if enforces_stage(level, StageCheck::ReturnUnify)
+                && !exemptions.return_unify_skipped_items.contains(item_id)
+            {
                 check_no_returns(item_pkg, decl);
             }
 
             match &decl.implementation {
                 CallableImpl::Spec(spec_impl) => {
-                    check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
+                    let item_residue_tolerant = exemptions.defunc_residual_items.contains(item_id);
+                    check_spec_decl_types(
+                        store,
+                        item_pkg,
+                        &spec_impl.body,
+                        level,
+                        item_residue_tolerant,
+                    );
                     for spec in functored_specs(spec_impl) {
-                        check_spec_decl_types(store, item_pkg, spec, level);
+                        check_spec_decl_types(store, item_pkg, spec, level, item_residue_tolerant);
                     }
                 }
                 CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
@@ -1576,11 +1606,14 @@ fn tuple_field_type_contains_arrow(ty: &Ty) -> bool {
 
 /// Drives the statement walk for a single specialization body by forwarding
 /// each statement to `check_stmt_types`.
+///
+/// `residue_tolerant` preserves deferred residue through statement validation.
 fn check_spec_decl_types(
     store: &PackageStore,
     package: &Package,
     spec: &qsc_fir::fir::SpecDecl,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     // A specialization may carry its own input pattern (for example the
     // controlled specialization's added control register). Validate its types
@@ -1590,7 +1623,7 @@ fn check_spec_decl_types(
     }
     let block = package.get_block(spec.block);
     for &stmt_id in &block.stmts {
-        check_stmt_types(store, package, stmt_id, level);
+        check_stmt_types(store, package, stmt_id, level, residue_tolerant);
     }
 }
 
@@ -1599,8 +1632,8 @@ fn check_spec_decl_types(
 /// For each local binding, this layers:
 /// - `check_pat_types` on the bound pattern type.
 /// - `check_tuple_pat_shape_matches_type` after tuple-decomposing stages.
-/// - `check_local_pat_for_nested_tuple_arrow` after tuple-decompose (arrow types may
-///   appear inside tuples between UDT erasure and tuple-decompose).
+/// - `check_local_pat_for_nested_tuple_arrow` after tuple-decompose, unless
+///   deferred residue is allowed to continue downstream.
 /// - `check_expr_types` on the initializer expression.
 /// - a final initializer-type equality assertion at `PostAll`.
 ///
@@ -1611,17 +1644,22 @@ fn check_stmt_types(
     package: &Package,
     stmt_id: qsc_fir::fir::StmtId,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     let stmt = package.get_stmt(stmt_id);
     match &stmt.kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) => check_expr_types(store, package, *e, level),
+        StmtKind::Expr(e) | StmtKind::Semi(e) => {
+            check_expr_types(store, package, *e, level, residue_tolerant);
+        }
         StmtKind::Local(_, pat, expr) => {
             check_pat_types(package, *pat, level);
             if enforces_stage(level, StageCheck::TupleDecompose) {
                 check_tuple_pat_shape_matches_type(package, *pat, "local binding");
-                check_local_pat_for_nested_tuple_arrow(package, *pat);
+                if !residue_tolerant {
+                    check_local_pat_for_nested_tuple_arrow(package, *pat);
+                }
             }
-            check_expr_types(store, package, *expr, level);
+            check_expr_types(store, package, *expr, level, residue_tolerant);
 
             if level == InvariantLevel::PostReturnUnify || level == InvariantLevel::PostAll {
                 let pat_ty = &package.get_pat(*pat).ty;
@@ -1647,14 +1685,17 @@ fn check_stmt_types(
 
 /// Walks the full subtree rooted at `expr_id` and forwards every visited node
 /// to `check_expr_type`.
+///
+/// `residue_tolerant` preserves deferred closures through expression validation.
 fn check_expr_types(
     store: &PackageStore,
     package: &Package,
     expr_id: ExprId,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     crate::walk_utils::for_each_expr(package, expr_id, &mut |expr_id, _expr| {
-        check_expr_type(store, package, expr_id, level);
+        check_expr_type(store, package, expr_id, level, residue_tolerant);
     });
 }
 
@@ -1664,19 +1705,18 @@ fn check_expr_types(
 /// type and then layers stage-specific structural checks on the expression
 /// kind itself.
 ///
-/// The `PostUdtErase`-era expression-kind assertions here (for
-/// [`ExprKind::Struct`], [`Field::Path`] in `UpdateField`/`AssignField`, and
-/// [`Field::Path`] on non-tuple records) intentionally overlap with
-/// `check_package_udt_erase_invariants_in_reachable_items`: this walker fires on
-/// every reachable expression in the target package, while the reachable-scoped
-/// walker visits every reachable callable expression in every reachable
-/// package. Both paths must agree so a regression caught in either scope
-/// produces the same diagnostic.
+/// Target-package and reachable foreign expressions share
+/// [`check_expr_udt_erase_invariants`] so both scopes enforce the same contract.
+///
+/// `residue_tolerant` permits residual closures to reach downstream analysis.
+/// It applies only to the current callable item or entry expression, as selected
+/// by [`InvariantExemptions`].
 fn check_expr_type(
     store: &PackageStore,
     package: &Package,
     expr_id: ExprId,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     let expr = package.get_expr(expr_id);
     check_type_invariants(&expr.ty, level, &format!("Expr {expr_id}"));
@@ -1690,7 +1730,11 @@ fn check_expr_type(
     }
 
     // After defunctionalization, no closures should remain in reachable code.
-    if enforces_stage(level, StageCheck::Defunc) {
+    //
+    // An exempted callable or entry expression may retain a well-typed closure
+    // for RCA and partial evaluation to resolve or reject. Other items still
+    // enforce this check.
+    if enforces_stage(level, StageCheck::Defunc) && !residue_tolerant {
         assert!(
             !matches!(&expr.kind, ExprKind::Closure(_, _)),
             "Expr {expr_id} is a Closure after defunctionalization"
@@ -1707,35 +1751,8 @@ fn check_expr_type(
         );
     }
 
-    // After UDT erasure, all Struct expressions must have been lowered.
     if enforces_stage(level, StageCheck::UdtErase) {
-        if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 ExprKind::Struct after UDT erasure"
-            );
-        }
-
-        // Field::Path references UDT field paths that must be lowered by udt_erase.
-        if let ExprKind::UpdateField(_, Field::Path(_), _)
-        | ExprKind::AssignField(_, Field::Path(_), _) = &expr.kind
-        {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 Field::Path in UpdateField/AssignField after UDT erasure"
-            );
-        }
-
-        // After UDT erasure, every Field::Path target must be a Tuple.
-        if let ExprKind::Field(record_id, Field::Path(_)) = &expr.kind {
-            let record = package.get_expr(*record_id);
-            assert!(
-                matches!(&record.ty, Ty::Tuple(_)),
-                "PostUdtErase invariant violation: Expr {expr_id} has Field::Path \
-                 on non-tuple record Expr {record_id} (type: {:?})",
-                record.ty,
-            );
-        }
+        check_expr_udt_erase_invariants(store, package, expr_id);
     }
 
     // After tuple comparison lowering, no BinOp(Eq/Neq) on non-empty tuple operands.
@@ -1783,13 +1800,58 @@ fn assignment_kind_name(kind: &ExprKind) -> Option<&'static str> {
     }
 }
 
+/// Compares an argument type against a callee's declared input type, tolerating
+/// an operation value that carries more functors than the position requires.
+///
+/// Q# lets an `Adj + Ctl` operation bind to a plain `Qubit => Unit` slot, so the
+/// frontend accepts `[X, Y]` for a `(Qubit => Unit)[]` parameter. Comparing `Ty`
+/// with `==` includes the functor set and rejects that, turning a legal program
+/// into an invariant panic. A *missing* functor still fails, so signature drift
+/// introduced by a transform is still caught.
+fn ty_matches_allowing_extra_functors(actual: &Ty, expected: &Ty) -> bool {
+    match (actual, expected) {
+        (Ty::Array(actual), Ty::Array(expected)) => {
+            ty_matches_allowing_extra_functors(actual, expected)
+        }
+        (Ty::Tuple(actual), Ty::Tuple(expected)) => {
+            actual.len() == expected.len()
+                && actual
+                    .iter()
+                    .zip(expected.iter())
+                    .all(|(actual, expected)| ty_matches_allowing_extra_functors(actual, expected))
+        }
+        (Ty::Arrow(actual), Ty::Arrow(expected)) => {
+            actual.kind == expected.kind
+                && ty_matches_allowing_extra_functors(&actual.input, &expected.input)
+                && ty_matches_allowing_extra_functors(&actual.output, &expected.output)
+                && functors_cover(actual.functors, expected.functors)
+        }
+        _ => actual == expected,
+    }
+}
+
+/// True when `actual` supports at least the functors `expected` requires.
+/// Unevaluated sets (`Param`/`Infer`) are only accepted as an exact match, since
+/// nothing here can decide their membership.
+fn functors_cover(actual: FunctorSet, expected: FunctorSet) -> bool {
+    match (actual, expected) {
+        (FunctorSet::Value(actual), FunctorSet::Value(expected)) => {
+            actual.intersect(&expected) == expected
+        }
+        _ => actual == expected,
+    }
+}
+
 /// Verifies that a `ExprKind::Call` expression's argument type matches the
 /// callee's declared input type and that the call's result type matches the
 /// callee's declared output type.
 ///
 /// This is the post-`arg_promote` check that catches signature drift
 /// introduced by tuple-decomposing stages.
-fn check_call_shape_matches_callee(
+///
+/// Exposed to the crate so transform regressions can assert against the exact
+/// contract a malformed call site violates, instead of restating it.
+pub(crate) fn check_call_shape_matches_callee(
     store: &PackageStore,
     package: &Package,
     call_expr_id: ExprId,
@@ -1809,7 +1871,7 @@ fn check_call_shape_matches_callee(
     };
 
     let call = package.get_expr(call_expr_id);
-    if arg.ty != expected_input {
+    if !ty_matches_allowing_extra_functors(&arg.ty, &expected_input) {
         if let Some((arrow_input, arrow_output)) = resolve_arrow_expr_signature(package, callee_id)
             && arg.ty == arrow_input
             && call.ty == arrow_output
@@ -1972,6 +2034,27 @@ fn check_type_invariants(ty: &Ty, level: InvariantLevel, context: &str) {
     }
 }
 
+/// Checks local-scope consistency of every reachable callable, for use at a
+/// mutation site rather than at a stage boundary.
+///
+/// A pass that splices a `LocalVarId` from one callable's scope into another
+/// body produces FIR that survives until some later stage walks it, by which
+/// point the writer is several transforms away. Calling this right after a
+/// mutation names the offending callable while the writer is still on the
+/// stack. Debug builds only, since it re-walks every reachable callable.
+#[cfg(debug_assertions)]
+pub(crate) fn debug_check_local_scopes(store: &PackageStore, package_id: PackageId) {
+    let reachable = crate::reachability::collect_reachable_from_entry(store, package_id);
+    for store_id in &reachable {
+        let package = store.get(store_id.package);
+        if let Some(item) = package.items.get(store_id.item)
+            && let ItemKind::Callable(decl) = &item.kind
+        {
+            check_local_var_consistency(package, decl);
+        }
+    }
+}
+
 /// Verifies that every `Res::Local(id)` in a callable implementation refers to
 /// a `LocalVarId` that is visible in the current lexical scope:
 /// - the callable's input pattern,
@@ -1981,7 +2064,7 @@ fn check_type_invariants(ty: &Ty, level: InvariantLevel, context: &str) {
 /// # Panics
 ///
 /// Panics if a local reference is found that is not in the bound set.
-fn check_local_var_consistency(package: &Package, decl: &CallableDecl) {
+pub(crate) fn check_local_var_consistency(package: &Package, decl: &CallableDecl) {
     let mut callable_scope: FxHashSet<LocalVarId> = FxHashSet::default();
     collect_pat_bindings(package, decl.input, &mut callable_scope);
 

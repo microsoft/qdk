@@ -16,6 +16,99 @@ use indoc::indoc;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
+fn runtime_index_update_selects_three_one_two_or_zero_three_two_without_bounds_checks() {
+    use qsc_rir::rir::{ConditionCode, Instruction, Literal, Operand};
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint() operation Main() : Int[] {
+            use q = Qubit();
+            let index = MResetZ(q) == Zero ? 0 | 1;
+            [0, 1, 2] w/ index <- 3
+        }
+    "#});
+    let instructions: Vec<_> = program.blocks.values().flat_map(|block| &block.0).collect();
+    let outputs: Vec<_> = instructions
+        .iter()
+        .filter_map(|instruction| {
+            if let Instruction::Call(id, args, _, _) = instruction
+                && program.get_callable(*id).name == "__quantum__rt__int_record_output"
+            {
+                Some(args[0])
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(outputs.len(), 3);
+    let mut runtime_index = None;
+    for (position, output) in outputs.iter().enumerate() {
+        let Operand::Variable(result) = output else {
+            panic!("updated element must be dynamic")
+        };
+        assert!(instructions.iter().any(|instruction| matches!(instruction,
+            Instruction::Store(Operand::Literal(Literal::Integer(value)), variable)
+                if *value == i64::try_from(position).expect("small array position") && variable == result)));
+        let condition = instructions
+            .iter()
+            .find_map(|instruction| {
+                if let Instruction::Icmp(
+                    ConditionCode::Eq,
+                    index,
+                    Operand::Literal(Literal::Integer(value)),
+                    condition,
+                ) = instruction
+                    && *value == i64::try_from(position).expect("small array position")
+                {
+                    if let Some(previous) = runtime_index {
+                        assert_eq!(previous, *index);
+                    }
+                    runtime_index = Some(*index);
+                    Some(*condition)
+                } else {
+                    None
+                }
+            })
+            .expect("each element is selected by the original runtime index");
+        let (selected, continuation) = instructions
+            .iter()
+            .find_map(|instruction| {
+                if let Instruction::Branch(variable, yes, no, _) = instruction
+                    && *variable == condition
+                {
+                    Some((*yes, *no))
+                } else {
+                    None
+                }
+            })
+            .expect("element update branch");
+        assert!(matches!(program.get_block(selected).0.as_slice(),
+            [Instruction::Store(Operand::Literal(Literal::Integer(3)), actual),
+             Instruction::Jump(next)] if actual == result && *next == continuation));
+    }
+    assert!(matches!(runtime_index, Some(Operand::Variable(_))));
+    assert_eq!(
+        instructions
+            .iter()
+            .filter(|instruction| matches!(
+                instruction,
+                Instruction::Icmp(
+                    ConditionCode::Eq,
+                    _,
+                    Operand::Literal(Literal::Integer(_)),
+                    _
+                )
+            ))
+            .count(),
+        3
+    );
+    assert!(
+        program
+            .callables
+            .values()
+            .all(|callable| !callable.name.contains("fail"))
+    );
+}
+
+#[test]
 fn array_with_dynamic_content() {
     let program = get_rir_program(indoc! {r#"
         namespace Test {

@@ -6,7 +6,9 @@ use std::rc::Rc;
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
-    applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
+    applications::{
+        ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind, LocalsComputeKindMap,
+    },
     common::{
         AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
         try_resolve_callee,
@@ -475,8 +477,12 @@ impl<'a> Analyzer<'a> {
         // application.
         let package_id = self.get_current_package_id();
         let args_package = self.package_store.get(package_id);
-        let (args_controls, args_input_id) =
-            split_controls_and_input(args_expr_id, callee.functor_app, args_package);
+        let (args_controls, args_input_id) = split_controls_and_input(
+            args_expr_id,
+            callee.functor_app,
+            args_package,
+            &self.get_current_application_instance().locals_map,
+        );
 
         // To map the input pattern to input expressions we need to provide global (store-level) pattern and expression
         // identifiers since the callable can be in a different package than the input expressions.
@@ -550,27 +556,13 @@ impl<'a> Analyzer<'a> {
             // (We ignore this check for Base Profile as other dynamism will already be flagged and this
             // specific case does not come up in isolation).
             // We know that only one intrinsic callable named "__quantum__rt__qubit_release" is allowed by the compiler
-            // and that the argument is a local variable of type "Qubit" so we unwrap to it and check its scoping.
+            // and resolve the evaluated argument's origin rather than requiring a variable expression.
             // It is valid to release a qubit from a dynamic scope as long as it is the same scope the qubit was allocated in.
             // If it is not the same scope, that means we will not be able to unconditional perform a single release during
             // partial evaluation and would need to emit a dynamic call to a release function. Without the dynamic qubit release
             // feature, this manifests as a double release during codegen, which we want to avoid. Adding the dynamic qubit release
             // feature to the compute kind will flag this as requiring the dynamic qubit release feature.
-            let args_expr = self.get_expr(args_expr_id);
-            let ExprKind::Var(res, _) = args_expr.kind else {
-                panic!("expected a variable expression for qubit release arguments");
-            };
-            let Res::Local(local_var_id) = res else {
-                panic!("expected a local variable for qubit release arguments");
-            };
-            let local_var_compute_kind = application_instance
-                .locals_map
-                .find_local_compute_kind(local_var_id)
-                .expect("local compute kind should be defined before update");
-            let in_matching_dynamic_scope = matches!(
-                local_var_compute_kind.local.kind,
-                LocalKind::Immutable(_, dynamic_scope) | LocalKind::Mutable(dynamic_scope) if dynamic_scope.as_ref() == application_instance.active_dynamic_scopes.last()
-            );
+            let in_matching_dynamic_scope = self.qubit_release_matches_scope(args_expr_id);
             if !in_matching_dynamic_scope {
                 compute_kind.aggregate(ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicQubitRelease,
@@ -588,6 +580,59 @@ impl<'a> Analyzer<'a> {
         }
 
         compute_kind
+    }
+
+    fn qubit_release_matches_scope(&self, expression: ExprId) -> bool {
+        let instance = self.get_current_application_instance();
+        let current = instance.active_dynamic_scopes.last().copied();
+        let package = self.package_store.get(self.get_current_package_id());
+        let mut expression = expression;
+        let mut evaluation_scope = current;
+        let mut visited = rustc_hash::FxHashSet::default();
+        while visited.insert(expression) {
+            match &package.get_expr(expression).kind {
+                ExprKind::Var(Res::Local(local), _) => {
+                    let local = instance
+                        .locals_map
+                        .find_local_compute_kind(*local)
+                        .expect("local compute kind must exist");
+                    match local.local.kind {
+                        LocalKind::Immutable(initializer, scope) => {
+                            if matches!(
+                                package.get_expr(initializer).kind,
+                                ExprKind::Var(Res::Local(_), _) | ExprKind::Block(_)
+                            ) {
+                                evaluation_scope = scope;
+                                expression = initializer;
+                            } else {
+                                return scope == current;
+                            }
+                        }
+                        LocalKind::Mutable(scope) => return scope == current,
+                        LocalKind::InputParam(_) | LocalKind::SpecInput => return false,
+                    }
+                }
+                ExprKind::Block(block) => {
+                    let Some(statement) = package.get_block(*block).stmts.last() else {
+                        return false;
+                    };
+                    let StmtKind::Expr(tail) = package.get_stmt(*statement).kind else {
+                        return false;
+                    };
+                    expression = tail;
+                }
+                ExprKind::Call(callee, _) => {
+                    let ExprKind::Var(Res::Item(item), _) = package.get_expr(*callee).kind else {
+                        return false;
+                    };
+                    return evaluation_scope == current
+                        && matches!(self.package_store.get_global((item.package, item.item).into()),
+                        Some(Global::Callable(decl)) if decl.name.name.as_ref() == "__quantum__rt__qubit_allocate");
+                }
+                _ => return false,
+            }
+        }
+        false
     }
 
     fn check_must_inline(
@@ -2956,19 +3001,69 @@ fn split_controls_and_input(
     args_expr_id: ExprId,
     functor_app: FunctorApp,
     package: &impl PackageLookup,
+    locals: &LocalsComputeKindMap,
 ) -> (Vec<ExprId>, ExprId) {
     let mut controls = Vec::new();
     let mut remainder_expr_id = args_expr_id;
+    let mut remainder_ty = &package.get_expr(args_expr_id).ty;
     for _ in 0..functor_app.controlled {
+        remainder_expr_id = resolve_immutable_argument(remainder_expr_id, package, locals);
         let expr = package.get_expr(remainder_expr_id);
-        let ExprKind::Tuple(pats) = &expr.kind else {
-            panic!("expected tuple expression");
+        let Ty::Tuple(types) = remainder_ty else {
+            panic!("controlled argument must have a tuple type");
         };
-        assert!(pats.len() == 2);
-        controls.push(pats[0]);
-        remainder_expr_id = pats[1];
+        assert_eq!(types.len(), 2);
+        remainder_ty = &types[1];
+        if let ExprKind::Tuple(elements) = &expr.kind {
+            assert_eq!(elements.len(), 2);
+            controls.push(elements[0]);
+            remainder_expr_id = elements[1];
+        } else {
+            // An opaque tuple value supplies conservative compute properties
+            // for both projections; no synthetic expression or local is needed.
+            controls.push(remainder_expr_id);
+        }
     }
     (controls, remainder_expr_id)
+}
+
+fn resolve_immutable_argument(
+    expression: ExprId,
+    package: &impl PackageLookup,
+    locals: &LocalsComputeKindMap,
+) -> ExprId {
+    let mut expression = expression;
+    let mut visited = rustc_hash::FxHashSet::default();
+    while visited.insert(expression) {
+        match &package.get_expr(expression).kind {
+            ExprKind::Var(Res::Local(local), _) => {
+                if let Some(LocalComputeKind {
+                    local:
+                        Local {
+                            kind: LocalKind::Immutable(initializer, _),
+                            ..
+                        },
+                    ..
+                }) = locals.find_local_compute_kind(*local)
+                {
+                    expression = *initializer;
+                } else {
+                    break;
+                }
+            }
+            ExprKind::Block(block) => {
+                if let Some(statement) = package.get_block(*block).stmts.last()
+                    && let StmtKind::Expr(tail) = package.get_stmt(*statement).kind
+                {
+                    expression = tail;
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    expression
 }
 
 fn is_any_result(t: &Ty) -> bool {

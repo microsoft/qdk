@@ -16,6 +16,122 @@ fn check_render(source: &str, expect: &Expect) {
 }
 
 #[test]
+fn identifier_like_string_payloads_are_preserved() {
+    check_review_literal_payloads(&["run_id_123", "run_id_456"]);
+}
+
+#[test]
+fn unicode_string_payloads_are_preserved() {
+    check_review_literal_payloads(&["caf\u{e9}"]);
+}
+
+fn check_review_literal_payloads(payloads: &[&str]) {
+    let mut failures = Vec::new();
+    for payload in payloads {
+        for interpolated in [false, true] {
+            let literal = if interpolated {
+                format!("$\"{payload} {{value}}\"")
+            } else {
+                format!("\"{payload}\"")
+            };
+            let source = format!(
+                "namespace Test {{ @EntryPoint() operation Main() : Unit {{ let value = 7; Message({literal}); }} }}"
+            );
+            let (store, package_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+            let rendered = write_reachable_qsharp_parseable(&store, package_id);
+            let messages = rendered
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.starts_with("Message("))
+                .collect::<Vec<_>>();
+            let expected = if interpolated {
+                format!("Message({literal});")
+            } else {
+                format!("Message(${literal});")
+            };
+            let passed = messages == [expected.as_str()];
+            if !passed {
+                failures.push((literal, messages.join("\n")));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "literal payloads changed: {failures:?}"
+    );
+}
+
+#[test]
+fn reachable_interpolation_preserves_allocated_binding_names_and_references() {
+    let source = indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Message($"sum {{
+                    mutable total = 0;
+                    for value in 0..2 { set total += value; }
+                    total
+                }}");
+            }
+        }
+    "#};
+    let render = |source: &str| {
+        let (store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
+        let raw = write_package_qsharp_parseable(&store, package_id);
+        let reachable = write_reachable_qsharp_parseable(&store, package_id);
+        (raw, reachable)
+    };
+    let (first_raw, first) = render(source);
+    let shifted_source = format!(
+        "namespace Padding {{ function Unused(value : Int) : Int {{ value + 1 }} }}\n{source}"
+    );
+    let (second_raw, second) = render(&shifted_source);
+    assert_ne!(
+        first_raw, second_raw,
+        "fixture must exercise allocator-ID drift"
+    );
+    for (raw, reachable) in [(&first_raw, &first), (&second_raw, &second)] {
+        let expression = reachable
+            .split("Message($\"sum {")
+            .nth(1)
+            .expect("interpolation expression must remain reachable");
+        for prefix in ["_range_id_", "_index_id_", "_step_id_", "_end_id_"] {
+            let offset = raw.find(prefix).expect("generated binding must exist");
+            let name = raw[offset..]
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .next()
+                .expect("generated identifier");
+            assert!(
+                expression.matches(name).count() >= 2,
+                "reachable declaration and reference must retain allocated name: {name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn reachable_rendering_preserves_user_names_resembling_generated_identifiers() {
+    let source = indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            let request_id_99 = 1;
+            let _index_id_12 = 2;
+            let _index_id_0 = 3;
+            request_id_99 * 100 + _index_id_12 * 10 + _index_id_0
+        }
+    "#};
+    let (store, package) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let rendered = write_reachable_qsharp_parseable(&store, package);
+    for name in ["request_id_99", "_index_id_12", "_index_id_0"] {
+        assert_eq!(
+            rendered.matches(name).count(),
+            2,
+            "declaration and reference must preserve distinct source name: {rendered}"
+        );
+    }
+}
+
+#[test]
 fn simple_function_renders() {
     check_render(
         indoc! {r#"

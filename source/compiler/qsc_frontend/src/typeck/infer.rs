@@ -1,13 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{Error, ErrorKind};
+use super::{Error, ErrorKind, InstantiationError};
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{ItemId, PrimField, Res},
     ty::{
         Arrow, ClassConstraint, FunctorSet, FunctorSetValue, GenericArg, InferFunctorId, InferTyId,
-        Prim, Scheme, Ty, TypeParameter, Udt,
+        ParamId, Prim, Scheme, Ty, TypeParameter, Udt, instantiate_ty,
     },
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -20,6 +20,156 @@ use std::{
 
 const MAX_TY_RECURSION_DEPTH: i8 = 100;
 const MAX_TY_SIZE: usize = 100;
+
+pub(super) fn validate_instantiation(
+    parameters: &[(ParamId, TypeParameter)],
+    candidates: &FxHashMap<ParamId, GenericArg>,
+    udts: &FxHashMap<ItemId, Udt>,
+    span: Span,
+) -> Result<(), Vec<InstantiationError>> {
+    let mut errors = Vec::new();
+    if parameters.len() != candidates.len() {
+        errors.push(InstantiationError {
+            parameter: None,
+            error: Error(ErrorKind::InstantiationArity(
+                parameters.len(),
+                candidates.len(),
+                span,
+            )),
+        });
+    }
+    let mut seen = FxHashSet::default();
+    for (id, parameter) in parameters {
+        let error = if seen.insert(*id) {
+            match (parameter, candidates.get(id)) {
+                (_, None) => Some(ErrorKind::MissingArgument(*id, span)),
+                (TypeParameter::Ty { .. }, Some(GenericArg::Ty(ty))) => {
+                    concrete_ty(ty, udts, &mut FxHashSet::default(), span).err()
+                }
+                (TypeParameter::Functor(_), Some(GenericArg::Functor(functors))) => {
+                    concrete_functors(*functors, span).err()
+                }
+                _ => Some(ErrorKind::InstantiationKind(*id, span)),
+            }
+        } else {
+            Some(ErrorKind::DuplicateParameter(*id, span))
+        };
+        if let Some(error) = error {
+            errors.push(InstantiationError {
+                parameter: Some(*id),
+                error: Error(error),
+            });
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    for (id, parameter) in parameters {
+        let mut constraints = VecDeque::new();
+        match (parameter, &candidates[id]) {
+            (TypeParameter::Ty { bounds, .. }, GenericArg::Ty(ty)) => {
+                for bound in &bounds.0 {
+                    let constraint = into_constraint(ty.clone(), bound, span);
+                    let Constraint::Class(class, _) = constraint else {
+                        unreachable!("type parameter bounds are class constraints")
+                    };
+                    let mut payload_error = None;
+                    let class =
+                        class.map(|ty| match instantiate_ty(|id| candidates.get(id), &ty) {
+                            Ok(ty) => {
+                                if let Err(error) =
+                                    concrete_ty(&ty, udts, &mut FxHashSet::default(), span)
+                                {
+                                    payload_error = Some(error);
+                                }
+                                ty
+                            }
+                            Err(qsc_hir::ty::InstantiationError::Kind(id)) => {
+                                payload_error = Some(ErrorKind::InstantiationKind(id, span));
+                                Ty::Err
+                            }
+                            Err(_) => unreachable!("type substitution only checks argument kinds"),
+                        });
+                    if let Some(error) = payload_error {
+                        errors.push(InstantiationError {
+                            parameter: Some(*id),
+                            error: Error(error),
+                        });
+                    } else {
+                        constraints.push_back(Constraint::Class(class, span));
+                    }
+                }
+            }
+            (TypeParameter::Functor(expected), GenericArg::Functor(actual)) => {
+                constraints.push_back(Constraint::Superset {
+                    expected: *expected,
+                    actual: *actual,
+                    span,
+                });
+            }
+            _ => unreachable!("argument kinds were checked"),
+        }
+        // Unlike source inference, concrete validation must never default variables or
+        // ignore a suspended obligation. Drain all recursively generated constraints.
+        let mut solver = Solver::new();
+        solver.solve(udts, &mut constraints);
+        if !solver.pending_tys.is_empty() || !solver.pending_functors.is_empty() {
+            solver
+                .errors
+                .push(Error(ErrorKind::UnresolvedConstraints(span)));
+        }
+        errors.extend(solver.errors.into_iter().map(|error| InstantiationError {
+            parameter: Some(*id),
+            error,
+        }));
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+fn concrete_functors(functors: FunctorSet, span: Span) -> Result<(), ErrorKind> {
+    if matches!(functors, FunctorSet::Value(_)) {
+        Ok(())
+    } else {
+        Err(ErrorKind::NonConcreteFunctor(functors, span))
+    }
+}
+
+fn concrete_ty(
+    ty: &Ty,
+    udts: &FxHashMap<ItemId, Udt>,
+    visited: &mut FxHashSet<ItemId>,
+    span: Span,
+) -> Result<(), ErrorKind> {
+    match ty {
+        Ty::Prim(_) => Ok(()),
+        Ty::Array(item) => concrete_ty(item, udts, visited, span),
+        Ty::Tuple(items) => items
+            .iter()
+            .try_for_each(|item| concrete_ty(item, udts, visited, span)),
+        Ty::Arrow(arrow) => {
+            concrete_ty(&arrow.input.borrow(), udts, visited, span)?;
+            concrete_ty(&arrow.output.borrow(), udts, visited, span)?;
+            concrete_functors(*arrow.functors.borrow(), span)
+        }
+        Ty::Udt(_, Res::Item(id)) => {
+            let udt = udts
+                .get(id)
+                .ok_or(ErrorKind::MissingTypeDefinition(*id, span))?;
+            if visited.insert(*id) {
+                concrete_ty(&udt.get_pure_ty(), udts, visited, span)?;
+            }
+            Ok(())
+        }
+        Ty::Param { .. } | Ty::Infer(_) | Ty::Err | Ty::Udt(_, _) => {
+            Err(ErrorKind::NonConcreteType(ty.into(), span))
+        }
+    }
+}
 
 #[derive(Debug, Default)]
 struct Solution {
@@ -535,11 +685,7 @@ impl Inferrer {
 
     /// Solves for all variables given the accumulated constraints.
     pub(super) fn solve(&mut self, udts: &FxHashMap<ItemId, Udt>) -> Vec<Error> {
-        while let Some(constraint) = self.constraints.pop_front() {
-            for constraint in self.solver.constrain(udts, constraint).into_iter().rev() {
-                self.constraints.push_front(constraint);
-            }
-        }
+        self.solver.solve(udts, &mut self.constraints);
         let unresolved_ty_errs = self.find_unresolved_types();
         self.solver.default_functors(self.next_functor);
         self.solver
@@ -599,6 +745,14 @@ impl Solver {
             pending_tys: FxHashMap::default(),
             pending_functors: FxHashMap::default(),
             errors: Vec::new(),
+        }
+    }
+
+    fn solve(&mut self, udts: &FxHashMap<ItemId, Udt>, constraints: &mut VecDeque<Constraint>) {
+        while let Some(constraint) = constraints.pop_front() {
+            for derived in self.constrain(udts, constraint).into_iter().rev() {
+                constraints.push_front(derived);
+            }
         }
     }
 

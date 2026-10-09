@@ -2,9 +2,55 @@
 # Licensed under the MIT License.
 
 import pytest
+import qdk
 from qdk import qsharp
 from qdk._native import QSharpError
 from expecttest import assert_expected_inline
+
+
+def test_nested_functor_superset_factory_compiles_and_records_forty_two() -> None:
+    context = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RI)
+    context.eval("""
+        operation Nop() : Unit is Adj + Ctl {}
+        function Factory() : Unit => Unit is Adj + Ctl { Nop }
+        operation Run(factory : Unit -> (Unit => Unit)) : Int {
+            let op = factory();
+            op();
+            42
+        }
+    """)
+
+    qir = str(context.compile(context.code.Run, context.code.Factory))
+
+    assert "call void @__quantum__rt__int_record_output(i64 42," in qir
+
+
+@pytest.mark.parametrize("values", [[[], [1]], [[1], []], [[], []]])
+def test_generic_array_source_orders_compile_and_record_forty_two(
+    values: list[list[int]],
+) -> None:
+    context = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RI)
+    context.eval("""
+        function Answer() : Int { 42 }
+        operation Run<'T>(values : 'T[][], answer : Unit -> Int) : Int {
+            answer()
+        }
+    """)
+    qir = str(
+        context.compile(f"{{ let values : Int[][] = {values}; Run(values, Answer) }}")
+    )
+
+    assert "call void @__quantum__rt__int_record_output(i64 42," in qir
+
+
+def test_bare_generic_source_call_with_empty_first_array_records_forty_two() -> None:
+    context = qdk.Context(target_profile=qdk.TargetProfile.Adaptive_RI)
+    context.eval("""
+        operation Run<'T>(values : 'T[][]) : Int { 42 }
+    """)
+    qir = str(context.compile("Run([[], [1]])"))
+
+    assert "call void @__quantum__rt__int_record_output(i64 42," in qir
 
 
 def test_python_callable_passed_to_python_callable() -> None:
@@ -261,6 +307,57 @@ attributes #1 = { "irreversible" }
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
 """,
     )
+
+
+def test_functor_capable_returned_wrapper_with_struct_capture_generates_qir() -> None:
+    # Arrange
+    context = qdk.Context(target_profile=qdk.TargetProfile.Base)
+    context.eval("""
+        struct OpParams {
+            enabled : Bool,
+        }
+
+        operation ApplyCaptured(params : OpParams, target : Qubit) : Unit is Adj + Ctl {
+            if params.enabled {
+                X(target);
+            }
+        }
+
+        operation ApplyOne(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(target);
+            }
+            adjoint auto;
+            controlled (controls, ...) {
+                Controlled op(controls, target);
+            }
+            controlled adjoint auto;
+        }
+
+        function MakeControlledOp(op : Qubit => Unit is Adj + Ctl) : (Qubit, Qubit[]) => Unit is Adj + Ctl {
+            (control, targets) => {
+                Controlled ApplyOne([control], (op, targets[0]));
+            }
+        }
+
+        operation Run(op : Qubit => Unit is Adj + Ctl) : Result {
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            let controlledOp = MakeControlledOp(op);
+            controlledOp(control, [target]);
+            Reset(control);
+            MResetZ(target)
+        }
+    """)
+    run = context.code.Run
+    captured_op = context.eval("ApplyCaptured(new OpParams { enabled = true }, _)")
+
+    # Act
+    qir = str(context.compile(run, captured_op))
+
+    # Assert
+    assert qir.count("call void @__quantum__qis__cx__body") == 1
 
 
 def test_same_target_multi_closure_args_generate_qir() -> None:
