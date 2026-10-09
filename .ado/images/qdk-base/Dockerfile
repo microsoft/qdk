@@ -1,7 +1,7 @@
 ARG BASE_REGISTRY=qdkacr-cfgqhwddajdaebhg.azurecr.io
 # To build from upstream ubi8, set BASE_REGISTRY=registry.access.redhat.com
 
-FROM ${BASE_REGISTRY}/ubi8/ubi:8.10@sha256:b76f9ead999002af783d7b7036b7b57ceee6033712ad07577240ee06489a3a40
+FROM ${BASE_REGISTRY}/ubi8/ubi@sha256:b76f9ead999002af783d7b7036b7b57ceee6033712ad07577240ee06489a3a40
 
 # Install basic software building packages: git, gcc, make, etc.
 # Installing the python3.11 package sets `/usr/bin/python3` as python3.11 (via /etc/alternatives)
