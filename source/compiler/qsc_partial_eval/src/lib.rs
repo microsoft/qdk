@@ -353,7 +353,14 @@ impl<'a> PartialEvaluator<'a> {
     fn bind_value_to_ident(&mut self, mutability: Mutability, ident: &Ident, value: Value) {
         // We do slightly different things depending on the mutability of the identifier.
         match mutability {
-            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value),
+            Mutability::Mutable => {
+                // Make sure to track this mutable variable in the current scope to inform
+                // the partial evaluator that it should be monitored for updates across evaluation boundaries.
+                self.eval_context
+                    .get_current_scope_mut()
+                    .insert_mutable_var(ident.id);
+                self.bind_value_to_mutable_ident(ident, value);
+            }
             Mutability::Immutable => {
                 let current_scope = self.eval_context.get_current_scope();
                 if matches!(value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())

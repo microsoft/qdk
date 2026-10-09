@@ -9,7 +9,7 @@ use qsc_eval::{
 use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
 use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::hash_map::Entry, rc::Rc};
 
 use crate::{ScopeDbgContext, is_static_value, map_rir_literal_to_eval_value};
@@ -117,6 +117,9 @@ pub struct Scope {
     hybrid_vars: FxHashMap<LocalVarId, Value>,
     /// Maps variable IDs to static literal values, if any.
     static_vars: FxHashMap<VariableId, Literal>,
+    /// Set of mutable local variables in this scope. Used to decide which variables are tracked across
+    /// the partial eval <-> eval boundary (hybrid map <-> classical env).
+    mutable_vars: FxHashSet<LocalVarId>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
     /// Debug context, used for generating debug metadata.
@@ -192,6 +195,7 @@ impl Scope {
             active_block_count: 1,
             hybrid_vars,
             static_vars: FxHashMap::default(),
+            mutable_vars: FxHashSet::default(),
             dbg_context: ScopeDbgContext::default(),
             arrays: arrays.into_iter().map(|array| (array, None)).collect(),
         }
@@ -237,10 +241,14 @@ impl Scope {
 
     /// Updates the classical local variable values based on the current hybrid local variable values.
     pub fn update_classical_locals_from_hybrid_locals(&mut self) {
-        for (local_var_id, hybrid_value) in &self.hybrid_vars {
+        for local_var_id in &self.mutable_vars {
             if self.env.get(*local_var_id).is_none() {
                 continue;
             }
+            let hybrid_value = self
+                .hybrid_vars
+                .get(local_var_id)
+                .expect("hybrid value should exist");
             let update_value = match hybrid_value {
                 Value::Var(hybrid_var) => {
                     // Check to see if there is a static literal value currently tracked for this variable,
@@ -266,7 +274,11 @@ impl Scope {
     /// allowing callers to choose how to update those in tracked mapping themselves.
     pub fn collect_updated_local_values(&mut self) -> Vec<(LocalVarId, Value)> {
         let mut updated_values = Vec::new();
-        for (local_var_id, hybrid_value) in &self.hybrid_vars {
+        for local_var_id in &self.mutable_vars {
+            let hybrid_value = self
+                .hybrid_vars
+                .get(local_var_id)
+                .expect("hybrid value should exist");
             if let Value::Var(hybrid_var) = hybrid_value
                 && let Some(literal) = self.get_static_value(hybrid_var.id.into())
                 && let Some(literal_val) = map_rir_literal_to_eval_value(*literal, hybrid_var.ty)
@@ -302,6 +314,12 @@ impl Scope {
     // Insert a variable into the mutable variables map.
     pub fn insert_static_var_mapping(&mut self, var_id: VariableId, literal: Literal) {
         self.static_vars.insert(var_id, literal);
+    }
+
+    // Inserts a local variable into the set of mutable variables so it will be tracked
+    // for updates across evaluation boundaries.
+    pub fn insert_mutable_var(&mut self, local_var_id: LocalVarId) {
+        self.mutable_vars.insert(local_var_id);
     }
 
     /// Determines whether we are currently evaluating a branch within the scope.
