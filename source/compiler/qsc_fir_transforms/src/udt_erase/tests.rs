@@ -20,6 +20,136 @@ use std::rc::Rc;
 use crate::EMPTY_EXEC_RANGE;
 use qsc_fir::fir::PackageSpan;
 
+#[test]
+fn quantum_field_update_records_measurement_dependent_value() {
+    let qir = crate::test_utils::generate_qir(super::test_cases::QUANTUM_FIELD_UPDATE_ORDER);
+    // X before MResetZ yields One: record 100 * 1 + 3 = 103. The QIR keeps
+    // the measurement dynamic, so verify its full dataflow into the output.
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          br label %block_3
+        block_2:
+          br label %block_3
+        block_3:
+          %var_9 = phi i64 [1, %block_1], [0, %block_2]
+          %var_6 = mul i64 100, %var_9
+          %var_7 = add i64 %var_6, 3
+          call void @__quantum__rt__int_record_output(i64 %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare i1 @__quantum__rt__read_result(%Result*)
+
+        declare void @__quantum__rt__int_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+    "#]]
+    .assert_eq(&qir);
+}
+
+#[test]
+fn field_update_order_records_expected_qir_values() {
+    for (source, expected) in super::test_cases::field_update_order_cases().chain([
+        (
+            super::test_cases::NESTED_FIELD_UPDATE_ORDER.to_string(),
+            375,
+        ),
+        (super::test_cases::SINGLE_FIELD_UPDATE_ORDER.to_string(), 74),
+    ]) {
+        let qir = crate::test_utils::generate_qir(&source);
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 1, "{source}\n{qir}");
+        assert!(
+            records[0].contains(&format!("i64 {expected},")),
+            "{source}\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_records_ordered_values_in_qir() {
+    for (source, expected) in super::test_cases::struct_initializer_order_cases()
+        .chain(super::test_cases::struct_copy_snapshot_cases())
+        .chain(super::test_cases::conditional_callable_field_cases())
+        .chain([
+            (super::test_cases::PURE_STRUCT_COPY.to_string(), 446),
+            (super::test_cases::SINGLE_FIELD_COPY.to_string(), 4),
+        ])
+    {
+        let qir = crate::test_utils::generate_qir(&source);
+        let records: Vec<_> = qir
+            .lines()
+            .filter(|line| line.contains("call void @__quantum__rt__int_record_output"))
+            .collect();
+        assert_eq!(records.len(), 1, "{source}\n{qir}");
+        assert!(
+            records[0].contains(&format!("i64 {expected},")),
+            "{source}\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_evaluates_pure_copy_factory_once() {
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
+        super::test_cases::PURE_STRUCT_COPY,
+        crate::PipelineStage::UdtErase,
+    );
+    let package = store.get(pkg_id);
+    let main = crate::test_utils::find_callable(package, "Main");
+    let original = crate::test_utils::callable_id_by_name(package, "Original");
+    let mut calls = 0;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &main.implementation,
+        &mut |_, expr| {
+            if let ExprKind::Call(callee, _) = expr.kind
+                && let ExprKind::Var(Res::Item(target), _) = package.get_expr(callee).kind
+                && target.package == pkg_id
+                && target.item == original
+            {
+                calls += 1;
+            }
+        },
+    );
+    assert_eq!(
+        calls, 1,
+        "all surviving fields must share the stored copy value"
+    );
+}
+
 fn default_span() -> PackageSpan {
     PackageSpan::default()
 }
@@ -1720,6 +1850,39 @@ fn scalar_erased_newtype_field_read_lowered() {
         "Extract",
         &expect![[r#"
             [0] Expr Var(x)"#]],
+    );
+}
+
+#[test]
+fn tuple_erased_newtype_identity_field_read_lowered() {
+    let source = r#"
+        newtype Wrapper = (Value : (Int, Int));
+        function Extract(w : Wrapper) : (Int, Int) { w::Value }
+        @EntryPoint() operation Main() : (Int, Int) { Extract(Wrapper((4,8))) }
+    "#;
+    let (store, pkg_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
+    let package = store.get(pkg_id);
+    let decl = crate::test_utils::find_callable(package, "Extract");
+    let PatKind::Bind(input) = &package.get_pat(decl.input).kind else {
+        panic!("Extract should retain its single parameter before argument promotion");
+    };
+    let block = find_callable_body_block(package, "Extract");
+    let tail = package
+        .get_block(block)
+        .stmts
+        .last()
+        .expect("Extract has a body");
+    let StmtKind::Expr(value) = package.get_stmt(*tail).kind else {
+        panic!("Extract should end in an expression");
+    };
+    assert!(
+        matches!(package.get_expr(value).kind, ExprKind::Var(Res::Local(var), _) if var == input.id),
+        "the empty-path read should become a direct parameter read"
+    );
+    assert_eq!(
+        package.get_expr(value).ty,
+        Ty::Tuple(vec![Ty::Prim(Prim::Int); 2])
     );
 }
 

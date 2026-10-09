@@ -8,6 +8,395 @@ use indoc::indoc;
 use proptest::prelude::*;
 
 #[test]
+fn field_updates_preserve_replacement_before_record() {
+    for (source, expected) in super::test_cases::field_update_order_cases().chain([
+        (
+            super::test_cases::NESTED_FIELD_UPDATE_ORDER.to_string(),
+            375,
+        ),
+        (super::test_cases::SINGLE_FIELD_UPDATE_ORDER.to_string(), 74),
+    ]) {
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn field_updates_evaluate_record_once_after_replacement() {
+    for field in ["A", "B", "C"] {
+        let source = indoc::formatdoc! {r#"
+            struct Triple {{ A : Int, B : Int, C : Int }}
+            function Make() : Triple {{ Message("record"); new Triple {{ A=1, B=2, C=3 }} }}
+            function Replace() : Int {{ Message("replace"); 7 }}
+            @EntryPoint() operation Main() : Int {{
+                let p=Make() w/ {field} <- Replace();
+                p.A+p.B+p.C
+            }}
+        "#};
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn field_update_failure_precedes_record_failure() {
+    let source = r#"
+        struct Pair { A : Int, B : Int }
+        function Make() : Pair { fail "record" }
+        function Replace() : Int { fail "replace" }
+        @EntryPoint() operation Main() : Int {
+            let p=Make() w/ B <- Replace();
+            p.A+p.B
+        }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source).expect_err("replacement must fail");
+    assert!(error.contains("replace"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn whole_value_update_still_evaluates_record() {
+    let source = r#"
+        newtype Only = (N : Int);
+        function Make() : Only { fail "record" }
+        function Replace() : Int { Message("replace"); 7 }
+        @EntryPoint() operation Main() : Int {
+            let p=Make() w/ N <- Replace();
+            p::N
+        }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source).expect_err("record must fail");
+    assert!(error.contains("record"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn field_updates_preserve_quantum_operand_order() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        super::test_cases::QUANTUM_FIELD_UPDATE_ORDER,
+        qsc_eval::val::Value::Int(103),
+    );
+}
+
+#[test]
+fn field_updates_preserve_cross_package_operand_order() {
+    let library = r#"
+        namespace Lib {
+            struct Pair { A : Int, B : Int }
+            function Make(n : Int) : Pair { new Pair { A=n, B=2 } }
+            function Update() : Int {
+                mutable n=0;
+                let p=Make(n) w/ B <- {set n=3;n};
+                100*p.A+p.B
+            }
+            export Update;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint() operation Main() : Int { Lib.Update() }
+    "#;
+    assert_eq!(
+        crate::test_utils::eval_qsharp_original_with_library(library, source),
+        Ok(qsc_eval::val::Value::Int(303)),
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+}
+
+#[test]
+fn field_assignment_updates_single_field_array() {
+    let source = r#"
+        struct Config { Values : Int[] }
+        @EntryPoint() operation Main() : Int {
+            mutable config = new Config { Values = [1,2] };
+            set config w/= Values <- [3,4];
+            config.Values[0]
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(3),
+    );
+}
+
+#[test]
+fn nested_assignment_reads_record_after_replacement() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        newtype Triple = (A : Int, (B : Int, C : Int));
+        function Make(n : Int) : Triple { Triple(n,(n+1,n+2)) }
+        @EntryPoint() operation Main() : Int {
+            mutable p=Make(0);
+            set p w/= B <- {set p=Make(3);7};
+            100*p::A+10*p::B+p::C
+        }
+        "#,
+        qsc_eval::val::Value::Int(375),
+    );
+}
+
+#[test]
+fn struct_erasure_preserves_conditional_callable_field_order() {
+    for (source, expected) in super::test_cases::conditional_callable_field_cases() {
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_preserves_initializer_order() {
+    for (source, expected) in super::test_cases::struct_initializer_order_cases() {
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_preserves_copy_snapshots() {
+    for (source, expected) in super::test_cases::struct_copy_snapshot_cases().chain([
+        (super::test_cases::PURE_STRUCT_COPY.to_string(), 446),
+        (super::test_cases::SINGLE_FIELD_COPY.to_string(), 4),
+    ]) {
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn struct_erasure_preserves_initializer_messages() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        struct Pair { Head : Int, Tail : Int }
+        newtype Wrapper = (Value : Pair);
+        function Log(label : String, n : Int) : Int { Message(label); n }
+        function Read(w : Wrapper) : Int { let p=w::Value; 100*p.Head+p.Tail }
+        @EntryPoint() operation Main() : Int {
+            Read(Wrapper(new Pair { Tail=Log("tail",8), Head=Log("head",4) }))
+        }
+        "#,
+        qsc_eval::val::Value::Int(408),
+    );
+}
+
+#[test]
+fn struct_erasure_evaluates_copy_once_before_overrides() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        struct Triple { A : Int, B : Int, C : Int }
+        newtype Wrapper = (Value : Triple);
+        function Original() : Triple { Message("copy"); new Triple { A=1, B=2, C=3 } }
+        function Override() : Int { Message("override"); 4 }
+        function Read(w : Wrapper) : Int { let p=w::Value; 100*p.A+10*p.B+p.C }
+        @EntryPoint() operation Main() : Int {
+            Read(Wrapper(new Triple { ...Original(), A=Override() }))
+        }
+        "#,
+        qsc_eval::val::Value::Int(423),
+    );
+}
+
+#[test]
+fn struct_erasure_keeps_fully_overridden_copy_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        struct Only { N : Int }
+        newtype Wrapper = (Value : Only);
+        function Original() : Only { Message("copy"); new Only { N=1 } }
+        function Override() : Int { Message("override"); 4 }
+        function Read(w : Wrapper) : Int { (w::Value).N }
+        @EntryPoint() operation Main() : Int {
+            Read(Wrapper(new Only { ...Original(), N=Override() }))
+        }
+        "#,
+        qsc_eval::val::Value::Int(4),
+    );
+}
+
+#[test]
+fn struct_erasure_preserves_nested_initializer_order() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        struct Pair { Head : Int, Tail : Int }
+        struct Outer { Pair : Pair, Last : Int }
+        newtype Wrapper = (Value : Outer);
+        function Read(w : Wrapper) : Int {
+            let p=w::Value;
+            10000*p.Pair.Head+100*p.Pair.Tail+p.Last
+        }
+        @EntryPoint() operation Main() : Int {
+            mutable n=0;
+            Read(Wrapper(new Outer {
+                Last={set n=9;n},
+                Pair=new Pair { Tail={set n=8;n}, Head=n }
+            }))
+        }
+        "#,
+        qsc_eval::val::Value::Int(80809),
+    );
+}
+
+#[test]
+fn struct_erasure_preserves_cross_package_initializer_order() {
+    crate::test_utils::check_semantic_equivalence_with_library(
+        r#"
+        namespace Lib {
+            struct Pair { Head : Int, Tail : Int }
+            newtype Wrapper = (Value : Pair);
+            function Make() : Wrapper {
+                mutable n=0;
+                Wrapper(new Pair { Tail={set n=8;n}, Head=n })
+            }
+            function Read(w : Wrapper) : Int { let p=w::Value; 100*p.Head+p.Tail }
+            export Make, Read;
+        }
+        "#,
+        r#"
+        import Lib.*;
+        @EntryPoint() operation Main() : Int { Read(Make()) }
+        "#,
+    );
+}
+
+#[test]
+fn struct_erasure_preserves_first_initializer_failure() {
+    let source = r#"
+        struct Pair { Head : Int, Tail : Int }
+        newtype Wrapper = (Value : Pair);
+        function Fail(label : String) : Int { fail label }
+        function Read(w : Wrapper) : Int { let p=w::Value; p.Head+p.Tail }
+        @EntryPoint() operation Main() : Int {
+            Read(Wrapper(new Pair { Tail=Fail("tail"), Head=Fail("head") }))
+        }
+    "#;
+    let error = crate::test_utils::eval_qsharp_original(source)
+        .expect_err("the first field initializer should fail");
+    assert!(error.contains("tail"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn struct_erasure_preserves_copy_failure_before_override_failure() {
+    let source = r#"
+        struct Only { N : Int }
+        newtype Wrapper = (Value : Only);
+        function Original() : Only { fail "copy" }
+        function Override() : Int { fail "override" }
+        function Read(w : Wrapper) : Int { (w::Value).N }
+        @EntryPoint() operation Main() : Int {
+            Read(Wrapper(new Only { ...Original(), N=Override() }))
+        }
+    "#;
+    let error =
+        crate::test_utils::eval_qsharp_original(source).expect_err("the copy source should fail");
+    assert!(error.contains("copy"), "{error}");
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn tuple_erased_newtype_preserves_data_only_parameter() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        newtype Wrapper = (Value : (Int, Int));
+        function Read(w : Wrapper) : Int {
+            let (a,b)=w::Value;
+            100*a+b
+        }
+        @EntryPoint() operation Main() : Int { Read(Wrapper((4,8))) }
+        "#,
+        qsc_eval::val::Value::Int(408),
+    );
+}
+
+#[test]
+fn nested_tuple_erased_newtypes_preserve_data() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        newtype Inner = (Value : (Int, Int));
+        newtype Outer = (Inner : Inner);
+        function Read(w : Outer) : Int {
+            let (a,b)=w::Inner::Value;
+            100*a+b
+        }
+        @EntryPoint() operation Main() : Int { Read(Outer(Inner((4,8)))) }
+        "#,
+        qsc_eval::val::Value::Int(408),
+    );
+}
+
+#[test]
+fn tuple_erased_newtype_preserves_factory_effects_once() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        newtype Wrapper = (Value : (Int, Int));
+        function Make() : Wrapper { Message("value"); Wrapper((4,8)) }
+        @EntryPoint() operation Main() : Int {
+            let (a,b)=Make()::Value;
+            100*a+b
+        }
+        "#,
+        qsc_eval::val::Value::Int(408),
+    );
+}
+
+#[test]
+fn tuple_erased_newtype_preserves_inline_constructor_projection() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        newtype Wrapper = (Value : (Int, Int));
+        @EntryPoint() operation Main() : Int {
+            let (a,b)=Wrapper((4,8))::Value;
+            100*a+b
+        }
+        "#,
+        qsc_eval::val::Value::Int(408),
+    );
+}
+
+#[test]
+fn tuple_erased_newtype_preserves_struct_payload() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        struct Pair { Head : Int, Tail : Int }
+        newtype Wrapper = (Value : Pair);
+        function Read(w : Wrapper) : Int {
+            let pair=w::Value;
+            100*pair.Head+pair.Tail
+        }
+        @EntryPoint() operation Main() : Int {
+            Read(Wrapper(new Pair { Head=4, Tail=8 }))
+        }
+        "#,
+        qsc_eval::val::Value::Int(408),
+    );
+}
+
+#[test]
+fn tuple_erased_newtype_preserves_cross_package_data() {
+    crate::test_utils::check_semantic_equivalence_with_library(
+        r#"
+        namespace Lib {
+            newtype Wrapper = (Value : (Int, Int));
+            function Read(w : Wrapper) : Int {
+                let (a,b)=w::Value;
+                100*a+b
+            }
+            export Wrapper, Read;
+        }
+        "#,
+        r#"
+        import Lib.*;
+        @EntryPoint() operation Main() : Int { Read(Wrapper((4,8))) }
+        "#,
+    );
+}
+
+#[test]
 fn udt_construction_and_field_access_preserves_semantics() {
     crate::test_utils::check_semantic_equivalence(indoc! {r#"
         namespace Test {
