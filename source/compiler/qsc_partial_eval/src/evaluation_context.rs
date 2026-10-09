@@ -238,6 +238,9 @@ impl Scope {
     /// Updates the classical local variable values based on the current hybrid local variable values.
     pub fn update_classical_locals_from_hybrid_locals(&mut self) {
         for (local_var_id, hybrid_value) in &self.hybrid_vars {
+            if self.env.get(*local_var_id).is_none() {
+                continue;
+            }
             let update_value = match hybrid_value {
                 Value::Var(hybrid_var) => {
                     // Check to see if there is a static literal value currently tracked for this variable,
