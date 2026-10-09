@@ -729,6 +729,7 @@ fn assignop_error() {
 
 #[test]
 fn binop_add_invalid() {
+    // qsc_eval depends on this rejection: operators on tuple values are only valid for Complex.
     check(
         "",
         "(1, 3) + 5.4",

@@ -1304,8 +1304,8 @@ impl State {
     }
 
     fn eval_binop_simple(&mut self, binop_func: impl FnOnce(Value, Value) -> Value) {
-        let rhs_val = self.take_val_register();
-        let lhs_val = self.pop_val();
+        let rhs_val = normalize_complex(self.take_val_register());
+        let lhs_val = normalize_complex(self.pop_val());
         self.set_val_register(binop_func(lhs_val, rhs_val));
     }
 
@@ -1317,8 +1317,8 @@ impl State {
     ) -> Result<(), Error> {
         let lhs_span: PackageSpan = self.to_global_span(lhs_span);
         let rhs_span: PackageSpan = self.to_global_span(rhs_span);
-        let rhs_val = self.take_val_register();
-        let lhs_val = self.pop_val();
+        let rhs_val = normalize_complex(self.take_val_register());
+        let lhs_val = normalize_complex(self.pop_val());
         self.set_val_register(binop_func(lhs_val, rhs_val, lhs_span, rhs_span)?);
         Ok(())
     }
@@ -1719,7 +1719,7 @@ impl State {
     }
 
     fn eval_unop(&mut self, op: UnOp) {
-        let val = self.take_val_register();
+        let val = normalize_complex(self.take_val_register());
         match op {
             UnOp::Functor(functor) => match val {
                 Value::Closure(inner) => {
@@ -2242,6 +2242,18 @@ fn lit_to_val(lit: &Lit) -> Value {
         Lit::Pauli(v) => Value::Pauli(*v),
         Lit::Result(fir::Result::Zero) => Value::RESULT_ZERO,
         Lit::Result(fir::Result::One) => Value::RESULT_ONE,
+    }
+}
+
+/// Re-tags UDT-erased `Complex` tuples; typeck only allows `Complex` in tuple arithmetic.
+fn normalize_complex(value: Value) -> Value {
+    match value {
+        Value::Tuple(items, None)
+            if matches!(items.as_ref(), [Value::Double(_), Value::Double(_)]) =>
+        {
+            Value::Tuple(items, Some(Rc::new(StoreItemId::complex())))
+        }
+        value => value,
     }
 }
 
