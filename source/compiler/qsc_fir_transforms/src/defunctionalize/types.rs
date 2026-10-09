@@ -429,8 +429,9 @@ pub struct AnalysisResult {
 ///
 /// # Severity
 ///
-/// All variants are fatal to the FIR transform pipeline except
-/// [`Error::ExcessiveSpecializations`], which is emitted as a warning.
+/// [`Error::DynamicCallable`] and [`Error::FixpointNotReached`] are deferred
+/// to downstream analysis. [`Error::ExcessiveSpecializations`] is a warning;
+/// the remaining variants are fatal to the FIR transform pipeline.
 /// [`Error::RecursiveSpecialization`] is the fatal counterpart of that warning:
 /// it fires when a single HOF's cumulative specialization count across all
 /// fixpoint iterations exceeds a hard cap, backstopping any runaway-growth
@@ -558,6 +559,26 @@ impl Error {
     #[must_use]
     pub fn is_warning(&self) -> bool {
         matches!(self, Self::ExcessiveSpecializations(..))
+    }
+
+    /// Returns `true` when the diagnostic reports a defunctionalization
+    /// convergence failure that may be safely deferred to downstream analysis.
+    ///
+    /// `FixpointNotReached` and `DynamicCallable` report dispatch that this
+    /// pass cannot resolve. The pipeline retains its structural checks for the
+    /// residual FIR; resource counting and partial evaluation then resolve or
+    /// reject its callable behavior. These diagnostics are suppressed rather
+    /// than surfaced on the warning channel.
+    ///
+    /// The remaining resource and unsupported-shape backstops are not
+    /// deferrable: they signal a shape the transform cannot lower and must stay
+    /// on their existing fatal or warning paths.
+    #[must_use]
+    pub fn is_deferrable(&self) -> bool {
+        matches!(
+            self,
+            Self::FixpointNotReached(..) | Self::DynamicCallable(..)
+        )
     }
 }
 

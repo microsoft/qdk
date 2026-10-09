@@ -15,7 +15,8 @@ use super::{
 use expect_test::expect;
 use indoc::indoc;
 use qsc::TargetCapabilityFlags;
-use qsc_rir::rir::{BlockId, CallableId};
+use qsc_data_structures::target::Profile;
+use qsc_rir::rir::{BlockId, CallableId, Program};
 
 #[test]
 fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
@@ -1441,5 +1442,101 @@ fn call_to_test_callable_triggers_error() {
         &expect![
             "UnsupportedTestCallable(PackageSpan { package: PackageId(2), span: Span { lo: 120, hi: 122 } })"
         ],
+    );
+}
+
+fn loop_reassigned_local_callable_program(profile: Profile) -> Program {
+    // This helper lowers directly to FIR without running defunctionalization.
+    get_rir_program_with_capabilities(
+        indoc! {r#"
+            namespace Test {
+                operation Foo(q : Qubit) : Unit { H(q); }
+                operation Bar(q : Qubit) : Unit { X(q); }
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    mutable f = Foo;
+                    for _ in 0..2 {
+                        f = Bar;
+                    }
+                    f(q);
+                }
+            }
+        "#},
+        profile.into(),
+    )
+}
+
+#[test]
+fn call_to_loop_reassigned_local_callable_resolves_to_concrete_global_adaptive_rif() {
+    let program = loop_reassigned_local_callable_program(Profile::AdaptiveRIF);
+    assert_callable(
+        &program,
+        CallableId(2),
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__x__body
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn call_to_loop_reassigned_local_callable_resolves_to_concrete_global_adaptive() {
+    let program = loop_reassigned_local_callable_program(Profile::Adaptive);
+    assert_callable(
+        &program,
+        CallableId(2),
+        &expect![[r#"
+            Callable:
+                name: Bar
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                input_vars:
+                    [0]: 0
+                output_type: <VOID>
+                body: 1"#]],
+    );
+    assert_callable(
+        &program,
+        CallableId(4),
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__x__body
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(0, Qubit), )
+                Return
+            Block 2:Block:
+                Call id(4), args( Variable(1, Qubit), )
+                Return"#]],
     );
 }
