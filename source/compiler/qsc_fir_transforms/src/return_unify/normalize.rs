@@ -535,7 +535,17 @@ fn hoist_in_expr(
         // run the hoist and whose trailing expression supplies a default of
         // the original type so the enclosing block's tail invariant is
         // preserved.
-        ExprKind::If(cond, _, _) => hoist_in_cond(package, assigner, package_id, expr_id, cond),
+        ExprKind::If(cond, then, otherwise) => {
+            if let Some(stmts) = hoist_in_expr(package, assigner, package_id, cond) {
+                return hoist_in_cond(package, assigner, package_id, expr_id, stmts);
+            }
+
+            wrap_hoisted_if_branch(package, assigner, package_id, then);
+            if let Some(otherwise) = otherwise {
+                wrap_hoisted_if_branch(package, assigner, package_id, otherwise);
+            }
+            None
+        }
         // While: lift condition returns directly to statement boundary.
         // Rewriting While-in-place to `Block` can hide callable-level
         // early-exit semantics when the While is in statement position.
@@ -800,49 +810,98 @@ fn hoist_in_cond(
     assigner: &mut Assigner,
     package_id: PackageId,
     expr_id: ExprId,
-    cond: ExprId,
+    stmts: Vec<StmtId>,
 ) -> Option<Vec<StmtId>> {
-    let stmts = hoist_in_expr(package, assigner, package_id, cond)?;
     let orig_ty = package.get_expr(expr_id).ty.clone();
-    let mut block_stmts = stmts;
-    if orig_ty != Ty::UNIT {
+    let block_stmts = create_hoisted_block_stmts(
+        package,
+        assigner,
+        package_id,
+        stmts,
+        &orig_ty,
+        "qsharp.return_unify: hoisted condition returned; block tail unreachable",
+    );
+    let block_id = alloc_block(
+        package,
+        assigner,
+        block_stmts,
+        orig_ty.clone(),
+        package.synthetic_span(),
+    );
+    let expr = package.exprs.get_mut(expr_id).expect("expr not found");
+    expr.kind = ExprKind::Block(block_id);
+    // `expr.ty` already matches `orig_ty`; leave it as-is.
+    None
+}
+
+/// Wraps a return-bearing conditional branch in a block so the branch's
+/// hoisted statements are visible to flag lowering. Conditional expressions
+/// store their branches as expressions rather than statement blocks, so a
+/// return buried in an eager operand would otherwise remain a value-level
+/// tuple after evaluation.
+fn wrap_hoisted_if_branch(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    package_id: PackageId,
+    branch_id: ExprId,
+) {
+    let Some(stmts) = hoist_in_expr(package, assigner, package_id, branch_id) else {
+        return;
+    };
+    let branch_ty = package.get_expr(branch_id).ty.clone();
+    let block_stmts = create_hoisted_block_stmts(
+        package,
+        assigner,
+        package_id,
+        stmts,
+        &branch_ty,
+        "qsharp.return_unify: hoisted branch returned; block tail unreachable",
+    );
+    let block_id = alloc_block(
+        package,
+        assigner,
+        block_stmts,
+        branch_ty,
+        package.synthetic_span(),
+    );
+    package
+        .exprs
+        .get_mut(branch_id)
+        .expect("if branch expression not found")
+        .kind = ExprKind::Block(block_id);
+}
+
+/// Adds a typed dead tail to a hoisted expression block when the block's
+/// value is non-Unit. The tail keeps the FIR expression well-typed on the
+/// compiler path where the return flag is not set.
+fn create_hoisted_block_stmts(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    package_id: PackageId,
+    mut stmts: Vec<StmtId>,
+    output_ty: &Ty,
+    fail_message: &str,
+) -> Vec<StmtId> {
+    if output_ty != &Ty::UNIT {
         let dead_tail = match super::slot::create_default_value(
             package,
             assigner,
             package_id,
-            &orig_ty,
+            output_ty,
             &super::UdtPureTyCache::default(),
             &mut super::ArrowDefaultCache::default(),
         ) {
             Some(d) => d,
-            None => create_typed_fail_expr(
-                package,
-                assigner,
-                &orig_ty,
-                "qsharp.return_unify: hoisted condition returned; block tail unreachable",
-            ),
+            None => create_typed_fail_expr(package, assigner, output_ty, fail_message),
         };
-        block_stmts.push(alloc_expr_stmt(
+        stmts.push(alloc_expr_stmt(
             package,
             assigner,
             dead_tail,
             package.synthetic_span(),
         ));
     }
-    let block_id = {
-        let ty: &Ty = &orig_ty;
-        alloc_block(
-            package,
-            assigner,
-            block_stmts,
-            ty.clone(),
-            package.synthetic_span(),
-        )
-    };
-    let expr = package.exprs.get_mut(expr_id).expect("expr not found");
-    expr.kind = ExprKind::Block(block_id);
-    // `expr.ty` already matches `orig_ty`; leave it as-is.
-    None
+    stmts
 }
 
 /// Creates `let _ = expr_id;` — a discard-pattern `Local` whose sole
