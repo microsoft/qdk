@@ -13,6 +13,490 @@ use super::*;
 use expect_test::expect;
 
 #[test]
+fn nested_factory_captures_refresh_after_inner_rewrites_introduce_locals() {
+    for (body, expected) in [
+        ("Apply(Compose(h::G, Twice(Adder(3))), Mark(2))", [12, 12]),
+        ("Twice(Compose(h::G, Adder(3)))(Mark(2))", [16, 16]),
+        (
+            "let f = if flag { Compose(h::G, Adder(3)) } else { Adder(8) }; Apply(f, 2)",
+            [10, 9],
+        ),
+        (
+            "let holder = new Holder { F = Compose(h::G, Adder(3)), Tag = 5 }; Apply(holder.F, 2)",
+            [9, 9],
+        ),
+        ("let f = Compose(h::G, Adder(3)); Apply(f, f(2))", [16, 16]),
+        (
+            "mutable f = h::G; if flag { set f = Compose(h::G, Adder(3)); } else { set f = Adder(8); } f(2)",
+            [10, 9],
+        ),
+    ] {
+        for (flag, expected) in [(false, expected[0]), (true, expected[1])] {
+            for padding in ["", "function Unused(x : Int) : (Int, Int) { (x+1,x+2) }"] {
+                let source = format!(
+                    r#"
+                    {padding}
+                    function Add(a : Int, b : Int) : Int {{ a + b }}
+                    function Adder(k : Int) : Int -> Int {{ x -> k + x }}
+                    function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                    function Twice(f : Int -> Int) : Int -> Int {{ x -> f(f(x)) }}
+                    function Compose(f : Int -> Int, g : Int -> Int) : Int -> Int {{ x -> f(g(x)) }}
+                    function Mark(x : Int) : Int {{ Message($"argument {{x}}"); x }}
+                    newtype Box = (G : Int -> Int, Tag : Int);
+                    struct Holder {{ F : Int -> Int, Tag : Int }}
+                    function Run(flag : Bool) : Int {{ let h = Box(Add(4, _), 7); {body} }}
+                    @EntryPoint() operation Main() : Int {{ Run({flag}) }}
+                "#
+                );
+                // An inner Compose rewrite saves h::G in a new local. The outer
+                // use must refresh capture facts even if its own callee is an alias.
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(expected),
+                );
+                assert_specialization_call_abis(&source);
+                assert_specialized_int_qir(&source, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn nested_higher_order_arguments_preserve_inner_layouts_and_captures() {
+    for (source, expected) in [
+        (
+            r#"
+            function Add(a : Int, b : Int) : Int { a + b }
+            function Dbl(x : Int) : Int { 2 * x }
+            operation Main() : Int {
+                Std.Arrays.Fold(Add, 0, Std.Arrays.Mapped(Dbl, [1, 1, 2]))
+            }
+        "#,
+            8,
+        ),
+        (
+            r#"
+            newtype T = (G : Int -> Int, M : Int);
+            function ApplyTwice(f : Int -> Int, x : Int) : Int { f(f(x)) }
+            function Dec(x : Int) : Int { x - 2 }
+            function CapT(t : T) : (Int -> Int) { x -> t::G(x) }
+            operation Main() : Int { ApplyTwice(CapT(T(Dec, 2)), 0) }
+        "#,
+            -4,
+        ),
+        (
+            r#"
+            function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+            function Adder(k : Int) : (Int -> Int) { x -> x + k }
+            operation Main() : Int { Apply(Adder(1), Adder(2)(3)) }
+        "#,
+            6,
+        ),
+        (
+            r#"
+            function Mul(a : Int, b : Int) : Int { a * b }
+            operation Main() : Int {
+                let c4 = 4;
+                let pr3 = x -> x * c4;
+                mutable f5 = Mul(2, _);
+                pr3(f5(1))
+            }
+        "#,
+            8,
+        ),
+    ] {
+        for padding in ["", "function Unused(x : Int) : Int { (x + 1) * 3 }"] {
+            let source = format!("{padding}\n{source}");
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+            assert_specialization_call_abis(&source);
+            assert_specialized_int_qir(&source, expected);
+        }
+    }
+}
+
+#[test]
+fn nested_quantum_higher_order_arguments_preserve_mapped_qubits_and_sorted_comparator() {
+    for (source, expected) in [
+        (
+            r#"
+            import Std.Arrays.*;
+            operation Main() : Result[] {
+                use qs = Qubit[3];
+                ApplyToEach(X, Mapped(q -> q, qs));
+                MResetEachZ(qs)
+            }
+        "#,
+            qsc_eval::val::Value::Array(
+                vec![qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)); 3].into(),
+            ),
+        ),
+        (
+            r#"
+            function ByRemainder(remainders : Double[]) : Int[] {
+                Std.Arrays.Sorted(
+                    (i, j) -> remainders[i] > remainders[j] or
+                        (remainders[i] == remainders[j] and i <= j),
+                    Std.Arrays.MappedOverRange(i -> i, 0..Length(remainders) - 1)
+                )
+            }
+            operation Main() : Result {
+                use q = Qubit();
+                let order = ByRemainder([0.25, 0.75, 0.5]);
+                if order[0] == 1 and order[1] == 2 and order[2] == 0 { X(q); }
+                MResetZ(q)
+            }
+        "#,
+            qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+        ),
+    ] {
+        crate::test_utils::check_semantic_equivalence_with_expected(source, expected);
+        assert_specialization_call_abis(source);
+    }
+}
+
+#[test]
+fn nested_higher_order_rewrites_preserve_effects_and_controlled_preparation() {
+    for (body, expected, output) in [
+        (
+            "Apply(Adder(1), Adder(2)(Mark(3)))",
+            6,
+            "argument 3\napply\n",
+        ),
+        (
+            "Apply(Adder(1), Apply(Adder(2), Apply(Adder(3), Mark(4))))",
+            10,
+            "argument 4\napply\napply\napply\n",
+        ),
+    ] {
+        let source = format!(
+            r#"
+            function Apply(f : Int -> Int, x : Int) : Int {{ Message("apply"); f(x) }}
+            function Adder(k : Int) : (Int -> Int) {{ x -> x + k }}
+            function Mark(k : Int) : Int {{ Message($"argument {{k}}"); k }}
+            operation Main() : Int {{ {body} }}
+        "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+            output,
+        );
+        assert_specialization_call_abis(&source);
+        assert_specialized_int_qir(&source, expected);
+    }
+    let source = r#"
+        operation UserPrep(register : Qubit[]) : Unit is Adj + Ctl {
+            body ... { Std.Canon.ApplyToEach(X, Std.Arrays.Mapped(q -> q, register)); }
+            adjoint self;
+            controlled (controls, ...) {
+                for q in Std.Arrays.Mapped(q -> q, register) { Controlled X(controls, q); }
+            }
+            controlled adjoint self;
+        }
+        @EntryPoint() operation Main() : Result[] {
+            use qs = Qubit[2];
+            use control = Qubit();
+            UserPrep(qs);
+            Adjoint UserPrep(qs);
+            X(control);
+            Controlled UserPrep([control], qs);
+            Reset(control);
+            MResetEachZ(qs)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Array(
+            vec![qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)); 2].into(),
+        ),
+    );
+    assert_specialization_call_abis(source);
+}
+
+#[test]
+fn call_rewrite_postorder_visits_shared_block_children_before_lower_numbered_parents() {
+    use crate::fir_builder::{alloc_block, alloc_expr, alloc_expr_stmt, alloc_unit_expr};
+    use qsc_fir::{assigner::Assigner, fir::ExprKind, ty::Ty};
+
+    let mut package = fir::Package::default();
+    let mut assigner = Assigner::new();
+    let span = package.synthetic_span();
+    let parent = alloc_unit_expr(&mut package, &mut assigner, span);
+    let child = alloc_unit_expr(&mut package, &mut assigner, span);
+    let stmt = alloc_expr_stmt(&mut package, &mut assigner, child, span);
+    let block = alloc_block(&mut package, &mut assigner, vec![stmt], Ty::UNIT, span);
+    let nested = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::UNIT,
+        ExprKind::Block(block),
+        span,
+    );
+    package.exprs.get_mut(parent).expect("parent").kind = ExprKind::Tuple(vec![nested, child]);
+    let ordered = crate::walk_utils::expressions_in_postorder(&package);
+    assert_eq!(ordered, vec![child, nested, parent]);
+}
+
+#[test]
+fn church_numeral_composition_preserves_values_and_messages() {
+    // Church numerals encode repeated function application. Keep the complete
+    // composition and assert its numeric results through exact messages even
+    // though Main itself returns Unit.
+    crate::test_utils::check_semantic_equivalence_with_expected_output(
+        r#"
+        function ChurchZero() : (Int -> Int) -> (Int -> Int) {
+            f -> (x -> x)
+        }
+        function Succ(n : (Int -> Int) -> (Int -> Int)) : (Int -> Int) -> (Int -> Int) {
+            f -> (x -> f(n(f)(x)))
+        }
+        function Add(m : (Int -> Int) -> (Int -> Int), n : (Int -> Int) -> (Int -> Int)) : (Int -> Int) -> (Int -> Int) {
+            f -> (x -> m(f)(n(f)(x)))
+        }
+        function Mult(m : (Int -> Int) -> (Int -> Int), n : (Int -> Int) -> (Int -> Int)) : (Int -> Int) -> (Int -> Int) {
+            f -> m(n(f))
+        }
+        function ToInt(n : (Int -> Int) -> (Int -> Int)) : Int { (n(i -> i + 1))(0) }
+        @EntryPoint()
+        function Main() : Unit {
+            let two = Succ(Succ(ChurchZero()));
+            let three = Succ(two);
+            let five = Add(two, three);
+            let six = Mult(two, three);
+            Message($"two   = {ToInt(two)}");
+            Message($"three = {ToInt(three)}");
+            Message($"2 + 3 = {ToInt(five)}");
+            Message($"2 * 3 = {ToInt(six)}");
+            Message($"three(double)(1) = {(three(x -> x * 2))(1)}");
+        }
+    "#,
+        qsc_eval::val::Value::unit(),
+        "two   = 2\nthree = 3\n2 + 3 = 5\n2 * 3 = 6\nthree(double)(1) = 8\n",
+    );
+}
+
+#[test]
+fn live_factory_closure_remains_invocable_after_another_use_is_specialized() {
+    let source = r#"
+            function Neg(x : Int) : Int { -x }
+            function Twice(f : Int -> Int) : (Int -> Int) { x -> f(f(x)) }
+            function Ap2(f : (Int, Int) -> Int, x : Int) : Int { f(x, 1) }
+            operation Main() : Result {
+                let g = Neg;
+                use q = Qubit();
+                if Ap2((a, b) -> Twice(g)(a) + b, 5) == 6 { X(q); }
+                MResetZ(q)
+            }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+    assert_specialization_call_abis(source);
+}
+
+#[test]
+fn composed_partial_captures_preserve_caller_scope_and_return_negative_one() {
+    let source = r#"
+            function Add(a : Int, b : Int) : Int { a + b }
+            function Twice(f : Int -> Int) : (Int -> Int) { x -> f(f(x)) }
+            function Compose(f : Int -> Int, g : Int -> Int) : (Int -> Int) { x -> f(g(x)) }
+            function MakeAdder(k : Int) : (Int -> Int) { x -> x + k }
+            newtype NBox = (G : Int -> Int, J : Int);
+            operation Main() : Int {
+                let bx1 = NBox(Add(4, _), 5);
+                Compose(bx1::G, Twice(MakeAdder(-3)))(1)
+            }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(-1),
+    );
+    assert_specialization_call_abis(source);
+    assert_specialized_int_qir(source, -1);
+}
+
+#[test]
+fn branch_local_callable_guard_preserves_scope_and_selection() {
+    for n in [0, 1, 3] {
+        let source = format!(
+            r#"
+            operation Apply(n : Int, q : Qubit) : Unit {{
+                mutable op = X;
+                if n > 0 {{
+                    let b = n > 2;
+                    if b {{ set op = H; }}
+                }}
+                op(q);
+            }}
+            @EntryPoint() operation Main() : Result {{
+                use q = Qubit();
+                Apply({n}, q);
+                {undo}
+                MResetZ(q)
+            }}
+        "#,
+            undo = if n > 2 { "H(q);" } else { "X(q);" }
+        );
+        // Undo the selected gate so the expected result is deterministic even
+        // for the original H branch; the trace still checks the actual choice.
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+        );
+        let qir = crate::test_utils::generate_qir(&source);
+        let gate = if n > 2 {
+            "__quantum__qis__h__body"
+        } else {
+            "__quantum__qis__x__body"
+        };
+        assert_eq!(
+            qir.matches(&format!("call void @{gate}")).count(),
+            2,
+            "{qir}"
+        );
+    }
+}
+
+#[test]
+fn foreign_factory_callees_keep_live_closures_and_branch_guard_scope() {
+    let library = r#"
+        namespace Lib {
+            function Neg(x : Int) : Int { -x }
+            function Twice(f : Int -> Int) : (Int -> Int) { x -> f(f(x)) }
+            function Ap2(f : (Int, Int) -> Int, x : Int) : Int { f(x, 1) }
+            function Compute() : Int {
+                let g = Neg;
+                Ap2((a, b) -> Twice(g)(a) + b, 5)
+            }
+            operation Apply(n : Int, q : Qubit) : Unit {
+                mutable selected = X;
+                if n > 0 {
+                    let enabled = n > 2;
+                    if enabled { set selected = H; }
+                }
+                selected(q);
+            }
+            export Compute, Apply;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint() operation Main() : Result {
+            use q = Qubit();
+            if Lib.Compute() != 6 { fail "lost factory capture"; }
+            Lib.Apply(3, q);
+            H(q);
+            Lib.Apply(0, q);
+            X(q);
+            MResetZ(q)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+    let (store, package) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        library,
+        source,
+        crate::PipelineStage::Full,
+    );
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(
+            false
+        ))),
+    );
+}
+
+#[test]
+fn nested_branch_guards_keep_each_iterations_selection_without_escaping_locals() {
+    let source = r#"
+        operation Apply(q : Qubit) : Unit {
+            for n in [0, 1, 3, 1, 0] {
+                mutable op = X;
+                if n > 0 {
+                    let (enabled, unrelated) = (n > 2, 11);
+                    if enabled { set op = H; }
+                }
+                op(q);
+                if n > 2 { H(q); } else { X(q); }
+            }
+        }
+        @EntryPoint() operation Main() : Result {
+            use q = Qubit();
+            Apply(q);
+            MResetZ(q)
+        }
+    "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+    let qir = crate::test_utils::generate_qir(source);
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        2,
+        "{qir}"
+    );
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        8,
+        "{qir}"
+    );
+}
+
+#[test]
+fn captured_operation_array_preserves_loop_uncomputation_and_unused_declaration_layout() {
+    let source = r#"
+        struct QP { cu : ((Qubit, Qubit[]) => Unit is Adj)[] }
+        operation RunQ(p : QP, qs : Qubit[]) : Unit is Adj {
+            for i in 0..Length(p.cu) - 1 { p.cu[i](qs[i], qs[2..3]); }
+        }
+        function MkQ(cu : ((Qubit, Qubit[]) => Unit is Adj)[]) : (Qubit[] => Unit is Adj) {
+            RunQ(new QP { cu = cu }, _)
+        }
+        operation Mark(qpe : Qubit[] => Unit is Adj, system : Qubit[], target : Qubit) : Unit is Adj {
+            use phase = Qubit[2];
+            within { qpe(phase + system); } apply { CNOT(phase[0], target); }
+        }
+        function MarkOp(qpe : Qubit[] => Unit is Adj) : ((Qubit[], Qubit) => Unit is Adj) {
+            Mark(qpe, _, _)
+        }
+        operation AARun(oracle : (Qubit[], Qubit) => Unit is Adj) : Result[] {
+            use reg = Qubit[2];
+            for _ in 1..1 {
+                use flag = Qubit();
+                oracle(reg, flag); Adjoint oracle(reg, flag);
+            }
+            MResetEachZ(reg)
+        }
+        operation PrepI(k : Int, qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        function MkPrep(k : Int) : (Qubit[] => Unit is Adj + Ctl) { PrepI(k, _) }
+        operation CUI(k : Int, c : Qubit, t : Qubit[]) : Unit is Adj + Ctl { CNOT(c, t[0]); }
+        function MkCU(k : Int) : ((Qubit, Qubit[]) => Unit is Adj + Ctl) { CUI(k, _, _) }
+        operation Main() : Result[] { AARun(MarkOp(MkQ([MkCU(1)]))) }
+    "#;
+    // Keep PrepI/MkPrep: these unused declarations perturb lifted item IDs in
+    // the original failing composition. The oracle and adjoint must cancel.
+    // This whole-source case is a compatibility control; the original failure
+    // was on the incremental entry path.
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Array(
+            vec![qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)); 2].into(),
+        ),
+    );
+    assert_specialization_call_abis(source);
+    let qir = crate::test_utils::generate_qir(source);
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__result_record_output")
+            .count(),
+        2,
+        "{qir}"
+    );
+}
+
+#[test]
 fn specialization_capability_compatible_array_capture_is_packed_once() {
     let source = r#"
         operation Target(value : Int) : Unit is Adj + Ctl {}

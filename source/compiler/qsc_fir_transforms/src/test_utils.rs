@@ -1315,7 +1315,7 @@ pub(crate) fn eval_qsharp_original_with_library(
 /// across the two runs and their traces compare deterministically.
 #[cfg(test)]
 pub(crate) fn check_semantic_equivalence(source: &str) {
-    check_semantic_equivalence_impl(source, None);
+    check_semantic_equivalence_impl(source, None, None);
 }
 
 /// Checks semantic equivalence and the original program's expected return
@@ -1325,11 +1325,25 @@ pub(crate) fn check_semantic_equivalence_with_expected(
     source: &str,
     expected: qsc_eval::val::Value,
 ) {
-    check_semantic_equivalence_impl(source, Some(expected));
+    check_semantic_equivalence_impl(source, Some(expected), None);
+}
+
+/// Checks explicit return and message-output expectations as well as equivalence.
+#[cfg(test)]
+pub(crate) fn check_semantic_equivalence_with_expected_output(
+    source: &str,
+    expected: qsc_eval::val::Value,
+    output: &str,
+) {
+    check_semantic_equivalence_impl(source, Some(expected), Some(output));
 }
 
 #[cfg(test)]
-fn check_semantic_equivalence_impl(source: &str, expected_value: Option<qsc_eval::val::Value>) {
+fn check_semantic_equivalence_impl(
+    source: &str,
+    expected_value: Option<qsc_eval::val::Value>,
+    expected_output: Option<&str>,
+) {
     let expected = {
         let (fir_store, pkg_id) =
             compile_to_fir_with_cached_stdlib(source, None, TargetCapabilityFlags::empty());
@@ -1340,6 +1354,13 @@ fn check_semantic_equivalence_impl(source: &str, expected_value: Option<qsc_eval
             expected.0,
             Ok(value),
             "unexpected original value:\n{source}"
+        );
+    }
+    if let Some(output) = expected_output {
+        assert_eq!(
+            expected.2,
+            output.as_bytes(),
+            "unexpected original output:\n{source}"
         );
     }
     let actual = {

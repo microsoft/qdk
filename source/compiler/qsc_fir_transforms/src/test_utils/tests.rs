@@ -29,6 +29,18 @@ fn observable_evaluation_records_messages_in_order() {
     assert_eq!(result, Ok(qsc_eval::val::Value::Int(42)));
     assert!(trace.is_empty());
     assert_eq!(output, b"first\nsecond\n");
+    check_semantic_equivalence_with_expected_output(
+        source,
+        qsc_eval::val::Value::Int(42),
+        "first\nsecond\n",
+    );
+    assert_panics_with("unexpected original output", || {
+        check_semantic_equivalence_with_expected_output(
+            source,
+            qsc_eval::val::Value::Int(42),
+            "second\nfirst\n",
+        );
+    });
 }
 
 fn panic_message(panic: Box<dyn Any + Send>) -> String {

@@ -36,6 +36,15 @@ The driver first validates intrinsics, collapses simulatable intrinsics, and cle
 
 Invariant checks run after most passes. `run_pipeline_to_with_diagnostics` exposes each stage as a cut point used by tests and (with `PipelineStage::Full` plus pinned callable items) by production codegen.
 
+Within defunctionalization, higher-order and direct-call rewrites share a
+children-before-parents traversal. An enclosing call must copy already-rewritten
+arguments, not stale argument layouts paired with a newly specialized callee.
+If an inner rewrite replaces a capture operand with a new local read, its
+dependent direct or higher-order calls wait for fresh capture analysis. Direct calls also wait
+when their callee gains control flow that needs normalization. Closure cleanup treats
+computed callees as live dependencies, just like call arguments; consuming one
+use does not make another invocation disposable.
+
 ## Where to look
 
 - `src/lib.rs` — pipeline orchestration, stage cut points, and the cross-pass contracts above.
