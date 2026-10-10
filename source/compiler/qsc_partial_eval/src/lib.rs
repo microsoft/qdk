@@ -377,20 +377,14 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn bind_value_to_immutable_ident(&mut self, ident: &Ident, value: Value) {
-        // If the value is not a variable, bind it to the classical map.
-        if !matches!(value, Value::Var(_)) {
-            self.bind_value_in_classical_map(ident, &value);
-        }
+        self.bind_value_in_classical_map(ident, &value);
 
         // Always bind the value to the hybrid map.
         self.bind_value_in_hybrid_map(ident, value);
     }
 
     fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value) {
-        // If the value is not a variable, bind it to the classical map.
-        if !matches!(value, Value::Var(_)) {
-            self.bind_value_in_classical_map(ident, &value);
-        }
+        self.bind_value_in_classical_map(ident, &value);
 
         // Always bind the value to the hybrid map but do it differently depending of the value type.
         if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value) {
@@ -1043,6 +1037,7 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context.push_block_node(rhs_eval_block_node);
 
         // Evaluate the RHS expression
+        let cached_mappings = self.clone_current_static_var_map();
         let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
         let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
             return Err(Error::Unexpected(
@@ -1051,6 +1046,7 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
         let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
+        self.keep_matching_static_var_mappings(&cached_mappings);
 
         // Store the RHS value into the the variable that represents the result of the Boolean operation.
         let store_ins = Instruction::Store(rhs_operand, result_rir_var);

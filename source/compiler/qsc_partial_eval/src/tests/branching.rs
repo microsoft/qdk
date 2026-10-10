@@ -2400,6 +2400,78 @@ fn if_expression_with_implicit_return_in_callable_supported() {
 }
 
 #[test]
+fn short_circuit_andl_with_potentially_skipped_mutable_update_with_literal() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            mutable n = 0;
+            let _ = MResetZ(q) == One and (if true { n = 5; true } else { false });
+            n
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(false)
+                Branch Variable(3, Boolean), 2, 1
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(0, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(5)
+                Variable(4, Boolean) = Store Bool(true)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn short_circuit_orl_with_potentially_skipped_mutable_update_with_literal() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            mutable n = 0;
+            let _ = MResetZ(q) == One or (if true { n = 5; true } else { false });
+            n
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(true)
+                Branch Variable(3, Boolean), 1, 2
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(0, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(5)
+                Variable(4, Boolean) = Store Bool(true)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
 fn if_expression_with_explicit_return_in_callable_fails() {
     let error = get_partial_evaluation_error(indoc! {r#"
         function Choose(r : Result) : Int {

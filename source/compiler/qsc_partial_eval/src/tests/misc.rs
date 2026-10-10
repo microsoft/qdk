@@ -1165,11 +1165,12 @@ fn tuple_swap_update_of_dynamic_mutable_variables_in_static_subexpr() {
                 Branch Variable(5, Boolean), 2, 1
             Block 1:Block:
                 Variable(7, Boolean) = Store Variable(6, Boolean)
-                Variable(4, Integer) = Store Integer(3)
+                Variable(8, Integer) = Store Variable(3, Integer)
+                Variable(4, Integer) = Store Variable(8, Integer)
                 Variable(3, Integer) = Store Integer(0)
                 Call id(5), args( Integer(2), Tag(0, 3), )
                 Call id(6), args( Integer(0), Tag(1, 5), )
-                Call id(6), args( Integer(3), Tag(2, 5), )
+                Call id(6), args( Variable(4, Integer), Tag(2, 5), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(3)
