@@ -2123,3 +2123,54 @@ fn emitting_classical_for_loop_propagates_variables_properly() {
                 Return"#]],
     );
 }
+
+#[test]
+fn emitting_loop_avoids_propagating_static_variable_mappings_from_body() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable x = 0;
+            for _ in 1..0 {
+                X(q);
+                x = 5;
+            }
+            x
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(1, Integer) = Store Integer(1)
+            Jump(1)
+        Block 1:Block:
+            Variable(2, Integer) = Store Variable(1, Integer)
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(0)
+            Variable(4, Boolean) = Store Variable(3, Boolean)
+            Variable(5, Boolean) = Store Bool(true)
+            Branch Variable(4, Boolean), 3, 4
+        Block 2:Block:
+            Variable(9, Integer) = Store Variable(0, Integer)
+            Call id(4), args( Variable(9, Integer), Tag(0, 3), )
+            Return Integer(0)
+        Block 3:Block:
+            Branch Variable(5, Boolean), 5, 2
+        Block 4:Block:
+            Variable(5, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Call id(2), args( Qubit(0), )
+            Variable(0, Integer) = Store Integer(5)
+            Variable(7, Integer) = Store Variable(1, Integer)
+            Variable(8, Integer) = Add Variable(7, Integer), Integer(1)
+            Variable(1, Integer) = Store Variable(8, Integer)
+            Jump(1)
+        Block 6:Block:
+            Call id(3), args( Variable(6, Qubit), )
+            Return"#]],
+    );
+}
