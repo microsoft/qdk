@@ -1025,8 +1025,8 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
                 Variable(6, Boolean) = Store Bool(true)
                 Branch Variable(5, Boolean), 3, 4
             Block 2:Block:
-                Variable(17, Boolean) = Store Variable(1, Boolean)
-                Call id(4), args( Variable(17, Boolean), Tag(0, 3), )
+                Variable(18, Boolean) = Store Variable(1, Boolean)
+                Call id(4), args( Variable(18, Boolean), Tag(0, 3), )
                 Return Integer(0)
             Block 3:Block:
                 Branch Variable(6, Boolean), 5, 2
@@ -1034,20 +1034,21 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
                 Variable(6, Boolean) = Store Bool(false)
                 Jump(3)
             Block 5:Block:
-                Variable(7, Qubit) = Index Array(0), Variable(2, Integer)
-                Variable(8, Qubit) = Store Variable(7, Qubit)
-                Variable(9, Integer) = Store Variable(2, Integer)
-                Variable(10, Integer) = Add Variable(9, Integer), Integer(1)
-                Variable(11, Qubit) = Index Array(0), Variable(10, Integer)
-                Variable(12, Qubit) = Store Variable(11, Qubit)
-                Call id(2), args( Variable(8, Qubit), Variable(12, Qubit), Result(0), )
-                Variable(13, Boolean) = Call id(3), args( Result(0), )
-                Variable(14, Boolean) = Store Variable(13, Boolean)
-                Branch Variable(14, Boolean), 7, 6
+                Variable(7, Integer) = Store Variable(2, Integer)
+                Variable(8, Qubit) = Index Array(0), Variable(7, Integer)
+                Variable(9, Qubit) = Store Variable(8, Qubit)
+                Variable(10, Integer) = Store Variable(7, Integer)
+                Variable(11, Integer) = Add Variable(10, Integer), Integer(1)
+                Variable(12, Qubit) = Index Array(0), Variable(11, Integer)
+                Variable(13, Qubit) = Store Variable(12, Qubit)
+                Call id(2), args( Variable(9, Qubit), Variable(13, Qubit), Result(0), )
+                Variable(14, Boolean) = Call id(3), args( Result(0), )
+                Variable(15, Boolean) = Store Variable(14, Boolean)
+                Branch Variable(15, Boolean), 7, 6
             Block 6:Block:
-                Variable(15, Integer) = Store Variable(2, Integer)
-                Variable(16, Integer) = Add Variable(15, Integer), Integer(2)
-                Variable(2, Integer) = Store Variable(16, Integer)
+                Variable(16, Integer) = Store Variable(2, Integer)
+                Variable(17, Integer) = Add Variable(16, Integer), Integer(2)
+                Variable(2, Integer) = Store Variable(17, Integer)
                 Jump(1)
             Block 7:Block:
                 Variable(1, Boolean) = Store Bool(true)

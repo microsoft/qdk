@@ -8,27 +8,30 @@ define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_1 = alloca i64
   %var_2 = alloca i64
-  %var_6 = alloca i64
+  %var_4 = alloca i64
+  %var_7 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   store i64 -2, ptr %var_1
   br label %block_1
 block_1:
-  %var_9 = load i64, ptr %var_1
-  store i64 %var_9, ptr %var_2
-  %var_11 = load i64, ptr %var_2
-  %var_3 = icmp sge i64 %var_11, -3
+  %var_10 = load i64, ptr %var_1
+  store i64 %var_10, ptr %var_2
+  %var_12 = load i64, ptr %var_2
+  %var_3 = icmp sge i64 %var_12, -3
   br i1 %var_3, label %block_2, label %block_3
 block_2:
-  %var_12 = load i64, ptr %var_1
-  %var_13_offset_chk = icmp slt i64 %var_12, 0
-  %var_13_offset = select i1 %var_13_offset_chk, i64 1, i64 0
-  %var_13 = getelementptr [3 x ptr], ptr @array0, i64 %var_13_offset, i64 %var_12
-  %var_4 = load ptr, ptr %var_13
-  call void @X(ptr %var_4)
-  store i64 %var_12, ptr %var_6
-  %var_15 = load i64, ptr %var_6
-  %var_7 = add i64 %var_15, -1
-  store i64 %var_7, ptr %var_1
+  %var_13 = load i64, ptr %var_1
+  store i64 %var_13, ptr %var_4
+  %var_15 = load i64, ptr %var_4
+  %var_16_offset_chk = icmp slt i64 %var_15, 0
+  %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
+  %var_16 = getelementptr [3 x ptr], ptr @array0, i64 %var_16_offset, i64 %var_15
+  %var_5 = load ptr, ptr %var_16
+  call void @X(ptr %var_5)
+  store i64 %var_13, ptr %var_7
+  %var_18 = load i64, ptr %var_7
+  %var_8 = add i64 %var_18, -1
+  store i64 %var_8, ptr %var_1
   br label %block_1
 block_3:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -43,9 +46,9 @@ block_3:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define internal void @X(ptr %var_5) {
+define internal void @X(ptr %var_6) {
 block_4:
-  call void @__quantum__qis__x__body(ptr %var_5)
+  call void @__quantum__qis__x__body(ptr %var_6)
   ret void
 }
 
