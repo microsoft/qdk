@@ -453,7 +453,7 @@ impl Env {
             .find_map(|scope| scope.bindings.get(id))
     }
 
-    fn get_mut(&mut self, id: LocalVarId) -> Option<&mut Variable> {
+    pub fn get_mut(&mut self, id: LocalVarId) -> Option<&mut Variable> {
         self.scopes
             .iter_mut()
             .rev()
