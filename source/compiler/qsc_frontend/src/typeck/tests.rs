@@ -787,6 +787,39 @@ fn binop_andb_mismatch() {
 }
 
 #[test]
+fn binop_andl_mismatch() {
+    check(
+        "",
+        r#"5 and true"#,
+        &expect![[r##"
+            #1 0-10 "5 and true" : Bool
+            #2 0-1 "5" : Int
+            #3 6-10 "true" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 0, hi: 1 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn binop_andl_doesnt_diverge() {
+    check(
+        "",
+        r#"5 + ((fail "error") and false)"#,
+        &expect![[r##"
+            #1 0-30 "5 + ((fail \"error\") and false)" : Int
+            #2 0-1 "5" : Int
+            #3 4-30 "((fail \"error\") and false)" : Bool
+            #4 5-29 "(fail \"error\") and false" : Bool
+            #5 5-19 "(fail \"error\")" : Bool
+            #6 6-18 "fail \"error\"" : Bool
+            #7 11-18 "\"error\"" : String
+            #8 24-29 "false" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 4, hi: 30 }))))
+        "##]],
+    );
+}
+
+#[test]
 fn binop_equal_callable() {
     check(
         indoc! {"
@@ -1879,7 +1912,7 @@ fn unop_not_int() {
         "",
         "not 0",
         &expect![[r##"
-            #1 0-5 "not 0" : Int
+            #1 0-5 "not 0" : Bool
             #2 4-5 "0" : Int
             Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 4, hi: 5 }))))
         "##]],
@@ -5375,15 +5408,17 @@ fn inference_infinite_recursion_should_fail() {
             #27 102-125 "y : (('T2, 'U2) -> 'T2)" : ((Param<"'T2": 0>, Param<"'U2": 1>) -> Param<"'T2": 0>)
             #40 133-140 "{\n    }" : Unit
             #44 161-163 "()" : Unit
-            #48 170-193 "{\n        A and B\n    }" : (((?2, ?3) -> ?2) -> ?2[])
-            #50 180-187 "A and B" : (((?2, ?3) -> ?2) -> ?2[])
-            #51 180-181 "A" : (((?2, ?3) -> ?2) -> ?2[])
+            #48 170-193 "{\n        A and B\n    }" : Bool
+            #50 180-187 "A and B" : Bool
+            #51 180-181 "A" : ((?0 -> ?1) -> ?1[])
             #54 186-187 "B" : (((?2, ?3) -> ?2) -> ?2)
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Array(Param), display: "'U1[]" }, Span { lo: 62, hi: 67 }))))
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T2" }, Span { lo: 129, hi: 132 }))))
-            Error(Type(Error(RecursiveTypeConstraint(Span { lo: 186, hi: 187 }))))
-            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 181 }))))
-            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 187 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?)" }, Span { lo: 186, hi: 187 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "((? -> ?) -> ?[])" }, Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 180, hi: 187 }))))
+            Error(Type(Error(AmbiguousTy(Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(AmbiguousTy(Span { lo: 180, hi: 181 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 186, hi: 187 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 186, hi: 187 }))))
         "##]],
