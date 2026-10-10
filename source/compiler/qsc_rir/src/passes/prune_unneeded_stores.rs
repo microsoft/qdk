@@ -7,7 +7,7 @@ mod tests;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    rir::{CallableId, Instruction, Program, VariableId},
+    rir::{BlockId, CallableId, Instruction, Program, VariableId},
     utils::{get_block_successors, map_variable_use_in_block},
 };
 
@@ -101,8 +101,8 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
 
 #[allow(clippy::too_many_lines)]
 fn check_var_usage(
-    program: &mut Program,
-    block_id: crate::rir::BlockId,
+    program: &Program,
+    block_id: BlockId,
     stored_vars: &mut FxHashSet<VariableId>,
     used_vars: &mut FxHashSet<VariableId>,
     index_vars: &mut FxHashSet<VariableId>,

@@ -4,8 +4,6 @@
 #[cfg(test)]
 mod tests;
 
-use std::collections::hash_map::Entry::{Occupied, Vacant};
-
 use crate::{
     rir::{BlockId, Instruction, Operand, OperandMapping, Program, Ty, Variable, VariableId},
     utils::{get_all_block_successors, get_variable_assignments, map_variable_use_in_block},
@@ -63,26 +61,45 @@ fn transform_body_to_ssa(
     let mut body_blocks = vec![entry];
     body_blocks.append(&mut get_all_block_successors(entry, program));
 
-    // First, remove store instructions and propagate variables through individual blocks.
-    // This produces a per-block map of dynamic variables to their values.
-    // Orphan variables may be left behind where a variable is defined in one block and used in another, which
-    // will be resolved by inserting phi nodes.
-    let mut block_var_map =
-        map_store_to_dominated_ssa(program, &body_blocks, entry, input_vars, preds);
+    let mut block_var_map = IndexMap::default();
 
     // Insert phi nodes where necessary, mapping any remaining orphaned uses to the new variable
     // created by the phi node.
     // This can be done in one pass because the graph is assumed to be acyclic.
     for &block_id in &body_blocks {
         let block = program.get_block_mut(block_id);
+        let mut var_map = FxHashMap::default();
+
         let Some(block_preds) = preds.get(block_id) else {
             // The body entry has no predecessors and therefore has no phi nodes.
+            // Initialize the variable map for the entry block and process it immediately.
+            // Each parameter is its own initial SSA version, defined at the body entry.
+            for &(var_id, ty) in input_vars {
+                assert!(
+                    var_map
+                        .insert(
+                            var_id,
+                            OperandMapping::Deep(Operand::Variable(Variable {
+                                variable_id: var_id,
+                                ty,
+                            })),
+                        )
+                        .is_none(),
+                    "input vars should only be initialized once by parameters"
+                );
+            }
+            map_variable_use_in_block(
+                program.get_block_mut(block_id),
+                &mut var_map,
+                &FxHashSet::default(),
+            );
+            block_var_map.insert(block_id, var_map);
             continue;
         };
 
-        // Use a map to track updates to the variable map for the block. These will be applied after
-        // any phi nodes are inserted and will replace any orphaned variables.
-        let mut var_map_updates = FxHashMap::default();
+        // Use a map to track replacement values for variables. These will be applied after
+        // any phi nodes are inserted and will replace any store variable instructions and
+        // their successive uses through the block.
 
         let (first_pred, rest_preds) = block_preds
             .split_first()
@@ -90,13 +107,13 @@ fn transform_body_to_ssa(
 
         // The block is only a candidate for phi nodes if it has multiple predecessors.
         if rest_preds.is_empty() {
-            // If the block has only one predecessor, track any updates to the variable map from that
-            // predecessor to ensure any phi values that may have been added or inherited in the predecessor
-            // are propagated to this block.
+            // If the block has only one predecessor, propagate the variable map from that
+            // predecessor to ensure any known mappings or phi variables that may have been added
+            // or inherited in the predecessor are propagated to this block.
             let pred_var_map = block_var_map
                 .get(*first_pred)
                 .expect("block should have variable map");
-            pred_var_map.clone_into(&mut var_map_updates);
+            pred_var_map.clone_into(&mut var_map);
         } else {
             // Check each variable in the first predecessor's variable map, and if any other
             // predecessor has a different value for the variable, a phi node is needed.
@@ -129,8 +146,8 @@ fn transform_body_to_ssa(
                             Some(mapping) => Into::<Operand>::into(mapping),
                             None => {
                                 // If the variable is not defined in this predecessor, it does not dominate this block.
-                                // Assume it is not used and skip creating a phi node for this variable. If the variable is used,
-                                // the ssa check will detect it and panic later.
+                                // Assume it is not used and skip creating a phi node for this variable. If that variable has
+                                // unexpected usage then the ssa check will detect it and panic later.
                                 continue 'var_loop;
                             }
                         };
@@ -141,7 +158,7 @@ fn transform_body_to_ssa(
                 } else {
                     // If all predecessors have the same value for this variable, the value can be propagated.
                     // Update the block variable map with the common operand.
-                    var_map_updates.insert(*var_id, *mapping);
+                    var_map.insert(*var_id, *mapping);
                 }
 
                 for (variable_id, args) in phi_nodes {
@@ -164,43 +181,17 @@ fn transform_body_to_ssa(
                         Operand::Variable(new_var)
                     };
 
-                    var_map_updates.insert(variable_id, OperandMapping::Deep(operand_to_map));
+                    var_map.insert(variable_id, OperandMapping::Deep(operand_to_map));
                     *next_var_id = next_var_id.successor();
-
-                    let var_map = block_var_map
-                        .get_mut(block_id)
-                        .expect("block should have variable map");
-
-                    // To make sure calculations of successor blocks get the updated variable mappings, identify any existing mappings
-                    // for the variable being updated and replace them with the new operand mapping.
-                    for mapping in var_map.values_mut() {
-                        if let Operand::Variable(var) = mapping.into()
-                            && var.variable_id == variable_id
-                        {
-                            *mapping = OperandMapping::Deep(operand_to_map);
-                        }
-                    }
                 }
             }
         }
 
         // Now that the block has finished processing, apply any updates to the block and
         // merge those updates into the stored variable map to propagate to successors.
-        map_variable_use_in_block(block, &mut var_map_updates, &FxHashSet::default());
-        let var_map = block_var_map
-            .get_mut(block_id)
-            .expect("block should have variable map");
-        for (var_id, mapping) in var_map_updates {
-            match var_map.entry(var_id) {
-                Vacant(entry) => {
-                    entry.insert(mapping);
-                }
-                Occupied(mut entry) if entry.get().is_shallow() => {
-                    entry.insert(mapping);
-                }
-                Occupied(_) => (),
-            }
-        }
+        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default());
+
+        block_var_map.insert(block_id, var_map);
     }
 }
 
@@ -213,55 +204,4 @@ fn ensure_acyclic(preds: &IndexMap<BlockId, Vec<BlockId>>) {
             "block {block_id:?} has a cycle in its predecessors"
         );
     }
-}
-
-// Remove store instructions and propagate variables through individual blocks.
-// This produces a per-block map of dynamic variables to their values.
-// Any block with a single predecessor inherits that predecessor's mapped variables, since those
-// are live across the block. The body's live-in parameters are seeded as definitions at the entry
-// block so that uses of a parameter resolve and later merges can build phi nodes for it.
-fn map_store_to_dominated_ssa(
-    program: &mut Program,
-    body_blocks: &[BlockId],
-    entry: BlockId,
-    input_vars: &[(VariableId, Ty)],
-    preds: &IndexMap<BlockId, Vec<BlockId>>,
-) -> IndexMap<BlockId, FxHashMap<VariableId, OperandMapping>> {
-    let mut block_var_map = IndexMap::default();
-    for &block_id in body_blocks {
-        let mut var_map: FxHashMap<VariableId, OperandMapping> = match preds.get(block_id) {
-            Some(block_preds) if block_preds.len() == 1 => {
-                // Any block with a single predecessor inherits those mapped variables.
-                block_var_map
-                    .get(block_preds[0])
-                    .cloned()
-                    .unwrap_or_default()
-            }
-            _ => FxHashMap::default(),
-        };
-        if block_id == entry {
-            // Each parameter is its own initial SSA version, defined at the body entry.
-            for &(var_id, ty) in input_vars {
-                assert!(
-                    var_map
-                        .insert(
-                            var_id,
-                            OperandMapping::Deep(Operand::Variable(Variable {
-                                variable_id: var_id,
-                                ty,
-                            })),
-                        )
-                        .is_none(),
-                    "input vars should only be initialized once by parameters"
-                );
-            }
-        }
-        map_variable_use_in_block(
-            program.get_block_mut(block_id),
-            &mut var_map,
-            &FxHashSet::default(),
-        );
-        block_var_map.insert(block_id, var_map);
-    }
-    block_var_map
 }
