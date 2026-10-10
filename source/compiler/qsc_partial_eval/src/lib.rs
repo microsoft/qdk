@@ -1306,12 +1306,16 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         // Static expressions or sub-expressions may have updated variable values, so we need to collect and apply those updates
-        // to the hybrid maps (potentially updating static variable mappings as well).
-        for (local_var_id, new_value) in self
+        // to the hybrid maps (potentially updating static variable mappings as well), collecting the pending updates and
+        // making copies of values as needed.
+        let pending_updates = self
             .eval_context
             .get_current_scope_mut()
             .collect_updated_local_values()
-        {
+            .into_iter()
+            .map(|(local_var_id, new_value)| (local_var_id, self.copy_value_if_needed(new_value)))
+            .collect::<Vec<_>>();
+        for (local_var_id, new_value) in pending_updates {
             self.update_hybrid_local(local_var_id, new_value)?;
         }
 
