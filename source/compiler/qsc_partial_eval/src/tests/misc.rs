@@ -1130,3 +1130,50 @@ fn test_dynamic_expr_including_bigint_binop() {
                 Return Integer(0)"#]],
     );
 }
+
+#[test]
+fn tuple_swap_update_of_dynamic_mutable_variables_in_static_subexpr() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            X(q);
+            let d = MResetZ(q) == One;
+            mutable x = 0;
+            mutable y = 0;
+            let s = d and { set x = 3; true };
+            let _ = { set (x, y) = (y, x); true };
+            (x, y)
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(4), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Integer) = Store Integer(0)
+                Variable(4, Integer) = Store Integer(0)
+                Variable(5, Boolean) = Store Variable(2, Boolean)
+                Variable(6, Boolean) = Store Bool(false)
+                Branch Variable(5, Boolean), 2, 1
+            Block 1:Block:
+                Variable(7, Boolean) = Store Variable(6, Boolean)
+                Variable(4, Integer) = Store Integer(3)
+                Variable(3, Integer) = Store Integer(0)
+                Call id(5), args( Integer(2), Tag(0, 3), )
+                Call id(6), args( Integer(0), Tag(1, 5), )
+                Call id(6), args( Integer(3), Tag(2, 5), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(3, Integer) = Store Integer(3)
+                Variable(6, Boolean) = Store Bool(true)
+                Jump(1)"#]],
+    );
+}
