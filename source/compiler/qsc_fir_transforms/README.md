@@ -49,6 +49,23 @@ Complex component lowering currently covers addition, subtraction, multiplicatio
 unary signs, and the corresponding compound assignments. Division and
 exponentiation are not covered by this lowering.
 
+Monomorphization identifies a specialization by the package-qualified source
+callable and its concrete generic arguments. Recursive references retain the
+generic source identity until those arguments are substituted, so same-type,
+mutual, and finite changing-type cycles resolve to the matching concrete targets.
+Each invocation allows at most 1024 specializations across all packages.
+Types constructed for specializations and each reference's type-argument list
+are limited to 4096 type nodes and depth 128, counting a leaf as depth one.
+Existing types outside specialization are not subject to these limits.
+Substitution is measured before expanded types are constructed. Exceeding a
+limit reports `Qdk.Qsc.Monomorphize.SpecializationLimit` or
+`Qdk.Qsc.Monomorphize.TypeExpansionLimit` at the original source and stops the
+pipeline before downstream consumption. A runtime-terminating program that
+continually nests its recursive type arguments can therefore be rejected,
+including programs previously accepted by profiles that evaluated those calls
+classically. These are specialization limits, not runtime recursion limits or
+new backend support for recursive results.
+
 Callable capability weakening does not change value layout: an adjointable or
 controllable operation can populate a less-capable operation binding without
 adding tuple wrappers. Assignment checks retain nominal identity, tuple shape,

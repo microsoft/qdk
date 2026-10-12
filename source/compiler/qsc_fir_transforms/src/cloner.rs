@@ -175,6 +175,8 @@ impl FirCloner {
     /// Sets the self-item remap so that `Res::Item(old)` references are
     /// rewritten to `Res::Item(new)`. Used when cloning a recursive callable
     /// to point self-calls at the newly created specialization.
+    /// This remap is type-blind: monomorphization must leave it unset and
+    /// resolve recursive references by their substituted generic arguments.
     pub fn set_self_item_remap(&mut self, old: ItemId, new: ItemId) {
         self.self_item_remap = Some((old, new));
     }

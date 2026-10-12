@@ -199,7 +199,8 @@ fn cross_package_hof_body_with_nested_lambda_clones_into_target() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     // Snapshot entry-package callable ids so the relocated lambda can be
     // identified after specialization.
@@ -281,7 +282,8 @@ fn cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized()
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     // The entry package starts with no lifted lambdas; the only one is defined
     // in the library package.
@@ -411,7 +413,8 @@ fn cross_package_foreign_hof_without_nested_lambda_specializes_into_entry() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let entry_items_before = callable_item_ids(fir_store.get(fir_pkg_id));
 
@@ -487,7 +490,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
     let cross_package_errors =
         defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
@@ -580,7 +584,8 @@ fn cross_package_function_typed_return_flows_across_packages() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
@@ -642,7 +647,8 @@ fn foreign_factory_capturing_callable_field_is_defunctionalized() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
@@ -701,7 +707,8 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+        .expect("monomorphization should succeed");
 
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_eq!(

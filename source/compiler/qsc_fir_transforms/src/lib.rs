@@ -140,6 +140,11 @@ const TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP: usize = 64;
 /// [`run_pipeline_to_with_diagnostics`], and other warning-aware result APIs.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum PipelineError {
+    /// Recursive generic specialization exceeded a compiler resource limit.
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    Monomorphize(#[from] monomorphize::Error),
+
     /// A return-unification error or warning (e.g., unsupported return type).
     #[error(transparent)]
     #[diagnostic(transparent)]
@@ -181,6 +186,7 @@ impl PipelineError {
     #[must_use]
     pub fn owner(&self) -> PackageId {
         match self {
+            Self::Monomorphize(error) => error.owner(),
             Self::ReturnUnify(error) => error.owner(),
             Self::Defunctionalize(error) => error.owner(),
             Self::IntrinsicPrecheck(error) => error.owner(),
@@ -264,13 +270,16 @@ pub enum PipelineStage {
 ///    before any structural rewrites and short-circuits with
 ///    [`PipelineError::IntrinsicPrecheck`] when an intrinsic callable has an
 ///    unsupported parameter or return type.
-/// 2. [`return_unify::unify_returns`] reports fatal diagnostics that abort
+/// 2. [`monomorphize::monomorphize`] reports fatal specialization-count or
+///    type-expansion diagnostics before post-monomorphization invariants or
+///    any later pass may consume the intermediate store.
+/// 3. [`return_unify::unify_returns`] reports fatal diagnostics that abort
 ///    the schedule before defunctionalization runs.
-/// 3. [`defunctionalize::defunctionalize`] reports fatal diagnostics that
+/// 4. [`defunctionalize::defunctionalize`] reports fatal diagnostics that
 ///    abort the schedule before UDT erasure runs. Non-fatal defunctionalization
 ///    warnings are preserved on [`PipelineResult::warnings`] and the schedule
 ///    continues to the requested stage.
-/// 4. Pinned-item validation runs before seed-expanded UDT erasure, item DCE,
+/// 5. Pinned-item validation runs before seed-expanded UDT erasure, item DCE,
 ///    and exec graph rebuild. Missing or non-callable pins are fatal diagnostics
 ///    because pinned items are explicit preservation requests from callers.
 ///
@@ -303,7 +312,10 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    monomorphize::monomorphize(store, package_id, &mut assigners);
+    if let Err(error) = monomorphize::monomorphize(store, package_id, &mut assigners) {
+        result.errors.push(error.into());
+        return result;
+    }
     invariants::check(store, package_id, invariants::InvariantLevel::PostMono);
     if matches!(stage, PipelineStage::Mono) {
         return result;

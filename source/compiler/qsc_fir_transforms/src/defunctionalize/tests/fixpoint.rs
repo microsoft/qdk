@@ -1598,11 +1598,12 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
 /// capture into the lifted body while retaining the classical `Int` capture,
 /// allowing the recursive specialization chain to converge.
 ///
-/// The `check_rewrite` snapshot locks the full converged specialization chain so
-/// a zero-error miscompile with wrong downstream routing (wrong callable,
-/// orphaned/duplicated specialization, or wrong recursion target) fails the test.
+/// The `check_rewrite` snapshot locks the converged specialization routing;
+/// the separate Mono-stage trace assertion checks its input's semantics.
 /// The routing is `{H}` -> `{closure}` -> lifted lambda -> `{H}`, so `Repeat(H, 2, q)`
 /// applies `H` exactly twice.
+/// The partial application has no functors, so its recursive edge targets
+/// `Repeat<Empty>` rather than reusing the initial `Repeat<AdjCtl>` clone.
 #[test]
 fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
     let source = r#"
@@ -1618,17 +1619,23 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
         }
         "#;
     check_invariants(source);
+    assert_recursive_partial_application_mono_trace(source);
     check(
         source,
         &expect![[r#"
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
             Main: input_ty=Unit
             Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Empty>{closure}: input_ty=(Int, Qubit, Int)"#]],
     );
     check_rewrite(
         source,
@@ -1656,7 +1663,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     op(q);
-                    Repeat_AdjCtl_({
+                    Repeat_Empty_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 5 captures = [arg, arg_1] * / _lambda_3
@@ -1679,7 +1686,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
 
             }
             operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
-                Repeat_Empty_(arg, arg_1, hole)
+                Repeat_AdjCtl_(arg, arg_1, hole)
             }
             // entry
             Main()
@@ -1707,7 +1714,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     op(q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1717,48 +1724,68 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
             operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     op(q);
-                    Repeat_Empty_({
-                        let arg : (Qubit => Unit is Adj + Ctl) = H;
-                        let arg_1 : Int = 1;
-                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
-                    }, n - 1, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
-            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
-                Repeat_Empty_(arg, arg_1, hole)
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
             }
             operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     H(q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
                 Repeat_AdjCtl__H_(H, arg, hole)
             }
-            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
-                Repeat_AdjCtl__closure_(H, arg, hole)
+                Repeat_AdjCtl__H_(arg, hole)
             }
-            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
-            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1775,9 +1802,11 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
 /// lifted lambda target. Static closure-capture inlining must recognize that
 /// the copies make an identical target rewrite, inline `H` once in the shared
 /// target, and remove the corresponding capture from both closure occurrences.
-/// The invariant and pipeline checks ensure the resulting body and adjoint
-/// specialization chains converge without `DynamicCallable` diagnostics or
-/// stale callable arguments.
+/// The invariant and pipeline checks establish convergence without
+/// `DynamicCallable` diagnostics. The runtime oracle covers Mono only, not
+/// execution after all later transforms.
+/// The recursive partial application retains only `Adj`, requiring a distinct
+/// concrete target from the initial `H` argument's `AdjCtl` target.
 #[test]
 fn adjoint_recursive_hof_partial_app_shared_target_converges() {
     let source = r#"
@@ -1794,17 +1823,47 @@ fn adjoint_recursive_hof_partial_app_shared_target_converges() {
         "#;
     check_invariants(source);
     check_pipeline(source);
+    assert_recursive_partial_application_mono_trace(source);
     check(
         source,
         &expect![[r#"
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
             .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
             Main: input_ty=Unit
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<Adj>{closure}: input_ty=(Int, Qubit, Int)
             Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)"#]],
+    );
+}
+
+/// Check the changed monomorphization boundary independently of later passes:
+/// two H gates return the qubit to zero before release.
+fn assert_recursive_partial_application_mono_trace(source: &str) {
+    use crate::test_utils::{
+        TraceOp, compile_to_fir, compile_to_monomorphized_fir, try_eval_fir_entry_with_trace,
+    };
+    let (original, package) = compile_to_fir(source);
+    let expected = try_eval_fir_entry_with_trace(&original, package);
+    assert_eq!(expected.0, Ok(qsc_eval::val::Value::unit()));
+    assert_eq!(
+        expected
+            .1
+            .iter()
+            .filter(|op| matches!(op, TraceOp::Gate { name, .. } if name == "H"))
+            .count(),
+        2,
+    );
+    let (transformed, package) = compile_to_monomorphized_fir(source);
+    assert_eq!(
+        try_eval_fir_entry_with_trace(&transformed, package),
+        expected
     );
 }
 

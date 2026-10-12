@@ -92,6 +92,155 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
+    let sources = [
+        // Array growth with a captured callable used to reach a closure-layout panic.
+        r#"operation Rec<'T>(t : 'T, op : 'T => Unit, n : Int) : Unit {
+            if n == 0 { op(t); } else { Rec([t], ts => op(ts[0]), n - 1); }
+        }
+        operation Main() : Result { use q = Qubit(); Rec(q, X, 1); MResetZ(q) }"#,
+        // Tuple duplication grows exponentially, despite the finite runtime depth.
+        r#"function F<'T>(x : 'T, n : Int) : Int {
+            if n == 0 { 0 } else { 1 + F((x, x), n - 1) }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            if F(1, 2) == 2 { X(q); }
+            MResetZ(q)
+        }"#,
+    ];
+    for source in sources {
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Result(qsc_eval::val::Result::Val(true)),
+            "runtime termination is independent of the static expansion limit"
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let mut interpreter = interpreter_with_capabilities(capabilities);
+            eval_fragments(&mut interpreter, source);
+            for result in [
+                compile_source_to_qir_result(source, capabilities),
+                interpreter.qirgen("Main()"),
+            ] {
+                let errors = result.expect_err("expanding specialization must not produce QIR");
+                assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+                assert!(matches!(
+                    errors[0],
+                    crate::interpret::Error::FirTransform(_)
+                ));
+                let label = miette::Diagnostic::labels(&errors[0])
+                    .and_then(|mut labels| labels.next())
+                    .expect("expansion error must have a source label");
+                assert!(!label.is_empty());
+                assert!(label.offset() + label.len() <= source.len());
+                assert!(miette::Diagnostic::source_code(&errors[0]).is_some());
+                let diagnostic = format_interpret_errors(errors);
+                assert!(
+                    diagnostic.contains("Qdk.Qsc.Monomorphize.TypeExpansionLimit"),
+                    "{diagnostic}"
+                );
+                assert!(
+                    diagnostic.contains("type expansion exceeds the compiler limit here"),
+                    "{diagnostic}"
+                );
+            }
+            // A failed compilation must not poison the interpreter's original store.
+            eval_fragments(
+                &mut interpreter,
+                "operation Safe() : Result { use q = Qubit(); X(q); MResetZ(q) }",
+            );
+            assert!(interpreter.qirgen("Safe()").is_ok());
+        }
+    }
+}
+
+#[test]
+fn finite_recursive_type_cycle_generates_qir_for_all_entry_surfaces() {
+    let source = r#"
+        operation Pick<'T, 'U>(x : 'T, y : 'U, n : Int, q : Qubit) : Unit {
+            if n == 0 { X(q); } else { Pick(y, x, n - 1, q); }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            Pick(2, true, 3, q);
+            MResetZ(q)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut interpreter, source);
+    // This is the source oracle. The QIR assertions below check typed
+    // compilation and output plumbing, not execution of the emitted program.
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Result(qsc_eval::val::Result::Val(true))
+    );
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let capabilities = profile.into();
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        let (store, package, items) =
+            compile_and_locate_items(source, &[("Main", true)], capabilities);
+        for qir in [
+            compile_source_to_qir(source, capabilities),
+            interpreter
+                .qirgen("Main()")
+                .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors))),
+            callable_args_to_qir(&store, package, items["Main"], &Value::unit(), capabilities),
+        ] {
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{profile:?}: {qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__rt__result_record_output")
+                    .count(),
+                1,
+                "{qir}"
+            );
+        }
+    }
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(&mut interpreter, source);
+    let circuit = interpreter
+        .circuit(
+            crate::interpret::CircuitEntryPoint::EntryExpr("Main()".into()),
+            crate::interpret::CircuitGenerationMethod::Static,
+            qsc_circuit::TracerConfig {
+                max_operations: qsc_circuit::TracerConfig::DEFAULT_MAX_OPERATIONS,
+                max_loop_iterations: None,
+                source_locations: false,
+                group_by_scope: false,
+                prune_classical_qubits: false,
+            },
+        )
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    let gates: Vec<_> = circuit
+        .component_grid
+        .iter()
+        .flat_map(|column| &column.components)
+        .filter_map(|operation| match operation {
+            qsc_circuit::Operation::Unitary(gate) => Some(gate.gate.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(gates, ["X"], "{circuit}");
+}
+
+#[test]
 fn recursive_callable_factory_is_inlined_in_adaptive_qir() {
     let source = r#"
         namespace Test {
