@@ -194,6 +194,13 @@ extends:
                 inputs:
                   version: "22.x"
 
+              # Manually create the .npmrc file for npm authentication for now
+              - script: |
+                  echo "registry=$(AZURE_ARTIFACTS_FEED)" > .npmrc
+                  echo "" >> .npmrc
+                  echo "always-auth=true" >> .npmrc
+                displayName: Create .npmrc for npm authentication
+
               # See the note on AZURE_ARTIFACTS_FEED
               - task: npmAuthenticate@0
                 inputs:
