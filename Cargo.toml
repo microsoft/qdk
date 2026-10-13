@@ -30,6 +30,7 @@ members = [
     "source/simulators",
     "source/qdk_openqasm",
     "source/qdk_package",
+    "source/qep",
     "source/qre",
     "source/resource_estimator",
     "source/samples_test",

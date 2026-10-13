@@ -114,6 +114,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "approx"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1057,6 +1063,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "inkwell"
+version = "0.6.0"
+source = "git+https://github.com/TheDan64/inkwell?rev=0f8d2d6c9061cfe80d3e83b75ea00f6df94ee562#0f8d2d6c9061cfe80d3e83b75ea00f6df94ee562"
+dependencies = [
+ "either",
+ "inkwell_internals",
+ "libc",
+ "llvm-sys",
+ "once_cell",
+ "thiserror",
+]
+
+[[package]]
+name = "inkwell_internals"
+version = "0.11.0"
+source = "git+https://github.com/TheDan64/inkwell?rev=0f8d2d6c9061cfe80d3e83b75ea00f6df94ee562#0f8d2d6c9061cfe80d3e83b75ea00f6df94ee562"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "is_ci"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1202,6 +1231,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
+name = "lazy_static"
+version = "1.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1255,6 +1290,20 @@ name = "litrs"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
+name = "llvm-sys"
+version = "201.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91718ce87f1400f9a6ea0ffcc6af33c38b32de82295b4efaf8db8cb851cab1ff"
+dependencies = [
+ "anyhow",
+ "cc",
+ "lazy_static",
+ "libc",
+ "regex-lite",
+ "semver",
+]
 
 [[package]]
 name = "lock_api"
@@ -1892,6 +1941,19 @@ dependencies = [
  "regex-lite",
  "rustc-hash",
  "wgpu",
+]
+
+[[package]]
+name = "qep"
+version = "0.0.0"
+dependencies = [
+ "inkwell",
+ "num-bigint",
+ "num-complex",
+ "qdk_simulators",
+ "qsc",
+ "rand 0.10.2",
+ "rustc-hash",
 ]
 
 [[package]]
