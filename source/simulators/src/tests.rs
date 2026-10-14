@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod swap;
+
 use crate::{
     MeasurementResult, Simulator, cpu_full_state_simulator::FullStateSimulator,
     noise_config::CumulativeNoiseConfig, stabilizer_simulator::StabilizerSimulator,
