@@ -3,6 +3,19 @@
 
 import { DrawOptions, Sqore } from "./sqore.js";
 import { CircuitGroup } from "./data/circuit.js";
+import type { CircuitRendererSvgOptions } from "./renderer/circuitSvgOptions.js";
+
+export type CircuitRenderer = {
+  userSetZoomLevel: (zoomLevel: number) => void;
+  /**
+   * Replace the rendered circuit in place, preserving per-session view state.
+   */
+  updateCircuit: (circuitGroup: CircuitGroup) => void;
+  /**
+   * Serialize the exact circuit owned by this renderer as a standalone SVG.
+   */
+  exportSvg: (options?: CircuitRendererSvgOptions) => string;
+};
 
 /**
  * Render `circuit` into `container` at the specified layer depth.
@@ -24,14 +37,7 @@ export const draw = (
   circuitGroup: CircuitGroup,
   container: HTMLElement,
   options: DrawOptions = {},
-): {
-  userSetZoomLevel: (zoomLevel: number) => void;
-  /**
-   * Replace the rendered circuit in place, preserving per-session view state (e.g. user
-   * expand/collapse choices). See [`Sqore.updateCircuit`](sqore.ts).
-   */
-  updateCircuit: (circuitGroup: CircuitGroup) => void;
-} => {
+): CircuitRenderer => {
   const sqore = new Sqore(circuitGroup, options);
   sqore.draw(container);
   return {
@@ -40,10 +46,12 @@ export const draw = (
       sqore.updateZoomLevel(zoomLevel);
     },
     updateCircuit: (group: CircuitGroup) => sqore.updateCircuit(group),
+    exportSvg: (exportOptions) => sqore.exportSvg(exportOptions),
   };
 };
 
 export type { DrawOptions, EditorHandlers } from "./sqore.js";
+export type { CircuitRendererSvgOptions } from "./renderer/circuitSvgOptions.js";
 
 // Export types
 export type {

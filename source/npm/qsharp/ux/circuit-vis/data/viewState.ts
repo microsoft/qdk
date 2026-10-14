@@ -32,8 +32,8 @@ import { ComponentGrid } from "./circuit.js";
  * Entries are keyed by the op's location string (e.g. `"0,0-1,2"`), which is not stable under edits
  * that splice columns or grids. The View layer (`Sqore`) snapshots an `op → location` map each
  * render and calls [`rebase`](#method-rebase) on the next render to migrate keys forward by object
- * identity. External tree replacement (`Sqore.updateCircuit`) breaks that identity link, so the
- * snapshot is dropped and the next render starts fresh.
+ * identity. For external tree replacement, `Sqore.updateCircuit` pairs equivalent operations by
+ * semantic shape before resetting the identity snapshot.
  */
 export class ViewState {
   /**
@@ -109,7 +109,7 @@ export class ViewState {
    * `expandIfSingleOperation`) so user overrides win.
    *
    * @param grid The grid to mutate. Must already have `dataAttributes.location` populated on every
-   *             op (i.e. `fillGateRegistry` has run).
+   *             op (i.e. renderer location assignment has run).
    */
   applyTo(grid: ComponentGrid): void {
     grid.forEach((col) =>
