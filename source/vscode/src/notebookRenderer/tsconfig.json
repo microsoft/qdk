@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "target": "ES2022",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "lib": ["DOM", "ES2022"],
+    // No `rootDir`: this project only type-checks (esbuild does the bundling),
+    // and the renderer bundles the shared `qsharp/ux` theme stylesheet rather
+    // than keeping a second copy of the palette.
+    "strict": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}
