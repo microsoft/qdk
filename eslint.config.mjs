@@ -13,6 +13,7 @@ export default tseslint.config(
   {
     ignores: [
       "**/.*/",
+      "exchange/",
       "source/jupyterlab/lib/",
       "source/jupyterlab/qsharp-jupyterlab/labextension/",
       "source/npm/qsharp/dist/",
