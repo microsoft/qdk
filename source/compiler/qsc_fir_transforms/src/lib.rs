@@ -883,15 +883,15 @@ fn run_item_dce_and_gc(
     let _ =
         item_dce::eliminate_unreachable_foreign_items(store, package_id, &reachable, pinned_items);
 
-    // Node-level GC runs across the whole reachable package closure, not just
-    // the entry package. Structural passes rewrite reachable callables in every
+    // Node-level GC runs across every package, not just the entry-reachable
+    // closure. Structural passes rewrite reachable callables in every
     // package and leave orphaned blocks/stmts/exprs/pats behind in those foreign
     // packages. GC never removes items (pinned items kept by item DCE keep their
     // nodes), but it is required: RCA's top-level statement scan
     // (`unanalyzed_stmts`) treats any package statement not reached through an
     // item body as a top-level statement, so orphaned synthesized statements in
     // foreign packages would otherwise be analyzed out of context and panic.
-    let gc_packages = reachability::collect_reachable_package_closure(package_id, &reachable);
+    let gc_packages: Vec<_> = store.iter().map(|(id, _)| id).collect();
     for gc_pkg in gc_packages {
         let _ = gc_unreachable::gc_unreachable(store.get_mut(gc_pkg));
     }
