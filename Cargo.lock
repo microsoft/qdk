@@ -1947,12 +1947,15 @@ dependencies = [
 name = "qep"
 version = "0.0.0"
 dependencies = [
+ "expect-test",
  "inkwell",
  "num-bigint",
  "num-complex",
  "qdk_simulators",
  "qsc",
+ "qsc_eval",
  "rand 0.10.2",
+ "resource_estimator",
  "rustc-hash",
  "tokio",
 ]

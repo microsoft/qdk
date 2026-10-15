@@ -17,7 +17,7 @@ mod tests;
 
 mod backends;
 mod runner;
-pub use backends::{CountingBackend, CountingBackendCounts, SparseSimBackend};
+pub use backends::{CountingBackend, CountingBackendCounts, QsBackendShim, SparseSimBackend};
 pub use runner::{OutputRecord, OutputValue, RunOutput, run_qir};
 use tokio::sync::mpsc::{Receiver, Sender};
 
