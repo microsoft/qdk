@@ -2998,6 +2998,7 @@ fn build_callable_value_parts(
             let ty = package
                 .items
                 .get(item_id.item)
+                .filter(|_| item_id.package == package.id)
                 .and_then(|item| match &item.kind {
                     ItemKind::Callable(decl) => Some(Ty::Arrow(Box::new(Arrow {
                         kind: decl.kind,
