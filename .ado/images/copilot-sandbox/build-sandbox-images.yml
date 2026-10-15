@@ -1,0 +1,189 @@
+name: copilot-sandbox-$(Build.BuildId)
+trigger: none
+pr: none
+
+schedules:
+  - cron: "0 7 * * *"
+    displayName: Daily patched sandbox images
+    branches:
+      include:
+        - main
+    always: true
+
+parameters:
+  - name: ACR_SERVER
+    type: string
+    default: qdkacr-cfgqhwddajdaebhg.azurecr.io
+  - name: matrix
+    type: object
+    default:
+      - name: linux_x86_64
+        arch: amd64
+        poolName: Azure-Pipelines-DevTools-EO
+        imageName: ubuntu-22.04
+      - name: linux_aarch64
+        arch: arm64
+        poolName: Azure-Pipelines-DevTools-ARM64-EO
+        imageName: azurelinux-3.0-gen2-arm64
+
+variables:
+  AZURE_ARTIFACTS_FEED: https://pkgs.dev.azure.com/ms-azurequantum/AzureQuantum/_packaging/azure-quantum/npm/registry/
+  DOCKER_BUILDKIT: "1"
+
+resources:
+  repositories:
+    - repository: 1ESPipelineTemplates
+      type: git
+      name: 1ESPipelineTemplates/1ESPipelineTemplates
+      ref: refs/tags/release
+
+extends:
+  template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
+  parameters:
+    sdl:
+      sourceAnalysisPool:
+        name: Azure-Pipelines-DevTools-EO
+        image: windows-2025
+        os: windows
+      sbom:
+        continueOnError: false
+      autobaseline:
+        enableForGitHub: true
+    stages:
+      - stage: build
+        jobs:
+          - job: resolveBase
+            displayName: Resolve the shared MCR base index
+            pool:
+              name: Azure-Pipelines-DevTools-EO
+              image: ubuntu-22.04
+              os: linux
+            templateContext:
+              authenticatedContainerRegistries:
+                - serviceConnection: qdkacr
+            steps:
+              - checkout: self
+                clean: true
+                persistCredentials: false
+              - bash: |
+                  set -euo pipefail
+                  base="$(python3 tools/copilot-sandbox/build_images.py resolve-base)"
+                  printf '##vso[task.setvariable variable=BASE_IMAGE;isOutput=true]%s\n' "$base"
+                name: base
+                displayName: Pin Azure Linux core 3.0 for this run
+
+          - ${{ each target in parameters.matrix }}:
+              - job: build_${{ target.name }}
+                displayName: Build and verify ${{ target.arch }} natively
+                dependsOn: resolveBase
+                timeoutInMinutes: 180
+                pool:
+                  name: ${{ target.poolName }}
+                  image: ${{ target.imageName }}
+                  os: linux
+                  ${{ if eq(target.arch, 'arm64') }}:
+                    hostArchitecture: Arm64
+                variables:
+                  BASE_IMAGE: $[ dependencies.resolveBase.outputs['base.BASE_IMAGE'] ]
+                templateContext:
+                  authenticatedContainerRegistries:
+                    - serviceConnection: qdkacr
+                steps:
+                  - checkout: self
+                    clean: true
+                    persistCredentials: false
+                  - task: DownloadSecureFile@1
+                    name: msrustupInstaller
+                    displayName: Obtain the reviewed msrustup installer
+                    inputs:
+                      secureFile: install-msrustup.sh
+                  - task: PipAuthenticate@1
+                    inputs:
+                      artifactFeeds: AzureQuantum/azure-quantum
+                  - template: /.ado/templates/create-authenticated-npmrc.yml@self
+                    parameters:
+                      workingFile: $(Agent.TempDirectory)/sandbox.npmrc
+                  - bash: |
+                      set -euo pipefail
+                      python3 tools/copilot-sandbox/build_images.py build \
+                        --repo "$BUILD_SOURCESDIRECTORY" \
+                        --package-source azure \
+                        --installer "$MSRUSTUP_INSTALLER" \
+                        --secret-env msrustup_access_token=SYSTEM_ACCESSTOKEN \
+                        --secret-file "npmrc=$NPMRC_PATH" \
+                        --secret-env pip_index_url=PIP_INDEX_URL \
+                        --toolchain-feed "$TOOLCHAIN_FEED" \
+                        --crates-feed "$CRATES_FEED" \
+                        --base-image "$BASE_IMAGE" \
+                        --platform linux/${{ target.arch }} \
+                        --registry "$ACR_SERVER" --tag "$BUILD_BUILDID"
+                    displayName: Build offline-verified agent and proxy
+                    env:
+                      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+                      PIP_INDEX_URL: $(PIP_INDEX_URL)
+                      MSRUSTUP_INSTALLER: $(msrustupInstaller.secureFilePath)
+                      NPMRC_PATH: $(Agent.TempDirectory)/sandbox.npmrc
+                      TOOLCHAIN_FEED: $(toolchainFeed)
+                      CRATES_FEED: $(cratesIoFeedOverride)
+                      BASE_IMAGE: $(BASE_IMAGE)
+                      ACR_SERVER: ${{ parameters.ACR_SERVER }}
+                  - task: ComponentGovernanceComponentDetection@0
+                    displayName: Detect components in both local runtime images
+                    inputs:
+                      scanType: Register
+                      scanPath: $(Build.SourcesDirectory)/.ado/images/copilot-sandbox
+                      dockerImagesToScan: ${{ parameters.ACR_SERVER }}/copilot-sandbox/agent:$(Build.BuildId)-${{ target.arch }},${{ parameters.ACR_SERVER }}/copilot-sandbox/proxy:$(Build.BuildId)-${{ target.arch }}
+                  - task: 1ES.PushContainerImage@1
+                    displayName: Push scanned agent architecture
+                    inputs:
+                      image: ${{ parameters.ACR_SERVER }}/copilot-sandbox/agent:$(Build.BuildId)-${{ target.arch }}
+                      remoteImage: ${{ parameters.ACR_SERVER }}/copilot-sandbox/agent:$(Build.BuildId)-${{ target.arch }}
+                  - task: 1ES.PushContainerImage@1
+                    displayName: Push scanned proxy architecture
+                    inputs:
+                      image: ${{ parameters.ACR_SERVER }}/copilot-sandbox/proxy:$(Build.BuildId)-${{ target.arch }}
+                      remoteImage: ${{ parameters.ACR_SERVER }}/copilot-sandbox/proxy:$(Build.BuildId)-${{ target.arch }}
+                  - bash: |
+                      rm -f -- "$NPMRC_PATH"
+                    displayName: Remove temporary npm authentication
+                    condition: always()
+                    env:
+                      NPMRC_PATH: $(Agent.TempDirectory)/sandbox.npmrc
+
+          - job: publishImageManifest
+            displayName: Publish multiarch indexes
+            dependsOn:
+              - ${{ each target in parameters.matrix }}:
+                  - build_${{ target.name }}
+            condition: succeeded()
+            pool:
+              name: Azure-Pipelines-DevTools-EO
+              image: ubuntu-22.04
+              os: linux
+            templateContext:
+              authenticatedContainerRegistries:
+                - serviceConnection: qdkacr
+            steps:
+              - checkout: self
+                clean: true
+                persistCredentials: false
+              - bash: |
+                  set -euo pipefail
+                  for component in agent proxy; do
+                    image="$ACR_SERVER/copilot-sandbox/$component"
+                    docker buildx imagetools create --tag "$image:$BUILD_BUILDID" \
+                      "$image:$BUILD_BUILDID-amd64" "$image:$BUILD_BUILDID-arm64"
+                  done
+                displayName: Create BuildId indexes after both native builds succeed
+                env:
+                  ACR_SERVER: ${{ parameters.ACR_SERVER }}
+              - bash: |
+                  set -euo pipefail
+                  for component in agent proxy; do
+                    image="$ACR_SERVER/copilot-sandbox/$component"
+                    docker buildx imagetools create --tag "$image:latest" "$image:$BUILD_BUILDID"
+                  done
+                displayName: Advance latest only after both BuildId indexes succeed on main
+                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+                env:
+                  ACR_SERVER: ${{ parameters.ACR_SERVER }}

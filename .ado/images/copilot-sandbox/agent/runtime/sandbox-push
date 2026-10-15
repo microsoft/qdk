@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+options=()
+[[ ${1:-} != --quiet ]] || options+=(--quiet)
+git push "${options[@]}" --force --prune outbox 'refs/heads/*:refs/heads/*'

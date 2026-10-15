@@ -1,0 +1,109 @@
+# Not intended to be used directly.  Invoke via `sandbox.py run`
+services:
+  agent:
+    image: ${QDK_SANDBOX_AGENT_IMAGE:?Use sandbox.py run}
+    pull_policy: never
+    secrets: [gh_token]
+    command: [copilot, --allow-all]
+    user: "1000:1000"
+    working_dir: /work
+    init: true
+    stdin_open: true
+    tty: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 4096
+    cpus: ${QDK_SANDBOX_CPUS:-0}
+    mem_limit: ${QDK_SANDBOX_MEMORY:-0}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,mode=1777
+    labels:
+      io.qdk.copilot-sandbox.role: agent
+      io.qdk.copilot-sandbox.owner: ${QDK_SANDBOX_OWNER:?Use sandbox.py run}
+    environment:
+      - HOME=/home/agent
+      - USER=agent
+      - SHELL=/bin/bash
+      - QDK_SEED_BRANCH
+      - QDK_SEED_SHA
+      - QDK_BRANCH
+      - QDK_SANDBOX_INSTANCE
+      - HTTPS_PROXY=http://proxy:3128
+      - HTTP_PROXY=http://proxy:3128
+      - https_proxy=http://proxy:3128
+      - http_proxy=http://proxy:3128
+      - NO_PROXY=localhost,127.0.0.1,::1
+      - no_proxy=localhost,127.0.0.1,::1
+      - NODE_USE_ENV_PROXY=1
+      - COPILOT_AUTO_UPDATE=false
+    dns: [127.0.0.1]
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
+    networks: [internal]
+    volumes:
+      - type: volume
+        source: work
+        target: /work
+      - type: volume
+        source: copilot
+        target: /home/agent/.copilot
+      - type: bind
+        source: ${QDK_SANDBOX_SEED_DIR:?Use sandbox.py run}
+        target: /seed.git
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${QDK_SANDBOX_OUTBOX_DIR:?Use sandbox.py run}
+        target: /outbox.git
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${QDK_SANDBOX_TO_DIR:?Use sandbox.py run}
+        target: /exchange/to_copilot
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${QDK_SANDBOX_FROM_DIR:?Use sandbox.py run}
+        target: /exchange/from_copilot
+        bind:
+          create_host_path: false
+
+  proxy:
+    image: ${QDK_SANDBOX_PROXY_IMAGE:?Use sandbox.py run}
+    pull_policy: never
+    user: squid
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,mode=1777
+    labels:
+      io.qdk.copilot-sandbox.owner: ${QDK_SANDBOX_OWNER:?Use sandbox.py run}
+    networks: [internal, egress]
+    volumes:
+      - type: bind
+        source: ${QDK_SANDBOX_ALLOWLIST:?Use sandbox.py run}
+        target: /etc/squid/allowlist.local.txt
+        read_only: true
+        bind:
+          create_host_path: false
+
+secrets:
+  gh_token:
+    environment: QDK_SANDBOX_TOKEN
+
+networks:
+  internal:
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  egress:
+    enable_ipv6: false
+
+volumes:
+  work: {}
+  copilot: {}

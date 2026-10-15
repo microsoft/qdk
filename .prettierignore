@@ -12,6 +12,7 @@ __pycache__/
 .venv*/
 /katas/**/*.md
 /library/
+/exchange/
 /source/allocator/
 /source/compiler/
 /source/jupyterlab/lib/
