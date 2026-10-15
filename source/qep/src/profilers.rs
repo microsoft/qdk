@@ -24,7 +24,7 @@ pub struct ProfilerResult {
     pub calls_per_operation: FxHashMap<String, u64>,
 
     /// For each operation, time spent in that operation.
-    pub runtime_time_sec_per_operation: FxHashMap<String, f64>,
+    pub runtime_sec_per_operation: FxHashMap<String, f64>,
 
     /// Informational messages about assumptions made while profiling.
     pub infos: Vec<String>,

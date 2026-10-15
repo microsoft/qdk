@@ -102,8 +102,8 @@ impl ProfilerResult {
 
     /// Returns estimated runtimes keyed by QIR instruction name.
     #[getter]
-    fn runtime_time_sec_per_operation(&self) -> FxHashMap<String, f64> {
-        self.0.runtime_time_sec_per_operation.clone()
+    fn runtime_sec_per_operation(&self) -> FxHashMap<String, f64> {
+        self.0.runtime_sec_per_operation.clone()
     }
 
     /// Returns informational messages generated while profiling.

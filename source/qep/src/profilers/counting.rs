@@ -90,7 +90,7 @@ impl Profiler for SequentialCountingProfiler {
     fn get_result(&self) -> ProfilerResult {
         let mut calls_per_operation =
             FxHashMap::with_capacity_and_hasher(OPERATION_COUNT, Default::default());
-        let mut runtime_time_sec_per_operation =
+        let mut runtime_sec_per_operation =
             FxHashMap::with_capacity_and_hasher(OPERATION_COUNT, Default::default());
         let mut missing_timings = Vec::new();
         let mut total_runtime_sec = 0.0;
@@ -108,7 +108,7 @@ impl Profiler for SequentialCountingProfiler {
             let runtime = calls as f64 * gate_time_sec;
             total_runtime_sec += runtime;
             calls_per_operation.insert((*name).to_string(), calls);
-            runtime_time_sec_per_operation.insert((*name).to_string(), runtime);
+            runtime_sec_per_operation.insert((*name).to_string(), runtime);
         }
         let infos = if missing_timings.is_empty() {
             Vec::new()
@@ -132,7 +132,7 @@ impl Profiler for SequentialCountingProfiler {
             physical_qubits,
             total_runtime_sec,
             calls_per_operation,
-            runtime_time_sec_per_operation,
+            runtime_sec_per_operation,
             infos,
         }
     }
@@ -206,7 +206,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            result.runtime_time_sec_per_operation,
+            result.runtime_sec_per_operation,
             FxHashMap::from_iter([
                 ("h".to_string(), 0.5),
                 ("mz".to_string(), 1.0),
@@ -245,7 +245,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            result.runtime_time_sec_per_operation,
+            result.runtime_sec_per_operation,
             FxHashMap::from_iter([
                 ("h".to_string(), 0.25),
                 ("mz".to_string(), 0.0),

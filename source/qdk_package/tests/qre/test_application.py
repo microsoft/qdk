@@ -340,7 +340,7 @@ def test_qsharp_application_profile():
     assert result.logical_qubits == 2
     assert result.physical_qubits == 20
     assert result.calls_per_operation == {"x": 2, "mz": 2, "read_result": 2}
-    assert result.runtime_time_sec_per_operation == {
+    assert result.runtime_sec_per_operation == {
         "x": 0.5,
         "mz": 1.0,
         "read_result": 0.25,
@@ -371,6 +371,6 @@ def test_qsharp_application_profile_no_gate_times():
     assert isinstance(profiler, Profiler)
     assert isinstance(result, ProfilerResult)
     assert result.calls_per_operation == {"x": 1}
-    assert result.runtime_time_sec_per_operation == {"x": 0.0}
+    assert result.runtime_sec_per_operation == {"x": 0.0}
     assert result.total_runtime_sec == 0.0
     assert result.infos == ["These gates did not have time configured, assumed 0: [x]"]
