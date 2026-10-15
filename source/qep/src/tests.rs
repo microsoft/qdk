@@ -15,6 +15,11 @@ impl QirFile {
             rand::random::<u64>()
         )))
     }
+
+    /// Returns the temporary QIR path as UTF-8.
+    pub(crate) fn path(&self) -> &str {
+        self.0.to_str().unwrap()
+    }
 }
 
 impl Drop for QirFile {

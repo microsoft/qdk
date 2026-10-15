@@ -3,7 +3,7 @@
 
 mod counting;
 
-use crate::QuantumBackend;
+use crate::{QuantumBackend, run_qir};
 use std::collections::HashMap;
 
 pub use counting::SequentialCountingProfiler;
@@ -31,7 +31,22 @@ pub struct ProfilerResult {
 }
 
 /// A quantum backend that reports profiling data after execution.
+#[allow(async_fn_in_trait)]
 pub trait Profiler: QuantumBackend {
     /// Returns the profiling data collected so far.
     fn get_result(&self) -> ProfilerResult;
+
+    /// Executes a QIR file and returns the profiling data collected afterward.
+    ///
+    /// # Safety
+    ///
+    /// The caller must satisfy the safety requirements of [`run_qir`].
+    async unsafe fn profile_qir(&mut self, qir_file_name: &str) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        // SAFETY: The caller accepts the safety contract inherited from `run_qir`.
+        unsafe { run_qir(qir_file_name, self).await? };
+        Ok(self.get_result())
+    }
 }
