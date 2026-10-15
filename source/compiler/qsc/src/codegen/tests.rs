@@ -3866,6 +3866,67 @@ fn forwarded_callable_array_emits_both_operations() {
 }
 
 #[test]
+fn dynamic_recursion_reports_error_instead_of_overflowing() {
+    // The recursion depth depends on a measurement, so inlining cannot unroll
+    // it. Previously the partial evaluator inlined forever and overflowed the
+    // stack; it must report a diagnostic instead.
+    let source = r#"
+        operation Recurse(count : Int, qs : Qubit[]) : Unit {
+            if count > 0 {
+                Recurse(count - 1, qs);
+                X(qs[0]);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit();
+            use qs = Qubit[1];
+            let count = if MResetZ(flag) == Zero { 2 } else { 0 };
+            Recurse(count, qs);
+            MResetZ(qs[0])
+        }
+        "#;
+    let errors = compile_source_to_qir_result(source, Profile::Adaptive.into())
+        .expect_err("runtime recursion depth cannot be unrolled");
+    let diagnostics = format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+        "expected a recursive-inlining diagnostic:\n{diagnostics}"
+    );
+    let static_source = source.replace("if MResetZ(flag) == Zero { 2 } else { 0 }", "2");
+    let qir = compile_source_to_qir(&static_source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @X(").count(),
+        2,
+        "a compile-time recursion depth must still unroll to two X gates:\n{qir}"
+    );
+}
+
+#[test]
+fn inline_adjoint_call_is_not_recursive_reentry() {
+    let source = r#"
+        operation Act(target : Qubit) : Unit is Adj {
+            body (...) { if M(target) == One { Adjoint Act(target); } }
+            adjoint (...) { X(target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            X(target);
+            Act(target);
+            MResetZ(target)
+        }
+        "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("br i1"),
+            "{profile:?} must compile the runtime branch:\n{qir}"
+        );
+    }
+}
+
+#[test]
 fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() {
     let caps = Profile::AdaptiveRI.into();
     let mut interpreter = interpreter_with_capabilities(caps);

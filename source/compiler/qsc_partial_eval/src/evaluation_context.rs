@@ -6,7 +6,7 @@ use qsc_eval::{
     Env, Variable,
     val::{Result, Value},
 };
-use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
+use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId, StoreItemId};
 use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -90,6 +90,25 @@ impl EvaluationContext {
         self.scopes
             .iter()
             .any(Scope::is_currently_evaluating_branch)
+    }
+
+    /// A recursive re-entry cannot be safely unrolled while its active
+    /// specialization is emitting runtime-dependent control flow. Different
+    /// control counts still use the same controlled specialization.
+    pub fn is_callable_in_dynamic_branch(
+        &self,
+        callable: StoreItemId,
+        functor: FunctorApp,
+    ) -> bool {
+        self.scopes.iter().any(|scope| {
+            scope.package_id == callable.package
+                && scope.callable.is_some_and(|(item, active)| {
+                    item == callable.item
+                        && active.adjoint == functor.adjoint
+                        && (active.controlled > 0) == (functor.controlled > 0)
+                })
+                && scope.is_currently_evaluating_branch()
+        })
     }
 }
 

@@ -116,6 +116,13 @@ pub enum Error {
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
+    #[error("cannot inline a recursive call under runtime-dependent control flow")]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"))]
+    #[diagnostic(help(
+        "make the recursion depth known at compile time or use a non-recursive implementation"
+    ))]
+    UnsupportedRecursiveInlining(#[label] PackageSpan),
+
     #[error("unsupported type `{0}` in custom intrinsic callable")]
     #[diagnostic(help(
         "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
@@ -169,6 +176,7 @@ impl Error {
         match self {
             Self::CapabilityError(e) => map_fir_package_span_to_hir(e.span()),
             Self::UnexpectedDynamicValue(span)
+            | Self::UnsupportedRecursiveInlining(span)
             | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
             | Self::OutputResultLiteral(span)
@@ -1654,10 +1662,8 @@ impl<'a> PartialEvaluator<'a> {
             ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
             || self.in_parallel_expr()
         {
-            // A call site that has the `MustBeInlined` runtime feature flag set is not eligible to be emitted as an IR function
-            // based on Runtime Capabilities Analysis, so we fall through to the inline path
-            // OR we are currently in a parrallel expression which requires that all calls are inlined to ensure the whole parallel
-            // ends up in a single block.
+            // A call site explicitly marked for inlining uses the inline path.
+            // Parallel expressions also require inlining to stay in one block.
             None
         } else {
             spec_decl
@@ -1703,6 +1709,15 @@ impl<'a> PartialEvaluator<'a> {
                             .any(|operand| matches!(operand, Operand::Variable(_)))
                 })
         };
+        if ir_function_arg_operands.is_none()
+            && self
+                .eval_context
+                .is_callable_in_dynamic_branch(store_item_id, functor_app)
+        {
+            return Err(Error::UnsupportedRecursiveInlining(
+                self.get_expr_package_span(call_expr_id),
+            ));
+        }
         let call_scope = Scope::new(
             store_item_id.package,
             Some((store_item_id.item, functor_app)),
@@ -2192,6 +2207,7 @@ impl<'a> PartialEvaluator<'a> {
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
     /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
+    /// The caller additionally checks body resolution and folds fully static calls.
     fn is_ir_function_eligible(
         &self,
         store_item_id: StoreItemId,
