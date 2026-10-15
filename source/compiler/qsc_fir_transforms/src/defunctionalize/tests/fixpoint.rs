@@ -1599,7 +1599,7 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
 /// allowing the recursive specialization chain to converge.
 ///
 /// The `check_rewrite` snapshot locks the converged specialization routing;
-/// the separate Mono-stage trace assertion checks its input's semantics.
+/// the trace assertion checks semantics after monomorphization and the full pipeline.
 /// The routing is `{H}` -> `{closure}` -> lifted lambda -> `{H}`, so `Repeat(H, 2, q)`
 /// applies `H` exactly twice.
 /// The partial application has no functors, so its recursive edge targets
@@ -1619,7 +1619,7 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
         }
         "#;
     check_invariants(source);
-    assert_recursive_partial_application_mono_trace(source);
+    assert_recursive_partial_application_trace(source);
     check(
         source,
         &expect![[r#"
@@ -1739,7 +1739,17 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
 
             }
             operation _lambda_3(arg : Int, hole : Qubit) : Unit {
-                Repeat_AdjCtl__H_(H, arg, hole)
+                Repeat_AdjCtl__H_(arg, hole)
+            }
+            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_Empty__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
             }
             operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
                 if n > 0 {
@@ -1757,20 +1767,10 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                     Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
-            }
-            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
-                Repeat_AdjCtl__H_(arg, hole)
             }
             operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
                 if n > 0 {
                     H(q);
-                    Repeat_Empty__closure_(n - 1, q, 1);
-                }
-
-            }
-            operation Repeat_Empty__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
-                if n > 0 {
-                    _lambda_3(__capture_0, q);
                     Repeat_Empty__closure_(n - 1, q, 1);
                 }
 
@@ -1823,7 +1823,7 @@ fn adjoint_recursive_hof_partial_app_shared_target_converges() {
         "#;
     check_invariants(source);
     check_pipeline(source);
-    assert_recursive_partial_application_mono_trace(source);
+    assert_recursive_partial_application_trace(source);
     check(
         source,
         &expect![[r#"
@@ -1843,9 +1843,9 @@ fn adjoint_recursive_hof_partial_app_shared_target_converges() {
     );
 }
 
-/// Check the changed monomorphization boundary independently of later passes:
-/// two H gates return the qubit to zero before release.
-fn assert_recursive_partial_application_mono_trace(source: &str) {
+/// Two H gates return the qubit to zero; both intermediate and full transforms
+/// must preserve the complete gate/allocation trace and successful release.
+fn assert_recursive_partial_application_trace(source: &str) {
     use crate::test_utils::{
         TraceOp, compile_to_fir, compile_to_monomorphized_fir, try_eval_fir_entry_with_trace,
     };
@@ -1865,6 +1865,34 @@ fn assert_recursive_partial_application_mono_trace(source: &str) {
         try_eval_fir_entry_with_trace(&transformed, package),
         expected
     );
+    let (transformed, package) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
+    assert_eq!(
+        try_eval_fir_entry_with_trace(&transformed, package),
+        expected
+    );
+}
+
+#[test]
+fn recursive_partial_application_preserves_scalar_arguments() {
+    for (depth, expected) in [(0, 3), (1, 6), (4, 9)] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Double(value : Int) : Int {{ value * 2 }}
+            function Repeat(action : Int -> Int, depth : Int, value : Int) : Int {{
+                if depth <= 0 {{ value }}
+                else {{ Repeat(Repeat(Inc, 1, _), depth - 1, action(value)) }}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Repeat(Double, {depth}, 3) }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
 }
 
 /// Regression for a recursive HOF with an auto-generated controlled body.

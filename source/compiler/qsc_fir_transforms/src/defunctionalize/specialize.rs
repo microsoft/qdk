@@ -986,6 +986,7 @@ fn specialize_many(
 
     // Recover the assigner from the cloner so all subsequent allocations flow
     // through the shared pipeline assigner.
+    let nested_items: Vec<_> = cloner.item_map().values().copied().collect();
     *assigner = cloner.into_assigner();
 
     let callable_array_position = find_callable_array_group_position(&remapped_params, group);
@@ -1037,6 +1038,7 @@ fn specialize_many(
         &spec_arg_keys,
         &new_decl,
         &remapped_params,
+        &nested_items,
     );
 
     let new_item = Item {
@@ -1524,6 +1526,7 @@ fn specialize_one(
 
     // Recover the assigner from the cloner so all subsequent allocations
     // flow through the shared pipeline assigner.
+    let nested_items: Vec<_> = cloner.item_map().values().copied().collect();
     *assigner = cloner.into_assigner();
 
     apply_single_param_specialization(
@@ -1555,6 +1558,7 @@ fn specialize_one(
         &spec_arg_keys,
         &new_decl,
         std::slice::from_ref(&remapped_param),
+        &nested_items,
     );
 
     // Insert the new item.
@@ -1733,6 +1737,7 @@ fn apply_single_param_specialization(
 /// mismatch so the decision fails safe. Capturing closures take that path even
 /// when their lifted target matches: the normal rewrite must thread their
 /// runtime environment, which this slot-removal shortcut does not construct.
+#[allow(clippy::too_many_arguments)]
 fn rewrite_recursive_self_call_args(
     package: &mut Package,
     package_id: PackageId,
@@ -1741,17 +1746,53 @@ fn rewrite_recursive_self_call_args(
     spec_arg_keys: &[ConcreteCallableKey],
     decl: &CallableDecl,
     params: &[CallableParam],
+    nested_items: &[LocalItemId],
 ) {
-    let mut self_calls = Vec::new();
-    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
-        let ExprKind::Call(callee_id, args_id) = expr.kind else {
-            return;
-        };
-        let (base_id, outer_functor) = peel_body_functors(package, callee_id);
-        if expr_is_item_callee(package, base_id, package_id, self_item_id) {
-            self_calls.push((callee_id, base_id, args_id, outer_functor));
+    let mut expr_ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    // The new declaration is not in the package yet, so collect it directly
+    // before adding the cloned nested bodies through the shared collector.
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |id, _| {
+        if seen.insert(id) {
+            expr_ids.push(id);
         }
     });
+    assert!(
+        nested_items
+            .iter()
+            .all(|id| package.items.contains_key(*id)),
+        "cloned nested items must exist before rewriting recursive calls"
+    );
+    // Add all specialization bodies of the cloned nested callables. Sharing
+    // `seen` collects each expression once without following unrelated callees.
+    crate::walk_utils::extend_expr_ids_in_local_callables(
+        package,
+        nested_items,
+        &mut expr_ids,
+        &mut seen,
+    );
+    // The clone map does not promise order; sort for reproducible rewrites.
+    expr_ids.sort_unstable();
+    // Freeze the recursive call sites before changing any targets or arguments.
+    // Only calls to the new specialization qualify, including Adj/Ctl calls.
+    let self_calls: Vec<_> = expr_ids
+        .into_iter()
+        .filter_map(|id| {
+            let expr = package.get_expr(id);
+            let ExprKind::Call(callee_id, args_id) = expr.kind else {
+                return None;
+            };
+            // Keep the full callee for type refresh and its unwrapped item
+            // reference for possible redirection back to the original HOF.
+            let (base_id, outer_functor) = peel_body_functors(package, callee_id);
+            expr_is_item_callee(package, base_id, package_id, self_item_id).then_some((
+                callee_id,
+                base_id,
+                args_id,
+                outer_functor,
+            ))
+        })
+        .collect();
 
     for (callee_id, base_id, args_id, outer_functor) in self_calls {
         // Resolve the concrete callable each self-call forwards into the
