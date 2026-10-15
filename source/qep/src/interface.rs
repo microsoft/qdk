@@ -4,9 +4,26 @@
 use crate::qir_isa::QirInstruction;
 use smallvec::SmallVec;
 
+type QubitID = usize;
+
+#[derive(Debug)]
+pub enum ClassicalParameter {
+    Float(f64),
+    ResultId(usize),
+}
+
+#[derive(Debug)]
+pub struct NamedQuantumInstruction {
+    pub name: &'static str,
+    /// Operand IDs in instruction order, including result IDs for measurements and reads.
+    pub targets: SmallVec<[QubitID; 3]>,
+    pub classical_parameters: SmallVec<[ClassicalParameter; 1]>,
+}
+
 #[derive(Debug)]
 pub enum QuantumInstruction {
     QirInstruction(QirInstruction),
+    NamedQuantumInstruction(NamedQuantumInstruction),
 }
 
 /// A measurement value or a backend-reported error.
