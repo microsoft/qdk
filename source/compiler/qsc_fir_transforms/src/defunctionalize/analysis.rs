@@ -816,6 +816,19 @@ fn record_hof_call_sites(
                 condition: vec![],
             });
         };
+        if !cp.field_path.is_empty()
+            && matches!(cp.param_ty, Ty::Array(_))
+            && matches!(
+                store.get(hof_store_id.package).get_global(hof_store_id.item),
+                Some(Global::Callable(decl)) if super::ty_contains_arrow(&decl.output)
+            )
+        {
+            // A captured aggregate needs its whole layout, including fields
+            // outside the callable array. Scalar capture substitution cannot
+            // erase that aggregate's input slot.
+            record_dynamic_call_site();
+            continue;
+        }
         match resolved {
             CalleeLattice::Single(cc) if closure_captures_can_be_replayed(pkg, &cc, locals) => {
                 call_sites.push(CallSite {
@@ -2135,6 +2148,12 @@ fn resolve_callable_return(
     };
 
     if !output_path_resolves_to_arrow(store, &decl.output, output_path) {
+        return CalleeLattice::Dynamic;
+    }
+    if extract_arrow_params(store, callee_pkg, producer, decl.input)
+        .iter()
+        .any(|param| !param.field_path.is_empty() && matches!(param.param_ty, Ty::Array(_)))
+    {
         return CalleeLattice::Dynamic;
     }
 

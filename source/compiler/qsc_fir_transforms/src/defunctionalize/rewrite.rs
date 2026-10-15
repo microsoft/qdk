@@ -116,10 +116,10 @@ pub(super) fn rewrite(
     total_foreign: &FxHashSet<ItemId>,
 ) {
     let capture_dependencies = capture_expression_dependencies(package, package_id, analysis);
-    let capture_locals: FxHashMap<_, _> = capture_dependencies
+    let capture_expressions: FxHashMap<_, _> = capture_dependencies
         .values()
         .flatten()
-        .map(|&id| (id, local_read(package, id)))
+        .map(|&id| (id, package.get_expr(id).clone()))
         .collect();
     let expr_owner_lookup = build_expr_owner_lookup(package, package_id, specialized_items);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
@@ -196,13 +196,19 @@ pub(super) fn rewrite(
             .get(&call_expr_id)
             .is_some_and(|dependencies| {
                 dependencies.iter().any(|id| {
-                    local_read(package, *id).is_some_and(|local| capture_locals[id] != Some(local))
+                    let before = &capture_expressions[id];
+                    let after = package.get_expr(*id);
+                    before != after
+                        && !matches!(
+                            (&before.kind, &after.kind),
+                            (ExprKind::Lit(Lit::Double(left)), ExprKind::Lit(Lit::Double(right)))
+                                if before.ty == after.ty && left.to_bits() == right.to_bits()
+                        )
                 })
             })
         {
-            // Inner rewrites can turn a captured expression into a read of a
-            // new block-local temporary. Reanalyze before relocating that read,
-            // including when the callable is reached through an unchanged alias.
+            // Inner rewrites can change a captured argument's shape or introduce
+            // block-local temporaries. Reanalyze before using stale capture facts.
             continue;
         }
         if let Some(group) = grouped.get(&call_expr_id) {
@@ -277,13 +283,6 @@ pub(super) fn rewrite(
         &hof_consumed_source_arrays,
         total_foreign,
     );
-}
-
-fn local_read(package: &Package, expr: ExprId) -> Option<LocalVarId> {
-    match package.get_expr(expr).kind {
-        ExprKind::Var(Res::Local(local), _) => Some(local),
-        _ => None,
-    }
 }
 
 /// Records the expression dependencies of analyzed capture operands per call.

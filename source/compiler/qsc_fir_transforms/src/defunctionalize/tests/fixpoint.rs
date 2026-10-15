@@ -2458,6 +2458,107 @@ fn reassigned_callable_preserves_index_failures() {
 }
 
 #[test]
+fn forwarded_callable_array_preserves_results_and_effects() {
+    let source = r#"
+        operation RunLoop(
+            operations : ((Qubit, Qubit) => Unit is Adj)[],
+            qubits : Qubit[]
+        ) : Unit is Adj {
+            for index in 0..Length(operations) - 1 {
+                operations[index](qubits[index], qubits[2]);
+            }
+        }
+        function MakeLoop(
+            operations : ((Qubit, Qubit) => Unit is Adj)[]
+        ) : Qubit[] => Unit is Adj {
+            RunLoop(operations, _)
+        }
+        operation Forward(action : Qubit[] => Unit is Adj, qubits : Qubit[]) : Unit {
+            action(qubits);
+        }
+        operation Apply(action : Qubit[] => Unit is Adj) : Result[] {
+            use qubits = Qubit[3];
+            X(qubits[0]);
+            X(qubits[1]);
+            Forward(action, qubits);
+            MResetEachZ(qubits)
+        }
+        operation First(control : Qubit, target : Qubit) : Unit is Adj {
+            CNOT(control, target);
+        }
+        operation Second(control : Qubit, target : Qubit) : Unit is Adj {
+            CNOT(control, target);
+            X(control);
+        }
+        @EntryPoint()
+        operation Main() : Result[] {
+            Apply(MakeLoop([First, Second]))
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Array(
+            [true, false, false]
+                .into_iter()
+                .map(|value| qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(value)))
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+    );
+}
+
+#[test]
+fn captured_callable_array_preserves_values() {
+    // `Run` applies each element to 3 and packs the results as two-digit
+    // groups, so `[Inc, Twice]` gives 4 then 6, or 406. Every element must keep
+    // its own captures and position after the array is captured by a closure.
+    for (argument, expected) in [
+        ("[Inc, Twice]", 406),
+        ("[Twice, Inc]", 604),
+        ("[Inc, Inc, Twice]", 40406),
+        ("[Make(7), Make(19)]", 1022),
+        ("[Make(7), Twice]", 1006),
+        ("[Twice, Make(7)]", 610),
+        ("[Make(7)]", 10),
+        ("[Make(7), MakeAffine(19, 5)]", 1034),
+        ("[MakeAffine(19, 5), Make(7)]", 3410),
+        ("[Inc, size = 2]", 404),
+        ("[Make(7), size = 2]", 1010),
+        ("[Inc, size = 0]", 0),
+    ] {
+        for use_array in [
+            "for action in operations { set answer = answer * 100 + action(3); }",
+            "for index in 0..Length(operations) - 1 { set answer = answer * 100 + operations[index](3); }",
+        ] {
+            let source = format!(
+                r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Twice(value : Int) : Int {{ value * 2 }}
+                function Make(offset : Int) : Int -> Int {{ value -> value + offset }}
+                function MakeAffine(offset : Int, scale : Int) : Int -> Int {{
+                    value -> offset + scale * value
+                }}
+                function Run(operations : (Int -> Int)[]) : Int {{
+                    mutable answer = 0;
+                    {use_array}
+                    answer
+                }}
+                function Capture(operations : (Int -> Int)[]) : Unit -> Int {{ () -> Run(operations) }}
+                function Forward(action : Unit -> Int) : Int {{ action() }}
+                function Apply(action : Unit -> Int) : Int {{ Forward(action) }}
+                @EntryPoint()
+                operation Main() : Int {{ Apply(Capture({argument})) }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(expected),
+            );
+        }
+    }
+}
+
+#[test]
 fn indexed_array_members_keep_their_positions() {
     // `choices` has two slots: `actions[index]` and `Minus`. `Read` packs each
     // result into two decimal digits, so `[Inc, Minus]` gives 402 and
@@ -2527,6 +2628,84 @@ fn direct_indexed_callees_preserve_operand_order() {
         crate::test_utils::check_semantic_equivalence_with_expected(
             &source,
             qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn captured_callable_array_preserves_functors() {
+    let source = r#"
+        function Make(angle : Double) : Qubit => Unit is Adj + Ctl {
+            Ry(angle, _)
+        }
+        function MakeRepeated(angle : Double, count : Int) : Qubit => Unit is Adj + Ctl {
+            target => { for _ in 1..count { Rz(angle, target); } }
+        }
+        function Capture(actions : (Qubit => Unit is Adj + Ctl)[]) : Qubit => Unit is Adj + Ctl {
+            target => { for action in actions { action(target); } }
+        }
+        operation Apply(action : Qubit => Unit is Adj + Ctl, control : Qubit, target : Qubit) : Unit {
+            action(target);
+            Adjoint action(target);
+            Controlled action([control], target);
+            Controlled Adjoint action([control], target);
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use control = Qubit();
+            X(control);
+            Apply(Capture([Make(0.3), MakeRepeated(0.7, 2)]), control, target);
+            X(control);
+            MResetZ(target)
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn captured_callable_array_preserves_aggregate_wrappers() {
+    for (parameter, argument, call) in [
+        (
+            "operations : (Int -> Int)[]",
+            "[Inc, Twice]",
+            "Run(operations)",
+        ),
+        (
+            "config : Config",
+            "new Config { Actions = [Inc, Twice] }",
+            "Run(config.Actions)",
+        ),
+        (
+            "pair : ((Int -> Int)[], Int)",
+            "([Inc, Twice], 0)",
+            "{ let (operations, _) = pair; Run(operations) }",
+        ),
+    ] {
+        let source = format!(
+            r#"
+            struct Config {{ Actions : (Int -> Int)[] }}
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Run(operations : (Int -> Int)[]) : Int {{
+                operations[0](3) * 100 + operations[-1](3)
+            }}
+            function Capture({parameter}) : Unit -> Int {{ () -> {call} }}
+            function Forward(action : Unit -> Int) : Int {{ action() }}
+            function Apply(action : Unit -> Int) : Int {{ Forward(action) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                let input = {argument};
+                Apply(Capture(input))
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(406),
         );
     }
 }

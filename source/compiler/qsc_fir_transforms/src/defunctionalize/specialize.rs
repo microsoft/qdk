@@ -2143,7 +2143,7 @@ fn concrete_with_threaded_captures(
 /// Identifies whether a closure's only captured value is itself a concrete
 /// callable eligible to be baked into the closure target.
 ///
-/// Only a single-capture closure with `static_callable` metadata qualifies.
+/// Only a single scalar arrow capture with `static_callable` metadata qualifies.
 /// The metadata supplies a global item and functor; this helper does not
 /// resolve the initializer or infer a callable from the capture's type.
 /// All other captures stay threaded as runtime operands.
@@ -2155,6 +2155,9 @@ fn captured_callable_specialization(
         return None;
     }
     let capture = captures.first()?;
+    if !matches!(capture.ty, Ty::Arrow(_)) {
+        return None;
+    }
     capture
         .static_callable
         .map(|(item_id, functor)| CapturedCallableSpecialization {
@@ -3009,6 +3012,15 @@ fn transform_expr(
                     capture_idx,
                     param,
                     concrete,
+                    if matches!(param.param_ty, Ty::Array(_)) {
+                        if concrete_group.is_empty() {
+                            std::slice::from_ref(concrete)
+                        } else {
+                            concrete_group
+                        }
+                    } else {
+                        &[]
+                    },
                     specialized_capture_targets,
                     assigner,
                 );
@@ -4141,6 +4153,7 @@ fn build_direct_target_callee_ty(
 /// closure's target callable and replace the capture. A concrete closure's own
 /// captures are rebound to fresh target parameters and spliced into the
 /// enclosing closure; a concrete without captures removes the slot.
+/// For a callable array, every member's captures are rebound in array order.
 ///
 /// # Before
 /// ```text
@@ -4167,6 +4180,7 @@ fn transform_closure_param_capture(
     capture_idx: usize,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     specialized_capture_targets: &mut CaptureSpecializations,
     assigner: &mut Assigner,
 ) {
@@ -4194,10 +4208,16 @@ fn transform_closure_param_capture(
             capture_idx,
             &param.param_ty,
             concrete,
+            concrete_group,
             assigner,
         )
-    } else {
+    } else if concrete_group.is_empty() {
         concrete_capture_operands(concrete)
+    } else {
+        concrete_group
+            .iter()
+            .flat_map(concrete_capture_operands)
+            .collect()
     };
 
     // Retarget this Closure expression's capture list. A concrete that carried
@@ -4248,6 +4268,9 @@ fn concrete_capture_operands(concrete: &ConcreteCallable) -> Vec<CaptureBinding>
 /// built it, which the target body does not bind. Those captures are rebound to
 /// fresh parameters of the target, and the returned bindings tell the caller
 /// which operands the enclosing `Closure` expression must now carry.
+/// Callable arrays flatten every member's environment in array order and retain
+/// a separately rebound capture slice for each candidate.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn specialize_closure_target_for_captured_param(
     package: &mut Package,
     package_id: PackageId,
@@ -4255,6 +4278,7 @@ fn specialize_closure_target_for_captured_param(
     capture_idx: usize,
     capture_ty: &Ty,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     assigner: &mut Assigner,
 ) -> Vec<CaptureBinding> {
     // Step 1: Find the corresponding binding in the closure target's input pattern.
@@ -4308,13 +4332,19 @@ fn specialize_closure_target_for_captured_param(
         closure_target,
         capture_idx,
         concrete,
+        concrete_group,
         assigner,
     );
     let local_concrete = rebound
         .as_ref()
         .map_or_else(|| concrete.clone(), |rebound| rebound.concrete.clone());
 
-    let existing_calls = if let ConcreteCallable::Closure { target, .. } = &local_concrete {
+    let local_group = rebound
+        .as_ref()
+        .map_or(concrete_group, |rebound| rebound.group.as_slice());
+    let existing_calls = if local_group.is_empty()
+        && let ConcreteCallable::Closure { target, .. } = &local_concrete
+    {
         collect_calls_to_closure_target(package, &target_decl.implementation, package_id, *target)
     } else {
         FxHashSet::default()
@@ -4332,12 +4362,14 @@ fn specialize_closure_target_for_captured_param(
         &target_decl.implementation,
         &closure_param,
         &local_concrete,
-        &[],
+        local_group,
         &mut specialized_capture_targets,
         assigner,
     );
 
-    if let ConcreteCallable::Closure { target, .. } = &local_concrete {
+    if local_group.is_empty()
+        && let ConcreteCallable::Closure { target, .. } = &local_concrete
+    {
         let calls = collect_calls_to_closure_target(
             package,
             &target_decl.implementation,
@@ -4384,15 +4416,17 @@ struct ReboundConcreteCaptures {
     /// The concrete callable with its capture operands renamed to the target's
     /// fresh parameters.
     concrete: ConcreteCallable,
+    /// Array candidates with each member's capture slice rebound to the target.
+    group: Vec<ConcreteCallable>,
     /// The original caller-scope operands, in the order the target now expects
     /// them, for the enclosing `Closure` expression to carry.
     operands: Vec<CaptureBinding>,
 }
 
 /// Replaces the capture parameter at `capture_idx` of `closure_target` with one
-/// fresh parameter per capture of a concrete capturing closure.
+/// fresh parameter per capture of a concrete closure or array of closures.
 ///
-/// Returns `None` when the concrete is not a capturing closure or the target
+/// Returns `None` when no candidate has captures or the target
 /// capture slot cannot be replaced. The latter case is not a proof that the
 /// concrete is capture-free.
 fn rebind_concrete_captures_to_target_params(
@@ -4400,16 +4434,21 @@ fn rebind_concrete_captures_to_target_params(
     closure_target: LocalItemId,
     capture_idx: usize,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     assigner: &mut Assigner,
 ) -> Option<ReboundConcreteCaptures> {
-    let ConcreteCallable::Closure {
-        target,
-        captures,
-        functor,
-    } = concrete
-    else {
-        return None;
+    let candidates = if concrete_group.is_empty() {
+        std::slice::from_ref(concrete)
+    } else {
+        concrete_group
     };
+    let captures: Vec<_> = candidates
+        .iter()
+        .flat_map(|candidate| match candidate {
+            ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+            _ => &[],
+        })
+        .collect();
     if captures.is_empty() {
         return None;
     }
@@ -4452,11 +4491,35 @@ fn rebind_concrete_captures_to_target_params(
 
     replace_capture_in_closure_target(package, closure_target, capture_idx, &fresh_pat_ids)?;
 
+    let mut offset = 0;
+    let rebound: Vec<_> = candidates
+        .iter()
+        .map(|candidate| {
+            if let ConcreteCallable::Closure {
+                target,
+                captures,
+                functor,
+            } = candidate
+            {
+                let end = offset + captures.len();
+                let captures = fresh_captures[offset..end].to_vec();
+                offset = end;
+                ConcreteCallable::Closure {
+                    target: *target,
+                    captures,
+                    functor: *functor,
+                }
+            } else {
+                candidate.clone()
+            }
+        })
+        .collect();
     Some(ReboundConcreteCaptures {
-        concrete: ConcreteCallable::Closure {
-            target: *target,
-            captures: fresh_captures,
-            functor: *functor,
+        concrete: rebound[0].clone(),
+        group: if concrete_group.is_empty() {
+            Vec::new()
+        } else {
+            rebound
         },
         operands,
     })
@@ -4576,6 +4639,7 @@ fn specialize_closure_target_callable_capture(
         capture.capture_idx,
         &capture.capture_ty,
         &capture.concrete,
+        &[],
         assigner,
     );
 }

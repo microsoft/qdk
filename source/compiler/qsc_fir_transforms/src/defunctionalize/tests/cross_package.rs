@@ -126,6 +126,36 @@ fn assert_foreign_wrap_operand_collisions(
     );
 }
 
+#[test]
+fn captured_foreign_callable_array_preserves_results() {
+    let library = r#"
+        namespace Lib {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            export Inc, Twice;
+        }
+        "#;
+    let source = r#"
+        namespace Test {
+            function Capture(actions : (Int -> Int)[]) : Unit -> Int { () -> Read(actions) }
+            function Read(actions : (Int -> Int)[]) : Int {
+                mutable answer = 0;
+                for action in actions { set answer = answer * 100 + action(3); }
+                answer
+            }
+            function Apply(action : Unit -> Int) : Int { action() }
+            @EntryPoint()
+            operation Main() : Int { Apply(Capture([Lib.Inc, Lib.Twice])) }
+        }
+        "#;
+    let (store, package) = crate::test_utils::compile_to_fir_with_library(library, source);
+    assert_eq!(
+        crate::test_utils::try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(406))
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+}
+
 /// Regression guard: two call sites that differ only in the package owning the
 /// closure body (`call_pkg_id`) must produce distinct `SpecKey`s. The closure
 /// dispatch key is package-qualified via `StoreItemId`, so closures sharing the

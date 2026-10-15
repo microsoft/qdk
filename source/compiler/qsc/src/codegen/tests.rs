@@ -3656,6 +3656,82 @@ fn nested_runtime_guards_compile_on_adaptive_profiles() {
 }
 
 #[test]
+fn forwarded_callable_array_emits_both_operations() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunLoop(
+                operations : ((Qubit, Qubit) => Unit is Adj)[],
+                qubits : Qubit[]
+            ) : Unit is Adj {
+                for index in 0..Length(operations) - 1 {
+                    operations[index](qubits[index], qubits[2]);
+                }
+            }
+            function MakeLoop(
+                operations : ((Qubit, Qubit) => Unit is Adj)[]
+            ) : Qubit[] => Unit is Adj {
+                RunLoop(operations, _)
+            }
+            operation Forward(action : Qubit[] => Unit is Adj, qubits : Qubit[]) : Unit {
+                action(qubits);
+            }
+            operation Apply(action : Qubit[] => Unit is Adj) : Result[] {
+                use qubits = Qubit[3];
+                X(qubits[0]);
+                X(qubits[1]);
+                Forward(action, qubits);
+                MResetEachZ(qubits)
+            }
+            operation First(control : Qubit, target : Qubit) : Unit is Adj {
+                CNOT(control, target);
+            }
+            operation Second(control : Qubit, target : Qubit) : Unit is Adj {
+                CNOT(control, target);
+                X(control);
+            }
+            @EntryPoint()
+            operation Main() : Result[] {
+                Apply(MakeLoop([First, Second]))
+            }
+        }
+    "#};
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        let (cnot_call, x_call) = if profile == Profile::Adaptive {
+            for name in ["First", "Second"] {
+                assert_eq!(
+                    qir.matches(&format!("call void @{name}(")).count(),
+                    1,
+                    "{qir}"
+                );
+            }
+            ("call void @CNOT(", "call void @X(")
+        } else {
+            (
+                "call void @__quantum__qis__cx__body(",
+                "call void @__quantum__qis__x__body(",
+            )
+        };
+        assert_eq!(
+            qir.matches(cnot_call).count(),
+            2,
+            "{profile:?} must apply both elements:\n{qir}"
+        );
+        assert_eq!(
+            qir.matches(x_call).count(),
+            3,
+            "{profile:?} must retain the second element's X:\n{qir}"
+        );
+    }
+}
+
+#[test]
 fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() {
     let caps = Profile::AdaptiveRI.into();
     let mut interpreter = interpreter_with_capabilities(caps);
