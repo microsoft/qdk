@@ -3572,3 +3572,62 @@ fn recursive_callable_change_targets_the_sibling_specialization() {
         "H specialization {h_specialization} must not self-loop, got {h_targets:?}"
     );
 }
+
+#[test]
+fn conditional_indexed_selection_calls_the_chosen_callable() {
+    // Each shape mixes a runtime-indexed array read with a guarded alternative.
+    // The branch guard cannot tell which array element was read, so the joined
+    // value must keep the original dispatch rather than pick an element.
+    let apply = |name: &str, value: i64| match name {
+        "Inc" => value + 1,
+        "Twice" => value * 2,
+        "Minus" => value - 1,
+        "Neg" => -value,
+        _ => unreachable!(),
+    };
+    let actions = ["Inc", "Twice"];
+    let other = ["Neg", "Minus"];
+    for flag in [true, false] {
+        for index in [0, 1] {
+            for (shape, selected) in [
+                (
+                    "let selected = if flag { actions[index] } else { Minus };",
+                    if flag { actions[index] } else { "Minus" },
+                ),
+                (
+                    "mutable selected = Minus; if flag { set selected = actions[index]; }",
+                    if flag { actions[index] } else { "Minus" },
+                ),
+                (
+                    "mutable selected = actions[index]; if flag { set selected = Minus; }",
+                    if flag { "Minus" } else { actions[index] },
+                ),
+                (
+                    "let selected = if flag { actions[index] } else { other[index] };",
+                    if flag { actions[index] } else { other[index] },
+                ),
+            ] {
+                let source = format!(
+                    r#"
+                    function Inc(value : Int) : Int {{ value + 1 }}
+                    function Twice(value : Int) : Int {{ value * 2 }}
+                    function Minus(value : Int) : Int {{ value - 1 }}
+                    function Neg(value : Int) : Int {{ -value }}
+                    function Run(flag : Bool, index : Int) : Int {{
+                        let actions = [Inc, Twice];
+                        let other = [Neg, Minus];
+                        {shape}
+                        selected(3)
+                    }}
+                    @EntryPoint()
+                    operation Main() : Int {{ Run({flag}, {index}) }}
+                    "#
+                );
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(apply(selected, 3)),
+                );
+            }
+        }
+    }
+}

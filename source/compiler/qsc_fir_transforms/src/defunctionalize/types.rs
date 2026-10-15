@@ -245,6 +245,12 @@ pub enum CalleeLattice {
 }
 
 impl CalleeLattice {
+    /// Multiple fall-through candidates still need an index discriminator.
+    pub(super) fn has_unguarded_alternatives(&self) -> bool {
+        matches!(self, Self::Multi(entries)
+            if entries.iter().filter(|(_, guards)| guards.is_empty()).count() > 1)
+    }
+
     /// Constructs a lattice element from a resolved [`ConcreteCallable`].
     #[must_use]
     pub fn from_concrete(cc: ConcreteCallable) -> Self {
@@ -321,10 +327,19 @@ impl CalleeLattice {
     ///   Only the `s2` empty-guard default survives as the trailing fall-through.
     ///
     /// Overflow past `MULTI_CAP` degrades to `Dynamic`.
+    /// Unequal branches with unresolved index alternatives also remain `Dynamic`:
+    /// the outer condition cannot distinguish candidates within either branch.
     #[must_use]
     pub fn join_with_condition(self, other: Self, condition: ExprId) -> Self {
         match (self, other) {
             (Self::Bottom, x) | (x, Self::Bottom) => x,
+            (left, right)
+                if left != right
+                    && (left.has_unguarded_alternatives()
+                        || right.has_unguarded_alternatives()) =>
+            {
+                Self::Dynamic
+            }
             (Self::Single(a), Self::Single(b)) => {
                 if a == b {
                     Self::Single(a)

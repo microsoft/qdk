@@ -21,6 +21,39 @@ fn cond() -> ExprId {
 }
 
 #[test]
+fn conditional_join_declines_unresolved_index_alternatives() {
+    let indexed = CalleeLattice::Multi(vec![(global(1), vec![]), (global(2), vec![])]);
+    for other in [
+        CalleeLattice::Single(global(1)),
+        CalleeLattice::Multi(vec![(global(2), vec![]), (global(3), vec![])]),
+    ] {
+        assert_eq!(
+            indexed.clone().join_with_condition(other.clone(), cond()),
+            CalleeLattice::Dynamic
+        );
+        assert_eq!(
+            other.join_with_condition(indexed.clone(), cond()),
+            CalleeLattice::Dynamic
+        );
+    }
+}
+
+#[test]
+fn conditional_join_preserves_unchanged_index_alternatives() {
+    let indexed = CalleeLattice::Multi(vec![(global(1), vec![]), (global(2), vec![])]);
+    assert_eq!(
+        indexed.clone().join_with_condition(indexed.clone(), cond()),
+        indexed
+    );
+    assert_eq!(
+        indexed
+            .clone()
+            .join_with_condition(CalleeLattice::Bottom, cond()),
+        indexed
+    );
+}
+
+#[test]
 fn join_with_condition_single_multi_inserts_into_set() {
     let a = global(1);
     let b = global(2);
