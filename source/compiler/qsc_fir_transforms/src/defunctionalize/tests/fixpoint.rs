@@ -2596,6 +2596,36 @@ fn indexed_array_members_keep_their_positions() {
 }
 
 #[test]
+fn stored_closure_captures_are_evaluated_once() {
+    for binding in ["let", "mutable"] {
+        for (first, second) in [
+            ("saved(3)", "selected(4)"),
+            ("Apply(saved, 3)", "Apply(selected, 4)"),
+        ] {
+            let source = format!(
+                r#"
+                function Mark() : Int {{ Message("capture"); 10 }}
+                function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+                function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    {binding} selected = Offset(Mark(), _);
+                    let saved = selected;
+                    let first = {first};
+                    let second = {second};
+                    first * 100 + second
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(1314),
+            );
+        }
+    }
+}
+
+#[test]
 fn direct_indexed_callees_preserve_operand_order() {
     for (invocation, expected) in [
         ("[Inc, Twice][LogIndex()](3)", 61),

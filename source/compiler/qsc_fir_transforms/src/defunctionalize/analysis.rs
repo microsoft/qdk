@@ -3119,7 +3119,10 @@ fn seed_param_bindings_from_call(
                     // Closures and branch guards carry package-local IDs.
                     CalleeLattice::Dynamic
                 };
-                state.callable.insert(ident.id, lattice);
+                state.callable.insert(
+                    ident.id,
+                    local_callable_value(store, caller_package, caller_package_id, lattice),
+                );
                 if caller_package_id == hof_package_id {
                     state.callable_sources.insert(ident.id, arg_expr_id);
                 }
@@ -3875,7 +3878,10 @@ fn bind_callable_pat(
                     &FxHashSet::default(),
                     package_id,
                 );
-                state.callable.insert(ident.id, lattice);
+                state.callable.insert(
+                    ident.id,
+                    local_callable_value(store, pkg, package_id, lattice),
+                );
                 let source = reaching_callable_source(pkg, state, init_expr_id);
                 state.callable_sources.insert(ident.id, source);
             }
@@ -3958,7 +3964,10 @@ fn bind_callable_pat_projections(
                     package_id,
                 );
                 if !matches!(lattice, CalleeLattice::Bottom | CalleeLattice::Dynamic) {
-                    state.callable.insert(ident.id, lattice);
+                    state.callable.insert(
+                        ident.id,
+                        local_callable_value(store, pkg, package_id, lattice),
+                    );
                     let source = reaching_callable_source(pkg, state, init_expr_id);
                     state.callable_sources.insert(ident.id, source);
                 }
@@ -4043,7 +4052,10 @@ fn bind_callable_pats_from_indexed_array(
         }
 
         if !matches!(lattice, CalleeLattice::Bottom) {
-            state.callable.insert(ident.id, lattice);
+            state.callable.insert(
+                ident.id,
+                local_callable_value(store, pkg, package_id, lattice),
+            );
         }
     }
 }
@@ -4164,7 +4176,10 @@ fn analyze_expr_flow(
             }
             for (written, callable, source) in values {
                 if let Some(callable) = callable {
-                    state.callable.insert(written, callable);
+                    state.callable.insert(
+                        written,
+                        local_callable_value(store, pkg, package_id, callable),
+                    );
                     if let Some(source) = source {
                         let source = reaching_callable_source(pkg, state, source);
                         state.callable_sources.insert(written, source);
@@ -4531,6 +4546,56 @@ fn join_callable_states_with_condition(
         result.insert(var, a_val.join_with_condition(b_val, condition));
     }
     result
+}
+
+/// Reading a stored callable must not repeat its capture initialization.
+/// A capture expression is an adequate replacement only if replay is unobservable;
+/// otherwise the stored value is `Dynamic`. The package-local check runs first,
+/// and the store-wide set of total intrinsics (such as `Length`) is collected
+/// only when that check fails.
+fn local_callable_value(
+    store: &PackageStore,
+    pkg: &Package,
+    package_id: PackageId,
+    value: CalleeLattice,
+) -> CalleeLattice {
+    fn substitution_is_safe(
+        pkg: &Package,
+        package_id: PackageId,
+        value: &CaptureSubstitution,
+        total_foreign: &FxHashSet<ItemId>,
+    ) -> bool {
+        expr_is_safe_to_discard_with_total_foreign(pkg, package_id, value.expr, total_foreign)
+            && value
+                .substitutions
+                .iter()
+                .all(|value| substitution_is_safe(pkg, package_id, value, total_foreign))
+    }
+    let is_safe = |total_foreign: &FxHashSet<ItemId>| {
+        let callable_is_safe = |callable: &ConcreteCallable| match callable {
+            ConcreteCallable::Closure { captures, .. } => captures.iter().all(|capture| {
+                capture.expr.is_none_or(|expr| {
+                    expr_is_safe_to_discard_with_total_foreign(pkg, package_id, expr, total_foreign)
+                }) && capture
+                    .caller_substitutions
+                    .iter()
+                    .all(|value| substitution_is_safe(pkg, package_id, value, total_foreign))
+            }),
+            _ => true,
+        };
+        match &value {
+            CalleeLattice::Single(callable) => callable_is_safe(callable),
+            CalleeLattice::Multi(entries) => entries
+                .iter()
+                .all(|(callable, _)| callable_is_safe(callable)),
+            _ => true,
+        }
+    };
+    if is_safe(&FxHashSet::default()) || is_safe(&collect_total_foreign_callables(store)) {
+        value
+    } else {
+        CalleeLattice::Dynamic
+    }
 }
 
 fn reaching_callable_source(pkg: &Package, state: &LocalState, expr: ExprId) -> ExprId {
