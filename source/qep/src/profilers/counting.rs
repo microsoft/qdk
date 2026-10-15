@@ -95,10 +95,11 @@ impl Profiler for SequentialCountingProfiler {
 
         for (index, name) in instruction_names().iter().enumerate() {
             let calls = self.counts[index];
+            if calls == 0 {
+                continue;
+            }
             let gate_time_sec = self.gate_time_sec.get(*name).copied().unwrap_or_else(|| {
-                if calls > 0 {
-                    missing_timings.push(*name);
-                }
+                missing_timings.push(*name);
                 0.0
             });
             let runtime = calls as f64 * gate_time_sec;
@@ -197,12 +198,22 @@ mod tests {
 
         assert_eq!(result.logical_qubits, 2);
         assert_eq!(result.physical_qubits, 20);
-        assert_eq!(result.calls_per_operation["h"], 2);
-        assert_eq!(result.calls_per_operation["mz"], 2);
-        assert_eq!(result.calls_per_operation["read_result"], 2);
-        assert_eq!(result.runtime_time_sec_per_operation["h"], 0.5);
-        assert_eq!(result.runtime_time_sec_per_operation["mz"], 1.0);
-        assert_eq!(result.runtime_time_sec_per_operation["read_result"], 0.25);
+        assert_eq!(
+            result.calls_per_operation,
+            HashMap::from([
+                ("h".to_string(), 2),
+                ("mz".to_string(), 2),
+                ("read_result".to_string(), 2),
+            ])
+        );
+        assert_eq!(
+            result.runtime_time_sec_per_operation,
+            HashMap::from([
+                ("h".to_string(), 0.5),
+                ("mz".to_string(), 1.0),
+                ("read_result".to_string(), 0.25),
+            ])
+        );
         assert_eq!(result.total_runtime_sec, 1.75);
         assert!(result.infos.is_empty());
         Ok(())
@@ -225,6 +236,22 @@ mod tests {
                 "These gates did not have time configured, assumed 0: [mz, read_result]"
                     .to_string()
             ]
+        );
+        assert_eq!(
+            result.calls_per_operation,
+            HashMap::from([
+                ("h".to_string(), 1),
+                ("mz".to_string(), 2),
+                ("read_result".to_string(), 2),
+            ])
+        );
+        assert_eq!(
+            result.runtime_time_sec_per_operation,
+            HashMap::from([
+                ("h".to_string(), 0.25),
+                ("mz".to_string(), 0.0),
+                ("read_result".to_string(), 0.0),
+            ])
         );
     }
 }

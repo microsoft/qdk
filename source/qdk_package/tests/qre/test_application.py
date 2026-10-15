@@ -11,6 +11,9 @@ from qdk.qre import (
     ISA,
     LOGICAL,
     PSSPC,
+    Profiler,
+    ProfilerResult,
+    SequentialCountingProfiler,
     ErrorComposition,
     EstimationResult,
     LatticeSurgery,
@@ -258,9 +261,9 @@ def test_rotation_error_psspc():
     for psspc in _enumerate_instances(PSSPC, ccx_magic_states=False):
         transformed = psspc.transform(trace)
         assert transformed is not None
-        assert (
-            transformed.base_error < 1.0
-        ), f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
+        assert transformed.base_error < 1.0, (
+            f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
+        )
 
 
 def test_trace_iter_simple():
@@ -309,3 +312,65 @@ def test_trace_iter_gate_attributes():
     assert gates[0].id == 42
     assert gates[0].qubits == [0, 1]
     assert gates[0].params == [3.14]
+
+
+
+def test_qsharp_application_profile():
+    """Test profiling Q# code through the Python API."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    app = QSharpApplication(
+        """
+        {
+            use qs = Qubit[2];
+            X(qs[0]);
+            X(qs[1]);
+            [M(qs[0]),M(qs[1])]
+        }
+        """
+    )
+    profiler = SequentialCountingProfiler(
+        physical_qubits_per_logical=10,
+        gate_time_sec={"x": 0.25, "mz": 0.5, "read_result": 0.125},
+    )
+
+    result = app.profile(profiler)
+
+    assert isinstance(profiler, Profiler)
+    assert isinstance(result, ProfilerResult)
+    assert result.logical_qubits == 2
+    assert result.physical_qubits == 20
+    assert result.calls_per_operation == {"x": 2, "mz": 2, "read_result": 2}
+    assert result.runtime_time_sec_per_operation == {
+        "x": 0.5,
+        "mz": 1.0,
+        "read_result": 0.25,
+    }
+    assert result.total_runtime_sec == 0.875 * 2
+    assert result.infos == []
+
+
+
+def test_qsharp_application_profile_no_gate_times():
+    """Test profiling Q# code through the Python API."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    app = QSharpApplication(
+        """
+        {
+            use qs = Qubit();
+            X(qs);
+        }
+        """
+    )
+    profiler = SequentialCountingProfiler(
+        physical_qubits_per_logical=10,
+        gate_time_sec={},
+    )
+
+    result = app.profile(profiler)
+
+    assert isinstance(profiler, Profiler)
+    assert isinstance(result, ProfilerResult)
+    assert result.calls_per_operation == {"x": 1}
+    assert result.runtime_time_sec_per_operation == {"x": 0.0}
+    assert result.total_runtime_sec == 0.0
+    assert result.infos == ["These gates did not have time configured, assumed 0: [x]"]

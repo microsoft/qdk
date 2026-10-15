@@ -1890,6 +1890,7 @@ dependencies = [
  "pyo3",
  "qdk_openqasm",
  "qdk_simulators",
+ "qep",
  "qre",
  "qsc",
  "rand 0.10.2",
@@ -1899,6 +1900,7 @@ dependencies = [
  "serde",
  "serde_json",
  "stim_compiler",
+ "tokio",
 ]
 
 [[package]]

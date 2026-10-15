@@ -208,39 +208,31 @@ This section is WIP, but on high level:
 
 ### Resource estimation workflow.
 
-On a high level, resource estimation will look like this:
-
-```
-    use qep::run_qir;
-
-    let qir_path = "program.ll";
-    let mut profiler = Profiler::default();
-    // SAFETY: The QIR was produced by a trusted compiler and meets the runner's ABI contract.
-    unsafe { run_qir(qir_path, &mut profiler).await? };
-    println!(profiler.get_results());
-```
-
-That is:
-* Application or profile is compiled into QIR
-  * We can support any other format, and we only will have to swap the QIR runner with
-      different interpreter that implements the above described interface.
-* We instantiate Profiler.
+On a high level, resource estimation looks like this:
+* Application is compiled into QIR.
+* We instantiate a profiler for the target quantum computer.
 * We run QIR Runner with profiler as backend.
-* Profiler keeps track of resources in its internal state.
-* After successfully running the program, profiler object contains estimate we need.
+* `profile_qir` returns `ProfilerResult` with qubit counts, total runtime, operation counts,
+    and runtime per operation.
 
-### Potential Python API
+### Python API
 
-For Python users we might expose it as follows:
-* `Application` class, which is a wrapper around Q#/QASM:
-  * Support Cirq/Qiskit via QASM.
-  * Internally, it has `to_qir` which writes QIR to file.
-* `QPUModel` (or simply `QPU`) which will be a wrapper around Profiler (impl Backend).
+For Python users we expose:
+* `QSharpApplication`, which is a wrapper around Q# code.
+  * Its `profile` method writes QIR to a temporary file and removes it after profiling.
+* `Profiler`, the base class for profiler implementations.
+* `SequentialCountingProfiler`, one implementation of `Profiler`.
+* `ProfilerResult`, which contains all profiling results.
 
-Then main resource estimation function can look like:
-```
-def estimate(app:Application, model: QPUModel) -> EstimationResult:
-    qir_file_path = app.to_qir()
-    _estimate_internal(qir_file_path, model.profiler)
-    return EstimationResult.from_profile(model.profiler.profile())
+For example, profiling with `SequentialCountingProfiler` looks like:
+```python
+from qdk import qsharp
+from qdk.qre import SequentialCountingProfiler
+from qdk.qre.application import QSharpApplication
+
+qsharp.init(target_profile=qsharp.TargetProfile.Base)
+application = QSharpApplication("{ use q = Qubit(); X(q); }")
+profiler = SequentialCountingProfiler(10, {"x": 2.5e-9})
+result = application.profile(profiler)
+print(result.total_runtime_sec)
 ```

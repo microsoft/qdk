@@ -23,6 +23,30 @@ from .qre import Trace
 # E302 is fighting with the formatter for number of blank lines
 # flake8: noqa: E302
 
+class ProfilerResult:
+    @property
+    def logical_qubits(self) -> int: ...
+    @property
+    def physical_qubits(self) -> int: ...
+    @property
+    def total_runtime_sec(self) -> float: ...
+    @property
+    def calls_per_operation(self) -> Dict[str, int]: ...
+    @property
+    def runtime_time_sec_per_operation(self) -> Dict[str, float]: ...
+    @property
+    def infos(self) -> List[str]: ...
+
+class Profiler:
+    def profile_qir(self, qir_file_name: str) -> ProfilerResult: ...
+
+class SequentialCountingProfiler(Profiler):
+    def __new__(
+        cls,
+        physical_qubits_per_logical: int,
+        gate_time_sec: Optional[Dict[str, float]] = None,
+    ) -> SequentialCountingProfiler: ...
+
 class OutputSemantics(Enum):
     """
     Controls which classical values a compiled OpenQASM program returns.

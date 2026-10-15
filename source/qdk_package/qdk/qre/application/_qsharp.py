@@ -4,14 +4,15 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Callable
 
+from ... import qsharp, telemetry_events
 from ...estimator import LogicalCounts
-from ... import telemetry_events
-from .._qre import Trace
 from .._application import Application
+from .._qre import Profiler, ProfilerResult, Trace
 from ..interop import trace_from_entry_expr_cached
 
 
@@ -66,3 +67,17 @@ class QSharpApplication(Application[None]):
             use_trace_backend=self.use_trace_backend,
             args=self.args,
         )
+
+    def to_qir(self, file_path: str) -> None:
+        """Compile the application to a QIR file."""
+        assert not isinstance(self.entry_expr, LogicalCounts)
+        qir = qsharp.compile(self.entry_expr, *self.args)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(str(qir))
+
+    def profile(self, profiler: Profiler) -> ProfilerResult:
+        """Profile the Q# application with the supplied profiler."""
+        with TemporaryDirectory() as temporary_directory:
+            qir_path = Path(temporary_directory) / "program.ll"
+            self.to_qir(str(qir_path))
+            return profiler.profile_qir(str(qir_path))

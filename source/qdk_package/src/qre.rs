@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use std::{
+    collections::HashMap,
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
@@ -16,6 +17,9 @@ use qre::TraceTransform;
 use serde::{Deserialize, Serialize};
 
 pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<ProfilerResult>()?;
+    m.add_class::<Profiler>()?;
+    m.add_class::<SequentialCountingProfiler>()?;
     m.add_class::<ISA>()?;
     m.add_class::<ISARequirements>()?;
     m.add_class::<Instruction>()?;
@@ -58,6 +62,109 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 pyo3::create_exception!(qsharp.qre, EstimationError, PyException);
+
+/// Python representation of profiling data collected during QIR execution.
+#[pyclass(module = "qdk.qre", frozen)]
+pub struct ProfilerResult(qep::ProfilerResult);
+
+impl From<qep::ProfilerResult> for ProfilerResult {
+    /// Wraps a QEP profiler result for Python.
+    fn from(result: qep::ProfilerResult) -> Self {
+        Self(result)
+    }
+}
+
+#[pymethods]
+impl ProfilerResult {
+    /// Returns the number of logical qubits used by the program.
+    #[getter]
+    fn logical_qubits(&self) -> u64 {
+        self.0.logical_qubits
+    }
+
+    /// Returns the estimated number of physical qubits.
+    #[getter]
+    fn physical_qubits(&self) -> u64 {
+        self.0.physical_qubits
+    }
+
+    /// Returns the estimated sequential runtime in seconds.
+    #[getter]
+    fn total_runtime_sec(&self) -> f64 {
+        self.0.total_runtime_sec
+    }
+
+    /// Returns call counts keyed by QIR instruction name.
+    #[getter]
+    fn calls_per_operation(&self) -> HashMap<String, u64> {
+        self.0.calls_per_operation.clone()
+    }
+
+    /// Returns estimated runtimes keyed by QIR instruction name.
+    #[getter]
+    fn runtime_time_sec_per_operation(&self) -> HashMap<String, f64> {
+        self.0.runtime_time_sec_per_operation.clone()
+    }
+
+    /// Returns informational messages generated while profiling.
+    #[getter]
+    fn infos(&self) -> Vec<String> {
+        self.0.infos.clone()
+    }
+}
+
+enum ProfilerBackend {
+    SequentialCounting(qep::SequentialCountingProfiler),
+}
+
+/// Base class for QIR profilers exposed to Python.
+#[pyclass(subclass, module = "qdk.qre")]
+pub struct Profiler {
+    backend: ProfilerBackend,
+}
+
+#[pymethods]
+impl Profiler {
+    /// Profiles a QIR file and returns the collected data.
+    fn profile_qir(&mut self, py: Python<'_>, qir_file_name: &str) -> PyResult<ProfilerResult> {
+        use qep::Profiler as _;
+
+        let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
+        let result = py.detach(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            // SAFETY: The Python API inherits QEP's requirement that callers provide trusted QIR.
+            runtime
+                .block_on(async { unsafe { profiler.profile_qir(qir_file_name).await } })
+                .map_err(PyRuntimeError::new_err)
+        })?;
+        Ok(result.into())
+    }
+}
+
+/// Sequential instruction-counting profiler exposed to Python.
+#[pyclass(extends = Profiler, module = "qdk.qre")]
+pub struct SequentialCountingProfiler;
+
+#[pymethods]
+impl SequentialCountingProfiler {
+    /// Creates a sequential profiler from qubit overhead and optional gate timings.
+    #[new]
+    #[pyo3(signature = (physical_qubits_per_logical, gate_time_sec=None))]
+    fn new(
+        physical_qubits_per_logical: u64,
+        gate_time_sec: Option<HashMap<String, f64>>,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(Profiler {
+            backend: ProfilerBackend::SequentialCounting(qep::SequentialCountingProfiler::new(
+                physical_qubits_per_logical,
+                gate_time_sec.unwrap_or_default(),
+            )),
+        })
+        .add_subclass(Self)
+    }
+}
 
 fn poisoned_lock_err<T>(_: std::sync::PoisonError<T>) -> PyErr {
     PyRuntimeError::new_err("provenance graph lock poisoned")

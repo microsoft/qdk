@@ -8,6 +8,30 @@ from typing import Any, Callable, Iterator, Optional, overload
 
 import pandas as pd
 
+class ProfilerResult:
+    @property
+    def logical_qubits(self) -> int: ...
+    @property
+    def physical_qubits(self) -> int: ...
+    @property
+    def total_runtime_sec(self) -> float: ...
+    @property
+    def calls_per_operation(self) -> dict[str, int]: ...
+    @property
+    def runtime_time_sec_per_operation(self) -> dict[str, float]: ...
+    @property
+    def infos(self) -> list[str]: ...
+
+class Profiler:
+    def profile_qir(self, qir_file_name: str) -> ProfilerResult: ...
+
+class SequentialCountingProfiler(Profiler):
+    def __new__(
+        cls,
+        physical_qubits_per_logical: int,
+        gate_time_sec: Optional[dict[str, float]] = None,
+    ) -> SequentialCountingProfiler: ...
+
 class ISA:
     def __add__(self, other: ISA) -> ISA:
         """
