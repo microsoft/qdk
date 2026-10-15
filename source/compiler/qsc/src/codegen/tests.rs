@@ -3113,6 +3113,225 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
 }
 
 #[test]
+fn synthetic_captureless_lambda_array_preserves_input() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation CallAll(ops : (Qubit => Unit)[]) : Result {
+                use q = Qubit();
+                for op in ops {
+                    op(q);
+                }
+                MResetZ(q)
+            }
+        }
+    "#};
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let callable = eval_fragments(&mut interpreter, "Test.CallAll");
+        let args = eval_fragments(&mut interpreter, "[q => X(q)]");
+        let qir = interpreter
+            .qirgen_from_callable(&callable, args)
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "lambda array failed on {profile:?}: {}",
+                    format_interpret_errors(errors)
+                )
+            });
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__x__body(").count(),
+            1,
+            "{profile:?} should preserve the captureless lambda call:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn foreign_closure_arguments_preserve_package_identity() {
+    let user_source = r#"
+        namespace Test {
+            function DecoyA(value : Int) : Int { value - 100 }
+            function DecoyB(value : Int) : Int { value - 200 }
+            function DecoyC(value : Int) : Int { value - 300 }
+            function Run(actions : (Int -> Int)[]) : Int {
+                mutable answer = 0;
+                for action in actions { set answer += action(3); }
+                answer
+            }
+            function Wrap(action : Int -> Int) : Int -> Int { value -> action(value) + 7 }
+        }
+        "#;
+    for capturing in [false, true] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let capabilities = profile.into();
+            let (mut store, user_package, items) = compile_and_locate_items(
+                user_source,
+                &[("Run", true), ("DecoyA", true), (".lambda", true)],
+                capabilities,
+            );
+            let library_source = if capturing {
+                "namespace Library { function Make(offset : Int) : Int -> Int { value -> value + offset } export Make; }"
+            } else {
+                "namespace Library { function Make() : Int -> Int { value -> value + 100 } export Make; }"
+            };
+            let (unit, errors) = crate::compile::compile(
+                &store,
+                &[],
+                source_map_from_source(library_source),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+            );
+            assert!(errors.is_empty(), "library must compile: {errors:?}");
+            let lambda = unit
+                .package
+                .items
+                .iter()
+                .find_map(|(id, item)| match &item.kind {
+                    ItemKind::Callable(decl)
+                        if callable_name_matches(decl.name.name.as_ref(), ".lambda") =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                })
+                .expect("library must contain a lifted lambda");
+            let library_package = store.insert(unit);
+            let foreign = Value::Closure(Box::new(qsc_eval::val::Closure {
+                id: fir_id_for(library_package, lambda),
+                fixed_args: if capturing {
+                    vec![Value::Int(100)]
+                } else {
+                    vec![]
+                }
+                .into(),
+                functor: FunctorApp::default(),
+            }));
+            let wrapped = Value::Closure(Box::new(qsc_eval::val::Closure {
+                id: fir_id_for(user_package, items[".lambda"]),
+                fixed_args: vec![foreign.clone()].into(),
+                functor: FunctorApp::default(),
+            }));
+            for (values, expected) in [
+                (vec![foreign.clone()], 103),
+                (
+                    vec![
+                        foreign,
+                        Value::Global(
+                            fir_id_for(user_package, items["DecoyA"]),
+                            FunctorApp::default(),
+                        ),
+                    ],
+                    6,
+                ),
+                (vec![wrapped], 110),
+            ] {
+                let args = Value::Array(values.into());
+                let qir =
+                    callable_args_to_qir(&store, user_package, items["Run"], &args, capabilities);
+                assert!(
+                    qir.contains(&format!(
+                        "call void @__quantum__rt__int_record_output(i64 {expected},"
+                    )),
+                    "foreign closure must retain its package on {profile:?}, capturing={capturing}:\n{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn foreign_operation_closure_arrays_emit_the_library_gate() {
+    let user_source = r#"
+        namespace Test {
+            operation DecoyA(target : Qubit) : Unit { Z(target); }
+            operation DecoyB(target : Qubit) : Unit { H(target); }
+            operation DecoyC(target : Qubit) : Unit { I(target); }
+            operation Run(actions : (Qubit => Unit)[]) : Result {
+                use target = Qubit();
+                for action in actions { action(target); }
+                MResetZ(target)
+            }
+        }
+        "#;
+    for capturing in [false, true] {
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let (mut store, user_package, items) =
+                compile_and_locate_items(user_source, &[("Run", true)], capabilities);
+            let std_id = store
+                .iter()
+                .map(|(id, _)| id)
+                .find(|id| *id != PackageId::CORE && *id != user_package)
+                .expect("the fixture store contains the standard library");
+            let library_source = if capturing {
+                "namespace Library { function Make(enabled : Bool) : Qubit => Unit { target => { if enabled { X(target); } } } export Make; }"
+            } else {
+                "namespace Library { function Make() : Qubit => Unit { target => X(target) } export Make; }"
+            };
+            let (unit, errors) = crate::compile::compile(
+                &store,
+                &[(std_id, None)],
+                source_map_from_source(library_source),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+            );
+            assert!(errors.is_empty(), "library must compile: {errors:?}");
+            let lambda = unit
+                .package
+                .items
+                .iter()
+                .find_map(|(id, item)| match &item.kind {
+                    ItemKind::Callable(decl)
+                        if callable_name_matches(decl.name.name.as_ref(), ".lambda") =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                })
+                .expect("library must contain a lifted lambda");
+            let library_package = store.insert(unit);
+            let argument = Value::Array(
+                vec![Value::Closure(Box::new(qsc_eval::val::Closure {
+                    id: fir_id_for(library_package, lambda),
+                    fixed_args: if capturing {
+                        vec![Value::Bool(true)]
+                    } else {
+                        vec![]
+                    }
+                    .into(),
+                    functor: FunctorApp::default(),
+                }))]
+                .into(),
+            );
+            let qir =
+                callable_args_to_qir(&store, user_package, items["Run"], &argument, capabilities);
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body(").count(),
+                1,
+                "{profile:?} must call the library lambda:\n{qir}"
+            );
+            assert!(
+                !qir.contains("__quantum__qis__h__body"),
+                "a same-numbered local item must not be invoked:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
 fn synthetic_path_classical_capture_closure_generates_qir() {
     // A closure capturing a classical value (Int shift) flows through the
     // self-contained synthetic entry: the capture is materialized as a local and
@@ -3179,6 +3398,52 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
         qir.contains("__quantum__qis__x__body"),
         "expected X gate from the captured shift in QIR:\n{qir}"
     );
+}
+
+#[test]
+fn synthetic_closure_arrays_preserve_scalar_and_tuple_inputs() {
+    for (input, lambda, argument, expected) in [
+        ("Int", "value -> value + 1", "3", 4),
+        (
+            "(Int, Int)",
+            "(left, right) -> left * 10 + right",
+            "(2, 3)",
+            23,
+        ),
+        ("Unit", "() -> 7", "()", 7),
+    ] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(
+                &mut interpreter,
+                &format!(
+                    r#"
+                    function CallAll(actions : ({input} -> Int)[]) : Int {{
+                        mutable result = 0;
+                        for action in actions {{ set result += action({argument}); }}
+                        result
+                    }}
+                    "#
+                ),
+            );
+            let callable = eval_fragments(&mut interpreter, "CallAll");
+            let args = eval_fragments(&mut interpreter, &format!("[{lambda}]"));
+            let qir = interpreter
+                .qirgen_from_callable(&callable, args)
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{input} closure array failed on {profile:?}: {}",
+                        format_interpret_errors(errors)
+                    )
+                });
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{input} closure array should return {expected} on {profile:?}:\n{qir}"
+            );
+        }
+    }
 }
 
 #[test]
