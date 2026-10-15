@@ -6,6 +6,7 @@ use crate::qir_simulation::{
     NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
     unbind_noise_config,
 };
+use paulimer::{Clifford, StringLayout, StringNotation};
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
@@ -340,6 +341,58 @@ pub fn run_clifford_adaptive<'py>(
     let output = run_adaptive(&program, shots, seed, noise, make_simulator);
 
     output_records_to_pylist(py, output)
+}
+
+/// `(destabilizers, stabilizers, measurements)` of one stabilizer-simulator shot.
+type StabilizerShotState = (Vec<String>, Vec<String>, Vec<QsResult>);
+
+/// Testing hook: runs one shot on the stabilizer simulator and returns its final
+/// tableau and measurement record, or `None` if the final state is not a
+/// stabilizer state.
+#[pyfunction]
+pub fn run_clifford_adaptive_and_get_tableau<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
+    seed: Option<u32>,
+) -> PyResult<Option<StabilizerShotState>> {
+    let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
+
+    let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
+        unbind_noise_config(py, nc)
+    } else {
+        noise_config::NoiseConfig::NOISELESS
+    };
+    let noise: Arc<CumulativeNoiseConfig> = Arc::new(noise.into());
+
+    let mut simulator = StabilizerSimulator::new(
+        program.num_qubits as usize,
+        program.num_results as usize,
+        seed.unwrap_or_else(rand::random),
+        noise,
+    );
+    adaptive_run_shot(&program, &mut simulator);
+
+    let Some(encoder) = simulator.state_dump().stabilizer_state_encoder() else {
+        return Ok(None);
+    };
+    let num_qubits = encoder.num_qubits();
+    let format = |pauli: paulimer::DensePauli| {
+        pauli.to_string_with_size(StringLayout::Dense, StringNotation::Ascii, num_qubits)
+    };
+    let x_images = (0..num_qubits)
+        .map(|k| format(encoder.image_x(k)))
+        .collect();
+    let z_images = (0..num_qubits)
+        .map(|k| format(encoder.image_z(k)))
+        .collect();
+    let measurements = simulator
+        .take_measurements()
+        .into_iter()
+        .map(measurement_result_to_py)
+        .collect();
+
+    Ok(Some((x_images, z_images, measurements)))
 }
 
 fn run_adaptive<SimulatorBuilder, Noise, S>(

@@ -1838,6 +1838,7 @@ dependencies = [
  "num-bigint",
  "num-complex",
  "num-traits",
+ "paulimer",
  "pyo3",
  "qdk_openqasm",
  "qdk_simulators",
