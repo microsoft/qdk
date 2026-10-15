@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { isNotebookCourse } from "./courseLayout.js";
 import { LessonPanelManager } from "./panel.js";
 import type { LearningService } from "./service.js";
-import type { ActivityLocation } from "./types.js";
+import type { ActivityLocation, NotebookReveal } from "./types.js";
 import type { LearningProgressNode } from "./progressTreeView.js";
 
 /**
@@ -19,8 +19,27 @@ export function registerLearningCommands(
   panelManager: LessonPanelManager,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("qsharp-vscode.learningShowActivity", () =>
-      panelManager.show(),
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningShowActivity",
+      async (reveal: NotebookReveal = "currentActivity"): Promise<void> => {
+        if (!service.initialized) {
+          // Preserve the existing initialization and warning behavior.
+          await panelManager.show();
+          if (
+            !service.initialized ||
+            !isNotebookCourse(service.getActiveCourseInfo())
+          ) {
+            return;
+          }
+        }
+
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
+          await openCourseNotebook(service, { reveal });
+          return;
+        }
+
+        await panelManager.show();
+      },
     ),
 
     // Code lens commands
@@ -136,7 +155,7 @@ export function registerLearningCommands(
         // than jumping straight to an exercise.
         if (isNotebookCourse(service.getActiveCourseInfo())) {
           await openCourseNotebook(service, {
-            reveal: node.kind === "unit" ? "top" : "exercise",
+            reveal: node.kind === "unit" ? "top" : "currentActivity",
           });
           return;
         }
@@ -266,12 +285,12 @@ function resolveCellId(
 /**
  * Open the current unit's notebook working copy.
  *
- * By default this reveals the current exercise cell; pass `reveal: "top"` to
+ * By default this reveals the current activity cell; pass `reveal: "top"` to
  * start at the beginning of the notebook instead.
  */
 async function openCourseNotebook(
   service: LearningService,
-  options?: { reveal?: "exercise" | "top" },
+  options?: { reveal?: NotebookReveal },
 ): Promise<void> {
   await service.setCourseSelectedAndSave();
   const notebookUri = service.getCurrentCodeFileUri();
