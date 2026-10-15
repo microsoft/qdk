@@ -3573,6 +3573,89 @@ fn runtime_index_reassignment_is_rejected_on_adaptive_ri() {
 }
 
 #[test]
+fn conservative_callable_fallbacks_preserve_results() {
+    // Each body takes a conservative (non-specialized) path that must keep its
+    // result: an argument that changes the returned callable's guard, a stored
+    // partial application with an effectful capture, and an array slot whose
+    // element depends on a runtime index.
+    for (body, expected) in [
+        (
+            "mutable flag = true; let value = Choose(flag, { set flag = false; 0 })(3); value * 10 + (if flag { 1 } else { 0 })",
+            40,
+        ),
+        (
+            "mutable action = Offset(Mark(), _); action(3) * 100 + action(4)",
+            1314,
+        ),
+        ("ReadSelected(0) * 1000 + ReadSelected(1)", 402_602),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Minus(value : Int) : Int {{ value - 1 }}
+            function Choose(flag : Bool, ignored : Int) : Int -> Int {{
+                if flag {{ Inc }} else {{ Twice }}
+            }}
+            function Mark() : Int {{ Message("capture"); 10 }}
+            function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+            function Read(actions : (Int -> Int)[]) : Int {{
+                mutable answer = 0;
+                for action in actions {{ set answer = answer * 100 + action(3); }}
+                answer
+            }}
+            function ReadSelected(index : Int) : Int {{
+                let actions = [Inc, Twice];
+                let choices = [actions[index], Minus];
+                Read(choices)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ {body} }}
+            "#
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?} must preserve {expected} for {body}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn nested_runtime_guards_compile_on_adaptive_profiles() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Choose(first : Bool, second : Bool) : (Qubit => Unit) {
+                if first { I } else { if second { X } else { Z } }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use guard = Qubit();
+                let first = M(guard) == One;
+                let second = M(guard) == Zero;
+                let selected = Choose(first, second);
+                selected(target);
+                Reset(guard);
+                MResetZ(target)
+            }
+        }
+    "#};
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__qis__x__body("),
+            "{profile:?} should resolve the runtime-guarded callable selection:\n{qir}"
+        );
+    }
+}
+
+#[test]
 fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() {
     let caps = Profile::AdaptiveRI.into();
     let mut interpreter = interpreter_with_capabilities(caps);

@@ -680,6 +680,7 @@ fn inspect_call_expr(
         package_id,
         collapsed_spans,
         previous_direct_call_sites,
+        total_foreign,
     );
 }
 
@@ -895,6 +896,7 @@ fn inspect_direct_call_expr(
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
     previous_direct_call_sites: &[DirectCallSite],
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let callee_expr = pkg.get_expr(callee_expr_id);
     if let ExprKind::Var(Res::Item(item_id), _) = callee_expr.kind {
@@ -975,6 +977,31 @@ fn inspect_direct_call_expr(
                 None,
             )
         };
+
+    // Direct indexed dispatch may hoist an effectful index at its original
+    // evaluation point. Only the unguarded index-dispatch path provides that
+    // proof; guarded element alternatives must not bypass operand preservation.
+    let replays_index = matches!(
+        callee_expr.kind,
+        ExprKind::Index(array, _)
+            if expr_is_safe_to_discard_with_total_foreign(pkg, package_id, array, total_foreign)
+    ) && match &resolved {
+        CalleeLattice::Single(_) => true,
+        CalleeLattice::Multi(entries) => entries.iter().all(|(_, guards)| guards.is_empty()),
+        _ => false,
+    };
+    if consumed_callable_expr_disposition(
+        pkg,
+        package_id,
+        callee_expr_id,
+        ConsumptionSite::Callee,
+        total_foreign,
+    ) == EvaluationDisposition::Retained
+        && !replays_index
+    {
+        unresolved_direct_call_sites.push((package_id, expr_id).into());
+        return;
+    }
 
     match resolved {
         CalleeLattice::Single(callable) => {
@@ -1585,7 +1612,7 @@ fn resolve_callee(
         // unregistered for specialization and its `ExprKind::Closure` node
         // could not be neutralized during cleanup, breaking convergence.
         ExprKind::If(cond, body, otherwise) => {
-            if let Some(condition_value) = resolve_condition_literal(pkg, locals, *cond, 0) {
+            if let Some(condition_value) = resolve_condition_literal(pkg, locals, *cond) {
                 let selected_expr_id = if condition_value {
                     Some(*body)
                 } else {
@@ -2192,26 +2219,33 @@ fn resolve_callable_return(
         _ => return CalleeLattice::Dynamic,
     };
 
+    let resolved_return = resolve_callee_projection(
+        callee_pkg,
+        store,
+        &state,
+        return_expr_id,
+        output_path,
+        depth + 1,
+        allow_scoped_capture_exprs,
+        scoped_capture_vars,
+        callee_pkg_id,
+    );
     let result = materialize_capture_exprs_from_state(
         callee_pkg,
         &state,
         &param_substitutions,
         caller_locals.owner,
         &caller_locals.mutable_bindings,
-        resolve_callee_projection(
-            callee_pkg,
-            store,
-            &state,
-            return_expr_id,
-            output_path,
-            depth + 1,
-            allow_scoped_capture_exprs,
-            scoped_capture_vars,
-            callee_pkg_id,
-        ),
+        resolved_return,
     );
-
     if callee_pkg_id == package_id {
+        if matches!(&result, CalleeLattice::Multi(entries)
+            if entries.iter().flat_map(|(_, guards)| guards).any(|&guard|
+                !expr_is_safe_to_discard(pkg, package_id, guard)))
+        {
+            // Dispatch must not replay effectful arguments to the producer.
+            return CalleeLattice::Dynamic;
+        }
         if return_guards_reference_producer_locals(
             callee_pkg,
             body_block_id,
@@ -2221,6 +2255,13 @@ fn resolve_callable_return(
             return CalleeLattice::Dynamic;
         }
         return decline_effectful_producer_closure(pkg, store, package_id, call_expr_id, result);
+    }
+
+    if matches!(&result, CalleeLattice::Multi(entries) if entries.iter().any(|(_, guards)| !guards.is_empty()))
+    {
+        // Guards carry package-local expression IDs; unlike global callable
+        // identities, they cannot be consumed in the foreign caller's package.
+        return CalleeLattice::Dynamic;
     }
 
     // A callable returned from a foreign body is consumed at the caller's call
@@ -2317,53 +2358,15 @@ fn downgrade_closures_to_dynamic(lattice: CalleeLattice) -> CalleeLattice {
 }
 
 /// Resolves a branch-guard variable to a constant boolean, if analysis recorded
-/// a substitution that fixes its value.
-fn resolve_condition_literal(
-    pkg: &Package,
-    locals: &LocalState,
-    expr_id: ExprId,
-    depth: usize,
-) -> Option<bool> {
-    if depth > MAX_RESOLVE_DEPTH {
+/// a literal argument. Argument-local IDs belong to the caller and must not be
+/// followed through the producer's local definitions or substitutions.
+fn resolve_condition_literal(pkg: &Package, locals: &LocalState, expr_id: ExprId) -> Option<bool> {
+    let ExprKind::Var(Res::Local(var), _) = &pkg.get_expr(expr_id).kind else {
         return None;
-    }
-
-    let expr = pkg.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::Var(Res::Local(var), _) => {
-            locals
-                .condition_substitutions
-                .get(var)
-                .and_then(|&expr_id| {
-                    resolve_condition_substitution_literal(pkg, locals, expr_id, depth + 1)
-                })
-        }
-        _ => None,
-    }
-}
-
-/// Follows recorded substitutions and local definitions to resolve an
-/// expression to a constant boolean, up to a recursion depth limit.
-fn resolve_condition_substitution_literal(
-    pkg: &Package,
-    locals: &LocalState,
-    expr_id: ExprId,
-    depth: usize,
-) -> Option<bool> {
-    if depth > MAX_RESOLVE_DEPTH {
-        return None;
-    }
-
-    let expr = pkg.get_expr(expr_id);
-    match &expr.kind {
+    };
+    let argument = locals.condition_substitutions.get(var)?;
+    match &pkg.get_expr(*argument).kind {
         ExprKind::Lit(Lit::Bool(value)) => Some(*value),
-        ExprKind::Var(Res::Local(var), _) => locals
-            .condition_substitutions
-            .get(var)
-            .or_else(|| locals.exprs.get(var))
-            .and_then(|&expr_id| {
-                resolve_condition_substitution_literal(pkg, locals, expr_id, depth + 1)
-            }),
         _ => None,
     }
 }
@@ -2413,19 +2416,13 @@ fn materialize_capture_exprs_from_state(
         CalleeLattice::Multi(entries) => {
             let mut materialized = Vec::with_capacity(entries.len());
             for (concrete, condition) in entries {
-                let mut remapped_condition = Vec::with_capacity(condition.len());
-                for condition in condition {
-                    let condition = remap_condition_expr(pkg, state, condition);
-                    if expr_references_local(pkg, condition) {
-                        return CalleeLattice::Dynamic;
-                    }
-                    remapped_condition.push(condition);
-                }
                 let concrete = materialize(concrete);
                 if matches!(concrete, ConcreteCallable::Dynamic) {
                     return CalleeLattice::Dynamic;
                 }
-                materialized.push((concrete, remapped_condition));
+                // Return analysis has already substituted producer guards.
+                // A second substitution could reinterpret caller-local IDs.
+                materialized.push((concrete, condition));
             }
             CalleeLattice::Multi(materialized)
         }

@@ -2148,6 +2148,190 @@ fn progress_tracking_allows_multi_iteration_convergence() {
 }
 
 #[test]
+fn nested_callable_return_preserves_runtime_guards() {
+    let source = r#"
+        function Choose(first : Bool, second : Bool) : Qubit => Unit {
+            if first { I } else { if second { X } else { Z } }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use guard = Qubit();
+            let first = M(guard) == One;
+            let second = M(guard) == Zero;
+            let selected = Choose(first, second);
+            selected(target);
+            Reset(guard);
+            MResetZ(target)
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+#[test]
+fn returned_callable_guards_keep_the_callers_scope() {
+    let expected = |first, second| {
+        if first {
+            4
+        } else if second {
+            6
+        } else {
+            2
+        }
+    };
+    for first in [false, true] {
+        for second in [false, true] {
+            for (selection, result) in [
+                ("Choose(first, second)", expected(first, second)),
+                ("Choose(second, first)", expected(second, first)),
+                ("Choose(second, false)", expected(second, false)),
+                (
+                    "Forward(false, Choose(first, second))",
+                    expected(first, second),
+                ),
+                (
+                    "Forward(true, Choose(second, first))",
+                    expected(second, first),
+                ),
+            ] {
+                let source = format!(
+                    r#"
+                    function Inc(value : Int) : Int {{ value + 1 }}
+                    function Twice(value : Int) : Int {{ value * 2 }}
+                    function Minus(value : Int) : Int {{ value - 1 }}
+                    function Choose(first : Bool, second : Bool) : Int -> Int {{
+                        if first {{ Inc }} else {{ if second {{ Twice }} else {{ Minus }} }}
+                    }}
+                    function Forward(decoy : Bool, action : Int -> Int) : Int -> Int {{ action }}
+                    function Run(first : Bool, second : Bool) : Int {{
+                        let action = {selection};
+                        action(3)
+                    }}
+                    @EntryPoint()
+                    operation Main() : Int {{ Run({first}, {second}) }}
+                    "#
+                );
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Int(result),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn returned_callable_preserves_guard_values_and_effects() {
+    for first in [false, true] {
+        for second in [false, true] {
+            for selection in [
+                "let action = Choose(first, second);",
+                "let action = Choose(first, second); set first = not first; set second = not second;",
+            ] {
+                let source = format!(
+                    r#"
+                    function Choose(first : Bool, second : Bool) : Qubit => Unit {{
+                        if first {{ I }} else {{ if second {{ X }} else {{ Z }} }}
+                    }}
+                    @EntryPoint()
+                    operation Main() : Result {{
+                        use target = Qubit();
+                        use left = Qubit();
+                        use right = Qubit();
+                        {prepare_left}
+                        {prepare_right}
+                        mutable first = MResetZ(left) == One;
+                        mutable second = MResetZ(right) == One;
+                        {selection}
+                        action(target);
+                        MResetZ(target)
+                    }}
+                    "#,
+                    prepare_left = if first { "X(left);" } else { "" },
+                    prepare_right = if second { "X(right);" } else { "" },
+                );
+                crate::test_utils::check_semantic_equivalence_with_expected(
+                    &source,
+                    qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(!first && second)),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn returned_callable_preserves_earlier_guard_arguments() {
+    let source = r#"
+        function Inc(value : Int) : Int { value + 1 }
+        function Twice(value : Int) : Int { value * 2 }
+        function Choose(flag : Bool, ignored : Int) : Int -> Int {
+            if flag { Inc } else { Twice }
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            mutable flag = true;
+            let value = Choose(flag, { set flag = false; 0 })(3);
+            value * 10 + (if flag { 1 } else { 0 })
+        }
+        "#;
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::Int(40),
+    );
+}
+
+#[test]
+fn returned_callable_does_not_replay_guard_arguments() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        r#"
+        function Choose(first : Bool, second : Bool) : Qubit => Unit {
+            if first { I } else { if second { X } else { Z } }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use guard = Qubit();
+            X(guard);
+            let action = Choose(MResetZ(guard) == One, MResetZ(guard) == Zero);
+            action(target);
+            MResetZ(target)
+        }
+        "#,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(false)),
+    );
+}
+
+#[test]
+fn foreign_returned_callable_does_not_reuse_producer_guards() {
+    crate::test_utils::check_semantic_equivalence_with_library(
+        r#"
+        namespace Library {
+            function Choose(first : Bool, second : Bool) : Qubit => Unit {
+                if first { I } else { if second { X } else { Z } }
+            }
+            export Choose;
+        }
+        "#,
+        r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            use guard = Qubit();
+            let first = M(guard) == One;
+            let second = M(guard) == Zero;
+            let action = Library.Choose(first, second);
+            action(target);
+            Reset(guard);
+            MResetZ(target)
+        }
+        "#,
+    );
+}
+
+#[test]
 fn reassigned_callable_preserves_selection() {
     // `selected` starts as `functions[first]` (`Inc`, 4) and may be reassigned
     // from `functions[second]` (`Twice`, 6). Each case checks that the call uses
@@ -2307,6 +2491,43 @@ fn indexed_array_members_keep_their_positions() {
                 qsc_eval::val::Value::Int(if index == 0 { 402 } else { 602 }),
             );
         }
+    }
+}
+
+#[test]
+fn direct_indexed_callees_preserve_operand_order() {
+    for (invocation, expected) in [
+        ("[Inc, Twice][LogIndex()](3)", 61),
+        (
+            "[{ Message(\"element\"); Inc }, Twice][{ Message(\"index\"); 0 }](3)",
+            41,
+        ),
+        (
+            "[if flag { Inc } else { Twice }][{ set flag = false; Message(\"index\"); 0 }](3)",
+            40,
+        ),
+        (
+            "[if flag { Inc } else { Twice }][0]({ set flag = false; 3 })",
+            40,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function LogIndex() : Int {{ Message("index"); 1 }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable flag = true;
+                let answer = {invocation};
+                answer * 10 + (if flag {{ 1 }} else {{ 0 }})
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
     }
 }
 

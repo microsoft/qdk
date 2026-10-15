@@ -2868,10 +2868,9 @@ fn expr_is_assign_to_local(package: &Package, expr_id: ExprId, local_var: LocalV
 /// Where a consumed callable expression's evaluation lives once rewriting has
 /// finished.
 ///
-/// Defunctionalization repeatedly faces the same question in two places: a
-/// `let` binding whose callable value was consumed by a call-site rewrite, and
-/// the callable argument expression that same rewrite removes from the call.
-/// Both ask whether *deleting the expression* also *drops its evaluation*.
+/// Defunctionalization asks this for bindings, higher-order arguments, and
+/// direct callees consumed by call-site rewrites: whether *deleting the
+/// expression* also *drops its evaluation*.
 /// Those are different questions. A binding whose captures have already been
 /// relocated into the specialized call can still look observable; retaining it
 /// would evaluate the capture initializer twice and apply a gate twice.
@@ -2919,9 +2918,9 @@ impl EvaluationDisposition {
     }
 }
 
-/// Which of the two consumption sites is asking for a disposition.
+/// Which consumption site is asking for a disposition.
 ///
-/// Both sites delete an expression, but the rewrite gives them different
+/// Each site deletes an expression, but the rewrite gives them different
 /// guarantees, and one rule depends on which is asking. See
 /// [`consumed_callable_expr_disposition`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2932,12 +2931,15 @@ pub(super) enum ConsumptionSite {
     /// The callable argument expression that the rewrite removes from the call
     /// it is specializing.
     Argument,
+
+    /// The callee expression replaced by direct invocation or dispatch.
+    Callee,
 }
 
 /// Classifies where a consumed callable *expression's* evaluation lives after
 /// rewriting.
 ///
-/// This is the single decision that both consumption sites share. It replaces
+/// This is the single decision that consumption sites share. It replaces
 /// the four predicates that used to be OR'd together at the binding gate, and
 /// it is applied to the argument expression itself by
 /// [`super::analysis`] before a call site is accepted for specialization, so
@@ -2948,8 +2950,9 @@ pub(super) enum ConsumptionSite {
 /// outright with no purity guard of their own; the guarantee they rely on is
 /// established here.
 ///
-/// One rule is positional. At [`ConsumptionSite::Argument`] the expression
-/// being deleted *is* the selection the analysis statically resolved, and the
+/// One rule is positional. At [`ConsumptionSite::Argument`] or
+/// [`ConsumptionSite::Callee`] the expression being deleted *is* the selection
+/// the analysis statically resolved, and the
 /// specialized call re-expresses that selection directly, so a statically
 /// resolved indexed read is [`EvaluationDisposition::Replayed`]. Rewriting must
 /// preserve its bounds check or prove the index statically in bounds. At
@@ -2970,7 +2973,7 @@ pub(super) fn consumed_callable_expr_disposition(
     if expr_is_safe_to_discard_with_total_foreign(package, package_id, expr_id, total_foreign) {
         EvaluationDisposition::Discarded
     } else if is_replayed_callable_selection(package, expr_id)
-        || (site == ConsumptionSite::Argument
+        || (site != ConsumptionSite::Binding
             && is_replayed_index_selection(package, package_id, expr_id, total_foreign))
     {
         EvaluationDisposition::Replayed
