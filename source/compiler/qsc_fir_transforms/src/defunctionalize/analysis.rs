@@ -3480,7 +3480,9 @@ pub(super) fn resolve_captures(
                 (
                     Ty::Arrow(arrow),
                     Some(CalleeLattice::Single(ConcreteCallable::Global { item_id, functor })),
-                ) if !super::specialize::ty_contains_arrow_through_udts(pkg, &arrow.input) => {
+                ) if !super::specialize::ty_contains_arrow_through_udts(pkg, &arrow.input)
+                    && expr.is_none_or(|expr| expr_is_safe_to_discard(pkg, pkg.id, expr)) =>
+                {
                     Some((*item_id, *functor))
                 }
                 _ => None,

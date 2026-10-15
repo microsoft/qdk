@@ -4194,3 +4194,33 @@ fn conditional_indexed_selection_calls_the_chosen_callable() {
         }
     }
 }
+
+#[test]
+fn block_scoped_callable_capture_keeps_initializer_effects() {
+    // The closure's only capture resolves to `Inc`, so specialization can embed
+    // `Inc` in the closure target. The block that computes the capture is then
+    // removed from the call, so embedding must not drop its message.
+    for (initializer, output) in [
+        ("Pick()", "pick\n"),
+        ("{ Message(\"capture\"); Inc }", "capture\n"),
+        ("Mark(Inc)", "mark\n"),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Pick() : Int -> Int {{ Message("pick"); Inc }}
+            function Mark(action : Int -> Int) : Int -> Int {{ Message("mark"); action }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                Apply({{ let action = {initializer}; value -> action(value) + 1 }}, 3)
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(5),
+            output,
+        );
+    }
+}

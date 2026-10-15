@@ -210,7 +210,8 @@ pub struct CapturedVar {
     /// The type of the captured variable.
     pub ty: Ty,
     /// Capture-free callable identity, retained even when operand evaluation
-    /// materializes the value into a temporary.
+    /// materializes the value into a temporary. Embedding this identity must
+    /// not suppress observable capture initialization.
     pub static_callable: Option<(ItemId, FunctorApp)>,
     /// An optional initializer expression to reuse when the original local is
     /// scoped to a block that rewrite will erase.
