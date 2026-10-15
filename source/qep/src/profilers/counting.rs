@@ -3,6 +3,7 @@
 
 use super::{Profiler, ProfilerResult};
 use crate::{
+    QuantumBackendResult,
     interface::{BatchResult, QuantumBackend},
     qir_isa::{OPERATION_COUNT, QirInstruction, instruction_index, instruction_names},
 };
@@ -141,23 +142,20 @@ impl Profiler for SequentialCountingProfiler {
 impl QuantumBackend for SequentialCountingProfiler {
     /// Counts a batch of QIR instructions and returns a requested measurement.
     fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
-        let mut read_result = None;
-        for (position, instruction) in instructions.iter().enumerate() {
+        let mut result = BatchResult::default();
+        for instruction in instructions.iter() {
             let index = instruction_index(instruction);
 
             self.observe_qubits(instruction);
             self.counts[index] += 1;
 
             if matches!(instruction, QirInstruction::read_result(..)) {
-                assert_eq!(
-                    position + 1,
-                    instructions.len(),
-                    "read_result must be the final instruction in a QIR batch"
-                );
-                read_result = Some(rand::random());
+                result
+                    .results
+                    .push(QuantumBackendResult::from(rand::random::<bool>()));
             }
         }
-        BatchResult::from(read_result)
+        result
     }
 }
 

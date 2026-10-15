@@ -107,10 +107,10 @@ impl Recorder {
 }
 
 impl QuantumBackend for Recorder {
-    /// Records a batch of instructions and supplies a requested measurement value.
+    /// Records instructions and supplies each requested measurement in read order.
     fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
-        let mut read_result = None;
-        for (position, instruction) in instructions.iter().copied().enumerate() {
+        let mut batch_result = BatchResult::default();
+        for instruction in instructions.iter().copied() {
             let result = match instruction {
                 QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
                 QirInstruction::cx(a, b) => self.cx(a, b),
@@ -139,19 +139,48 @@ impl QuantumBackend for Recorder {
                     let value = self
                         .read_result(result)
                         .unwrap_or_else(|error| panic!("{error}"));
-                    assert_eq!(
-                        position + 1,
-                        instructions.len(),
-                        "read_result must be the final instruction in a QIR batch"
-                    );
-                    read_result = Some(value);
+                    batch_result.results.push(QuantumBackendResult::from(value));
                     Ok(())
                 }
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
-        BatchResult::from(read_result)
+        batch_result
     }
+}
+
+#[test]
+/// Returns ordered results for repeated and interleaved reads without restricting their position.
+fn recorder_supports_multiple_reads_per_batch() {
+    use QirInstruction::{h, mresetz, mz, read_result, x};
+    use QuantumBackendResult::{One, Zero};
+
+    let mut backend = Recorder {
+        measurements: VecDeque::from([true, false, true]),
+        ..Default::default()
+    };
+    let empty = backend.execute_batch(&[h(0)]);
+    assert!(empty.results.is_empty());
+    assert!(!empty.results.spilled());
+
+    let multiple = backend.execute_batch(&[
+        mz(0, 0),
+        read_result(0),
+        x(1),
+        mresetz(1, 1),
+        read_result(1),
+        read_result(0),
+        h(0),
+    ]);
+    assert_eq!(multiple.results.as_slice(), &[One, Zero, One]);
+    assert_eq!(backend.measurements, VecDeque::from([true]));
+    assert_eq!(backend.events.last(), Some(&Event("h", vec![0], None)));
+
+    let single = backend.execute_batch(&[mz(0, 0), read_result(0), x(0)]);
+    assert_eq!(single.results.as_slice(), &[One]);
+    assert!(!single.results.spilled());
+    assert!(backend.measurements.is_empty());
+    assert_eq!(backend.events.last(), Some(&Event("x", vec![0], None)));
 }
 
 /// Parses and executes an in-memory QIR test fixture.

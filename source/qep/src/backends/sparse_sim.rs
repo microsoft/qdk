@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirInstruction, QuantumBackend};
+use crate::{BatchResult, QirInstruction, QuantumBackend, QuantumBackendResult};
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use qdk_simulators::SparseStateSim;
@@ -245,10 +245,10 @@ impl SparseSimBackend {
 }
 
 impl QuantumBackend for SparseSimBackend {
-    /// Simulates a batch of QIR instructions and returns a requested measurement.
+    /// Simulates QIR instructions and returns each requested measurement in order.
     fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
-        let mut read_result = None;
-        for (position, instruction) in instructions.iter().copied().enumerate() {
+        let mut batch_result = BatchResult::default();
+        for instruction in instructions.iter().copied() {
             let result = match instruction {
                 QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
                 QirInstruction::cx(a, b) => self.cx(a, b),
@@ -277,17 +277,12 @@ impl QuantumBackend for SparseSimBackend {
                     let value = self
                         .read_result(result)
                         .unwrap_or_else(|error| panic!("{error}"));
-                    assert_eq!(
-                        position + 1,
-                        instructions.len(),
-                        "read_result must be the final instruction in a QIR batch"
-                    );
-                    read_result = Some(value);
+                    batch_result.results.push(QuantumBackendResult::from(value));
                     Ok(())
                 }
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
-        BatchResult::from(read_result)
+        batch_result
     }
 }

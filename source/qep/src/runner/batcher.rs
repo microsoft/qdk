@@ -122,7 +122,9 @@ mod tests {
     /// Places `read_result` last and returns the corresponding backend value.
     fn flushes_at_result_barrier() -> Result<(), String> {
         let mut backend = RecordingBackend {
-            results: VecDeque::from([BatchResult::from(Some(true))]),
+            results: VecDeque::from([BatchResult {
+                results: [QuantumBackendResult::One].into_iter().collect(),
+            }]),
             ..Default::default()
         };
         let value = {
@@ -143,7 +145,9 @@ mod tests {
     /// Converts a zero result to false at the result barrier.
     fn reads_zero_result() -> Result<(), String> {
         let mut backend = RecordingBackend {
-            results: VecDeque::from([BatchResult::from(Some(false))]),
+            results: VecDeque::from([BatchResult {
+                results: [QuantumBackendResult::Zero].into_iter().collect(),
+            }]),
             ..Default::default()
         };
         let mut batcher = Batcher::new(&mut backend, 10)?;

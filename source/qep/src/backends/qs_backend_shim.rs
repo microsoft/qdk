@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirInstruction, QuantumBackend};
+use crate::{BatchResult, QirInstruction, QuantumBackend, QuantumBackendResult};
 use qsc_eval::{backend::Backend, val};
 use rustc_hash::FxHashMap;
 
@@ -68,9 +68,9 @@ impl<B: Backend> QsBackendShim<B> {
     }
 
     /// Reads a previously populated QIR result slot.
-    fn read_result(&self, result: usize) -> Result<bool, String> {
+    fn read_result(&self, result: usize) -> Result<QuantumBackendResult, String> {
         match self.results.get(&result).copied() {
-            Some(val::Result::Val(value)) => Ok(value),
+            Some(val::Result::Val(value)) => Ok(QuantumBackendResult::from(value)),
             Some(val::Result::Id(id)) => Err(format!(
                 "Result ID {result} contains unresolved Q# result ID {id}"
             )),
@@ -82,7 +82,10 @@ impl<B: Backend> QsBackendShim<B> {
     }
 
     /// Delegates one instruction and returns a requested result value, if any.
-    fn dispatch(&mut self, instruction: QirInstruction) -> Result<Option<bool>, String> {
+    fn dispatch(
+        &mut self,
+        instruction: QirInstruction,
+    ) -> Result<Option<QuantumBackendResult>, String> {
         let result = match instruction {
             QirInstruction::ccx(ctl0, ctl1, target) => {
                 let ctl0 = self.qubit(ctl0)?;
@@ -189,20 +192,15 @@ impl<B: Backend> QsBackendShim<B> {
 impl<B: Backend> QuantumBackend for QsBackendShim<B> {
     /// Delegates a batch of QIR instructions to the wrapped Q# evaluator backend.
     fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
-        let mut read_result = None;
-        for (position, instruction) in instructions.iter().copied().enumerate() {
+        let mut result = BatchResult::default();
+        for instruction in instructions.iter().copied() {
             if let Some(value) = self
                 .dispatch(instruction)
                 .unwrap_or_else(|error| panic!("{error}"))
             {
-                assert_eq!(
-                    position + 1,
-                    instructions.len(),
-                    "read_result must be the final instruction in a QIR batch"
-                );
-                read_result = Some(value);
+                result.results.push(value);
             }
         }
-        BatchResult::from(read_result)
+        result
     }
 }

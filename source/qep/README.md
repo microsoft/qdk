@@ -35,9 +35,12 @@ The QIR runner accumulates instructions until it reaches either:
 * A `read_result` instruction, which is always the last instruction in its batch.
 * The configured maximum batch size. The default is 10,000 instructions.
 
-Any backend used together with QIR Runner has a following contract:
-* A batch contains at most one `QirInstruction::read_result`.
-* When present, `read_result` is the final instruction.
+Backends execute instructions in order and return exactly one result for each
+`QirInstruction::read_result`, in the same order. Reads can occur anywhere in a
+batch, and a batch can contain multiple reads.
+
+The QIR runner continues to submit batches with at most one `read_result`, always
+as the final instruction. It validates backend responses as follows:
 * A batch ending in `read_result` must return exactly one `QuantumBackendResult::Zero`
   or `QuantumBackendResult::One`.
 * A batch without `read_result` must return an empty result list.
@@ -47,7 +50,8 @@ Any backend used together with QIR Runner has a following contract:
 arbitrary-length result lists, but keeps the QIR runner's zero-or-one-result case
 inline without heap allocation. Larger lists allocate only when the inline capacity
 is exceeded. `smallvec` avoids requiring a default result value, unlike `tinyvec`.
-QIR backends can use `BatchResult::from(Option<bool>)` to construct their response.
+Backends can use `QuantumBackendResult::from(bool)` (or `.into()`) to convert
+measurement bits before pushing them into `BatchResult.results`.
 
 ### Quantum Backend trait
 
