@@ -97,7 +97,7 @@ async fn profiles_adder() -> Result<(), String> {
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
-                let n = 500;
+                let n = 1000;
                 use xs = Qubit[n];
                 use ys = Qubit[n];
                 use sum = Qubit[n];

@@ -129,14 +129,8 @@ unsafe fn dispatch<T: Default>(
             T::default()
         }
     }
-    // The ABI requires a return value even on failure. Injected guards prevent
-    // the QIR caller from consuming it and propagate failure to the entry point.
-}
-
-/// Reports whether callback dispatch has recorded an execution error.
-pub(super) unsafe extern "C" fn has_error(ptr: *mut c_void) -> bool {
-    // SAFETY: The injected error checks use the same live execution state.
-    unsafe { &*ptr.cast::<ExecutionState>() }.error.is_some()
+    // The ABI requires a return value even on failure. The runner reports the
+    // stored error after the entry point returns.
 }
 
 macro_rules! gates {
@@ -333,10 +327,9 @@ pub(super) fn bindings(context: &Context) -> Vec<Binding<'_>> {
     bindings
 }
 
-/// Removes function promises invalidated by runtime instrumentation.
+/// Removes function promises invalidated by runtime callback wrappers.
 pub(super) fn clear_function_attributes(function: FunctionValue<'_>) {
-    // Original purity/termination promises need not hold for backend callbacks
-    // or the injected error checks.
+    // Original purity/termination promises need not hold for backend callbacks.
     for attr in function.attributes(AttributeLoc::Function) {
         if attr.is_string() {
             function.remove_string_attribute(

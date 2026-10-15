@@ -11,15 +11,11 @@ use crate::{QuantumBackend, QuantumBackendEndpoint, QuantumDriverEndpoint};
 use inkwell::{
     OptimizationLevel,
     attributes::AttributeLoc,
-    builder::BuilderError,
     context::Context,
     memory_buffer::MemoryBuffer,
     module::Module,
     targets::{InitializationConfig, Target, TargetMachine},
-    values::{
-        BasicMetadataValueEnum, CallSiteValue, FunctionValue, InstructionOpcode, PhiValue,
-        PointerValue,
-    },
+    values::{BasicMetadataValueEnum, CallSiteValue, FunctionValue, InstructionOpcode},
 };
 use runtime::ExecutionState;
 use std::{ffi::c_void, path::Path};
@@ -66,9 +62,11 @@ pub struct RunOutput {
 /// Both QIR 1 typed pointers and QIR 2 opaque pointers are
 /// accepted by the LLVM parser.
 ///
-/// Backend errors and unwinding panics stop execution and are returned as
-/// errors. The backend may have been partially updated; changes are not rolled
-/// back. No backend state is reset implicitly between invocations.
+/// Callback errors are returned after the entry point finishes. After an error,
+/// later callbacks return default values without contacting the backend, so
+/// callers must ensure that QIR terminates independently of those values. The
+/// backend may have been partially updated; changes are not rolled back. No
+/// backend state is reset implicitly between invocations.
 ///
 /// Supported runtime calls are initialization, result reads, and
 /// array/tuple/result/bool/int/double output recording. The
@@ -199,21 +197,9 @@ unsafe fn execute<'ctx>(
         engine.add_global_mapping(&native, binding.address);
     }
 
-    let has_error = module.add_function(
-        "__qep_has_error",
-        context
-            .bool_type()
-            .fn_type(&[context.ptr_type(Default::default()).into()], false),
-        None,
-    );
-    engine.add_global_mapping(&has_error, runtime::has_error as *const () as usize);
-    for function in functions {
-        instrument_errors(context, function, has_error, context_ptr)
-            .map_err(|error| error.to_string())?;
-    }
     module
         .verify()
-        .map_err(|error| format!("Invalid instrumented QIR: {error}"))?;
+        .map_err(|error| format!("Invalid QIR runtime bindings: {error}"))?;
 
     let name = entry
         .get_name()
@@ -346,96 +332,6 @@ fn validate_module(module: &Module<'_>) -> Result<(), String> {
                 _ => {}
             }
         }
-    }
-    Ok(())
-}
-
-/// Inserts error checks after calls so backend failures stop QIR execution.
-fn instrument_errors<'ctx>(
-    context: &'ctx Context,
-    function: FunctionValue<'ctx>,
-    has_error: FunctionValue<'ctx>,
-    state: PointerValue<'ctx>,
-) -> Result<(), BuilderError> {
-    let calls: Vec<_> = function
-        .get_basic_blocks()
-        .iter()
-        .flat_map(|block| block.get_instructions())
-        .filter(|instruction| instruction.get_opcode() == InstructionOpcode::Call)
-        .collect();
-    runtime::clear_function_attributes(function);
-    if calls.is_empty() {
-        return Ok(());
-    }
-    let builder = context.create_builder();
-    let failure = context.append_basic_block(function, "qep.failure");
-    builder.position_at_end(failure);
-    if let Some(ty) = function.get_type().get_return_type() {
-        builder.build_return(Some(&ty.const_zero()))?;
-    } else {
-        builder.build_return(None)?;
-    }
-
-    for instruction in calls {
-        let call = CallSiteValue::try_from(instruction).expect("call instruction");
-        call.set_tail_call(false);
-        for attr in call.attributes(AttributeLoc::Function) {
-            if attr.is_string() {
-                call.remove_string_attribute(
-                    AttributeLoc::Function,
-                    &attr.get_string_kind_id().to_string_lossy(),
-                );
-            } else {
-                call.remove_enum_attribute(AttributeLoc::Function, attr.get_enum_kind_id());
-            }
-        }
-        let original = instruction.get_parent().expect("call belongs to a block");
-        let continuation = context.append_basic_block(function, "qep.continue");
-        let mut next = instruction.get_next_instruction();
-        builder.position_at_end(continuation);
-        while let Some(following) = next {
-            next = following.get_next_instruction();
-            following.remove_from_basic_block();
-            builder.insert_instruction(&following, None);
-        }
-
-        // Moving the terminator changes predecessor identities, including
-        // back-edges and PHIs that use this call's return value.
-        for block in function.get_basic_blocks() {
-            for phi in block
-                .get_instructions()
-                .take_while(|inst| inst.get_opcode() == InstructionOpcode::Phi)
-                .collect::<Vec<_>>()
-            {
-                let phi = PhiValue::try_from(phi).expect("phi instruction");
-                let incoming: Vec<_> = phi.get_incomings().collect();
-                if incoming.iter().any(|(_, block)| *block == original) {
-                    builder.position_before(&phi.as_instruction());
-                    let replacement =
-                        builder.build_phi(phi.as_basic_value().get_type(), "qep.phi")?;
-                    for (value, block) in incoming {
-                        replacement.add_incoming(&[(
-                            &value,
-                            if block == original {
-                                continuation
-                            } else {
-                                block
-                            },
-                        )]);
-                    }
-                    phi.replace_all_uses_with(&replacement);
-                    phi.as_instruction().erase_from_basic_block();
-                }
-            }
-        }
-        builder.position_at_end(original);
-        let failed = builder
-            .build_call(has_error, &[state.into()], "qep.failed")?
-            .try_as_basic_value()
-            .left()
-            .expect("error check returns bool")
-            .into_int_value();
-        builder.build_conditional_branch(failed, failure, continuation)?;
     }
     Ok(())
 }

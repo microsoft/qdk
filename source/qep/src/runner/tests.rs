@@ -493,6 +493,16 @@ const MEASURE_HELPER: &str = r#"
     }
 "#;
 
+const MEASURE_ONCE: &str = r#"
+    declare void @__quantum__qis__m__body(ptr, ptr)
+    declare i1 @__quantum__rt__read_result(ptr)
+    define void @main() #0 {
+        call void @__quantum__qis__m__body(ptr null, ptr null)
+        %result = call i1 @__quantum__rt__read_result(ptr null)
+        ret void
+    }
+"#;
+
 #[tokio::test]
 /// Verifies that result initialization does not leak across invocations.
 async fn previous_invocations_do_not_initialize_current_result_slots() -> Result<(), String> {
@@ -520,7 +530,7 @@ async fn previous_invocations_do_not_initialize_current_result_slots() -> Result
 }
 
 #[tokio::test]
-/// Verifies that backend panics terminate execution without deadlocking.
+/// Verifies that backend panics fail terminating QIR without deadlocking.
 async fn backend_panics_terminate_execution_without_deadlocking() {
     for method in ["mz", "read_result"] {
         for panic in [false, true] {
@@ -530,7 +540,7 @@ async fn backend_panics_terminate_execution_without_deadlocking() {
                     panic_on: panic.then_some(method),
                     ..Default::default()
                 };
-                run(MEASURE_HELPER, &mut backend).await
+                run(MEASURE_ONCE, &mut backend).await
             });
             assert!(task.await.is_err(), "backend panic should fail its task");
         }
