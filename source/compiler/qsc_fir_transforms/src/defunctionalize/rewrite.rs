@@ -2365,7 +2365,13 @@ fn prune_dead_callable_arg_locals(
             // Locals bound only to plain callable references
             // (`op = H`) carry no closure tail, so they are left untouched to
             // preserve existing dead-code behavior.
-            remove_write_only_callable_local_from_callable(package, callable_id, local_var);
+            remove_write_only_callable_local_from_callable(
+                package,
+                package_id,
+                callable_id,
+                local_var,
+                total_foreign,
+            );
         }
     }
 
@@ -2377,7 +2383,13 @@ fn prune_dead_callable_arg_locals(
         if !local_var_is_read_in_callable(package, callable_id, src_var)
             && local_var_has_closure_valued_binding(package, callable_id, src_var)
         {
-            remove_write_only_callable_local_from_callable(package, callable_id, src_var);
+            remove_write_only_callable_local_from_callable(
+                package,
+                package_id,
+                callable_id,
+                src_var,
+                total_foreign,
+            );
         }
     }
 
@@ -2700,16 +2712,51 @@ fn local_index_source_array_local(
 /// bindings and assignment statements, which arise when a callable local is
 /// initialized (and possibly reassigned) from partial applications but is only
 /// ever consumed through a call site that direct-dispatch rewriting has already
-/// replaced.
+/// replaced. Removal requires a discard-safe initializer and only discard-safe
+/// whole-local assignments; partial updates or observable writes remain intact.
 fn remove_write_only_callable_local_from_callable(
     package: &mut Package,
+    package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let Some(ItemKind::Callable(decl)) = package.items.get(callable_id).map(|item| &item.kind)
     else {
         return;
     };
+
+    let Some(initializer) = find_local_init_expr_in_callable(package, callable_id, local_var)
+    else {
+        return;
+    };
+    if !expr_is_safe_to_discard_with_total_foreign(package, package_id, initializer, total_foreign)
+    {
+        return;
+    }
+    let mut writes_are_discardable = true;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &decl.implementation,
+        &mut |id, expr| {
+            if super::analysis::assignment_written_locals(package, expr).contains(&local_var) {
+                writes_are_discardable &= match expr.kind {
+                    ExprKind::Assign(_, rhs) if expr_is_assign_to_local(package, id, local_var) => {
+                        expr_is_safe_to_discard_with_total_foreign(
+                            package,
+                            package_id,
+                            rhs,
+                            total_foreign,
+                        )
+                    }
+                    _ => false,
+                };
+            }
+        },
+    );
+    if !writes_are_discardable {
+        return;
+    }
 
     let implementation = decl.implementation.clone();
     match implementation {

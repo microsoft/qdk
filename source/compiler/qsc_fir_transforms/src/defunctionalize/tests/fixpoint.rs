@@ -2710,6 +2710,62 @@ fn inline_closure_arguments_preserve_prefixes_and_aliases() {
 }
 
 #[test]
+fn write_only_callable_assignments_preserve_effects() {
+    // The reassignment's block prints and sets `marker` to 1, so the result is
+    // `value * 10 + 1`: 41 from `Inc(3)`, or 131 when `Offset(10, _)` was
+    // called before the write. Removing the write would drop the trailing 1.
+    for invoke in ["selected(3)", "Apply(selected, 3)"] {
+        for call_before_write in [false, true] {
+            let prefix = if call_before_write {
+                format!("let saved = {invoke};")
+            } else {
+                String::new()
+            };
+            let result = if call_before_write { "saved" } else { invoke };
+            let source = format!(
+                r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+                function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    mutable marker = 0;
+                    mutable selected = Offset(10, _);
+                    {prefix}
+                    set selected = {{ Message("assignment"); set marker = 1; Inc }};
+                    {result} * 10 + marker
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(if call_before_write { 131 } else { 41 }),
+            );
+        }
+    }
+}
+
+#[test]
+fn write_only_callable_assignments_preserve_failures() {
+    let source = r#"
+        function Inc(value : Int) : Int { value + 1 }
+        function Offset(offset : Int, value : Int) : Int { value + offset }
+        @EntryPoint()
+        operation Main() : Int {
+            mutable selected = Offset(10, _);
+            set selected = { fail "assignment failed"; Inc };
+            selected(3)
+        }
+        "#;
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    assert!(
+        crate::test_utils::try_eval_fir_entry(&store, package).is_err(),
+        "the assignment must fail before invoking the callable"
+    );
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
 fn captured_callable_array_preserves_functors() {
     let source = r#"
         function Make(angle : Double) : Qubit => Unit is Adj + Ctl {
