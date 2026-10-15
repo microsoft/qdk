@@ -142,7 +142,7 @@ where
         results_sender,
     };
     let driver = tokio::task::spawn_blocking(move || driver(driver_endpoint));
-    let (_, output) = tokio::join!(backend.run(backend_endpoint), driver);
+    let ((), output) = tokio::join!(backend.run(backend_endpoint), driver);
     output.map_err(|error| format!("QIR execution task failed: {error}"))?
 }
 

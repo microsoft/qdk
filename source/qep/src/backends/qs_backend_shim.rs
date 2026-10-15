@@ -195,15 +195,13 @@ impl<B: Backend> QuantumBackend for QsBackendShim<B> {
             if let Some(value) = self
                 .dispatch(instruction)
                 .unwrap_or_else(|error| panic!("{error}"))
-            {
-                if endpoint
+                && endpoint
                     .results_sender
                     .send(MessageOut::MeasurementResult(value))
                     .await
                     .is_err()
-                {
-                    return;
-                }
+            {
+                return;
             }
         }
     }

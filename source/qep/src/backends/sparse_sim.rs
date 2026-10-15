@@ -272,9 +272,7 @@ impl QuantumBackend for SparseSimBackend {
                 QirInstruction::z(target) => self.z(target),
                 QirInstruction::swap(a, b) => self.swap(a, b),
                 QirInstruction::reset(target) => self.reset(target),
-                QirInstruction::mz(target, result) => {
-                    self.mz(target, result)
-                }
+                QirInstruction::mz(target, result) => self.mz(target, result),
                 QirInstruction::mresetz(target, result) => self.mresetz(target, result),
                 QirInstruction::read_result(result) => {
                     let value = self

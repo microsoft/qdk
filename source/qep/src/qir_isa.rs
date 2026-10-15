@@ -4,7 +4,7 @@
 //! Defines the logical instruction set that can appear in QIR emitted from Q#.
 
 /// A quantum instruction emitted by the QIR runner.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
 pub enum QirInstruction {
     ccx(usize, usize, usize), // control_qubit_id_1, control_qubit_id_2, target_qubit_id

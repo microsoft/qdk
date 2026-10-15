@@ -16,7 +16,7 @@ attributes #0 = { "entry_point" "required_num_qubits"="3" "required_num_results"
 
 /// Creates a backend for runner tests that do not inspect backend state.
 fn test_backend() -> SequentialCountingProfiler {
-    SequentialCountingProfiler::new(1, std::collections::HashMap::new())
+    SequentialCountingProfiler::new(1, rustc_hash::FxHashMap::default())
 }
 
 #[derive(Debug, PartialEq)]

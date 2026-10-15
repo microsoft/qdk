@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 use std::{
-    collections::HashMap,
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
@@ -14,6 +13,7 @@ use pyo3::{
     types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
 use qre::TraceTransform;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -96,13 +96,13 @@ impl ProfilerResult {
 
     /// Returns call counts keyed by QIR instruction name.
     #[getter]
-    fn calls_per_operation(&self) -> HashMap<String, u64> {
+    fn calls_per_operation(&self) -> FxHashMap<String, u64> {
         self.0.calls_per_operation.clone()
     }
 
     /// Returns estimated runtimes keyed by QIR instruction name.
     #[getter]
-    fn runtime_time_sec_per_operation(&self) -> HashMap<String, f64> {
+    fn runtime_time_sec_per_operation(&self) -> FxHashMap<String, f64> {
         self.0.runtime_time_sec_per_operation.clone()
     }
 
@@ -154,7 +154,7 @@ impl SequentialCountingProfiler {
     #[pyo3(signature = (physical_qubits_per_logical, gate_time_sec=None))]
     fn new(
         physical_qubits_per_logical: u64,
-        gate_time_sec: Option<HashMap<String, f64>>,
+        gate_time_sec: Option<FxHashMap<String, f64>>,
     ) -> PyClassInitializer<Self> {
         PyClassInitializer::from(Profiler {
             backend: ProfilerBackend::SequentialCounting(qep::SequentialCountingProfiler::new(
