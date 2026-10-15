@@ -18,8 +18,10 @@ use qsc_fir::fir::CallableKind;
 /// First verify that the fixture really contains that collision. Then rebuild
 /// the foreign reference and check that its original `Int -> Int` type survives.
 /// No replacement type means the builder keeps the supplied type hint.
+/// The reference must also not match the local `Decoy` as a closure-call target,
+/// which would allow capture arguments to be attached to the wrong call.
 #[test]
-fn foreign_callable_values_do_not_borrow_local_item_types() {
+fn foreign_callable_references_preserve_package_identity() {
     let (store, package_id) = crate::test_utils::compile_to_fir_with_library(
         r#"
         namespace Lib {
@@ -36,7 +38,7 @@ fn foreign_callable_values_do_not_borrow_local_item_types() {
         "#,
     );
     let package = store.get(package_id);
-    let (item_id, hint) = package
+    let (expr_id, item_id, hint) = package
         .exprs
         .values()
         .find_map(|expr| {
@@ -48,13 +50,17 @@ fn foreign_callable_values_do_not_borrow_local_item_types() {
             }
             matches!(&store.get(item.package).get_item(item.item).kind,
             ItemKind::Callable(decl) if decl.name.name.as_ref() == "Inc")
-            .then_some((item, expr.ty.clone()))
+            .then_some((expr.id, item, expr.ty.clone()))
         })
         .expect("the user calls the foreign function");
     assert!(
         matches!(&package.get_item(item_id.item).kind, ItemKind::Callable(decl)
             if decl.name.name.as_ref() == "Decoy"),
         "the fixture must exercise a colliding package-local item ID"
+    );
+    assert!(
+        !expr_is_closure_target_callee(package, expr_id, package_id, item_id.item),
+        "a foreign callable must not match a same-numbered local target"
     );
     let (_, _, actual) = build_callable_value_parts(
         package,

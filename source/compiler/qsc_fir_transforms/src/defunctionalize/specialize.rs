@@ -4720,22 +4720,23 @@ fn thread_closure_captures(
 /// Returns whether an expression resolves to a direct callee of the given
 /// closure target item.
 ///
-/// Matches both a direct `Var(Res::Item)` reference to the target and a
+/// Matches both a package-qualified `Var(Res::Item)` reference to the target and a
 /// capture-free `Closure` over it; any other expression (or a closure still
 /// carrying captures) is not treated as a direct call to the target.
 fn expr_is_closure_target_callee(
     package: &Package,
     expr_id: ExprId,
-    _package_id: PackageId,
+    package_id: PackageId,
     closure_target: LocalItemId,
 ) -> bool {
     match &package.get_expr(expr_id).kind {
         ExprKind::Var(
             Res::Item(ItemId {
-                item: callee_item, ..
+                package: callee_package,
+                item: callee_item,
             }),
             _,
-        ) => *callee_item == closure_target,
+        ) => *callee_package == package_id && *callee_item == closure_target,
         ExprKind::Closure(captures, target) => captures.is_empty() && *target == closure_target,
         _ => false,
     }
