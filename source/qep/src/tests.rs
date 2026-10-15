@@ -3,7 +3,6 @@
 
 mod backends;
 
-use super::QirBackend;
 use qsc::{LanguageFeatures, SourceMap, codegen::qir::get_qir, target::Profile};
 use std::path::PathBuf;
 
@@ -59,4 +58,3 @@ fn compile_qsharp_to_qir(source: &str, profile: Profile) -> QirFile {
     std::fs::write(&file.0, qir).expect("failed to write compiled QIR");
     file
 }
- 

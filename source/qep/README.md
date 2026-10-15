@@ -211,16 +211,18 @@ This section is WIP, but on high level:
 On a high level, resource estimation will look like this:
 
 ```
+    use qep::run_qir;
+
     let qir_path = "program.ll";
     let mut profiler = Profiler::default();
-    let mut qir_runner = QirRunner::default();
-    qir_runner.run(qir_path, &mut backend).await;
+    // SAFETY: The QIR was produced by a trusted compiler and meets the runner's ABI contract.
+    unsafe { run_qir(qir_path, &mut profiler).await? };
     println!(profiler.get_results());
 ```
 
 That is:
 * Application or profile is compiled into QIR
-  * We can support any other format, and we only will have to swap QirRunner with 
+  * We can support any other format, and we only will have to swap the QIR runner with
       different interpreter that implements the above described interface.
 * We instantiate Profiler.
 * We run QIR Runner with profiler as backend.

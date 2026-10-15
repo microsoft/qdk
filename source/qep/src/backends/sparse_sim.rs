@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::QirBackend;
+use crate::{MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint};
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use qdk_simulators::SparseStateSim;
@@ -47,7 +47,7 @@ impl SparseSimBackend {
     }
 }
 
-impl QirBackend for SparseSimBackend {
+impl SparseSimBackend {
     /// Applies a doubly controlled X gate.
     fn ccx(&mut self, control1: usize, control2: usize, target: usize) -> Result<(), String> {
         self.ensure_qubits(&[control1, control2, target]);
@@ -241,5 +241,57 @@ impl QirBackend for SparseSimBackend {
             .get(&result)
             .copied()
             .ok_or_else(|| format!("Result ID {result} has not been written"))
+    }
+}
+
+impl QuantumBackend for SparseSimBackend {
+    /// Simulates streamed QIR instructions and returns requested measurements.
+    async fn run(&mut self, mut endpoint: QuantumBackendEndpoint) {
+        while let Some(MessageIn::QirInstruction(instruction)) =
+            endpoint.instructions_receiver.recv().await
+        {
+            let result = match instruction {
+                QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
+                QirInstruction::cx(a, b) | QirInstruction::cnot(a, b) => self.cx(a, b),
+                QirInstruction::cy(a, b) => self.cy(a, b),
+                QirInstruction::cz(a, b) => self.cz(a, b),
+                QirInstruction::rx(angle, target) => self.rx(angle, target),
+                QirInstruction::rxx(angle, a, b) => self.rxx(angle, a, b),
+                QirInstruction::ry(angle, target) => self.ry(angle, target),
+                QirInstruction::ryy(angle, a, b) => self.ryy(angle, a, b),
+                QirInstruction::rz(angle, target) => self.rz(angle, target),
+                QirInstruction::rzz(angle, a, b) => self.rzz(angle, a, b),
+                QirInstruction::h(target) => self.h(target),
+                QirInstruction::s(target) => self.s(target),
+                QirInstruction::sadj(target) => self.sadj(target),
+                QirInstruction::sx(target) => self.sx(target),
+                QirInstruction::t(target) => self.t(target),
+                QirInstruction::tadj(target) => self.tadj(target),
+                QirInstruction::x(target) => self.x(target),
+                QirInstruction::y(target) => self.y(target),
+                QirInstruction::z(target) => self.z(target),
+                QirInstruction::swap(a, b) => self.swap(a, b),
+                QirInstruction::reset(target) => self.reset(target),
+                QirInstruction::m(target, result) | QirInstruction::mz(target, result) => {
+                    self.mz(target, result)
+                }
+                QirInstruction::mresetz(target, result) => self.mresetz(target, result),
+                QirInstruction::read_result(result) => {
+                    let value = self
+                        .read_result(result)
+                        .unwrap_or_else(|error| panic!("{error}"));
+                    if endpoint
+                        .results_sender
+                        .send(MessageOut::MeasurementResult(value))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    Ok(())
+                }
+            };
+            result.unwrap_or_else(|error| panic!("{error}"));
+        }
     }
 }

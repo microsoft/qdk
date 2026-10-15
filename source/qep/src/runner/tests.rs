@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{OutputRecord, OutputValue, RunOutput, execute, run_qir};
-use crate::{CountingBackend, QirBackend};
+use super::{OutputRecord, OutputValue, RunOutput, execute, run_driver, run_qir};
+use crate::{
+    CountingBackend, MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint,
+};
 use inkwell::{context::Context, memory_buffer::MemoryBuffer};
 use rustc_hash::FxHashMap;
 use std::{collections::VecDeque, fmt::Write, path::PathBuf};
@@ -57,7 +59,7 @@ macro_rules! rotations {
         }
     )+};
 }
-impl QirBackend for Recorder {
+impl Recorder {
     gates! {
         ccx(a, b, c); cx(a, b); cy(a, b); cz(a, b);
         h(a); s(a); sadj(a); sx(a); t(a); tadj(a); x(a); y(a); z(a);
@@ -96,24 +98,78 @@ impl QirBackend for Recorder {
         *slot = Some(value);
         Ok(value)
     }
+}
 
+impl QuantumBackend for Recorder {
+    /// Records streamed instructions and supplies configured measurement values.
+    async fn run(&mut self, mut endpoint: QuantumBackendEndpoint) {
+        while let Some(MessageIn::QirInstruction(instruction)) =
+            endpoint.instructions_receiver.recv().await
+        {
+            let result = match instruction {
+                QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
+                QirInstruction::cx(a, b) | QirInstruction::cnot(a, b) => self.cx(a, b),
+                QirInstruction::cy(a, b) => self.cy(a, b),
+                QirInstruction::cz(a, b) => self.cz(a, b),
+                QirInstruction::rx(angle, target) => self.rx(angle, target),
+                QirInstruction::rxx(angle, a, b) => self.rxx(angle, a, b),
+                QirInstruction::ry(angle, target) => self.ry(angle, target),
+                QirInstruction::ryy(angle, a, b) => self.ryy(angle, a, b),
+                QirInstruction::rz(angle, target) => self.rz(angle, target),
+                QirInstruction::rzz(angle, a, b) => self.rzz(angle, a, b),
+                QirInstruction::h(target) => self.h(target),
+                QirInstruction::s(target) => self.s(target),
+                QirInstruction::sadj(target) => self.sadj(target),
+                QirInstruction::sx(target) => self.sx(target),
+                QirInstruction::t(target) => self.t(target),
+                QirInstruction::tadj(target) => self.tadj(target),
+                QirInstruction::x(target) => self.x(target),
+                QirInstruction::y(target) => self.y(target),
+                QirInstruction::z(target) => self.z(target),
+                QirInstruction::swap(a, b) => self.swap(a, b),
+                QirInstruction::reset(target) => self.reset(target),
+                QirInstruction::m(target, result) | QirInstruction::mz(target, result) => {
+                    self.mz(target, result)
+                }
+                QirInstruction::mresetz(target, result) => self.mresetz(target, result),
+                QirInstruction::read_result(result) => {
+                    let value = self
+                        .read_result(result)
+                        .unwrap_or_else(|error| panic!("{error}"));
+                    if endpoint
+                        .results_sender
+                        .send(MessageOut::MeasurementResult(value))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    Ok(())
+                }
+            };
+            result.unwrap_or_else(|error| panic!("{error}"));
+        }
+    }
 }
 
 /// Parses and executes an in-memory QIR test fixture.
-fn run(source: &str, backend: &mut impl QirBackend) -> Result<RunOutput, String> {
-    let context = Context::create();
+async fn run(source: &str, backend: &mut impl QuantumBackend) -> Result<RunOutput, String> {
     let source = format!("{source}\n{ATTRIBUTES}");
-    let buffer = MemoryBuffer::create_from_memory_range_copy(source.as_bytes(), "test");
-    let module = context
-        .create_module_from_ir(buffer)
-        .map_err(|e| e.to_string())?;
-    // SAFETY: Tests supply known QIR with valid memory access and C ABIs.
-    unsafe { execute(&context, &module, backend) }
+    run_driver(backend, move |endpoint| {
+        let context = Context::create();
+        let buffer = MemoryBuffer::create_from_memory_range_copy(source.as_bytes(), "test");
+        let module = context
+            .create_module_from_ir(buffer)
+            .map_err(|e| e.to_string())?;
+        // SAFETY: Tests supply known QIR with valid memory access and C ABIs.
+        unsafe { execute(&context, &module, endpoint) }
+    })
+    .await
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that every supported intrinsic preserves its arguments.
-fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), String> {
+async fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), String> {
     let cases = [
         ("ccx__body", "ccx", vec![0, 1, 2], None),
         ("cx__body", "cx", vec![1, 2], None),
@@ -190,7 +246,8 @@ fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), String> {
     let output = run(
         &format!("{declarations}\ndefine void @main() #0 {{\n{calls} ret void\n}}"),
         &mut backend,
-    )?;
+    )
+    .await?;
     assert_eq!(backend.events, expected);
     assert_eq!(backend.measurements.len(), 3);
     assert_eq!(output.return_value, None);
@@ -198,13 +255,14 @@ fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), String> {
     run(
         &format!("{declarations}\ndefine void @main() #0 {{\n{calls} ret void\n}}"),
         &mut CountingBackend::default(),
-    )?;
+    )
+    .await?;
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that instrumentation preserves internal call return values.
-fn internal_call_return_values_survive_loop_phi_rewriting() -> Result<(), String> {
+async fn internal_call_return_values_survive_loop_phi_rewriting() -> Result<(), String> {
     let mut backend = Recorder::default();
     let output = run(
         r#"
@@ -228,7 +286,8 @@ fn internal_call_return_values_survive_loop_phi_rewriting() -> Result<(), String
         attributes #1 = { nounwind willreturn memory(none) }
         "#,
         &mut backend,
-    )?;
+    )
+    .await?;
     assert_eq!(output.return_value, Some(3));
     assert_eq!(
         backend.events,
@@ -239,9 +298,9 @@ fn internal_call_return_values_survive_loop_phi_rewriting() -> Result<(), String
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that adaptive loops preserve PHIs and measurement values.
-fn adaptive_loop_preserves_phis_and_measurement_values() -> Result<(), String> {
+async fn adaptive_loop_preserves_phis_and_measurement_values() -> Result<(), String> {
     let mut backend = Recorder {
         measurements: VecDeque::from([false, false, true]),
         ..Default::default()
@@ -268,7 +327,8 @@ fn adaptive_loop_preserves_phis_and_measurement_values() -> Result<(), String> {
         }
     "#,
         &mut backend,
-    )?;
+    )
+    .await?;
     assert_eq!(output.return_value, Some(7));
     assert_eq!(
         output.records,
@@ -292,9 +352,9 @@ fn adaptive_loop_preserves_phis_and_measurement_values() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that measurements resolve only when their values are consumed.
-fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
+async fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
     let mut backend = Recorder {
         measurements: VecDeque::from([true, false]),
         ..Default::default()
@@ -321,7 +381,8 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
         }
         "#,
         &mut backend,
-    )?;
+    )
+    .await?;
     assert_eq!(
         backend.events,
         vec![
@@ -351,9 +412,9 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 /// Verifies structured output labels and values.
-fn records_structured_output() -> Result<(), String> {
+async fn records_structured_output() -> Result<(), String> {
     let mut backend = Recorder {
         measurements: VecDeque::from([true]),
         ..Default::default()
@@ -384,7 +445,8 @@ fn records_structured_output() -> Result<(), String> {
         }
     "#,
         &mut backend,
-    )?;
+    )
+    .await?;
     let expected = [
         (OutputValue::Tuple(2), Some("test")),
         (OutputValue::Array(3), None),
@@ -427,14 +489,14 @@ const MEASURE_HELPER: &str = r#"
     }
 "#;
 
-#[test]
+#[tokio::test]
 /// Verifies that result initialization does not leak across invocations.
-fn previous_invocations_do_not_initialize_current_result_slots() -> Result<(), String> {
+async fn previous_invocations_do_not_initialize_current_result_slots() -> Result<(), String> {
     let mut backend = Recorder {
         measurements: VecDeque::from([true]),
         ..Default::default()
     };
-    run(MEASURE_HELPER, &mut backend)?;
+    run(MEASURE_HELPER, &mut backend).await?;
     backend.events.clear();
     let error = run(
         r#"
@@ -446,46 +508,34 @@ fn previous_invocations_do_not_initialize_current_result_slots() -> Result<(), S
         "#,
         &mut backend,
     )
+    .await
     .expect_err("result must be issued in the current invocation");
     assert!(error.contains("has not been written"), "{error}");
     assert!(backend.events.is_empty());
     Ok(())
 }
 
-#[test]
-/// Verifies that nested backend errors and panics terminate execution.
-fn backend_errors_and_panics_escape_nested_calls_and_loops() {
+#[tokio::test]
+/// Verifies that backend panics terminate execution without deadlocking.
+async fn backend_panics_terminate_execution_without_deadlocking() {
     for method in ["mz", "read_result"] {
         for panic in [false, true] {
-            let mut backend = Recorder {
-                fail_on: (!panic).then_some(method),
-                panic_on: panic.then_some(method),
-                ..Default::default()
-            };
-            let error = run(MEASURE_HELPER, &mut backend).expect_err("execution must stop");
-            let expected = if panic {
-                "test backend panic".into()
-            } else {
-                format!("{method} failed")
-            };
-            assert!(error.contains(&expected), "{error}");
-            let mut events = vec![Event("mz", vec![0, 0], None)];
-            if method == "read_result" {
-                events.push(Event("read_result", vec![0], None));
-            }
-            assert_eq!(backend.events, events);
-            backend.fail_on = None;
-            backend.panic_on = None;
-            backend.measurements.push_back(true);
-            run(MEASURE_HELPER, &mut backend).expect("a later invocation should succeed");
-            assert_eq!(backend.events.last(), Some(&Event("x", vec![0], None)));
+            let task = tokio::spawn(async move {
+                let mut backend = Recorder {
+                    fail_on: (!panic).then_some(method),
+                    panic_on: panic.then_some(method),
+                    ..Default::default()
+                };
+                run(MEASURE_HELPER, &mut backend).await
+            });
+            assert!(task.await.is_err(), "backend panic should fail its task");
         }
     }
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that indirect calls and reserved definitions are rejected.
-fn rejects_indirect_calls_and_reserved_symbols() {
+async fn rejects_indirect_calls_and_reserved_symbols() {
     let cases = [
         (
             r#"
@@ -517,38 +567,46 @@ fn rejects_indirect_calls_and_reserved_symbols() {
         ),
     ];
     for (source, expected) in cases {
-        let error = run(source, &mut CountingBackend::default()).expect_err("unsupported input");
+        let error = run(source, &mut CountingBackend::default())
+            .await
+            .expect_err("unsupported input");
         assert!(error.contains(expected), "{error}");
     }
 }
 
-#[test]
-/// Verifies that a backend failure skips later calls in the block.
-fn backend_error_stops_later_gates_in_the_same_block() {
-    let mut backend = Recorder {
-        fail_on: Some("h"),
-        ..Default::default()
-    };
+#[tokio::test]
+/// Verifies that an early backend shutdown fails the driver explicitly.
+async fn backend_shutdown_stops_later_gates_in_the_same_block() {
+    struct StoppingBackend;
+
+    impl QuantumBackend for StoppingBackend {
+        /// Stops after receiving the first instruction.
+        async fn run(&mut self, mut endpoint: QuantumBackendEndpoint) {
+            endpoint.instructions_receiver.recv().await;
+        }
+    }
+
+    let mut backend = StoppingBackend;
     let error = run(
         r#"
-        declare void @__quantum__qis__h__body(ptr)
-        declare void @__quantum__qis__x__body(ptr)
+        declare void @__quantum__qis__m__body(ptr, ptr)
+        declare i1 @__quantum__rt__read_result(ptr)
         define void @main() #0 {
-            call void @__quantum__qis__h__body(ptr null)
-            call void @__quantum__qis__x__body(ptr null)
+            call void @__quantum__qis__m__body(ptr null, ptr null)
+            %result = call i1 @__quantum__rt__read_result(ptr null)
             ret void
         }
     "#,
         &mut backend,
     )
-    .expect_err("gate failure");
-    assert_eq!(error, "h failed");
-    assert_eq!(backend.events, vec![Event("h", vec![0], None)]);
+    .await
+    .expect_err("backend shutdown should fail execution");
+    assert!(error.contains("Quantum backend stopped"), "{error}");
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that invalid resource IDs and unwritten reads fail.
-fn rejects_invalid_ids_and_unwritten_results() {
+async fn rejects_invalid_ids_and_unwritten_results() {
     let cases = [
         (
             "declare void @__quantum__qis__h__body(ptr)",
@@ -572,15 +630,16 @@ fn rejects_invalid_ids_and_unwritten_results() {
             &format!("{declaration}\ndefine void @main() #0 {{\n{call}\nret void\n}}"),
             &mut backend,
         )
+        .await
         .expect_err("invalid QIR operation");
         assert!(error.contains(expected), "{error}");
         assert!(backend.events.is_empty());
     }
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that unsupported declarations fail before execution.
-fn rejects_unsupported_declarations_and_signatures_before_execution() {
+async fn rejects_unsupported_declarations_and_signatures_before_execution() {
     for (declaration, expected) in [
         ("declare void @unknown()", "Unsupported QIR function"),
         (
@@ -604,14 +663,15 @@ fn rejects_unsupported_declarations_and_signatures_before_execution() {
             &format!("{declaration}\ndefine void @main() #0 {{ ret void }}"),
             &mut CountingBackend::default(),
         )
+        .await
         .expect_err("unsupported declaration");
         assert!(error.contains(expected), "{error}");
     }
 }
 
-#[test]
+#[tokio::test]
 /// Verifies rejection of dynamic management and invalid entry points.
-fn rejects_dynamic_management_and_invalid_entry_points() {
+async fn rejects_dynamic_management_and_invalid_entry_points() {
     let cases = [
         ("define void @main() { ret void }", "exactly one"),
         (
@@ -642,14 +702,16 @@ fn rejects_dynamic_management_and_invalid_entry_points() {
         ),
     ];
     for (source, expected) in cases {
-        let error = run(source, &mut CountingBackend::default()).expect_err("invalid input");
+        let error = run(source, &mut CountingBackend::default())
+            .await
+            .expect_err("invalid input");
         assert!(error.contains(expected), "{error}");
     }
 }
 
-#[test]
+#[tokio::test]
 /// Verifies support for QIR 1 pointers and static management flags.
-fn accepts_qir1_typed_pointers_and_static_management_flags() -> Result<(), String> {
+async fn accepts_qir1_typed_pointers_and_static_management_flags() -> Result<(), String> {
     let mut backend = Recorder {
         measurements: VecDeque::from([true]),
         ..Default::default()
@@ -670,7 +732,8 @@ fn accepts_qir1_typed_pointers_and_static_management_flags() -> Result<(), Strin
         !1 = !{i32 1, !"dynamic_result_management", i1 false}
     "#,
         &mut backend,
-    )?;
+    )
+    .await?;
     assert_eq!(
         output.records,
         vec![OutputRecord {
@@ -706,9 +769,9 @@ impl Drop for TestFile {
     }
 }
 
-#[test]
+#[tokio::test]
 /// Verifies execution of both textual IR and bitcode files.
-fn runs_text_and_bitcode_files() -> Result<(), String> {
+async fn runs_text_and_bitcode_files() -> Result<(), String> {
     let source = format!(
         r#"
         declare void @__quantum__qis__h__body(ptr)
@@ -740,7 +803,7 @@ fn runs_text_and_bitcode_files() -> Result<(), String> {
             ..Default::default()
         };
         // SAFETY: The fixture uses valid QIR gate and output-recording calls.
-        let output = unsafe { run_qir(path, &mut backend) }?;
+        let output = unsafe { run_qir(path, &mut backend).await }?;
         assert_eq!(output.return_value, Some(42));
         assert_eq!(
             backend.events,
@@ -761,30 +824,32 @@ fn runs_text_and_bitcode_files() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that missing and malformed input files fail cleanly.
-fn rejects_missing_and_malformed_files() -> Result<(), String> {
+async fn rejects_missing_and_malformed_files() -> Result<(), String> {
     let missing = std::env::temp_dir().join(format!("missing-qep-{}.ll", rand::random::<u64>()));
     // SAFETY: The file does not exist, so nothing can execute.
-    assert!(unsafe { run_qir(missing, &mut CountingBackend::default()) }.is_err());
+    assert!(unsafe { run_qir(missing, &mut CountingBackend::default()).await }.is_err());
     let malformed = TestFile::new("ll");
     std::fs::write(&malformed.0, "not LLVM IR").map_err(|e| e.to_string())?;
     // SAFETY: Parsing fails before execution.
-    assert!(unsafe { run_qir(&malformed.0, &mut CountingBackend::default()) }.is_err());
+    assert!(unsafe { run_qir(&malformed.0, &mut CountingBackend::default()).await }.is_err());
     Ok(())
 }
 
-#[test]
+#[tokio::test]
 /// Verifies that independent backends can execute concurrently.
-fn runs_independent_backends_concurrently() {
-    let threads: Vec<_> = (0..4)
+async fn runs_independent_backends_concurrently() {
+    let tasks: Vec<_> = (0..4)
         .map(|_| {
-            std::thread::spawn(|| {
+            tokio::spawn(async {
                 let mut backend = Recorder {
                     measurements: VecDeque::from([true]),
                     ..Default::default()
                 };
-                run(MEASURE_HELPER, &mut backend).expect("thread execution");
+                run(MEASURE_HELPER, &mut backend)
+                    .await
+                    .expect("task execution");
                 assert_eq!(
                     backend.events,
                     vec![
@@ -796,7 +861,7 @@ fn runs_independent_backends_concurrently() {
             })
         })
         .collect();
-    for thread in threads {
-        thread.join().expect("thread should not panic");
+    for task in tasks {
+        task.await.expect("task should not panic");
     }
 }

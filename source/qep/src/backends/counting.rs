@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::QirBackend;
+use crate::{MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint};
 
 /// Call counts collected by a [`CountingBackend`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -49,150 +49,54 @@ impl CountingBackend {
     }
 }
 
-impl QirBackend for CountingBackend {
-    /// Counts and ignores a doubly controlled X gate.
-    fn ccx(&mut self, _control1: usize, _control2: usize, _target: usize) -> Result<(), String> {
-        self.counts.ccx += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a controlled X gate.
-    fn cx(&mut self, _control: usize, _target: usize) -> Result<(), String> {
-        self.counts.cx += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a controlled Y gate.
-    fn cy(&mut self, _control: usize, _target: usize) -> Result<(), String> {
-        self.counts.cy += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a controlled Z gate.
-    fn cz(&mut self, _control: usize, _target: usize) -> Result<(), String> {
-        self.counts.cz += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores an X-axis rotation.
-    fn rx(&mut self, _angle: f64, _target: usize) -> Result<(), String> {
-        self.counts.rx += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a two-qubit XX rotation.
-    fn rxx(&mut self, _angle: f64, _target1: usize, _target2: usize) -> Result<(), String> {
-        self.counts.rxx += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a Y-axis rotation.
-    fn ry(&mut self, _angle: f64, _target: usize) -> Result<(), String> {
-        self.counts.ry += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a two-qubit YY rotation.
-    fn ryy(&mut self, _angle: f64, _target1: usize, _target2: usize) -> Result<(), String> {
-        self.counts.ryy += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a Z-axis rotation.
-    fn rz(&mut self, _angle: f64, _target: usize) -> Result<(), String> {
-        self.counts.rz += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a two-qubit ZZ rotation.
-    fn rzz(&mut self, _angle: f64, _target1: usize, _target2: usize) -> Result<(), String> {
-        self.counts.rzz += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a Hadamard gate.
-    fn h(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.h += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores an S gate.
-    fn s(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.s += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores an adjoint S gate.
-    fn sadj(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.sadj += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a square-root X gate.
-    fn sx(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.sx += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a T gate.
-    fn t(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.t += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores an adjoint T gate.
-    fn tadj(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.tadj += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores an X gate.
-    fn x(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.x += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a Y gate.
-    fn y(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.y += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a Z gate.
-    fn z(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.z += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a swap gate.
-    fn swap(&mut self, _target1: usize, _target2: usize) -> Result<(), String> {
-        self.counts.swap += 1;
-        Ok(())
-    }
-
-    /// Counts a measurement issuance.
-    fn mz(&mut self, _target: usize, _result: usize) -> Result<(), String> {
-        self.counts.mz += 1;
-        self.counts.measurements += 1;
-        Ok(())
-    }
-
-    /// Counts and ignores a reset operation.
-    fn reset(&mut self, _target: usize) -> Result<(), String> {
-        self.counts.reset += 1;
-        Ok(())
-    }
-
-    /// Counts a measurement-and-reset issuance.
-    fn mresetz(&mut self, _target: usize, _result: usize) -> Result<(), String> {
-        self.counts.mresetz += 1;
-        self.counts.measurements += 1;
-        Ok(())
-    }
-
-    /// Counts a result read and returns a random bit.
-    fn read_result(&mut self, _result: usize) -> Result<bool, String> {
-        self.counts.read_result += 1;
-        Ok(rand::random())
+impl QuantumBackend for CountingBackend {
+    /// Counts streamed instructions and returns random measurement results.
+    async fn run(&mut self, mut endpoint: QuantumBackendEndpoint) {
+        while let Some(MessageIn::QirInstruction(instruction)) =
+            endpoint.instructions_receiver.recv().await
+        {
+            match instruction {
+                QirInstruction::ccx(..) => self.counts.ccx += 1,
+                QirInstruction::cx(..) | QirInstruction::cnot(..) => self.counts.cx += 1,
+                QirInstruction::cy(..) => self.counts.cy += 1,
+                QirInstruction::cz(..) => self.counts.cz += 1,
+                QirInstruction::rx(..) => self.counts.rx += 1,
+                QirInstruction::rxx(..) => self.counts.rxx += 1,
+                QirInstruction::ry(..) => self.counts.ry += 1,
+                QirInstruction::ryy(..) => self.counts.ryy += 1,
+                QirInstruction::rz(..) => self.counts.rz += 1,
+                QirInstruction::rzz(..) => self.counts.rzz += 1,
+                QirInstruction::h(..) => self.counts.h += 1,
+                QirInstruction::s(..) => self.counts.s += 1,
+                QirInstruction::sadj(..) => self.counts.sadj += 1,
+                QirInstruction::sx(..) => self.counts.sx += 1,
+                QirInstruction::t(..) => self.counts.t += 1,
+                QirInstruction::tadj(..) => self.counts.tadj += 1,
+                QirInstruction::x(..) => self.counts.x += 1,
+                QirInstruction::y(..) => self.counts.y += 1,
+                QirInstruction::z(..) => self.counts.z += 1,
+                QirInstruction::swap(..) => self.counts.swap += 1,
+                QirInstruction::reset(..) => self.counts.reset += 1,
+                QirInstruction::m(..) | QirInstruction::mz(..) => {
+                    self.counts.mz += 1;
+                    self.counts.measurements += 1;
+                }
+                QirInstruction::mresetz(..) => {
+                    self.counts.mresetz += 1;
+                    self.counts.measurements += 1;
+                }
+                QirInstruction::read_result(..) => {
+                    self.counts.read_result += 1;
+                    if endpoint
+                        .results_sender
+                        .send(MessageOut::MeasurementResult(rand::random()))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            }
+        }
     }
 }

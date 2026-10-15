@@ -7,7 +7,7 @@ mod runtime;
 #[path = "tests.rs"]
 mod tests;
 
-use crate::QirBackend;
+use crate::{QuantumBackend, QuantumBackendEndpoint, QuantumDriverEndpoint};
 use inkwell::{
     OptimizationLevel,
     attributes::AttributeLoc,
@@ -23,6 +23,7 @@ use inkwell::{
 };
 use runtime::ExecutionState;
 use std::{ffi::c_void, path::Path};
+use tokio::sync::mpsc::channel;
 
 /// A value in the QIR output-recording stream.
 ///
@@ -79,11 +80,13 @@ pub struct RunOutput {
 /// ```no_run
 /// use qep::{CountingBackend, run_qir};
 ///
+/// # async fn example() -> Result<(), String> {
 /// let mut backend = CountingBackend::default();
 /// // SAFETY: This file was produced by a trusted compiler and meets the ABI contract.
-/// let output = unsafe { run_qir("program.ll", &mut backend) }?;
+/// let output = unsafe { run_qir("program.ll", &mut backend).await }?;
 /// println!("{:?}", output.records);
 /// # Ok::<(), String>(())
+/// # }
 /// ```
 ///
 /// # Safety
@@ -92,13 +95,25 @@ pub struct RunOutput {
 /// The caller must supply trusted code with valid memory accesses and ABI use,
 /// including valid null-terminated UTF-8 output-label pointers when non-null.
 /// The program must not retain or asynchronously invoke runner callbacks.
-/// Only synchronous execution on a 64-bit host is supported.
-pub unsafe fn run_qir(
+/// Only execution on a 64-bit host is supported.
+pub async unsafe fn run_qir(
     path: impl AsRef<Path>,
-    backend: &mut impl QirBackend,
+    backend: &mut impl QuantumBackend,
+) -> Result<RunOutput, String> {
+    let path = path.as_ref().to_owned();
+    run_driver(backend, move |endpoint| {
+        // SAFETY: The caller supplies trusted QIR with the documented ABI.
+        unsafe { load_and_execute(&path, endpoint) }
+    })
+    .await
+}
+
+/// Loads a QIR module and executes it with a driver endpoint.
+unsafe fn load_and_execute(
+    path: &Path,
+    endpoint: QuantumDriverEndpoint,
 ) -> Result<RunOutput, String> {
     let context = Context::create();
-    let path = path.as_ref();
     let module = match path.extension().and_then(|ext| ext.to_str()) {
         Some("ll") => MemoryBuffer::create_from_file(path)
             .and_then(|buffer| context.create_module_from_ir(buffer)),
@@ -106,15 +121,36 @@ pub unsafe fn run_qir(
         _ => return Err("Expected a QIR file with extension .ll or .bc".into()),
     }
     .map_err(|error| format!("Failed to load QIR: {error}"))?;
-    // SAFETY: The caller supplies trusted QIR with the documented ABI.
-    unsafe { execute(&context, &module, backend) }
+    // SAFETY: The module and endpoint remain alive throughout synchronous execution.
+    unsafe { execute(&context, &module, endpoint) }
+}
+
+/// Runs a synchronous QIR driver concurrently with an asynchronous backend.
+async fn run_driver<B, F>(backend: &mut B, driver: F) -> Result<RunOutput, String>
+where
+    B: QuantumBackend,
+    F: FnOnce(QuantumDriverEndpoint) -> Result<RunOutput, String> + Send + 'static,
+{
+    let (instructions_sender, instructions_receiver) = channel(32);
+    let (results_sender, results_receiver) = channel(32);
+    let driver_endpoint = QuantumDriverEndpoint {
+        instructions_sender,
+        results_receiver,
+    };
+    let backend_endpoint = QuantumBackendEndpoint {
+        instructions_receiver,
+        results_sender,
+    };
+    let driver = tokio::task::spawn_blocking(move || driver(driver_endpoint));
+    let (_, output) = tokio::join!(backend.run(backend_endpoint), driver);
+    output.map_err(|error| format!("QIR execution task failed: {error}"))?
 }
 
 /// Validates and executes a loaded QIR module against a backend.
-unsafe fn execute<'ctx, B: QirBackend>(
+unsafe fn execute<'ctx>(
     context: &'ctx Context,
     module: &Module<'ctx>,
-    backend: &mut B,
+    endpoint: QuantumDriverEndpoint,
 ) -> Result<RunOutput, String> {
     if usize::BITS != 64 {
         return Err("QEP requires a 64-bit host".into());
@@ -129,7 +165,7 @@ unsafe fn execute<'ctx, B: QirBackend>(
         .collect();
     let entry = entry_point(context, &functions)?;
     let mut state = Box::new(ExecutionState::new(
-        backend,
+        endpoint,
         resource_count(entry, "required_num_qubits")?,
         resource_count(entry, "required_num_results")?,
     )?);
@@ -145,7 +181,7 @@ unsafe fn execute<'ctx, B: QirBackend>(
         .create_jit_execution_engine(OptimizationLevel::None)
         .map_err(|error| format!("Failed to create QIR JIT: {error}"))?;
 
-    let bindings = runtime::bindings::<B>(context);
+    let bindings = runtime::bindings(context);
     for function in module.get_functions().collect::<Vec<_>>() {
         if function.count_basic_blocks() != 0 {
             continue;
@@ -170,7 +206,7 @@ unsafe fn execute<'ctx, B: QirBackend>(
             .fn_type(&[context.ptr_type(Default::default()).into()], false),
         None,
     );
-    engine.add_global_mapping(&has_error, runtime::has_error::<B> as *const () as usize);
+    engine.add_global_mapping(&has_error, runtime::has_error as *const () as usize);
     for function in functions {
         instrument_errors(context, function, has_error, context_ptr)
             .map_err(|error| error.to_string())?;

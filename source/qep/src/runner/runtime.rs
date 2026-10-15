@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::{OutputRecord, OutputValue};
-use crate::QirBackend;
+use crate::{MessageIn, MessageOut, QirInstruction, QuantumDriverEndpoint};
 use inkwell::{
     attributes::AttributeLoc,
     builder::BuilderError,
@@ -16,24 +16,28 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-pub(super) struct ExecutionState<'a, B> {
-    backend: &'a mut B,
+pub(super) struct ExecutionState {
+    endpoint: QuantumDriverEndpoint,
     qubits: usize,
     written_results: Vec<bool>,
     pub records: Vec<OutputRecord>,
     pub error: Option<String>,
 }
 
-impl<'a, B: QirBackend> ExecutionState<'a, B> {
+impl ExecutionState {
     /// Allocates execution state for the module's declared resources.
-    pub fn new(backend: &'a mut B, qubits: usize, results: usize) -> Result<Self, String> {
+    pub fn new(
+        endpoint: QuantumDriverEndpoint,
+        qubits: usize,
+        results: usize,
+    ) -> Result<Self, String> {
         let mut slots = Vec::new();
         slots
             .try_reserve_exact(results)
             .map_err(|error| format!("Cannot allocate result slots: {error}"))?;
         slots.resize(results, false);
         Ok(Self {
-            backend,
+            endpoint,
             qubits,
             written_results: slots,
             records: Vec::new(),
@@ -59,12 +63,24 @@ impl<'a, B: QirBackend> ExecutionState<'a, B> {
             .ok_or_else(|| format!("Result ID {id} exceeds the declared result count"))
     }
 
+    /// Sends a validated instruction to the backend.
+    fn send(&self, instruction: QirInstruction) -> Result<(), String> {
+        self.endpoint
+            .instructions_sender
+            .blocking_send(MessageIn::QirInstruction(instruction))
+            .map_err(|_| "Quantum backend stopped before QIR execution completed".into())
+    }
+
     /// Reads a result after confirming it was written in this invocation.
     fn read(&mut self, ptr: *mut c_void) -> Result<bool, String> {
         if !*self.result_slot(ptr)? {
             return Err(format!("Result ID {} has not been written", ptr as usize));
         }
-        self.backend.read_result(ptr as usize)
+        self.send(QirInstruction::read_result(ptr as usize))?;
+        match self.endpoint.results_receiver.blocking_recv() {
+            Some(MessageOut::MeasurementResult(value)) => Ok(value),
+            None => Err("Quantum backend stopped before returning a measurement result".into()),
+        }
     }
 
     /// Appends an output value and decodes its optional label.
@@ -88,12 +104,12 @@ impl<'a, B: QirBackend> ExecutionState<'a, B> {
 // All callbacks take an explicit context pointer inserted by the LLVM wrappers.
 // Its lifetime is bounded by synchronous JIT execution, without global or TLS state.
 /// Dispatches a callback while capturing backend errors and panics.
-unsafe fn dispatch<B: QirBackend, T: Default>(
+unsafe fn dispatch<T: Default>(
     ptr: *mut c_void,
-    operation: impl FnOnce(&mut ExecutionState<'_, B>) -> Result<T, String>,
+    operation: impl FnOnce(&mut ExecutionState) -> Result<T, String>,
 ) -> T {
     // SAFETY: Only our generated wrappers call this with the live, unique state.
-    let state = unsafe { &mut *ptr.cast::<ExecutionState<'_, B>>() };
+    let state = unsafe { &mut *ptr.cast::<ExecutionState>() };
     if state.error.is_some() {
         return T::default();
     }
@@ -118,21 +134,19 @@ unsafe fn dispatch<B: QirBackend, T: Default>(
 }
 
 /// Reports whether callback dispatch has recorded an execution error.
-pub(super) unsafe extern "C" fn has_error<B: QirBackend>(ptr: *mut c_void) -> bool {
+pub(super) unsafe extern "C" fn has_error(ptr: *mut c_void) -> bool {
     // SAFETY: The injected error checks use the same live execution state.
-    unsafe { &*ptr.cast::<ExecutionState<'_, B>>() }
-        .error
-        .is_some()
+    unsafe { &*ptr.cast::<ExecutionState>() }.error.is_some()
 }
 
 macro_rules! gates {
     ($($gate:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Validates gate operands and forwards the operation to the backend.
-        unsafe extern "C" fn $gate<B: QirBackend>(ptr: *mut c_void, $($qubit: *mut c_void),+) {
+        unsafe extern "C" fn $gate(ptr: *mut c_void, $($qubit: *mut c_void),+) {
             // SAFETY: Called only by a generated, signature-checked wrapper.
-            unsafe { dispatch::<B, _>(ptr, |state| {
+            unsafe { dispatch::<_>(ptr, |state| {
                 $(let $qubit = state.qubit($qubit)?;)+
-                state.backend.$gate($($qubit),+)
+                state.send(QirInstruction::$gate($($qubit),+))
             }); }
         }
     )+};
@@ -146,11 +160,11 @@ gates! {
 macro_rules! rotations {
     ($($gate:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Validates rotation operands and forwards the operation to the backend.
-        unsafe extern "C" fn $gate<B: QirBackend>(ptr: *mut c_void, angle: f64, $($qubit: *mut c_void),+) {
+        unsafe extern "C" fn $gate(ptr: *mut c_void, angle: f64, $($qubit: *mut c_void),+) {
             // SAFETY: Called only by a generated, signature-checked wrapper.
-            unsafe { dispatch::<B, _>(ptr, |state| {
+            unsafe { dispatch::<_>(ptr, |state| {
                 $(let $qubit = state.qubit($qubit)?;)+
-                state.backend.$gate(angle, $($qubit),+)
+                state.send(QirInstruction::$gate(angle, $($qubit),+))
             }); }
         }
     )+};
@@ -160,17 +174,13 @@ rotations! { rx(a); rxx(a, b); ry(a); ryy(a, b); rz(a); rzz(a, b) }
 macro_rules! measurement {
     ($method:ident) => {
         /// Issues a measurement and marks its result slot as written.
-        unsafe extern "C" fn $method<B: QirBackend>(
-            ptr: *mut c_void,
-            qubit: *mut c_void,
-            result: *mut c_void,
-        ) {
+        unsafe extern "C" fn $method(ptr: *mut c_void, qubit: *mut c_void, result: *mut c_void) {
             // SAFETY: Called only by a generated, signature-checked wrapper.
             unsafe {
-                dispatch::<B, _>(ptr, |state| {
+                dispatch::<_>(ptr, |state| {
                     let qubit = state.qubit(qubit)?;
                     state.result_slot(result)?;
-                    state.backend.$method(qubit, result as usize)?;
+                    state.send(QirInstruction::$method(qubit, result as usize))?;
                     *state.result_slot(result)? = true;
                     Ok(())
                 });
@@ -182,20 +192,16 @@ measurement!(mz);
 measurement!(mresetz);
 
 /// Resolves a QIR result through the backend.
-unsafe extern "C" fn read_result<B: QirBackend>(ptr: *mut c_void, result: *mut c_void) -> bool {
+unsafe extern "C" fn read_result(ptr: *mut c_void, result: *mut c_void) -> bool {
     // SAFETY: Called only by a generated, signature-checked wrapper.
-    unsafe { dispatch::<B, _>(ptr, |state| state.read(result)) }
+    unsafe { dispatch::<_>(ptr, |state| state.read(result)) }
 }
 
 /// Resolves and appends a result to the output stream.
-unsafe extern "C" fn record_result<B: QirBackend>(
-    ptr: *mut c_void,
-    result: *mut c_void,
-    label: *const c_char,
-) {
+unsafe extern "C" fn record_result(ptr: *mut c_void, result: *mut c_void, label: *const c_char) {
     // SAFETY: Generated wrapper and the run_qir output-label contract.
     unsafe {
-        dispatch::<B, _>(ptr, |state| {
+        dispatch::<_>(ptr, |state| {
             let value = state.read(result)?;
             state.record(OutputValue::Result(value), label)
         });
@@ -205,12 +211,12 @@ unsafe extern "C" fn record_result<B: QirBackend>(
 macro_rules! output {
     ($($method:ident($ty:ty) => $variant:ident);+ $(;)?) => {$(
         /// Appends a primitive value to the output stream.
-        unsafe extern "C" fn $method<B: QirBackend>(
+        unsafe extern "C" fn $method(
             ptr: *mut c_void, value: $ty, label: *const c_char,
         ) {
             // SAFETY: Generated wrapper and the run_qir output-label contract.
             unsafe {
-                dispatch::<B, _>(ptr, |state| state.record(OutputValue::$variant(value), label));
+                dispatch::<_>(ptr, |state| state.record(OutputValue::$variant(value), label));
             }
         }
     )+};
@@ -230,7 +236,7 @@ pub(super) struct Binding<'ctx> {
 }
 
 /// Builds the supported QIR symbol-to-callback bindings.
-pub(super) fn bindings<B: QirBackend>(context: &Context) -> Vec<Binding<'_>> {
+pub(super) fn bindings(context: &Context) -> Vec<Binding<'_>> {
     let ptr = context.ptr_type(Default::default()).into();
     let double = context.f64_type().into();
     let int = context.i64_type().into();
@@ -242,7 +248,7 @@ pub(super) fn bindings<B: QirBackend>(context: &Context) -> Vec<Binding<'_>> {
             bindings.push(Binding {
                 name: $name,
                 ty: $return.fn_type(&[$($param),*], false),
-                address: $method::<B> as *const () as usize,
+                address: $method as *const () as usize,
             });
         };
     }
