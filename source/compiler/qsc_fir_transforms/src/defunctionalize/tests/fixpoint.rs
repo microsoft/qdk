@@ -2148,6 +2148,43 @@ fn progress_tracking_allows_multi_iteration_convergence() {
 }
 
 #[test]
+fn indexed_array_members_keep_their_positions() {
+    // `choices` has two slots: `actions[index]` and `Minus`. `Read` packs each
+    // result into two decimal digits, so `[Inc, Minus]` gives 402 and
+    // `[Twice, Minus]` gives 602. Treating the indexed slot's possible values as
+    // extra array elements would read three slots (40602).
+    for index in [0, 1] {
+        for invoke in ["Read(choices)", "Apply(Capture(choices))"] {
+            let source = format!(
+                r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Twice(value : Int) : Int {{ value * 2 }}
+                function Minus(value : Int) : Int {{ value - 1 }}
+                function Read(actions : (Int -> Int)[]) : Int {{
+                    mutable answer = 0;
+                    for action in actions {{ set answer = answer * 100 + action(3); }}
+                    answer
+                }}
+                function Capture(actions : (Int -> Int)[]) : Unit -> Int {{ () -> Read(actions) }}
+                function Apply(action : Unit -> Int) : Int {{ action() }}
+                function Run(index : Int) : Int {{
+                    let actions = [Inc, Twice];
+                    let choices = [actions[index], Minus];
+                    {invoke}
+                }}
+                @EntryPoint()
+                operation Main() : Int {{ Run({index}) }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(if index == 0 { 402 } else { 602 }),
+            );
+        }
+    }
+}
+
+#[test]
 fn pipeline_resolves_conditional_callable_binding() {
     let source = r#"
         operation ApplyPower(power : Int, op : Qubit => Unit is Adj, target : Qubit) : Unit is Adj {

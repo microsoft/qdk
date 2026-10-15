@@ -3224,8 +3224,9 @@ fn resolve_indexed_array_element(
 
 /// Resolves an `Index(array, index)` where the array is known but the
 /// index may vary, returning the concrete candidates in element order.
-/// Guarded candidates, unresolved elements, an empty array, or exceeding
-/// `MULTI_CAP` cause this helper to return `None`.
+/// Each element must resolve to exactly one callable. Alternatives for one
+/// slot are not additional array elements. Unresolved elements, an empty array,
+/// or exceeding `MULTI_CAP` cause this helper to return `None`.
 #[allow(clippy::too_many_arguments)]
 fn resolve_indexed_callable_candidates(
     pkg: &Package,
@@ -3261,15 +3262,9 @@ fn resolve_indexed_callable_candidates(
             CalleeLattice::Single(callable) => {
                 candidates.push(callable);
             }
-            CalleeLattice::Multi(entries) => {
-                for (callable, condition) in entries {
-                    if !condition.is_empty() {
-                        return None;
-                    }
-                    candidates.push(callable);
-                }
+            CalleeLattice::Multi(_) | CalleeLattice::Bottom | CalleeLattice::Dynamic => {
+                return None;
             }
-            CalleeLattice::Bottom | CalleeLattice::Dynamic => return None,
         }
 
         if candidates.len() > super::types::MULTI_CAP {
