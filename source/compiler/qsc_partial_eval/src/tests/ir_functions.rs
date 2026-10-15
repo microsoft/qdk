@@ -5,7 +5,7 @@
 //! specializations returning Unit or a scalar (Int/Double/Bool) are emitted as
 //! `Regular` RIR callables with bodies and called via `Instruction::Call` instead of being inlined.
 //! Scalar-returning callables bind a fresh call-site output variable. Every ineligible callable
-//! (including callable-valued inputs and non-scalar returns) continues to inline.
+//! (including unresolved bodies, callable-valued inputs and non-scalar returns) continues to inline.
 
 use super::{
     assert_blocks, assert_callable, get_rir_program, get_rir_program_with_adaptive_profile,
@@ -33,6 +33,35 @@ fn ir_function_names(program: &Program) -> Vec<String> {
 
 fn assert_ir_function_names(program: &Program, expected: &expect_test::Expect) {
     expected.assert_eq(&format!("{:#?}", ir_function_names(program)));
+}
+
+#[test]
+fn unresolved_callable_body_inlines_with_static_arguments() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            function Pick(flag : Bool, index : Int) : Int {
+                let actions = [Inc, Twice];
+                let selected = if flag { actions[index] } else { Inc };
+                selected(3)
+            }
+            @EntryPoint()
+            operation Main() : Int { Pick(true, 0) * 10 + Pick(true, 1) }
+        }
+        "#,
+    );
+    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Integer(46), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
 }
 
 #[test]

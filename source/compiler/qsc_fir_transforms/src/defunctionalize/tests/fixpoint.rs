@@ -2148,6 +2148,132 @@ fn progress_tracking_allows_multi_iteration_convergence() {
 }
 
 #[test]
+fn reassigned_callable_preserves_selection() {
+    // `selected` starts as `functions[first]` (`Inc`, 4) and may be reassigned
+    // from `functions[second]` (`Twice`, 6). Each case checks that the call uses
+    // the value that actually reaches it, not the initializer's index.
+    for (selection, expected) in [
+        ("set selected = functions[second];", 6),
+        ("if flag { set selected = functions[second]; }", 4),
+        ("if not flag { set selected = functions[second]; }", 6),
+        ("let saved = functions[second]; set selected = saved;", 6),
+        (
+            "mutable other = Inc; set (selected, other) = (functions[second], selected);",
+            6,
+        ),
+        ("set selected = functions[second]; set second = 0;", 6),
+        (
+            "set selected = functions[second]; return selected({ set second = 0; 3 });",
+            6,
+        ),
+        (
+            "let saved = selected; set selected = functions[second]; return saved(3) * 10 + selected(3);",
+            46,
+        ),
+        (
+            "mutable other = functions[second]; set (selected, other) = (other, selected); return selected(3) * 10 + other(3);",
+            64,
+        ),
+        (
+            "set selected = functions[second]; let saved = selected; set selected = functions[first]; return saved(3) * 10 + selected(3);",
+            64,
+        ),
+        ("for _ in 1..2 { set selected = functions[second]; }", 6),
+        ("flag and { set selected = functions[second]; true };", 4),
+        ("flag or { set selected = functions[second]; false };", 6),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Choose(first : Int, next : Int, flag : Bool) : Int {{
+                let functions = [Inc, Twice];
+                mutable second = next;
+                mutable selected = functions[first];
+                {selection}
+                selected(3)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(0, 1, false) }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn reassigned_callable_forwarding_preserves_selection() {
+    for (invoke, expected) in [
+        ("Apply(selected, 3)", 6),
+        ("{ let saved = selected; Apply(saved, 3) }", 6),
+        ("Apply(selected, { set second = 0; 3 })", 6),
+        ("ApplyPair(selected, Identity, 3)", 63),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Identity(value : Int) : Int {{ value }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function ApplyPair(action : Int -> Int, other : Int -> Int, value : Int) : Int {{
+                action(value) * 10 + other(value)
+            }}
+            function Choose(first : Int, next : Int) : Int {{
+                let functions = [Inc, Twice];
+                mutable second = next;
+                mutable selected = functions[first];
+                set selected = functions[second];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(0, 1) }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
+fn reassigned_callable_preserves_index_failures() {
+    for (first, second) in [
+        (2, 1),
+        (0, 2),
+        (-3, 1),
+        (0, -3),
+        (i64::MIN, 0),
+        (i64::MAX, 0),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function Choose(first : Int, second : Int) : Int {{
+                let actions = [Inc, Twice];
+                mutable selected = actions[first];
+                set selected = actions[second];
+                Apply(selected, 3)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose({first}, {second}) }}
+            "#
+        );
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        assert!(
+            crate::test_utils::try_eval_fir_entry(&store, package).is_err(),
+            "selection ({first}, {second}) must fail"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
 fn indexed_array_members_keep_their_positions() {
     // `choices` has two slots: `actions[index]` and `Minus`. `Read` packs each
     // result into two decimal digits, so `[Inc, Minus]` gives 402 and

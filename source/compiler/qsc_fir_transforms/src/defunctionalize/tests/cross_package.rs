@@ -155,6 +155,7 @@ fn closure_spec_key_distinguishes_packages() {
             functor: FunctorApp::default(),
         },
         arg_expr_id: ExprId::from(0u32),
+        dispatch_source: None,
         condition: vec![],
     };
 

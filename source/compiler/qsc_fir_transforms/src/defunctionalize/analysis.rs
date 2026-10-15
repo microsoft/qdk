@@ -62,8 +62,13 @@ pub(super) struct LocalState {
     owner: CaptureScope,
     clone_items: Rc<FxHashSet<StoreItemId>>,
     callable: FxHashMap<LocalVarId, CalleeLattice>,
+    /// A single reaching source for recovering indexed dispatch. Divergent
+    /// sources at control-flow joins must not select either branch's index.
+    callable_sources: FxHashMap<LocalVarId, ExprId>,
     /// Occurrence-local values already evaluated before later call operands.
     evaluated_callables: FxHashMap<ExprId, CalleeLattice>,
+    /// Reaching source paired with each occurrence-local callable value.
+    evaluated_callable_sources: FxHashMap<ExprId, ExprId>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
     /// Producer bodies currently being traced, including through local bindings.
@@ -409,7 +414,9 @@ fn collect_call_sites(
             owner: CaptureScope::Entry,
             clone_items,
             callable: FxHashMap::default(),
+            callable_sources: FxHashMap::default(),
             evaluated_callables: FxHashMap::default(),
+            evaluated_callable_sources: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
             active_returns: Rc::default(),
@@ -757,6 +764,10 @@ fn record_hof_call_sites(
     for cp in hof_callable_params {
         let input_path = super::build_param_input_path(uses_tuple_input, cp, hof_functor);
         let resolved_arg_id = extract_arg_at_path(pkg, store, args_expr_id, &input_path);
+        let dispatch_source = locals
+            .evaluated_callable_sources
+            .get(&resolved_arg_id)
+            .copied();
         let allow_scoped_capture_exprs = matches!(
             pkg.get_expr(resolved_arg_id).kind,
             ExprKind::Block(_) | ExprKind::If(_, _, _)
@@ -800,6 +811,7 @@ fn record_hof_call_sites(
                 hof_input_is_tuple: cp.hof_input_is_tuple,
                 callable_arg: ConcreteCallable::Dynamic,
                 arg_expr_id: resolved_arg_id,
+                dispatch_source,
                 condition: vec![],
             });
         };
@@ -817,6 +829,7 @@ fn record_hof_call_sites(
                     hof_input_is_tuple: cp.hof_input_is_tuple,
                     callable_arg: cc,
                     arg_expr_id: resolved_arg_id,
+                    dispatch_source,
                     condition: vec![],
                 });
             }
@@ -840,6 +853,7 @@ fn record_hof_call_sites(
                             hof_input_is_tuple: cp.hof_input_is_tuple,
                             callable_arg: cc,
                             arg_expr_id: resolved_arg_id,
+                            dispatch_source,
                             condition: cond,
                         });
                     }
@@ -981,6 +995,10 @@ fn inspect_direct_call_expr(
                 callable,
                 captures,
                 condition: vec![],
+                dispatch_source: locals
+                    .evaluated_callable_sources
+                    .get(&callee_expr_id)
+                    .copied(),
                 def_span,
             });
         }
@@ -1007,6 +1025,10 @@ fn inspect_direct_call_expr(
                     callable,
                     captures,
                     condition,
+                    dispatch_source: locals
+                        .evaluated_callable_sources
+                        .get(&callee_expr_id)
+                        .copied(),
                     def_span,
                 });
             }
@@ -1193,6 +1215,7 @@ fn record_preserved_direct_lifted_lambda_calls(
                 callable: ConcreteCallable::Global { item_id, functor },
                 captures: captures.clone(),
                 condition: prior_site.condition.clone(),
+                dispatch_source: prior_site.dispatch_source,
                 def_span: prior_site.def_span,
             });
         }
@@ -1616,7 +1639,9 @@ fn resolve_callee(
                 owner: locals.owner,
                 clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
+                callable_sources: locals.callable_sources.clone(),
                 evaluated_callables: locals.evaluated_callables.clone(),
+                evaluated_callable_sources: locals.evaluated_callable_sources.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
                 active_returns: Rc::clone(&locals.active_returns),
@@ -1812,7 +1837,9 @@ fn resolve_callee_projection(
                 owner: locals.owner,
                 clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
+                callable_sources: locals.callable_sources.clone(),
                 evaluated_callables: FxHashMap::default(),
+                evaluated_callable_sources: FxHashMap::default(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
                 active_returns: Rc::clone(&locals.active_returns),
@@ -2105,7 +2132,9 @@ fn resolve_callable_return(
         },
         clone_items: Rc::clone(&caller_locals.clone_items),
         callable: FxHashMap::default(),
+        callable_sources: FxHashMap::default(),
         evaluated_callables: FxHashMap::default(),
+        evaluated_callable_sources: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         active_returns: {
@@ -3075,6 +3104,9 @@ fn seed_param_bindings_from_call(
                     CalleeLattice::Dynamic
                 };
                 state.callable.insert(ident.id, lattice);
+                if caller_package_id == hof_package_id {
+                    state.callable_sources.insert(ident.id, arg_expr_id);
+                }
             }
         }
         PatKind::Tuple(sub_pats) => {
@@ -3656,7 +3688,9 @@ fn build_callable_flow_state(
         owner,
         clone_items,
         callable: FxHashMap::default(),
+        callable_sources: FxHashMap::default(),
         evaluated_callables: FxHashMap::default(),
+        evaluated_callable_sources: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         active_returns: Rc::default(),
@@ -3824,6 +3858,8 @@ fn bind_callable_pat(
                     package_id,
                 );
                 state.callable.insert(ident.id, lattice);
+                let source = reaching_callable_source(pkg, state, init_expr_id);
+                state.callable_sources.insert(ident.id, source);
             }
         }
         PatKind::Tuple(sub_pats) => {
@@ -3905,6 +3941,8 @@ fn bind_callable_pat_projections(
                 );
                 if !matches!(lattice, CalleeLattice::Bottom | CalleeLattice::Dynamic) {
                     state.callable.insert(ident.id, lattice);
+                    let source = reaching_callable_source(pkg, state, init_expr_id);
+                    state.callable_sources.insert(ident.id, source);
                 }
             }
         }
@@ -4000,7 +4038,7 @@ fn resolve_assignment_lhs(
     rhs_id: ExprId,
     path: &mut Vec<usize>,
     package_id: PackageId,
-) -> Vec<(LocalVarId, Option<CalleeLattice>)> {
+) -> Vec<(LocalVarId, Option<CalleeLattice>, Option<ExprId>)> {
     let lhs = pkg.get_expr(lhs_id);
     match &lhs.kind {
         ExprKind::Tuple(elements) => {
@@ -4028,10 +4066,10 @@ fn resolve_assignment_lhs(
                     package_id,
                 )
             });
-            vec![(*var, callable)]
+            vec![(*var, callable, path.is_empty().then_some(rhs_id))]
         }
         _ => assign_lhs_base_local(pkg, lhs_id)
-            .map(|var| vec![(var, None)])
+            .map(|var| vec![(var, None, None)])
             .unwrap_or_default(),
     }
 }
@@ -4044,7 +4082,7 @@ fn analyze_assignment_values(
     rhs_id: ExprId,
     package_id: PackageId,
     mut recorder: Option<&mut CallRecorder>,
-) -> Vec<(LocalVarId, Option<CalleeLattice>)> {
+) -> Vec<(LocalVarId, Option<CalleeLattice>, Option<ExprId>)> {
     if let (ExprKind::Tuple(targets), ExprKind::Tuple(values)) =
         (&pkg.get_expr(lhs_id).kind, &pkg.get_expr(rhs_id).kind)
     {
@@ -4103,12 +4141,19 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
-            for (written, _) in &values {
+            for (written, _, _) in &values {
                 invalidate_replayed_expression_dependents(pkg, state, *written);
             }
-            for (written, callable) in values {
+            for (written, callable, source) in values {
                 if let Some(callable) = callable {
                     state.callable.insert(written, callable);
+                    if let Some(source) = source {
+                        let source = reaching_callable_source(pkg, state, source);
+                        state.callable_sources.insert(written, source);
+                    } else {
+                        state.callable_sources.remove(&written);
+                        state.callable.insert(written, CalleeLattice::Dynamic);
+                    }
                 }
             }
         }
@@ -4133,6 +4178,7 @@ fn analyze_expr_flow(
             );
             // Fork: save callable and reaching-source state before branches.
             let pre_if = state.callable.clone();
+            let pre_sources = state.callable_sources.clone();
             analyze_expr_flow(
                 pkg,
                 store,
@@ -4142,8 +4188,10 @@ fn analyze_expr_flow(
                 recorder.as_deref_mut(),
             );
             let true_state = state.callable.clone();
+            let true_sources = state.callable_sources.clone();
             // Restore pre-if state and analyze false branch.
             state.callable = pre_if;
+            state.callable_sources = pre_sources;
             if let Some(else_expr) = otherwise {
                 analyze_expr_flow(
                     pkg,
@@ -4163,6 +4211,7 @@ fn analyze_expr_flow(
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&true_state, &false_state, remapped_cond);
+            join_callable_sources(state, &true_sources, &true_state, &false_state);
         }
         ExprKind::While(cond, block_id) => {
             let mut written = collect_written_vars_in_block(pkg, *block_id);
@@ -4187,6 +4236,7 @@ fn analyze_expr_flow(
             // callable entries to their pre-loop values, but keep new entries
             // added by loop-body analysis (loop-local immutable bindings).
             let loop_summary = state.callable.clone();
+            let loop_sources = state.callable_sources.clone();
             analyze_block_flow(
                 pkg,
                 store,
@@ -4197,6 +4247,11 @@ fn analyze_expr_flow(
             );
             for (var, lattice) in loop_summary {
                 state.callable.insert(var, lattice);
+                if let Some(&source) = loop_sources.get(&var) {
+                    state.callable_sources.insert(var, source);
+                } else {
+                    state.callable_sources.remove(&var);
+                }
             }
         }
         // Operand-position variants: recurse into every nested expression in
@@ -4229,12 +4284,14 @@ fn analyze_expr_flow(
                 .map(|written| guard_dependent_callables(pkg, state, written))
                 .unwrap_or_default();
             let pre_rhs = state.callable.clone();
+            let pre_sources = state.callable_sources.clone();
             analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
             let after_rhs = std::mem::take(&mut state.callable);
             // `and`: RHS runs when the condition is true.
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&after_rhs, &pre_rhs, remapped_cond);
+            join_callable_sources(state, &pre_sources, &pre_rhs, &after_rhs);
             if let Some(written) = written {
                 invalidate_callable_value_dependents(pkg, state, written);
                 invalidate_named_callables(state, &guard_dependents);
@@ -4254,6 +4311,7 @@ fn analyze_expr_flow(
                 .map(|written| guard_dependent_callables(pkg, state, written))
                 .unwrap_or_default();
             let pre_rhs = state.callable.clone();
+            let pre_sources = state.callable_sources.clone();
             analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
             let after_rhs = std::mem::take(&mut state.callable);
             // `or`: RHS runs when the condition is false. Swap branches so the
@@ -4261,6 +4319,7 @@ fn analyze_expr_flow(
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&pre_rhs, &after_rhs, remapped_cond);
+            join_callable_sources(state, &pre_sources, &pre_rhs, &after_rhs);
             if let Some(written) = written {
                 invalidate_callable_value_dependents(pkg, state, written);
                 invalidate_named_callables(state, &guard_dependents);
@@ -4401,6 +4460,9 @@ fn analyze_expr_flow(
                 expr_id,
                 apply_outer_functor_lattice(evaluated.clone(), functor),
             );
+            if let Some(source) = state.callable_sources.get(&local) {
+                state.evaluated_callable_sources.insert(expr_id, *source);
+            }
         }
     }
 
@@ -4451,6 +4513,40 @@ fn join_callable_states_with_condition(
         result.insert(var, a_val.join_with_condition(b_val, condition));
     }
     result
+}
+
+fn reaching_callable_source(pkg: &Package, state: &LocalState, expr: ExprId) -> ExprId {
+    if let Some(&source) = state.evaluated_callable_sources.get(&expr) {
+        return source;
+    }
+    let (base, _) = peel_body_functors(pkg, expr);
+    if let ExprKind::Var(Res::Local(local), _) = pkg.get_expr(base).kind {
+        state.callable_sources.get(&local).copied().unwrap_or(expr)
+    } else {
+        expr
+    }
+}
+
+/// A join can retain guarded scalar candidates, but unguarded array alternatives
+/// require one index source. Leave divergent indexed selections to evaluation.
+fn join_callable_sources(
+    state: &mut LocalState,
+    other_sources: &FxHashMap<LocalVarId, ExprId>,
+    left: &FxHashMap<LocalVarId, CalleeLattice>,
+    right: &FxHashMap<LocalVarId, CalleeLattice>,
+) {
+    for (&local, lattice) in &mut state.callable {
+        if state.callable_sources.get(&local) != other_sources.get(&local) {
+            state.callable_sources.remove(&local);
+            if [left.get(&local), right.get(&local)]
+                .into_iter()
+                .flatten()
+                .any(CalleeLattice::has_unguarded_alternatives)
+            {
+                *lattice = CalleeLattice::Dynamic;
+            }
+        }
+    }
 }
 
 /// Collects all `LocalVarId`s that are targets of `Assign` expressions
@@ -4565,8 +4661,9 @@ fn invalidate_callable_value_dependents(
 ) {
     for (callable_var, lattice) in &mut state.callable {
         let initializer_depends = state
-            .exprs
+            .callable_sources
             .get(callable_var)
+            .or_else(|| state.exprs.get(callable_var))
             .is_some_and(|&expr| expr_reads_local(pkg, expr, written));
         let capture_depends = match lattice {
             CalleeLattice::Single(callable) => {

@@ -102,10 +102,19 @@ pub struct CallSite {
     pub callable_arg: ConcreteCallable,
     /// Expression for the callable argument.
     pub arg_expr_id: ExprId,
+    /// Reaching source used to recover indexed dispatch, distinct from the
+    /// argument expression whose evaluation is consumed by specialization.
+    pub dispatch_source: Option<ExprId>,
     /// Branch-split guard list: a left-associated conjunction stored
     /// outermost-first. Selected when every guard is true; an empty list is the
     /// default (else) branch.
     pub condition: Vec<ExprId>,
+}
+
+impl CallSite {
+    pub(super) fn dispatch_expr_id(&self) -> ExprId {
+        self.dispatch_source.unwrap_or(self.arg_expr_id)
+    }
 }
 
 /// A direct call whose callee expression resolves to a concrete callable value.
@@ -127,6 +136,14 @@ pub struct DirectCallSite {
     /// outermost-first. Selected when every guard is true; an empty list is the
     /// default (else) branch.
     pub condition: Vec<ExprId>,
+    /// Reaching expression that produced the callee value at this occurrence.
+    ///
+    /// Mutable callable locals can be reassigned from a different indexed
+    /// selection than their initializer. Rewrite must recover the discriminator
+    /// from the latest reaching assignment rather than from the local read.
+    /// Divergent indexed sources and invalidated dependencies remain `Dynamic`;
+    /// this field is not a join of multiple possible source expressions.
+    pub dispatch_source: Option<ExprId>,
     /// Optional source span of the original lambda body to stamp onto the surviving Call.
     pub def_span: Option<Span>,
 }

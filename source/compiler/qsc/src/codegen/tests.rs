@@ -3447,6 +3447,132 @@ fn synthetic_closure_arrays_preserve_scalar_and_tuple_inputs() {
 }
 
 #[test]
+fn indexed_callable_selections_record_expected_values() {
+    // Each call contributes one digit: `Inc(3)` is 4 and `Twice(3)` is 6.
+    // `Pick(false, _)` ignores the index; `Pick(true, -1)` reads the last
+    // element; `Choose` must call the reassigned `functions[-1]`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Inc(x : Int) : Int { x + 1 }
+            function Twice(x : Int) : Int { 2 * x }
+            function Pick(flag : Bool, index : Int) : Int {
+                let functions = [Inc, Twice];
+                let selected = if flag { functions[index] } else { Inc };
+                selected(3)
+            }
+            function Choose(first : Int, second : Int) : Int {
+                let functions = [Inc, Twice];
+                mutable selected = functions[first];
+                set selected = functions[second];
+                selected(3)
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                Pick(false, 1) * 10000 + Pick(false, 99) * 1000
+                    + Pick(true, 0) * 100 + Pick(true, -1) * 10 + Choose(-2, -1)
+            }
+        }
+    "#};
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 44466,"),
+            "{profile:?} should record [4, 4, 4, 6, 6] as 44466:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn forwarded_callable_uses_reassigned_selection() {
+    // `Choose(-2, -1)` forwards `Twice` (6) and `Choose(-1, -2)` forwards
+    // `Inc` (4), so the program records 64.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            function Apply(action : Int -> Int, value : Int) : Int { action(value) }
+            function Choose(first : Int, second : Int) : Int {
+                let functions = [Inc, Twice];
+                mutable selected = functions[first];
+                set selected = functions[second];
+                Apply(selected, 3)
+            }
+            @EntryPoint()
+            operation Main() : Int { Choose(-2, -1) * 10 + Choose(-1, -2) }
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 64,"),
+            "{profile:?} should record both reaching selections as 64:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn reassigned_global_callable_records_array_selection() {
+    for invoke in ["selected(3)", "Apply(selected, 3)"] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function Choose(index : Int) : Int {{
+                let functions = [Inc, Twice];
+                mutable selected = Inc;
+                set selected = functions[index];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(1) }}
+            "#
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains("call void @__quantum__rt__int_record_output(i64 6,"),
+                "{profile:?} should record 6 for {invoke}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_index_reassignment_is_rejected_on_adaptive_ri() {
+    for invoke in ["selected(target);", "Apply(selected, target);"] {
+        let source = format!(
+            r#"
+            operation Apply(action : Qubit => Unit, target : Qubit) : Unit {{ action(target); }}
+            operation Choose(first : Int, second : Int, target : Qubit) : Unit {{
+                let actions = [I, X];
+                mutable selected = actions[first];
+                set selected = actions[second];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Result {{
+                use flag = Qubit();
+                use target = Qubit();
+                X(flag);
+                let index = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+                Choose(0, index, target);
+                MResetZ(target)
+            }}
+            "#
+        );
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRI.into())
+            .expect_err("runtime indexed dispatch must retain capability diagnostics");
+        let diagnostics = format_interpret_errors(errors);
+        assert!(
+            diagnostics.contains("Qdk.Qsc.CapabilitiesCk.UseOfDynamicIndex"),
+            "expected a capability diagnostic for {invoke}:\n{diagnostics}"
+        );
+    }
+}
+
+#[test]
 fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() {
     let caps = Profile::AdaptiveRI.into();
     let mut interpreter = interpreter_with_capabilities(caps);

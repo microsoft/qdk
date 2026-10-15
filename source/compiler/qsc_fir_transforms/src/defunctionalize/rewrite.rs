@@ -408,12 +408,12 @@ fn rewrite_combined_group(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         ) && !dispatch_source_index_is_statically_in_bounds(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         )
     }) {
         return;
@@ -623,13 +623,13 @@ fn rewrite_per_row_group(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         );
         let statically_in_bounds = dispatch_source_index_is_statically_in_bounds(
             package,
             expr_owner_lookup,
             call_expr_id,
-            call_site.arg_expr_id,
+            call_site.dispatch_expr_id(),
         );
         let bounds_check = if statically_in_bounds {
             None
@@ -738,11 +738,12 @@ fn rewrite_direct_call_group(
         let ExprKind::Call(callee_id, _) = package.get_expr(entries[0].call_expr_id).kind else {
             return;
         };
+        let dispatch_source = entries[0].dispatch_source.unwrap_or(callee_id);
         let indexed_source = dispatch_source_is_indexed(
             package,
             expr_owner_lookup,
             entries[0].call_expr_id,
-            callee_id,
+            dispatch_source,
         );
         let bounds_check = synthesize_direct_index_dispatch(
             package,
@@ -1041,7 +1042,10 @@ fn branch_split_direct_call_rewrite(
         package,
         expr_owner_lookup,
         call_expr_id,
-        orig_callee_id,
+        entries
+            .first()
+            .and_then(|entry| entry.dispatch_source)
+            .unwrap_or(orig_callee_id),
         entries
             .iter()
             .map(|entry| (&entry.callable, !entry.condition.is_empty())),
@@ -1283,7 +1287,7 @@ fn synthesize_callsite_index_dispatch(
         package,
         package_id,
         expr_owner_lookup,
-        (call_expr_id, entries.first()?.0.arg_expr_id),
+        (call_expr_id, entries.first()?.0.dispatch_expr_id()),
         &callables,
         assigner,
     )?;
@@ -1421,6 +1425,10 @@ fn synthesize_direct_index_dispatch(
     let ExprKind::Call(callee_id, _) = package.get_expr(call_expr_id).kind else {
         return None;
     };
+    let dispatch_expr_id = entries
+        .first()
+        .and_then(|entry| entry.dispatch_source)
+        .unwrap_or(callee_id);
     let callables = entries
         .iter()
         .map(|entry| entry.callable.clone())
@@ -1429,7 +1437,7 @@ fn synthesize_direct_index_dispatch(
         package,
         package_id,
         expr_owner_lookup,
-        (call_expr_id, callee_id),
+        (call_expr_id, dispatch_expr_id),
         &callables,
         assigner,
     )
@@ -6543,7 +6551,7 @@ fn branch_split_rewrite(
             package,
             expr_owner_lookup,
             call_expr_id,
-            first.0.arg_expr_id,
+            first.0.dispatch_expr_id(),
             entries
                 .iter()
                 .map(|entry| (&entry.0.callable_arg, !entry.0.condition.is_empty())),

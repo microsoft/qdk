@@ -1663,6 +1663,13 @@ impl<'a> PartialEvaluator<'a> {
             spec_decl
                 .filter(|spec_decl| {
                     self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl)
+                        // Resolve calls with the actual arguments before promoting
+                        // static inputs to runtime parameters.
+                        && !matches!(
+                            self.spec_inherent_compute_kind(store_item_id, functor_app),
+                            Some(ComputeKind::Dynamic { runtime_features, .. })
+                                if runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
+                        )
                 })
                 .map(|_| {
                     args.iter()
@@ -1687,7 +1694,10 @@ impl<'a> PartialEvaluator<'a> {
                     // emitted when the callable carries quantum/runtime content (`Dynamic` inherent) or
                     // when at least one argument is a runtime variable, so classical callables are still
                     // emitted as functions whenever they are actually invoked with runtime values.
-                    self.spec_inherent_is_dynamic(store_item_id, functor_app)
+                    matches!(
+                        self.spec_inherent_compute_kind(store_item_id, functor_app),
+                        Some(ComputeKind::Dynamic { .. })
+                    )
                         || arg_operands
                             .iter()
                             .any(|operand| matches!(operand, Operand::Variable(_)))
@@ -2258,23 +2268,19 @@ impl<'a> PartialEvaluator<'a> {
         true
     }
 
-    /// Reports whether the resolved specialization has a `Dynamic` inherent compute kind, i.e.
-    /// whether it carries quantum or other runtime content even when all of its parameters are
-    /// bound to static values. A `Static` inherent compute kind means the callable is purely
-    /// classical and can be constant-folded whenever its arguments are compile-time constants.
-    /// This is used to decide whether a call should be emitted as an IR function: emitting a
-    /// purely-classical callable with all-constant arguments would discard its statically-known
-    /// result as an opaque IR variable, so such calls must be folded instead.
-    fn spec_inherent_is_dynamic(
+    /// Returns the resolved specialization's compute kind with static parameters.
+    /// Unresolved calls in its body force inlining; genuinely runtime bodies may
+    /// be emitted as IR functions, while static bodies can be constant-folded.
+    fn spec_inherent_compute_kind(
         &self,
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
-    ) -> bool {
+    ) -> Option<ComputeKind> {
         let ItemComputeProperties::Callable(callable_compute_properties) = self
             .compute_properties
             .get_item(store_item_id, self.in_parallel_scope())
         else {
-            return false;
+            return None;
         };
         let generator_set = match (functor_app.adjoint, functor_app.controlled) {
             (false, 0) => Some(&callable_compute_properties.body),
@@ -2282,10 +2288,7 @@ impl<'a> PartialEvaluator<'a> {
             (true, 0) => callable_compute_properties.adj.as_ref(),
             (true, _) => callable_compute_properties.ctl_adj.as_ref(),
         };
-        matches!(
-            generator_set.map(|gen_set| gen_set.inherent),
-            Some(ComputeKind::Dynamic { .. })
-        )
+        generator_set.map(|gen_set| gen_set.inherent)
     }
 
     /// Scans a specialization block for any residual FIR `Return` expression. After the
