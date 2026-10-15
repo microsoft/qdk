@@ -14,7 +14,6 @@ rustc-hash = { workspace = true }
 inkwell = { git = "https://github.com/TheDan64/inkwell", rev = "0f8d2d6c9061cfe80d3e83b75ea00f6df94ee562", default-features = false, features = ["llvm20-1-prefer-dynamic"] }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
-tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
 qdk_simulators = { path = "../simulators", default-features = false }
 qsc_eval = { path = "../compiler/qsc_eval" }
 

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint};
+use crate::{BatchResult, QirBatchResult, QirInstruction, QuantumBackend};
 use qsc_eval::{backend::Backend, val};
 use rustc_hash::FxHashMap;
 
@@ -187,22 +187,22 @@ impl<B: Backend> QsBackendShim<B> {
 }
 
 impl<B: Backend> QuantumBackend for QsBackendShim<B> {
-    /// Delegates streamed QIR instructions to the wrapped Q# evaluator backend.
-    async fn run(&mut self, mut endpoint: QuantumBackendEndpoint) {
-        while let Some(MessageIn::QirInstruction(instruction)) =
-            endpoint.instructions_receiver.recv().await
-        {
+    /// Delegates a batch of QIR instructions to the wrapped Q# evaluator backend.
+    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
+        let mut read_result = None;
+        for (position, instruction) in instructions.iter().copied().enumerate() {
             if let Some(value) = self
                 .dispatch(instruction)
                 .unwrap_or_else(|error| panic!("{error}"))
-                && endpoint
-                    .results_sender
-                    .send(MessageOut::MeasurementResult(value))
-                    .await
-                    .is_err()
             {
-                return;
+                assert_eq!(
+                    position + 1,
+                    instructions.len(),
+                    "read_result must be the final instruction in a QIR batch"
+                );
+                read_result = Some(value);
             }
         }
+        BatchResult::QirBatchResult(QirBatchResult { read_result })
     }
 }

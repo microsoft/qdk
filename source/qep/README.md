@@ -26,58 +26,33 @@ We define a universal interface between 2 components of a quantum system.
        * We have a server running on remote machine, using real quantum engine as its Backend.
        * Server and client talk to each other over HTTP.
         
-### Two streams.
-Interface consists of two streams:
-* Stream of `MessageIn` messages - this is stream of instructions, e.g. gates, measurements, resets.
-* Stream of `MessageOut` messages - this is stream of measurement results.
+### Instruction batches
 
-`MessageIn` and `MessageOut` are Rust enums that are allowed to grow.
+The driver passes ordered slices of instructions to the backend. Batching avoids the
+per-instruction synchronization and allocation costs of communicating through channels.
+The QIR runner accumulates instructions until it reaches either:
 
-`MessageIn` is designed to represent instruction on any level of abstraction (e.g. logical or physical).
-It might have:
- * Abstract gates not tied to any specific hardware, e.g. X(qubit_id).
- * Logical gates from specific ISA, e.g. QIR gates.
- * Physical gates specific to given hardware, e.g. CZ for Atom computing.
-
-`MessageOut` is designed to represent measurement results but specifics can depend on what
-exactly is frontend and backend.
+* A `read_result` instruction, which is always the last instruction in its batch.
+* The configured maximum batch size. The default is 10,000 instructions.
 
 Any backend used together with QIR Runner has a following contract:
-  * For every QirInstruction::read_result operation it must write a single MeasurmentResult message containing single bit.
-  * It must not write anything else.
-  * It must write result immediately after receiving read_result instruction.
-
-However, in general, for some Backends:
- * measurement results might contain other pieces of data (e.g. qubit_id or result_id),
- * results might come in batches or be allowed to be out of order,
- * results might have more than 2 outcomes (e.g. 0,1,Loss).
-This is why we do not fix MessageOut schema, instead we make it enum which can have more
-values added later.
-
-The two streams are implemented as 2 channels, and there are 2 endpoints:
-* `QuantumDriverEndpoint` consists of instruction sender (`Sender<MessageIn>`) and results receiver  (`Receiver<MessageOut>`)
-* `QuantumBackendEndpoint` consists of instruction receiver (`Receiver<MessageIn>`) and results sender  (`Sender<MessageOut>`)
+* A batch contains at most one `QirInstruction::read_result`.
+* When present, `read_result` is the final instruction.
+* A batch ending in `read_result` must return `Some(bool)`.
+* A batch without `read_result` must return `None`.
 
 ### Quantum Backend trait
 
 Backend must implement the following trait:
 
-```
+```rust
 trait QuantumBackend {
-    async fn run(&mut self, endpoint: QuantumBackendEndpoint);
+    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult;
 }
 ```
 
-The function `run` must run a while loop that:
-  * Processed received instructions until instructions channel is closed.
-  * Writes results to the results channel.
-   
-
-### Implementing Quantum Driver
-
-In rust, Quantum Driver will be anything that owns QuantumDriverEndpoint. 
-We do not define a trait for that.
-
+`execute_batch` processes all instructions synchronously and in order before returning.
+The driver reuses its instruction buffer across calls.
 
 ## QIR Runner
 
@@ -92,8 +67,8 @@ Measurements are done in somewhat weird way, according to QIR spec:
      and doesn't wait for it, as per QIR spec. Backend will perform measurement and write result to 
      specified index at measurement array.
  * When it sees QIR instruction that instructs it to read result from result register (read_result or *_record_output),
-    it issues Read command containing result_id and blocks until it receives output. Then it uses output in 
-    classical flow.
+    it finishes the current batch with a Read command containing result_id and synchronously obtains
+    the returned bit. Then it uses that value in classical flow.
  * It is responsibility of Backend to perform measurement that writes to result_id before responding to ReadResult.
  * There is __quantum__rt__write_result operation that technically means that we send classical bit from Driver to Backend
     and Backend must store it at specified index in results array. It exists only for Stim simulator.

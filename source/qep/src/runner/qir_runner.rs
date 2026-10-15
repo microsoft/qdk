@@ -7,7 +7,8 @@ mod runtime;
 #[path = "tests.rs"]
 mod tests;
 
-use crate::{QuantumBackend, QuantumBackendEndpoint, QuantumDriverEndpoint};
+use super::batcher::DEFAULT_MAX_BATCH_SIZE;
+use crate::QuantumBackend;
 use inkwell::{
     OptimizationLevel,
     attributes::AttributeLoc,
@@ -19,7 +20,6 @@ use inkwell::{
 };
 use runtime::ExecutionState;
 use std::{ffi::c_void, path::Path};
-use tokio::sync::mpsc::channel;
 
 /// A value in the QIR output-recording stream.
 ///
@@ -57,7 +57,7 @@ pub struct RunOutput {
 /// `required_num_qubits` and `required_num_results` attributes specify the
 /// static ID bounds. Measurements issue backend operations into result slots,
 /// without reading their values. Explicit result reads and result output
-/// recording resolve values through the backend's `read_result` method.
+/// recording resolve values by flushing a batch ending in `read_result`.
 /// Reading a slot not issued or written in this invocation is an error.
 /// Both QIR 1 typed pointers and QIR 2 opaque pointers are
 /// accepted by the LLVM parser.
@@ -78,10 +78,10 @@ pub struct RunOutput {
 /// ```no_run
 /// use qep::{SparseSimBackend, run_qir};
 ///
-/// # async fn example() -> Result<(), String> {
+/// # fn example() -> Result<(), String> {
 /// let mut backend = SparseSimBackend::default();
 /// // SAFETY: This file was produced by a trusted compiler and meets the ABI contract.
-/// let output = unsafe { run_qir("program.ll", &mut backend).await }?;
+/// let output = unsafe { run_qir("program.ll", &mut backend) }?;
 /// println!("{:?}", output.records);
 /// # Ok::<(), String>(())
 /// # }
@@ -94,22 +94,33 @@ pub struct RunOutput {
 /// including valid null-terminated UTF-8 output-label pointers when non-null.
 /// The program must not retain or asynchronously invoke runner callbacks.
 /// Only execution on a 64-bit host is supported.
-pub async unsafe fn run_qir(
+pub unsafe fn run_qir(
     path: impl AsRef<Path>,
     backend: &mut impl QuantumBackend,
 ) -> Result<RunOutput, String> {
-    let path = path.as_ref().to_owned();
-    run_driver(backend, move |endpoint| {
-        // SAFETY: The caller supplies trusted QIR with the documented ABI.
-        unsafe { load_and_execute(&path, endpoint) }
-    })
-    .await
+    // SAFETY: The caller supplies trusted QIR with the documented ABI.
+    unsafe { run_qir_with_batch_size(path, backend, DEFAULT_MAX_BATCH_SIZE) }
+}
+
+/// Executes a QIR file using a configurable maximum backend batch size.
+///
+/// # Safety
+///
+/// The caller must satisfy the safety requirements of [`run_qir`].
+pub unsafe fn run_qir_with_batch_size(
+    path: impl AsRef<Path>,
+    backend: &mut impl QuantumBackend,
+    max_batch_size: usize,
+) -> Result<RunOutput, String> {
+    // SAFETY: The caller supplies trusted QIR with the documented ABI.
+    unsafe { load_and_execute(path.as_ref(), backend, max_batch_size) }
 }
 
 /// Loads a QIR module and executes it with a driver endpoint.
 unsafe fn load_and_execute(
     path: &Path,
-    endpoint: QuantumDriverEndpoint,
+    backend: &mut impl QuantumBackend,
+    max_batch_size: usize,
 ) -> Result<RunOutput, String> {
     let context = Context::create();
     let module = match path.extension().and_then(|ext| ext.to_str()) {
@@ -119,36 +130,16 @@ unsafe fn load_and_execute(
         _ => return Err("Expected a QIR file with extension .ll or .bc".into()),
     }
     .map_err(|error| format!("Failed to load QIR: {error}"))?;
-    // SAFETY: The module and endpoint remain alive throughout synchronous execution.
-    unsafe { execute(&context, &module, endpoint) }
-}
-
-/// Runs a synchronous QIR driver concurrently with an asynchronous backend.
-async fn run_driver<B, F>(backend: &mut B, driver: F) -> Result<RunOutput, String>
-where
-    B: QuantumBackend,
-    F: FnOnce(QuantumDriverEndpoint) -> Result<RunOutput, String> + Send + 'static,
-{
-    let (instructions_sender, instructions_receiver) = channel(32);
-    let (results_sender, results_receiver) = channel(32);
-    let driver_endpoint = QuantumDriverEndpoint {
-        instructions_sender,
-        results_receiver,
-    };
-    let backend_endpoint = QuantumBackendEndpoint {
-        instructions_receiver,
-        results_sender,
-    };
-    let driver = tokio::task::spawn_blocking(move || driver(driver_endpoint));
-    let ((), output) = tokio::join!(backend.run(backend_endpoint), driver);
-    output.map_err(|error| format!("QIR execution task failed: {error}"))?
+    // SAFETY: The module and backend remain alive throughout synchronous execution.
+    unsafe { execute(&context, &module, backend, max_batch_size) }
 }
 
 /// Validates and executes a loaded QIR module against a backend.
 unsafe fn execute<'ctx>(
     context: &'ctx Context,
     module: &Module<'ctx>,
-    endpoint: QuantumDriverEndpoint,
+    backend: &mut impl QuantumBackend,
+    max_batch_size: usize,
 ) -> Result<RunOutput, String> {
     if usize::BITS != 64 {
         return Err("QEP requires a 64-bit host".into());
@@ -163,7 +154,8 @@ unsafe fn execute<'ctx>(
         .collect();
     let entry = entry_point(context, &functions)?;
     let mut state = Box::new(ExecutionState::new(
-        endpoint,
+        backend,
+        max_batch_size,
         resource_count(entry, "required_num_qubits")?,
         resource_count(entry, "required_num_results")?,
     )?);
@@ -223,6 +215,11 @@ unsafe fn execute<'ctx>(
             None
         }
     };
+    if state.error.is_none()
+        && let Err(error) = state.finish()
+    {
+        state.error = Some(error);
+    }
     if let Some(error) = state.error.take() {
         return Err(error);
     }

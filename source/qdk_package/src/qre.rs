@@ -131,13 +131,8 @@ impl Profiler {
 
         let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
         let result = py.detach(|| {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
             // SAFETY: The Python API inherits QEP's requirement that callers provide trusted QIR.
-            runtime
-                .block_on(async { unsafe { profiler.profile_qir(qir_file_name).await } })
-                .map_err(PyRuntimeError::new_err)
+            unsafe { profiler.profile_qir(qir_file_name) }.map_err(PyRuntimeError::new_err)
         })?;
         Ok(result.into())
     }

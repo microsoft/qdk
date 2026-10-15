@@ -28,7 +28,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 rayon = { workspace = true }
 rand = { workspace = true }
-tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
 expect-test = { workspace = true }

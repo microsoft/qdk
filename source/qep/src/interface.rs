@@ -2,35 +2,28 @@
 // Licensed under the MIT License.
 
 use crate::qir_isa::QirInstruction;
-use tokio::sync::mpsc::{Receiver, Sender};
 
-/// A message sent from a quantum driver to a backend.
 #[derive(Debug)]
-pub enum MessageIn {
+pub enum QuantumInstruction {
     QirInstruction(QirInstruction),
 }
 
-/// A message sent from a quantum backend to its driver.
-#[derive(PartialEq, Debug)]
-pub enum MessageOut {
-    MeasurementResult(bool),
+/// By contract, a QIR runner batch may have no more than one `read_result` instruction.
+/// When present, its value is written to `QirBatchResult.read_result`.
+/// A batch without `read_result` instructions has no result.
+#[derive(Debug)]
+pub struct QirBatchResult {
+    /// Value returned by the final `read_result` instruction, if present.
+    pub read_result: Option<bool>,
 }
 
-/// The instruction sender and result receiver owned by a quantum driver.
-pub struct QuantumDriverEndpoint {
-    pub instructions_sender: Sender<MessageIn>,
-    pub results_receiver: Receiver<MessageOut>,
+#[derive(Debug)]
+pub enum BatchResult {
+    /// Result of executing a batch of QIR instructions.
+    QirBatchResult(QirBatchResult),
 }
 
-/// The instruction receiver and result sender owned by a quantum backend.
-pub struct QuantumBackendEndpoint {
-    pub instructions_receiver: Receiver<MessageIn>,
-    pub results_sender: Sender<MessageOut>,
-}
-
-/// Executes streamed quantum instructions and returns requested measurement results.
-#[allow(async_fn_in_trait)]
 pub trait QuantumBackend {
-    /// Processes instructions until the driver closes the instruction channel.
-    async fn run(&mut self, endpoint: QuantumBackendEndpoint);
+    /// Executes an ordered batch whose optional `read_result` instruction is last.
+    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult;
 }

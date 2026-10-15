@@ -1900,7 +1900,6 @@ dependencies = [
  "serde",
  "serde_json",
  "stim_compiler",
- "tokio",
 ]
 
 [[package]]
@@ -1959,7 +1958,6 @@ dependencies = [
  "rand 0.10.2",
  "resource_estimator",
  "rustc-hash",
- "tokio",
 ]
 
 [[package]]

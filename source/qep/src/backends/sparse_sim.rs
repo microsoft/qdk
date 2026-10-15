@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint};
+use crate::{BatchResult, QirBatchResult, QirInstruction, QuantumBackend};
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use qdk_simulators::SparseStateSim;
@@ -245,11 +245,10 @@ impl SparseSimBackend {
 }
 
 impl QuantumBackend for SparseSimBackend {
-    /// Simulates streamed QIR instructions and returns requested measurements.
-    async fn run(&mut self, mut endpoint: QuantumBackendEndpoint) {
-        while let Some(MessageIn::QirInstruction(instruction)) =
-            endpoint.instructions_receiver.recv().await
-        {
+    /// Simulates a batch of QIR instructions and returns a requested measurement.
+    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
+        let mut read_result = None;
+        for (position, instruction) in instructions.iter().copied().enumerate() {
             let result = match instruction {
                 QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
                 QirInstruction::cx(a, b) => self.cx(a, b),
@@ -278,18 +277,17 @@ impl QuantumBackend for SparseSimBackend {
                     let value = self
                         .read_result(result)
                         .unwrap_or_else(|error| panic!("{error}"));
-                    if endpoint
-                        .results_sender
-                        .send(MessageOut::MeasurementResult(value))
-                        .await
-                        .is_err()
-                    {
-                        return;
-                    }
+                    assert_eq!(
+                        position + 1,
+                        instructions.len(),
+                        "read_result must be the final instruction in a QIR batch"
+                    );
+                    read_result = Some(value);
                     Ok(())
                 }
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
+        BatchResult::QirBatchResult(QirBatchResult { read_result })
     }
 }

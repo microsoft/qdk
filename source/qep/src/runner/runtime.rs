@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 use super::{OutputRecord, OutputValue};
-use crate::{MessageIn, MessageOut, QirInstruction, QuantumDriverEndpoint};
+use crate::runner::batcher::Batcher;
+use crate::{QirInstruction, QuantumBackend};
 use inkwell::{
     attributes::AttributeLoc,
     builder::BuilderError,
@@ -16,18 +17,19 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-pub(super) struct ExecutionState {
-    endpoint: QuantumDriverEndpoint,
+pub(super) struct ExecutionState<'a> {
+    batcher: Batcher<'a>,
     qubits: usize,
     written_results: Vec<bool>,
     pub records: Vec<OutputRecord>,
     pub error: Option<String>,
 }
 
-impl ExecutionState {
+impl<'a> ExecutionState<'a> {
     /// Allocates execution state for the module's declared resources.
     pub fn new(
-        endpoint: QuantumDriverEndpoint,
+        backend: &'a mut dyn QuantumBackend,
+        max_batch_size: usize,
         qubits: usize,
         results: usize,
     ) -> Result<Self, String> {
@@ -37,7 +39,7 @@ impl ExecutionState {
             .map_err(|error| format!("Cannot allocate result slots: {error}"))?;
         slots.resize(results, false);
         Ok(Self {
-            endpoint,
+            batcher: Batcher::new(backend, max_batch_size)?,
             qubits,
             written_results: slots,
             records: Vec::new(),
@@ -63,12 +65,9 @@ impl ExecutionState {
             .ok_or_else(|| format!("Result ID {id} exceeds the declared result count"))
     }
 
-    /// Sends a validated instruction to the backend.
-    fn send(&self, instruction: QirInstruction) -> Result<(), String> {
-        self.endpoint
-            .instructions_sender
-            .blocking_send(MessageIn::QirInstruction(instruction))
-            .map_err(|_| "Quantum backend stopped before QIR execution completed".into())
+    /// Buffers a validated instruction for batched backend execution.
+    fn send(&mut self, instruction: QirInstruction) -> Result<(), String> {
+        self.batcher.push(instruction)
     }
 
     /// Reads a result after confirming it was written in this invocation.
@@ -76,10 +75,21 @@ impl ExecutionState {
         if !*self.result_slot(ptr)? {
             return Err(format!("Result ID {} has not been written", ptr as usize));
         }
-        self.send(QirInstruction::read_result(ptr as usize))?;
-        match self.endpoint.results_receiver.blocking_recv() {
-            Some(MessageOut::MeasurementResult(value)) => Ok(value),
-            None => Err("Quantum backend stopped before returning a measurement result".into()),
+        self.batcher.read_result(ptr as usize)
+    }
+
+    /// Flushes instructions buffered at successful program completion.
+    pub fn finish(&mut self) -> Result<(), String> {
+        match catch_unwind(AssertUnwindSafe(|| self.batcher.finish())) {
+            Ok(result) => result,
+            Err(payload) => {
+                let message = payload
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| payload.downcast_ref::<&str>().copied())
+                    .unwrap_or("non-string panic payload");
+                Err(format!("QIR backend panicked: {message}"))
+            }
         }
     }
 
@@ -103,16 +113,23 @@ impl ExecutionState {
 
 // All callbacks take an explicit context pointer inserted by the LLVM wrappers.
 // Its lifetime is bounded by synchronous JIT execution, without global or TLS state.
+/// Recovers the lifetime-erased execution state supplied to a native callback.
+unsafe fn execution_state<'a>(ptr: *mut c_void) -> &'a mut ExecutionState<'a> {
+    // SAFETY: The runner keeps the state and its borrowed backend alive until JIT execution ends.
+    unsafe { &mut *ptr.cast::<ExecutionState<'a>>() }
+}
+
 /// Dispatches a callback while capturing backend errors and panics.
 unsafe fn dispatch<T: Default>(
     ptr: *mut c_void,
-    operation: impl FnOnce(&mut ExecutionState) -> Result<T, String>,
+    operation: impl FnOnce(&mut ExecutionState<'_>) -> Result<T, String>,
 ) -> T {
     // SAFETY: Only our generated wrappers call this with the live, unique state.
-    let state = unsafe { &mut *ptr.cast::<ExecutionState>() };
+    let state = unsafe { execution_state(ptr) };
     if state.error.is_some() {
         return T::default();
     }
+
     match catch_unwind(AssertUnwindSafe(|| operation(state))) {
         Ok(Ok(value)) => value,
         Ok(Err(error)) => {

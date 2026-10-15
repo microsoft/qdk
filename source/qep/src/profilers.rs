@@ -31,7 +31,6 @@ pub struct ProfilerResult {
 }
 
 /// A quantum backend that reports profiling data after execution.
-#[allow(async_fn_in_trait)]
 pub trait Profiler: QuantumBackend {
     /// Returns the profiling data collected so far.
     fn get_result(&self) -> ProfilerResult;
@@ -41,12 +40,12 @@ pub trait Profiler: QuantumBackend {
     /// # Safety
     ///
     /// The caller must satisfy the safety requirements of [`run_qir`].
-    async unsafe fn profile_qir(&mut self, qir_file_name: &str) -> Result<ProfilerResult, String>
+    unsafe fn profile_qir(&mut self, qir_file_name: &str) -> Result<ProfilerResult, String>
     where
         Self: Sized,
     {
         // SAFETY: The caller accepts the safety contract inherited from `run_qir`.
-        unsafe { run_qir(qir_file_name, self).await? };
+        unsafe { run_qir(qir_file_name, self)? };
         Ok(self.get_result())
     }
 }
