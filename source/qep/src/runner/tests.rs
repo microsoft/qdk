@@ -3,7 +3,8 @@
 
 use super::{OutputRecord, OutputValue, RunOutput, execute, run_driver, run_qir};
 use crate::{
-    CountingBackend, MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint,
+    MessageIn, MessageOut, QirInstruction, QuantumBackend, QuantumBackendEndpoint,
+    SequentialCountingProfiler,
 };
 use inkwell::{context::Context, memory_buffer::MemoryBuffer};
 use rustc_hash::FxHashMap;
@@ -12,6 +13,11 @@ use std::{collections::VecDeque, fmt::Write, path::PathBuf};
 const ATTRIBUTES: &str = r#"
 attributes #0 = { "entry_point" "required_num_qubits"="3" "required_num_results"="3" }
 "#;
+
+/// Creates a backend for runner tests that do not inspect backend state.
+fn test_backend() -> SequentialCountingProfiler {
+    SequentialCountingProfiler::new(1, std::collections::HashMap::new())
+}
 
 #[derive(Debug, PartialEq)]
 struct Event(&'static str, Vec<usize>, Option<f64>);
@@ -128,9 +134,7 @@ impl QuantumBackend for Recorder {
                 QirInstruction::z(target) => self.z(target),
                 QirInstruction::swap(a, b) => self.swap(a, b),
                 QirInstruction::reset(target) => self.reset(target),
-                QirInstruction::mz(target, result) => {
-                    self.mz(target, result)
-                }
+                QirInstruction::mz(target, result) => self.mz(target, result),
                 QirInstruction::mresetz(target, result) => self.mresetz(target, result),
                 QirInstruction::read_result(result) => {
                     let value = self
@@ -254,7 +258,7 @@ async fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), Stri
     assert!(output.records.is_empty());
     run(
         &format!("{declarations}\ndefine void @main() #0 {{\n{calls} ret void\n}}"),
-        &mut CountingBackend::default(),
+        &mut test_backend(),
     )
     .await?;
     Ok(())
@@ -567,7 +571,7 @@ async fn rejects_indirect_calls_and_reserved_symbols() {
         ),
     ];
     for (source, expected) in cases {
-        let error = run(source, &mut CountingBackend::default())
+        let error = run(source, &mut test_backend())
             .await
             .expect_err("unsupported input");
         assert!(error.contains(expected), "{error}");
@@ -661,7 +665,7 @@ async fn rejects_unsupported_declarations_and_signatures_before_execution() {
     ] {
         let error = run(
             &format!("{declaration}\ndefine void @main() #0 {{ ret void }}"),
-            &mut CountingBackend::default(),
+            &mut test_backend(),
         )
         .await
         .expect_err("unsupported declaration");
@@ -702,7 +706,7 @@ async fn rejects_dynamic_management_and_invalid_entry_points() {
         ),
     ];
     for (source, expected) in cases {
-        let error = run(source, &mut CountingBackend::default())
+        let error = run(source, &mut test_backend())
             .await
             .expect_err("invalid input");
         assert!(error.contains(expected), "{error}");
@@ -829,11 +833,11 @@ async fn runs_text_and_bitcode_files() -> Result<(), String> {
 async fn rejects_missing_and_malformed_files() -> Result<(), String> {
     let missing = std::env::temp_dir().join(format!("missing-qep-{}.ll", rand::random::<u64>()));
     // SAFETY: The file does not exist, so nothing can execute.
-    assert!(unsafe { run_qir(missing, &mut CountingBackend::default()).await }.is_err());
+    assert!(unsafe { run_qir(missing, &mut test_backend()).await }.is_err());
     let malformed = TestFile::new("ll");
     std::fs::write(&malformed.0, "not LLVM IR").map_err(|e| e.to_string())?;
     // SAFETY: Parsing fails before execution.
-    assert!(unsafe { run_qir(&malformed.0, &mut CountingBackend::default()).await }.is_err());
+    assert!(unsafe { run_qir(&malformed.0, &mut test_backend()).await }.is_err());
     Ok(())
 }
 
