@@ -3,7 +3,7 @@
 
 use super::{Profiler, ProfilerResult};
 use crate::{
-    interface::{BatchResult, QirBatchResult, QuantumBackend},
+    interface::{BatchResult, QuantumBackend},
     qir_isa::{OPERATION_COUNT, QirInstruction, instruction_index, instruction_names},
 };
 use rustc_hash::FxHashMap;
@@ -157,7 +157,7 @@ impl QuantumBackend for SequentialCountingProfiler {
                 read_result = Some(rand::random());
             }
         }
-        BatchResult::QirBatchResult(QirBatchResult { read_result })
+        BatchResult::from(read_result)
     }
 }
 

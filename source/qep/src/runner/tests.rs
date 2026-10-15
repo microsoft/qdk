@@ -3,7 +3,7 @@
 
 use super::{OutputRecord, OutputValue, RunOutput, execute, run_qir};
 use crate::{
-    BatchResult, DEFAULT_MAX_BATCH_SIZE, QirBatchResult, QirInstruction, QuantumBackend,
+    BatchResult, DEFAULT_MAX_BATCH_SIZE, QirInstruction, QuantumBackend, QuantumBackendResult,
     SequentialCountingProfiler,
 };
 use inkwell::{context::Context, memory_buffer::MemoryBuffer};
@@ -150,7 +150,7 @@ impl QuantumBackend for Recorder {
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
-        BatchResult::QirBatchResult(QirBatchResult { read_result })
+        BatchResult::from(read_result)
     }
 }
 
@@ -581,7 +581,7 @@ fn backend_must_return_requested_result() {
     impl QuantumBackend for MissingResultBackend {
         /// Intentionally violates the batch result protocol.
         fn execute_batch(&mut self, _instructions: &[QirInstruction]) -> BatchResult {
-            BatchResult::QirBatchResult(QirBatchResult { read_result: None })
+            BatchResult::default()
         }
     }
 
@@ -601,6 +601,28 @@ fn backend_must_return_requested_result() {
     .expect_err("missing backend result should fail execution");
     assert!(
         error.contains("returned no result for a batch ending in read_result"),
+        "{error}"
+    );
+}
+
+#[test]
+/// Propagates backend error results through QIR execution.
+fn backend_error_results_terminate_execution() {
+    struct ErrorBackend;
+
+    impl QuantumBackend for ErrorBackend {
+        /// Reports an error for every submitted batch.
+        fn execute_batch(&mut self, _instructions: &[QirInstruction]) -> BatchResult {
+            BatchResult {
+                results: [QuantumBackendResult::Error].into_iter().collect(),
+            }
+        }
+    }
+
+    let error =
+        run(MEASURE_ONCE, &mut ErrorBackend).expect_err("backend error should fail execution");
+    assert!(
+        error.contains("QIR backend returned an error result"),
         "{error}"
     );
 }

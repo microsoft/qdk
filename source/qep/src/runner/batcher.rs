@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirBatchResult, QirInstruction, QuantumBackend};
+use crate::{QirInstruction, QuantumBackend, QuantumBackendResult};
 
 /// Default number of instructions sent to a backend in one batch.
 pub const DEFAULT_MAX_BATCH_SIZE: usize = 10_000;
@@ -60,16 +60,22 @@ impl<'a> Batcher<'a> {
 
     /// Executes the buffered instructions and validates the backend response.
     fn flush(&mut self, expects_result: bool) -> Result<Option<bool>, String> {
-        let BatchResult::QirBatchResult(QirBatchResult { read_result }) =
-            self.backend.execute_batch(&self.instructions);
+        let batch = self.backend.execute_batch(&self.instructions);
         self.instructions.clear();
 
-        if expects_result {
-            Ok(read_result)
-        } else if read_result.is_some() {
-            Err("QIR backend returned a result for a batch without read_result".into())
-        } else {
-            Ok(None)
+        if batch.results.contains(&QuantumBackendResult::Error) {
+            return Err("QIR backend returned an error result".into());
+        }
+        match (expects_result, batch.results.as_slice()) {
+            (_, []) => Ok(None),
+            (true, [QuantumBackendResult::Zero]) => Ok(Some(false)),
+            (true, [QuantumBackendResult::One]) => Ok(Some(true)),
+            (false, _) => {
+                Err("QIR backend returned a result for a batch without read_result".into())
+            }
+            (true, _) => Err(
+                "QIR backend returned multiple results for a batch ending in read_result".into(),
+            ),
         }
     }
 }
@@ -77,22 +83,20 @@ impl<'a> Batcher<'a> {
 #[cfg(test)]
 mod tests {
     use super::Batcher;
-    use crate::{BatchResult, QirBatchResult, QirInstruction, QuantumBackend};
+    use crate::{BatchResult, QirInstruction, QuantumBackend, QuantumBackendResult};
     use std::collections::VecDeque;
 
     #[derive(Default)]
     struct RecordingBackend {
         batches: Vec<Vec<QirInstruction>>,
-        results: VecDeque<Option<bool>>,
+        results: VecDeque<BatchResult>,
     }
 
     impl QuantumBackend for RecordingBackend {
         /// Records each batch and returns the next configured result.
         fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
             self.batches.push(instructions.to_vec());
-            BatchResult::QirBatchResult(QirBatchResult {
-                read_result: self.results.pop_front().flatten(),
-            })
+            self.results.pop_front().unwrap_or_default()
         }
     }
 
@@ -118,7 +122,7 @@ mod tests {
     /// Places `read_result` last and returns the corresponding backend value.
     fn flushes_at_result_barrier() -> Result<(), String> {
         let mut backend = RecordingBackend {
-            results: VecDeque::from([Some(true)]),
+            results: VecDeque::from([BatchResult::from(Some(true))]),
             ..Default::default()
         };
         let value = {
@@ -132,6 +136,52 @@ mod tests {
             backend.batches[0].as_slice(),
             [QirInstruction::mz(0, 1), QirInstruction::read_result(1)]
         ));
+        Ok(())
+    }
+
+    #[test]
+    /// Converts a zero result to false at the result barrier.
+    fn reads_zero_result() -> Result<(), String> {
+        let mut backend = RecordingBackend {
+            results: VecDeque::from([BatchResult::from(Some(false))]),
+            ..Default::default()
+        };
+        let mut batcher = Batcher::new(&mut backend, 10)?;
+        assert!(!batcher.read_result(0)?);
+        Ok(())
+    }
+
+    #[test]
+    /// Rejects missing, extra, unexpected, and error results.
+    fn rejects_invalid_results() -> Result<(), String> {
+        use QuantumBackendResult::{Error, One, Zero};
+
+        let cases: &[(bool, &[QuantumBackendResult], &str)] = &[
+            (true, &[], "returned no result"),
+            (true, &[Zero, One], "returned multiple results"),
+            (false, &[Zero], "returned a result"),
+            (false, &[One, Zero], "returned a result"),
+            (true, &[Error], "returned an error result"),
+            (false, &[Error], "returned an error result"),
+            (true, &[Zero, Error], "returned an error result"),
+            (false, &[Error, One], "returned an error result"),
+        ];
+        for &(expects_result, results, expected) in cases {
+            let mut backend = RecordingBackend {
+                results: VecDeque::from([BatchResult {
+                    results: results.iter().copied().collect(),
+                }]),
+                ..Default::default()
+            };
+            let mut batcher = Batcher::new(&mut backend, 10)?;
+            let error = if expects_result {
+                batcher.read_result(0).expect_err("invalid result")
+            } else {
+                batcher.push(QirInstruction::h(0))?;
+                batcher.finish().expect_err("unexpected result")
+            };
+            assert!(error.contains(expected), "{error}");
+        }
         Ok(())
     }
 }

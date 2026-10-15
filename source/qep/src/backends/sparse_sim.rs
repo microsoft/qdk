@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirBatchResult, QirInstruction, QuantumBackend};
+use crate::{BatchResult, QirInstruction, QuantumBackend};
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use qdk_simulators::SparseStateSim;
@@ -288,6 +288,6 @@ impl QuantumBackend for SparseSimBackend {
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
-        BatchResult::QirBatchResult(QirBatchResult { read_result })
+        BatchResult::from(read_result)
     }
 }

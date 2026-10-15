@@ -21,7 +21,7 @@ mod profilers;
 mod qir_isa;
 mod runner;
 pub use backends::{QsBackendShim, SparseSimBackend};
-pub use interface::{BatchResult, QirBatchResult, QuantumBackend, QuantumInstruction};
+pub use interface::{BatchResult, QuantumBackend, QuantumBackendResult, QuantumInstruction};
 pub use profilers::{Profiler, ProfilerResult, SequentialCountingProfiler};
 pub use qir_isa::{OPERATION_COUNT, QirInstruction, instruction_name, instruction_names};
 pub use runner::{

@@ -4,7 +4,7 @@
 use crate::{Profiler, SequentialCountingProfiler};
 use qsc::{LanguageFeatures, SourceMap, codegen::qir::get_qir, target::Profile};
 use rustc_hash::FxHashMap;
-use std::{path::PathBuf, time::Instant};
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 pub(crate) struct QirFile(pub(crate) PathBuf);
 
@@ -42,10 +42,36 @@ impl Drop for QirFile {
 
 /// Compiles Q# source to a temporary QIR file.
 pub(crate) fn compile_qsharp_to_qir(source: &str, profile: Profile) -> QirFile {
+    compile_qsharp_sources_to_qir(vec![("test.qs".into(), source.into())], profile)
+}
+
+/// Compiles Q# source together with the `library/arithmetic` sources to a temporary QIR file.
+fn compile_qsharp_with_arithmetic_to_qir(source: &str, profile: Profile) -> QirFile {
+    let library_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../library/arithmetic/src");
+    let mut sources: Vec<(Arc<str>, Arc<str>)> = std::fs::read_dir(&library_dir)
+        .expect("failed to read arithmetic library directory")
+        .map(|entry| {
+            let path = entry.expect("failed to read directory entry").path();
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .expect("arithmetic library file name should be valid UTF-8");
+            let contents =
+                std::fs::read_to_string(&path).expect("failed to read arithmetic library file");
+            (name.into(), contents.into())
+        })
+        .collect();
+    sources.push(("test.qs".into(), source.into()));
+    compile_qsharp_sources_to_qir(sources, profile)
+}
+
+/// Compiles the given named Q# sources to a temporary QIR file.
+fn compile_qsharp_sources_to_qir(sources: Vec<(Arc<str>, Arc<str>)>, profile: Profile) -> QirFile {
     let capabilities = profile.into();
     let (std_id, store) = qsc::compile::package_store_with_stdlib(capabilities);
     let qir = get_qir(
-        SourceMap::new([("test.qs".into(), source.into())], None),
+        SourceMap::new(sources, None),
         LanguageFeatures::default(),
         capabilities,
         store,
@@ -68,8 +94,8 @@ pub(crate) fn compile_qsharp_to_qir(source: &str, profile: Profile) -> QirFile {
 
 #[test]
 /// Profiles the Shor's algorithm QIR fixture and reports the elapsed time.
-fn profiles_shors_16_qir() -> Result<(), String> {
-    let qir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/shors_16.ll");
+fn profiles_shors_50_qir() -> Result<(), String> {
+    let qir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/shors_50.ll");
     let qir_path = qir_path
         .to_str()
         .ok_or("Shor's algorithm QIR path is not valid UTF-8")?;
@@ -84,28 +110,29 @@ fn profiles_shors_16_qir() -> Result<(), String> {
     assert!(operation_count > 0);
     let ns_per_operation = elapsed.as_nanos() / u128::from(operation_count);
     println!(
-        "Profiled shors_16.ll: {operation_count} operations in {elapsed:?} \
+        "Profiled shors_50.ll: {operation_count} operations in {elapsed:?} \
          ({ns_per_operation} ns/op)"
     );
     Ok(())
 }
 
 #[test]
-/// Profiles an out-of-place Q# addition and reports the elapsed time.
-fn profiles_adder() -> Result<(), String> {
+/// Profiles a Q# modular multiplication from the arithmetic library and reports the elapsed time.
+fn profiles_mod_mul() -> Result<(), String> {
     let source = r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
-                let n = 10000;
+                let n = 500;
+                let modulus = (1L <<< n) - 1L;
                 use xs = Qubit[n];
                 use ys = Qubit[n];
-                use sum = Qubit[n];
-                Std.Arithmetic.RippleCarryCGAddLE(xs, ys, sum);
+                use ans = Qubit[n];
+                ModMul.ModMul(xs, ys, ans, modulus);
             }
         }
     "#;
-    let qir = compile_qsharp_to_qir(source, Profile::Adaptive);
+    let qir = compile_qsharp_with_arithmetic_to_qir(source, Profile::Adaptive);
     let mut profiler = SequentialCountingProfiler::new(1, FxHashMap::default());
     let start = Instant::now();
 
@@ -117,7 +144,7 @@ fn profiles_adder() -> Result<(), String> {
     assert!(operation_count > 0);
     let ns_per_operation = elapsed.as_nanos() / u128::from(operation_count);
     println!(
-        "Profiled Q# addition: {operation_count} operations in {elapsed:?} \
+        "Profiled Q# modular multiplication: {operation_count} operations in {elapsed:?} \
          ({ns_per_operation} ns/op)"
     );
     Ok(())

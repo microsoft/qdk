@@ -38,8 +38,16 @@ The QIR runner accumulates instructions until it reaches either:
 Any backend used together with QIR Runner has a following contract:
 * A batch contains at most one `QirInstruction::read_result`.
 * When present, `read_result` is the final instruction.
-* A batch ending in `read_result` must return `Some(bool)`.
-* A batch without `read_result` must return `None`.
+* A batch ending in `read_result` must return exactly one `QuantumBackendResult::Zero`
+  or `QuantumBackendResult::One`.
+* A batch without `read_result` must return an empty result list.
+* A `QuantumBackendResult::Error` fails execution; unexpected or extra results are rejected.
+
+`BatchResult.results` is an ordered `SmallVec<[QuantumBackendResult; 1]>`. It supports
+arbitrary-length result lists, but keeps the QIR runner's zero-or-one-result case
+inline without heap allocation. Larger lists allocate only when the inline capacity
+is exceeded. `smallvec` avoids requiring a default result value, unlike `tinyvec`.
+QIR backends can use `BatchResult::from(Option<bool>)` to construct their response.
 
 ### Quantum Backend trait
 

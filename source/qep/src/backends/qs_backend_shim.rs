@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirBatchResult, QirInstruction, QuantumBackend};
+use crate::{BatchResult, QirInstruction, QuantumBackend};
 use qsc_eval::{backend::Backend, val};
 use rustc_hash::FxHashMap;
 
@@ -203,6 +203,6 @@ impl<B: Backend> QuantumBackend for QsBackendShim<B> {
                 read_result = Some(value);
             }
         }
-        BatchResult::QirBatchResult(QirBatchResult { read_result })
+        BatchResult::from(read_result)
     }
 }

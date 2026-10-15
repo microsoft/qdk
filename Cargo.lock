@@ -1958,6 +1958,7 @@ dependencies = [
  "rand 0.10.2",
  "resource_estimator",
  "rustc-hash",
+ "smallvec",
 ]
 
 [[package]]
