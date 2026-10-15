@@ -242,10 +242,4 @@ impl QirBackend for SparseSimBackend {
             .copied()
             .ok_or_else(|| format!("Result ID {result} has not been written"))
     }
-
-    /// Stores an explicit classical value in a result slot.
-    fn write_result(&mut self, result: usize, value: bool) -> Result<(), String> {
-        self.results.insert(result, value);
-        Ok(())
-    }
 }

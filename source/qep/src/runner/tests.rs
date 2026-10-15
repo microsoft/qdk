@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::{OutputRecord, OutputValue, RunOutput, execute, run_qir};
-use crate::{NoopBackend, QirBackend};
+use crate::{CountingBackend, QirBackend};
 use inkwell::{context::Context, memory_buffer::MemoryBuffer};
 use rustc_hash::FxHashMap;
 use std::{collections::VecDeque, fmt::Write, path::PathBuf};
@@ -97,12 +97,6 @@ impl QirBackend for Recorder {
         Ok(value)
     }
 
-    /// Stores an explicit test result value.
-    fn write_result(&mut self, result: usize, value: bool) -> Result<(), String> {
-        self.gate("write_result", &[result], None)?;
-        self.results.insert(result, Some(value));
-        Ok(())
-    }
 }
 
 /// Parses and executes an in-memory QIR test fixture.
@@ -203,7 +197,7 @@ fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), String> {
     assert!(output.records.is_empty());
     run(
         &format!("{declarations}\ndefine void @main() #0 {{\n{calls} ret void\n}}"),
-        &mut NoopBackend::default(),
+        &mut CountingBackend::default(),
     )?;
     Ok(())
 }
@@ -311,7 +305,6 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
         declare void @__quantum__qis__mresetz__body(ptr, ptr)
         declare void @__quantum__qis__h__body(ptr)
         declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__write_result(ptr, i1)
         declare void @__quantum__rt__result_record_output(ptr, ptr)
         declare void @__quantum__rt__bool_record_output(i1, ptr)
         define void @main() #0 {
@@ -323,7 +316,6 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
             call void @__quantum__rt__bool_record_output(i1 %a, ptr null)
             call void @__quantum__rt__bool_record_output(i1 %b, ptr null)
             call void @__quantum__rt__result_record_output(ptr null, ptr null)
-            call void @__quantum__rt__write_result(ptr inttoptr (i64 1 to ptr), i1 false)
             call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
             ret void
         }
@@ -339,7 +331,6 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
             Event("read_result", vec![1], None),
             Event("read_result", vec![1], None),
             Event("read_result", vec![0], None),
-            Event("write_result", vec![1], None),
             Event("read_result", vec![1], None),
         ]
     );
@@ -353,7 +344,7 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
             OutputValue::Bool(true),
             OutputValue::Bool(true),
             OutputValue::Result(false),
-            OutputValue::Result(false),
+            OutputValue::Result(true),
         ]
     );
     assert!(backend.measurements.is_empty());
@@ -361,13 +352,17 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
 }
 
 #[test]
-/// Verifies structured output labels, values, and writable results.
-fn records_structured_output_and_writable_results() -> Result<(), String> {
+/// Verifies structured output labels and values.
+fn records_structured_output() -> Result<(), String> {
+    let mut backend = Recorder {
+        measurements: VecDeque::from([true]),
+        ..Default::default()
+    };
     let output = run(
         r#"
         @label = private constant [5 x i8] c"test\00"
         declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__rt__write_result(ptr, i1)
+        declare void @__quantum__qis__mz__body(ptr, ptr)
         declare i1 @__quantum__rt__read_result(ptr)
         declare void @__quantum__rt__array_record_output(i64, ptr)
         declare void @__quantum__rt__tuple_record_output(i64, ptr)
@@ -377,7 +372,7 @@ fn records_structured_output_and_writable_results() -> Result<(), String> {
         declare void @__quantum__rt__double_record_output(double, ptr)
         define void @main() #0 {
             call void @__quantum__rt__initialize(ptr null)
-            call void @__quantum__rt__write_result(ptr null, i1 true)
+            call void @__quantum__qis__mz__body(ptr null, ptr null)
             %value = call i1 @__quantum__rt__read_result(ptr null)
             call void @__quantum__rt__tuple_record_output(i64 2, ptr @label)
             call void @__quantum__rt__array_record_output(i64 3, ptr null)
@@ -388,7 +383,7 @@ fn records_structured_output_and_writable_results() -> Result<(), String> {
             ret void
         }
     "#,
-        &mut NoopBackend::default(),
+        &mut backend,
     )?;
     let expected = [
         (OutputValue::Tuple(2), Some("test")),
@@ -522,7 +517,7 @@ fn rejects_indirect_calls_and_reserved_symbols() {
         ),
     ];
     for (source, expected) in cases {
-        let error = run(source, &mut NoopBackend::default()).expect_err("unsupported input");
+        let error = run(source, &mut CountingBackend::default()).expect_err("unsupported input");
         assert!(error.contains(expected), "{error}");
     }
 }
@@ -600,10 +595,14 @@ fn rejects_unsupported_declarations_and_signatures_before_execution() {
             "declare ptr @__quantum__qis__m__body(ptr)",
             "Unsupported signature",
         ),
+        (
+            "declare void @__quantum__rt__write_result(ptr, i1)",
+            "Unsupported QIR function",
+        ),
     ] {
         let error = run(
             &format!("{declaration}\ndefine void @main() #0 {{ ret void }}"),
-            &mut NoopBackend::default(),
+            &mut CountingBackend::default(),
         )
         .expect_err("unsupported declaration");
         assert!(error.contains(expected), "{error}");
@@ -643,7 +642,7 @@ fn rejects_dynamic_management_and_invalid_entry_points() {
         ),
     ];
     for (source, expected) in cases {
-        let error = run(source, &mut NoopBackend::default()).expect_err("invalid input");
+        let error = run(source, &mut CountingBackend::default()).expect_err("invalid input");
         assert!(error.contains(expected), "{error}");
     }
 }
@@ -767,11 +766,11 @@ fn runs_text_and_bitcode_files() -> Result<(), String> {
 fn rejects_missing_and_malformed_files() -> Result<(), String> {
     let missing = std::env::temp_dir().join(format!("missing-qep-{}.ll", rand::random::<u64>()));
     // SAFETY: The file does not exist, so nothing can execute.
-    assert!(unsafe { run_qir(missing, &mut NoopBackend::default()) }.is_err());
+    assert!(unsafe { run_qir(missing, &mut CountingBackend::default()) }.is_err());
     let malformed = TestFile::new("ll");
     std::fs::write(&malformed.0, "not LLVM IR").map_err(|e| e.to_string())?;
     // SAFETY: Parsing fails before execution.
-    assert!(unsafe { run_qir(&malformed.0, &mut NoopBackend::default()) }.is_err());
+    assert!(unsafe { run_qir(&malformed.0, &mut CountingBackend::default()) }.is_err());
     Ok(())
 }
 

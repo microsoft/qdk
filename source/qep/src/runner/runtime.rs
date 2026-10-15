@@ -187,23 +187,6 @@ unsafe extern "C" fn read_result<B: QirBackend>(ptr: *mut c_void, result: *mut c
     unsafe { dispatch::<B, _>(ptr, |state| state.read(result)) }
 }
 
-/// Writes a classical value and marks its QIR result slot as written.
-unsafe extern "C" fn write_result<B: QirBackend>(
-    ptr: *mut c_void,
-    result: *mut c_void,
-    value: bool,
-) {
-    // SAFETY: Called only by a generated, signature-checked wrapper.
-    unsafe {
-        dispatch::<B, _>(ptr, |state| {
-            state.result_slot(result)?;
-            state.backend.write_result(result as usize, value)?;
-            *state.result_slot(result)? = true;
-            Ok(())
-        });
-    }
-}
-
 /// Resolves and appends a result to the output stream.
 unsafe extern "C" fn record_result<B: QirBackend>(
     ptr: *mut c_void,
@@ -299,12 +282,6 @@ pub(super) fn bindings<B: QirBackend>(context: &Context) -> Vec<Binding<'_>> {
         read_result,
         context.bool_type(),
         [ptr]
-    );
-    bind!(
-        "__quantum__rt__write_result",
-        write_result,
-        void,
-        [ptr, boolean]
     );
     bind!(
         "__quantum__rt__result_record_output",

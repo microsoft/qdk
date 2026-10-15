@@ -1,300 +1,244 @@
-# Quantum Execution Profiler (QEP)
+## Universal interface between quantum layers of abstractions
 
-## Scope
+We define a universal interface between 2 components of a quantum system.
 
-QEP executes trusted Quantum Intermediate Representation (QIR) programs in Rust.
-An LLVM-backed runner dispatches intrinsic calls through a shared backend
-interface. The three backends ignore gates, count calls, or simulate a sparse
-quantum state.
+### Driver and backend.
+* These 2 components are called "Driver" and "Backend".
+* Driver sends instructions to Backend.
+* Backend receives instructions, executes them and sends results to Driver.
+* These names are only in context of this interface, the same component can be Driver
+    relative to one component, and backend for other.
+* Examples:
+    * QIR runner is a Driver which performs all classical instructions and sends 
+        instructions from QIR ISA to Backend.
+    * A simulator can implement Backend.
+    * A profiler can implement Backend. Profiler is similar to simulator, but it doesn't
+       maintain wavefunction. Instead, it tracks calls and after execution reports
+       resource estimates for program (runtime, physical qubits).
+    * Qodec is a Driver relative to some Backend (which can be real quantum computer, profiler or simulator).
+    * Qodec is a Backend relative to QIR runner.
+    * Qodec can be composed of multiple qodecs connected via Driver-Backend interface.
+    * Real quantum computer can implement Backend.
+    * We might insert networking layer in place of Backend-Driver interface. For example:
+       * We have a client on local machine. It implements Backend interface. 
+       * We have QIR runner running on local machine, using the client as its Backend.
+       * We have a real quantum engine running on remote machine, implementing Backend Interface.
+       * We have a server running on remote machine, using real quantum engine as its Backend.
+       * Server and client talk to each other over HTTP.
+        
+### Two streams.
+Interface consists of two streams:
+* Stream of `MessageIn` messages - this is stream of instructions, e.g. gates, measurements, resets.
+* Stream of `MessageOut` messages - this is stream of measurement results.
 
-QIR runtime support and profile validation are partial. The counting backend
-counts intrinsic calls; it does not model hardware timing or estimate
-fault-tolerant resources.
+`MessageIn` and `MessageOut` are Rust enums that are allowed to grow.
 
-## Goals
+`MessageIn` is designed to represent instruction on any level of abstraction (e.g. logical or physical).
+It might have:
+ * Abstract gates not tied to any specific hardware, e.g. X(qubit_id).
+ * Logical gates from specific ISA, e.g. QIR gates.
+ * Physical gates specific to given hardware, e.g. CZ for Atom computing.
 
-- Run the same QIR program with different backends.
-- Keep LLVM parsing, control flow, and runtime ABI handling outside backends.
-- Separate issuing a measurement from resolving its classical value.
-- Preserve structured output and report backend failures to the caller.
-- Support inspection through intrinsic counts and sparse wavefunction snapshots.
+`MessageOut` is designed to represent measurement results but specifics can depend on what
+exactly is frontend and backend.
 
-QEP does not support dynamic resource management, asynchronous execution,
-hardware scheduling, or sandboxing untrusted programs.
+Any backend used together with QIR Runner has a following contract:
+  * For every QirInstruction::read_result operation it must write a single MeasurmentResult message containing single bit.
+  * It must not write anything else.
+  * It must write result immediately after receiving read_result instruction.
 
-## Architecture
+However, in general, for some Backends:
+ * measurement results might contain other pieces of data (e.g. qubit_id or result_id),
+ * results might come in batches or be allowed to be out of order,
+ * results might have more than 2 outcomes (e.g. 0,1,Loss).
+This is why we do not fix MessageOut schema, instead we make it enum which can have more
+values added later.
 
-```text
-Q# source
-    |
-    | QDK compiler (external to the runner; used in integration tests)
-    v
-QIR file (.ll or .bc)
-    |
-    v
-run_qir
-    |-- Parse and validate supported constructs
-    |-- Bind runtime callbacks and instrument error propagation
-    |-- Execute native code through the LLVM JIT
-    |
-    +--> Per-invocation ExecutionState
-             |-- Resource bounds and result initialization tracking
-             |-- Output records and first execution error
-             |
-             +--> QirBackend
-                      |-- NoopBackend
-                      |-- CountingBackend --> NoopBackend
-                      +-- SparseSimBackend --> SparseStateSim
+The two streams are implemented as 2 channels, and there are 2 endpoints:
+* `QuantumDriverEndpoint` consists of instruction sender (`Sender<MessageIn>`) and results receiver  (`Receiver<MessageOut>`)
+* `QuantumBackendEndpoint` consists of instruction receiver (`Receiver<MessageIn>`) and results sender  (`Sender<MessageOut>`)
+
+### Quantum Backend trait
+
+Backend must implement the following trait:
+
+```
+trait QuantumBackend {
+    async fn run(&mut self, endpoint: QuantumBackendEndpoint);
+}
 ```
 
-The caller owns the backend; `run_qir` borrows it mutably for one execution.
-Generated wrappers pass an execution-state pointer to native callbacks instead
-of relying on global or thread-local backend state. Independent backends can
-execute concurrently.
+The function `run` must run a while loop that:
+  * Processed received instructions until instructions channel is closed.
+  * Writes results to the results channel.
+   
 
-### Source organization
+### Implementing Quantum Driver
 
-| Component | Responsibility |
-| --- | --- |
-| [src/lib.rs](src/lib.rs) | Public exports and the `QirBackend` contract |
-| [src/runner.rs](src/runner.rs) | File loading, JIT execution, validation, and error instrumentation |
-| [src/runner/runtime.rs](src/runner/runtime.rs) | Native callbacks, ABI bindings, invocation state, and output recording |
-| [src/backends/](src/backends/) | Backend implementations |
-| [src/tests/backends/](src/tests/backends/) | Tests organized by backend |
-| [src/runner/tests.rs](src/runner/tests.rs) | Runner and runtime integration tests |
+In rust, Quantum Driver will be anything that owns QuantumDriverEndpoint. 
+We do not define a trait for that.
 
-## Backend contract
 
-`QirBackend` uses `usize` IDs for qubits and result slots. Rotation angles are in
-radians. Measurement values use `false` for zero and `true` for one. Methods
-return `Result<_, String>` to report failures.
+## QIR Runner
 
-| Category | Methods |
-| --- | --- |
-| Controlled gates | `ccx`, `cx`, `cy`, `cz` |
-| Rotations | `rx`, `ry`, `rz`, `rxx`, `ryy`, `rzz` |
-| Single-qubit gates | `h`, `s`, `sadj`, `sx`, `t`, `tadj`, `x`, `y`, `z` |
-| Exchange | `swap` |
-| Measurement and reset | `mz`, `mresetz`, `reset` |
-| Classical result access | `read_result`, `write_result` |
+QIR Runner is a Driver.
+ * It reads QIR from file, and executes it. 
+ * It owns a Backend. 
+ * It forwards quantum instructions from QIR to Backend.
 
-### Measurement semantics
+Measurements are done in somewhat weird way, according to QIR spec:
+ * There is a "measurement array" and it must be maintained by Backend. 
+ * When QIR Runner sees measurements, it enqueues corresponding operation (m,mz or mreset) 
+     and doesn't wait for it, as per QIR spec. Backend will perform measurement and write result to 
+     specified index at measurement array.
+ * When it sees QIR instruction that instructs it to read result from result register (read_result or *_record_output),
+    it issues Read command containing result_id and blocks until it receives output. Then it uses output in 
+    classical flow.
+ * It is responsibility of Backend to perform measurement that writes to result_id before responding to ReadResult.
+ * There is __quantum__rt__write_result operation that technically means that we send classical bit from Driver to Backend
+    and Backend must store it at specified index in results array. It exists only for Stim simulator.
+    Our QIR runner doesn't implement it, it will fail during execution when encounters this command.
+    So write_result is not included in the enum QirInstruction.
 
-`mz` and `mresetz` issue a measurement into a result slot; `read_result` resolves
-its value. All current backends complete measurements synchronously. The
-separation lets a future backend defer completion until a read, then wait or
-advance modeled time.
+"QIR ABI" refers to specific set of instructions which roughly corresponds to library/std/src/Intrinsic.qs
+and for its exact definition see enum QirInstruction in this package.
 
-- Repeated reads return the stored value without measuring again.
-- Measuring or writing into an existing slot replaces its previous value.
-- `mresetz` stores the pre-reset measurement value.
-- `reset` does not write a result slot.
-- Reading a slot that has never been written is an error.
+## Quantum Execution Profiler
 
-The runner rejects reads of slots that have not been measured or written during
-the current invocation, even if the backend holds a value from an earlier run.
-Recording a result as output also resolves it via `read_result`.
+A Profiler is a Backend that models a specific QPU (Quantum processing unit/quantum engine).
 
-## Backends
+Profiler can be implemented as:
+ * Rust struct implementing `trait QuantumBackend`.
+ * A library with any language that implements QIR ABI (or other ISA for physical profilers)
+     that is then statically linked with QIR Runner, which will require a shim. That shim will be a rust implementation
+     of `trait Backend` that implements instructions as function calls.
+     (TODO: implement this shim and then just refer to it here)
+ * A web server that implements QIR ABI (or other ISA for physical profilers) as HTTP endpoints
+   (or one endpoint where instruction name and args are in request body). This again requires a shim
+   similar to previous item. This shim will be a rust implementation of `trait Backend` which will be a client
+   to that server that will implement instructions by sending web requests.
 
-### NoopBackend
+Profiler can be logical or physical:
+ * Logical profiler that implements QIR ABI (or other logical ISA). This profiler will rely on hardcoded
+    information on:
+    * how long each gate takes
+    * how many physical qubits are needed to encode each logical qubit
+    * How many physical qubits are needed for factories
+ * Physical profiler will implement ISA of specific real quantum hardware, which is typically very limited
+   (e.g. CZ, MZ and few single-qubit gates for Atom Computing). It must be used together with a Qodec. 
 
-[NoopBackend](src/backends/noop.rs) ignores gates and resets; it does not maintain
-a quantum state. Each measurement samples and stores an independent, uniformly
-random bit. Reading results does not consume randomness.
+### Implementing the Profiler
 
-Use it to test execution without simulating the circuit. Its random outcomes
-do not predict the circuit's results.
+Profiler can be written:
+ * By a human expert with knowledge about specific quantum computer who understand it physics etc.
+   * In theory, we can ask vendors to supply such a profiler for each machine model.
+ * Or by an agent, given a paper with detailed enough description of specific hardware.
+   * For good results, this agent will also require good documentation of the framework, 
+       guidelines for implementing profilers and several high quality examples.
 
-### CountingBackend
 
-[CountingBackend](src/backends/counting.rs) forwards operations to `NoopBackend`
-and records calls in `CountingBackendCounts`. The public `counts()` method
-returns a shared reference to the counters.
+### Implementing measurements
+We cannot correctly predict probability of measurement outcomes without keeping track of 
+wavefunction which takes in general O(2^n) memory. We can do this only for very small 
+number of qubits, and resource estimation is typically done when number of qubits is so large
+that simulation is impossible.
 
-- Each `QirBackend` method has an individual counter.
-- `measurements` is the sum of `mz` and `mresetz` calls.
-- Counters record attempted calls, including failed result reads.
-- `mresetz` leaves the `mz` and `reset` fields unchanged.
-- Counts accumulate over the lifetime of the backend.
+So, we suggest implementing a simple heuristic:
+* Every qubit is in state ZERO, ONE or ENTANGLED.
+* Initially or after reset it is in state ZERO.
+* Applying X moves it to ONE.
+* Applying any gate moves all qubits it applies to, to ENTANGLED.
+* Measurement on ZERO or ONE returns result equal to state and doesn't change qubit.
+* Measurement in ENTANGLED state will with probability 50% move qubit to state ZERO and
+    with probability 50% to state ONE, and move qubit to corresponding state (ZERO or ONE).
 
-Counts describe backend calls, not distinct LLVM symbol names. For example,
-the supported `cnot` and `cx` QIR aliases both dispatch to `cx`. Runtime
-initialization and array/tuple output markers are not backend intrinsics and do
-not have counters. Result output recording does increment `read_result`.
+This strategy should be close to truth when 
+* We only do measurements in the end.
+* Only measurements inside circuit are for measurement-based uncompute.
 
-For adaptive programs, the no-op backend's random measurement outcomes determine
-which path executes. Counts cover that path only, not every possible branch.
+There are cases when this strategy will significantly impact estimation.
+* For example, if we have repeat-until-success loop where success is defined by 
+measuring single qubit in state 0, and actual success rate is e.g. 1%. Our model will get
+success rate 50% and underestimate time by factor of 50x.
+* Such cases should not be estimated with this profiler or we should use different strategies.
 
-### SparseSimBackend
 
-[SparseSimBackend](src/backends/sparse_sim.rs) uses the QDK `SparseStateSim` to
-evolve the quantum state. It uses native simulator operations where available,
-multi-controlled operations for controlled gates, and gate decompositions for
-`rxx`, `ryy`, `rzz`, and `sx`.
+There may be other ways to do it:
+* Always return 0 or 1 w.p. 50% from read_result, don't do any measurements at all.
+* Do Clifford simulation and give up when encountering non-Clifford gate.
+* Maintain connected components and simulate state only within connected components, and
+    replace cross-component gates with classical approximations (in style of Semiclassical QFT).
+* Annotate measurement with expected probability of outcome |1>. This probability can be sent to backend
+    by instruction "set_probability_of_next_measurement".
 
-Measurements collapse the state and store the sampled value by result ID.
-Reset measures the target and applies `X` when the result is one. Classical
-result writes update only result storage, not the wavefunction.
+Anyway, all these are implementation details of the Profiler. While we will provide some
+reusable modules to implement "reduced simulation" in Profilers, implementers are free to do
+it any way they want.
 
-The inspection API is:
 
-```rust
-pub fn wavefunction(&mut self) -> Vec<(BigUint, Complex64)>
+
+### Simple profiler: SequentialProfiler
+
+We will implement a simple generic profiler called SequentialProfiler, based on following assumptions:
+* All instructions are executed sequentially (no parallelism).
+* Each instruction takes fixed time which only depends on instruction types.
+* Physical qubit usage is equal to logical qubits usage times some constant.
+
+In implementation this profiler will maintain call counter for every instruction.
+In the end total runtime will be computed as `sum (gate_time[i]*gate_calls[i])`.
+
+It's not doing much more than logical counter (`counts.rs`), but it's a starting point 
+and a proof-of-concept for the whole QEP project.
+
+
+### Advanced profiler: event queue based profiler.
+
+This section is WIP, but on high level:
+* There is event queue, event loop, and a clock.
+  * Queue is a priority queue keyed by (time, instruction_id)
+  * `instruction_id` is a counter needed so we process instructions coming at the same time in correct order.
+* Every incoming instruction enqueues event "start gate".
+* Event loop will:
+  * When sees "start gate", enqueue "end gate" at "now + gate time", if that qubit is free.
+  * If qubit is busy, put this event in another queue of events blocked by this qubit.
+* This model can also model how T-factories generates T states at fixed output, and T gates
+    might be blocked on T factories (then T factory is a bottleneck), or T gates might be too slow
+    then T factories must be slowed down. 
+
+
+### Resource estimation workflow.
+
+On a high level, resource estimation will look like this:
+
+```
+    let qir_path = "program.ll";
+    let mut profiler = Profiler::default();
+    let mut qir_runner = QirRunner::default();
+    qir_runner.run(qir_path, &mut backend).await;
+    println!(profiler.get_results());
 ```
 
-Calling it flushes queued simulator operations without measuring the state. The
-returned snapshot owns its basis-state indices and complex amplitudes, sorted
-by index, and omits the qubit count. Snapshot cost and simulation memory grow
-with the represented state. State-vector simulation can still require
-exponential resources in the worst case.
+That is:
+* Application or profile is compiled into QIR
+  * We can support any other format, and we only will have to swap QirRunner with 
+      different interpreter that implements the above described interface.
+* We instantiate Profiler.
+* We run QIR Runner with profiler as backend.
+* Profiler keeps track of resources in its internal state.
+* After successfully running the program, profiler object contains estimate we need.
 
-## QIR execution model
+### Potential Python API
 
-### Input and entry point
+For Python users we might expose it as follows:
+* `Application` class, which is a wrapper around Q#/QASM:
+  * Support Cirq/Qiskit via QASM.
+  * Internally, it has `to_qir` which writes QIR to file.
+* `QPUModel` (or simply `QPU`) which will be a wrapper around Profiler (impl Backend).
 
-`run_qir` accepts textual LLVM IR (`.ll`) or LLVM bitcode (`.bc`). LLVM 20 parses
-both QIR 1 typed-pointer and QIR 2 opaque-pointer inputs.
-
-A supported module must have exactly one defined entry point:
-
-- Marked with `entry_point` or the legacy `EntryPoint` attribute.
-- Taking no arguments.
-- Returning `void` or `i64`.
-- Declaring both `required_num_qubits` and `required_num_results`.
-
-The runner supports direct internal function calls, branching, loops, and
-adaptive control flow. It checks the ABI and supported constructs but does not
-fully validate conformance to a named QIR profile.
-
-### Static resource management
-
-The two resource-count attributes define exclusive upper bounds for static IDs:
-
-```text
-0 <= qubit ID  < required_num_qubits
-0 <= result ID < required_num_results
+Then main resource estimation function can look like:
 ```
-
-These IDs are encoded in pointer values, which must not be dereferenced as host
-addresses. Callbacks check the declared bounds before passing IDs to the
-backend. The result count specifies storage capacity. A program can measure
-more times than this count by overwriting slots.
-
-The runner rejects dynamic qubit/result management flags set to true and does
-not support runtime allocation or release calls.
-
-The runner knows the declared bounds, but `QirBackend` has no allocation or
-initialization hook to receive them. `SparseSimBackend` therefore allocates
-simulator qubits on demand through the highest ID used by a gate or measurement.
-Accessing ID 5 allocates IDs 0 through 5 if needed. These qubits remain allocated for the
-backend's lifetime. This is an internal allocation strategy, not dynamic QIR
-resource management.
-
-### Initialization and repeated execution
-
-Each invocation gets fresh output storage, error state, and result-written
-markers. The backend keeps its state between invocations.
-
-The `__quantum__rt__initialize` callback is a no-op: it does not restore an
-existing sparse simulator to the zero state, as the QIR profiles expect.
-Create a fresh backend for independent executions that need a fresh quantum
-state. Reuse a backend only when you intend to preserve its state and counters.
-
-### Binding and failure propagation
-
-The runner checks external declarations against a list of supported
-names and LLVM signatures. It generates wrappers that pass execution state to
-the backend callbacks. Supported runtime operations are initialization, result
-read/write, and array/tuple/result/bool/int/double output recording.
-
-Unsupported externals, including LLVM intrinsics, are rejected rather than
-resolved from the host. Additional checks reject reserved symbol definitions,
-unsupported globals, indirect calls, variadic functions, non-C calling
-conventions, and exception-handling call instructions.
-
-Callbacks capture backend errors and unwinding panics before they cross the C
-ABI. The runner inserts failure checks after calls so errors stop execution,
-including inside nested functions. Inserting these checks splits basic blocks,
-so the runner rewrites PHI predecessors and removes function and call-site
-attributes that could invalidate the checks.
-
-On failure, `run_qir` returns an error and leaves any backend changes in place.
-These checks cannot handle process aborts, memory faults, or nonterminating QIR.
-
-## Output representation
-
-`RunOutput` contains:
-
-- `records: Vec<OutputRecord>` in emission order.
-- `return_value: Option<i64>`: `None` for a void entry point, otherwise the
-  returned integer. This is separate from the recorded quantum-program output.
-
-Each record contains an `OutputValue` and an optional UTF-8 label. Values are
-`Array(u64)`, `Tuple(u64)`, `Result(bool)`, `Bool(bool)`, `Int(i64)`, or
-`Double(f64)`.
-
-Array and tuple records are structural markers followed by their elements.
-Returning two measurement results as an array therefore produces three records:
-
-```text
-Array(2)
-Result(first measurement)
-Result(second measurement)
+def estimate(app:Application, model: QPUModel) -> EstimationResult:
+    qir_file_path = app.to_qir()
+    _estimate_internal(qir_file_path, model.profiler)
+    return EstimationResult.from_profile(model.profiler.profile())
 ```
-
-The runner keeps the stream flat. It does not rebuild nested values or validate
-the complete output structure.
-
-## Safety boundary
-
-`run_qir` is unsafe because it JIT-compiles QIR and executes it as native machine
-code. LLVM verification and resource bounds checks cannot sandbox that code.
-
-The caller must supply trusted QIR with valid memory accesses and ABI usage.
-Non-null output labels must point to valid, null-terminated UTF-8 strings.
-Programs must not retain callbacks or invoke them asynchronously. Execution is
-synchronous and requires a 64-bit host.
-
-QEP does not depend on the separate QIR Runner project.
-
-## Build and testing
-
-Building QEP requires LLVM 20 development libraries; there is no optional
-`runner` feature. Set `LLVM_SYS_201_PREFIX` if the build cannot find your LLVM
-installation. Default features are disabled for `qdk_simulators`, so QEP does
-not request GPU support. Tests use the Q# compiler as a development dependency.
-The runner itself loads QIR files, not Q# source.
-
-From the repository root:
-
-```sh
-cargo test -p qep
-cargo test -p qep tests::backends::sparse_sim
-cargo fmt -p qep -- --check
-```
-
-Current test coverage includes:
-
-- Intrinsic dispatch, aliases, argument preservation, and backend counters.
-- No-op measurement sampling and stable result reads.
-- Sparse-simulator intrinsic smoke tests, Bell-state correlation, reset
-  behavior, and sparse wavefunction inspection.
-- Q# compilation to QIR, temporary-file execution, and counting-backend checks.
-- Text and bitcode loading, structured output, and writable results.
-- Adaptive loops, internal calls, PHI rewriting, and error/panic propagation.
-- Invalid resource IDs, unwritten results, unsupported modules, invocation
-  isolation, and concurrent execution with independent backends.
-
-## Open design questions
-
-The following changes remain unimplemented:
-
-- Pass declared resource counts to backends and define how initialization and
-  reset affect existing state. This could replace lazy allocation.
-- Support dynamic resources with allocation/release bindings, pointer ownership
-  tracking, and backend lifecycle operations.
-- Add deferred measurement resolution and modeled scheduling for timing-aware
-  profiling, using the existing separation between issuing and reading results.
-- Support more runtime calls and profile checks while retaining the native-code
-  safety contract.

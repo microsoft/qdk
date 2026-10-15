@@ -1954,6 +1954,7 @@ dependencies = [
  "qsc",
  "rand 0.10.2",
  "rustc-hash",
+ "tokio",
 ]
 
 [[package]]
