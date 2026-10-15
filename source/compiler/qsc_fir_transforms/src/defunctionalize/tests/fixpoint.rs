@@ -2663,6 +2663,53 @@ fn direct_indexed_callees_preserve_operand_order() {
 }
 
 #[test]
+fn inline_closure_arguments_preserve_prefixes_and_aliases() {
+    // Each closure argument is a block whose statements run before the second
+    // argument. `marker` records that order (the prefix writes 1, the second
+    // argument appends 2), and the result is `answer * 100 + marker`.
+    for (argument, expected) in [
+        (
+            "{ Message(\"prefix\"); set marker = 1; Offset(10, _) }",
+            1312,
+        ),
+        (
+            "{ let first = Mark(\"first\", 10); let second = first; value -> value + first + second }",
+            2302,
+        ),
+        (
+            "{ let second = Mark(\"second\", 20); let first = Mark(\"first\", 10); value -> value + first + second }",
+            3302,
+        ),
+        ("{ Message(\"prefix\"); value -> value + 1 }", 402),
+        (
+            "{ let action = MarkCallable(); value -> action(value) + 1 }",
+            502,
+        ),
+        ("Offset(Mark(\"capture\", 10), _)", 1302),
+    ] {
+        let source = format!(
+            r#"
+            function Mark(label : String, value : Int) : Int {{ Message(label); value }}
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function MarkCallable() : Int -> Int {{ Message("callable"); Inc }}
+            function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            @EntryPoint()
+            operation Main() : Int {{
+                mutable marker = 0;
+                let answer = Apply({argument}, {{ set marker = marker * 10 + 2; 3 }});
+                answer * 100 + marker
+            }}
+            "#
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+#[test]
 fn captured_callable_array_preserves_functors() {
     let source = r#"
         function Make(angle : Double) : Qubit => Unit is Adj + Ctl {

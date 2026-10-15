@@ -3104,29 +3104,62 @@ fn remove_dead_callable_local_from_callable(
 /// evaluation across other operands. Argument rewrites materialize captures
 /// before later arguments; cleanup must not evaluate those initializers again.
 ///
-/// Only the closure-yielding shape qualifies. A binding whose initializer
-/// merely produces a callable some other way, such as a call to an effectful
-/// producer, relocates nothing and stays protected by discard safety.
+/// Only independent capture bindings, in capture order, can be relocated.
+/// Unrelated prefix effects and dependent/aliased bindings cannot be reproduced
+/// by independently evaluating the capture expressions at the rewritten call.
 ///
 /// Evidence for [`EvaluationDisposition::Relocated`]; see
 /// [`consumed_callable_expr_disposition`].
-fn captures_relocated_into_call(package: &Package, expr_id: ExprId) -> bool {
-    match package.get_expr(expr_id).kind {
-        ExprKind::Closure(_, _) => true,
-        ExprKind::Block(block_id) => {
-            package
-                .get_block(block_id)
-                .stmts
-                .last()
-                .is_some_and(|&tail_stmt_id| {
-                    matches!(
-                        package.get_stmt(tail_stmt_id).kind,
-                        StmtKind::Expr(tail_expr_id)
-                            if captures_relocated_into_call(package, tail_expr_id)
-                    )
-                })
+fn captures_relocated_into_call(package: &Package, mut expr_id: ExprId) -> bool {
+    let mut bindings = Vec::new();
+    loop {
+        match &package.get_expr(expr_id).kind {
+            ExprKind::Closure(captures, _) => {
+                let locals: FxHashSet<_> = bindings.iter().map(|(local, _)| *local).collect();
+                if captures
+                    .iter()
+                    .copied()
+                    .filter(|local| locals.contains(local))
+                    .ne(bindings.iter().map(|(local, _)| *local))
+                {
+                    return false;
+                }
+                let mut independent = true;
+                for (_, initializer) in bindings {
+                    crate::walk_utils::for_each_expr(package, initializer, &mut |_, expr| {
+                        independent &= match &expr.kind {
+                            ExprKind::Var(Res::Local(local), _) => !locals.contains(local),
+                            ExprKind::Closure(captures, _) => {
+                                captures.iter().all(|local| !locals.contains(local))
+                            }
+                            _ => true,
+                        };
+                    });
+                }
+                return independent;
+            }
+            ExprKind::Block(block) => {
+                let Some((&tail, prefix)) = package.get_block(*block).stmts.split_last() else {
+                    return false;
+                };
+                let StmtKind::Expr(value) = package.get_stmt(tail).kind else {
+                    return false;
+                };
+                for &statement in prefix {
+                    let StmtKind::Local(Mutability::Immutable, pattern, initializer) =
+                        package.get_stmt(statement).kind
+                    else {
+                        return false;
+                    };
+                    let PatKind::Bind(ident) = &package.get_pat(pattern).kind else {
+                        return false;
+                    };
+                    bindings.push((ident.id, initializer));
+                }
+                expr_id = value;
+            }
+            _ => return false,
         }
-        _ => false,
     }
 }
 

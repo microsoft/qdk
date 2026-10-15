@@ -3626,6 +3626,37 @@ fn conservative_callable_fallbacks_preserve_results() {
 }
 
 #[test]
+fn inline_measurement_capture_is_evaluated_once() {
+    // A partial application whose capture is a measurement must still be
+    // specialized: declining it leaves a dynamic callable that Adaptive
+    // targets reject.
+    let source = r#"
+        function FromFlag(flag : Bool, value : Int) : Int {
+            if flag { value + 1 } else { value + 2 }
+        }
+        function Apply(action : Int -> Int, value : Int) : Int { action(value) }
+        @EntryPoint()
+        operation Main() : Int {
+            use flag = Qubit();
+            Apply(FromFlag(MResetZ(flag) == One, _), 3)
+        }
+        "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__mresetz__body(")
+                .count(),
+            1,
+            "capture initialization must measure once on {profile:?}:\n{qir}"
+        );
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 %"),
+            "{profile:?} must preserve the measurement-dependent result:\n{qir}"
+        );
+    }
+}
+
+#[test]
 fn nested_runtime_guards_compile_on_adaptive_profiles() {
     let source = indoc::indoc! {r#"
         namespace Test {
