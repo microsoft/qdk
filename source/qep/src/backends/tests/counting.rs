@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::super::compile_qsharp_to_qir;
 use crate::CountingBackend;
+use crate::tests::compile_qsharp_to_qir;
 use qsc::target::Profile;
 
 #[tokio::test]

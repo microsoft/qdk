@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::super::compile_qsharp_to_qir;
+use crate::tests::compile_qsharp_to_qir;
 use crate::{OutputValue, SparseSimBackend, run_qir};
 use num_bigint::BigUint;
 use num_complex::Complex64;

@@ -3,6 +3,8 @@
 
 mod counting;
 mod sparse_sim;
+#[cfg(test)]
+mod tests;
 
 pub use counting::{CountingBackend, CountingBackendCounts};
 pub use sparse_sim::SparseSimBackend;

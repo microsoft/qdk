@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod backends;
-
 use qsc::{LanguageFeatures, SourceMap, codegen::qir::get_qir, target::Profile};
 use std::path::PathBuf;
 
-struct QirFile(PathBuf);
+pub(crate) struct QirFile(pub(crate) PathBuf);
 
 impl QirFile {
     /// Creates a unique path for a temporary QIR file.
@@ -34,7 +32,7 @@ impl Drop for QirFile {
 }
 
 /// Compiles Q# source to a temporary QIR file.
-fn compile_qsharp_to_qir(source: &str, profile: Profile) -> QirFile {
+pub(crate) fn compile_qsharp_to_qir(source: &str, profile: Profile) -> QirFile {
     let capabilities = profile.into();
     let (std_id, store) = qsc::compile::package_store_with_stdlib(capabilities);
     let qir = get_qir(
