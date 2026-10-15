@@ -1968,6 +1968,27 @@ fn array_slice_step_zero_expr() {
 }
 
 #[test]
+fn negative_array_indices_handle_minimum_integer() {
+    let span = PackageSpan {
+        package: qsc_hir::hir::PackageId::from(2usize),
+        span: Span { lo: 0, hi: 1 },
+    };
+    for length in [0, 1, 2] {
+        assert!(matches!(
+            crate::val::index_allowing_negative(length, i64::MIN, span),
+            Err(Error::IndexOutOfRange(index, error_span)) if index == i64::MIN && error_span == span
+        ));
+    }
+    for (index, expected) in [(-2, 0), (-1, 1)] {
+        assert_eq!(
+            crate::val::index_allowing_negative(2, index, span)
+                .expect("in-range negative index must succeed"),
+            expected
+        );
+    }
+}
+
+#[test]
 fn array_slice_out_of_range_expr() {
     check_expr(
         "",
