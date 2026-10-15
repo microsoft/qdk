@@ -27,7 +27,6 @@ use tokio::sync::mpsc::{Receiver, Sender};
 pub enum QirInstruction {
     ccx(usize, usize, usize), // control_qubit_id_1, control_qubit_id_2, target_qubit_id
     cx(usize, usize),         // control_qubit_id, target_qubit_id
-    cnot(usize, usize),       // control_qubit_id, target_qubit_id
     cy(usize, usize),         // control_qubit_id, target_qubit_id
     cz(usize, usize),         // control_qubit_id, target_qubit_id
     rx(f64, usize),           // angle, qubit_id
@@ -47,7 +46,6 @@ pub enum QirInstruction {
     z(usize),                 // qubit_id
     swap(usize, usize),       // qubit_id_1, qubit_id_2
     reset(usize),             // qubit_id
-    m(usize, usize),          // qubit_id, result_id
     mz(usize, usize),         // qubit_id, result_id
     mresetz(usize, usize),    // qubit_id, result_id
     read_result(usize),       // result_id

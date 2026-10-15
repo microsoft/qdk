@@ -252,7 +252,7 @@ impl QuantumBackend for SparseSimBackend {
         {
             let result = match instruction {
                 QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
-                QirInstruction::cx(a, b) | QirInstruction::cnot(a, b) => self.cx(a, b),
+                QirInstruction::cx(a, b) => self.cx(a, b),
                 QirInstruction::cy(a, b) => self.cy(a, b),
                 QirInstruction::cz(a, b) => self.cz(a, b),
                 QirInstruction::rx(angle, target) => self.rx(angle, target),
@@ -272,7 +272,7 @@ impl QuantumBackend for SparseSimBackend {
                 QirInstruction::z(target) => self.z(target),
                 QirInstruction::swap(a, b) => self.swap(a, b),
                 QirInstruction::reset(target) => self.reset(target),
-                QirInstruction::m(target, result) | QirInstruction::mz(target, result) => {
+                QirInstruction::mz(target, result) => {
                     self.mz(target, result)
                 }
                 QirInstruction::mresetz(target, result) => self.mresetz(target, result),

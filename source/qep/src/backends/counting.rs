@@ -57,7 +57,7 @@ impl QuantumBackend for CountingBackend {
         {
             match instruction {
                 QirInstruction::ccx(..) => self.counts.ccx += 1,
-                QirInstruction::cx(..) | QirInstruction::cnot(..) => self.counts.cx += 1,
+                QirInstruction::cx(..) => self.counts.cx += 1,
                 QirInstruction::cy(..) => self.counts.cy += 1,
                 QirInstruction::cz(..) => self.counts.cz += 1,
                 QirInstruction::rx(..) => self.counts.rx += 1,
@@ -77,7 +77,7 @@ impl QuantumBackend for CountingBackend {
                 QirInstruction::z(..) => self.counts.z += 1,
                 QirInstruction::swap(..) => self.counts.swap += 1,
                 QirInstruction::reset(..) => self.counts.reset += 1,
-                QirInstruction::m(..) | QirInstruction::mz(..) => {
+                QirInstruction::mz(..) => {
                     self.counts.mz += 1;
                     self.counts.measurements += 1;
                 }
