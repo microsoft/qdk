@@ -37,6 +37,239 @@ pub(super) fn conditional_hof_argument_cases() -> impl Iterator<Item = (String, 
     })
 }
 
+/// Nested closures carry producer-local IDs in capture lists rather than `Var`
+/// children. Distinct producer values and a caller sentinel expose captures
+/// incorrectly resolved in the caller's scope.
+pub(super) fn nested_environment_capture_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        (
+            "let first=x->x+n; let second=x->2*x+n; let fs=[first,second]; \
+             x->fs[0](x)+fs[1](x)",
+            "sentinel+Make(3)(2)",
+            112,
+        ),
+        (
+            "let inner=x->x+n; let value=new Wrapper { F=inner,N=n+1 }; \
+             x->value.F(x)+value.N",
+            "let f=Make(3); let g=Make(7); sentinel+100*f(2)+g(4)",
+            1019,
+        ),
+        (
+            "let inner=x->x+n; let pair=(inner,n+1); \
+             x->{ let (f,m)=pair; f(x)+m }",
+            "sentinel+Make(3)(2)",
+            109,
+        ),
+        (
+            "let first=x->x+1; let second=x->2*x; let fs=[first,second]; \
+             x->fs[0](x)+fs[1](x)",
+            "sentinel+Make(3)(2)",
+            107,
+        ),
+    ]
+    .into_iter()
+    .map(|(body, entry, expected)| {
+        let source = formatdoc! {r#"
+            struct Wrapper {{ F : Int -> Int, N : Int }}
+            function Make(n : Int) : Int -> Int {{ {body} }}
+            @EntryPoint() operation Main() : Int {{
+                let sentinel=100;
+                {entry}
+            }}
+        "#};
+        (source, expected)
+    })
+}
+
+/// `Make` remains live for `data.N` after `first.F` is specialized. Reconstructing
+/// first's capture must freshen every structural node, not reuse the producer's
+/// expression IDs. Each initializer is 7, so the expected result is `(3 + 7) + 2`.
+/// Shared by semantic and QIR tests.
+pub(super) fn surviving_producer_capture_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        "7",                    // Literal: even a childless capture needs its own ID.
+        "3+4",                  // Binary expression: copy both operands, not just the root.
+        "[7][0]",               // Array/index nodes; also exercises fallible-capture handling.
+        "{7}",                  // Block: copy its statement and trailing expression.
+        "if true {7} else {8}", // Conditional: children include the guard and both arms.
+        "{let unused=8;7}",     // Block-local declaration: copy its pattern and initializer too.
+    ]
+    .into_iter()
+    .map(|initializer| {
+        let source = formatdoc! {r#"
+            struct Payload {{ F : Int -> Int, N : Int }}
+            function Make(n : Int) : Payload {{
+                let offset={initializer};
+                new Payload {{ F=x->x+offset, N=n }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                let first=Make(1);
+                let data=Make(2);
+                first.F(3)+data.N
+            }}
+        "#};
+        (source, 12)
+    })
+}
+
+/// Operation-valued counterpart of [`surviving_producer_capture_cases`].
+///
+/// Calling `first.F` through each functor form must preserve its zero-angle capture
+/// while `data.N` retains a separate factory result. The expected result is 7.
+/// Empty controls test argument nesting, not active-control behavior.
+pub(super) fn surviving_producer_functor_cases() -> impl Iterator<Item = String> {
+    [
+        "",
+        "Adjoint",
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+    ]
+    .into_iter()
+    .map(|functor| {
+        // Each Controlled layer wraps the entire previous input as (controls, input).
+        let args = match functor.matches("Controlled").count() {
+            0 => "q",
+            1 => "[], q",
+            _ => "[], ([], q)",
+        };
+        formatdoc! {r#"
+                struct Payload {{ F : Qubit => Unit is Adj + Ctl, N : Int }}
+                function Make(n : Int) : Payload {{ new Payload {{ F=Ry(0.0,_), N=n }} }}
+                @EntryPoint() operation Main() : Int {{
+                    use q=Qubit();
+                    let first=Make(1);
+                    let data=Make(7);
+                    {functor} first.F({args});
+                    Reset(q);
+                    data.N
+                }}
+            "#}
+    })
+}
+
+/// The direct closure captures 1; the indirect result captures 3. Each container
+/// computes `100 * 1 + 6`, whether the factory is called through a local, through
+/// Relay, or as an argument to Invoke. The reassigned factory must remain callable.
+pub(super) fn indirect_factory_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        ("", "Int -> Int", "x->x+n", "direct(0)", "deferred(3)"),
+        (
+            "",
+            "(Int -> Int, Int)",
+            "(x->x+n,n)",
+            "{ let (f,_) = direct; f(0) }",
+            "{ let (f,n) = deferred; f(n) }",
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }",
+            "Box",
+            "new Box { F=x->x+n, N=n }",
+            "direct.F(0)",
+            "deferred.F(deferred.N)",
+        ),
+        (
+            "",
+            "(Int -> Int)[]",
+            "[x->x+n]",
+            "direct[0](0)",
+            "deferred[0](3)",
+        ),
+    ]
+    .into_iter()
+    .flat_map(|(types, ty, value, direct, read)| {
+        [
+            ("Make", "factory(3)"),
+            ("Relay", "factory(3)"),
+            ("Make", "Invoke(factory,3)"),
+        ]
+        .map(|(factory, call)| {
+            let source = formatdoc! {r#"
+                    {types}
+                    function Make(n : Int) : {ty} {{ {value} }}
+                    function Relay(n : Int) : {ty} {{ Make(n) }}
+                    function Invoke(factory : Int -> ({ty}), n : Int) : {ty} {{ factory(n) }}
+                    @EntryPoint() operation Main() : Int {{
+                        let direct=Make(1);
+                        mutable factory={factory};
+                        for i in 0..0 {{ set factory={factory}; }}
+                        let deferred={call};
+                        100*{direct}+{read}
+                    }}
+                "#};
+            (source, 106)
+        })
+    })
+}
+
+/// The factory closure captures offset 2 and returns Make's closure with capture
+/// `3 + 2`. The direct closure keeps capture 1, giving `100 * 1 + (3 + 5) = 108`.
+pub(super) const CAPTURING_INDIRECT_FACTORY: &str = r#"
+    function Make(n : Int) : Int -> Int { x->x+n }
+    @EntryPoint() operation Main() : Int {
+        let direct=Make(1);
+        let offset=2;
+        let build=n->Make(n+offset);
+        mutable factory=build;
+        for i in 0..0 { set factory=build; }
+        let deferred=factory(3);
+        100*direct(0)+deferred(3)
+    }
+"#;
+
+/// Passing Consumer to Apply lets specialization consume its callable argument,
+/// but Consumer still calls a factory through Relay or Forward. Protecting the
+/// specialized owner is insufficient unless its transitive producers also survive.
+/// Each container retains capture 3 and returns `100 * 1 + (3 + 3) = 106`.
+pub(super) fn protected_owner_producer_cases() -> impl Iterator<Item = (String, i64)> {
+    [
+        ("", "Int -> Int", "x->x+n", "direct(0)", "value(n)"),
+        (
+            "",
+            "(Int -> Int, Int)",
+            "(x->x+n,n)",
+            "{ let (f,_) = direct; f(0) }",
+            "{ let (f,m) = value; f(m) }",
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }",
+            "Box",
+            "new Box { F=x->x+n, N=n }",
+            "direct.F(0)",
+            "value.F(value.N)",
+        ),
+        (
+            "",
+            "(Int -> Int)[]",
+            "[x->x+n]",
+            "direct[0](0)",
+            "value[0](n)",
+        ),
+    ]
+    .into_iter()
+    .flat_map(|(types, ty, value, direct, read)| {
+        ["Relay(n)", "Forward(n)"].map(|producer| {
+            let source = formatdoc! {r#"
+                {types}
+                function Make(n : Int) : {ty} {{ {value} }}
+                function Relay(n : Int) : {ty} {{ Make(n) }}
+                function Forward(n : Int) : {ty} {{ Relay(n) }}
+                function Consumer(n : Int) : Int {{
+                    mutable value=Make(0);
+                    for i in 0..0 {{ set value={producer}; }}
+                    {read}
+                }}
+                function Apply(f : Int -> Int, n : Int) : Int {{ f(n) }}
+                @EntryPoint() operation Main() : Int {{
+                    let direct=Make(1);
+                    100*{direct}+Apply(Consumer,3)
+                }}
+            "#};
+            (source, 106)
+        })
+    })
+}
+
 pub(super) fn recursive_capture_cases() -> impl Iterator<Item = (String, i64)> {
     [
         ("Repeat(x->x+offset,3)", 34),

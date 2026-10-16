@@ -1970,3 +1970,83 @@ fn factory_returned_partial_application_passes_full_pipeline() {
     validate(store.get(pkg_id), &store);
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
+
+/// Both measurement-selected factory results share a lifted target but capture
+/// different bits. Pin the branch arguments to 0 and 1, then execute both
+/// deterministic measurement outcomes before and after transformation.
+#[test]
+fn branch_dispatched_factories_keep_direct_lambda_calls_with_capture_arguments() {
+    for initial_one in [false, true] {
+        let source = format!(
+            r#"
+            namespace Test {{
+                operation ApplyBit(bit : Int, q : Qubit) : Unit {{
+                    if bit == 1 {{
+                        X(q);
+                    }}
+                }}
+
+                function MakeBit(bit : Int) : Qubit => Unit {{
+                    ApplyBit(bit, _)
+                }}
+
+                @EntryPoint()
+                operation Main() : Result {{
+                    use qubits = Qubit[2];
+                    if {initial_one} {{ X(qubits[0]); }}
+                    let flag = M(qubits[0]);
+                    let op = if flag == One {{ MakeBit(1) }} else {{ MakeBit(0) }};
+                    op(qubits[1]);
+                    let result = MResetZ(qubits[1]);
+                    Reset(qubits[0]);
+                    result
+                }}
+            }}
+        "#
+        );
+
+        let expected = Value::Result(qsc_eval::val::Result::Val(initial_one));
+        let (mut store, pkg_id, _) = compile_and_lower(&source);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected.clone()));
+        run_pipeline_successfully(&mut store, pkg_id);
+        validate(store.get(pkg_id), &store);
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected));
+
+        let package = store.get(pkg_id);
+        // Defunctionalization replaces each selected closure with a direct call
+        // to its lifted lambda, passing the captured bit before the original qubit.
+        // Inspect both branches here; a single execution above takes only one.
+        let mut captured_bits: Vec<_> = package
+            .exprs
+            .values()
+            .filter_map(|expr| {
+                let ExprKind::Call(callee_id, args_id) = expr.kind else {
+                    return None;
+                };
+                if !expr_targets_callable(package, pkg_id, callee_id, ".lambda") {
+                    return None;
+                }
+                let args = package.get_expr(args_id);
+                assert_eq!(args.ty.to_string(), "(Int, Qubit)");
+                let ExprKind::Tuple(elements) = &args.kind else {
+                    panic!("lambda arguments must be an explicit capture/qubit tuple");
+                };
+                assert_eq!(elements.len(), 2);
+                let ExprKind::Lit(qsc_fir::fir::Lit::Int(bit)) = package.get_expr(elements[0]).kind
+                else {
+                    panic!("each branch must pass its literal captured bit");
+                };
+                Some(bit)
+            })
+            .collect();
+        // Arena order is irrelevant. Require exactly one call with each capture,
+        // catching a dropped branch, duplicate call, or reused capture value.
+        captured_bits.sort_unstable();
+        assert_eq!(
+            captured_bits,
+            [0, 1],
+            "both branch arms must call the shared lambda with their own captured bit"
+        );
+    }
+}

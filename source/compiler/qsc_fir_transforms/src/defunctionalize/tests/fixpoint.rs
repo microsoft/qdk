@@ -1268,11 +1268,8 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
 
 /// A closure callable-array forwarded across two higher-order levels and fully
 /// consumed by the innermost indexed dispatch leaves the source-array local
-/// dead in the reachable caller. Because closure cleanup blanks each element to
-/// unit, retaining the array would leave its element blocks arrow-typed with unit
-/// tails that trip the `PostDefunc` non-unit block-tail invariant. The dead
-/// binding must be removed; this runs the invariant walk and full pipeline over
-/// the same shape as
+/// dead in the reachable caller. The dead binding must be removed; this runs
+/// the invariant walk and full pipeline over the same shape as
 /// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
 #[test]
 fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
@@ -1316,13 +1313,11 @@ fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
     check_pipeline(source);
 }
 
-/// Regression test for producer-body closure cleanup: a producer function
-/// that returns a partial-application closure causes convergence failure
-/// when the closure node survives in the producer body after HOF
-/// specialization. The closure cleanup pass must replace consumed closures
-/// with Unit so that `remaining_callable_value_info` no longer counts them.
+/// Specialization removes `MakeOp`'s only call. Its remaining closure must neither
+/// block convergence nor be rewritten unnecessarily; item DCE can remove the
+/// unreachable producer later.
 #[test]
-fn producer_body_closure_cleanup_converges() {
+fn orphaned_closure_producer_is_preserved_without_blocking_convergence() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
@@ -1381,7 +1376,7 @@ fn producer_body_closure_cleanup_converges() {
             function MakeOp(extra : Bool) : (Qubit => Unit) {
                 return {
                     let arg : Bool = extra;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
