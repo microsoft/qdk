@@ -270,11 +270,15 @@ impl Scheme {
         &self.params
     }
 
-    /// Instantiates this type scheme with the given arguments.
+    /// Substitutes positional generic arguments into this scheme's callable type.
+    ///
+    /// Like [`instantiate_ty`], this does not validate class or functor bounds or require
+    /// concrete arguments. Constraint checking is the caller's responsibility.
     ///
     /// # Errors
     ///
-    /// Returns an error if the given arguments do not match the scheme parameters.
+    /// Returns an error if the number of arguments differs from the number of parameters,
+    /// or if an argument has the wrong kind at a substituted parameter occurrence.
     pub fn instantiate(&self, args: &[GenericArg]) -> Result<Arrow, InstantiationError> {
         if args.len() == self.params.len() {
             let args: FxHashMap<_, _> = self
@@ -291,18 +295,28 @@ impl Scheme {
     }
 }
 
-/// A type scheme instantiation error.
+/// An error substituting generic arguments.
 #[derive(Debug)]
 pub enum InstantiationError {
     /// The number of generic arguments does not match the number of generic parameters.
     Arity,
     /// A generic argument does not match the kind of its corresponding generic parameter.
     Kind(ParamId),
-    /// An in invalid type bound was provided.
+    /// An invalid type bound was provided.
+    /// Neither [`Scheme::instantiate`] nor [`instantiate_ty`] currently returns this variant.
     Bound(ParamId),
 }
 
-fn instantiate_ty<'a>(
+/// Substitutes generic arguments in a type, preserving parameters absent from the mapping.
+/// Replacement arguments are shallow clones, not recursively substituted; arrow types
+/// inside them may share mutable cells with the supplied arguments.
+/// This performs substitution only, not class or functor constraint validation, and does
+/// not guarantee a concrete result. Use the frontend's `validate_instantiation` for that.
+///
+/// # Errors
+///
+/// Returns an error when a supplied argument has the wrong kind.
+pub fn instantiate_ty<'a>(
     arg: impl Fn(&ParamId) -> Option<&'a GenericArg> + Copy,
     ty: &Ty,
 ) -> Result<Ty, InstantiationError> {
@@ -373,9 +387,9 @@ pub enum TypeParameter {
         name: Rc<str>,
         bounds: ClassConstraints,
     },
-    /// A functor parameter with a minimal set (lower bound) of functors.
-    /// if `'T is Adj` then `functor ('T)` is the minimal set of functors.
-    /// This can currently only occur on lambda expressions.
+    /// A functor parameter with a required minimum set of functors.
+    /// Synthesized for operation-typed callable inputs so arguments may support additional
+    /// functors. This applies to named callables as well as lambdas.
     Functor(FunctorSetValue),
 }
 
