@@ -3,11 +3,180 @@
 
 use super::*;
 use crate::test_utils::{
+    assert_pipeline_succeeded, check_semantic_equivalence, check_semantic_equivalence_with_library,
+    compile_to_fir_with_library, compile_to_fir_with_two_libraries,
     compile_to_monomorphized_fir as compile_and_monomorphize,
-    compile_to_monomorphized_fir_with_entry as compile_entry_and_monomorphize,
+    compile_to_monomorphized_fir_with_entry as compile_entry_and_monomorphize, find_callable,
+    find_library_callable, try_eval_fir_entry,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
+
+/// Substitution in a cloned lambda must discover Id's concrete arguments even
+/// though the lambda item itself may declare no generics. Repeated references
+/// share a specialization, while unreachable generic definitions stay untouched.
+#[test]
+fn mono_generic_dependencies_in_cloned_lambdas() {
+    for (case, body) in [
+        ("direct", "let f = y -> Id(y); f(x)"),
+        ("captured", "let f = () -> Id(x); f()"),
+        ("nested", "let f = y -> { let g = z -> Id(z); g(y) }; f(x)"),
+        ("repeated", "let f = y -> Id(y); let _ = f(x); f(x)"),
+    ] {
+        let source = format!(
+            "function Id<'T>(x : 'T) : 'T {{ x }}
+             function Unused<'T>(x : 'T) : 'T {{ x }}
+             function Outer<'T>(x : 'T) : 'T {{ {body} }}
+             operation Main() : Int {{
+                 let _ = Outer(2.0);
+                 Outer(7)
+             }}"
+        );
+        let (store, package_id) = compile_and_monomorphize(&source);
+        assert_unique_reachable_specializations(
+            &store,
+            package_id,
+            package_id,
+            &["Id<Int>", "Id<Double>"],
+        );
+        assert_eq!(
+            find_callable(store.get(package_id), "Unused")
+                .generics
+                .len(),
+            1,
+            "{case}: unreachable generic must remain unchanged"
+        );
+        check_semantic_equivalence(&source);
+    }
+}
+
+/// Covers both a user lambda calling a library generic and a library-owned
+/// generic containing the lambda. Specializations must stay with Id's definition.
+#[test]
+fn mono_cloned_lambda_dependencies_keep_foreign_specializations_in_their_owner() {
+    let identity_library = indoc! {"
+        namespace Lib {
+            function Id<'T>(x : 'T) : 'T { x }
+            export Id;
+        }
+    "};
+    for (library, user, expected) in [
+        (
+            identity_library,
+            "function Outer<'T>(x : 'T) : 'T {
+                 let f = () -> { let g = () -> Lib.Id(x); g() };
+                 let _ = f();
+                 f()
+             }
+             operation Main() : Int { let _ = Outer(2.0); Outer(7) }",
+            &["Id<Int>", "Id<Double>"][..],
+        ),
+        (
+            identity_library,
+            "function Outer<'T>(x : 'T) : 'T { let f = y -> Lib.Id(y); f(x) }
+             operation Main() : Int { Outer(7) }",
+            &["Id<Int>"][..],
+        ),
+        (
+            "namespace Lib {
+                function Id<'T>(x : 'T) : 'T { x }
+                function Outer<'T>(x : 'T) : 'T { let f = y -> Id(y); f(x) }
+                export Outer;
+             }",
+            "operation Main() : Int { Lib.Outer(7) }",
+            &["Id<Int>"][..],
+        ),
+    ] {
+        let (mut store, package_id) = compile_to_fir_with_library(library, user);
+        let owner_id = find_library_callable(&store, package_id, "Id").package;
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        monomorphize(&mut store, package_id, &mut assigners);
+        assert_unique_reachable_specializations(&store, package_id, owner_id, expected);
+        check_semantic_equivalence_with_library(library, user);
+    }
+}
+
+/// The cloned closures live in `LibA`, but their generic dependency belongs to `LibB`.
+/// Both concrete argument types must be discovered across that boundary, including
+/// the repeated call through the same captured lambda.
+#[test]
+fn mono_cloned_lambda_dependencies_cross_library_boundaries() {
+    let (mut store, package_id) = compile_to_fir_with_two_libraries(
+        r#"namespace LibB {
+            function Id<'T>(x : 'T) : 'T { x }
+            export Id;
+        }"#,
+        r#"namespace LibA {
+            function Outer<'T>(x : 'T) : 'T {
+                let f = () -> {
+                    let g = () -> LibB.Id(x);
+                    g()
+                };
+                let _ = f();
+                f()
+            }
+            export Outer;
+        }"#,
+        "operation Main() : Int { let _ = LibA.Outer(2.0); LibA.Outer(7) }",
+    );
+    let owner_id = find_library_callable(&store, package_id, "Id").package;
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    monomorphize(&mut store, package_id, &mut assigners);
+    assert_unique_reachable_specializations(
+        &store,
+        package_id,
+        owner_id,
+        &["Id<Int>", "Id<Double>"],
+    );
+
+    let result = crate::run_pipeline_with_diagnostics(&mut store, package_id);
+    assert_pipeline_succeeded("cross-library lambda dependencies", &result);
+    assert_eq!(
+        try_eval_fir_entry(&store, package_id),
+        Ok(qsc_eval::val::Value::Int(7))
+    );
+}
+
+/// Checks uniqueness across the whole store, not just the reachable items, so
+/// an unused duplicate or a clone in the wrong package cannot escape the assertion.
+fn assert_unique_reachable_specializations(
+    store: &PackageStore,
+    entry_package: PackageId,
+    owner: PackageId,
+    names: &[&str],
+) {
+    let reachable = collect_reachable_from_entry(store, entry_package);
+    for &name in names {
+        let specializations: Vec<_> = store
+            .iter()
+            .flat_map(|(package_id, package)| {
+                package.items.iter().filter_map(move |(item_id, item)| {
+                    matches!(&item.kind,
+                        ItemKind::Callable(decl) if decl.name.name.as_ref() == name)
+                    .then_some(StoreItemId::from((package_id, item_id)))
+                })
+            })
+            .collect();
+        assert_eq!(specializations.len(), 1, "{name} must be specialized once");
+        assert_eq!(
+            specializations[0].package, owner,
+            "{name} must stay in its declaring package"
+        );
+        assert!(
+            reachable.contains(&specializations[0]),
+            "{name} must be reachable"
+        );
+    }
+    for item in &reachable {
+        if let ItemKind::Callable(decl) = &store.get(item.package).get_item(item.item).kind {
+            assert!(
+                decl.generics.is_empty(),
+                "{} must not remain generic when reachable",
+                decl.name.name
+            );
+        }
+    }
+}
 
 /// Compiles Q# source, runs monomorphization, and snapshots all callables
 /// in the user package showing name, generic-param count, input type, and
