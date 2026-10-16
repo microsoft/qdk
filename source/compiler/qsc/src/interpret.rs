@@ -9,6 +9,8 @@ mod debug;
 #[cfg(test)]
 mod debugger_tests;
 #[cfg(test)]
+mod interop_complex_tests;
+#[cfg(test)]
 mod package_tests;
 #[cfg(test)]
 mod tests;
