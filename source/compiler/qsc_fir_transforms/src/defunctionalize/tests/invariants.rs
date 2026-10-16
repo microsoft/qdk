@@ -1913,6 +1913,7 @@ fn deferrable_residue_preserves_local_binding_type_checks() {
         &mut result,
         &mut assigners,
         &mut exemptions,
+        &[],
     ));
     assert!(result.errors.is_empty());
     assert!(!crate::run_arg_promote_stages(
@@ -1928,7 +1929,6 @@ fn deferrable_residue_preserves_local_binding_type_checks() {
             &mut store,
             package_id,
             crate::PipelineStage::Full,
-            &mut result,
             &[],
             &exemptions,
         );

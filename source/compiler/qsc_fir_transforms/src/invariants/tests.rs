@@ -22,8 +22,96 @@ use crate::test_utils::{
     compile_and_run_pipeline_to_with_library, find_callable_body_block,
 };
 
-use qsc_fir::fir::{CallableKind, LocalVarId};
+use qsc_fir::fir::{CallableKind, ExprKind, LocalVarId};
 use qsc_fir::ty::{Arrow, FunctorSetValue, Prim};
+
+#[test]
+fn post_udt_erasure_rejects_restored_source_constructor_call() {
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() function Main() : Int { Data(23)::Value }
+    "#;
+    let (mut store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let package = store.get(package_id);
+    let (id, constructor) = package
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| {
+            let ExprKind::Call(callee, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+                return None;
+            };
+            matches!(
+                store.get(item.package).get_item(item.item).kind,
+                ItemKind::Ty(..)
+            )
+            .then(|| (id, expr.kind.clone()))
+        })
+        .expect("Q# input contains a scalar constructor call");
+    // Restore the call at its live projection; the original call node can become orphaned.
+    let projection = package
+        .exprs
+        .iter()
+        .find_map(|(field_id, expr)| {
+            matches!(expr.kind, ExprKind::Field(record, _) if record == id).then_some(field_id)
+        })
+        .expect("source projects the constructor result");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, package_id);
+    crate::udt_erase::erase_udts(&mut store, package_id, &mut assigners);
+    check(&store, package_id, InvariantLevel::PostUdtErase);
+    store
+        .get_mut(package_id)
+        .exprs
+        .get_mut(projection)
+        .expect("source expression remains")
+        .kind = constructor;
+    assert_panics_with("calls a UDT constructor", || {
+        check(&store, package_id, InvariantLevel::PostUdtErase);
+    });
+}
+
+#[test]
+fn post_udt_erasure_rejects_restored_constructor_values() {
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() operation Main() : Int {
+            mutable choice = 0;
+            let factories = [Data, Data];
+            let data = factories[choice]({ choice = 1; 23 });
+            data::Value
+        }
+    "#;
+    let (mut store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let (id, reference) = store
+        .get(package_id)
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| {
+            let ExprKind::Var(Res::Item(item), _) = expr.kind else {
+                return None;
+            };
+            matches!(
+                store.get(item.package).get_item(item.item).kind,
+                ItemKind::Ty(..)
+            )
+            .then(|| (id, expr.kind.clone()))
+        })
+        .expect("Q# input contains a constructor value");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, package_id);
+    crate::udt_erase::erase_udts(&mut store, package_id, &mut assigners);
+    check(&store, package_id, InvariantLevel::PostUdtErase);
+    store
+        .get_mut(package_id)
+        .exprs
+        .get_mut(id)
+        .expect("reference remains")
+        .kind = reference;
+    assert_panics_with("references a UDT constructor", || {
+        check(&store, package_id, InvariantLevel::PostUdtErase);
+    });
+}
 
 /// Simple Q# source with a local variable binding.
 const SIMPLE_LOCAL_VAR: &str = r#"

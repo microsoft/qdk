@@ -387,7 +387,7 @@ fn check_package_udt_erase_invariants_in_reachable_items(
     target_package_id: qsc_fir::fir::PackageId,
 ) {
     let check_node = |pkg: &Package, node: CallableNode| match node {
-        CallableNode::Expr(id) => check_expr_udt_erase_invariants(pkg, id),
+        CallableNode::Expr(id) => check_expr_udt_erase_invariants(store, pkg, id),
         CallableNode::Pat(id) => {
             check_type_udt_erase_invariants(&pkg.get_pat(id).ty, &format!("Pat {id}"));
         }
@@ -489,15 +489,32 @@ fn check_id_references_in_reachable_items(
 }
 
 /// Validates that a single expression satisfies post-UDT-erasure invariants:
-/// no `Ty::Udt` in its type, no `ExprKind::Struct`, no `Field::Path` in
-/// `UpdateField`/`AssignField`, and `Field::Path` only on tuple-typed records.
+/// no UDT type, struct construction, or UDT constructor reference; no
+/// `Field::Path` in updates; and field projections only on tuple-typed records.
 ///
 /// # Panics
 ///
 /// Panics with a descriptive message if any UDT-erasure invariant is violated.
-fn check_expr_udt_erase_invariants(package: &Package, expr_id: ExprId) {
+fn check_expr_udt_erase_invariants(store: &PackageStore, package: &Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id);
     check_type_udt_erase_invariants(&expr.ty, &format!("Expr {expr_id}"));
+
+    let (reference, action) = match expr.kind {
+        ExprKind::Call(callee, _) => (package.get_expr(callee), "calls"),
+        _ => (expr, "references"),
+    };
+    if let ExprKind::Var(Res::Item(item), _) = reference.kind {
+        // Rolled-back incremental declarations retain their name-binding error;
+        // only an existing type item proves a residual constructor.
+        assert!(
+            !store
+                .get(item.package)
+                .items
+                .get(item.item)
+                .is_some_and(|item| matches!(item.kind, ItemKind::Ty(..))),
+            "PostUdtErase invariant violation: Expr {expr_id} {action} a UDT constructor"
+        );
+    }
 
     if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
         panic!(
@@ -1765,35 +1782,8 @@ fn check_expr_type(
         );
     }
 
-    // After UDT erasure, all Struct expressions must have been lowered.
     if enforces_stage(level, StageCheck::UdtErase) {
-        if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 ExprKind::Struct after UDT erasure"
-            );
-        }
-
-        // Field::Path references UDT field paths that must be lowered by udt_erase.
-        if let ExprKind::UpdateField(_, Field::Path(_), _)
-        | ExprKind::AssignField(_, Field::Path(_), _) = &expr.kind
-        {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 Field::Path in UpdateField/AssignField after UDT erasure"
-            );
-        }
-
-        // After UDT erasure, every Field::Path target must be a Tuple.
-        if let ExprKind::Field(record_id, Field::Path(_)) = &expr.kind {
-            let record = package.get_expr(*record_id);
-            assert!(
-                matches!(&record.ty, Ty::Tuple(_)),
-                "PostUdtErase invariant violation: Expr {expr_id} has Field::Path \
-                 on non-tuple record Expr {record_id} (type: {:?})",
-                record.ty,
-            );
-        }
+        check_expr_udt_erase_invariants(store, package, expr_id);
     }
 
     // After tuple comparison lowering, no BinOp(Eq/Neq) on non-empty tuple operands.

@@ -835,6 +835,26 @@ fn unsupported_profile_patterns_return_pass_errors() {
 }
 
 #[test]
+fn struct_copy_preserves_source_before_mutating_replacement_in_base_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct Data { First : Int, Second : Int }
+            @EntryPoint()
+            operation Main() : Unit {
+                mutable original = new Data { First = 7, Second = 2 };
+                let copied = new Data {
+                    ...original,
+                    First = { set original = new Data { First = 13, Second = 5 }; 6 }
+                };
+                if copied.Second != 2 { fail "wrong copy snapshot"; }
+            }
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
+}
+
+#[test]
 fn qir_generation_succeeds_for_struct_copy_update() {
     let source = r#"
         namespace Test {

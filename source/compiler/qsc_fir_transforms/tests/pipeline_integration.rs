@@ -735,6 +735,35 @@ fn run_pipeline_to_missing_pinned_item_reports_diagnostic_before_exec_rebuild() 
 }
 
 #[test]
+fn missing_pin_is_rejected_before_udt_erasure() {
+    let (mut store, pkg_id, pinned) = store_with_removed_pinned_callable();
+    let result =
+        run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::UdtErase, &[pinned]);
+    assert!(
+        matches!(result.errors.as_slice(), [PipelineError::MissingPinnedItem(item)] if *item == pinned),
+        "expected MissingPinnedItem before erasure, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+}
+
+#[test]
+fn missing_pin_package_is_rejected_before_seed_traversal() {
+    let (mut store, pkg_id) = compile_to_fir("@EntryPoint() operation Main() : Int { 42 }");
+    let pinned = StoreItemId::from((
+        qsc_fir::fir::PackageId::from(99_usize),
+        qsc_fir::fir::LocalItemId::from(0_usize),
+    ));
+    let result =
+        run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::UdtErase, &[pinned]);
+    assert!(
+        matches!(result.errors.as_slice(), [PipelineError::MissingPinnedItem(item)] if *item == pinned),
+        "expected MissingPinnedItem rather than a traversal panic, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+    assert_eq!(result.errors[0].owner(), pinned.package);
+}
+
+#[test]
 fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
     let (mut store, pkg_id) = compile_to_fir(
         r#"
@@ -779,6 +808,49 @@ fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
         format_pipeline_errors(&result.errors)
     );
     assert_eq!(result.errors[0].owner(), pinned_store_id.package);
+}
+
+#[test]
+fn foreign_pinned_udt_is_erased_before_dce_and_exec_graph_rebuild() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Payload { Value : Int }
+
+            operation Pinned() : Int {
+                let payload = new Payload { Value = 42 };
+                payload.Value
+            }
+        }
+    "#;
+    let user_source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {}
+        }
+    "#;
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let pinned_store_id = store
+        .iter()
+        .find_map(|(package_id, package)| {
+            if package_id == pkg_id {
+                return None;
+            }
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Pinned")
+                    .then_some(StoreItemId::from((package_id, item_id)))
+            })
+        })
+        .expect("foreign Pinned callable should exist");
+
+    let result = run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::Full,
+        &[pinned_store_id],
+    );
+
+    assert_no_pipeline_errors("foreign pinned UDT pipeline", &result.errors);
+    validate(store.get(pinned_store_id.package), &store);
 }
 
 #[test]

@@ -137,7 +137,7 @@ pub(super) fn struct_copy_snapshot_cases() -> impl Iterator<Item = (String, i64)
         ("...original, A={set original w/= C <- 99;4}", 411),
         ("...original, C={set original w/= A <- 99;8}", 418),
         ("...Original(1), C={set n=8;n}, A=n", 818),
-        ("...Original({set n+=1;n}), C=n, B=n, A=n", 111),
+        ("...Original({set n+=1;n}), C=n+2, B=n+1, A=n", 123),
     ]
     .into_iter()
     .flat_map(|(fields, expected)| {
