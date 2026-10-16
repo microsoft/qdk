@@ -17,10 +17,179 @@ use thiserror::Error;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PackageSpan, PatId, StoreExprId, StoreItemId, UnOp,
+    ExprId, ExprKind, Functor, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId,
+    PackageLookup, PackageSpan, PackageStore, PatId, Res, StoreExprId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
+use std::rc::Rc;
+
+/// Pre-mutation type definitions, qualified by the package that owns each UDT.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct UdtMetadata {
+    pure_tys: FxHashMap<StoreItemId, Ty>,
+}
+
+impl UdtMetadata {
+    pub(super) fn new(store: &PackageStore) -> Self {
+        let mut pure_tys = FxHashMap::default();
+        for (package_id, package) in store {
+            for (item_id, item) in &package.items {
+                if let ItemKind::Ty(_, udt) = &item.kind {
+                    pure_tys.insert((package_id, item_id).into(), udt.get_pure_ty());
+                }
+            }
+        }
+        Self { pure_tys }
+    }
+
+    pub(super) fn pure_ty(&self, item: ItemId) -> Option<&Ty> {
+        self.pure_tys.get(&(item.package, item.item).into())
+    }
+
+    /// Opens outer wrappers without erasing the nominal identity of children.
+    pub(super) fn underlying_ty<'a>(&'a self, mut ty: &'a Ty) -> &'a Ty {
+        while let Ty::Udt(Res::Item(item)) = ty {
+            let Some(pure) = self.pure_ty(*item) else {
+                break;
+            };
+            ty = pure;
+        }
+        ty
+    }
+
+    /// Produces a structural view without changing the stored FIR types.
+    /// The frontend rejects cyclic UDT definitions.
+    pub(super) fn resolve(&self, ty: &Ty) -> Ty {
+        match ty {
+            Ty::Udt(Res::Item(item)) => self
+                .pure_ty(*item)
+                .map_or_else(|| ty.clone(), |pure| self.resolve(pure)),
+            Ty::Tuple(items) => Ty::Tuple(items.iter().map(|item| self.resolve(item)).collect()),
+            Ty::Array(item) => Ty::Array(Box::new(self.resolve(item))),
+            Ty::Arrow(arrow) => {
+                let mut arrow = arrow.clone();
+                arrow.input = Box::new(self.resolve(&arrow.input));
+                arrow.output = Box::new(self.resolve(&arrow.output));
+                Ty::Arrow(arrow)
+            }
+            _ => ty.clone(),
+        }
+    }
+
+    pub(super) fn contains_arrow(&self, ty: &Ty) -> bool {
+        match self.underlying_ty(ty) {
+            Ty::Arrow(_) | Ty::Udt(_) => true,
+            Ty::Array(item) => self.contains_arrow(item),
+            Ty::Tuple(items) => items.iter().any(|item| self.contains_arrow(item)),
+            Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Err => false,
+        }
+    }
+}
+
+/// A batch in original input coordinates. Only removal of an immediate child
+/// collapses its parent; original Unit fields are data, not consumed slots.
+#[derive(Clone, Debug)]
+pub(super) enum InputRemoval {
+    Keep,
+    Remove,
+    Tuple { children: Vec<Self>, collapse: bool },
+}
+
+impl InputRemoval {
+    pub(super) fn new(udts: &UdtMetadata, ty: &Ty, paths: &[&[usize]]) -> Option<Self> {
+        if paths.iter().any(|path| path.is_empty()) {
+            return Some(Self::Remove);
+        }
+        if paths.is_empty() {
+            return Some(Self::Keep);
+        }
+        let Ty::Tuple(fields) = udts.underlying_ty(ty) else {
+            return None;
+        };
+        if paths.iter().any(|path| path[0] >= fields.len()) {
+            return None;
+        }
+        let children: Vec<_> = fields
+            .iter()
+            .enumerate()
+            .map(|(index, field)| {
+                let paths: Vec<_> = paths
+                    .iter()
+                    .filter_map(|path| (path[0] == index).then_some(&path[1..]))
+                    .collect();
+                Self::new(udts, field, &paths)
+            })
+            .collect::<Option<_>>()?;
+        let removed = children.iter().filter(|child| child.is_removed()).count();
+        Some(Self::Tuple {
+            children,
+            collapse: removed > 0 && fields.len() - removed == 1,
+        })
+    }
+
+    pub(super) fn is_removed(&self) -> bool {
+        matches!(self, Self::Remove)
+    }
+
+    pub(super) fn consumes_original(&self) -> bool {
+        match self {
+            Self::Keep => false,
+            Self::Remove => true,
+            Self::Tuple { children, .. } => {
+                !children.is_empty() && children.iter().all(Self::consumes_original)
+            }
+        }
+    }
+
+    /// Preserves untouched nominal children. The type must be the original type
+    /// against which this layout was constructed.
+    pub(super) fn reduced_ty(&self, udts: &UdtMetadata, ty: &Ty) -> Ty {
+        match self {
+            Self::Keep => ty.clone(),
+            Self::Remove => Ty::UNIT,
+            Self::Tuple { children, collapse } => {
+                let Ty::Tuple(fields) = udts.underlying_ty(ty) else {
+                    unreachable!("validated removal layout requires its original tuple type");
+                };
+                let mut remaining: Vec<_> = children
+                    .iter()
+                    .zip(fields)
+                    .filter(|(child, _)| !child.is_removed())
+                    .map(|(child, field)| child.reduced_ty(udts, field))
+                    .collect();
+                if *collapse {
+                    remaining.remove(0)
+                } else {
+                    Ty::Tuple(remaining)
+                }
+            }
+        }
+    }
+
+    pub(super) fn rebase(&self, path: &[usize]) -> Option<Vec<usize>> {
+        match self {
+            Self::Keep => Some(path.to_vec()),
+            Self::Remove => None,
+            Self::Tuple { children, collapse } => {
+                let Some((&index, tail)) = path.split_first() else {
+                    return Some(Vec::new());
+                };
+                let suffix = children.get(index)?.rebase(tail)?;
+                let mut rebased = Vec::new();
+                if !collapse {
+                    rebased.push(
+                        children[..index]
+                            .iter()
+                            .filter(|child| !child.is_removed())
+                            .count(),
+                    );
+                }
+                rebased.extend(suffix);
+                Some(rebased)
+            }
+        }
+    }
+}
 
 /// A callable parameter detected in a higher-order function declaration.
 #[derive(Clone, Debug)]
@@ -478,6 +647,8 @@ pub(super) fn guards_form_complete_tree<'a>(
 pub struct SpecKey {
     /// The HOF being specialized.
     pub hof_id: StoreItemId,
+    /// Original input positions, aligned with the concrete callable arguments.
+    pub param_positions: Vec<(usize, Vec<usize>)>,
     /// Hashable representations of the concrete callable arguments.
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
@@ -514,6 +685,8 @@ pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>
 /// Output of the analysis phase.
 #[derive(Clone, Debug, Default)]
 pub struct AnalysisResult {
+    /// Shared snapshot rebuilt at each analysis boundary, before specialization.
+    pub(crate) udt_metadata: Rc<UdtMetadata>,
     /// Callable parameters with arrow types found in HOF declarations.
     pub callable_params: Vec<CallableParam>,
     /// HOF argument candidates, including dynamic placeholders for diagnostics.

@@ -27,8 +27,8 @@
 use super::rewrite::{ConsumptionSite, EvaluationDisposition, consumed_callable_expr_disposition};
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CalleeLattice, CaptureScope, CaptureSubstitution,
-    CapturedVar, ConcreteCallable, DirectCallSite, LatticeStates, ScopedLocal, compose_functors,
-    peel_body_functors,
+    CapturedVar, ConcreteCallable, DirectCallSite, LatticeStates, ScopedLocal, UdtMetadata,
+    compose_functors, peel_body_functors,
 };
 use crate::fir_builder::functored_specs;
 use crate::walk_utils::{
@@ -59,16 +59,21 @@ use std::rc::Rc;
 /// its caller-scope value when reconstructing branch dispatch.
 #[derive(Clone, Default)]
 pub(super) struct LocalState {
+    udt_metadata: Rc<UdtMetadata>,
     owner: CaptureScope,
     clone_items: Rc<FxHashSet<StoreItemId>>,
     callable: FxHashMap<LocalVarId, CalleeLattice>,
     /// A single reaching source for recovering indexed dispatch. Divergent
     /// sources at control-flow joins must not select either branch's index.
     callable_sources: FxHashMap<LocalVarId, ExprId>,
+    /// Whole initializers of projected bindings, for invalidation only.
+    /// Dispatch still follows the binding's field path, not this aggregate.
+    projected_sources: FxHashMap<LocalVarId, ExprId>,
     /// Occurrence-local values already evaluated before later call operands.
     evaluated_callables: FxHashMap<ExprId, CalleeLattice>,
     /// Reaching source paired with each occurrence-local callable value.
     evaluated_callable_sources: FxHashMap<ExprId, ExprId>,
+    evaluated_selections: FxHashMap<ExprId, bool>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
     /// Producer bodies currently being traced, including through local bindings.
@@ -123,13 +128,15 @@ pub(super) fn analyze(
     previous_direct_call_sites: &[DirectCallSite],
     total_foreign: &FxHashSet<ItemId>,
 ) -> AnalysisResult {
-    let hof_params = find_callable_params(store, reachable);
+    let udt_metadata = Rc::new(UdtMetadata::new(store));
+    let hof_params = find_callable_params(store, reachable, &udt_metadata);
     let CollectedCallSites {
         call_sites,
         direct_call_sites,
         unresolved_direct_call_sites,
         lattice_states,
     } = collect_call_sites(
+        &udt_metadata,
         store,
         package_id,
         reachable,
@@ -140,6 +147,7 @@ pub(super) fn analyze(
         total_foreign,
     );
     AnalysisResult {
+        udt_metadata,
         callable_params: hof_params.into_values().flatten().collect(),
         call_sites,
         direct_call_sites,
@@ -154,6 +162,7 @@ pub(super) fn analyze(
 fn find_callable_params(
     store: &PackageStore,
     reachable: &FxHashSet<StoreItemId>,
+    udt_metadata: &UdtMetadata,
 ) -> FxHashMap<StoreItemId, Vec<CallableParam>> {
     let mut result: FxHashMap<StoreItemId, Vec<CallableParam>> = FxHashMap::default();
 
@@ -173,7 +182,7 @@ fn find_callable_params(
             if matches!(decl.implementation, CallableImpl::Intrinsic) {
                 continue;
             }
-            let params = extract_arrow_params(store, pkg, store_id, decl.input);
+            let params = extract_arrow_params(udt_metadata, pkg, store_id, decl.input);
             if !params.is_empty() {
                 result.insert(store_id, params);
             }
@@ -185,7 +194,7 @@ fn find_callable_params(
 
 /// Extracts arrow-typed parameters from a callable's input pattern.
 fn extract_arrow_params(
-    store: &PackageStore,
+    udt_metadata: &UdtMetadata,
     pkg: &Package,
     callable_id: StoreItemId,
     input_pat_id: qsc_fir::fir::PatId,
@@ -201,7 +210,7 @@ fn extract_arrow_params(
                 if let PatKind::Bind(ident) = &sub_pat.kind {
                     let mut field_path = Vec::new();
                     let context = ArrowParamExtraction {
-                        store,
+                        udt_metadata,
                         callable_id,
                         param_pat_id: sub_pat_id,
                         param_var: ident.id,
@@ -220,7 +229,7 @@ fn extract_arrow_params(
         PatKind::Bind(ident) => {
             let mut field_path = Vec::new();
             let context = ArrowParamExtraction {
-                store,
+                udt_metadata,
                 callable_id,
                 param_pat_id: input_pat_id,
                 param_var: ident.id,
@@ -237,7 +246,7 @@ fn extract_arrow_params(
 
 /// Carries the invariant metadata needed while extracting callable parameters.
 struct ArrowParamExtraction<'a> {
-    store: &'a PackageStore,
+    udt_metadata: &'a UdtMetadata,
     callable_id: StoreItemId,
     param_pat_id: PatId,
     param_var: LocalVarId,
@@ -287,12 +296,10 @@ fn extract_arrow_params_from_ty(
             ));
         }
         Ty::Udt(Res::Item(item_id)) => {
-            let package = context.store.get(item_id.package);
-            let item = package.get_item(item_id.item);
-            let ItemKind::Ty(_, udt) = &item.kind else {
+            let Some(pure) = context.udt_metadata.pure_ty(*item_id) else {
                 return;
             };
-            extract_arrow_params_from_ty(context, &udt.get_pure_ty(), field_path, params);
+            extract_arrow_params_from_ty(context, pure, field_path, params);
         }
         _ => {}
     }
@@ -339,6 +346,7 @@ struct CollectedCallSites {
 /// and previously rewritten lifted-lambda callees.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn collect_call_sites(
+    udt_metadata: &Rc<UdtMetadata>,
     store: &PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
@@ -354,6 +362,7 @@ fn collect_call_sites(
     let mut unresolved_direct_call_sites = Vec::new();
     let mut lattice_states: LatticeStates = FxHashMap::default();
     let clone_items = Rc::new(specialized_items.clone());
+    let foreign_collapsed_spans = FxHashMap::default();
 
     for &store_id in reachable {
         let body_pkg_id = store_id.package;
@@ -371,12 +380,17 @@ fn collect_call_sites(
                 call_sites: &mut call_sites,
                 direct_call_sites: &mut direct_call_sites,
                 unresolved_direct_call_sites: &mut unresolved_direct_call_sites,
-                collapsed_spans,
+                collapsed_spans: if body_pkg_id == package_id {
+                    collapsed_spans
+                } else {
+                    &foreign_collapsed_spans
+                },
                 previous_direct_call_sites,
                 record_direct_calls,
                 total_foreign,
             };
             let locals = build_callable_flow_state(
+                Rc::clone(udt_metadata),
                 body_pkg,
                 store,
                 &decl.implementation,
@@ -411,12 +425,15 @@ fn collect_call_sites(
 
     if let Some(entry_expr_id) = package.entry {
         let mut locals = LocalState {
+            udt_metadata: Rc::clone(udt_metadata),
             owner: CaptureScope::Entry,
             clone_items,
             callable: FxHashMap::default(),
             callable_sources: FxHashMap::default(),
+            projected_sources: FxHashMap::default(),
             evaluated_callables: FxHashMap::default(),
             evaluated_callable_sources: FxHashMap::default(),
+            evaluated_selections: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
             active_returns: Rc::default(),
@@ -736,11 +753,9 @@ fn is_preserved_direct_lifted_lambda_call(
 /// capability analysis and partial evaluation.
 ///
 /// Specializing a call site deletes the callable argument expression from the
-/// call. The argument-removal family that performs that deletion —
-/// `remove_element_at_path`, `rewrite_args_remove_tuple_element`,
-/// `rewrite_single_arg_root`, `remove_top_level_field_from_expr_data`, and the
-/// branch-dispatch argument builders — carries no purity guard of its own, so
-/// an argument whose evaluation is observable would be dropped silently. The
+/// call. The shared argument builder and branch-dispatch builders rely on
+/// this admission check when removing callable slots. Otherwise an argument
+/// whose evaluation is observable could be dropped silently. The
 /// disposition decision in [`super::rewrite::consumed_callable_expr_disposition`]
 /// is therefore applied here, once, before the call site is accepted: an
 /// argument classified [`EvaluationDisposition::Retained`] is declined to
@@ -1367,6 +1382,7 @@ fn resolve_callee_at_path(
                 store,
                 locals,
                 args_expr_id,
+                &[],
                 depth + 1,
                 allow_scoped_capture_exprs,
                 scoped_capture_vars,
@@ -1421,6 +1437,7 @@ fn resolve_callee_at_path(
                 store,
                 locals,
                 field_value_id,
+                &[],
                 depth + 1,
                 allow_scoped_capture_exprs,
                 scoped_capture_vars,
@@ -1479,7 +1496,7 @@ fn resolve_callee(
     scoped_capture_vars: &FxHashSet<LocalVarId>,
     package_id: PackageId,
 ) -> CalleeLattice {
-    if depth > MAX_RESOLVE_DEPTH {
+    if depth > MAX_RESOLVE_DEPTH || !selection_can_be_replayed(locals, expr_id) {
         return CalleeLattice::Dynamic;
     }
 
@@ -1599,6 +1616,7 @@ fn resolve_callee(
                 store,
                 locals,
                 *array_expr_id,
+                &[],
                 depth + 1,
                 allow_scoped_capture_exprs,
                 scoped_capture_vars,
@@ -1675,20 +1693,7 @@ fn resolve_callee(
         }
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
-            let mut block_state = LocalState {
-                owner: locals.owner,
-                clone_items: Rc::clone(&locals.clone_items),
-                callable: locals.callable.clone(),
-                callable_sources: locals.callable_sources.clone(),
-                evaluated_callables: locals.evaluated_callables.clone(),
-                evaluated_callable_sources: locals.evaluated_callable_sources.clone(),
-                exprs: locals.exprs.clone(),
-                condition_substitutions: locals.condition_substitutions.clone(),
-                active_returns: Rc::clone(&locals.active_returns),
-                visible_bindings: locals.visible_bindings.clone(),
-                mutable_bindings: locals.mutable_bindings.clone(),
-                closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
-            };
+            let mut block_state = locals.clone();
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
             let block_scoped_vars = if allow_scoped_capture_exprs {
                 let mut vars = scoped_capture_vars.clone();
@@ -1748,7 +1753,10 @@ fn resolve_callee(
     };
 
     // Compose the outer functor with the base's functor.
-    apply_outer_functor_lattice(base_resolved, outer_functor)
+    without_stale_guards(
+        locals,
+        apply_outer_functor_lattice(base_resolved, outer_functor),
+    )
 }
 
 /// Resolves a callable nested at `path` inside an aggregate expression.
@@ -1803,7 +1811,7 @@ fn resolve_callee_projection(
     scoped_capture_vars: &FxHashSet<LocalVarId>,
     package_id: PackageId,
 ) -> CalleeLattice {
-    if depth > MAX_RESOLVE_DEPTH {
+    if depth > MAX_RESOLVE_DEPTH || !selection_can_be_replayed(locals, expr_id) {
         return CalleeLattice::Dynamic;
     }
 
@@ -1822,6 +1830,25 @@ fn resolve_callee_projection(
 
     let expr = pkg.get_expr(expr_id);
     match &expr.kind {
+        ExprKind::Index(array, _) => resolve_indexed_callable_candidates(
+            pkg,
+            store,
+            locals,
+            *array,
+            path,
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        )
+        .map_or(CalleeLattice::Dynamic, |candidates| {
+            CalleeLattice::Multi(
+                candidates
+                    .into_iter()
+                    .map(|callable| (callable, vec![]))
+                    .collect(),
+            )
+        }),
         ExprKind::Tuple(elements) => {
             let Some((&field_index, rest)) = path.split_first() else {
                 return CalleeLattice::Dynamic;
@@ -1842,6 +1869,9 @@ fn resolve_callee_projection(
             )
         }
         ExprKind::Var(Res::Local(var), _) => {
+            if matches!(locals.callable.get(var), Some(CalleeLattice::Dynamic)) {
+                return CalleeLattice::Dynamic;
+            }
             if let Some(&init_expr_id) = locals.exprs.get(var) {
                 resolve_callee_projection(
                     pkg,
@@ -1873,20 +1903,8 @@ fn resolve_callee_projection(
         }
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
-            let mut block_state = LocalState {
-                owner: locals.owner,
-                clone_items: Rc::clone(&locals.clone_items),
-                callable: locals.callable.clone(),
-                callable_sources: locals.callable_sources.clone(),
-                evaluated_callables: FxHashMap::default(),
-                evaluated_callable_sources: FxHashMap::default(),
-                exprs: locals.exprs.clone(),
-                condition_substitutions: locals.condition_substitutions.clone(),
-                active_returns: Rc::clone(&locals.active_returns),
-                visible_bindings: locals.visible_bindings.clone(),
-                mutable_bindings: locals.mutable_bindings.clone(),
-                closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
-            };
+            // Keep reads observed before later initializer operands wrote locals.
+            let mut block_state = locals.clone();
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
             let block_scoped_vars = if allow_scoped_capture_exprs {
                 let mut vars = scoped_capture_vars.clone();
@@ -1953,7 +1971,10 @@ fn resolve_callee_projection(
             } else {
                 CalleeLattice::Dynamic
             };
-            true_res.join_with_condition(false_res, remap_condition_expr(pkg, locals, *cond))
+            without_stale_guards(
+                locals,
+                true_res.join_with_condition(false_res, remap_condition_expr(pkg, locals, *cond)),
+            )
         }
         ExprKind::Call(callee_expr_id, args_expr_id) => {
             let callee_lattice = resolve_callee(
@@ -2150,9 +2171,14 @@ fn resolve_callable_return(
     if !output_path_resolves_to_arrow(store, &decl.output, output_path) {
         return CalleeLattice::Dynamic;
     }
-    if extract_arrow_params(store, callee_pkg, producer, decl.input)
-        .iter()
-        .any(|param| !param.field_path.is_empty() && matches!(param.param_ty, Ty::Array(_)))
+    if extract_arrow_params(
+        &caller_locals.udt_metadata,
+        callee_pkg,
+        producer,
+        decl.input,
+    )
+    .iter()
+    .any(|param| !param.field_path.is_empty() && matches!(param.param_ty, Ty::Array(_)))
     {
         return CalleeLattice::Dynamic;
     }
@@ -2168,6 +2194,7 @@ fn resolve_callable_return(
     };
 
     let mut state = LocalState {
+        udt_metadata: Rc::clone(&caller_locals.udt_metadata),
         owner: if caller_locals
             .clone_items
             .contains(&StoreItemId::from((item_id.package, item_id.item)))
@@ -2179,8 +2206,10 @@ fn resolve_callable_return(
         clone_items: Rc::clone(&caller_locals.clone_items),
         callable: FxHashMap::default(),
         callable_sources: FxHashMap::default(),
+        projected_sources: FxHashMap::default(),
         evaluated_callables: FxHashMap::default(),
         evaluated_callable_sources: FxHashMap::default(),
+        evaluated_selections: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         active_returns: {
@@ -2249,6 +2278,10 @@ fn resolve_callable_return(
         scoped_capture_vars,
         callee_pkg_id,
     );
+    if resolved_return.has_unguarded_alternatives() {
+        // A producer-local index is not a discriminator in its caller.
+        return CalleeLattice::Dynamic;
+    }
     let result = materialize_capture_exprs_from_state(
         callee_pkg,
         &state,
@@ -2260,9 +2293,12 @@ fn resolve_callable_return(
     if callee_pkg_id == package_id {
         if matches!(&result, CalleeLattice::Multi(entries)
             if entries.iter().flat_map(|(_, guards)| guards).any(|&guard|
-                !expr_is_safe_to_discard(pkg, package_id, guard)))
+                !expr_is_safe_to_discard(pkg, package_id, guard)
+                    || expr_reads_mutable_local(pkg, guard, &[], &caller_locals.mutable_bindings)
+                    || !expr_is_in_scope(pkg, guard, &caller_locals.visible_bindings)))
         {
-            // Dispatch must not replay effectful arguments to the producer.
+            // A pure mutable read is not a snapshot of the producer's argument.
+            // Block-local guards also cannot escape to the later invocation.
             return CalleeLattice::Dynamic;
         }
         if return_guards_reference_producer_locals(
@@ -3200,7 +3236,7 @@ fn resolve_struct_field(
     path: &FieldPath,
     depth: usize,
 ) -> Option<ExprId> {
-    if depth > MAX_RESOLVE_DEPTH {
+    if depth > MAX_RESOLVE_DEPTH || !selection_can_be_replayed(locals, inner_expr_id) {
         return None;
     }
     let inner_expr = pkg.get_expr(inner_expr_id);
@@ -3228,6 +3264,9 @@ fn resolve_struct_field(
             resolve_struct_field(pkg, store, locals, *args_id, path, depth + 1)
         }
         ExprKind::Var(Res::Local(var), _) => {
+            if matches!(locals.callable.get(var), Some(CalleeLattice::Dynamic)) {
+                return None;
+            }
             let &init_id = locals.exprs.get(var)?;
             resolve_struct_field(pkg, store, locals, init_id, path, depth + 1)
         }
@@ -3284,6 +3323,7 @@ fn resolve_indexed_callable_candidates(
     store: &PackageStore,
     locals: &LocalState,
     array_expr_id: ExprId,
+    path: &[usize],
     depth: usize,
     allow_scoped_capture_exprs: bool,
     scoped_capture_vars: &FxHashSet<LocalVarId>,
@@ -3298,11 +3338,12 @@ fn resolve_indexed_callable_candidates(
                 pkg.get_expr(elem_expr_id).kind,
                 ExprKind::Block(_) | ExprKind::If(_, _, _)
             );
-        let resolved = resolve_callee(
+        let resolved = resolve_callee_projection(
             pkg,
             store,
             locals,
             elem_expr_id,
+            path,
             depth + 1,
             elem_allow_scoped_capture_exprs,
             scoped_capture_vars,
@@ -3446,7 +3487,7 @@ fn resolve_static_int_expr(
             resolve_static_int_expr(pkg, locals, *inner_expr_id, depth + 1)
         }
         ExprKind::UnOp(UnOp::Neg, inner_expr_id) => {
-            resolve_static_int_expr(pkg, locals, *inner_expr_id, depth + 1).map(std::ops::Neg::neg)
+            resolve_static_int_expr(pkg, locals, *inner_expr_id, depth + 1).map(i64::wrapping_neg)
         }
         _ => None,
     }
@@ -3483,7 +3524,7 @@ pub(super) fn resolve_captures(
                 (
                     Ty::Arrow(arrow),
                     Some(CalleeLattice::Single(ConcreteCallable::Global { item_id, functor })),
-                ) if !super::specialize::ty_contains_arrow_through_udts(pkg, &arrow.input)
+                ) if !locals.udt_metadata.contains_arrow(&arrow.input)
                     && expr.is_none_or(|expr| expr_is_safe_to_discard(pkg, pkg.id, expr)) =>
                 {
                     Some((*item_id, *functor))
@@ -3696,6 +3737,7 @@ fn collect_binding_types_from_pat_into(
 /// struct field resolution and type look-ups.
 #[allow(clippy::too_many_arguments)]
 fn build_callable_flow_state(
+    udt_metadata: Rc<UdtMetadata>,
     pkg: &Package,
     store: &PackageStore,
     callable_impl: &CallableImpl,
@@ -3706,12 +3748,15 @@ fn build_callable_flow_state(
     recorder: Option<&mut CallRecorder>,
 ) -> LocalState {
     let mut state = LocalState {
+        udt_metadata,
         owner,
         clone_items,
         callable: FxHashMap::default(),
         callable_sources: FxHashMap::default(),
+        projected_sources: FxHashMap::default(),
         evaluated_callables: FxHashMap::default(),
         evaluated_callable_sources: FxHashMap::default(),
+        evaluated_selections: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         active_returns: Rc::default(),
@@ -3824,6 +3869,7 @@ fn analyze_stmt_flow(
 ) {
     match kind {
         StmtKind::Local(Mutability::Immutable, pat_id, init_expr_id) => {
+            analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);
             // Record ExprId bindings for all immutable locals.
             collect_bindings_from_pat(pkg, *pat_id, *init_expr_id, &mut state.exprs);
             // Record binding types so captured locals resolve against this
@@ -3838,12 +3884,11 @@ fn analyze_stmt_flow(
             );
             // For callable-typed bindings, resolve and store in lattice.
             bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
-            analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);
             collect_pat_local_bindings(pkg, *pat_id, &mut state.visible_bindings);
         }
         StmtKind::Local(Mutability::Mutable, pat_id, init_expr_id) => {
-            bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
             analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);
+            bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
             collect_pat_local_bindings(pkg, *pat_id, &mut state.visible_bindings);
             collect_pat_local_bindings(pkg, *pat_id, &mut state.mutable_bindings);
         }
@@ -3907,17 +3952,6 @@ fn bind_callable_pat(
                     for (&sub_pat_id, &elem_expr_id) in sub_pats.iter().zip(init_elems.iter()) {
                         bind_callable_pat(pkg, store, state, sub_pat_id, elem_expr_id, package_id);
                     }
-                } else if let ExprKind::Index(array_expr_id, _) = &resolved_init.kind {
-                    // Dynamic array index: resolve all array elements and extract
-                    // per-field callables for each arrow-typed sub-pattern.
-                    bind_callable_pats_from_indexed_array(
-                        pkg,
-                        store,
-                        state,
-                        sub_pats,
-                        *array_expr_id,
-                        package_id,
-                    );
                 } else {
                     let mut path = Vec::new();
                     bind_callable_pat_projections(
@@ -3963,13 +3997,26 @@ fn bind_callable_pat_projections(
                     &FxHashSet::default(),
                     package_id,
                 );
-                if !matches!(lattice, CalleeLattice::Bottom | CalleeLattice::Dynamic) {
+                if !matches!(lattice, CalleeLattice::Bottom | CalleeLattice::Dynamic)
+                    || state.callable.contains_key(&ident.id)
+                    || matches!(
+                        pkg.get_expr(resolve_through_vars(pkg, state, init_expr_id))
+                            .kind,
+                        ExprKind::Index(..)
+                    )
+                {
                     state.callable.insert(
                         ident.id,
                         local_callable_value(store, pkg, package_id, lattice),
                     );
-                    let source = reaching_callable_source(pkg, state, init_expr_id);
-                    state.callable_sources.insert(ident.id, source);
+                    if path.is_empty() {
+                        let source = reaching_callable_source(pkg, state, init_expr_id);
+                        state.callable_sources.insert(ident.id, source);
+                    } else {
+                        // The binding pattern retains the row projection needed by dispatch.
+                        state.callable_sources.remove(&ident.id);
+                        state.projected_sources.insert(ident.id, init_expr_id);
+                    }
                 }
             }
         }
@@ -4002,62 +4049,6 @@ fn resolve_through_vars(pkg: &Package, state: &LocalState, expr_id: ExprId) -> E
         return resolve_through_vars(pkg, state, init_id);
     }
     expr_id
-}
-
-/// Binds callable-typed sub-patterns from a tuple pattern where the init
-/// expression is `array[dynamic_index]`. Resolves all array elements,
-/// extracts the field at each sub-pattern position, and joins the resolved
-/// callables into a `CalleeLattice`.
-fn bind_callable_pats_from_indexed_array(
-    pkg: &Package,
-    store: &PackageStore,
-    state: &mut LocalState,
-    sub_pats: &[PatId],
-    array_expr_id: ExprId,
-    package_id: PackageId,
-) {
-    // Resolve the array to its element ExprIds.
-    let Some(array_elem_ids) = resolve_array_elements(pkg, store, state, array_expr_id, 0) else {
-        return; // Cannot resolve array — leave sub-patterns unbound (conservative).
-    };
-
-    for (field_idx, &sub_pat_id) in sub_pats.iter().enumerate() {
-        let sub_pat = pkg.get_pat(sub_pat_id);
-        let PatKind::Bind(ident) = &sub_pat.kind else {
-            continue; // Skip Discard and nested Tuple for now.
-        };
-        if !matches!(sub_pat.ty, Ty::Arrow(_)) {
-            continue; // Only bind arrow-typed locals.
-        }
-
-        // Collect the callable at field_idx from each array element tuple.
-        let mut lattice = CalleeLattice::Bottom;
-        for &elem_expr_id in &array_elem_ids {
-            let elem_expr = pkg.get_expr(elem_expr_id);
-            if let ExprKind::Tuple(fields) = &elem_expr.kind
-                && let Some(&field_expr_id) = fields.get(field_idx)
-            {
-                let field_lattice = resolve_callee(
-                    pkg,
-                    store,
-                    state,
-                    field_expr_id,
-                    0,
-                    true,
-                    &FxHashSet::default(),
-                    package_id,
-                );
-                lattice = lattice.join(field_lattice);
-            }
-        }
-
-        if !matches!(lattice, CalleeLattice::Bottom) {
-            state.callable.insert(
-                ident.id,
-                local_callable_value(store, pkg, package_id, lattice),
-            );
-        }
-    }
 }
 
 fn resolve_assignment_lhs(
@@ -4175,7 +4166,9 @@ fn analyze_expr_flow(
                 invalidate_replayed_expression_dependents(pkg, state, *written);
             }
             for (written, callable, source) in values {
+                state.projected_sources.remove(&written);
                 if let Some(callable) = callable {
+                    let callable = without_stale_guards(state, callable);
                     state.callable.insert(
                         written,
                         local_callable_value(store, pkg, package_id, callable),
@@ -4210,6 +4203,7 @@ fn analyze_expr_flow(
                 recorder.as_deref_mut(),
             );
             // Fork: save callable and reaching-source state before branches.
+            state.evaluated_selections.entry(*cond).or_insert(true);
             let pre_if = state.callable.clone();
             let pre_sources = state.callable_sources.clone();
             analyze_expr_flow(
@@ -4312,6 +4306,7 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            state.evaluated_selections.entry(*cond).or_insert(true);
             let written = assignment_written_local(pkg, expr);
             let guard_dependents = written
                 .map(|written| guard_dependent_callables(pkg, state, written))
@@ -4339,6 +4334,7 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            state.evaluated_selections.entry(*cond).or_insert(true);
             let written = assignment_written_local(pkg, expr);
             let guard_dependents = written
                 .map(|written| guard_dependent_callables(pkg, state, written))
@@ -4482,20 +4478,29 @@ fn analyze_expr_flow(
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 
-    if recorder.is_some() {
-        // Functor wrappers observe the same local read and must keep its value
-        // before later operands mutate it. Do not eagerly resolve producers.
-        let (base_id, functor) = peel_body_functors(pkg, expr_id);
-        if let ExprKind::Var(Res::Local(local), _) = pkg.get_expr(base_id).kind
-            && let Some(evaluated) = state.callable.get(&local)
-        {
-            state.evaluated_callables.insert(
-                expr_id,
-                apply_outer_functor_lattice(evaluated.clone(), functor),
-            );
-            if let Some(source) = state.callable_sources.get(&local) {
-                state.evaluated_callable_sources.insert(expr_id, *source);
-            }
+    // Retain evaluated reads in producer analysis too, without eagerly resolving calls.
+    let (base_id, functor) = peel_body_functors(pkg, expr_id);
+    if matches!(expr.kind, ExprKind::Index(..)) {
+        state.evaluated_selections.entry(expr_id).or_insert(true);
+    }
+    if let ExprKind::Var(Res::Local(local), _) = pkg.get_expr(base_id).kind
+        && let Some(evaluated) = state.callable.get(&local)
+    {
+        if !matches!(
+            evaluated,
+            CalleeLattice::Single(ConcreteCallable::Global { .. })
+        ) {
+            state.evaluated_selections.entry(expr_id).or_insert(true);
+        }
+        state
+            .evaluated_callables
+            .entry(expr_id)
+            .or_insert_with(|| apply_outer_functor_lattice(evaluated.clone(), functor));
+        if let Some(source) = state.callable_sources.get(&local) {
+            state
+                .evaluated_callable_sources
+                .entry(expr_id)
+                .or_insert(*source);
         }
     }
 
@@ -4742,24 +4747,104 @@ fn invalidate_callable_value_dependents(
     state: &mut LocalState,
     written: LocalVarId,
 ) {
-    for (callable_var, lattice) in &mut state.callable {
-        let initializer_depends = state
-            .callable_sources
-            .get(callable_var)
-            .or_else(|| state.exprs.get(callable_var))
-            .is_some_and(|&expr| expr_reads_local(pkg, expr, written));
-        let capture_depends = match lattice {
-            CalleeLattice::Single(callable) => {
-                concrete_callable_reads_local(pkg, callable, written)
+    let mut dependents = FxHashSet::from_iter([written]);
+    loop {
+        let before = dependents.len();
+        for (&var, &expr) in state
+            .exprs
+            .iter()
+            .chain(&state.callable_sources)
+            .chain(&state.projected_sources)
+        {
+            if state.udt_metadata.contains_arrow(&pkg.get_expr(expr).ty)
+                && dependents
+                    .iter()
+                    .any(|&local| initializer_replays_local(pkg, state, expr, local))
+            {
+                dependents.insert(var);
             }
-            CalleeLattice::Multi(entries) => entries
-                .iter()
-                .any(|(callable, _)| concrete_callable_reads_local(pkg, callable, written)),
-            CalleeLattice::Bottom | CalleeLattice::Dynamic => false,
-        };
-        if initializer_depends || capture_depends {
-            *lattice = CalleeLattice::Dynamic;
         }
+        for (&var, lattice) in &state.callable {
+            if dependents
+                .iter()
+                .any(|&local| callable_replays_local(pkg, state, lattice, local))
+            {
+                dependents.insert(var);
+            }
+        }
+        if dependents.len() == before {
+            break;
+        }
+    }
+    let invalidated: Vec<_> = state
+        .evaluated_selections
+        .keys()
+        .copied()
+        .filter(|&expr| {
+            dependents
+                .iter()
+                .any(|&local| initializer_replays_local(pkg, state, expr, local))
+        })
+        .collect();
+    for expr in invalidated {
+        state.evaluated_selections.insert(expr, false);
+    }
+    for var in dependents {
+        if state.exprs.contains_key(&var) || state.callable.contains_key(&var) {
+            state.callable.insert(var, CalleeLattice::Dynamic);
+        }
+    }
+}
+
+fn selection_can_be_replayed(state: &LocalState, expr: ExprId) -> bool {
+    state.evaluated_selections.get(&expr) != Some(&false)
+}
+
+fn without_stale_guards(state: &LocalState, lattice: CalleeLattice) -> CalleeLattice {
+    if matches!(&lattice, CalleeLattice::Multi(entries) if entries.iter().any(|(_, guards)|
+        guards.iter().any(|&guard| !selection_can_be_replayed(state, guard))))
+    {
+        CalleeLattice::Dynamic
+    } else {
+        lattice
+    }
+}
+
+fn initializer_replays_local(
+    pkg: &Package,
+    state: &LocalState,
+    expr_id: ExprId,
+    var: LocalVarId,
+) -> bool {
+    let mut found = false;
+    crate::walk_utils::for_each_expr(pkg, expr_id, &mut |id, expr| {
+        if matches!(expr.kind, ExprKind::Var(Res::Local(local), _) if local == var)
+            && !matches!(
+                state.evaluated_callables.get(&id),
+                Some(CalleeLattice::Single(ConcreteCallable::Global { .. }))
+            )
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+fn callable_replays_local(
+    pkg: &Package,
+    state: &LocalState,
+    lattice: &CalleeLattice,
+    local: LocalVarId,
+) -> bool {
+    match lattice {
+        CalleeLattice::Single(callable) => concrete_callable_reads_local(pkg, callable, local),
+        CalleeLattice::Multi(entries) => entries.iter().any(|(callable, guards)| {
+            concrete_callable_reads_local(pkg, callable, local)
+                || guards
+                    .iter()
+                    .any(|&guard| initializer_replays_local(pkg, state, guard, local))
+        }),
+        CalleeLattice::Bottom | CalleeLattice::Dynamic => false,
     }
 }
 

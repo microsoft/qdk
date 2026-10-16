@@ -12,6 +12,93 @@ use expect_test::expect;
 use std::fmt::Write;
 
 #[test]
+fn rejected_declared_layout_leaves_invocation_and_prefixes_unchanged() {
+    use crate::defunctionalize::{rewrite, specialize};
+    use qsc_fir::ty::{Prim, Ty};
+    use rustc_hash::FxHashSet;
+
+    for arguments in [
+        "Apply(x -> x + offset, { set marker += 1; marker })",
+        "ApplyTwo({ set marker += 10; marker }, x -> x + offset, Inc, { set marker += 1; marker })",
+        "ApplyTwo({ set marker += 10; marker }, if flag { Inc } else { Twice }, x -> x + offset, { set marker += 1; marker })",
+    ] {
+        let source = format!(
+            r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Twice(x : Int) : Int {{ 2 * x }}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            function ApplyTwo(before : Int, f : Int -> Int, g : Int -> Int, x : Int) : Int {{ before + f(g(x)) }}
+            function Run(offset : Int, flag : Bool) : Int {{
+                mutable marker = 3;
+                {arguments}
+            }}
+            @EntryPoint() operation Main() : Int {{ Run(4, true) }}
+        "#
+        );
+        let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+        let reachable = collect_reachable_from_entry(&store, package_id);
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        let (_, expressions) =
+            crate::defunctionalize::collect_reachable_scope(&store, package_id, &reachable);
+        let assigner = assigners.get_mut(&store, package_id);
+        let collapsed =
+            crate::defunctionalize::prepass::run(&mut store, package_id, &expressions, assigner);
+        crate::cond_normalize::normalize_callable_selections(store.get_mut(package_id), assigner);
+        let mut analysis = defunc_analysis::analyze(
+            &mut store,
+            package_id,
+            &reachable,
+            &FxHashSet::default(),
+            &collapsed,
+            &[],
+            &FxHashSet::default(),
+        );
+        analysis.direct_call_sites.clear();
+        let (specs, errors) = specialize::specialize(&mut store, &analysis, &mut assigners);
+        assert!(
+            errors
+                .iter()
+                .all(|error| matches!(error, crate::defunctionalize::Error::DynamicCallable(_))),
+            "{errors:?}"
+        );
+        assert!(!specs.is_empty(), "fixture must reach argument packing");
+        let declarations = specs
+            .values()
+            .map(|id| (*id, Ty::Prim(Prim::Bool)))
+            .collect();
+        for id in specs.values() {
+            let package = store.get_mut(id.package);
+            let ItemKind::Callable(decl) = &package.get_item(id.item).kind else {
+                panic!("specialization")
+            };
+            let input = decl.input;
+            package
+                .pats
+                .get_mut(input)
+                .expect("specialization input exists")
+                .ty = Ty::Prim(Prim::Bool);
+        }
+        let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+        let assigner = assigners.get_mut(&store, package_id);
+        rewrite::rewrite(
+            store.get_mut(package_id),
+            package_id,
+            &analysis,
+            &specs,
+            &FxHashSet::default(),
+            assigner,
+            &FxHashSet::default(),
+            &declarations,
+        );
+        let after = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+        assert_eq!(
+            after, before,
+            "rejected layout must not install any part of a rewrite:\n{source}"
+        );
+    }
+}
+
+#[test]
 fn program_without_hofs_converges_without_changes() {
     let source = r#"
         operation Main() : Unit {

@@ -49,7 +49,7 @@
 //!   its submodules expand `Ty::Udt` through the referenced type's definition
 //!   and keep descending, with no visited set — `ty_contains_arrow_through_udts`,
 //!   `analysis::extract_arrow_params_from_ty`, `analysis::output_path_resolves_to_arrow`,
-//!   and the `resolve_udt_ty` helpers. They terminate only because a
+//!   and `types::UdtMetadata::resolve`. They terminate only because a
 //!   user-defined type cannot reference itself. The Q# type checker enforces
 //!   this in `qsc_frontend::typeck::check`, rejecting any cyclic declaration
 //!   with `Qdk.Qsc.TypeCk.RecursiveUdt` before HIR passes run; the guarantee
@@ -97,7 +97,7 @@ use qsc_fir::ty::{Arrow, FunctorSet, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 use types::{
     AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey,
-    peel_body_functors,
+    UdtMetadata, peel_body_functors,
 };
 
 /// Replaces the innermost input slot beneath `controlled_layers` nested
@@ -267,7 +267,8 @@ pub(crate) fn defunctionalize(
                 expressions,
                 assigner,
             );
-            if normalized {
+            // The entry prepass already normalized captures; foreign bodies need it too.
+            if normalized || owner != package_id {
                 let (_, expressions) = collect_reachable_scope(store, owner, &reachable);
                 prepass::normalize_capture_operands(store.get_mut(owner), &expressions, assigner);
             }
@@ -520,6 +521,28 @@ fn rewrite_call_sites(
         }
     }
 
+    let mut targets: FxHashSet<_> = spec_map.values().copied().collect();
+    for site in &analysis.direct_call_sites {
+        match &site.callable {
+            ConcreteCallable::Global { item_id, .. } => {
+                targets.insert((item_id.package, item_id.item).into());
+            }
+            ConcreteCallable::Closure { target, .. } => {
+                targets.insert((site.call_pkg_id, *target).into());
+            }
+            ConcreteCallable::Dynamic => {}
+        }
+    }
+    let declared_inputs: FxHashMap<StoreItemId, Ty> = targets
+        .into_iter()
+        .filter_map(|id| {
+            let package = store.get(id.package);
+            let ItemKind::Callable(decl) = &package.get_item(id.item).kind else {
+                return None;
+            };
+            Some((id, package.get_pat(decl.input).ty.clone()))
+        })
+        .collect();
     for pkg_id in packages {
         let assigner = assigners.get_mut(store, pkg_id);
         let package = store.get_mut(pkg_id);
@@ -531,6 +554,7 @@ fn rewrite_call_sites(
             specialized_items,
             assigner,
             total_foreign,
+            &declared_inputs,
         );
     }
 }
@@ -1528,14 +1552,8 @@ fn remaining_callable_value_info(
                     // The existing branch-split infrastructure resolves these in
                     // a subsequent iteration, but only if the convergence check
                     // reports them as remaining.
-                    if let ExprKind::Call(callee_id, _) = &expr.kind {
-                        let (base_id, _) = peel_body_functors(package, *callee_id);
-                        let base_expr = package.get_expr(base_id);
-                        if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
-                            && ty_contains_arrow(&base_expr.ty)
-                        {
-                            record_remaining(store_id.package, base_expr.span.span);
-                        }
+                    if let Some(callee) = indirect_callee_id(package, expr) {
+                        record_remaining(store_id.package, package.get_expr(callee).span.span);
                     }
                 },
             );
@@ -1552,14 +1570,8 @@ fn remaining_callable_value_info(
                 record_remaining(package_id, expr.span.span);
             }
             // Same indirect-call check as callable body walker.
-            if let ExprKind::Call(callee_id, _) = &expr.kind {
-                let (base_id, _) = peel_body_functors(package, *callee_id);
-                let base_expr = package.get_expr(base_id);
-                if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
-                    && ty_contains_arrow(&base_expr.ty)
-                {
-                    record_remaining(package_id, base_expr.span.span);
-                }
+            if let Some(callee) = indirect_callee_id(package, expr) {
+                record_remaining(package_id, package.get_expr(callee).span.span);
             }
         });
     }
@@ -1620,16 +1632,20 @@ fn collect_residue_items(
 }
 
 fn expr_is_defunc_residue(package: &Package, expr: &Expr) -> bool {
-    if matches!(expr.kind, ExprKind::Closure(_, _)) {
-        return true;
-    }
-    if let ExprKind::Call(callee_id, _) = &expr.kind {
-        let (base_id, _) = peel_body_functors(package, *callee_id);
-        let base_expr = package.get_expr(base_id);
-        return matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
-            && ty_contains_arrow(&base_expr.ty);
-    }
-    false
+    matches!(expr.kind, ExprKind::Closure(_, _)) || indirect_callee_id(package, expr).is_some()
+}
+
+fn indirect_callee_id(package: &Package, expr: &Expr) -> Option<ExprId> {
+    let ExprKind::Call(callee, _) = expr.kind else {
+        return None;
+    };
+    let (base, _) = peel_body_functors(package, callee);
+    let callee = package.get_expr(base);
+    (!matches!(
+        callee.kind,
+        ExprKind::Var(Res::Item(_), _) | ExprKind::Closure(..)
+    ) && ty_contains_arrow(&callee.ty))
+    .then_some(base)
 }
 
 /// The per-package inputs the remaining-work count needs to decide whether a
@@ -1711,9 +1727,8 @@ pub(crate) fn ty_contains_arrow(ty: &Ty) -> bool {
 ///
 /// The defunctionalization fixpoint uses this for reachable callable inputs so a
 /// callable whose parameter is a UDT containing a callable field keeps the loop
-/// running until that nested callable field is specialized. The rewrite helpers
-/// still use `ty_contains_arrow`, where UDTs intentionally remain opaque.
-/// Arrays remain opaque here as well.
+/// running until that nested callable field is specialized. Unlike the
+/// metadata-backed layout queries, this fixpoint predicate keeps arrays opaque.
 ///
 /// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn ty_contains_arrow_through_udts(store: &PackageStore, ty: &Ty) -> bool {
@@ -1963,6 +1978,10 @@ fn build_combined_spec_key_with_occurrences(
         .collect();
     SpecKey {
         hof_id: StoreItemId::from((hof_id.package, hof_id.item)),
+        param_positions: members
+            .iter()
+            .map(|cs| (cs.top_level_param, cs.field_path.clone()))
+            .collect(),
         concrete_args,
     }
 }
@@ -2028,7 +2047,11 @@ pub(super) fn dispatched_precedes_detached_static(group: &[&CallSite]) -> bool {
 /// Outer controlled calls stay on the per-row path.
 ///
 /// `package` must own `group`'s shared call expression.
-pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bool {
+pub(super) fn is_combined_eligible(
+    udts: &UdtMetadata,
+    package: &Package,
+    group: &[&CallSite],
+) -> bool {
     if group.len() < 2 {
         return false;
     }
@@ -2043,8 +2066,8 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
     // ways. Static candidates for one array-of-arrow parameter are the one
     // exception: the array index lives inside the HOF body, so one clone needs
     // all candidates in order to synthesize the in-body dispatch.
-    let static_callable_array_group = is_static_callable_array_group(package, group)
-        || has_static_top_level_callable_array_position(package, group);
+    let static_callable_array_group = is_static_callable_array_group(udts, package, group)
+        || has_static_top_level_callable_array_position(udts, package, group);
     let mut param_positions: Vec<(usize, &[usize])> = group
         .iter()
         .map(|s| (s.top_level_param, s.field_path.as_slice()))
@@ -2093,7 +2116,7 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
             _ => return false,
         }
     }
-    let arrow_input = resolve_udt_ty(package, &arrow.input);
+    let arrow_input = udts.resolve(&arrow.input);
     for (slot, mut fields) in nested_fields {
         // For a multi-parameter HOF the arrow input is a tuple of parameters
         // and the tuple-valued parameter sits at `slot`; for a single
@@ -2132,7 +2155,11 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
 /// The members describe the elements of one forwarded callable array, so the
 /// group specializes to a single clone that dispatches on the array index
 /// inside the HOF body.
-fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> bool {
+fn is_static_callable_array_group(
+    udts: &UdtMetadata,
+    package: &Package,
+    group: &[&CallSite],
+) -> bool {
     // Take the first member as the reference position; an empty group is not an
     // array group.
     let Some(first) = group.first() else {
@@ -2164,7 +2191,7 @@ fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> boo
     // Descend to the container type at the top-level slot: for a tuple-input HOF
     // that is the element at `top_level_param`; otherwise the whole input is the
     // single parameter.
-    let arrow_input = resolve_udt_ty(package, &arrow.input);
+    let arrow_input = udts.resolve(&arrow.input);
     let container = if first.hof_input_is_tuple {
         match &arrow_input {
             Ty::Tuple(tys) => tys.get(first.top_level_param),
@@ -2240,6 +2267,7 @@ fn repeated_top_level_positions(group: &[&CallSite]) -> Vec<(usize, Vec<usize>)>
 ///
 /// `package` must own `group`'s shared call expression.
 pub(super) fn static_callable_array_positions(
+    udts: &UdtMetadata,
     package: &Package,
     group: &[&CallSite],
 ) -> Vec<(usize, Vec<usize>)> {
@@ -2255,7 +2283,7 @@ pub(super) fn static_callable_array_positions(
     let Ty::Arrow(ref arrow) = package.get_expr(callee_id).ty else {
         return Vec::new();
     };
-    let arrow_input = resolve_udt_ty(package, &arrow.input);
+    let arrow_input = udts.resolve(&arrow.input);
 
     // Filtering the already-sorted `positions` preserves the sort order, so the
     // result stays sorted like the pre-refactor implementation guaranteed.
@@ -2298,12 +2326,16 @@ pub(super) fn static_callable_array_positions(
 /// must stay on the per-row path. This preserves the pre-refactor behavior,
 /// where the `Array(Arrow)` type filter was applied only *after* the
 /// exactly-one-repeated-position check.
-fn has_static_top_level_callable_array_position(package: &Package, group: &[&CallSite]) -> bool {
+fn has_static_top_level_callable_array_position(
+    udts: &UdtMetadata,
+    package: &Package,
+    group: &[&CallSite],
+) -> bool {
     let repeated_positions = repeated_top_level_positions(group);
     let [position] = repeated_positions.as_slice() else {
         return false;
     };
-    if !static_callable_array_positions(package, group).contains(position) {
+    if !static_callable_array_positions(udts, package, group).contains(position) {
         return false;
     }
     if !position.1.is_empty()
@@ -2325,39 +2357,11 @@ fn has_static_top_level_callable_array_position(package: &Package, group: &[&Cal
 /// single member, so the specialization driver rejects it with a hard
 /// diagnostic instead.
 pub(super) fn has_multiple_forwarded_callable_arrays(
+    udts: &UdtMetadata,
     package: &Package,
     group: &[&CallSite],
 ) -> bool {
-    static_callable_array_positions(package, group).len() >= 2
-}
-
-/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
-fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
-    match ty {
-        Ty::Udt(Res::Item(item_id)) => {
-            let Some(item) = package.items.get(item_id.item) else {
-                return ty.clone();
-            };
-            let ItemKind::Ty(_, udt) = &item.kind else {
-                return ty.clone();
-            };
-            resolve_udt_ty(package, &udt.get_pure_ty())
-        }
-        Ty::Tuple(elems) => Ty::Tuple(
-            elems
-                .iter()
-                .map(|elem| resolve_udt_ty(package, elem))
-                .collect(),
-        ),
-        Ty::Array(elem) => Ty::Array(Box::new(resolve_udt_ty(package, elem))),
-        Ty::Arrow(arrow) => Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
-            kind: arrow.kind,
-            input: Box::new(resolve_udt_ty(package, &arrow.input)),
-            output: Box::new(resolve_udt_ty(package, &arrow.output)),
-            functors: arrow.functors,
-        })),
-        _ => ty.clone(),
-    }
+    static_callable_array_positions(udts, package, group).len() >= 2
 }
 
 /// Splits a per-row group that shares one call expression into the parameter
