@@ -112,6 +112,40 @@ fn dump_operation_is_codegen_noop_across_restricted_profiles() {
 }
 
 #[test]
+fn issue_3938_return_in_conditional_operand() {
+    let source = r#"
+        function Run(stop : Bool) : Int {
+            let v = stop ? 1 + (return 1) | 2;
+            v
+        }
+
+        @EntryPoint(Adaptive_RIF)
+        operation Main() : Int { Run(true) }
+    "#;
+
+    let _ = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+
+    let source = r#"
+        operation Run(stop : Bool, q : Qubit) : Int {
+            X(q);
+            let m = MResetZ(q) == One ? 1 | 0;
+            let v = stop ? 1 + (return 100 + m) | m + 1;
+            v * 10 + m
+        }
+
+        @EntryPoint(Adaptive_RIF)
+        operation Main() : (Int, Int) {
+            use q = Qubit();
+            (Run(true, q), Run(false, q))
+        }
+    "#;
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let _ = compile_source_to_qir(source, profile.into());
+    }
+}
+
+#[test]
 fn codegen_noop_intrinsic_preserves_effectful_arguments() {
     let source = r#"
         namespace Test {
