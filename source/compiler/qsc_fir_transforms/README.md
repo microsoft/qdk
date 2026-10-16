@@ -6,31 +6,70 @@ The production FIR-to-FIR rewrite pipeline. It runs after FIR lowering and befor
 
 - **It is one pipeline, not a toolbox of independent passes.** The passes are ordered and assume each other's output. Several intermediate states deliberately violate FIR invariants that later passes restore, so running a pass in isolation or reordering passes is generally unsound. Treat `run_pipeline_with_diagnostics` (and the staged `run_pipeline_to_with_diagnostics`) as the only supported way to invoke them.
 
-- **Rewrites are entry-reachability-driven.** Most passes inspect what is reachable from the package entry expression and only mutate that. UDT erasure is the main exception: it is still reachability-scoped but works at package granularity across the reachable package closure (target package plus any package with an entry-reachable callable; unreachable packages are left alone).
+- **Rewrites are reachability-driven.** Most passes start from the package entry expression. UDT erasure includes pinned roots and works at package granularity across that reachable closure. Argument promotion includes pinned bodies and dependencies in safety checks and caller rewrites, but preserves pinned root signatures.
 
-- **One `Assigner` is threaded through the whole pipeline.** Every pass that synthesizes FIR nodes allocates fresh IDs from a single shared `Assigner` so IDs never collide across stages. Do not construct a new `Assigner` mid-pipeline. The trailing metadata passes (`gc_unreachable`, `item_dce`, `exec_graph_rebuild`) don't get it because they only tombstone, delete, or rebuild derived data.
+- **One `PackageAssigners` pool is threaded through the pipeline.** Each package has its own ID space and reuses its own `Assigner` across passes. Allocate copied guards and other synthesized nodes with the owning package's assigner, not the entry package's. The trailing metadata passes only delete nodes or rebuild derived data.
 
 - **Synthesized nodes use the `EMPTY_EXEC_RANGE` sentinel.** New exprs/stmts carry an empty `exec_graph_range`; the final `exec_graph_rebuild` pass consumes that sentinel and recomputes the execution graph.
 
-- **Only consume output when there are no fatal diagnostics.** Fatal diagnostics (from `return_unify`, `defunctionalize`, or pinned-item validation) leave the store at an intermediate, invalid state. Warning-only diagnostics are preserved and do not block successful output.
+- **Only consume output when there are no fatal diagnostics.** A failed pipeline can leave the store at an intermediate, invalid state. Warning-only diagnostics are preserved and do not block successful output.
 
 ## Pass order
 
+The driver first validates intrinsics, collapses simulatable intrinsics, and clears orphaned nodes. The main rewrite schedule is:
+
 1. `monomorphize` — specialize reachable generic callables to concrete types.
 2. `return_unify` — rewrite bodies to single-exit form, removing `Return` nodes while preserving path-local side effects (e.g. qubit release).
-3. `defunctionalize` — eliminate callable-valued expressions/closures; rewrite call sites to direct dispatch.
-4. `udt_erase` — replace UDT values and struct expressions with tuple/scalar form across the reachable package closure.
-5. `tuple_compare_lower` — lower equality/inequality on non-empty tuples to element-wise scalar comparisons.
-6. `tuple_decompose` — decompose tuple-valued locals whose uses are all field accesses.
-7. `arg_promote` — flatten tuple-valued callable parameters and update call sites.
+3. `cond_normalize` — preserve selection-time conditions before callable analysis and dispatch rewriting.
+4. `defunctionalize` — specialize known callable choices and rewrite calls to direct dispatch. Unresolved alternatives remain dynamic rather than being discarded in favor of a known branch.
+5. `udt_erase` — replace UDT values and struct expressions with tuple/scalar form across the reachable package closure. Core Complex addition, subtraction, multiplication and unary signs lower to scalar component operations before nominal identity is lost.
+6. `tuple_compare_lower` — lower equality/inequality on non-empty tuples to element-wise scalar comparisons.
+7. `tuple_decompose` — decompose eligible tuple-valued locals into scalar fields.
+8. `arg_promote` — flatten tuple-valued callable parameters and update call sites.
 
-   Steps 6 and 7 iterate to a fixed point (convergence is guaranteed by a strictly-decreasing measure).
+   Steps 7 and 8 iterate to a fixed point (convergence is guaranteed by a strictly-decreasing measure).
 
-8. `gc_unreachable` — tombstone orphaned arena nodes.
-9. `item_dce` — remove unreachable callable/type items; re-run `gc_unreachable` if anything was deleted.
-10. `exec_graph_rebuild` — recompute exec-graph metadata from the rewritten FIR.
+9. `normalize_reachable_call_arg_types` — reconcile call argument types once after the fixed point.
+10. `item_dce` — remove unreachable items while retaining pinned callables and their dependencies.
+11. `gc_unreachable` — remove orphaned arena nodes across the reachable package closure.
+12. `exec_graph_rebuild` — recompute exec-graph metadata from the rewritten FIR.
 
 Invariant checks run after most passes. `run_pipeline_to_with_diagnostics` exposes each stage as a cut point used by tests and (with `PipelineStage::Full` plus pinned callable items) by production codegen.
+
+Within defunctionalization, higher-order and direct-call rewrites share a
+children-before-parents traversal. An enclosing call must copy already-rewritten
+arguments, not stale argument layouts paired with a newly specialized callee.
+If an inner rewrite replaces a capture operand with a new local read, its
+dependent direct or higher-order calls wait for fresh capture analysis. Direct calls also wait
+when their callee gains control flow that needs normalization. Closure cleanup treats
+computed callees as live dependencies, just like call arguments; consuming one
+use does not make another invocation disposable.
+
+Complex component lowering currently covers addition, subtraction, multiplication,
+unary signs, and the corresponding compound assignments. Division and
+exponentiation are not covered by this lowering.
+
+Monomorphization identifies a specialization by the package-qualified source
+callable and its concrete generic arguments. Recursive references retain the
+generic source identity until those arguments are substituted, so same-type,
+mutual, and finite changing-type cycles resolve to the matching concrete targets.
+Each invocation allows at most 1024 specializations across all packages.
+Types constructed for specializations and each reference's type-argument list
+are limited to 4096 type nodes and depth 128, counting a leaf as depth one.
+Existing types outside specialization are not subject to these limits.
+Substitution is measured before expanded types are constructed. Exceeding a
+limit reports `Qdk.Qsc.Monomorphize.SpecializationLimit` or
+`Qdk.Qsc.Monomorphize.TypeExpansionLimit` at the original source and stops the
+pipeline before downstream consumption. A runtime-terminating program that
+continually nests its recursive type arguments can therefore be rejected,
+including programs previously accepted by profiles that evaluated those calls
+classically. These are specialization limits, not runtime recursion limits or
+new backend support for recursive results.
+
+Callable capability weakening does not change value layout: an adjointable or
+controllable operation can populate a less-capable operation binding without
+adding tuple wrappers. Assignment checks retain nominal identity, tuple shape,
+callable kind and input/output compatibility; they do not allow capability upgrades.
 
 ## Where to look
 
@@ -49,3 +88,10 @@ cargo test -p qsc_fir_transforms --features slow-proptest-tests   # + semantic-e
 ```
 
 Pass-local unit tests sit next to each pass; `tests/pipeline_integration.rs` drives full-pipeline and per-stage behavior.
+
+Return-normalization semantic tests compare explicit expected values, ordered
+quantum-operation and lifetime traces, and receiver output before and after the
+Full pipeline. They do not establish QIR support by themselves. The
+short-circuit-assignment codegen tests keep qubit ownership in the caller so they
+exercise return lowering independently of conditional qubit cleanup. The
+resource-owning #3836 case still requires the separate cleanup repair.

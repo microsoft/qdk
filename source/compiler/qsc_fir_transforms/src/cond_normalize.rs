@@ -72,6 +72,8 @@
 //! Callable-selection snapshots use the same root declaration/original-point
 //! assignment mechanism even inside operands. Defunctionalization requests this
 //! normalization again when specialization or callee rewriting creates new code.
+//! Pure guards that read nested-block locals also need root-scoped storage:
+//! their original bindings do not dominate a later dispatch outside that block.
 //!
 //! Synthesized nodes use [`crate::EMPTY_EXEC_RANGE`];
 //! [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
@@ -246,9 +248,10 @@ fn snapshot_guard(
 ///
 /// # Eligibility
 /// [`callable_guard_to_snapshot`] selects guards that participate in callable
-/// selection and either may have effects/failures or read locals overwritten by
-/// their branches or compound store. Stable, discard-safe guards and selections
-/// without callable-valued results or writes remain unchanged.
+/// selection and either may have effects/failures, read nested-block locals, or
+/// read locals overwritten by their branches or compound store. Stable,
+/// root-scoped, discard-safe guards and selections without callable-valued
+/// results or writes remain unchanged.
 ///
 /// # Mutations
 /// - Allocates guard storage through [`snapshot_guard`].
@@ -277,10 +280,20 @@ pub(crate) fn normalize_callable_selections(package: &mut Package, assigner: &mu
         }
     }
     for (root, expressions) in roots {
+        let lexical_root = root.or_else(|| {
+            package
+                .entry
+                .and_then(|entry| match package.get_expr(entry).kind {
+                    ExprKind::Block(block) => Some(block),
+                    _ => None,
+                })
+        });
+        let nested_locals = nested_block_locals(package, &expressions, lexical_root);
         let mut declarations = Vec::new();
         for id in expressions {
             let expression = package.get_expr(id).clone();
-            let Some(condition) = callable_guard_to_snapshot(package, &expression) else {
+            let Some(condition) = callable_guard_to_snapshot(package, &expression, &nested_locals)
+            else {
                 continue;
             };
             let snapshot = snapshot_guard(package, assigner, condition, "_.branch_guard");
@@ -345,6 +358,42 @@ pub(crate) fn normalize_callable_selections(package: &mut Package, assigner: &mu
     }
 }
 
+/// Locals declared below the root cannot be referenced by a dispatch moved
+/// outside that block, even when reading the guard is pure and immutable.
+fn nested_block_locals(
+    package: &Package,
+    expressions: &[ExprId],
+    root: Option<BlockId>,
+) -> FxHashSet<qsc_fir::fir::LocalVarId> {
+    let mut locals = FxHashSet::default();
+    for id in expressions {
+        for_each_direct_child(&package.get_expr(*id).kind, |child| {
+            let DirectChild::Block(block) = child else {
+                return;
+            };
+            if Some(block) == root {
+                return;
+            }
+            for stmt in &package.get_block(block).stmts {
+                let StmtKind::Local(_, pat, _) = package.get_stmt(*stmt).kind else {
+                    continue;
+                };
+                let mut patterns = vec![pat];
+                while let Some(pat) = patterns.pop() {
+                    match &package.get_pat(pat).kind {
+                        qsc_fir::fir::PatKind::Bind(binding) => {
+                            locals.insert(binding.id);
+                        }
+                        qsc_fir::fir::PatKind::Tuple(items) => patterns.extend(items),
+                        qsc_fir::fir::PatKind::Discard => {}
+                    }
+                }
+            }
+        });
+    }
+    locals
+}
+
 /// Selects the original guard operand that needs a selection-time snapshot.
 ///
 /// Recognizes `If`, short-circuit `and`/`or`, and compound `and=`/`or=`. A
@@ -353,14 +402,19 @@ pub(crate) fn normalize_callable_selections(package: &mut Package, assigner: &mu
 /// remain opaque to this narrow test.
 ///
 /// A guard needs storage if it is not safe to discard, or if one of its local
-/// reads is overwritten by a branch or the compound assignment itself. For
+/// reads is declared in a nested block or overwritten by a branch or the
+/// compound assignment itself. For
 /// example, `enabled and= { set f = Times2; false }` must save the old `enabled`,
 /// even though reading it is pure: the final stored value is not the decision
 /// that selected `f`.
 ///
 /// Returns `None` when no snapshot is needed. This is a read-only eligibility
 /// check; [`normalize_callable_selections`] performs the before/after rewrite.
-fn callable_guard_to_snapshot(package: &Package, expression: &Expr) -> Option<ExprId> {
+fn callable_guard_to_snapshot(
+    package: &Package,
+    expression: &Expr,
+    nested_locals: &FxHashSet<qsc_fir::fir::LocalVarId>,
+) -> Option<ExprId> {
     let (condition, branches) = match &expression.kind {
         ExprKind::If(condition, body, otherwise) => (
             *condition,
@@ -394,13 +448,13 @@ fn callable_guard_to_snapshot(package: &Package, expression: &Expr) -> Option<Ex
     if !crate::walk_utils::expr_is_safe_to_discard(package, package.id, condition) {
         return Some(condition);
     }
-    let mut overwritten = false;
+    let mut needs_snapshot = false;
     for_each_expr(package, condition, &mut |_, expression| {
         if let ExprKind::Var(Res::Local(local), _) = expression.kind {
-            overwritten |= writes.contains(&local);
+            needs_snapshot |= writes.contains(&local) || nested_locals.contains(&local);
         }
     });
-    overwritten.then_some(condition)
+    needs_snapshot.then_some(condition)
 }
 
 /// Normalizes the statement-position `if` conditions of every reachable

@@ -1270,6 +1270,7 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
                             __ret_val = 20;
                             __has_returned = true;
                         };
+                        __ret_val
                     } else {
                         30
                     }
@@ -1533,6 +1534,7 @@ fn return_inside_parallel_within_limit_expr() {
                         __ret_val = 10;
                         __has_returned = true;
                     };
+                    __ret_val
                 } else {
                     4
                 };

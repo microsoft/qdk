@@ -53,26 +53,28 @@ mod semantic_equivalence_tests;
 #[cfg(test)]
 mod test_cases;
 
+mod complex;
+
 use crate::EMPTY_EXEC_RANGE;
 use crate::fir_builder;
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{collect_reachable_package_closure, collect_reachable_with_seeds};
 use crate::walk_utils::{
-    DirectChild, expr_is_safe_to_discard, for_each_direct_child, for_each_expr,
+    expr_is_safe_to_discard, expressions_in_postorder, for_each_expr,
     for_each_expr_in_callable_impl,
 };
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableDecl, CallableImpl, CallableKind, ExecGraph, Expr, ExprId, ExprKind, Field,
     FieldAssign, FieldPath, Ident, Item, ItemId, ItemKind, LocalItemId, Mutability, Package,
-    PackageId, PackageLookup, PackageStore, PatId, Res, SpecDecl, SpecImpl, StmtId, StmtKind,
-    StoreItemId, Visibility,
+    PackageId, PackageLookup, PackageStore, PatId, Res, SpecDecl, SpecImpl, StmtId, StoreItemId,
+    Visibility,
 };
 use qsc_fir::ty::{Arrow, FunctorSetValue, Ty};
 use std::rc::Rc;
 
 use qsc_fir::fir::PackageSpan;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 /// Maps `StoreItemId` → pure `Ty` for every UDT definition
 /// in the store.
@@ -175,7 +177,9 @@ pub fn erase_udts_with_seeds(
 ///   output types in place.
 /// - Allocates field-extraction expressions and ordered operand bindings through
 ///   `assigner` for struct construction and field-update lowering.
+#[allow(clippy::too_many_lines)]
 fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: &mut Assigner) {
+    let complex_values = complex::find_values(package);
     // Parents can copy a child's kind, so every copied child must already be erased.
     let mut expr_ids = expressions_in_postorder(package);
     let mut next = 0;
@@ -187,6 +191,7 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, assigner: 
         let kind = expr.kind.clone();
         let expr_span = expr.span;
 
+        complex::lower(package, assigner, expr_id, &complex_values);
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.ty = new_ty;
 
@@ -419,41 +424,6 @@ fn create_constructor_identity(
     id
 }
 
-fn expressions_in_postorder(package: &Package) -> Vec<ExprId> {
-    let roots: Vec<_> = package.exprs.iter().map(|(id, _)| (id, false)).collect();
-    let mut pending: Vec<_> = roots.into_iter().rev().collect();
-    let mut seen = FxHashSet::default();
-    let mut ordered = Vec::new();
-    while let Some((id, children_visited)) = pending.pop() {
-        if children_visited {
-            ordered.push(id);
-            continue;
-        }
-        if !seen.insert(id) {
-            continue;
-        }
-        pending.push((id, true));
-        let mut children = Vec::new();
-        for_each_direct_child(&package.get_expr(id).kind, |child| match child {
-            DirectChild::Expr(child) => children.push(child),
-            DirectChild::Block(block) => {
-                for &statement in &package.get_block(block).stmts {
-                    match package.get_stmt(statement).kind {
-                        StmtKind::Expr(child)
-                        | StmtKind::Semi(child)
-                        | StmtKind::Local(_, _, child) => {
-                            children.push(child);
-                        }
-                        StmtKind::Item(_) => {}
-                    }
-                }
-            }
-        });
-        pending.extend(children.into_iter().rev().map(|id| (id, false)));
-    }
-    ordered
-}
-
 /// Stores the copy value first, then every initializer in source order. Once
 /// stored, operands can be projected or arranged in declaration order without
 /// replaying effects or reading values changed by a later initializer.
@@ -560,7 +530,7 @@ fn lower_identity_expr(package: &mut Package, udt_cache: &UdtCache, expr_id: Exp
                 };
                 let resolved_pure = resolve_ty(udt_cache, pure_ty);
                 let arg = package.exprs.get(arg_id).expect("arg should exist");
-                if resolve_ty(udt_cache, &arg.ty) != resolved_pure
+                if !fir_builder::types_assignable(&resolve_ty(udt_cache, &arg.ty), &resolved_pure)
                     && matches!(&resolved_pure, Ty::Tuple(_))
                 {
                     let expr = package.exprs.get_mut(expr_id).expect("expr should exist");

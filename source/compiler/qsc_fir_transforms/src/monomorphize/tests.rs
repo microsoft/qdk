@@ -12,6 +12,389 @@ use crate::test_utils::{
 use expect_test::{Expect, expect};
 use indoc::indoc;
 
+/// Explicit parameter types keep the frontend's inference-size limit separate
+/// from this pass's construction budget. The tuples are source-written, not
+/// constructed by specialization; an unrelated Id<Int> must not change that.
+#[test]
+fn source_written_wide_tuples_preserve_values_with_or_without_generic_calls() {
+    // The callee arrow adds three nodes to the tuple's width. These cases
+    // straddle its old global-scan limit, then exceed the tuple limit itself.
+    for width in [4093, 4094, 4096] {
+        let value = format!("({})", vec!["0"; width].join(", "));
+        let ty = format!("({})", vec!["Int"; width].join(", "));
+        for generic in [false, true] {
+            let call = format!("Large({value})");
+            let result = if generic { format!("Id({call})") } else { call };
+            let source = format!(
+                "function Id<'T>(x : 'T) : 'T {{ x }}
+                 function Large(_ : {ty}) : Int {{ 42 }}
+                 operation Main() : Int {{ {result} }}"
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(42),
+            );
+        }
+    }
+}
+
+#[test]
+fn finite_recursive_type_changes_create_matching_targets_and_preserve_values() {
+    // Several bodies ignore the changing argument and would return the same
+    // integer with an incorrectly typed target. Reachability/identity checks
+    // are the regression oracle; the values also protect existing behavior.
+    for (source, names, expected) in [
+        (
+            "function F<'T>(x : 'T, n : Int) : Int {
+                 if n == 0 { 7 } else { 1 + F(x, n - 1) }
+             }
+             operation Main() : Int { F(42, 3) }",
+            &["F<Int>"][..],
+            10,
+        ),
+        (
+            "function F<'T>(x : 'T, n : Int) : Int {
+                 if n == 0 { 7 } else { 1 + F(true, n - 1) }
+             }
+             operation Main() : Int { F(42, 3) }",
+            &["F<Int>", "F<Bool>"][..],
+            10,
+        ),
+        (
+            "function F<'T>(x : 'T, n : Int) : Int {
+                 if n == 0 { 7 } else {
+                     let again = () -> F(true, n - 1);
+                     1 + again()
+                 }
+             }
+             operation Main() : Int { F(42, 3) }",
+            &["F<Int>", "F<Bool>"][..],
+            10,
+        ),
+        (
+            "function F<'T, 'U>(x : 'T, y : 'U, n : Int) : Int {
+                 if n == 0 { 7 } else { 1 + G(y, x, n - 1) }
+             }
+             function G<'T, 'U>(x : 'T, y : 'U, n : Int) : Int {
+                 if n == 0 { 20 } else { 2 + F(x, y, n - 1) }
+             }
+             operation Main() : Int { F(42, true, 3) }",
+            &[
+                "F<Int, Bool>",
+                "F<Bool, Int>",
+                "G<Bool, Int>",
+                "G<Int, Bool>",
+            ][..],
+            24,
+        ),
+    ] {
+        let (store, package) = compile_and_monomorphize(source);
+        assert_unique_reachable_specializations(&store, package, package, names);
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            source,
+            qsc_eval::val::Value::Int(expected),
+        );
+    }
+}
+
+/// The two type arguments and their closures swap on every recursive edge.
+/// Different closure results make an incorrect target or argument order visible.
+#[test]
+fn foreign_recursive_type_cycle_preserves_closure_arguments_and_package_identity() {
+    let library = r#"namespace Lib {
+        function Pick<'T, 'U>(
+            x : 'T, y : 'U, f : 'T -> Int, g : 'U -> Int, n : Int
+        ) : Int {
+            if n == 0 { f(x) } else { 1 + Pick(y, x, g, f, n - 1) }
+        }
+        export Pick;
+    }"#;
+    let source = r#"
+        function Pick<'T>(x : 'T) : Int { 30 }
+        operation Main() : Int {
+            let offset = 200;
+            Pick(0) + Lib.Pick(2, true, x -> x + 10, b -> if b { offset } else { 100 }, 3)
+        }
+    "#;
+    let (mut store, package) = compile_to_fir_with_library(library, source);
+    let owner = find_library_callable(&store, package, "Pick").package;
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        package,
+        crate::PipelineStage::Mono,
+        &[],
+    );
+    assert_pipeline_succeeded("foreign recursive cycle", &result);
+    assert_unique_reachable_specializations(
+        &store,
+        package,
+        owner,
+        &["Pick<Int, Bool>", "Pick<Bool, Int>"],
+    );
+    assert_unique_reachable_specializations(&store, package, package, &["Pick<Int>"]);
+    let result = crate::run_pipeline_with_diagnostics(&mut store, package);
+    assert_pipeline_succeeded("foreign recursive cycle full pipeline", &result);
+    assert_eq!(
+        try_eval_fir_entry(&store, package),
+        Ok(qsc_eval::val::Value::Int(233))
+    );
+    check_semantic_equivalence_with_library(library, source);
+}
+
+#[test]
+fn growing_recursive_types_report_fatal_located_errors_before_later_passes() {
+    for source in [
+        "function Grow<'T>(x : 'T, n : Int) : Int {
+             if n == 0 { 0 } else { 1 + Grow((x, x), n - 1) }
+         }
+         operation Main() : Int { Grow(1, 2) }",
+        "function Grow<'T>(x : 'T, f : 'T -> Int, n : Int) : Int {
+             if n == 0 { f(x) } else { Grow([x], xs -> f(xs[0]), n - 1) }
+         }
+         operation Main() : Int { Grow(7, x -> x, 1) }",
+    ] {
+        for (stage, foreign) in [
+            (crate::PipelineStage::Mono, false),
+            (crate::PipelineStage::Full, false),
+            (crate::PipelineStage::Full, true),
+        ] {
+            let (mut store, package) = if foreign {
+                compile_to_fir_with_library(
+                    &format!("namespace Lib {{ {source} export Main; }}"),
+                    "operation Main() : Int { Lib.Main() }",
+                )
+            } else {
+                crate::test_utils::compile_to_fir(source)
+            };
+            let owner = if foreign {
+                find_library_callable(&store, package, "Grow").package
+            } else {
+                package
+            };
+            let result = crate::run_pipeline_to_with_diagnostics(&mut store, package, stage, &[]);
+            assert!(
+                !result.is_success(),
+                "{stage:?} must not expose partial FIR"
+            );
+            let [crate::PipelineError::Monomorphize(Error::TypeExpansionLimit(span))] =
+                result.errors.as_slice()
+            else {
+                panic!("expected one type expansion error, got {result:?}");
+            };
+            assert_eq!(span.package, owner);
+            assert!(span.lo < span.hi, "error must have a source location");
+            assert!(result.warnings.is_empty());
+            let count = store.get(owner).items.iter().filter(|(_, item)| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.starts_with("Grow<"))
+            }).count();
+            assert!(
+                count < MAX_TYPE_DEPTH,
+                "construction must stop before the clone-count cap"
+            );
+        }
+    }
+}
+
+#[test]
+fn type_expansion_accepts_exact_node_and_depth_limits_and_rejects_the_next() {
+    use qsc_fir::ty::Prim;
+    let span = PackageSpan::default();
+    let empty = FxHashMap::default();
+    let check_specialization = |ty: Ty, accepted: bool, body: &str| {
+        let (mut store, package) = crate::test_utils::compile_to_fir(&format!(
+            "function Ignore<'T>(x : 'T) : Unit {{ {body} }} operation Main() : Unit {{ Ignore(1) }}"
+        ));
+        let item = store.get(package).items.iter().find_map(|(id, item)| {
+            matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Ignore").then_some(id)
+        }).expect("generic template exists");
+        let mut cloner = FirCloner::new(store.get(package));
+        let before = store.get(package).items.iter().count();
+        let result = specialize_one(
+            store.get_mut(package),
+            package,
+            StoreItemId::from((package, item)),
+            &[GenericArg::Ty(ty.clone())],
+            &mut cloner,
+        );
+        if accepted {
+            let (id, refs) = result.expect("last allowed type must specialize");
+            let ItemKind::Callable(decl) = &store.get(package).get_item(id.item).kind else {
+                panic!("specialization must be a callable");
+            };
+            assert_eq!(store.get(package).get_pat(decl.input).ty, ty);
+            assert!(refs.is_empty());
+        } else {
+            assert!(matches!(result, Err(Error::TypeExpansionLimit(_))));
+            assert_eq!(store.get(package).items.iter().count(), before);
+            assert!(
+                cloner.expr_map().is_empty(),
+                "reject before allocating cloned nodes"
+            );
+            assert!(cloner.pat_map().is_empty());
+        }
+    };
+    for nodes in [MAX_TYPE_NODES, MAX_TYPE_NODES + 1] {
+        let ty = Ty::Tuple(vec![Ty::Prim(Prim::Int); nodes - 1]);
+        assert_eq!(
+            validate_type_expansion([&ty], &empty, span).is_ok(),
+            nodes == MAX_TYPE_NODES
+        );
+        check_specialization(ty, nodes == MAX_TYPE_NODES, "");
+    }
+    for depth in [MAX_TYPE_DEPTH, MAX_TYPE_DEPTH + 1] {
+        let ty = (1..depth).fold(Ty::Prim(Prim::Int), |ty, _| Ty::Array(Box::new(ty)));
+        assert_eq!(
+            validate_type_expansion([&ty], &empty, span).is_ok(),
+            depth == MAX_TYPE_DEPTH
+        );
+        check_specialization(ty, depth == MAX_TYPE_DEPTH, "");
+    }
+    // A small template reaches 1 + 3 * (1364 + 1) = 4096 nodes after
+    // substitution. The next argument size needs 4099. Exercise both the
+    // measurement helper and its wiring to expression/pattern construction.
+    let param = Ty::Param(ParamId::from(0));
+    let template = Ty::Tuple(vec![param; 3]);
+    for width in [1364, 1365] {
+        let args = build_arg_map(&[GenericArg::Ty(Ty::Tuple(vec![Ty::Prim(Prim::Int); width]))]);
+        assert_eq!(
+            validate_type_expansion([&template], &args, span).is_ok(),
+            width == 1364
+        );
+        check_specialization(
+            Ty::Tuple(vec![Ty::Prim(Prim::Int); width]),
+            width == 1364,
+            "let _ = (x, x, x);",
+        );
+    }
+    for depth in [MAX_TYPE_DEPTH - 1, MAX_TYPE_DEPTH] {
+        let ty = (1..depth).fold(Ty::Prim(Prim::Int), |ty, _| Ty::Array(Box::new(ty)));
+        check_specialization(ty, depth == MAX_TYPE_DEPTH - 1, "let _ = [x];");
+    }
+    // Both sides of callable types contribute to the same node/depth budget.
+    // Tuple/array-only cases would miss a checker that skipped arrow children.
+    for input_side in [false, true] {
+        let arrow = |ty: Ty| {
+            let (input, output) = if input_side {
+                (ty, Ty::UNIT)
+            } else {
+                (Ty::UNIT, ty)
+            };
+            Ty::Arrow(Box::new(Arrow {
+                kind: qsc_fir::fir::CallableKind::Function,
+                input: Box::new(input),
+                output: Box::new(output),
+                functors: FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty),
+            }))
+        };
+        for nodes in [MAX_TYPE_NODES, MAX_TYPE_NODES + 1] {
+            let ty = arrow(Ty::Tuple(vec![Ty::Prim(Prim::Int); nodes - 3]));
+            assert_eq!(
+                validate_type_expansion([&ty], &empty, span).is_ok(),
+                nodes == MAX_TYPE_NODES
+            );
+            check_specialization(ty, nodes == MAX_TYPE_NODES, "");
+        }
+        for depth in [MAX_TYPE_DEPTH, MAX_TYPE_DEPTH + 1] {
+            let inner = (2..depth).fold(Ty::Prim(Prim::Int), |ty, _| Ty::Array(Box::new(ty)));
+            check_specialization(arrow(inner), depth == MAX_TYPE_DEPTH, "");
+        }
+    }
+    // Generic arguments share a node budget rather than each receiving a new one.
+    let ty = Ty::Tuple(vec![Ty::Prim(Prim::Int); MAX_TYPE_NODES / 2 - 1]);
+    assert!(validate_type_expansion([&ty, &ty], &empty, span).is_ok());
+    assert!(validate_type_expansion([&ty, &ty, &Ty::UNIT], &empty, span).is_err());
+}
+
+#[test]
+fn specialization_budget_accepts_the_limit_and_back_edges_but_rejects_new_targets() {
+    use std::fmt::Write;
+    // Exercise initial and transitive discovery, plus a back edge at the
+    // exact cap. The cycle is not executed; its target must be reused.
+    for (count, chain, cycle, across_packages) in [
+        (MAX_SPECIALIZATIONS, true, false, false),
+        (MAX_SPECIALIZATIONS + 1, true, false, false),
+        (MAX_SPECIALIZATIONS, false, false, false),
+        (MAX_SPECIALIZATIONS + 1, false, false, false),
+        (MAX_SPECIALIZATIONS, true, true, false),
+        (MAX_SPECIALIZATIONS, false, false, true),
+        (MAX_SPECIALIZATIONS + 1, false, false, true),
+    ] {
+        let mut source = String::new();
+        let mut library = String::from("namespace Lib {");
+        let mut calls = String::new();
+        for i in 0..count {
+            let foreign = across_packages && i % 2 == 0;
+            let name = format!("F{}", if across_packages { i / 2 } else { i });
+            let body = if cycle && i + 1 == count {
+                "F0(x)".to_string()
+            } else if !chain || i + 1 == count {
+                "x".to_string()
+            } else {
+                format!("F{}(x)", i + 1)
+            };
+            let owner = if foreign { &mut library } else { &mut source };
+            writeln!(owner, "function {name}<'T>(x : 'T) : 'T {{ {body} }}")
+                .expect("writing source should succeed");
+            if foreign {
+                writeln!(library, "export {name};").expect("writing export should succeed");
+            }
+            if !chain {
+                let prefix = if foreign { "Lib." } else { "" };
+                write!(
+                    calls,
+                    "let _ = {prefix}{name}(42); let _ = {prefix}{name}(42); "
+                )
+                .expect("writing repeated calls should succeed");
+            }
+        }
+        library.push('}');
+        write!(source, "operation Main() : Int {{ {calls} F0(42) }}")
+            .expect("writing entry should succeed");
+        let (mut store, package) = if across_packages {
+            // Same names in different packages are distinct keys; repeated
+            // references to each one must not consume another budget slot.
+            compile_to_fir_with_library(&library, &source)
+        } else {
+            crate::test_utils::compile_to_fir(&source)
+        };
+        let result = crate::run_pipeline_to_with_diagnostics(
+            &mut store,
+            package,
+            crate::PipelineStage::Mono,
+            &[],
+        );
+        if count == MAX_SPECIALIZATIONS {
+            assert_pipeline_succeeded("last allowed specialization", &result);
+            if !chain {
+                assert_eq!(
+                    try_eval_fir_entry(&store, package),
+                    Ok(qsc_eval::val::Value::Int(42))
+                );
+            }
+        } else {
+            let [crate::PipelineError::Monomorphize(Error::SpecializationLimit(span))] =
+                result.errors.as_slice()
+            else {
+                panic!("expected a specialization-limit error, got {result:?}");
+            };
+            assert_eq!(span.package, package);
+            assert!(span.lo < span.hi);
+        }
+        let clones = store.iter().flat_map(|(_, package)| package.items.iter()).filter(|(_, item)| {
+            matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.ends_with("<Int>"))
+        }).count();
+        let expected_clones = if !chain && count > MAX_SPECIALIZATIONS {
+            0
+        } else {
+            MAX_SPECIALIZATIONS
+        };
+        assert_eq!(
+            clones, expected_clones,
+            "never allocate the first forbidden clone"
+        );
+    }
+}
+
 /// Substitution in a cloned lambda must discover Id's concrete arguments even
 /// though the lambda item itself may declare no generics. Repeated references
 /// share a specialization, while unreachable generic definitions stay untouched.
@@ -90,7 +473,8 @@ fn mono_cloned_lambda_dependencies_keep_foreign_specializations_in_their_owner()
         let (mut store, package_id) = compile_to_fir_with_library(library, user);
         let owner_id = find_library_callable(&store, package_id, "Id").package;
         let mut assigners = PackageAssigners::new(&store, package_id);
-        monomorphize(&mut store, package_id, &mut assigners);
+        monomorphize(&mut store, package_id, &mut assigners)
+            .expect("monomorphization should succeed");
         assert_unique_reachable_specializations(&store, package_id, owner_id, expected);
         check_semantic_equivalence_with_library(library, user);
     }
@@ -121,7 +505,7 @@ fn mono_cloned_lambda_dependencies_cross_library_boundaries() {
     );
     let owner_id = find_library_callable(&store, package_id, "Id").package;
     let mut assigners = PackageAssigners::new(&store, package_id);
-    monomorphize(&mut store, package_id, &mut assigners);
+    monomorphize(&mut store, package_id, &mut assigners).expect("monomorphization should succeed");
     assert_unique_reachable_specializations(
         &store,
         package_id,
@@ -242,7 +626,8 @@ fn generated_generic_entries_lower_defaults_and_specialize_the_entry_reference()
         let entry_type = package.get_expr(entry_id).ty.clone();
 
         let mut assigners = PackageAssigners::new(&store, package_id);
-        monomorphize(&mut store, package_id, &mut assigners);
+        monomorphize(&mut store, package_id, &mut assigners)
+            .expect("monomorphization should succeed");
         let package = store.get(package_id);
         let ExprKind::Var(Res::Item(specialized), args) = &package.get_expr(callee).kind else {
             panic!("specialized entry callee");
@@ -1282,7 +1667,7 @@ fn mono_closure_targeting_generic_callable_is_retargeted() {
     *target = generic_target;
 
     let mut assigners = PackageAssigners::new(&store, pkg_id);
-    monomorphize(&mut store, pkg_id, &mut assigners);
+    monomorphize(&mut store, pkg_id, &mut assigners).expect("monomorphization should succeed");
 
     let package = store.get(pkg_id);
     let mut closure_target_names = package
@@ -2345,7 +2730,8 @@ fn monomorphize_no_entry_panics() {
 
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::test_utils::assert_panics_with("package must have an entry expression", || {
-        monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+        monomorphize(&mut fir_store, fir_pkg_id, &mut assigners)
+            .expect("monomorphization should succeed");
     });
 }
 
@@ -2526,7 +2912,7 @@ fn monomorphize_is_idempotent() {
     );
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
     let mut assigners = PackageAssigners::new(&store, pkg_id);
-    monomorphize(&mut store, pkg_id, &mut assigners);
+    monomorphize(&mut store, pkg_id, &mut assigners).expect("monomorphization should succeed");
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "monomorphize should be idempotent");
 }
@@ -2535,7 +2921,7 @@ fn render_before_after_mono(source: &str) -> (String, String) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let mut assigners = PackageAssigners::new(&store, pkg_id);
-    monomorphize(&mut store, pkg_id, &mut assigners);
+    monomorphize(&mut store, pkg_id, &mut assigners).expect("monomorphization should succeed");
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -2746,7 +3132,7 @@ fn cross_package_generic_specialization_lives_in_library_package() {
     let (mut store, user_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&store, user_pkg_id);
-    monomorphize(&mut store, user_pkg_id, &mut assigners);
+    monomorphize(&mut store, user_pkg_id, &mut assigners).expect("monomorphization should succeed");
 
     let spec_name = "Identity<Int>";
     let reachable = crate::reachability::collect_reachable_from_entry(&store, user_pkg_id);

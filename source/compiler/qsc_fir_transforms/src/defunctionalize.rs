@@ -1348,6 +1348,7 @@ fn collect_live_call_argument_exprs(
                     ExprKind::Call(callee, args)
                         if !is_udt_ctor_call(package, package_id, callee) =>
                     {
+                        pending.push(callee);
                         pending.push(args);
                     }
                     _ => {}

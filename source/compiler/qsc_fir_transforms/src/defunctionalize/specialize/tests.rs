@@ -3,13 +3,77 @@
 
 //! Internal contracts for closure-dispatch argument layouts and capture scope.
 //!
-//! Capture-scope checks use compiled Q# and its argument layout; type and functor
-//! compatibility checks use constructed types.
+//! Package-identity and capture-scope checks use compiled Q#; other type and
+//! functor compatibility checks use constructed types.
 
 use super::*;
 use crate::test_utils::{callable_id_by_name, compile_to_monomorphized_fir};
 use crate::walk_utils::collect_expr_ids_in_local_callables;
 use qsc_fir::fir::CallableKind;
+
+/// Item numbers are only unique within a package. Here the library's `Inc`
+/// (`Int -> Int`) and the user's `Decoy` (`Bool -> Bool`) deliberately share
+/// a number. Looking up `Inc` in the user package would give it `Decoy`'s type.
+///
+/// First verify that the fixture really contains that collision. Then rebuild
+/// the foreign reference and check that its original `Int -> Int` type survives.
+/// No replacement type means the builder keeps the supplied type hint.
+/// The reference must also not match the local `Decoy` as a closure-call target,
+/// which would allow capture arguments to be attached to the wrong call.
+#[test]
+fn foreign_callable_references_preserve_package_identity() {
+    let (store, package_id) = crate::test_utils::compile_to_fir_with_library(
+        r#"
+        namespace Lib {
+            function Inc(value : Int) : Int { value + 1 }
+            export Inc;
+        }
+        "#,
+        r#"
+        namespace Test {
+            function Decoy(value : Bool) : Bool { not value }
+            @EntryPoint()
+            operation Main() : Int { Lib.Inc(3) }
+        }
+        "#,
+    );
+    let package = store.get(package_id);
+    let (expr_id, item_id, hint) = package
+        .exprs
+        .values()
+        .find_map(|expr| {
+            let ExprKind::Var(Res::Item(item), _) = expr.kind else {
+                return None;
+            };
+            if item.package == package_id {
+                return None;
+            }
+            matches!(&store.get(item.package).get_item(item.item).kind,
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Inc")
+            .then_some((expr.id, item, expr.ty.clone()))
+        })
+        .expect("the user calls the foreign function");
+    assert!(
+        matches!(&package.get_item(item_id.item).kind, ItemKind::Callable(decl)
+            if decl.name.name.as_ref() == "Decoy"),
+        "the fixture must exercise a colliding package-local item ID"
+    );
+    assert!(
+        !expr_is_closure_target_callee(package, expr_id, package_id, item_id.item),
+        "a foreign callable must not match a same-numbered local target"
+    );
+    let (_, _, actual) = build_callable_value_parts(
+        package,
+        CaptureScope::Entry,
+        &ConcreteCallable::Global {
+            item_id,
+            functor: FunctorApp::default(),
+        },
+        &hint,
+    )
+    .expect("a global callable can be reconstructed");
+    assert_eq!(actual.unwrap_or_else(|| hint.clone()), hint);
+}
 
 #[test]
 fn specialization_cloner_keeps_local_watermark_across_targets_and_resets() {

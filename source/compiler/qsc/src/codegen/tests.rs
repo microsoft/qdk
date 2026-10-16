@@ -92,6 +92,200 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
+    let sources = [
+        // Array growth with a captured callable used to reach a closure-layout panic.
+        r#"operation Rec<'T>(t : 'T, op : 'T => Unit, n : Int) : Unit {
+            if n == 0 { op(t); } else { Rec([t], ts => op(ts[0]), n - 1); }
+        }
+        operation Main() : Result { use q = Qubit(); Rec(q, X, 1); MResetZ(q) }"#,
+        // Tuple duplication grows exponentially, despite the finite runtime depth.
+        r#"function F<'T>(x : 'T, n : Int) : Int {
+            if n == 0 { 0 } else { 1 + F((x, x), n - 1) }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            if F(1, 2) == 2 { X(q); }
+            MResetZ(q)
+        }"#,
+    ];
+    for source in sources {
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Result(qsc_eval::val::Result::Val(true)),
+            "runtime termination is independent of the static expansion limit"
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let mut interpreter = interpreter_with_capabilities(capabilities);
+            eval_fragments(&mut interpreter, source);
+            for result in [
+                compile_source_to_qir_result(source, capabilities),
+                interpreter.qirgen("Main()"),
+            ] {
+                let errors = result.expect_err("expanding specialization must not produce QIR");
+                assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+                assert!(matches!(
+                    errors[0],
+                    crate::interpret::Error::FirTransform(_)
+                ));
+                let label = miette::Diagnostic::labels(&errors[0])
+                    .and_then(|mut labels| labels.next())
+                    .expect("expansion error must have a source label");
+                assert!(!label.is_empty());
+                assert!(label.offset() + label.len() <= source.len());
+                assert!(miette::Diagnostic::source_code(&errors[0]).is_some());
+                let diagnostic = format_interpret_errors(errors);
+                assert!(
+                    diagnostic.contains("Qdk.Qsc.Monomorphize.TypeExpansionLimit"),
+                    "{diagnostic}"
+                );
+                assert!(
+                    diagnostic.contains("type expansion exceeds the compiler limit here"),
+                    "{diagnostic}"
+                );
+            }
+            // A failed compilation must not poison the interpreter's original store.
+            eval_fragments(
+                &mut interpreter,
+                "operation Safe() : Result { use q = Qubit(); X(q); MResetZ(q) }",
+            );
+            assert!(interpreter.qirgen("Safe()").is_ok());
+        }
+    }
+}
+
+#[test]
+fn finite_recursive_type_cycle_generates_qir_for_all_entry_surfaces() {
+    let source = r#"
+        operation Pick<'T, 'U>(x : 'T, y : 'U, n : Int, q : Qubit) : Unit {
+            if n == 0 { X(q); } else { Pick(y, x, n - 1, q); }
+        }
+        operation Main() : Result {
+            use q = Qubit();
+            Pick(2, true, 3, q);
+            MResetZ(q)
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut interpreter, source);
+    // This is the source oracle. The QIR assertions below check typed
+    // compilation and output plumbing, not execution of the emitted program.
+    assert_eq!(
+        eval_fragments(&mut interpreter, "Main()"),
+        Value::Result(qsc_eval::val::Result::Val(true))
+    );
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let capabilities = profile.into();
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        let (store, package, items) =
+            compile_and_locate_items(source, &[("Main", true)], capabilities);
+        for qir in [
+            compile_source_to_qir(source, capabilities),
+            interpreter
+                .qirgen("Main()")
+                .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors))),
+            callable_args_to_qir(&store, package, items["Main"], &Value::unit(), capabilities),
+        ] {
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{profile:?}: {qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__rt__result_record_output")
+                    .count(),
+                1,
+                "{qir}"
+            );
+        }
+    }
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(&mut interpreter, source);
+    let circuit = interpreter
+        .circuit(
+            crate::interpret::CircuitEntryPoint::EntryExpr("Main()".into()),
+            crate::interpret::CircuitGenerationMethod::Static,
+            qsc_circuit::TracerConfig {
+                max_operations: qsc_circuit::TracerConfig::DEFAULT_MAX_OPERATIONS,
+                max_loop_iterations: None,
+                source_locations: false,
+                group_by_scope: false,
+                prune_classical_qubits: false,
+            },
+        )
+        .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+    let gates: Vec<_> = circuit
+        .component_grid
+        .iter()
+        .flat_map(|column| &column.components)
+        .filter_map(|operation| match operation {
+            qsc_circuit::Operation::Unitary(gate) => Some(gate.gate.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(gates, ["X"], "{circuit}");
+}
+
+#[test]
+fn recursive_callable_factory_is_inlined_in_adaptive_qir() {
+    let source = r#"
+        namespace Test {
+            operation Flip(q : Qubit) : Unit { X(q); }
+
+            function Make(n : Int) : Qubit => Unit {
+                if n == 0 {
+                    Flip
+                } else {
+                    let next = Make(n - 1);
+                    next
+                }
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Make(2)(q);
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [Profile::Adaptive, Profile::AdaptiveRIF] {
+        let capabilities = profile.into();
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        let incremental_qir = interpreter
+            .qirgen("Test.Main()")
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)));
+        for qir in [compile_source_to_qir(source, capabilities), incremental_qir] {
+            assert!(!qir.contains("@Make"), "factory must be inlined: {qir}");
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{qir}"
+            );
+            assert!(
+                qir.contains("call void @__quantum__rt__result_record_output"),
+                "{qir}"
+            );
+        }
+    }
+}
+
+#[test]
 fn generic_lambda_dependencies_compile_through_executable_entries() {
     check_generic_lambda_dependency_qir(compile_source_to_qir);
 }
@@ -3035,6 +3229,225 @@ fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
 }
 
 #[test]
+fn synthetic_captureless_lambda_array_preserves_input() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation CallAll(ops : (Qubit => Unit)[]) : Result {
+                use q = Qubit();
+                for op in ops {
+                    op(q);
+                }
+                MResetZ(q)
+            }
+        }
+    "#};
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let callable = eval_fragments(&mut interpreter, "Test.CallAll");
+        let args = eval_fragments(&mut interpreter, "[q => X(q)]");
+        let qir = interpreter
+            .qirgen_from_callable(&callable, args)
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "lambda array failed on {profile:?}: {}",
+                    format_interpret_errors(errors)
+                )
+            });
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__x__body(").count(),
+            1,
+            "{profile:?} should preserve the captureless lambda call:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn foreign_closure_arguments_preserve_package_identity() {
+    let user_source = r#"
+        namespace Test {
+            function DecoyA(value : Int) : Int { value - 100 }
+            function DecoyB(value : Int) : Int { value - 200 }
+            function DecoyC(value : Int) : Int { value - 300 }
+            function Run(actions : (Int -> Int)[]) : Int {
+                mutable answer = 0;
+                for action in actions { set answer += action(3); }
+                answer
+            }
+            function Wrap(action : Int -> Int) : Int -> Int { value -> action(value) + 7 }
+        }
+        "#;
+    for capturing in [false, true] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let capabilities = profile.into();
+            let (mut store, user_package, items) = compile_and_locate_items(
+                user_source,
+                &[("Run", true), ("DecoyA", true), (".lambda", true)],
+                capabilities,
+            );
+            let library_source = if capturing {
+                "namespace Library { function Make(offset : Int) : Int -> Int { value -> value + offset } export Make; }"
+            } else {
+                "namespace Library { function Make() : Int -> Int { value -> value + 100 } export Make; }"
+            };
+            let (unit, errors) = crate::compile::compile(
+                &store,
+                &[],
+                source_map_from_source(library_source),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+            );
+            assert!(errors.is_empty(), "library must compile: {errors:?}");
+            let lambda = unit
+                .package
+                .items
+                .iter()
+                .find_map(|(id, item)| match &item.kind {
+                    ItemKind::Callable(decl)
+                        if callable_name_matches(decl.name.name.as_ref(), ".lambda") =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                })
+                .expect("library must contain a lifted lambda");
+            let library_package = store.insert(unit);
+            let foreign = Value::Closure(Box::new(qsc_eval::val::Closure {
+                id: fir_id_for(library_package, lambda),
+                fixed_args: if capturing {
+                    vec![Value::Int(100)]
+                } else {
+                    vec![]
+                }
+                .into(),
+                functor: FunctorApp::default(),
+            }));
+            let wrapped = Value::Closure(Box::new(qsc_eval::val::Closure {
+                id: fir_id_for(user_package, items[".lambda"]),
+                fixed_args: vec![foreign.clone()].into(),
+                functor: FunctorApp::default(),
+            }));
+            for (values, expected) in [
+                (vec![foreign.clone()], 103),
+                (
+                    vec![
+                        foreign,
+                        Value::Global(
+                            fir_id_for(user_package, items["DecoyA"]),
+                            FunctorApp::default(),
+                        ),
+                    ],
+                    6,
+                ),
+                (vec![wrapped], 110),
+            ] {
+                let args = Value::Array(values.into());
+                let qir =
+                    callable_args_to_qir(&store, user_package, items["Run"], &args, capabilities);
+                assert!(
+                    qir.contains(&format!(
+                        "call void @__quantum__rt__int_record_output(i64 {expected},"
+                    )),
+                    "foreign closure must retain its package on {profile:?}, capturing={capturing}:\n{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn foreign_operation_closure_arrays_emit_the_library_gate() {
+    let user_source = r#"
+        namespace Test {
+            operation DecoyA(target : Qubit) : Unit { Z(target); }
+            operation DecoyB(target : Qubit) : Unit { H(target); }
+            operation DecoyC(target : Qubit) : Unit { I(target); }
+            operation Run(actions : (Qubit => Unit)[]) : Result {
+                use target = Qubit();
+                for action in actions { action(target); }
+                MResetZ(target)
+            }
+        }
+        "#;
+    for capturing in [false, true] {
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let capabilities = profile.into();
+            let (mut store, user_package, items) =
+                compile_and_locate_items(user_source, &[("Run", true)], capabilities);
+            let std_id = store
+                .iter()
+                .map(|(id, _)| id)
+                .find(|id| *id != PackageId::CORE && *id != user_package)
+                .expect("the fixture store contains the standard library");
+            let library_source = if capturing {
+                "namespace Library { function Make(enabled : Bool) : Qubit => Unit { target => { if enabled { X(target); } } } export Make; }"
+            } else {
+                "namespace Library { function Make() : Qubit => Unit { target => X(target) } export Make; }"
+            };
+            let (unit, errors) = crate::compile::compile(
+                &store,
+                &[(std_id, None)],
+                source_map_from_source(library_source),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+            );
+            assert!(errors.is_empty(), "library must compile: {errors:?}");
+            let lambda = unit
+                .package
+                .items
+                .iter()
+                .find_map(|(id, item)| match &item.kind {
+                    ItemKind::Callable(decl)
+                        if callable_name_matches(decl.name.name.as_ref(), ".lambda") =>
+                    {
+                        Some(id)
+                    }
+                    _ => None,
+                })
+                .expect("library must contain a lifted lambda");
+            let library_package = store.insert(unit);
+            let argument = Value::Array(
+                vec![Value::Closure(Box::new(qsc_eval::val::Closure {
+                    id: fir_id_for(library_package, lambda),
+                    fixed_args: if capturing {
+                        vec![Value::Bool(true)]
+                    } else {
+                        vec![]
+                    }
+                    .into(),
+                    functor: FunctorApp::default(),
+                }))]
+                .into(),
+            );
+            let qir =
+                callable_args_to_qir(&store, user_package, items["Run"], &argument, capabilities);
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body(").count(),
+                1,
+                "{profile:?} must call the library lambda:\n{qir}"
+            );
+            assert!(
+                !qir.contains("__quantum__qis__h__body"),
+                "a same-numbered local item must not be invoked:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
 fn synthetic_path_classical_capture_closure_generates_qir() {
     // A closure capturing a classical value (Int shift) flows through the
     // self-contained synthetic entry: the capture is materialized as a local and
@@ -3101,6 +3514,548 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
         qir.contains("__quantum__qis__x__body"),
         "expected X gate from the captured shift in QIR:\n{qir}"
     );
+}
+
+#[test]
+fn synthetic_closure_arrays_preserve_scalar_and_tuple_inputs() {
+    for (input, lambda, argument, expected) in [
+        ("Int", "value -> value + 1", "3", 4),
+        (
+            "(Int, Int)",
+            "(left, right) -> left * 10 + right",
+            "(2, 3)",
+            23,
+        ),
+        ("Unit", "() -> 7", "()", 7),
+    ] {
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(
+                &mut interpreter,
+                &format!(
+                    r#"
+                    function CallAll(actions : ({input} -> Int)[]) : Int {{
+                        mutable result = 0;
+                        for action in actions {{ set result += action({argument}); }}
+                        result
+                    }}
+                    "#
+                ),
+            );
+            let callable = eval_fragments(&mut interpreter, "CallAll");
+            let args = eval_fragments(&mut interpreter, &format!("[{lambda}]"));
+            let qir = interpreter
+                .qirgen_from_callable(&callable, args)
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{input} closure array failed on {profile:?}: {}",
+                        format_interpret_errors(errors)
+                    )
+                });
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{input} closure array should return {expected} on {profile:?}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn indexed_callable_selections_record_expected_values() {
+    // Each call contributes one digit: `Inc(3)` is 4 and `Twice(3)` is 6.
+    // `Pick(false, _)` ignores the index; `Pick(true, -1)` reads the last
+    // element; `Choose` must call the reassigned `functions[-1]`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Inc(x : Int) : Int { x + 1 }
+            function Twice(x : Int) : Int { 2 * x }
+            function Pick(flag : Bool, index : Int) : Int {
+                let functions = [Inc, Twice];
+                let selected = if flag { functions[index] } else { Inc };
+                selected(3)
+            }
+            function Choose(first : Int, second : Int) : Int {
+                let functions = [Inc, Twice];
+                mutable selected = functions[first];
+                set selected = functions[second];
+                selected(3)
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                Pick(false, 1) * 10000 + Pick(false, 99) * 1000
+                    + Pick(true, 0) * 100 + Pick(true, -1) * 10 + Choose(-2, -1)
+            }
+        }
+    "#};
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 44466,"),
+            "{profile:?} should record [4, 4, 4, 6, 6] as 44466:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn forwarded_callable_uses_reassigned_selection() {
+    // `Choose(-2, -1)` forwards `Twice` (6) and `Choose(-1, -2)` forwards
+    // `Inc` (4), so the program records 64.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Inc(value : Int) : Int { value + 1 }
+            function Twice(value : Int) : Int { value * 2 }
+            function Apply(action : Int -> Int, value : Int) : Int { action(value) }
+            function Choose(first : Int, second : Int) : Int {
+                let functions = [Inc, Twice];
+                mutable selected = functions[first];
+                set selected = functions[second];
+                Apply(selected, 3)
+            }
+            @EntryPoint()
+            operation Main() : Int { Choose(-2, -1) * 10 + Choose(-1, -2) }
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 64,"),
+            "{profile:?} should record both reaching selections as 64:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn reassigned_global_callable_records_array_selection() {
+    for invoke in ["selected(3)", "Apply(selected, 3)"] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+            function Choose(index : Int) : Int {{
+                let functions = [Inc, Twice];
+                mutable selected = Inc;
+                set selected = functions[index];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ Choose(1) }}
+            "#
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains("call void @__quantum__rt__int_record_output(i64 6,"),
+                "{profile:?} should record 6 for {invoke}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn runtime_index_reassignment_is_rejected_on_adaptive_ri() {
+    for invoke in ["selected(target);", "Apply(selected, target);"] {
+        let source = format!(
+            r#"
+            operation Apply(action : Qubit => Unit, target : Qubit) : Unit {{ action(target); }}
+            operation Choose(first : Int, second : Int, target : Qubit) : Unit {{
+                let actions = [I, X];
+                mutable selected = actions[first];
+                set selected = actions[second];
+                {invoke}
+            }}
+            @EntryPoint()
+            operation Main() : Result {{
+                use flag = Qubit();
+                use target = Qubit();
+                X(flag);
+                let index = if MResetZ(flag) == One {{ 1 }} else {{ 0 }};
+                Choose(0, index, target);
+                MResetZ(target)
+            }}
+            "#
+        );
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRI.into())
+            .expect_err("runtime indexed dispatch must retain capability diagnostics");
+        let diagnostics = format_interpret_errors(errors);
+        assert!(
+            diagnostics.contains("Qdk.Qsc.CapabilitiesCk.UseOfDynamicIndex"),
+            "expected a capability diagnostic for {invoke}:\n{diagnostics}"
+        );
+    }
+}
+
+#[test]
+fn recursive_residual_dispatch_rejects_dynamic_inlining() {
+    let source = r#"
+        operation Recurse(count : Int, flag : Bool, index : Int, target : Qubit) : Unit {
+            if count > 0 {
+                Recurse(count - 1, flag, index, target);
+                let actions = [I, X];
+                let action = if flag { actions[index] } else { I };
+                action(target);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit();
+            use target = Qubit();
+            let count = if MResetZ(flag) == Zero { 2 } else { 0 };
+            Recurse(count, true, 1, target);
+            MResetZ(target)
+        }
+        "#;
+    let errors = compile_source_to_qir_result(source, Profile::Adaptive.into())
+        .expect_err("runtime recursion cannot be unrolled");
+    let diagnostics = format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+        "expected a bounded rejection, not unbounded recursive inlining:\n{diagnostics}"
+    );
+    let static_source = source.replace("if MResetZ(flag) == Zero { 2 } else { 0 }", "2");
+    let qir = compile_source_to_qir(&static_source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @X(").count(),
+        2,
+        "static recursive inlining must still apply X twice:\n{qir}"
+    );
+}
+
+#[test]
+fn dynamic_recursion_reports_error_instead_of_overflowing() {
+    // The recursion depth depends on a measurement, so inlining cannot unroll
+    // it. Previously the partial evaluator inlined forever and overflowed the
+    // stack; it must report a diagnostic instead.
+    let source = r#"
+        operation Recurse(count : Int, qs : Qubit[]) : Unit {
+            if count > 0 {
+                Recurse(count - 1, qs);
+                X(qs[0]);
+            }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use flag = Qubit();
+            use qs = Qubit[1];
+            let count = if MResetZ(flag) == Zero { 2 } else { 0 };
+            Recurse(count, qs);
+            MResetZ(qs[0])
+        }
+        "#;
+    let errors = compile_source_to_qir_result(source, Profile::Adaptive.into())
+        .expect_err("runtime recursion depth cannot be unrolled");
+    let diagnostics = format_interpret_errors(errors);
+    assert!(
+        diagnostics.contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"),
+        "expected a recursive-inlining diagnostic:\n{diagnostics}"
+    );
+    let static_source = source.replace("if MResetZ(flag) == Zero { 2 } else { 0 }", "2");
+    let qir = compile_source_to_qir(&static_source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @X(").count(),
+        2,
+        "a compile-time recursion depth must still unroll to two X gates:\n{qir}"
+    );
+}
+
+#[test]
+fn inline_adjoint_call_is_not_recursive_reentry() {
+    let source = r#"
+        operation Act(target : Qubit) : Unit is Adj {
+            body (...) { if M(target) == One { Adjoint Act(target); } }
+            adjoint (...) { X(target); }
+        }
+        @EntryPoint()
+        operation Main() : Result {
+            use target = Qubit();
+            X(target);
+            Act(target);
+            MResetZ(target)
+        }
+        "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("br i1"),
+            "{profile:?} must compile the runtime branch:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn conservative_callable_fallbacks_preserve_results() {
+    // Each body takes a conservative (non-specialized) path that must keep its
+    // result: an argument that changes the returned callable's guard, a stored
+    // partial application with an effectful capture, and an array slot whose
+    // element depends on a runtime index.
+    for (body, expected) in [
+        (
+            "mutable flag = true; let value = Choose(flag, { set flag = false; 0 })(3); value * 10 + (if flag { 1 } else { 0 })",
+            40,
+        ),
+        (
+            "mutable action = Offset(Mark(), _); action(3) * 100 + action(4)",
+            1314,
+        ),
+        ("ReadSelected(0) * 1000 + ReadSelected(1)", 402_602),
+    ] {
+        let source = format!(
+            r#"
+            function Inc(value : Int) : Int {{ value + 1 }}
+            function Twice(value : Int) : Int {{ value * 2 }}
+            function Minus(value : Int) : Int {{ value - 1 }}
+            function Choose(flag : Bool, ignored : Int) : Int -> Int {{
+                if flag {{ Inc }} else {{ Twice }}
+            }}
+            function Mark() : Int {{ Message("capture"); 10 }}
+            function Offset(offset : Int, value : Int) : Int {{ value + offset }}
+            function Read(actions : (Int -> Int)[]) : Int {{
+                mutable answer = 0;
+                for action in actions {{ set answer = answer * 100 + action(3); }}
+                answer
+            }}
+            function ReadSelected(index : Int) : Int {{
+                let actions = [Inc, Twice];
+                let choices = [actions[index], Minus];
+                Read(choices)
+            }}
+            @EntryPoint()
+            operation Main() : Int {{ {body} }}
+            "#
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?} must preserve {expected} for {body}:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn inline_measurement_capture_is_evaluated_once() {
+    // A partial application whose capture is a measurement must still be
+    // specialized: declining it leaves a dynamic callable that Adaptive
+    // targets reject.
+    let source = r#"
+        function FromFlag(flag : Bool, value : Int) : Int {
+            if flag { value + 1 } else { value + 2 }
+        }
+        function Apply(action : Int -> Int, value : Int) : Int { action(value) }
+        @EntryPoint()
+        operation Main() : Int {
+            use flag = Qubit();
+            Apply(FromFlag(MResetZ(flag) == One, _), 3)
+        }
+        "#;
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_eq!(
+            qir.matches("call void @__quantum__qis__mresetz__body(")
+                .count(),
+            1,
+            "capture initialization must measure once on {profile:?}:\n{qir}"
+        );
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 %"),
+            "{profile:?} must preserve the measurement-dependent result:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn aliased_guards_select_expected_gate() {
+    for (threshold, expected, excluded) in [(1, "h", "z"), (3, "z", "h")] {
+        let source = format!(
+            r#"
+            namespace Demo {{
+                function Choose(b : Bool) : (Qubit => Unit) {{
+                    if b {{ H }} else {{ if b {{ X }} else {{ Z }} }}
+                }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    let arr = [1, 2, 3];
+                    let x = Length(arr) > {threshold};
+                    let f = Choose(x);
+                    f(q);
+                    MResetZ(q)
+                }}
+            }}
+            "#
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            for (path, qir) in [
+                ("program", compile_source_to_qir(&source, profile.into())),
+                (
+                    "interpreter",
+                    interpreter
+                        .qirgen("Demo.Main()")
+                        .expect("issue 3768 must generate QIR"),
+                ),
+            ] {
+                assert_eq!(
+                    qir.matches(&format!("call void @__quantum__qis__{expected}__body("))
+                        .count(),
+                    1,
+                    "{profile:?} {path} must select {expected} for threshold {threshold}:\n{qir}"
+                );
+                assert!(
+                    !qir.contains("call void @__quantum__qis__x__body(")
+                        && !qir.contains(&format!("call void @__quantum__qis__{excluded}__body(")),
+                    "{profile:?} {path} must not select another branch:\n{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_runtime_guards_compile() {
+    let source = indoc::indoc! {r#"
+        namespace Demo {
+            function Choose(b : Bool) : (Qubit => Unit) {
+                if b { H } else { if b { X } else { Z } }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use guard = Qubit();
+                let flag = MResetZ(guard) == One;
+                let action = Choose(flag);
+                action(target);
+                MResetZ(target)
+            }
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("br i1")
+                && qir.contains("call void @__quantum__qis__h__body(")
+                && qir.contains("call void @__quantum__qis__z__body("),
+            "{profile:?} must retain both runtime outcomes:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn nested_runtime_guards_compile_on_adaptive_profiles() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Choose(first : Bool, second : Bool) : (Qubit => Unit) {
+                if first { I } else { if second { X } else { Z } }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use guard = Qubit();
+                let first = M(guard) == One;
+                let second = M(guard) == Zero;
+                let selected = Choose(first, second);
+                selected(target);
+                Reset(guard);
+                MResetZ(target)
+            }
+        }
+    "#};
+
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__qis__x__body("),
+            "{profile:?} should resolve the runtime-guarded callable selection:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn forwarded_callable_array_emits_both_operations() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunLoop(
+                operations : ((Qubit, Qubit) => Unit is Adj)[],
+                qubits : Qubit[]
+            ) : Unit is Adj {
+                for index in 0..Length(operations) - 1 {
+                    operations[index](qubits[index], qubits[2]);
+                }
+            }
+            function MakeLoop(
+                operations : ((Qubit, Qubit) => Unit is Adj)[]
+            ) : Qubit[] => Unit is Adj {
+                RunLoop(operations, _)
+            }
+            operation Forward(action : Qubit[] => Unit is Adj, qubits : Qubit[]) : Unit {
+                action(qubits);
+            }
+            operation Apply(action : Qubit[] => Unit is Adj) : Result[] {
+                use qubits = Qubit[3];
+                X(qubits[0]);
+                X(qubits[1]);
+                Forward(action, qubits);
+                MResetEachZ(qubits)
+            }
+            operation First(control : Qubit, target : Qubit) : Unit is Adj {
+                CNOT(control, target);
+            }
+            operation Second(control : Qubit, target : Qubit) : Unit is Adj {
+                CNOT(control, target);
+                X(control);
+            }
+            @EntryPoint()
+            operation Main() : Result[] {
+                Apply(MakeLoop([First, Second]))
+            }
+        }
+    "#};
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        let (cnot_call, x_call) = if profile == Profile::Adaptive {
+            for name in ["First", "Second"] {
+                assert_eq!(
+                    qir.matches(&format!("call void @{name}(")).count(),
+                    1,
+                    "{qir}"
+                );
+            }
+            ("call void @CNOT(", "call void @X(")
+        } else {
+            (
+                "call void @__quantum__qis__cx__body(",
+                "call void @__quantum__qis__x__body(",
+            )
+        };
+        assert_eq!(
+            qir.matches(cnot_call).count(),
+            2,
+            "{profile:?} must apply both elements:\n{qir}"
+        );
+        assert_eq!(
+            qir.matches(x_call).count(),
+            3,
+            "{profile:?} must retain the second element's X:\n{qir}"
+        );
+    }
 }
 
 #[test]
