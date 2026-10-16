@@ -16,14 +16,19 @@
 mod tests;
 
 mod backends;
+pub mod instructions;
 pub mod interface;
 mod profilers;
-mod qir_isa;
 mod runner;
 pub use backends::{QsBackendShim, SparseSimBackend};
-pub use interface::{BatchResult, QuantumBackend, QuantumBackendResult, QuantumInstruction};
+pub use instructions::{
+    OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id, validate_instruction,
+};
+pub use interface::{
+    BatchResult, ClassicalParameter, InstructionId, QuantumBackend, QuantumBackendResult,
+    QuantumInstruction,
+};
 pub use profilers::{Profiler, ProfilerResult, SequentialCountingProfiler};
-pub use qir_isa::{OPERATION_COUNT, QirInstruction, instruction_name, instruction_names};
 pub use runner::{
     DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutput, run_qir, run_qir_with_batch_size,
 };

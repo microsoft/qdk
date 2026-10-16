@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirInstruction, QuantumBackend, QuantumBackendResult};
+use crate::{
+    BatchResult,
+    ClassicalParameter::{Float, ResultId},
+    QuantumBackend, QuantumBackendResult, QuantumInstruction, instructions,
+};
 use qsc_eval::{backend::Backend, val};
 use rustc_hash::FxHashMap;
 
@@ -82,107 +86,119 @@ impl<B: Backend> QsBackendShim<B> {
     }
 
     /// Delegates one instruction and returns a requested result value, if any.
+    #[allow(clippy::too_many_lines)] // Keep all supported instruction patterns in one dispatch table.
     fn dispatch(
         &mut self,
-        instruction: QirInstruction,
+        instruction: &QuantumInstruction,
     ) -> Result<Option<QuantumBackendResult>, String> {
-        let result = match instruction {
-            QirInstruction::ccx(ctl0, ctl1, target) => {
+        let result = match (
+            instruction.instruction_id,
+            instruction.targets.as_slice(),
+            instruction.classical_parameters.as_slice(),
+        ) {
+            (instructions::CCX, &[ctl0, ctl1, target], []) => {
                 let ctl0 = self.qubit(ctl0)?;
                 let ctl1 = self.qubit(ctl1)?;
                 let target = self.qubit(target)?;
                 self.backend.ccx(ctl0, ctl1, target)
             }
-            QirInstruction::cx(control, target) => {
+            (instructions::CX, &[control, target], []) => {
                 let control = self.qubit(control)?;
                 let target = self.qubit(target)?;
                 self.backend.cx(control, target)
             }
-            QirInstruction::cy(control, target) => {
+            (instructions::CY, &[control, target], []) => {
                 let control = self.qubit(control)?;
                 let target = self.qubit(target)?;
                 self.backend.cy(control, target)
             }
-            QirInstruction::cz(control, target) => {
+            (instructions::CZ, &[control, target], []) => {
                 let control = self.qubit(control)?;
                 let target = self.qubit(target)?;
                 self.backend.cz(control, target)
             }
-            QirInstruction::rx(theta, target) => {
+            (instructions::RX, &[target], &[Float(theta)]) => {
                 let target = self.qubit(target)?;
                 self.backend.rx(theta, target)
             }
-            QirInstruction::rxx(theta, target0, target1) => {
+            (instructions::RXX, &[target0, target1], &[Float(theta)]) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.rxx(theta, target0, target1)
             }
-            QirInstruction::ry(theta, target) => {
+            (instructions::RY, &[target], &[Float(theta)]) => {
                 let target = self.qubit(target)?;
                 self.backend.ry(theta, target)
             }
-            QirInstruction::ryy(theta, target0, target1) => {
+            (instructions::RYY, &[target0, target1], &[Float(theta)]) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.ryy(theta, target0, target1)
             }
-            QirInstruction::rz(theta, target) => {
+            (instructions::RZ, &[target], &[Float(theta)]) => {
                 let target = self.qubit(target)?;
                 self.backend.rz(theta, target)
             }
-            QirInstruction::rzz(theta, target0, target1) => {
+            (instructions::RZZ, &[target0, target1], &[Float(theta)]) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.rzz(theta, target0, target1)
             }
-            QirInstruction::h(target) => {
+            (instructions::H, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.h(target)
             }
-            QirInstruction::s(target) => {
+            (instructions::S, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.s(target)
             }
-            QirInstruction::sadj(target) => {
+            (instructions::SADJ, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.sadj(target)
             }
-            QirInstruction::sx(target) => {
+            (instructions::SX, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.sx(target)
             }
-            QirInstruction::t(target) => {
+            (instructions::T, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.t(target)
             }
-            QirInstruction::tadj(target) => {
+            (instructions::TADJ, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.tadj(target)
             }
-            QirInstruction::x(target) => {
+            (instructions::X, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.x(target)
             }
-            QirInstruction::y(target) => {
+            (instructions::Y, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.y(target)
             }
-            QirInstruction::z(target) => {
+            (instructions::Z, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.z(target)
             }
-            QirInstruction::swap(target0, target1) => {
+            (instructions::SWAP, &[target0, target1], []) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.swap(target0, target1)
             }
-            QirInstruction::reset(target) => {
+            (instructions::RESET, &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.reset(target)
             }
-            QirInstruction::mz(target, result) => self.mz(target, result),
-            QirInstruction::mresetz(target, result) => self.mresetz(target, result),
-            QirInstruction::read_result(result) => return self.read_result(result).map(Some),
+            (instructions::MZ, &[target], &[ResultId(result)]) => self.mz(target, result),
+            (instructions::MRESETZ, &[target], &[ResultId(result)]) => self.mresetz(target, result),
+            (instructions::READ_RESULT, [], &[ResultId(result)]) => {
+                return self.read_result(result).map(Some);
+            }
+            _ => {
+                return Err(format!(
+                    "Unsupported or malformed QIR instruction: {instruction:?}"
+                ));
+            }
         };
         result?;
         Ok(None)
@@ -191,9 +207,9 @@ impl<B: Backend> QsBackendShim<B> {
 
 impl<B: Backend> QuantumBackend for QsBackendShim<B> {
     /// Delegates a batch of QIR instructions to the wrapped Q# evaluator backend.
-    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
+    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
         let mut result = BatchResult::default();
-        for instruction in instructions.iter().copied() {
+        for instruction in instructions {
             if let Some(value) = self
                 .dispatch(instruction)
                 .unwrap_or_else(|error| panic!("{error}"))

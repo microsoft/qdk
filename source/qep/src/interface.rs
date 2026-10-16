@@ -1,29 +1,24 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir_isa::QirInstruction;
 use smallvec::SmallVec;
 
 type QubitID = usize;
 
-#[derive(Debug)]
+/// Identifies an instruction within its instruction set.
+pub type InstructionId = u64;
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ClassicalParameter {
     Float(f64),
     ResultId(usize),
 }
 
-#[derive(Debug)]
-pub struct NamedQuantumInstruction {
-    pub name: &'static str,
-    /// Operand IDs in instruction order, including result IDs for measurements and reads.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QuantumInstruction {
+    pub instruction_id: InstructionId,
     pub targets: SmallVec<[QubitID; 3]>,
     pub classical_parameters: SmallVec<[ClassicalParameter; 1]>,
-}
-
-#[derive(Debug)]
-pub enum QuantumInstruction {
-    QirInstruction(QirInstruction),
-    NamedQuantumInstruction(NamedQuantumInstruction),
 }
 
 /// A measurement value or a backend-reported error.
@@ -41,11 +36,11 @@ pub struct BatchResult {
 }
 
 pub trait QuantumBackend {
-    /// Must produce exactly one result per each read_result in input, in the same order.
-    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult;
+    /// Produces exactly one result per `read_result` in input, in the same order.
+    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult;
 }
 
-////// End of interface definition.
+// End of interface definition.
 
 impl From<bool> for QuantumBackendResult {
     /// Converts a measurement bit to its backend result.

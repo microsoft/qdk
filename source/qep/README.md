@@ -36,7 +36,7 @@ The QIR runner accumulates instructions until it reaches either:
 * The configured maximum batch size. The default is 10,000 instructions.
 
 Backends execute instructions in order and return exactly one result for each
-`QirInstruction::read_result`, in the same order. Reads can occur anywhere in a
+named `read_result` instruction, in the same order. Reads can occur anywhere in a
 batch, and a batch can contain multiple reads.
 
 The QIR runner continues to submit batches with at most one `read_result`, always
@@ -59,12 +59,40 @@ Backend must implement the following trait:
 
 ```rust
 trait QuantumBackend {
-    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult;
+    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult;
 }
 ```
 
 `execute_batch` processes all instructions synchronously and in order before returning.
 The driver reuses its instruction buffer across calls.
+
+`QuantumInstruction` directly stores the instruction ID, targets, and classical
+parameters. The QIR runner emits it directly, and backends dispatch on numeric `instruction_id` and operand
+slices. `InstructionId` is a `u64`;
+targets use `SmallVec<[usize; 3]>` and classical parameters use
+`SmallVec<[ClassicalParameter; 1]>`. Every supported QIR instruction fits inline,
+without per-instruction heap allocation.
+
+Targets contain only qubit IDs. Rotations carry a `ClassicalParameter::Float`
+angle; `mz`, `mresetz`, and `read_result` carry a
+`ClassicalParameter::ResultId`. A read has no targets. The `instructions` instruction table
+defines canonical IDs (such as `H` and `READ_RESULT`), lowercase names, and operand
+shapes without aliases. `instruction_id_to_name` and `instruction_name_to_id` convert
+between IDs and names. Unknown IDs panic; unknown names return `None`.
+The profiler constructor converts unknown names into a string error. `validate_instruction` borrows
+a `QuantumInstruction` and panics for an unknown ID or invalid operand shape.
+Validation can be performed explicitly before execution; the counting profiler
+does not repeat operand validation in its hot loop. Its constructor returns
+`Result<Self, String>` and rejects unknown timing names and negative or non-finite
+durations. Counters are a zero-initialized array indexed by ID, sized to the
+highest configured timing ID plus one (empty for an empty timing map).
+Executed instructions within that range retain call counts even when their timing
+is missing; they contribute zero runtime and a missing-timing warning. IDs beyond
+the range are recorded in a set and warned about once, without retaining call
+counts or per-operation runtime entries. Configure timings for all executed
+instructions to keep the hot loop on the direct-index path.
+`QuantumInstruction` is the sole instruction representation used by the runner,
+backends, profiler, and tests.
 
 ## QIR Runner
 
@@ -85,10 +113,10 @@ Measurements are done in somewhat weird way, according to QIR spec:
  * There is __quantum__rt__write_result operation that technically means that we send classical bit from Driver to Backend
     and Backend must store it at specified index in results array. It exists only for Stim simulator.
     Our QIR runner doesn't implement it, it will fail during execution when encounters this command.
-    So write_result is not included in the enum QirInstruction.
+    So write_result is not included in the instruction table.
 
 "QIR ABI" refers to specific set of instructions which roughly corresponds to library/std/src/Intrinsic.qs
-and for its exact definition see enum QirInstruction in this package.
+and for its exact definition see the instruction table in `instructions.rs`.
 
 ## Quantum Execution Profiler
 

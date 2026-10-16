@@ -150,14 +150,17 @@ impl SequentialCountingProfiler {
     fn new(
         physical_qubits_per_logical: u64,
         gate_time_sec: Option<FxHashMap<String, f64>>,
-    ) -> PyClassInitializer<Self> {
-        PyClassInitializer::from(Profiler {
-            backend: ProfilerBackend::SequentialCounting(qep::SequentialCountingProfiler::new(
-                physical_qubits_per_logical,
-                gate_time_sec.unwrap_or_default(),
-            )),
+    ) -> PyResult<PyClassInitializer<Self>> {
+        Ok(PyClassInitializer::from(Profiler {
+            backend: ProfilerBackend::SequentialCounting(
+                qep::SequentialCountingProfiler::new(
+                    physical_qubits_per_logical,
+                    gate_time_sec.unwrap_or_default(),
+                )
+                .map_err(PyValueError::new_err)?,
+            ),
         })
-        .add_subclass(Self)
+        .add_subclass(Self))
     }
 }
 

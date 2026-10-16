@@ -2,8 +2,9 @@
 // Licensed under the MIT License.
 
 use super::{OutputRecord, OutputValue};
+use crate::instructions;
 use crate::runner::batcher::Batcher;
-use crate::{QirInstruction, QuantumBackend};
+use crate::{ClassicalParameter, QuantumBackend, QuantumInstruction};
 use inkwell::{
     attributes::AttributeLoc,
     builder::BuilderError,
@@ -12,6 +13,7 @@ use inkwell::{
     types::FunctionType,
     values::{BasicMetadataValueEnum, FunctionValue, PointerValue},
 };
+use smallvec::smallvec;
 use std::{
     ffi::{CStr, c_char, c_void},
     panic::{AssertUnwindSafe, catch_unwind},
@@ -66,7 +68,7 @@ impl<'a> ExecutionState<'a> {
     }
 
     /// Buffers a validated instruction for batched backend execution.
-    fn send(&mut self, instruction: QirInstruction) -> Result<(), String> {
+    fn send(&mut self, instruction: QuantumInstruction) -> Result<(), String> {
         self.batcher.push(instruction)
     }
 
@@ -151,39 +153,47 @@ unsafe fn dispatch<T: Default>(
 }
 
 macro_rules! gates {
-    ($($gate:ident($($qubit:ident),+));+ $(;)?) => {$(
+    ($($gate:ident => $id:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Validates gate operands and forwards the operation to the backend.
         unsafe extern "C" fn $gate(ptr: *mut c_void, $($qubit: *mut c_void),+) {
             // SAFETY: Called only by a generated, signature-checked wrapper.
             unsafe { dispatch::<_>(ptr, |state| {
                 $(let $qubit = state.qubit($qubit)?;)+
-                state.send(QirInstruction::$gate($($qubit),+))
+                state.send(QuantumInstruction {
+                    instruction_id: instructions::$id,
+                    targets: smallvec![$($qubit),+],
+                    classical_parameters: smallvec![],
+                })
             }); }
         }
     )+};
 }
 gates! {
-    ccx(a, b, c); cx(a, b); cy(a, b); cz(a, b);
-    h(a); s(a); sadj(a); sx(a); t(a); tadj(a); x(a); y(a); z(a);
-    swap(a, b); reset(a)
+    ccx => CCX(a, b, c); cx => CX(a, b); cy => CY(a, b); cz => CZ(a, b);
+    h => H(a); s => S(a); sadj => SADJ(a); sx => SX(a); t => T(a); tadj => TADJ(a);
+    x => X(a); y => Y(a); z => Z(a); swap => SWAP(a, b); reset => RESET(a)
 }
 
 macro_rules! rotations {
-    ($($gate:ident($($qubit:ident),+));+ $(;)?) => {$(
+    ($($gate:ident => $id:ident($($qubit:ident),+));+ $(;)?) => {$(
         /// Validates rotation operands and forwards the operation to the backend.
         unsafe extern "C" fn $gate(ptr: *mut c_void, angle: f64, $($qubit: *mut c_void),+) {
             // SAFETY: Called only by a generated, signature-checked wrapper.
             unsafe { dispatch::<_>(ptr, |state| {
                 $(let $qubit = state.qubit($qubit)?;)+
-                state.send(QirInstruction::$gate(angle, $($qubit),+))
+                state.send(QuantumInstruction {
+                    instruction_id: instructions::$id,
+                    targets: smallvec![$($qubit),+],
+                    classical_parameters: smallvec![ClassicalParameter::Float(angle)],
+                })
             }); }
         }
     )+};
 }
-rotations! { rx(a); rxx(a, b); ry(a); ryy(a, b); rz(a); rzz(a, b) }
+rotations! { rx => RX(a); rxx => RXX(a, b); ry => RY(a); ryy => RYY(a, b); rz => RZ(a); rzz => RZZ(a, b) }
 
 macro_rules! measurement {
-    ($method:ident) => {
+    ($method:ident, $id:ident) => {
         /// Issues a measurement and marks its result slot as written.
         unsafe extern "C" fn $method(ptr: *mut c_void, qubit: *mut c_void, result: *mut c_void) {
             // SAFETY: Called only by a generated, signature-checked wrapper.
@@ -191,7 +201,13 @@ macro_rules! measurement {
                 dispatch::<_>(ptr, |state| {
                     let qubit = state.qubit(qubit)?;
                     state.result_slot(result)?;
-                    state.send(QirInstruction::$method(qubit, result as usize))?;
+                    state.send(QuantumInstruction {
+                        instruction_id: instructions::$id,
+                        targets: smallvec![qubit],
+                        classical_parameters: smallvec![ClassicalParameter::ResultId(
+                            result as usize
+                        )],
+                    })?;
                     *state.result_slot(result)? = true;
                     Ok(())
                 });
@@ -199,8 +215,8 @@ macro_rules! measurement {
         }
     };
 }
-measurement!(mz);
-measurement!(mresetz);
+measurement!(mz, MZ);
+measurement!(mresetz, MRESETZ);
 
 /// Resolves a QIR result through the backend.
 unsafe extern "C" fn read_result(ptr: *mut c_void, result: *mut c_void) -> bool {

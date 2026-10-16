@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QirInstruction, QuantumBackend, QuantumBackendResult};
+use crate::{
+    BatchResult,
+    ClassicalParameter::{Float, ResultId},
+    QuantumBackend, QuantumBackendResult, QuantumInstruction, instructions,
+};
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use qdk_simulators::SparseStateSim;
@@ -246,40 +250,47 @@ impl SparseSimBackend {
 
 impl QuantumBackend for SparseSimBackend {
     /// Simulates QIR instructions and returns each requested measurement in order.
-    fn execute_batch(&mut self, instructions: &[QirInstruction]) -> BatchResult {
+    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
         let mut batch_result = BatchResult::default();
-        for instruction in instructions.iter().copied() {
-            let result = match instruction {
-                QirInstruction::ccx(a, b, c) => self.ccx(a, b, c),
-                QirInstruction::cx(a, b) => self.cx(a, b),
-                QirInstruction::cy(a, b) => self.cy(a, b),
-                QirInstruction::cz(a, b) => self.cz(a, b),
-                QirInstruction::rx(angle, target) => self.rx(angle, target),
-                QirInstruction::rxx(angle, a, b) => self.rxx(angle, a, b),
-                QirInstruction::ry(angle, target) => self.ry(angle, target),
-                QirInstruction::ryy(angle, a, b) => self.ryy(angle, a, b),
-                QirInstruction::rz(angle, target) => self.rz(angle, target),
-                QirInstruction::rzz(angle, a, b) => self.rzz(angle, a, b),
-                QirInstruction::h(target) => self.h(target),
-                QirInstruction::s(target) => self.s(target),
-                QirInstruction::sadj(target) => self.sadj(target),
-                QirInstruction::sx(target) => self.sx(target),
-                QirInstruction::t(target) => self.t(target),
-                QirInstruction::tadj(target) => self.tadj(target),
-                QirInstruction::x(target) => self.x(target),
-                QirInstruction::y(target) => self.y(target),
-                QirInstruction::z(target) => self.z(target),
-                QirInstruction::swap(a, b) => self.swap(a, b),
-                QirInstruction::reset(target) => self.reset(target),
-                QirInstruction::mz(target, result) => self.mz(target, result),
-                QirInstruction::mresetz(target, result) => self.mresetz(target, result),
-                QirInstruction::read_result(result) => {
+        for instruction in instructions {
+            let result = match (
+                instruction.instruction_id,
+                instruction.targets.as_slice(),
+                instruction.classical_parameters.as_slice(),
+            ) {
+                (instructions::CCX, &[a, b, c], []) => self.ccx(a, b, c),
+                (instructions::CX, &[a, b], []) => self.cx(a, b),
+                (instructions::CY, &[a, b], []) => self.cy(a, b),
+                (instructions::CZ, &[a, b], []) => self.cz(a, b),
+                (instructions::RX, &[target], &[Float(angle)]) => self.rx(angle, target),
+                (instructions::RXX, &[a, b], &[Float(angle)]) => self.rxx(angle, a, b),
+                (instructions::RY, &[target], &[Float(angle)]) => self.ry(angle, target),
+                (instructions::RYY, &[a, b], &[Float(angle)]) => self.ryy(angle, a, b),
+                (instructions::RZ, &[target], &[Float(angle)]) => self.rz(angle, target),
+                (instructions::RZZ, &[a, b], &[Float(angle)]) => self.rzz(angle, a, b),
+                (instructions::H, &[target], []) => self.h(target),
+                (instructions::S, &[target], []) => self.s(target),
+                (instructions::SADJ, &[target], []) => self.sadj(target),
+                (instructions::SX, &[target], []) => self.sx(target),
+                (instructions::T, &[target], []) => self.t(target),
+                (instructions::TADJ, &[target], []) => self.tadj(target),
+                (instructions::X, &[target], []) => self.x(target),
+                (instructions::Y, &[target], []) => self.y(target),
+                (instructions::Z, &[target], []) => self.z(target),
+                (instructions::SWAP, &[a, b], []) => self.swap(a, b),
+                (instructions::RESET, &[target], []) => self.reset(target),
+                (instructions::MZ, &[target], &[ResultId(result)]) => self.mz(target, result),
+                (instructions::MRESETZ, &[target], &[ResultId(result)]) => {
+                    self.mresetz(target, result)
+                }
+                (instructions::READ_RESULT, [], &[ResultId(result)]) => {
                     let value = self
                         .read_result(result)
                         .unwrap_or_else(|error| panic!("{error}"));
                     batch_result.results.push(QuantumBackendResult::from(value));
                     Ok(())
                 }
+                _ => panic!("Unsupported or malformed QIR instruction: {instruction:?}"),
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
