@@ -343,9 +343,8 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    // Hoist side-effecting `if` conditions into single-evaluation `let`
-    // bindings before defunctionalization, so its guard reuse references only
-    // pure `Var` reads and never re-runs a condition's effects. This preserves
+    // Normalize statement guards and callable selections before defunctionalization
+    // so later dispatch reuses their selection-time values. This preserves
     // the `PostReturnUnify` invariants (it introduces no `Return` nodes), so no
     // additional checkpoint is required here.
     cond_normalize::normalize_conditions(store, package_id, &mut assigners);
