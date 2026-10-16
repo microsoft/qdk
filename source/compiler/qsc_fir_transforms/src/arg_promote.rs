@@ -1678,7 +1678,7 @@ fn create_rewritten_payload_arg(
         return None;
     }
 
-    if promotion.leaves.len() == 1 {
+    if promotion.leaves.len() == 1 && promotion.leaves[0].0.is_empty() {
         let leaf_tys: Vec<Ty> = promotion.leaves.iter().map(|(_, ty)| ty.clone()).collect();
         return Some(create_single_tuple_arg(
             package, assigner, arg_id, &leaf_tys,
@@ -1783,9 +1783,9 @@ fn wrap_call_in_block(
 /// Call(Var(Foo), Tuple([arg.0, arg.1, ...]))   // or Block wrapping
 /// ```
 ///
-/// If the argument is already a `Tuple(...)` with the correct arity, the
-/// existing tuple elements are used directly. Otherwise, field-extraction
-/// expressions are created.
+/// If the argument is already a `Tuple(...)` with the correct arity and leaf
+/// types, the existing elements are used directly. Otherwise, field-extraction
+/// expressions are created, including for a single leaf nested in a tuple.
 ///
 /// # Mutations
 /// - Rewrites `call_expr_id`'s `ExprKind` in place.
@@ -1819,7 +1819,7 @@ fn rewrite_single_call_site(
         return;
     }
 
-    if promotion.leaves.len() == 1 {
+    if promotion.leaves.len() == 1 && promotion.leaves[0].0.is_empty() {
         let leaf_tys: Vec<Ty> = promotion.leaves.iter().map(|(_, ty)| ty.clone()).collect();
         let new_arg_id = create_single_tuple_arg(package, assigner, arg_id, &leaf_tys);
 
