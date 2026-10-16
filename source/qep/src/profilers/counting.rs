@@ -40,11 +40,9 @@ impl SequentialCountingProfiler {
                     "gate timing for instruction `{name}` must be finite and non-negative"
                 ));
             }
-            let id = usize::try_from(instruction_id).map_err(|error| {
-                format!("Instruction ID for `{name}` does not fit in usize: {error}")
-            })?;
             count_len = count_len.max(
-                id.checked_add(1)
+                instruction_id
+                    .checked_add(1)
                     .ok_or("Instruction counter length overflow")?,
             );
         }
@@ -89,9 +87,7 @@ impl Profiler for SequentialCountingProfiler {
             if calls == 0 {
                 continue;
             }
-            let name = instruction_id_to_name(
-                InstructionId::try_from(id).expect("counter index fits in InstructionId"),
-            );
+            let name = instruction_id_to_name(id);
             let gate_time_sec = self.gate_time_sec.get(name).copied().unwrap_or_else(|| {
                 missing_timings.push(name);
                 0.0
@@ -139,10 +135,7 @@ impl QuantumBackend for SequentialCountingProfiler {
         let mut result = BatchResult::default();
         for instruction in instructions {
             self.observe_qubits(instruction);
-            if let Some(count) = usize::try_from(instruction.instruction_id)
-                .ok()
-                .and_then(|id| self.counts.get_mut(id))
-            {
+            if let Some(count) = self.counts.get_mut(instruction.instruction_id) {
                 *count += 1;
             } else {
                 self.unexpected_instructions
@@ -194,10 +187,7 @@ mod tests {
             1,
             FxHashMap::from_iter([("h".into(), 0.25), ("t".into(), 0.5)]),
         )?;
-        assert_eq!(
-            profiler.counts.len(),
-            usize::try_from(T).expect("ID fits") + 1
-        );
+        assert_eq!(profiler.counts.len(), T + 1);
         assert!(profiler.counts.iter().all(|&count| count == 0));
         profiler.execute_batch(&[
             crate::QuantumInstruction {
@@ -231,7 +221,7 @@ mod tests {
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
             },
         ]);
-        assert_eq!(profiler.counts[usize::try_from(H).expect("ID fits")], 1);
+        assert_eq!(profiler.counts[H], 1);
         assert_eq!(profiler.unexpected_instructions.len(), 2);
         let result = profiler.get_result();
         assert_eq!(
@@ -346,11 +336,7 @@ mod tests {
         }]);
         assert_eq!(result.results.len(), 1);
         assert!(!result.results.spilled());
-        assert_eq!(
-            profiler.counts
-                [usize::try_from(crate::instructions::READ_RESULT).expect("ID fits in usize")],
-            3
-        );
+        assert_eq!(profiler.counts[crate::instructions::READ_RESULT], 3);
     }
 
     #[test]

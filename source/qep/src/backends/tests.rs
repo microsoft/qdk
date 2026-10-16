@@ -27,7 +27,7 @@ fn rejects_invalid_named_instructions() {
     ] {
         let instruction = QuantumInstruction {
             instruction_id: if name == "unknown" {
-                u64::MAX
+                usize::MAX
             } else {
                 crate::instructions::instruction_name_to_id(name).expect("known test instruction")
             },

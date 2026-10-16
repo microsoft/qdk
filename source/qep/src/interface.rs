@@ -6,7 +6,7 @@ use smallvec::SmallVec;
 type QubitID = usize;
 
 /// Identifies an instruction within its instruction set.
-pub type InstructionId = u64;
+pub type InstructionId = usize;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ClassicalParameter {
