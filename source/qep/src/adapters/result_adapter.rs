@@ -3,7 +3,7 @@
 
 use crate::{
     BatchResult, ClassicalParameter::ResultId, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackendResult,
+    QuantumBackendResult, adapters::Adapter,
 };
 
 /// Adapts result-register instructions for a backend without a result register.
@@ -82,6 +82,13 @@ impl<B: QuantumBackend> ResultAdapter<B> {
         if result >= self.results_register.len() {
             self.results_register.resize(result + 1, None);
         }
+    }
+}
+
+impl<B: QuantumBackend> Adapter for ResultAdapter<B> {
+    type Backend = B;
+    fn get_backend(&self) -> &B {
+        &self.backend
     }
 }
 
