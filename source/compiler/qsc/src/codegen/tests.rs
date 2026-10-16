@@ -92,6 +92,24 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn issue_3940_adaptive_early_return_indexed_qubit_array() {
+    let source = r#"
+        @EntryPoint(Adaptive)
+        operation Main() : Int {
+            use qs = Qubit[2];
+            mutable acc = 0;
+            for j in 0..1 {
+                if j == 9 { return 0; }
+                set acc += MResetZ(qs[j]) == One ? 1 | 0;
+            }
+            acc
+        }
+    "#;
+
+    let _ = compile_source_to_qir(source, Profile::Adaptive.into());
+}
+
+#[test]
 fn dump_operation_is_codegen_noop_across_restricted_profiles() {
     let source = r#"
         namespace Test {
