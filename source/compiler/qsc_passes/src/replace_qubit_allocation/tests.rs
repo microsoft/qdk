@@ -4,8 +4,14 @@
 use crate::replace_qubit_allocation::ReplaceQubitAllocation;
 use expect_test::{Expect, expect};
 use indoc::indoc;
+use qsc::interpret::Interpreter;
 use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
+use qsc_eval::{
+    backend::{Backend, SparseSim},
+    output::GenericReceiver,
+    val::Value,
 };
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_hir::{
@@ -46,6 +52,86 @@ fn rewrite(file: &str) -> qsc_hir::hir::Package {
     ReplaceQubitAllocation::new(store.core(), &mut unit.assigner).visit_package(&mut unit.package);
     Validator::default().visit_package(&unit.package);
     unit.package
+}
+
+#[derive(Debug, PartialEq)]
+enum AllocationEvent {
+    Allocate(usize),
+    Release(usize),
+}
+
+#[derive(Default)]
+struct AllocationTrace {
+    sim: SparseSim,
+    events: Vec<AllocationEvent>,
+}
+
+impl Backend for AllocationTrace {
+    fn qubit_allocate(&mut self) -> Result<usize, String> {
+        let qubit = self.sim.qubit_allocate()?;
+        self.events.push(AllocationEvent::Allocate(qubit));
+        Ok(qubit)
+    }
+
+    fn qubit_release(&mut self, qubit: usize) -> Result<bool, String> {
+        let released = self.sim.qubit_release(qubit)?;
+        self.events.push(AllocationEvent::Release(qubit));
+        Ok(released)
+    }
+}
+
+/// Runs the HIR passes and evaluates their lowered output, without FIR transforms.
+/// The exact trace catches missing, duplicate, or reordered cleanup, even though
+/// the operation's return value is always Unit.
+fn check_allocation_trace(body: &str, expected: &[AllocationEvent]) {
+    let capabilities = TargetCapabilityFlags::all();
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(capabilities);
+    let source = format!("@EntryPoint() operation Main() : Unit {{ {body} }}");
+    let mut interpreter = Interpreter::new(
+        SourceMap::new([("test".into(), source.into())], None),
+        qsc::PackageType::Exe,
+        capabilities,
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+        Default::default(),
+    )
+    .expect("allocation source should compile");
+    let mut backend = AllocationTrace::default();
+    let mut output = Vec::new();
+    let result = interpreter
+        .eval_entry_with_sim(&mut backend, &mut GenericReceiver::new(&mut output))
+        .expect("allocation source should execute");
+    assert_eq!(result, Value::unit(), "{body}");
+    assert_eq!(backend.events, expected, "{body}");
+}
+
+/// Discarded scalar, tuple, and array allocations must release every qubit exactly once,
+/// just like named bindings, including on return and break paths. Tuple allocations
+/// unwind in reverse binding order; array elements follow `ReleaseQubitArray` order.
+#[test]
+fn discarded_qubit_allocations_preserve_one_release_per_qubit() {
+    use AllocationEvent::{Allocate, Release};
+
+    for body in [
+        "use _ = Qubit();",
+        "use q = Qubit();",
+        "use _ = Qubit(); return ();",
+        "while true { use _ = Qubit(); break; }",
+    ] {
+        check_allocation_trace(body, &[Allocate(0), Release(0)]);
+    }
+    for body in [
+        "use (_, q) = (Qubit(), Qubit());",
+        "use _ = (Qubit(), Qubit());",
+        "use (q, r) = (Qubit(), Qubit());",
+    ] {
+        check_allocation_trace(body, &[Allocate(0), Allocate(1), Release(1), Release(0)]);
+    }
+    check_allocation_trace(
+        "use _ = Qubit[2];",
+        &[Allocate(0), Allocate(1), Release(0), Release(1)],
+    );
 }
 
 #[test]

@@ -66,25 +66,27 @@ impl<'a> ReplaceQubitAllocation<'a> {
         let mut new_ids: Vec<QubitIdent> = vec![];
 
         if let (true, opt) = is_non_tuple(&mut init) {
-            if let PatKind::Bind(id) = pat.kind {
-                let id = IdentTemplate {
+            let id = match pat.kind {
+                PatKind::Bind(id) => IdentTemplate {
                     id: id.id,
                     span: stmt_span,
                     name: id.name,
                     ty: pat.ty,
-                };
-                let is_array = opt.is_some();
-                new_stmts.push(match opt {
-                    Some(mut size) => {
-                        self.visit_expr(&mut size);
-                        self.create_array_alloc_stmt(&id, size, qubit_source)
-                    }
-                    None => self.create_alloc_stmt(&id, qubit_source),
-                });
-                new_ids.push(QubitIdent { id, is_array });
-            } else {
-                panic!("Shape of identifier pattern doesn't match shape of initializer");
-            }
+                },
+                // Discarding the source binding does not discard the allocation's lifetime.
+                // Keep a hidden local so block-exit and early-return cleanup can release it.
+                PatKind::Discard => self.gen_ident(pat.ty, stmt_span),
+                _ => panic!("Shape of identifier pattern doesn't match shape of initializer"),
+            };
+            let is_array = opt.is_some();
+            new_stmts.push(match opt {
+                Some(mut size) => {
+                    self.visit_expr(&mut size);
+                    self.create_array_alloc_stmt(&id, size, qubit_source)
+                }
+                None => self.create_alloc_stmt(&id, qubit_source),
+            });
+            new_ids.push(QubitIdent { id, is_array });
         } else {
             let (assignment_expr, mut ids) = self.process_qubit_init(init);
             new_stmts = ids
