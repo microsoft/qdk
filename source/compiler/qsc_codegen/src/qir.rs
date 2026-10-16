@@ -63,12 +63,14 @@ pub fn fir_to_qir_from_callable(
     capabilities: TargetCapabilityFlags,
     compute_properties: &PackageStoreComputeProperties,
     callable: qsc_fir::fir::StoreItemId,
+    functor: qsc_data_structures::functors::FunctorApp,
     args: Value,
 ) -> Result<String, qsc_partial_eval::Error> {
     let mut program = partially_evaluate_call(
         fir_store,
         compute_properties,
         callable,
+        functor,
         args,
         capabilities,
         PartialEvalConfig {
@@ -89,6 +91,7 @@ pub fn fir_to_rir_from_callable(
     capabilities: TargetCapabilityFlags,
     compute_properties: &PackageStoreComputeProperties,
     callable: qsc_fir::fir::StoreItemId,
+    functor: qsc_data_structures::functors::FunctorApp,
     args: Value,
     partial_eval_config: PartialEvalConfig,
 ) -> Result<(Program, Program), qsc_partial_eval::Error> {
@@ -96,6 +99,7 @@ pub fn fir_to_rir_from_callable(
         fir_store,
         compute_properties,
         callable,
+        functor,
         args,
         capabilities,
         partial_eval_config,

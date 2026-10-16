@@ -18,7 +18,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     codegen::qir::{
         CallableArgsBackend, CodegenFir, entry_from_codegen_fir, prepare_codegen_fir,
-        prepare_codegen_fir_from_callable_args, prepare_codegen_fir_from_fir_store,
+        prepare_codegen_fir_from_callable_args_with_functor, prepare_codegen_fir_from_fir_store,
     },
     error::{self, WithStack},
     incremental::Compiler,
@@ -121,6 +121,12 @@ pub enum Error {
     #[error("value is not a global callable")]
     #[diagnostic(code("Qdk.Qsc.Interpret.NotACallable"))]
     NotACallable,
+    #[error("runtime functor application {functor} is not supported by callable {callable}")]
+    #[diagnostic(code("Qdk.Qsc.Interpret.InvalidRuntimeCallableFunctor"))]
+    InvalidRuntimeCallableFunctor {
+        callable: qsc_fir::fir::StoreItemId,
+        functor: FunctorApp,
+    },
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
@@ -1099,7 +1105,7 @@ impl Interpreter {
         Some(format!("{qualified_name}()"))
     }
 
-    /// Extracts an HIR `ItemId` from a runtime `Value::Global`.
+    /// Extracts an HIR `ItemId` and its functor application from a runtime global.
     ///
     /// Maps the FIR-domain package and item IDs back to their HIR equivalents
     /// for use with the HIR package store in codegen preparation.
@@ -1107,17 +1113,20 @@ impl Interpreter {
     /// # Errors
     ///
     /// Returns `Error::NotACallable` if the value is not a `Value::Global`.
-    fn hir_item_id_from_value(
+    fn hir_callable_from_value(
         callable: &Value,
-    ) -> std::result::Result<qsc_hir::hir::ItemId, Vec<Error>> {
-        let Value::Global(store_item_id, _) = callable else {
+    ) -> std::result::Result<(qsc_hir::hir::ItemId, FunctorApp), Vec<Error>> {
+        let Value::Global(store_item_id, functor) = callable else {
             return Err(vec![Error::NotACallable]);
         };
 
-        Ok(qsc_hir::hir::ItemId {
-            package: map_fir_package_to_hir(store_item_id.package),
-            item: map_fir_local_item_to_hir(store_item_id.item),
-        })
+        Ok((
+            qsc_hir::hir::ItemId {
+                package: map_fir_package_to_hir(store_item_id.package),
+                item: map_fir_local_item_to_hir(store_item_id.item),
+            },
+            *functor,
+        ))
     }
 
     /// Normalizes a `StoreItemId` through the HIR↔FIR mapping round-trip.
@@ -1261,7 +1270,8 @@ impl Interpreter {
     }
 
     /// Performs QIR codegen using the given callable with the given arguments on a new instance of the environment
-    /// and simulator but using the current compilation.
+    /// and simulator but using the current compilation. The target's adjoint and
+    /// controlled applications are preserved independently of callable arguments.
     pub fn qirgen_from_callable(
         &mut self,
         callable: &Value,
@@ -1271,11 +1281,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let (callable_id, functor) = Self::hir_callable_from_value(callable)?;
         let backend_args = Self::remap_value_for_codegen(args);
-        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args(
+        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args_with_functor(
             self.compiler.package_store(),
             callable_id,
+            functor,
             &backend_args,
             self.capabilities,
         )?;
@@ -1292,7 +1303,11 @@ impl Interpreter {
                 fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
                     .map_err(|e| self.partial_evaluation_error(e))
             }
-            CallableArgsBackend::ReinvokeOriginal { callable, args } => {
+            CallableArgsBackend::ReinvokeOriginal {
+                callable,
+                functor,
+                args,
+            } => {
                 let CodegenFir {
                     fir_store,
                     compute_properties,
@@ -1304,6 +1319,7 @@ impl Interpreter {
                     self.capabilities,
                     &compute_properties,
                     callable,
+                    functor,
                     args,
                 )
                 .map_err(|e| self.partial_evaluation_error(e))
@@ -1433,11 +1449,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let (callable_id, functor) = Self::hir_callable_from_value(callable)?;
         let backend_args = Self::remap_value_for_codegen(args);
-        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args(
+        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args_with_functor(
             self.compiler.package_store(),
             callable_id,
+            functor,
             &backend_args,
             self.capabilities,
         )?;
@@ -1470,7 +1487,11 @@ impl Interpreter {
                 )
                 .map_err(|e| vec![e.into()])
             }
-            CallableArgsBackend::ReinvokeOriginal { callable, args } => {
+            CallableArgsBackend::ReinvokeOriginal {
+                callable,
+                functor,
+                args,
+            } => {
                 let CodegenFir {
                     fir_store,
                     compute_properties,
@@ -1482,6 +1503,7 @@ impl Interpreter {
                     self.capabilities,
                     &compute_properties,
                     callable,
+                    functor,
                     args,
                     PartialEvalConfig {
                         generate_debug_metadata: true,
@@ -1778,9 +1800,9 @@ impl Interpreter {
     }
 
     /// Evaluate the name of an operation, or any expression that evaluates to a callable,
-    /// and return the Item ID and function application for the callable.
-    /// Examples: "Microsoft.Quantum.Diagnostics.DumpMachine", "(qs: Qubit[]) => H(qs[0])",
-    /// "Controlled SWAP"
+    /// and return the Item ID and functor application for the callable.
+    /// Examples: `Microsoft.Quantum.Diagnostics.DumpMachine`, `(qs: Qubit[]) => H(qs[0])`,
+    /// `Controlled SWAP`.
     fn eval_to_operation(
         &mut self,
         operation_expr: &str,
@@ -1813,12 +1835,12 @@ impl Interpreter {
 pub enum CircuitEntryPoint {
     /// An operation. This must be a callable name or a lambda
     /// expression that only takes qubits as arguments.
-    /// e.g. "Sample.Main" , "qs => H(qs[0])"
+    /// For example, `Sample.Main` or `qs => H(qs[0])`.
     /// The callable name must be visible in the current package.
     Operation(String),
     /// An explicitly provided entry expression.
     EntryExpr(String),
-    /// A global callable with arguments.
+    /// A global callable with arguments, including the target's applied functors.
     Callable(Value, Value),
     /// The entry point for the current package.
     EntryPoint,

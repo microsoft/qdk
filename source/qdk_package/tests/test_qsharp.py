@@ -377,6 +377,23 @@ def test_compile_qir_str_from_qsharp_callable() -> None:
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
+def test_compile_runtime_adjoint_executes_adjoint_instead_of_body() -> None:
+    """Compiling a runtime adjoint must not silently invoke the empty body."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval("""
+        operation Target() : Unit is Adj {
+            body (...) {}
+            adjoint (...) { fail "adjoint"; }
+        }
+    """)
+
+    # Pass the runtime value, not a string containing a Q# call expression.
+    target = qsharp.eval("Adjoint Target")
+
+    with pytest.raises(qsharp.QSharpError, match="program failed: adjoint"):
+        qsharp.compile(target)
+
+
 def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval(
