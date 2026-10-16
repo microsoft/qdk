@@ -5,10 +5,12 @@
 
 use crate::interface::{
     ClassicalParameter::{Float, ResultId},
-    InstructionId, QuantumBackendInstruction,
+    QuantumBackendInstruction,
 };
 
-/// Defines canonical IDs, names, and operand shapes without aliases.
+pub type InstructionId = usize;
+
+/// Defines canonical IDs, names, and operand shapes.
 macro_rules! define_instructions {
     ($(($id:ident, $value:literal, $name:literal, $targets:pat, $parameters:pat)),* $(,)?) => {
         $(

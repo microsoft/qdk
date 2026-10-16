@@ -22,10 +22,11 @@ mod profilers;
 mod runner;
 pub use backends::{QsBackendShim, SparseSimBackend};
 pub use instructions::{
-    OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id, validate_instruction,
+    InstructionId, OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id,
+    validate_instruction,
 };
 pub use interface::{
-    BatchResult, ClassicalParameter, InstructionId, QuantumBackend, QuantumBackendInstruction,
+    BatchResult, ClassicalParameter, QuantumBackend, QuantumBackendInstruction,
     QuantumBackendResult,
 };
 pub use profilers::{Profiler, ProfilerResult, SequentialCountingProfiler};
