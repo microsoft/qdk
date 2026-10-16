@@ -5,7 +5,7 @@
 
 use crate::interface::{
     ClassicalParameter::{Float, ResultId},
-    InstructionId, QuantumInstruction,
+    InstructionId, QuantumBackendInstruction,
 };
 
 /// Defines canonical IDs, names, and operand shapes without aliases.
@@ -38,7 +38,7 @@ macro_rules! define_instructions {
         }
 
         /// Rejects unknown instruction names and malformed operand shapes.
-        pub fn validate_instruction(instruction: &QuantumInstruction) {
+        pub fn validate_instruction(instruction: &QuantumBackendInstruction) {
             let valid = match instruction.instruction_name {
                 $($name => matches!(
                     (instruction.targets.as_slice(), instruction.classical_parameters.as_slice()),

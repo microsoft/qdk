@@ -5,7 +5,7 @@ use super::{Profiler, ProfilerResult};
 use crate::{
     QuantumBackendResult,
     instructions::{instruction_id_to_name, instruction_name_to_id},
-    interface::{BatchResult, QuantumBackend, QuantumInstruction},
+    interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -61,7 +61,7 @@ impl SequentialCountingProfiler {
     }
 
     /// Updates the largest logical qubit ID referenced by an instruction.
-    fn observe_qubits(&mut self, instruction: &QuantumInstruction) {
+    fn observe_qubits(&mut self, instruction: &QuantumBackendInstruction) {
         let instruction_max = instruction.targets.iter().copied().max();
 
         if let Some(qubit) = instruction_max {
@@ -133,7 +133,7 @@ impl Profiler for SequentialCountingProfiler {
 
 impl QuantumBackend for SequentialCountingProfiler {
     /// Counts named QIR instructions and returns one value per requested read.
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
+    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
         let mut result = BatchResult::default();
         for instruction in instructions {
             self.observe_qubits(instruction);
@@ -194,32 +194,32 @@ mod tests {
         assert_eq!(profiler.counts.len(), T + 1);
         assert!(profiler.counts.iter().all(|&count| count == 0));
         profiler.execute_batch(&[
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "cx",
                 targets: smallvec::smallvec![0, 1],
                 classical_parameters: smallvec::smallvec![],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "cx",
                 targets: smallvec::smallvec![0, 1],
                 classical_parameters: smallvec::smallvec![],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
                 targets: smallvec::smallvec![],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "mz",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "mz",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
@@ -251,12 +251,12 @@ mod tests {
         assert!(profiler.counts.is_empty());
         assert!(profiler.get_result().infos.is_empty());
         profiler.execute_batch(&[
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 targets: smallvec::smallvec![4],
                 classical_parameters: smallvec::smallvec![],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 targets: smallvec::smallvec![4],
                 classical_parameters: smallvec::smallvec![],
@@ -281,40 +281,40 @@ mod tests {
             SequentialCountingProfiler::new(1, FxHashMap::from_iter([("read_result".into(), 0.0)]))
                 .expect("valid timing configuration");
         let batch = [
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "mz",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                     1000
                 )],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
                 targets: smallvec::smallvec![],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                     1000
                 )],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "mresetz",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                     2000
                 )],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
                 targets: smallvec::smallvec![],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                     2000
                 )],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "reset",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![],
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(counts.calls_per_operation["mz"], 1);
         assert_eq!(counts.calls_per_operation["mresetz"], 1);
 
-        let result = profiler.execute_batch(&[crate::QuantumInstruction {
+        let result = profiler.execute_batch(&[crate::QuantumBackendInstruction {
             instruction_name: "read_result",
             targets: smallvec::smallvec![],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(2000)],
@@ -397,27 +397,27 @@ mod tests {
         let timings = FxHashMap::from_iter([("h".to_string(), 0.25)]);
         let mut profiler = SequentialCountingProfiler::new(10, timings).expect("valid timings");
         profiler.execute_batch(&[
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "mz",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "mz",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
                 targets: smallvec::smallvec![],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
             },
-            crate::QuantumInstruction {
+            crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
                 targets: smallvec::smallvec![],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],

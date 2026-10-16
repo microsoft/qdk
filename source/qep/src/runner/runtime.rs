@@ -3,7 +3,7 @@
 
 use super::{OutputRecord, OutputValue};
 use crate::runner::batcher::Batcher;
-use crate::{ClassicalParameter, QuantumBackend, QuantumInstruction};
+use crate::{ClassicalParameter, QuantumBackend, QuantumBackendInstruction};
 use inkwell::{
     attributes::AttributeLoc,
     builder::BuilderError,
@@ -67,7 +67,7 @@ impl<'a> ExecutionState<'a> {
     }
 
     /// Buffers a validated instruction for batched backend execution.
-    fn send(&mut self, instruction: QuantumInstruction) -> Result<(), String> {
+    fn send(&mut self, instruction: QuantumBackendInstruction) -> Result<(), String> {
         self.batcher.push(instruction)
     }
 
@@ -158,7 +158,7 @@ macro_rules! gates {
             // SAFETY: Called only by a generated, signature-checked wrapper.
             unsafe { dispatch::<_>(ptr, |state| {
                 $(let $qubit = state.qubit($qubit)?;)+
-                state.send(QuantumInstruction {
+                state.send(QuantumBackendInstruction {
                     instruction_name: stringify!($gate),
                     targets: smallvec![$($qubit),+],
                     classical_parameters: smallvec![],
@@ -180,7 +180,7 @@ macro_rules! rotations {
             // SAFETY: Called only by a generated, signature-checked wrapper.
             unsafe { dispatch::<_>(ptr, |state| {
                 $(let $qubit = state.qubit($qubit)?;)+
-                state.send(QuantumInstruction {
+                state.send(QuantumBackendInstruction {
                     instruction_name: stringify!($gate),
                     targets: smallvec![$($qubit),+],
                     classical_parameters: smallvec![ClassicalParameter::Float(angle)],
@@ -200,7 +200,7 @@ macro_rules! measurement {
                 dispatch::<_>(ptr, |state| {
                     let qubit = state.qubit(qubit)?;
                     state.result_slot(result)?;
-                    state.send(QuantumInstruction {
+                    state.send(QuantumBackendInstruction {
                         instruction_name: stringify!($method),
                         targets: smallvec![qubit],
                         classical_parameters: smallvec![ClassicalParameter::ResultId(

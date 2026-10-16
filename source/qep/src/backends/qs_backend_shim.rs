@@ -4,7 +4,7 @@
 use crate::{
     BatchResult,
     ClassicalParameter::{Float, ResultId},
-    QuantumBackend, QuantumBackendResult, QuantumInstruction,
+    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
 use qsc_eval::{backend::Backend, val};
 use rustc_hash::FxHashMap;
@@ -89,7 +89,7 @@ impl<B: Backend> QsBackendShim<B> {
     #[allow(clippy::too_many_lines)] // Keep all supported instruction patterns in one dispatch table.
     fn dispatch(
         &mut self,
-        instruction: &QuantumInstruction,
+        instruction: &QuantumBackendInstruction,
     ) -> Result<Option<QuantumBackendResult>, String> {
         let result = match (
             instruction.instruction_name,
@@ -207,7 +207,7 @@ impl<B: Backend> QsBackendShim<B> {
 
 impl<B: Backend> QuantumBackend for QsBackendShim<B> {
     /// Delegates a batch of QIR instructions to the wrapped Q# evaluator backend.
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
+    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
         let mut result = BatchResult::default();
         for instruction in instructions {
             if let Some(value) = self

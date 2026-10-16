@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{ClassicalParameter, QuantumBackend, QuantumBackendResult, QuantumInstruction};
+use crate::{ClassicalParameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult};
 use smallvec::smallvec;
 
 /// Default number of instructions sent to a backend in one batch.
@@ -10,7 +10,7 @@ pub const DEFAULT_MAX_BATCH_SIZE: usize = 10_000;
 /// Buffers QIR instructions and executes batches at capacity or result barriers.
 pub(crate) struct Batcher<'a> {
     backend: &'a mut dyn QuantumBackend,
-    instructions: Vec<QuantumInstruction>,
+    instructions: Vec<QuantumBackendInstruction>,
     max_batch_size: usize,
 }
 
@@ -31,7 +31,7 @@ impl<'a> Batcher<'a> {
     }
 
     /// Buffers a non-blocking instruction and flushes a full batch.
-    pub(crate) fn push(&mut self, instruction: QuantumInstruction) -> Result<(), String> {
+    pub(crate) fn push(&mut self, instruction: QuantumBackendInstruction) -> Result<(), String> {
         if instruction.instruction_name == "read_result" {
             return Err("read_result must be submitted through the result barrier".into());
         }
@@ -44,7 +44,7 @@ impl<'a> Batcher<'a> {
 
     /// Flushes pending instructions with a final result read and returns its value.
     pub(crate) fn read_result(&mut self, result_id: usize) -> Result<bool, String> {
-        self.instructions.push(QuantumInstruction {
+        self.instructions.push(QuantumBackendInstruction {
             instruction_name: "read_result",
             targets: smallvec![],
             classical_parameters: smallvec![ClassicalParameter::ResultId(result_id)],
@@ -87,18 +87,18 @@ impl<'a> Batcher<'a> {
 #[cfg(test)]
 mod tests {
     use super::Batcher;
-    use crate::{BatchResult, QuantumBackend, QuantumBackendResult, QuantumInstruction};
+    use crate::{BatchResult, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult};
     use std::collections::VecDeque;
 
     #[derive(Default)]
     struct RecordingBackend {
-        batches: Vec<Vec<QuantumInstruction>>,
+        batches: Vec<Vec<QuantumBackendInstruction>>,
         results: VecDeque<BatchResult>,
     }
 
     impl QuantumBackend for RecordingBackend {
         /// Records each batch and returns the next configured result.
-        fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
+        fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
             self.batches.push(instructions.to_vec());
             self.results.pop_front().unwrap_or_default()
         }
@@ -110,17 +110,17 @@ mod tests {
         let mut backend = RecordingBackend::default();
         {
             let mut batcher = Batcher::new(&mut backend, 2)?;
-            batcher.push(crate::QuantumInstruction {
+            batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![],
             })?;
-            batcher.push(crate::QuantumInstruction {
+            batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "x",
                 targets: smallvec::smallvec![1],
                 classical_parameters: smallvec::smallvec![],
             })?;
-            batcher.push(crate::QuantumInstruction {
+            batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "z",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![],
@@ -145,7 +145,7 @@ mod tests {
         };
         let value = {
             let mut batcher = Batcher::new(&mut backend, 10)?;
-            batcher.push(crate::QuantumInstruction {
+            batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "mz",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
@@ -157,14 +157,14 @@ mod tests {
         assert_eq!(
             backend.batches[0].as_slice(),
             &[
-                crate::QuantumInstruction {
+                crate::QuantumBackendInstruction {
                     instruction_name: "mz",
                     targets: smallvec::smallvec![0],
                     classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                         1
                     )]
                 },
-                crate::QuantumInstruction {
+                crate::QuantumBackendInstruction {
                     instruction_name: "read_result",
                     targets: smallvec::smallvec![],
                     classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
@@ -216,7 +216,7 @@ mod tests {
             let error = if expects_result {
                 batcher.read_result(0).expect_err("invalid result")
             } else {
-                batcher.push(crate::QuantumInstruction {
+                batcher.push(crate::QuantumBackendInstruction {
                     instruction_name: "h",
                     targets: smallvec::smallvec![0],
                     classical_parameters: smallvec::smallvec![],

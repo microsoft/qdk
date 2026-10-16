@@ -4,7 +4,7 @@
 use crate::{
     BatchResult,
     ClassicalParameter::{Float, ResultId},
-    QuantumBackend, QuantumBackendResult, QuantumInstruction,
+    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
 use num_bigint::BigUint;
 use num_complex::Complex64;
@@ -250,7 +250,7 @@ impl SparseSimBackend {
 
 impl QuantumBackend for SparseSimBackend {
     /// Simulates QIR instructions and returns each requested measurement in order.
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
+    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
         let mut batch_result = BatchResult::default();
         for instruction in instructions {
             let result = match (

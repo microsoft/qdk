@@ -5,7 +5,7 @@ use super::{OutputRecord, OutputValue, RunOutput, execute, run_qir};
 use crate::{
     BatchResult,
     ClassicalParameter::{Float, ResultId},
-    DEFAULT_MAX_BATCH_SIZE, QuantumBackend, QuantumBackendResult, QuantumInstruction,
+    DEFAULT_MAX_BATCH_SIZE, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
     SequentialCountingProfiler,
 };
 use inkwell::{context::Context, memory_buffer::MemoryBuffer};
@@ -111,7 +111,7 @@ impl Recorder {
 
 impl QuantumBackend for Recorder {
     /// Records instructions and supplies each requested measurement in read order.
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult {
+    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
         let mut batch_result = BatchResult::default();
         for instruction in instructions {
             let result = match (
@@ -166,7 +166,7 @@ fn recorder_supports_multiple_reads_per_batch() {
         measurements: VecDeque::from([true, false, true]),
         ..Default::default()
     };
-    let empty = backend.execute_batch(&[crate::QuantumInstruction {
+    let empty = backend.execute_batch(&[crate::QuantumBackendInstruction {
         instruction_name: "h",
         targets: smallvec::smallvec![0],
         classical_parameters: smallvec::smallvec![],
@@ -175,37 +175,37 @@ fn recorder_supports_multiple_reads_per_batch() {
     assert!(!empty.results.spilled());
 
     let multiple = backend.execute_batch(&[
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "mz",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "read_result",
             targets: smallvec::smallvec![],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "x",
             targets: smallvec::smallvec![1],
             classical_parameters: smallvec::smallvec![],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "mresetz",
             targets: smallvec::smallvec![1],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "read_result",
             targets: smallvec::smallvec![],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "read_result",
             targets: smallvec::smallvec![],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "h",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![],
@@ -216,17 +216,17 @@ fn recorder_supports_multiple_reads_per_batch() {
     assert_eq!(backend.events.last(), Some(&Event("h", vec![0], None)));
 
     let single = backend.execute_batch(&[
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "mz",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "read_result",
             targets: smallvec::smallvec![],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
-        crate::QuantumInstruction {
+        crate::QuantumBackendInstruction {
             instruction_name: "x",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![],
@@ -664,7 +664,7 @@ fn backend_must_return_requested_result() {
 
     impl QuantumBackend for MissingResultBackend {
         /// Intentionally violates the batch result protocol.
-        fn execute_batch(&mut self, _instructions: &[QuantumInstruction]) -> BatchResult {
+        fn execute_batch(&mut self, _instructions: &[QuantumBackendInstruction]) -> BatchResult {
             BatchResult::default()
         }
     }
@@ -696,7 +696,7 @@ fn backend_error_results_terminate_execution() {
 
     impl QuantumBackend for ErrorBackend {
         /// Reports an error for every submitted batch.
-        fn execute_batch(&mut self, _instructions: &[QuantumInstruction]) -> BatchResult {
+        fn execute_batch(&mut self, _instructions: &[QuantumBackendInstruction]) -> BatchResult {
             BatchResult {
                 results: [QuantumBackendResult::Error].into_iter().collect(),
             }

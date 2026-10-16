@@ -15,7 +15,7 @@ pub enum ClassicalParameter {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct QuantumInstruction {
+pub struct QuantumBackendInstruction {
     pub instruction_name: &'static str,
     pub targets: SmallVec<[QubitID; 3]>,
     pub classical_parameters: SmallVec<[ClassicalParameter; 1]>,
@@ -37,7 +37,7 @@ pub struct BatchResult {
 
 pub trait QuantumBackend {
     /// Produces exactly one result per `read_result` in input, in the same order.
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult;
+    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult;
 }
 
 // End of interface definition.
