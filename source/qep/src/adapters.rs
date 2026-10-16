@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod decompose_toffoli_adapter;
 mod result_adapter;
 
+pub use decompose_toffoli_adapter::DecomposeToffoliAdapter;
 pub use result_adapter::ResultAdapter;
 
 use crate::{Profiler, QuantumBackend};

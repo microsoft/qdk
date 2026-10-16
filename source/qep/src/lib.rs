@@ -21,7 +21,7 @@ pub mod instructions;
 pub mod interface;
 mod profilers;
 mod runner;
-pub use adapters::ResultAdapter;
+pub use adapters::{DecomposeToffoliAdapter, ResultAdapter};
 pub use backends::{QsBackendShim, SparseSimBackend};
 pub use instructions::{
     InstructionId, OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id,
