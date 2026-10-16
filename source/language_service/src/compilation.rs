@@ -107,7 +107,13 @@ impl Compilation {
             unit,
         );
 
-        run_linter_passes(&mut compile_errors, &package_store, unit, lints_config);
+        run_linter_passes(
+            &mut compile_errors,
+            &package_store,
+            unit,
+            target_profile,
+            lints_config,
+        );
 
         let test_cases = unit.package.get_test_callables();
 
@@ -225,7 +231,13 @@ impl Compilation {
             unit,
         );
 
-        run_linter_passes(&mut errors, &package_store, unit, lints_config);
+        run_linter_passes(
+            &mut errors,
+            &package_store,
+            unit,
+            target_profile,
+            lints_config,
+        );
 
         let test_cases = unit.package.get_test_callables();
 
@@ -468,10 +480,12 @@ fn run_linter_passes(
     errors: &mut Vec<WithSource<compile::ErrorKind>>,
     package_store: &PackageStore,
     unit: &CompileUnit,
+    target_profile: Profile,
     config: &[LintOrGroupConfig],
 ) {
     if errors.is_empty() {
-        let lints = qsc::linter::run_lints(package_store, unit, Some(config));
+        let lints =
+            qsc::linter::run_lints(package_store, unit, target_profile.into(), Some(config));
         let lints = lints
             .into_iter()
             .filter(|lint| !matches!(lint.level, LintLevel::Allow))

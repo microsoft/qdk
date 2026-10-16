@@ -9,7 +9,9 @@ use crate::{
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures,
+    source::SourceMap,
+    target::{Profile, TargetCapabilityFlags},
 };
 use qsc_frontend::compile::{self, PackageStore};
 use qsc_hir::hir::CallableKind;
@@ -1283,15 +1285,35 @@ fn check_that_hir_lints_are_deduplicated_in_operations_with_multiple_specializat
 }
 
 fn compile_and_collect_lints(source: &str, config: Option<&[LintOrGroupConfig]>) -> Vec<Lint> {
+    let (lints, _) = compile_for_target_and_collect_lints(
+        &[("source.qs", source)],
+        TargetCapabilityFlags::all(),
+        config,
+    );
+    lints
+}
+
+/// Compiles `sources`, given as `(name, contents)` pairs, for a target with the given
+/// `capabilities`. Returns the lints along with any compilation errors.
+fn compile_for_target_and_collect_lints(
+    sources: &[(&str, &str)],
+    capabilities: TargetCapabilityFlags,
+    config: Option<&[LintOrGroupConfig]>,
+) -> (Vec<Lint>, Vec<qsc::compile::Error>) {
     let mut store = PackageStore::new(compile::core());
-    let std = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
-    let sources = SourceMap::new([("source.qs".into(), source.into())], None);
-    let (unit, _) = qsc::compile::compile(
+    let std = store.insert(compile::std(&store, capabilities));
+    let sources = SourceMap::new(
+        sources
+            .iter()
+            .map(|&(name, contents)| (name.into(), contents.into())),
+        None,
+    );
+    let (unit, errors) = qsc::compile::compile(
         &store,
         &[(std, None)],
         sources,
         PackageType::Exe,
-        TargetCapabilityFlags::all(),
+        capabilities,
         LanguageFeatures::default(),
     );
 
@@ -1307,7 +1329,8 @@ fn compile_and_collect_lints(source: &str, config: Option<&[LintOrGroupConfig]>)
         actual_config.extend_from_slice(c);
     }
 
-    run_lints_without_deduplication(&store, unit, Some(&actual_config))
+    let lints = run_lints_without_deduplication(&store, unit, capabilities, Some(&actual_config));
+    (lints, errors)
 }
 
 #[test]
@@ -1453,6 +1476,679 @@ fn avoid_namespace_block_with_doc_comments() {
     .assert_debug_eq(&actual);
 }
 
+#[test]
+fn prefer_mresetz_for_m_on_base_profile() {
+    check_for_target(
+        indoc! {"
+            operation Main() : Result {
+                use q = Qubit();
+                H(q);
+                let r = M(q);
+                Reset(q);
+                r
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 71,
+                                        hi: 72,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_for_measure_each_z_on_base_profile() {
+    check_for_target(
+        indoc! {"
+            operation Main() : Result[] {
+                use qs = Qubit[2];
+                H(qs[0]);
+                let rs = MeasureEachZ(qs);
+                ResetAll(qs);
+                rs
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "MeasureEachZ",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetEachZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetEachZ",
+                                    Span {
+                                        lo: 80,
+                                        hi: 92,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_for_m_passed_as_value_on_base_profile() {
+    check_for_target(
+        indoc! {"
+            import Std.Arrays.ForEach;
+
+            operation Main() : Result[] {
+                use qs = Qubit[2];
+                let rs = ForEach(M, qs);
+                ResetAll(qs);
+                rs
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 102,
+                                        hi: 103,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_for_qualified_m_on_base_profile() {
+    check_for_target(
+        indoc! {"
+            operation Main() : Result[] {
+                use q = Qubit();
+                let a = Std.Intrinsic.M(q);
+                let b = Microsoft.Quantum.Intrinsic.M(q);
+                Reset(q);
+                [a, b]
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "Std.Intrinsic.M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 63,
+                                        hi: 78,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "Microsoft.Quantum.Intrinsic.M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 95,
+                                        hi: 124,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_not_reported_on_targets_with_qubit_reuse() {
+    let source = indoc! {"
+        operation Main() : Result {
+            use q = Qubit();
+            H(q);
+            let r = M(q);
+            Reset(q);
+            r
+        }
+    "};
+    check_for_target(
+        source,
+        Profile::AdaptiveRI.into(),
+        &expect![[r#"
+        []
+    "#]],
+    );
+    check_for_target(
+        source,
+        Profile::Unrestricted.into(),
+        &expect![[r#"
+        []
+    "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_not_reported_for_measurements_with_reset() {
+    check_for_target(
+        indoc! {"
+            operation Main() : Result[] {
+                use q = Qubit();
+                use qs = Qubit[2];
+                let r = MResetZ(q);
+                let rs = MResetEachZ(qs);
+                [r] + rs
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_not_reported_for_user_defined_m() {
+    check_for_target(
+        indoc! {"
+            operation M(q : Qubit) : Result {
+                MResetZ(q)
+            }
+
+            operation Main() : Result {
+                use q = Qubit();
+                M(q)
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_not_reported_in_test_callables() {
+    check_for_target(
+        indoc! {r#"
+            import Std.Diagnostics.Fact;
+
+            operation Main() : Result {
+                use q = Qubit();
+                let r = M(q);
+                Reset(q);
+                r
+            }
+
+            @Test()
+            operation MeasurementKeepsState() : Unit {
+                use q = Qubit();
+                X(q);
+                let measure = qubit => M(qubit);
+                let results = [M(q), measure(q)];
+                Fact(results == [One, One], "`M` should not reset the qubit");
+                Reset(q);
+            }
+        "#},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 91,
+                                        hi: 92,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_not_reported_in_simulatable_intrinsics() {
+    check_for_target(
+        indoc! {"
+            @SimulatableIntrinsic()
+            operation Dephase(q : Qubit) : Unit {
+                M(q);
+            }
+
+            operation Main() : Result {
+                use q = Qubit();
+                Dephase(q);
+                let r = M(q);
+                Reset(q);
+                r
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 152,
+                                        hi: 153,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_quick_fix_omitted_when_std_is_a_local() {
+    check_for_target(
+        indoc! {"
+            operation Main() : Result {
+                use q = Qubit();
+                let Std = 5;
+                let r = M(q);
+                Reset(q);
+                r
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_quick_fix_omitted_when_std_is_declared_again_later() {
+    check_for_target(
+        indoc! {"
+            operation Main() : Result {
+                use q = Qubit();
+                let Std = 5;
+                let r = M(q);
+                let Std = 6;
+                Reset(q);
+                r
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_quick_fix_omitted_with_nested_std_namespace() {
+    check_for_target(
+        indoc! {"
+            namespace App.Std.Measurement {
+                operation MResetZ(q : Qubit) : Result {
+                    Reset(q);
+                    Zero
+                }
+            }
+
+            namespace App {
+                operation Main() : Result {
+                    use q = Qubit();
+                    let r = M(q);
+                    Reset(q);
+                    r
+                }
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_quick_fix_omitted_with_std_namespace_export() {
+    check_for_target(
+        indoc! {"
+            namespace Replacement {
+                operation MResetZ(q : Qubit) : Result {
+                    Reset(q);
+                    Zero
+                }
+            }
+
+            namespace App.Std {
+                export Replacement as Measurement;
+            }
+
+            namespace App {
+                operation Main() : Result {
+                    use q = Qubit();
+                    let r = M(q);
+                    Reset(q);
+                    r
+                }
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_quick_fix_omitted_with_std_alias() {
+    check_for_target(
+        indoc! {"
+            namespace App.Lib.Measurement {
+                operation MResetZ(q : Qubit) : Result {
+                    Reset(q);
+                    Zero
+                }
+            }
+
+            namespace App {
+                import App.Lib as Std;
+
+                operation Main() : Result {
+                    use q = Qubit();
+                    let r = M(q);
+                    Reset(q);
+                    r
+                }
+            }
+        "},
+        Profile::Base.into(),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Warn,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn prefer_mresetz_quick_fix_omitted_with_std_namespace_in_dependency() {
+    // A dependency only registers the last segment of each namespace as importable,
+    // so `Lib.X.Std` must be found through the namespace path.
+    let capabilities = Profile::Base.into();
+    let mut store = PackageStore::new(compile::core());
+    let std = store.insert(compile::std(&store, capabilities));
+    let lib_source = indoc! {"
+        namespace X.Std.Measurement {
+            operation MResetZ(q : Qubit) : Result {
+                Reset(q);
+                Zero
+            }
+            export MResetZ;
+        }
+    "};
+    let (lib, lib_errors) = qsc::compile::compile(
+        &store,
+        &[(std, None)],
+        SourceMap::new([("Lib.qs".into(), lib_source.into())], None),
+        PackageType::Lib,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert!(
+        lib_errors.is_empty(),
+        "dependency should compile: {lib_errors:?}"
+    );
+    let lib = store.insert(lib);
+
+    let source = indoc! {"
+        import Lib.X.*;
+
+        operation Main() : Result {
+            use q = Qubit();
+            let r = M(q);
+            Reset(q);
+            r
+        }
+    "};
+    let (unit, errors) = qsc::compile::compile(
+        &store,
+        &[(std, None), (lib, Some("Lib".into()))],
+        SourceMap::new([("source.qs".into(), source.into())], None),
+        PackageType::Exe,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert!(errors.is_empty(), "source should compile: {errors:?}");
+    let id = store.insert(unit);
+    let unit = store.get(id).expect("user package should exist");
+
+    let actual: Vec<_> = run_lints_without_deduplication(&store, unit, capabilities, None)
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "M",
+                level: Warn,
+                message: "measurement without reset on a target that does not support qubit reuse",
+                help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                code_action: None,
+            },
+        ]
+    "#]].assert_debug_eq(&actual);
+}
+
+#[test]
+fn prefer_mresetz_not_reported_in_circuit_files() {
+    let main = indoc! {"
+        operation Main() : Result {
+            use q = Qubit();
+            let r = M(q);
+            Reset(q);
+            r
+        }
+    "};
+    // Circuit files (`.qsc`) are converted to generated Q# like this before compiling.
+    let circuit = indoc! {"
+        operation Circuit(q : Qubit) : Result {
+            H(q);
+            M(q)
+        }
+    "};
+    let (lints, errors) = compile_for_target_and_collect_lints(
+        &[("Main.qs", main), ("Circuit.qsc", circuit)],
+        Profile::Base.into(),
+        None,
+    );
+    assert!(errors.is_empty(), "sources should compile: {errors:?}");
+    // Only the `M` in `Main.qs`, the first source, is reported, so its span maps onto `main`.
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, main))
+        .collect();
+    expect![[r#"
+        [
+            SrcLint {
+                source: "M",
+                level: Warn,
+                message: "measurement without reset on a target that does not support qubit reuse",
+                help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                code_action: Some(
+                    CodeAction {
+                        title: "Replace with `MResetZ` (resets after measuring)",
+                        edits: [
+                            (
+                                "Std.Measurement.MResetZ",
+                                Span {
+                                    lo: 61,
+                                    hi: 62,
+                                },
+                            ),
+                        ],
+                    },
+                ),
+            },
+        ]
+    "#]].assert_debug_eq(&actual);
+}
+
+#[test]
+fn prefer_mresetz_level_can_be_configured() {
+    check_for_target_with_config(
+        indoc! {"
+            operation Main() : Result {
+                use q = Qubit();
+                M(q)
+            }
+        "},
+        Profile::Base.into(),
+        Some(&[LintOrGroupConfig::Lint(LintConfig {
+            kind: LintKind::Hir(crate::HirLint::PreferMResetZ),
+            level: LintLevel::Allow,
+        })]),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "M",
+                    level: Allow,
+                    message: "measurement without reset on a target that does not support qubit reuse",
+                    help: "if the qubit's state after measurement is not needed, use `MResetZ` or `MResetEachZ` instead; on this target, any later use of a qubit measured without reset, even `Reset`, costs an extra CNOT gate and often an extra qubit",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace with `MResetZ` (resets after measuring)",
+                            edits: [
+                                (
+                                    "Std.Measurement.MResetZ",
+                                    Span {
+                                        lo: 53,
+                                        hi: 54,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+            ]
+        "#]],
+    );
+}
+
 fn check(source: &str, expected: &Expect) {
     let source = wrap_in_namespace(source);
     let actual: Vec<_> = compile_and_collect_lints(&source, None)
@@ -1478,6 +2174,30 @@ fn check_with_deduplication(source: &str, expected: &Expect) {
     let actual: Vec<_> = lints
         .into_iter()
         .map(|lint| SrcLint::from(&lint, &source))
+        .collect();
+    expected.assert_debug_eq(&actual);
+}
+
+/// Like [`check`], but compiles `source` for a target with the given `capabilities`,
+/// and requires it to compile without errors.
+fn check_for_target(source: &str, capabilities: TargetCapabilityFlags, expected: &Expect) {
+    check_for_target_with_config(source, capabilities, None, expected);
+}
+
+/// Like [`check_with_config`], but compiles `source` for a target with the given
+/// `capabilities`, and requires it to compile without errors.
+fn check_for_target_with_config(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+    config: Option<&[LintOrGroupConfig]>,
+    expected: &Expect,
+) {
+    let (lints, errors) =
+        compile_for_target_and_collect_lints(&[("source.qs", source)], capabilities, config);
+    assert!(errors.is_empty(), "source should compile: {errors:?}");
+    let actual: Vec<_> = lints
+        .into_iter()
+        .map(|lint| SrcLint::from(&lint, source))
         .collect();
     expected.assert_debug_eq(&actual);
 }
