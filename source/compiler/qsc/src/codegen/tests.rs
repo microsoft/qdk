@@ -3657,6 +3657,89 @@ fn inline_measurement_capture_is_evaluated_once() {
 }
 
 #[test]
+fn aliased_guards_select_expected_gate() {
+    for (threshold, expected, excluded) in [(1, "h", "z"), (3, "z", "h")] {
+        let source = format!(
+            r#"
+            namespace Demo {{
+                function Choose(b : Bool) : (Qubit => Unit) {{
+                    if b {{ H }} else {{ if b {{ X }} else {{ Z }} }}
+                }}
+                @EntryPoint()
+                operation Main() : Result {{
+                    use q = Qubit();
+                    let arr = [1, 2, 3];
+                    let x = Length(arr) > {threshold};
+                    let f = Choose(x);
+                    f(q);
+                    MResetZ(q)
+                }}
+            }}
+            "#
+        );
+        for profile in [
+            Profile::Base,
+            Profile::AdaptiveRI,
+            Profile::AdaptiveRIF,
+            Profile::Adaptive,
+        ] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, &source);
+            for (path, qir) in [
+                ("program", compile_source_to_qir(&source, profile.into())),
+                (
+                    "interpreter",
+                    interpreter
+                        .qirgen("Demo.Main()")
+                        .expect("issue 3768 must generate QIR"),
+                ),
+            ] {
+                assert_eq!(
+                    qir.matches(&format!("call void @__quantum__qis__{expected}__body("))
+                        .count(),
+                    1,
+                    "{profile:?} {path} must select {expected} for threshold {threshold}:\n{qir}"
+                );
+                assert!(
+                    !qir.contains("call void @__quantum__qis__x__body(")
+                        && !qir.contains(&format!("call void @__quantum__qis__{excluded}__body(")),
+                    "{profile:?} {path} must not select another branch:\n{qir}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_runtime_guards_compile() {
+    let source = indoc::indoc! {r#"
+        namespace Demo {
+            function Choose(b : Bool) : (Qubit => Unit) {
+                if b { H } else { if b { X } else { Z } }
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use target = Qubit();
+                use guard = Qubit();
+                let flag = MResetZ(guard) == One;
+                let action = Choose(flag);
+                action(target);
+                MResetZ(target)
+            }
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("br i1")
+                && qir.contains("call void @__quantum__qis__h__body(")
+                && qir.contains("call void @__quantum__qis__z__body("),
+            "{profile:?} must retain both runtime outcomes:\n{qir}"
+        );
+    }
+}
+
+#[test]
 fn nested_runtime_guards_compile_on_adaptive_profiles() {
     let source = indoc::indoc! {r#"
         namespace Test {

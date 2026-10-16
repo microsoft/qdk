@@ -2172,6 +2172,367 @@ fn nested_callable_return_preserves_runtime_guards() {
 }
 
 #[test]
+fn aliased_guards_preserve_branch_order() {
+    for first in [false, true] {
+        for second in [false, true] {
+            for (selection, expected) in [
+                (
+                    "if first { Inc } else { if first { Twice } else { Minus } }",
+                    if first { 4 } else { 2 },
+                ),
+                (
+                    "if first { if first { Inc } else { Twice } } else { Minus }",
+                    if first { 4 } else { 2 },
+                ),
+                (
+                    "if first { Inc } else { if second { Twice } else { if first { Minus } else { Offset } } }",
+                    if first {
+                        4
+                    } else if second {
+                        6
+                    } else {
+                        13
+                    },
+                ),
+                (
+                    "if first { if second { Inc } else { Twice } } else { if first { Minus } else { Offset } }",
+                    if first {
+                        if second { 4 } else { 6 }
+                    } else {
+                        13
+                    },
+                ),
+                (
+                    "if first { if second { Inc } else { Twice } } else { if first { Minus } else { if second { Offset } else { Inc } } }",
+                    if first {
+                        if second { 4 } else { 6 }
+                    } else if second {
+                        13
+                    } else {
+                        4
+                    },
+                ),
+                (
+                    "if first { if first { Inc } else { if second { Twice } else { Minus } } } else { Offset }",
+                    if first { 4 } else { 13 },
+                ),
+            ] {
+                for invocation in ["action(3)", "Apply(action)"] {
+                    let source = format!(
+                        r#"
+                        function Inc(value : Int) : Int {{ value + 1 }}
+                        function Twice(value : Int) : Int {{ value * 2 }}
+                        function Minus(value : Int) : Int {{ value - 1 }}
+                        function Offset(value : Int) : Int {{ value + 10 }}
+                        function Apply(action : Int -> Int) : Int {{ action(3) }}
+                        function Choose(first : Bool, second : Bool) : Int -> Int {{
+                            {selection}
+                        }}
+                        @EntryPoint()
+                        operation Main() : Int {{
+                            use left = Qubit();
+                            use right = Qubit();
+                            {prepare_left}
+                            {prepare_right}
+                            let first = MResetZ(left) == One;
+                            let second = MResetZ(right) == One;
+                            let action = Choose(first, second);
+                            {invocation}
+                        }}
+                        "#,
+                        prepare_left = if first { "X(left);" } else { "" },
+                        prepare_right = if second { "X(right);" } else { "" },
+                    );
+                    crate::test_utils::check_semantic_equivalence_with_expected(
+                        &source,
+                        qsc_eval::val::Value::Int(expected),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn aliased_guards_preserve_captures_and_effects() {
+    for flag in [false, true] {
+        for invocation in [
+            r#"action({ Message("argument"); 3 })"#,
+            r#"Apply(action, { Message("argument"); 3 })"#,
+        ] {
+            let source = format!(
+                r#"
+                function Choose(flag : Bool, offset : Int) : Int -> Int {{
+                    if flag {{
+                        value -> {{ Message("first"); value + offset }}
+                    }} else {{
+                        if flag {{
+                            value -> {{ Message("unreachable"); value + 2 * offset }}
+                        }} else {{
+                            value -> {{ Message("last"); value - offset }}
+                        }}
+                    }}
+                }}
+                function Apply(action : Int -> Int, value : Int) : Int {{ action(value) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    use guard = Qubit();
+                    {prepare}
+                    mutable offset = 10;
+                    let action = Choose(
+                        MResetZ(guard) == One,
+                        {{ Message("capture"); offset }}
+                    );
+                    set offset = 20;
+                    let first = {invocation};
+                    first * 100 + action(4)
+                }}
+                "#,
+                prepare = if flag { "X(guard);" } else { "" },
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected_output(
+                &source,
+                qsc_eval::val::Value::Int(if flag { 1314 } else { -706 }),
+                if flag {
+                    "capture\nargument\nfirst\nfirst\n"
+                } else {
+                    "capture\nargument\nlast\nlast\n"
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn aliased_guards_specialize_captures() {
+    for flag in [false, true] {
+        for invocation in ["action(3)", "Apply(action)"] {
+            let source = format!(
+                r#"
+                function Choose(flag : Bool, offset : Int) : Int -> Int {{
+                    if flag {{
+                        value -> value + offset
+                    }} else {{
+                        if flag {{ value -> value * offset }}
+                        else {{ value -> value - offset }}
+                    }}
+                }}
+                function Apply(action : Int -> Int) : Int {{ action(3) }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    use guard = Qubit();
+                    use capture = Qubit();
+                    {prepare}
+                    X(capture);
+                    let flag = MResetZ(guard) == One;
+                    let offset = if MResetZ(capture) == One {{ 10 }} else {{ 20 }};
+                    let action = Choose(flag, offset);
+                    {invocation}
+                }}
+                "#,
+                prepare = if flag { "X(guard);" } else { "" },
+            );
+            check_invariants(&source);
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(if flag { 13 } else { -7 }),
+            );
+        }
+    }
+}
+
+#[test]
+fn incomplete_guarded_dispatch_leaves_calls_unchanged() {
+    for invocation in ["action(3)", "Apply(action)"] {
+        for (selection, nested) in [
+            (
+                "if first { if second { Inc } else { Twice } } else { Minus }",
+                true,
+            ),
+            (
+                "if first { Inc } else { if second { Twice } else { Minus } }",
+                false,
+            ),
+        ] {
+            if invocation == "action(3)" && !nested {
+                continue;
+            }
+            for missing_guard_count in [0, 1] {
+                let source = format!(
+                    r#"
+                function Inc(value : Int) : Int {{ value + 1 }}
+                function Twice(value : Int) : Int {{ value * 2 }}
+                function Minus(value : Int) : Int {{ value - 1 }}
+                function Apply(action : Int -> Int) : Int {{ action(3) }}
+                function Choose(first : Bool, second : Bool) : Int -> Int {{
+                    {selection}
+                }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    use left = Qubit();
+                    use right = Qubit();
+                    let first = MResetZ(left) == One;
+                    let second = MResetZ(right) == One;
+                    let action = Choose(first, second);
+                    {invocation}
+                }}
+                "#
+                );
+                let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+                let mut analysis = run_prepass_and_analysis(&mut store, package_id);
+                let mut assigners = PackageAssigners::new(&store, package_id);
+                let mut errors = Vec::new();
+                let mut warnings = Vec::new();
+                let mut specs = super::super::run_specialization(
+                    &mut store,
+                    &analysis,
+                    &mut assigners,
+                    &mut errors,
+                    &mut warnings,
+                );
+                assert_no_defunctionalization_errors("specialization", &errors);
+                assert!(warnings.is_empty(), "{warnings:?}");
+                if invocation == "action(3)" {
+                    let call = analysis
+                        .direct_call_sites
+                        .iter()
+                        .find(|site| site.condition.len() == 2)
+                        .expect("fixture must have a nested guarded direct call")
+                        .call_expr_id;
+                    let before = analysis.direct_call_sites.len();
+                    analysis.direct_call_sites.retain(|site| {
+                        site.call_expr_id != call || site.condition.len() != missing_guard_count
+                    });
+                    assert_eq!(analysis.direct_call_sites.len(), before - 1);
+                } else {
+                    let site = analysis
+                        .call_sites
+                        .iter()
+                        .find(|site| site.condition.len() == missing_guard_count)
+                        .expect("fixture must have the candidate specialization to remove");
+                    assert!(specs.remove(&super::super::build_spec_key(site)).is_some());
+                }
+                let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+                let mut total_foreign = crate::walk_utils::collect_total_foreign_callables(&store);
+                crate::walk_utils::extend_with_discardable_foreign_callables(
+                    &store,
+                    &mut total_foreign,
+                );
+                super::super::rewrite_call_sites(
+                    &mut store,
+                    package_id,
+                    &analysis,
+                    &specs,
+                    &Default::default(),
+                    &mut assigners,
+                    &total_foreign,
+                );
+                assert_eq!(
+                    crate::pretty::write_package_qsharp_parseable(&store, package_id),
+                    before,
+                    "{invocation} for {selection} must remain unchanged without the {missing_guard_count}-guard candidate"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn missing_dispatch_parameter_leaves_call_unchanged() {
+    for (apply, invocation, top_level_param, field_path) in [
+        (
+            "function Apply(prefix : Int -> Int, action : Int -> Int) : Int { prefix(1) * 100 + action(3) }",
+            "Apply(Offset, action)",
+            1,
+            vec![],
+        ),
+        (
+            "function Apply(actions : (Int -> Int, Int -> Int)) : Int { let (prefix, action) = actions; prefix(1) * 100 + action(3) }",
+            "Apply((Offset, action))",
+            0,
+            vec![1],
+        ),
+    ] {
+        let source = format!(
+            r#"
+        function Inc(value : Int) : Int {{ value + 1 }}
+        function Twice(value : Int) : Int {{ value * 2 }}
+        function Minus(value : Int) : Int {{ value - 1 }}
+        function Offset(value : Int) : Int {{ value + 10 }}
+        {apply}
+        function Choose(first : Bool, second : Bool) : Int -> Int {{
+            if first {{ Inc }} else {{ if second {{ Twice }} else {{ Minus }} }}
+        }}
+        @EntryPoint()
+        operation Main() : Int {{
+            use left = Qubit();
+            use right = Qubit();
+            let first = MResetZ(left) == One;
+            let second = MResetZ(right) == One;
+            let action = Choose(first, second);
+            {invocation}
+        }}
+        "#
+        );
+        let (mut store, package_id) = compile_to_monomorphized_fir(&source);
+        let mut analysis = run_prepass_and_analysis(&mut store, package_id);
+        let mut assigners = PackageAssigners::new(&store, package_id);
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let specs = super::super::run_specialization(
+            &mut store,
+            &analysis,
+            &mut assigners,
+            &mut errors,
+            &mut warnings,
+        );
+        assert_no_defunctionalization_errors("specialization", &errors);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let site = analysis
+            .call_sites
+            .iter()
+            .find(|site| {
+                site.top_level_param == top_level_param
+                    && site.field_path == field_path
+                    && !site.condition.is_empty()
+            })
+            .expect("fixture must dispatch the selected parameter path");
+        let hof = fir::StoreItemId::from((site.hof_item_id.package, site.hof_item_id.item));
+        let before_count = analysis.callable_params.len();
+        analysis.callable_params.retain(|param| {
+            param.callable_id != hof
+                || param.top_level_param != top_level_param
+                || param.field_path != field_path
+        });
+        assert_eq!(analysis.callable_params.len(), before_count - 1);
+        assert!(
+            analysis
+                .callable_params
+                .iter()
+                .any(|param| param.callable_id == hof),
+            "fixture must retain the other parameter to expose a wrong-slot fallback"
+        );
+        let before = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+        let mut total_foreign = crate::walk_utils::collect_total_foreign_callables(&store);
+        crate::walk_utils::extend_with_discardable_foreign_callables(&store, &mut total_foreign);
+        super::super::rewrite_call_sites(
+            &mut store,
+            package_id,
+            &analysis,
+            &specs,
+            &Default::default(),
+            &mut assigners,
+            &total_foreign,
+        );
+        assert_eq!(
+            crate::pretty::write_package_qsharp_parseable(&store, package_id),
+            before,
+            "missing parameter metadata must not select a different argument slot"
+        );
+    }
+}
+
+#[test]
 fn returned_callable_guards_keep_the_callers_scope() {
     let expected = |first, second| {
         if first {

@@ -36,7 +36,7 @@
 use super::captures::{CaptureDestination, allocate_capture_exprs, captures_belong_to_destination};
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CaptureScope, CapturedVar, ConcreteCallable,
-    DirectCallSite, ScopedLocal, SpecKey, peel_body_functors,
+    DirectCallSite, ScopedLocal, SpecKey, guards_form_complete_tree, peel_body_functors,
 };
 use super::{
     apply_target_input_at_control_path, build_combined_spec_key, build_combined_spec_key_for_group,
@@ -135,19 +135,7 @@ pub(super) fn rewrite(
     // caller.
     let mut hof_consumed_source_arrays = FxHashSet::default();
 
-    // Lowest-index lookup serves the per-row and branch-split paths, where
-    // every row of a group resolves the same parameter; it cannot distinguish
-    // between separate arrow parameters.
-    let param_lookup: FxHashMap<StoreItemId, &CallableParam> = {
-        let mut map = FxHashMap::default();
-        for p in &analysis.callable_params {
-            map.entry(p.callable_id).or_insert(p);
-        }
-        map
-    };
-
-    // Precise lookup keyed by parameter position recovers the exact parameter
-    // for each distinct slot of a combined multi-argument call.
+    // Every rewrite must resolve the exact parameter slot and nested field path.
     let param_by_position: FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam> = {
         let mut map = FxHashMap::default();
         for p in &analysis.callable_params {
@@ -255,7 +243,6 @@ pub(super) fn rewrite(
                         call_expr_id,
                         group,
                         spec_map,
-                        &param_lookup,
                         &param_by_position,
                         &expr_owner_lookup,
                         &mut rewritten_callable_arg_locals,
@@ -570,7 +557,8 @@ fn rewrite_mixed_branch_split_group(
 ///
 /// A single resolved entry uses the direct [`rewrite_one`] rewrite; multiple
 /// entries synthesize a condition-indexed dispatch via [`branch_split_rewrite`].
-/// Rows whose spec or parameter cannot be resolved are skipped.
+/// A dispatched parameter requires every candidate's specialization and parameter
+/// to resolve. Missing single-valued siblings may be left unspecialized.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn rewrite_per_row_group(
     package: &mut Package,
@@ -578,16 +566,29 @@ fn rewrite_per_row_group(
     call_expr_id: ExprId,
     group: &[&CallSite],
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
-    param_lookup: &FxHashMap<StoreItemId, &CallableParam>,
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
     expr_owner_lookup: &ExprOwnerLookup,
     rewritten_callable_arg_locals: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
 ) {
     let mut entries: Vec<HofDispatchTarget> = Vec::with_capacity(group.len());
+    let is_dispatch_candidate = |site: &CallSite| {
+        group
+            .iter()
+            .filter(|candidate| {
+                candidate.top_level_param == site.top_level_param
+                    && candidate.field_path == site.field_path
+            })
+            .take(2)
+            .count()
+            > 1
+    };
     for call_site in group {
         let spec_key = build_spec_key(call_site);
         let Some(&spec_store_id) = spec_map.get(&spec_key) else {
+            if is_dispatch_candidate(call_site) {
+                return;
+            }
             continue;
         };
         let hof_store_id =
@@ -599,10 +600,10 @@ fn rewrite_per_row_group(
             call_site.top_level_param,
             call_site.field_path.clone(),
         );
-        let Some(&param) = param_by_position
-            .get(&position_key)
-            .or_else(|| param_lookup.get(&hof_store_id))
-        else {
+        let Some(&param) = param_by_position.get(&position_key) else {
+            if is_dispatch_candidate(call_site) {
+                return;
+            }
             continue;
         };
         entries.push((call_site, spec_store_id, param));
@@ -1031,6 +1032,11 @@ fn branch_split_direct_call_rewrite(
     expr_owner_lookup: &ExprOwnerLookup,
     assigner: &mut Assigner,
 ) {
+    if entries.iter().any(|entry| !entry.condition.is_empty())
+        && !guards_form_complete_tree(entries.iter().map(|entry| entry.condition.as_slice()))
+    {
+        return;
+    }
     let orig_call = package.get_expr(call_expr_id).clone();
     let ExprKind::Call(orig_callee_id, orig_args_id) = orig_call.kind else {
         return;
@@ -1102,13 +1108,8 @@ fn branch_split_direct_call_rewrite(
         return;
     }
 
-    let default_entry = if let Some(entry) = default {
-        entry
-    } else {
-        if conditioned.is_empty() {
-            return;
-        }
-        conditioned.pop().expect("non-empty conditioned").0
+    let Some(default_entry) = default else {
+        return;
     };
 
     if conditioned.is_empty() {
@@ -6803,9 +6804,9 @@ fn materialize_early_mixed_captures(
 /// empty-condition entry becomes the default. When no entry carries a condition
 /// but more than one candidate exists, a synthetic index dispatch is derived
 /// from the callee's runtime-selected index via
-/// [`synthesize_callsite_index_dispatch`]. If no default is found, the last
-/// conditioned target is promoted to serve as the `else` arm. Returns `None`
-/// when there is no entry to dispatch at all.
+/// [`synthesize_callsite_index_dispatch`]. Guarded entries must form a complete
+/// decision tree with one explicit final default. Incomplete trees are left
+/// unresolved rather than guessing a default or dropping a guard.
 fn partition_branch_split_targets<'a>(
     package: &mut Package,
     package_id: PackageId,
@@ -6818,6 +6819,11 @@ fn partition_branch_split_targets<'a>(
     HofDispatchTarget<'a>,
     Option<ExprId>,
 )> {
+    if entries.iter().any(|entry| !entry.0.condition.is_empty())
+        && !guards_form_complete_tree(entries.iter().map(|entry| entry.0.condition.as_slice()))
+    {
+        return None;
+    }
     let mut conditioned: Vec<ConditionedHofTarget> = Vec::new();
     let mut default: Option<HofDispatchTarget> = None;
     for &entry in entries {
@@ -6854,12 +6860,7 @@ fn partition_branch_split_targets<'a>(
         return None;
     }
 
-    // Must have a default for the else branch; steal last conditioned if needed.
-    let default_entry = if let Some(d) = default {
-        d
-    } else {
-        conditioned.pop()?.0
-    };
+    let default_entry = default?;
     Some((conditioned, default_entry, bounds_check))
 }
 
@@ -7681,12 +7682,15 @@ fn alloc_if_expr(
 
 /// Builds a nested `if`/`else` tree selecting one of several specialized calls,
 /// reconstructed from the flat outermost-first guard lists by contiguous
-/// leading-guard factoring. Each shared leading guard is emitted once for its
-/// contiguous run rather than repeated in a conjunction for each leaf.
+/// leading-guard factoring. Each group ends at its first entry guarded only by
+/// the leading guard, preserving later branches even when their guards alias.
+/// A group's shared leading guard is emitted once rather than repeated for each leaf.
 ///
 /// `conditioned` holds the guarded entries in front-to-back (outermost-first)
 /// order, each paired with its guard list; `default_entry` supplies the
-/// outermost `else` call. The `build_call` closure materializes the
+/// outermost `else` call. Callers validate full guarded candidate lists with
+/// [`guards_form_complete_tree`] before rewriting operands; synthetic index
+/// dispatch supplies single-guard groups. The `build_call` closure materializes the
 /// specialized `Call` expression for a given entry, receiving the package and
 /// assigner so it can allocate nodes without `&mut` aliasing; it is passed by
 /// `&mut` so the same closure threads through the recursion.
@@ -7712,50 +7716,25 @@ fn build_branch_tree<E: Copy>(
         return build_call(package, assigner, default_entry);
     }
 
-    // The leading guard `g` of the first entry is this level's `if` condition
-    // (the first entry is non-empty; the default arm is split out by the
-    // caller). Take the maximal contiguous leading run whose first guard == `g`.
+    // A terminal entry closes this `then` subtree. Later entries belong to the
+    // `else` continuation, even if substitution gave them the same guard ID.
     let g = conditioned[0].1[0];
     let run_len = conditioned
         .iter()
         .take_while(|(_, guards)| guards.first().copied() == Some(g))
-        .count();
+        .position(|(_, guards)| guards.len() == 1)
+        .expect("build_branch_tree: leading-guard group has no terminal entry")
+        + 1;
 
     let mut iter = conditioned.into_iter();
-    let run: Vec<(E, Vec<ExprId>)> = (&mut iter).take(run_len).collect();
+    let mut run: Vec<(E, Vec<ExprId>)> = (&mut iter).take(run_len).collect();
     let rest: Vec<(E, Vec<ExprId>)> = iter.collect();
-
-    // Contiguity invariant: the leading guard `g` must not reappear in a later
-    // run. Holds for every lattice the current joins produce; assert in debug
-    // builds to catch a future join that violates it.
-    debug_assert!(
-        !rest
-            .iter()
-            .any(|(_, guards)| guards.first().copied() == Some(g)),
-        "build_branch_tree: leading guard reappears in a non-contiguous run"
-    );
-
-    // Strip the shared leading `g` from every run entry; the entry that strips
-    // to empty is the group's inner default (exactly one is guaranteed by the
-    // one-default-per-group invariant below).
-    let mut inner_default: Option<E> = None;
-    let mut inner_conditioned: Vec<(E, Vec<ExprId>)> = Vec::with_capacity(run.len());
+    let (inner_default, _) = run.pop().expect("leading-guard group must be nonempty");
+    let mut inner_conditioned = Vec::with_capacity(run.len());
     for (entry, mut guards) in run {
         guards.remove(0);
-        if guards.is_empty() {
-            inner_default = Some(entry);
-        } else {
-            inner_conditioned.push((entry, guards));
-        }
+        inner_conditioned.push((entry, guards));
     }
-
-    // The input is expected to have one inner default per leading-guard run.
-    // Assert that one was found; release builds use the outer default if absent.
-    debug_assert!(
-        inner_default.is_some(),
-        "build_branch_tree: leading-guard run has no inner default"
-    );
-    let inner_default = inner_default.unwrap_or(default_entry);
 
     // Then subtree: recurse on the stripped run, defaulting to the group else.
     let then_id = build_branch_tree(

@@ -105,9 +105,9 @@ pub struct CallSite {
     /// Reaching source used to recover indexed dispatch, distinct from the
     /// argument expression whose evaluation is consumed by specialization.
     pub dispatch_source: Option<ExprId>,
-    /// Branch-split guard list: a left-associated conjunction stored
-    /// outermost-first. Selected when every guard is true; an empty list is the
-    /// default (else) branch.
+    /// Outermost-first guard path in the ordered tree described by
+    /// [`CalleeLattice::Multi`]. Branch order supplies implicit else conditions;
+    /// this path is not an independently evaluated conjunction.
     pub condition: Vec<ExprId>,
 }
 
@@ -132,9 +132,9 @@ pub struct DirectCallSite {
     /// callable target: separate factory invocations share the lifted item but
     /// can retain different partial-application operands.
     pub captures: Vec<CapturedVar>,
-    /// Branch-split guard list: a left-associated conjunction stored
-    /// outermost-first. Selected when every guard is true; an empty list is the
-    /// default (else) branch.
+    /// Outermost-first guard path in the ordered tree described by
+    /// [`CalleeLattice::Multi`]. Branch order supplies implicit else conditions;
+    /// this path is not an independently evaluated conjunction.
     pub condition: Vec<ExprId>,
     /// Reaching expression that produced the callee value at this occurrence.
     ///
@@ -252,11 +252,13 @@ pub enum CalleeLattice {
     /// Multiple known candidates from conditional branches or callable arrays,
     /// bounded by `MULTI_CAP` in the analysis joins and candidate collection.
     ///
-    /// Each entry is `(callable, guards)`, where `guards` is a left-associated
-    /// conjunction stored outermost-first; the entry is selected when every
-    /// guard is true. Conditional joins place the default arm last. Array
-    /// candidates and unconditional joins can instead have several empty guard
-    /// lists; rewrite must then recover an index discriminator.
+    /// Each entry is `(callable, guards)`. Conditional entries encode an ordered
+    /// decision tree: guards are outermost-first, and a terminal entry closes
+    /// its group's true subtree before subsequent entries form the else subtree.
+    /// Equal guard IDs do not make distinct branch decisions interchangeable.
+    /// A complete conditional tree ends with one empty-guard default.
+    /// Array candidates and unconditional joins can instead have several empty
+    /// guard lists; rewrite must then recover an index discriminator.
     Multi(Vec<(ConcreteCallable, Vec<ExprId>)>),
     /// Too many or unknown callables — cannot resolve.
     Dynamic,
@@ -445,6 +447,29 @@ impl CalleeLattice {
             (Self::Dynamic, _) | (_, Self::Dynamic) => Self::Dynamic,
         }
     }
+}
+
+/// Checks the prefix structure of a complete conditional dispatch before rewrite.
+///
+/// After each leaf, its parent prefix must be retained until that subtree's
+/// terminal leaf closes it. Exactly one root default must appear, last.
+/// Guard IDs may repeat within a path or in later branches.
+pub(super) fn guards_form_complete_tree<'a>(
+    conditions: impl IntoIterator<Item = &'a [ExprId]>,
+) -> bool {
+    let mut prefix: &[ExprId] = &[];
+    let mut default_seen = false;
+    for guards in conditions {
+        if default_seen || !guards.starts_with(prefix) {
+            return false;
+        }
+        if let Some((_, parent)) = guards.split_last() {
+            prefix = parent;
+        } else {
+            default_seen = true;
+        }
+    }
+    default_seen
 }
 
 /// Deduplication key for specializations. Two call sites that share the same

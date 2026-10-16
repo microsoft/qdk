@@ -21,6 +21,45 @@ fn cond() -> ExprId {
 }
 
 #[test]
+fn complete_guard_trees_allow_aliased_branches() {
+    let a = cond();
+    let b = ExprId::from(50u32);
+    for guards in [
+        vec![vec![]],
+        vec![vec![a], vec![a], vec![]],
+        vec![vec![a, a], vec![a], vec![]],
+        vec![vec![a], vec![b], vec![a], vec![]],
+        vec![vec![a, b], vec![a], vec![a, b], vec![a], vec![]],
+    ] {
+        assert!(
+            guards_form_complete_tree(guards.iter().map(Vec::as_slice)),
+            "complete tree rejected: {guards:?}"
+        );
+    }
+}
+
+#[test]
+fn incomplete_guard_trees_are_rejected() {
+    let a = cond();
+    let b = ExprId::from(50u32);
+    let c = ExprId::from(51u32);
+    for guards in [
+        vec![],
+        vec![vec![a]],
+        vec![vec![a, b], vec![]],
+        vec![vec![a, b], vec![c], vec![]],
+        vec![vec![a, b], vec![a], vec![a, b], vec![]],
+        vec![vec![], vec![a], vec![]],
+        vec![vec![a], vec![], vec![]],
+    ] {
+        assert!(
+            !guards_form_complete_tree(guards.iter().map(Vec::as_slice)),
+            "incomplete tree accepted: {guards:?}"
+        );
+    }
+}
+
+#[test]
 fn conditional_join_declines_unresolved_index_alternatives() {
     let indexed = CalleeLattice::Multi(vec![(global(1), vec![]), (global(2), vec![])]);
     for other in [
