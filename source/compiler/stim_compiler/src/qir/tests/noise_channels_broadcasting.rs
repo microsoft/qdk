@@ -39,7 +39,7 @@ fn depolarize1_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingArg
+            Qdk.Stim.Semantic.MissingArg
 
               x missing argument in instruction: DEPOLARIZE1
                ,----
@@ -96,7 +96,7 @@ fn depolarize2_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MissingArg
+            Qdk.Stim.Semantic.MissingArg
 
               x missing argument in instruction: DEPOLARIZE2
                ,----
@@ -113,7 +113,7 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
               x instruction DEPOLARIZE2 requires an even number of targets
                ,----
@@ -192,14 +192,14 @@ fn ii_error_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
-          x instruction II_ERROR requires an even number of targets
-           ,----
-         1 | II_ERROR 0
-           : ^^^^^^^^^^
-           `----
-    "#]],
+              x instruction II_ERROR requires an even number of targets
+               ,----
+             1 | II_ERROR 0
+               : ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -237,7 +237,7 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.TooFewArgs
+            Qdk.Stim.Semantic.TooFewArgs
 
               x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
                ,----
@@ -294,14 +294,14 @@ fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.OddTargetCount
+            Qdk.Stim.Semantic.OddTargetCount
 
-          x instruction PAULI_CHANNEL_2 requires an even number of targets
-           ,----
-         1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1 2
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x instruction PAULI_CHANNEL_2 requires an even number of targets
+               ,----
+             1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1 2
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -311,7 +311,7 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.TooFewArgs
+            Qdk.Stim.Semantic.TooFewArgs
 
               x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
                ,----
