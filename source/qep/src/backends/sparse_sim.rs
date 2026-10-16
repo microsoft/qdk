@@ -4,7 +4,7 @@
 use crate::{
     BatchResult,
     ClassicalParameter::{Float, ResultId},
-    QuantumBackend, QuantumBackendResult, QuantumInstruction, instructions,
+    QuantumBackend, QuantumBackendResult, QuantumInstruction,
 };
 use num_bigint::BigUint;
 use num_complex::Complex64;
@@ -254,36 +254,34 @@ impl QuantumBackend for SparseSimBackend {
         let mut batch_result = BatchResult::default();
         for instruction in instructions {
             let result = match (
-                instruction.instruction_id,
+                instruction.instruction_name,
                 instruction.targets.as_slice(),
                 instruction.classical_parameters.as_slice(),
             ) {
-                (instructions::CCX, &[a, b, c], []) => self.ccx(a, b, c),
-                (instructions::CX, &[a, b], []) => self.cx(a, b),
-                (instructions::CY, &[a, b], []) => self.cy(a, b),
-                (instructions::CZ, &[a, b], []) => self.cz(a, b),
-                (instructions::RX, &[target], &[Float(angle)]) => self.rx(angle, target),
-                (instructions::RXX, &[a, b], &[Float(angle)]) => self.rxx(angle, a, b),
-                (instructions::RY, &[target], &[Float(angle)]) => self.ry(angle, target),
-                (instructions::RYY, &[a, b], &[Float(angle)]) => self.ryy(angle, a, b),
-                (instructions::RZ, &[target], &[Float(angle)]) => self.rz(angle, target),
-                (instructions::RZZ, &[a, b], &[Float(angle)]) => self.rzz(angle, a, b),
-                (instructions::H, &[target], []) => self.h(target),
-                (instructions::S, &[target], []) => self.s(target),
-                (instructions::SADJ, &[target], []) => self.sadj(target),
-                (instructions::SX, &[target], []) => self.sx(target),
-                (instructions::T, &[target], []) => self.t(target),
-                (instructions::TADJ, &[target], []) => self.tadj(target),
-                (instructions::X, &[target], []) => self.x(target),
-                (instructions::Y, &[target], []) => self.y(target),
-                (instructions::Z, &[target], []) => self.z(target),
-                (instructions::SWAP, &[a, b], []) => self.swap(a, b),
-                (instructions::RESET, &[target], []) => self.reset(target),
-                (instructions::MZ, &[target], &[ResultId(result)]) => self.mz(target, result),
-                (instructions::MRESETZ, &[target], &[ResultId(result)]) => {
-                    self.mresetz(target, result)
-                }
-                (instructions::READ_RESULT, [], &[ResultId(result)]) => {
+                ("ccx", &[a, b, c], []) => self.ccx(a, b, c),
+                ("cx", &[a, b], []) => self.cx(a, b),
+                ("cy", &[a, b], []) => self.cy(a, b),
+                ("cz", &[a, b], []) => self.cz(a, b),
+                ("rx", &[target], &[Float(angle)]) => self.rx(angle, target),
+                ("rxx", &[a, b], &[Float(angle)]) => self.rxx(angle, a, b),
+                ("ry", &[target], &[Float(angle)]) => self.ry(angle, target),
+                ("ryy", &[a, b], &[Float(angle)]) => self.ryy(angle, a, b),
+                ("rz", &[target], &[Float(angle)]) => self.rz(angle, target),
+                ("rzz", &[a, b], &[Float(angle)]) => self.rzz(angle, a, b),
+                ("h", &[target], []) => self.h(target),
+                ("s", &[target], []) => self.s(target),
+                ("sadj", &[target], []) => self.sadj(target),
+                ("sx", &[target], []) => self.sx(target),
+                ("t", &[target], []) => self.t(target),
+                ("tadj", &[target], []) => self.tadj(target),
+                ("x", &[target], []) => self.x(target),
+                ("y", &[target], []) => self.y(target),
+                ("z", &[target], []) => self.z(target),
+                ("swap", &[a, b], []) => self.swap(a, b),
+                ("reset", &[target], []) => self.reset(target),
+                ("mz", &[target], &[ResultId(result)]) => self.mz(target, result),
+                ("mresetz", &[target], &[ResultId(result)]) => self.mresetz(target, result),
+                ("read_result", [], &[ResultId(result)]) => {
                     let value = self
                         .read_result(result)
                         .unwrap_or_else(|error| panic!("{error}"));

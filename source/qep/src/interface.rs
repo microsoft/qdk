@@ -16,7 +16,7 @@ pub enum ClassicalParameter {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct QuantumInstruction {
-    pub instruction_id: InstructionId,
+    pub instruction_name: &'static str,
     pub targets: SmallVec<[QubitID; 3]>,
     pub classical_parameters: SmallVec<[ClassicalParameter; 1]>,
 }

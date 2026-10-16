@@ -37,12 +37,11 @@ macro_rules! define_instructions {
             }
         }
 
-        /// Rejects unknown instruction IDs and malformed operand shapes.
+        /// Rejects unknown instruction names and malformed operand shapes.
         pub fn validate_instruction(instruction: &QuantumInstruction) {
-            let named = instruction;
-            let valid = match named.instruction_id {
-                $($id => matches!(
-                    (named.targets.as_slice(), named.classical_parameters.as_slice()),
+            let valid = match instruction.instruction_name {
+                $($name => matches!(
+                    (instruction.targets.as_slice(), instruction.classical_parameters.as_slice()),
                     ($targets, $parameters)
                 ),)*
                 _ => false,

@@ -4,7 +4,7 @@
 use crate::{
     BatchResult,
     ClassicalParameter::{Float, ResultId},
-    QuantumBackend, QuantumBackendResult, QuantumInstruction, instructions,
+    QuantumBackend, QuantumBackendResult, QuantumInstruction,
 };
 use qsc_eval::{backend::Backend, val};
 use rustc_hash::FxHashMap;
@@ -92,106 +92,106 @@ impl<B: Backend> QsBackendShim<B> {
         instruction: &QuantumInstruction,
     ) -> Result<Option<QuantumBackendResult>, String> {
         let result = match (
-            instruction.instruction_id,
+            instruction.instruction_name,
             instruction.targets.as_slice(),
             instruction.classical_parameters.as_slice(),
         ) {
-            (instructions::CCX, &[ctl0, ctl1, target], []) => {
+            ("ccx", &[ctl0, ctl1, target], []) => {
                 let ctl0 = self.qubit(ctl0)?;
                 let ctl1 = self.qubit(ctl1)?;
                 let target = self.qubit(target)?;
                 self.backend.ccx(ctl0, ctl1, target)
             }
-            (instructions::CX, &[control, target], []) => {
+            ("cx", &[control, target], []) => {
                 let control = self.qubit(control)?;
                 let target = self.qubit(target)?;
                 self.backend.cx(control, target)
             }
-            (instructions::CY, &[control, target], []) => {
+            ("cy", &[control, target], []) => {
                 let control = self.qubit(control)?;
                 let target = self.qubit(target)?;
                 self.backend.cy(control, target)
             }
-            (instructions::CZ, &[control, target], []) => {
+            ("cz", &[control, target], []) => {
                 let control = self.qubit(control)?;
                 let target = self.qubit(target)?;
                 self.backend.cz(control, target)
             }
-            (instructions::RX, &[target], &[Float(theta)]) => {
+            ("rx", &[target], &[Float(theta)]) => {
                 let target = self.qubit(target)?;
                 self.backend.rx(theta, target)
             }
-            (instructions::RXX, &[target0, target1], &[Float(theta)]) => {
+            ("rxx", &[target0, target1], &[Float(theta)]) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.rxx(theta, target0, target1)
             }
-            (instructions::RY, &[target], &[Float(theta)]) => {
+            ("ry", &[target], &[Float(theta)]) => {
                 let target = self.qubit(target)?;
                 self.backend.ry(theta, target)
             }
-            (instructions::RYY, &[target0, target1], &[Float(theta)]) => {
+            ("ryy", &[target0, target1], &[Float(theta)]) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.ryy(theta, target0, target1)
             }
-            (instructions::RZ, &[target], &[Float(theta)]) => {
+            ("rz", &[target], &[Float(theta)]) => {
                 let target = self.qubit(target)?;
                 self.backend.rz(theta, target)
             }
-            (instructions::RZZ, &[target0, target1], &[Float(theta)]) => {
+            ("rzz", &[target0, target1], &[Float(theta)]) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.rzz(theta, target0, target1)
             }
-            (instructions::H, &[target], []) => {
+            ("h", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.h(target)
             }
-            (instructions::S, &[target], []) => {
+            ("s", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.s(target)
             }
-            (instructions::SADJ, &[target], []) => {
+            ("sadj", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.sadj(target)
             }
-            (instructions::SX, &[target], []) => {
+            ("sx", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.sx(target)
             }
-            (instructions::T, &[target], []) => {
+            ("t", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.t(target)
             }
-            (instructions::TADJ, &[target], []) => {
+            ("tadj", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.tadj(target)
             }
-            (instructions::X, &[target], []) => {
+            ("x", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.x(target)
             }
-            (instructions::Y, &[target], []) => {
+            ("y", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.y(target)
             }
-            (instructions::Z, &[target], []) => {
+            ("z", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.z(target)
             }
-            (instructions::SWAP, &[target0, target1], []) => {
+            ("swap", &[target0, target1], []) => {
                 let target0 = self.qubit(target0)?;
                 let target1 = self.qubit(target1)?;
                 self.backend.swap(target0, target1)
             }
-            (instructions::RESET, &[target], []) => {
+            ("reset", &[target], []) => {
                 let target = self.qubit(target)?;
                 self.backend.reset(target)
             }
-            (instructions::MZ, &[target], &[ResultId(result)]) => self.mz(target, result),
-            (instructions::MRESETZ, &[target], &[ResultId(result)]) => self.mresetz(target, result),
-            (instructions::READ_RESULT, [], &[ResultId(result)]) => {
+            ("mz", &[target], &[ResultId(result)]) => self.mz(target, result),
+            ("mresetz", &[target], &[ResultId(result)]) => self.mresetz(target, result),
+            ("read_result", [], &[ResultId(result)]) => {
                 return self.read_result(result).map(Some);
             }
             _ => {

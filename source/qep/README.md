@@ -66,9 +66,9 @@ trait QuantumBackend {
 `execute_batch` processes all instructions synchronously and in order before returning.
 The driver reuses its instruction buffer across calls.
 
-`QuantumInstruction` directly stores the instruction ID, targets, and classical
-parameters. The QIR runner emits it directly, and backends dispatch on numeric `instruction_id` and operand
-slices. `InstructionId` is a `u64`;
+`QuantumInstruction` directly stores the instruction name, targets, and classical
+parameters. The QIR runner emits it directly, and backends dispatch on literal
+`instruction_name` strings and operand slices. Names are `&'static str`;
 targets use `SmallVec<[usize; 3]>` and classical parameters use
 `SmallVec<[ClassicalParameter; 1]>`. Every supported QIR instruction fits inline,
 without per-instruction heap allocation.
@@ -80,17 +80,19 @@ defines canonical IDs (such as `H` and `READ_RESULT`), lowercase names, and oper
 shapes without aliases. `instruction_id_to_name` and `instruction_name_to_id` convert
 between IDs and names. Unknown IDs panic; unknown names return `None`.
 The profiler constructor converts unknown names into a string error. `validate_instruction` borrows
-a `QuantumInstruction` and panics for an unknown ID or invalid operand shape.
+a `QuantumInstruction` and panics for an unknown name or invalid operand shape.
 Validation can be performed explicitly before execution; the counting profiler
 does not repeat operand validation in its hot loop. Its constructor returns
 `Result<Self, String>` and rejects unknown timing names and negative or non-finite
-durations. Counters are a zero-initialized array indexed by ID, sized to the
+durations. The profiler resolves names to internal `usize` instruction IDs.
+Counters are a zero-initialized array indexed by ID, sized to the
 highest configured timing ID plus one (empty for an empty timing map).
 Executed instructions within that range retain call counts even when their timing
 is missing; they contribute zero runtime and a missing-timing warning. IDs beyond
 the range are recorded in a set and warned about once, without retaining call
-counts or per-operation runtime entries. Configure timings for all executed
-instructions to keep the hot loop on the direct-index path.
+counts or per-operation runtime entries. Unknown instruction names are also
+reported once without call counts. Configure timings for all executed
+instructions to keep counting on the array-index path after name resolution.
 `QuantumInstruction` is the sole instruction representation used by the runner,
 backends, profiler, and tests.
 

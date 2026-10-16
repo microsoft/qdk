@@ -171,5 +171,18 @@ fn profiles_mod_mul() -> Result<(), String> {
         "Profiled Q# modular multiplication: {operation_count} operations in {elapsed:?} \
          ({ns_per_operation} ns/op)"
     );
+    // Other gate counts vary with the profiler's random measurement results.
+    for (name, expected) in [
+        ("mz", 500),
+        ("mresetz", 996_003),
+        ("read_result", 996_503),
+        ("swap", 249_500),
+    ] {
+        assert_eq!(
+            result.calls_per_operation.get(name),
+            Some(&expected),
+            "unexpected instruction count for {name}"
+        );
+    }
     Ok(())
 }
