@@ -218,6 +218,70 @@ fn controlled_tuple_values_and_aliases_match_literal_inputs_in_base_qir() {
     }
 }
 
+/// The generated entry must reach the user's failure, not fail during typing or
+/// specialization. Preserve the failure's source location across profiles.
+#[test]
+fn generated_generic_entry_qir_reports_user_failure_at_original_source() {
+    use miette::Diagnostic;
+    let source = indoc::indoc! {r#"
+        @EntryPoint()
+        operation Main<'T>() : 'T {
+            fail "unreachable"
+        }
+    "#};
+    for profile in [Profile::Base, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let errors = compile_source_to_qir_result(source, profile.into())
+            .expect_err("always-failing generic entry must reach its user failure");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("{errors:?}")
+        };
+        assert_eq!(
+            error.code().expect("diagnostic code").to_string(),
+            "Qdk.Qsc.PartialEval.EvaluationFailed"
+        );
+        assert_eq!(
+            error.to_string(),
+            "partial evaluation failed with error: program failed: unreachable"
+        );
+        let labels: Vec<_> = error.labels().expect("failure source").collect();
+        assert_eq!(labels.len(), 1);
+        let (location, span) = error.resolve_span(labels[0].inner());
+        assert_eq!(
+            &location.contents[span.offset()..span.offset() + span.len()],
+            "fail \"unreachable\""
+        );
+    }
+}
+
+/// Unlike generated entries, an explicit `Main()` call still needs type evidence.
+#[test]
+fn explicit_generic_entry_call_requires_type_evidence() {
+    use miette::Diagnostic;
+
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        "operation Main<'T>() : 'T { fail \"unreachable\" }",
+    );
+    let errors = interpreter
+        .qirgen("Main()")
+        .expect_err("ordinary explicit calls still need type evidence");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(
+        errors[0].code().expect("diagnostic code").to_string(),
+        "Qdk.Qsc.TypeCk.AmbiguousTy"
+    );
+}
+
+#[test]
+fn generated_generic_entry_qir_records_concrete_result_with_unused_type_parameters() {
+    let source = "@EntryPoint() operation Main<'T : Eq, 'U : Show>() : Int { 42 }";
+    for profile in [Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert_single_integer_output(&qir, 42);
+    }
+}
+
 #[test]
 fn dump_operation_is_codegen_noop_across_restricted_profiles() {
     let source = r#"
