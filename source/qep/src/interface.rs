@@ -33,7 +33,7 @@ pub struct BatchResult {
 }
 
 pub trait QuantumBackend {
-    /// Produces exactly one result per `read_result` in input, in the same order.
+    /// Produces one result per `read_result`, `mz`, or `mz_reset`, in input order.
     fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult;
 }
 

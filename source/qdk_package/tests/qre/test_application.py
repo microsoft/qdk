@@ -330,7 +330,7 @@ def test_qsharp_application_profile():
     )
     profiler = SequentialCountingProfiler(
         physical_qubits_per_logical=10,
-        gate_time_sec={"x": 0.25, "mz": 0.5, "read_result": 0.125},
+        gate_time_sec={"x": 0.25, "mz_store": 0.5, "read_result": 0.125},
     )
 
     result = app.profile(profiler)
@@ -339,10 +339,10 @@ def test_qsharp_application_profile():
     assert isinstance(result, ProfilerResult)
     assert result.logical_qubits == 2
     assert result.physical_qubits == 20
-    assert result.calls_per_operation == {"x": 2, "mz": 2, "read_result": 2}
+    assert result.calls_per_operation == {"x": 2, "mz_store": 2, "read_result": 2}
     assert result.runtime_sec_per_operation == {
         "x": 0.5,
-        "mz": 1.0,
+        "mz_store": 1.0,
         "read_result": 0.25,
     }
     assert result.total_runtime_sec == 0.875 * 2

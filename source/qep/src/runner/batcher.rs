@@ -146,7 +146,7 @@ mod tests {
         let value = {
             let mut batcher = Batcher::new(&mut backend, 10)?;
             batcher.push(crate::QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_name: "mz_store",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
             })?;
@@ -158,7 +158,7 @@ mod tests {
             backend.batches[0].as_slice(),
             &[
                 crate::QuantumBackendInstruction {
-                    instruction_name: "mz",
+                    instruction_name: "mz_store",
                     targets: smallvec::smallvec![0],
                     classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                         1

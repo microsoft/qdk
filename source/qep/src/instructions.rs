@@ -75,7 +75,53 @@ define_instructions! {
     (Z, 18, "z", [_], []),
     (SWAP, 19, "swap", [_, _], []),
     (RESET, 20, "reset", [_], []),
-    (MZ, 21, "mz", [_], [ResultId(_)]),
-    (MRESETZ, 22, "mresetz", [_], [ResultId(_)]),
-    (READ_RESULT, 23, "read_result", [], [ResultId(_)]),
+    (MZ_STORE, 21, "mz_store", [_], [ResultId(_)]),
+    (MZ_STORE_RESET, 22, "mz_store_reset", [_], [ResultId(_)]),
+    (READ_RESULT, 23, "read_result", [], [ResultId(_)]),  // returns Result.
+    (MZ, 24, "mz", [_], []),  // returns Result.
+    (MZ_RESET, 25, "mz_reset", [_], []),  // returns Result.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        MZ_STORE, MZ_STORE_RESET, instruction_id_to_name, instruction_name_to_id,
+        validate_instruction,
+    };
+    use crate::{ClassicalParameter::ResultId, QuantumBackendInstruction};
+    use smallvec::smallvec;
+
+    #[test]
+    /// Preserves measurement IDs and validates their canonical names and operand shapes.
+    fn measurement_store_instructions_use_canonical_names() {
+        for (id, expected_id, name) in [
+            (MZ_STORE, 21, "mz_store"),
+            (MZ_STORE_RESET, 22, "mz_store_reset"),
+        ] {
+            assert_eq!(id, expected_id);
+            assert_eq!(instruction_id_to_name(id), name);
+            assert_eq!(instruction_name_to_id(name), Some(id));
+            validate_instruction(&QuantumBackendInstruction {
+                instruction_name: name,
+                targets: smallvec![0],
+                classical_parameters: smallvec![ResultId(1)],
+            });
+        }
+        assert_eq!(instruction_name_to_id("mresetz"), None);
+    }
+
+    #[test]
+    /// Validates immediate measurement IDs, names, and result-slot-free operands.
+    fn immediate_measurements_use_canonical_names() {
+        for (id, expected_id, name) in [(super::MZ, 24, "mz"), (super::MZ_RESET, 25, "mz_reset")] {
+            assert_eq!(id, expected_id);
+            assert_eq!(instruction_id_to_name(id), name);
+            assert_eq!(instruction_name_to_id(name), Some(id));
+            validate_instruction(&QuantumBackendInstruction {
+                instruction_name: name,
+                targets: smallvec![0],
+                classical_parameters: smallvec![],
+            });
+        }
+    }
 }

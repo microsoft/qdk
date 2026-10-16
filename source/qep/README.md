@@ -74,11 +74,17 @@ targets use `SmallVec<[usize; 3]>` and classical parameters use
 without per-instruction heap allocation.
 
 Targets contain only qubit IDs. Rotations carry a `ClassicalParameter::Float`
-angle; `mz`, `mresetz`, and `read_result` carry a
+angle; `mz_store`, `mz_store_reset`, and `read_result` carry a
 `ClassicalParameter::ResultId`. A read has no targets. The `instructions` instruction table
 defines canonical IDs (such as `H` and `READ_RESULT`), lowercase names, and operand
 shapes without aliases. `instruction_id_to_name` and `instruction_name_to_id` convert
-between IDs and names. Unknown IDs panic; unknown names return `None`.
+between IDs and names. Measurement instructions are `MZ_STORE` (21, `mz_store`) and
+`MZ_STORE_RESET` (22, `mz_store_reset`). Unknown IDs panic; unknown names return `None`.
+Immediate measurements are `MZ` (24, `mz`) and `MZ_RESET` (25, `mz_reset`).
+Both take one qubit target and no classical parameters. They append the measured
+bit directly to `BatchResult.results` without writing a result slot; `mz_reset` also
+resets the qubit to zero after measuring. Results from `mz`, `mz_reset`, and
+`read_result` appear in instruction order. Store variants do not append results.
 The profiler constructor converts unknown names into a string error. `validate_instruction` borrows
 a `QuantumInstruction` and panics for an unknown name or invalid operand shape.
 Validation can be performed explicitly before execution; the counting profiler
@@ -105,7 +111,8 @@ QIR Runner is a Driver.
 
 Measurements are done in somewhat weird way, according to QIR spec:
  * There is a "measurement array" and it must be maintained by Backend. 
- * When QIR Runner sees measurements, it enqueues corresponding operation (m,mz or mreset) 
+ * When QIR Runner sees QIR measurements (`m` or `mz`, or `mresetz`), it enqueues
+     the corresponding QEP operation (`mz_store` or `mz_store_reset`)
      and doesn't wait for it, as per QIR spec. Backend will perform measurement and write result to 
      specified index at measurement array.
  * When it sees QIR instruction that instructs it to read result from result register (read_result or *_record_output),

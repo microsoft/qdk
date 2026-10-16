@@ -132,7 +132,7 @@ impl Profiler for SequentialCountingProfiler {
 }
 
 impl QuantumBackend for SequentialCountingProfiler {
-    /// Counts named QIR instructions and returns one value per requested read.
+    /// Counts instructions and returns random bits for reads and immediate measurements.
     fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
         let mut result = BatchResult::default();
         for instruction in instructions {
@@ -146,7 +146,10 @@ impl QuantumBackend for SequentialCountingProfiler {
                     .insert(instruction.instruction_name);
             }
 
-            if instruction.instruction_name == "read_result" {
+            if matches!(
+                instruction.instruction_name,
+                "read_result" | "mz" | "mz_reset"
+            ) {
                 result
                     .results
                     .push(QuantumBackendResult::from(rand::random::<bool>()));
@@ -166,10 +169,90 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     #[test]
+    /// Counts and times immediate measurements while preserving stored-measurement output counts.
+    fn profiles_immediate_and_stored_measurements() -> Result<(), String> {
+        use crate::{ClassicalParameter::ResultId, QuantumBackendInstruction};
+
+        let instructions: Vec<_> = [
+            ("mz", Some(4), None),
+            ("mz_reset", Some(4), None),
+            ("mz_store", Some(4), Some(1000)),
+            ("mz_store_reset", Some(4), Some(1001)),
+            ("read_result", None, Some(1000)),
+            ("read_result", None, Some(1001)),
+        ]
+        .into_iter()
+        .map(
+            |(instruction_name, target, result)| QuantumBackendInstruction {
+                instruction_name,
+                targets: target.into_iter().collect(),
+                classical_parameters: result.map(ResultId).into_iter().collect(),
+            },
+        )
+        .collect();
+        let timings = [
+            "mz",
+            "mz_reset",
+            "mz_store",
+            "mz_store_reset",
+            "read_result",
+        ]
+        .into_iter()
+        .map(|name| (name.to_string(), 0.25))
+        .collect();
+        let mut profiler = SequentialCountingProfiler::new(2, timings)?;
+        let batch = profiler.execute_batch(&instructions);
+        assert_eq!(batch.results.len(), 4);
+        assert!(batch.results.iter().all(|value| matches!(
+            value,
+            QuantumBackendResult::Zero | QuantumBackendResult::One
+        )));
+
+        let result = profiler.get_result();
+        assert_eq!(result.logical_qubits, 5);
+        assert_eq!(result.physical_qubits, 10);
+        assert!((result.total_runtime_sec - 1.5).abs() < f64::EPSILON);
+        assert!(result.infos.is_empty());
+        assert_eq!(
+            result.calls_per_operation,
+            FxHashMap::from_iter([
+                ("mz".into(), 1),
+                ("mz_reset".into(), 1),
+                ("mz_store".into(), 1),
+                ("mz_store_reset".into(), 1),
+                ("read_result".into(), 2),
+            ])
+        );
+        assert_eq!(
+            result.runtime_sec_per_operation,
+            FxHashMap::from_iter([
+                ("mz".into(), 0.25),
+                ("mz_reset".into(), 0.25),
+                ("mz_store".into(), 0.25),
+                ("mz_store_reset".into(), 0.25),
+                ("read_result".into(), 0.5),
+            ])
+        );
+
+        let mut profiler = SequentialCountingProfiler::new(2, FxHashMap::default())?;
+        assert_eq!(profiler.execute_batch(&instructions).results.len(), 4);
+        let result = profiler.get_result();
+        assert!(result.calls_per_operation.is_empty());
+        assert_eq!(
+            result.infos,
+            [
+                "These gates did not have time configured, assumed 0: [mz_store, mz_store_reset, read_result, mz, mz_reset]"
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
     /// Returns configuration errors rather than panicking on invalid names or durations.
     fn rejects_invalid_timings() {
         for (name, duration, expected) in [
             ("unknown", 1.0, "unknown QIR instruction name"),
+            ("mresetz", 1.0, "unknown QIR instruction name"),
             ("h", -1.0, "finite and non-negative"),
             ("h", f64::NAN, "finite and non-negative"),
             ("h", f64::INFINITY, "finite and non-negative"),
@@ -215,12 +298,12 @@ mod tests {
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_name: "mz_store",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_name: "mz_store",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(99)],
             },
@@ -238,7 +321,7 @@ mod tests {
         );
         assert_eq!(
             result.infos,
-            ["These gates did not have time configured, assumed 0: [cx, mz, read_result]"]
+            ["These gates did not have time configured, assumed 0: [cx, mz_store, read_result]"]
         );
         assert!((result.total_runtime_sec - 0.25).abs() < f64::EPSILON);
         Ok(())
@@ -287,7 +370,7 @@ mod tests {
                 classical_parameters: smallvec::smallvec![],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_name: "mz_store",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                     1000
@@ -301,7 +384,7 @@ mod tests {
                 )],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mresetz",
+                instruction_name: "mz_store_reset",
                 targets: smallvec::smallvec![2],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
                     2000
@@ -330,8 +413,8 @@ mod tests {
         let counts = profiler.get_result();
         assert_eq!(counts.logical_qubits, 3);
         assert_eq!(counts.calls_per_operation["read_result"], 2);
-        assert_eq!(counts.calls_per_operation["mz"], 1);
-        assert_eq!(counts.calls_per_operation["mresetz"], 1);
+        assert_eq!(counts.calls_per_operation["mz_store"], 1);
+        assert_eq!(counts.calls_per_operation["mz_store_reset"], 1);
 
         let result = profiler.execute_batch(&[crate::QuantumBackendInstruction {
             instruction_name: "read_result",
@@ -360,7 +443,7 @@ mod tests {
         let file = compile_qsharp_to_qir(source, Profile::Base);
         let timings = FxHashMap::from_iter([
             ("h".to_string(), 0.25),
-            ("mz".to_string(), 0.5),
+            ("mz_store".to_string(), 0.5),
             ("read_result".to_string(), 0.125),
         ]);
         let mut profiler = SequentialCountingProfiler::new(10, timings)?;
@@ -374,7 +457,7 @@ mod tests {
             result.calls_per_operation,
             FxHashMap::from_iter([
                 ("h".to_string(), 2),
-                ("mz".to_string(), 2),
+                ("mz_store".to_string(), 2),
                 ("read_result".to_string(), 2),
             ])
         );
@@ -382,7 +465,7 @@ mod tests {
             result.runtime_sec_per_operation,
             FxHashMap::from_iter([
                 ("h".to_string(), 0.5),
-                ("mz".to_string(), 1.0),
+                ("mz_store".to_string(), 1.0),
                 ("read_result".to_string(), 0.25),
             ])
         );
@@ -403,12 +486,12 @@ mod tests {
                 classical_parameters: smallvec::smallvec![],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_name: "mz_store",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
             },
             crate::QuantumBackendInstruction {
-                instruction_name: "mz",
+                instruction_name: "mz_store",
                 targets: smallvec::smallvec![0],
                 classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
             },
@@ -429,7 +512,7 @@ mod tests {
         assert_eq!(
             result.infos,
             vec![
-                "These gates did not have time configured, assumed 0: [mz, read_result]"
+                "These gates did not have time configured, assumed 0: [mz_store, read_result]"
                     .to_string()
             ]
         );

@@ -56,7 +56,7 @@ impl<B: Backend> QsBackendShim<B> {
     }
 
     /// Records a measurement in the requested QIR result slot.
-    fn mz(&mut self, target: usize, result: usize) -> Result<(), String> {
+    fn mz_store(&mut self, target: usize, result: usize) -> Result<(), String> {
         let target = self.qubit(target)?;
         let value = self.backend.m(target)?;
         self.results.insert(result, value);
@@ -64,7 +64,7 @@ impl<B: Backend> QsBackendShim<B> {
     }
 
     /// Records a measurement-and-reset in the requested QIR result slot.
-    fn mresetz(&mut self, target: usize, result: usize) -> Result<(), String> {
+    fn mz_store_reset(&mut self, target: usize, result: usize) -> Result<(), String> {
         let target = self.qubit(target)?;
         let value = self.backend.mresetz(target)?;
         self.results.insert(result, value);
@@ -73,15 +73,20 @@ impl<B: Backend> QsBackendShim<B> {
 
     /// Reads a previously populated QIR result slot.
     fn read_result(&self, result: usize) -> Result<QuantumBackendResult, String> {
-        match self.results.get(&result).copied() {
-            Some(val::Result::Val(value)) => Ok(QuantumBackendResult::from(value)),
-            Some(val::Result::Id(id)) => Err(format!(
-                "Result ID {result} contains unresolved Q# result ID {id}"
-            )),
-            Some(val::Result::Loss) => {
-                Err(format!("Result ID {result} contains a lost measurement"))
-            }
-            None => Err(format!("Result ID {result} has not been written")),
+        let value = self
+            .results
+            .get(&result)
+            .copied()
+            .ok_or_else(|| format!("Result ID {result} has not been written"))?;
+        Self::result_value(value).map_err(|error| format!("Result ID {result} contains {error}"))
+    }
+
+    /// Converts a concrete Q# result, rejecting unresolved IDs and lost measurements.
+    fn result_value(value: val::Result) -> Result<QuantumBackendResult, String> {
+        match value {
+            val::Result::Val(value) => Ok(QuantumBackendResult::from(value)),
+            val::Result::Id(id) => Err(format!("unresolved Q# result ID {id}")),
+            val::Result::Loss => Err("a lost measurement".into()),
         }
     }
 
@@ -189,8 +194,21 @@ impl<B: Backend> QsBackendShim<B> {
                 let target = self.qubit(target)?;
                 self.backend.reset(target)
             }
-            ("mz", &[target], &[ResultId(result)]) => self.mz(target, result),
-            ("mresetz", &[target], &[ResultId(result)]) => self.mresetz(target, result),
+            ("mz_store", &[target], &[ResultId(result)]) => self.mz_store(target, result),
+            ("mz_store_reset", &[target], &[ResultId(result)]) => {
+                self.mz_store_reset(target, result)
+            }
+            ("mz" | "mz_reset", &[target], []) => {
+                let target = self.qubit(target)?;
+                let value = if instruction.instruction_name == "mz" {
+                    self.backend.m(target)?
+                } else {
+                    self.backend.mresetz(target)?
+                };
+                return Self::result_value(value)
+                    .map(Some)
+                    .map_err(|error| format!("Measurement contains {error}"));
+            }
             ("read_result", [], &[ResultId(result)]) => {
                 return self.read_result(result).map(Some);
             }

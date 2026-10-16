@@ -77,15 +77,15 @@ impl Recorder {
     rotations! { rx(a); rxx(a, b); ry(a); ryy(a, b); rz(a); rzz(a, b) }
 
     /// Records a deferred measurement issuance.
-    fn mz(&mut self, q: usize, result: usize) -> Result<(), String> {
-        self.gate("mz", &[q, result], None)?;
+    fn mz_store(&mut self, q: usize, result: usize) -> Result<(), String> {
+        self.gate("mz_store", &[q, result], None)?;
         self.results.insert(result, None);
         Ok(())
     }
 
     /// Records a deferred measurement-and-reset issuance.
-    fn mresetz(&mut self, q: usize, result: usize) -> Result<(), String> {
-        self.gate("mresetz", &[q, result], None)?;
+    fn mz_store_reset(&mut self, q: usize, result: usize) -> Result<(), String> {
+        self.gate("mz_store_reset", &[q, result], None)?;
         self.results.insert(result, None);
         Ok(())
     }
@@ -140,8 +140,10 @@ impl QuantumBackend for Recorder {
                 ("z", &[target], []) => self.z(target),
                 ("swap", &[a, b], []) => self.swap(a, b),
                 ("reset", &[target], []) => self.reset(target),
-                ("mz", &[target], &[ResultId(result)]) => self.mz(target, result),
-                ("mresetz", &[target], &[ResultId(result)]) => self.mresetz(target, result),
+                ("mz_store", &[target], &[ResultId(result)]) => self.mz_store(target, result),
+                ("mz_store_reset", &[target], &[ResultId(result)]) => {
+                    self.mz_store_reset(target, result)
+                }
                 ("read_result", [], &[ResultId(result)]) => {
                     let value = self
                         .read_result(result)
@@ -176,7 +178,7 @@ fn recorder_supports_multiple_reads_per_batch() {
 
     let multiple = backend.execute_batch(&[
         crate::QuantumBackendInstruction {
-            instruction_name: "mz",
+            instruction_name: "mz_store",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
@@ -191,7 +193,7 @@ fn recorder_supports_multiple_reads_per_batch() {
             classical_parameters: smallvec::smallvec![],
         },
         crate::QuantumBackendInstruction {
-            instruction_name: "mresetz",
+            instruction_name: "mz_store_reset",
             targets: smallvec::smallvec![1],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
         },
@@ -217,7 +219,7 @@ fn recorder_supports_multiple_reads_per_batch() {
 
     let single = backend.execute_batch(&[
         crate::QuantumBackendInstruction {
-            instruction_name: "mz",
+            instruction_name: "mz_store",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
         },
@@ -306,9 +308,9 @@ fn dispatches_every_intrinsic_with_original_arguments() -> Result<(), String> {
         expected.push(Event(method, qubits, angle));
     }
     for (symbol, method) in [
-        ("m__body", "mz"),
-        ("mz__body", "mz"),
-        ("mresetz__body", "mresetz"),
+        ("m__body", "mz_store"),
+        ("mz__body", "mz_store"),
+        ("mresetz__body", "mz_store_reset"),
     ] {
         writeln!(
             declarations,
@@ -419,11 +421,11 @@ fn adaptive_loop_preserves_phis_and_measurement_values() -> Result<(), String> {
     assert_eq!(
         backend.events,
         vec![
-            Event("mz", vec![0, 0], None),
+            Event("mz_store", vec![0, 0], None),
             Event("read_result", vec![0], None),
-            Event("mz", vec![0, 0], None),
+            Event("mz_store", vec![0, 0], None),
             Event("read_result", vec![0], None),
-            Event("mz", vec![0, 0], None),
+            Event("mz_store", vec![0, 0], None),
             Event("read_result", vec![0], None),
             Event("x", vec![2], None),
         ]
@@ -464,9 +466,9 @@ fn defers_resolution_until_result_reads_or_output() -> Result<(), String> {
     assert_eq!(
         backend.events,
         vec![
-            Event("mz", vec![0, 1], None),
+            Event("mz_store", vec![0, 1], None),
             Event("h", vec![2], None),
-            Event("mresetz", vec![2, 0], None),
+            Event("mz_store_reset", vec![2, 0], None),
             Event("read_result", vec![1], None),
             Event("read_result", vec![1], None),
             Event("read_result", vec![0], None),
@@ -604,7 +606,7 @@ fn previous_invocations_do_not_initialize_current_result_slots() -> Result<(), S
 #[test]
 /// Verifies that backend panics fail terminating QIR without deadlocking.
 fn backend_panics_terminate_execution_without_deadlocking() {
-    for method in ["mz", "read_result"] {
+    for method in ["mz_store", "read_result"] {
         for panic in [false, true] {
             let mut backend = Recorder {
                 fail_on: (!panic).then_some(method),
@@ -911,7 +913,7 @@ fn runs_text_and_bitcode_files() -> Result<(), String> {
             backend.events,
             vec![
                 Event("h", vec![2], None),
-                Event("mz", vec![2, 0], None),
+                Event("mz_store", vec![2, 0], None),
                 Event("read_result", vec![0], None)
             ]
         );
@@ -953,7 +955,7 @@ fn runs_independent_backends_concurrently() {
                 assert_eq!(
                     backend.events,
                     vec![
-                        Event("mz", vec![0, 0], None),
+                        Event("mz_store", vec![0, 0], None),
                         Event("read_result", vec![0], None),
                         Event("x", vec![0], None)
                     ]

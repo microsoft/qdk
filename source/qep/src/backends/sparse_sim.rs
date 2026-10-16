@@ -44,9 +44,23 @@ impl SparseSimBackend {
 
     /// Measures a qubit and stores its value in a QIR result slot.
     fn measure(&mut self, target: usize, result: usize) -> bool {
-        self.ensure_qubit(target);
-        let value = self.simulator.measure(target);
+        let value = self.mz(target);
         self.results.insert(result, value);
+        value
+    }
+
+    /// Measures a qubit without writing a result slot.
+    fn mz(&mut self, target: usize) -> bool {
+        self.ensure_qubit(target);
+        self.simulator.measure(target)
+    }
+
+    /// Returns the pre-reset measurement without writing a result slot.
+    fn mz_reset(&mut self, target: usize) -> bool {
+        let value = self.mz(target);
+        if value {
+            self.simulator.x(target);
+        }
         value
     }
 }
@@ -217,25 +231,21 @@ impl SparseSimBackend {
     }
 
     /// Measures a qubit into the requested result slot.
-    fn mz(&mut self, target: usize, result: usize) -> Result<(), String> {
+    fn mz_store(&mut self, target: usize, result: usize) -> Result<(), String> {
         self.measure(target, result);
         Ok(())
     }
 
     /// Resets a qubit to the zero state.
     fn reset(&mut self, target: usize) -> Result<(), String> {
-        self.ensure_qubit(target);
-        if self.simulator.measure(target) {
-            self.simulator.x(target);
-        }
+        self.mz_reset(target);
         Ok(())
     }
 
     /// Measures a qubit into a result slot and resets it to zero.
-    fn mresetz(&mut self, target: usize, result: usize) -> Result<(), String> {
-        if self.measure(target, result) {
-            self.simulator.x(target);
-        }
+    fn mz_store_reset(&mut self, target: usize, result: usize) -> Result<(), String> {
+        let value = self.mz_reset(target);
+        self.results.insert(result, value);
         Ok(())
     }
 
@@ -279,8 +289,22 @@ impl QuantumBackend for SparseSimBackend {
                 ("z", &[target], []) => self.z(target),
                 ("swap", &[a, b], []) => self.swap(a, b),
                 ("reset", &[target], []) => self.reset(target),
-                ("mz", &[target], &[ResultId(result)]) => self.mz(target, result),
-                ("mresetz", &[target], &[ResultId(result)]) => self.mresetz(target, result),
+                ("mz_store", &[target], &[ResultId(result)]) => self.mz_store(target, result),
+                ("mz_store_reset", &[target], &[ResultId(result)]) => {
+                    self.mz_store_reset(target, result)
+                }
+                ("mz", &[target], []) => {
+                    batch_result
+                        .results
+                        .push(QuantumBackendResult::from(self.mz(target)));
+                    Ok(())
+                }
+                ("mz_reset", &[target], []) => {
+                    batch_result
+                        .results
+                        .push(QuantumBackendResult::from(self.mz_reset(target)));
+                    Ok(())
+                }
                 ("read_result", [], &[ResultId(result)]) => {
                     let value = self
                         .read_result(result)

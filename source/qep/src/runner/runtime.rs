@@ -214,8 +214,8 @@ macro_rules! measurement {
         }
     };
 }
-measurement!(mz);
-measurement!(mresetz);
+measurement!(mz_store);
+measurement!(mz_store_reset);
 
 /// Resolves a QIR result through the backend.
 unsafe extern "C" fn read_result(ptr: *mut c_void, result: *mut c_void) -> bool {
@@ -300,9 +300,14 @@ pub(super) fn bindings(context: &Context) -> Vec<Binding<'_>> {
     bind!("__quantum__qis__z__body", z, void, [ptr]);
     bind!("__quantum__qis__swap__body", swap, void, [ptr, ptr]);
     bind!("__quantum__qis__reset__body", reset, void, [ptr]);
-    bind!("__quantum__qis__m__body", mz, void, [ptr, ptr]);
-    bind!("__quantum__qis__mz__body", mz, void, [ptr, ptr]);
-    bind!("__quantum__qis__mresetz__body", mresetz, void, [ptr, ptr]);
+    bind!("__quantum__qis__m__body", mz_store, void, [ptr, ptr]);
+    bind!("__quantum__qis__mz__body", mz_store, void, [ptr, ptr]);
+    bind!(
+        "__quantum__qis__mresetz__body",
+        mz_store_reset,
+        void,
+        [ptr, ptr]
+    );
     bind!(
         "__quantum__qis__read_result__body",
         read_result,
