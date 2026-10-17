@@ -2739,6 +2739,180 @@ fn interpreter_with_capabilities(
     .expect("interpreter should be created")
 }
 
+fn assert_x_targets(qir: &str, expected: &[usize]) {
+    let calls: Vec<_> = qir
+        .lines()
+        .filter(|line| line.contains("call void @__quantum__qis__x__body("))
+        .collect();
+    assert_eq!(calls.len(), expected.len(), "unexpected X calls:\n{qir}");
+    for (call, &target) in calls.iter().zip(expected) {
+        assert!(
+            call.contains(&format!("inttoptr (i64 {target} to %Qubit*)"))
+                || (target == 0 && call.contains("%Qubit* null")),
+            "expected X on qubit {target}, found {call}:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn nested_selectors_emit_selected_operation() {
+    for (selection, target) in [
+        ("Choose(1 < 2, A, B)", 0),
+        ("Choose(1 < 2, Choose(1 < 2, A, B), B)", 0),
+        ("Choose(1 < 2, Choose(1 > 2, A, B), B)", 2),
+        ("Choose(1 > 2, Choose(1 < 2, A, B), B)", 2),
+        ("Choose(true, Choose(true, A, B), B)", 0),
+        ("Choose(1 < 2, Make(), B)", 0),
+    ] {
+        for invocation in ["ApplyOne(f, qs)", "f(qs)"] {
+            let source = format!(
+                r#"
+                operation A(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[0]); }}
+                operation B(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[2]); }}
+                operation ApplyOne(op : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {{
+                    op(qs);
+                }}
+                function Choose(flag : Bool, a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) {{
+                    if flag {{ a }} else {{ b }}
+                }}
+                function Make() : (Qubit[] => Unit is Adj + Ctl) {{ Choose(1 < 2, A, B) }}
+                operation Main() : Result[] {{
+                    use qs = Qubit[3];
+                    let f = {selection};
+                    {invocation};
+                    MResetEachZ(qs)
+                }}
+                "#
+            );
+            for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+                let mut interpreter = interpreter_with_capabilities(profile.into());
+                eval_fragments(&mut interpreter, &source);
+                let qir = interpreter.qirgen("Main()").unwrap_or_else(|errors| {
+                    panic!(
+                        "{profile:?}: {selection}, {invocation}:\n{}",
+                        format_interpret_errors(errors)
+                    )
+                });
+                assert_x_targets(&qir, &[target]);
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_captures_emit_expected_operations() {
+    let source = indoc::indoc! {r#"
+        operation A(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[0]); }
+        operation B(qs : Qubit[]) : Unit is Adj + Ctl { X(qs[1]); }
+        operation Seq(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {
+            a(qs); b(qs);
+        }
+        operation ApplyOnly(a : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl { a(qs); }
+        operation ApplyRepeated(a : (Qubit[] => Unit is Adj + Ctl), n : Int, qs : Qubit[]) : Unit is Adj + Ctl {
+            for _ in 1..n { a(qs); }
+        }
+        function MakeSeq(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { Seq(a, b, _) }
+        function MakeForward(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { qs => Seq(a, b, qs) }
+        function MakeDirect(a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { qs => { a(qs); b(qs); } }
+        function MakeOne(a : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) { ApplyOnly(a, _) }
+        function MakeN(a : (Qubit[] => Unit is Adj + Ctl), n : Int) : (Qubit[] => Unit is Adj + Ctl) { ApplyRepeated(a, n, _) }
+        function GetA() : (Qubit[] => Unit is Adj + Ctl) { A }
+        function GetB() : (Qubit[] => Unit is Adj + Ctl) { B }
+        operation Run(f : (Qubit[] => Unit is Adj + Ctl)) : Result[] {
+            use qs = Qubit[2];
+            f(qs);
+            MResetEachZ(qs)
+        }
+        operation RunWithCount(f : (Qubit[] => Unit is Adj + Ctl), count : Int) : Result[] {
+            use qs = Qubit[2];
+            for _ in 1..count { f(qs); }
+            MResetEachZ(qs)
+        }
+        operation RunMany(fs : (Qubit[] => Unit is Adj + Ctl)[]) : Result[] {
+            use qs = Qubit[2];
+            for f in fs { f(qs); }
+            MResetEachZ(qs)
+        }
+        operation RunControlledAdjoint(f : (Qubit[] => Unit is Adj + Ctl)) : Result[] {
+            use control = Qubit();
+            use qs = Qubit[2];
+            X(control);
+            Controlled Adjoint f([control], qs);
+            MResetEachZ([control] + qs)
+        }
+    "#};
+    for (factory, capture_count, targets) in [
+        ("MakeSeq(GetA(), GetB())", 2, vec![0, 1]),
+        ("MakeSeq(A, B)", 2, vec![0, 1]),
+        ("Adjoint (MakeSeq(GetA(), GetB()))", 2, vec![1, 0]),
+        ("MakeForward(GetA(), GetB())", 2, vec![0, 1]),
+        ("MakeDirect(GetA(), GetB())", 2, vec![0, 1]),
+        ("MakeOne(GetA())", 1, vec![0]),
+        ("MakeN(GetA(), 3)", 2, vec![0, 0, 0]),
+    ] {
+        for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+            let mut interpreter = interpreter_with_capabilities(profile.into());
+            eval_fragments(&mut interpreter, source);
+            let callable = eval_fragments(&mut interpreter, "Run");
+            let closure = eval_fragments(&mut interpreter, factory);
+            assert!(
+                matches!(&closure, Value::Closure(value) if value.fixed_args.len() == capture_count),
+                "{factory} must construct a closure with {capture_count} captures: {closure:?}"
+            );
+            let qir = interpreter
+                .qirgen_from_callable(&callable, closure.clone())
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{profile:?}: {factory}:\n{}",
+                        format_interpret_errors(errors)
+                    )
+                });
+            assert_x_targets(&qir, &targets);
+            if factory == "MakeSeq(GetA(), GetB())" {
+                let callable = eval_fragments(&mut interpreter, "RunControlledAdjoint");
+                let qir = interpreter
+                    .qirgen_from_callable(&callable, closure.clone())
+                    .unwrap_or_else(|errors| {
+                        panic!("controlled adjoint:\n{}", format_interpret_errors(errors))
+                    });
+                assert_x_targets(&qir, &[0]);
+                let controlled_calls = qir
+                    .lines()
+                    .filter(|line| line.contains("call void @__quantum__qis__cx__body("))
+                    .map(str::trim)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                expect![[r#"
+                    call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
+                    call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))"#]]
+                .assert_eq(&controlled_calls);
+            }
+            if factory == "MakeSeq(GetA(), GetB())" && profile == Profile::AdaptiveRIF {
+                for (entry, args, expected) in [
+                    (
+                        "RunWithCount",
+                        Value::Tuple(vec![closure.clone(), Value::Int(1)].into(), None),
+                        vec![0, 1],
+                    ),
+                    (
+                        "RunMany",
+                        Value::Array(vec![closure.clone(), closure.clone()].into()),
+                        vec![0, 1, 0, 1],
+                    ),
+                ] {
+                    let callable = eval_fragments(&mut interpreter, entry);
+                    let qir = interpreter
+                        .qirgen_from_callable(&callable, args)
+                        .unwrap_or_else(|errors| {
+                            panic!("{entry}:\n{}", format_interpret_errors(errors))
+                        });
+                    assert_x_targets(&qir, &expected);
+                }
+            }
+        }
+    }
+}
+
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
 
 #[test]

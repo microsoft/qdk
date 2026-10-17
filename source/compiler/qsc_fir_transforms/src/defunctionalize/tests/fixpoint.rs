@@ -12,6 +12,126 @@ use expect_test::expect;
 use std::fmt::Write;
 
 #[test]
+fn nested_selector_arguments_preserve_effects() {
+    for (selection, target) in [
+        (
+            r#"Choose({ Message("outer"); 1 < 2 }, Choose({ Message("inner"); 1 < 2 }, A, B), B)"#,
+            0,
+        ),
+        (
+            r#"Choose({ Message("outer"); 1 > 2 }, Choose({ Message("inner"); 1 < 2 }, A, B), B)"#,
+            2,
+        ),
+        (
+            r#"Choose({ Message("outer"); flag }, Choose({ Message("inner"); set flag = false; 1 < 2 }, A, B), B)"#,
+            0,
+        ),
+    ] {
+        for invocation in ["ApplyOne(f, qs)", "f(qs)"] {
+            let source = format!(
+                r#"
+                operation A(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[0]); }}
+                operation B(qs : Qubit[]) : Unit is Adj + Ctl {{ X(qs[2]); }}
+                operation ApplyOne(op : (Qubit[] => Unit is Adj + Ctl), qs : Qubit[]) : Unit is Adj + Ctl {{
+                    op(qs);
+                }}
+                function Choose(flag : Bool, a : (Qubit[] => Unit is Adj + Ctl), b : (Qubit[] => Unit is Adj + Ctl)) : (Qubit[] => Unit is Adj + Ctl) {{
+                    if flag {{ a }} else {{ b }}
+                }}
+                @EntryPoint()
+                operation Main() : Result[] {{
+                    use qs = Qubit[3];
+                    mutable flag = true;
+                    let f = {selection};
+                    {invocation};
+                    MResetEachZ(qs)
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected_output(
+                &source,
+                qsc_eval::val::Value::Array(
+                    (0..3)
+                        .map(|index| {
+                            qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(
+                                index == target,
+                            ))
+                        })
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+                "outer\ninner\n",
+            );
+        }
+    }
+}
+
+#[test]
+fn nested_selector_arguments_preserve_first_failure() {
+    for (outer, inner, expected_error) in [
+        (r#"fail "outer""#, r#"fail "inner""#, "outer"),
+        ("false", r#"fail "inner""#, "inner"),
+    ] {
+        for invocation in ["ApplyOne(f, 0)", "f(0)"] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                function ApplyOne(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function Choose(flag : Bool, a : Int -> Int, b : Int -> Int) : Int -> Int {{
+                    if flag {{ a }} else {{ b }}
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    let f = Choose({{ Message("outer"); {outer} }}, Choose({{ Message("inner"); {inner} }}, A, B), B);
+                    {invocation}
+                }}
+                "#
+            );
+            let error = crate::test_utils::eval_qsharp_original(&source)
+                .expect_err("selector arguments must fail before invocation");
+            assert!(error.contains(expected_error), "{error}");
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
+
+#[test]
+fn nested_selectors_keep_selection_time_values() {
+    for condition in ["flag", "not (not flag)", "Echo(flag)", "snapshot"] {
+        for (first_call, second_call) in [
+            ("first(1)", "second(1)"),
+            ("Apply(first, 1)", "Apply(second, 1)"),
+        ] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 10 }}
+                function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+                function Echo(flag : Bool) : Bool {{ flag }}
+                function Choose(flag : Bool, a : Int -> Int, b : Int -> Int) : Int -> Int {{
+                    if flag {{ a }} else {{ b }}
+                }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable flag = true;
+                    let snapshot = flag;
+                    let first = Choose(1 < 2, Choose({condition}, A, B), B);
+                    set flag = false;
+                    let firstValue = {first_call};
+                    let second = Choose(flag, Choose(flag, A, B), B);
+                    set flag = true;
+                    firstValue * 100 + {second_call}
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected(
+                &source,
+                qsc_eval::val::Value::Int(211),
+            );
+        }
+    }
+}
+
+#[test]
 fn rejected_declared_layout_leaves_invocation_and_prefixes_unchanged() {
     use crate::defunctionalize::{rewrite, specialize};
     use qsc_fir::ty::{Prim, Ty};

@@ -501,8 +501,8 @@ pub(super) fn rewrite(
     declared_inputs: &FxHashMap<StoreItemId, Ty>,
 ) {
     let udts = &analysis.udt_metadata;
-    let capture_dependencies = capture_expression_dependencies(package, package_id, analysis);
-    let capture_expressions: FxHashMap<_, _> = capture_dependencies
+    let call_dependencies = call_expression_dependencies(package, package_id, analysis);
+    let analyzed_expressions: FxHashMap<_, _> = call_dependencies
         .values()
         .flatten()
         .map(|&id| (id, package.get_expr(id).clone()))
@@ -569,11 +569,11 @@ pub(super) fn rewrite(
     // Rewriting an outer call can copy its argument tree. Finish every inner
     // HOF or direct closure invocation before any enclosing call copies it.
     for call_expr_id in expressions_in_postorder(package) {
-        if capture_dependencies
+        if call_dependencies
             .get(&call_expr_id)
             .is_some_and(|dependencies| {
                 dependencies.iter().any(|id| {
-                    let before = &capture_expressions[id];
+                    let before = &analyzed_expressions[id];
                     let after = package.get_expr(*id);
                     before != after
                         && !matches!(
@@ -584,8 +584,8 @@ pub(super) fn rewrite(
                 })
             })
         {
-            // Inner rewrites can change a captured argument's shape or introduce
-            // block-local temporaries. Reanalyze before using stale capture facts.
+            // Inner rewrites can change captures or guards in place and introduce
+            // block-local temporaries. Reanalyze before using those stale facts.
             continue;
         }
         if let Some(group) = grouped.get(&call_expr_id) {
@@ -665,17 +665,22 @@ pub(super) fn rewrite(
     );
 }
 
-/// Records the expression dependencies of analyzed capture operands per call.
+/// Records the expression dependencies of analyzed captures and guards per call.
 /// Rewriting an earlier operand can change these nodes in place, invalidating
-/// capture facts for a later direct or higher-order call. Include nested
+/// facts for a later direct or higher-order call. Include nested
 /// producer-to-caller substitutions, not only the outer capture expression.
-fn capture_expression_dependencies(
+fn call_expression_dependencies(
     package: &Package,
     package_id: PackageId,
     analysis: &AnalysisResult,
 ) -> FxHashMap<ExprId, Vec<ExprId>> {
-    fn add(package: &Package, captures: &[CapturedVar], reads: &mut FxHashSet<ExprId>) {
-        let mut roots = Vec::new();
+    fn add(
+        package: &Package,
+        captures: &[CapturedVar],
+        guards: &[ExprId],
+        reads: &mut FxHashSet<ExprId>,
+    ) {
+        let mut roots = guards.to_vec();
         for capture in captures {
             roots.extend(capture.expr);
             let mut pending: Vec<_> = capture.caller_substitutions.iter().collect();
@@ -693,12 +698,15 @@ fn capture_expression_dependencies(
 
     let mut reads: FxHashMap<ExprId, FxHashSet<ExprId>> = FxHashMap::default();
     for site in &analysis.call_sites {
-        if site.call_pkg_id == package_id
-            && let ConcreteCallable::Closure { captures, .. } = &site.callable_arg
-        {
+        if site.call_pkg_id == package_id {
+            let captures = match &site.callable_arg {
+                ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+                _ => &[],
+            };
             add(
                 package,
                 captures,
+                &site.condition,
                 reads.entry(site.call_expr_id).or_default(),
             );
         }
@@ -708,9 +716,9 @@ fn capture_expression_dependencies(
             continue;
         }
         let target = reads.entry(site.call_expr_id).or_default();
-        add(package, &site.captures, target);
+        add(package, &site.captures, &site.condition, target);
         if let ConcreteCallable::Closure { captures, .. } = &site.callable {
-            add(package, captures, target);
+            add(package, captures, &[], target);
         }
     }
     reads
