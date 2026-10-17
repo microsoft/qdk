@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::rc::Rc;
+use std::{cmp::Reverse, collections::BinaryHeap, rc::Rc};
 
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -17,7 +17,10 @@ use rustc_hash::FxHashSet;
 /// Manages IDs for resources needed while performing partial evaluation.
 #[derive(Default)]
 pub struct ResourceManager {
-    qubits_in_use: Vec<bool>,
+    num_qubits: usize,
+    free_qubits: BinaryHeap<Reverse<usize>>,
+    free_qubit_ids: BinaryHeap<Reverse<usize>>,
+    next_qubit_id: usize,
     qubit_id_map: IndexMap<usize, usize>,
     qubit_tracker: FxHashSet<Rc<Qubit>>,
     delayed_release_qubits: DelayedQubitReleaseStack,
@@ -38,7 +41,7 @@ impl ResourceManager {
 
     /// Count of qubits used.
     pub fn qubit_count(&self) -> usize {
-        self.qubits_in_use.len()
+        self.num_qubits
     }
 
     /// Count of results registers used.
@@ -56,23 +59,21 @@ impl ResourceManager {
                 .into();
         }
 
-        let qubit = if let Some(qubit) = self.qubits_in_use.iter().position(|in_use| !in_use) {
-            self.qubits_in_use[qubit] = true;
+        let qubit = if let Some(Reverse(qubit)) = self.free_qubits.pop() {
             qubit
         } else {
-            self.qubits_in_use.push(true);
-            self.qubits_in_use.len() - 1
+            let qubit = self.num_qubits;
+            self.num_qubits += 1;
+            qubit
         };
-        let mut next_id = 0;
-        // Iterate through the sequence of integers until we find one that is not present in the map.
-        // This means that integer id is available for use as the qubit id that will map to the newly allocated qubit.
-        loop {
-            if !self.qubit_id_map.contains_key(next_id) {
-                self.qubit_id_map.insert(next_id, qubit);
-                break;
-            }
-            next_id += 1;
-        }
+        let next_id = if let Some(Reverse(id)) = self.free_qubit_ids.pop() {
+            id
+        } else {
+            let id = self.next_qubit_id;
+            self.next_qubit_id += 1;
+            id
+        };
+        self.qubit_id_map.insert(next_id, qubit);
         let q = Rc::new(Qubit(next_id));
         self.qubit_tracker.insert(Rc::clone(&q));
         q.into()
@@ -97,7 +98,8 @@ impl ResourceManager {
     }
 
     fn free_qubit_id(&mut self, qubit: Qubit) {
-        self.qubits_in_use[self.qubit_id_map[qubit.0]] = false;
+        self.free_qubits.push(Reverse(self.qubit_id_map[qubit.0]));
+        self.free_qubit_ids.push(Reverse(qubit.0));
         self.qubit_id_map.remove(qubit.0);
         self.qubit_tracker.remove(&qubit);
     }
