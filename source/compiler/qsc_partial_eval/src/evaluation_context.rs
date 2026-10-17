@@ -102,6 +102,8 @@ pub struct BlockNode {
 }
 
 /// A call scope.
+/// In this context, a "scope" is a single invocation of a callable (which might also be called a "frame").
+/// It's distinct from the eval `Scope` objects within `env`, which corresponds to a name scope.
 pub struct Scope {
     /// The package ID of the callable.
     pub package_id: PackageId,

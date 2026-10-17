@@ -215,7 +215,7 @@ impl Display for Namespace {
     }
 }
 
-/// An item.
+/// An item is a declaration that can live at the top level of a namespace.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
     /// The ID.
@@ -264,7 +264,7 @@ impl Display for Item {
     }
 }
 
-/// An item kind.
+/// The kind of an Item (a declaration that can appear at the top level of a namespace).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum ItemKind {
     /// A `function` or `operation` declaration.
