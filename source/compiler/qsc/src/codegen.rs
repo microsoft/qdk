@@ -533,12 +533,14 @@ pub mod qir {
     /// Normalizes concrete runtime callable type copies before synthetic-entry lowering.
     ///
     /// Interpreter-created callable values can retain inferred functor parameters
-    /// in their lowered body node types even when the callable itself is concrete.
+    /// in their input patterns and body node types even when the callable itself is concrete.
     /// Those stale parameters would violate post-monomorphization invariants once
-    /// the callable is made entry-reachable. Generic callable signatures are left
+    /// the callable is made entry-reachable. Normalize the full primary input
+    /// pattern tree so its children agree with its root type; specialization
+    /// control patterns are already concrete qubit arrays. Generic callable signatures are left
     /// intact so monomorphization can still infer and create concrete
     /// specializations from closure targets.
-    fn normalize_callable_signatures(
+    pub(super) fn normalize_callable_signatures(
         fir_store: &mut qsc_fir::fir::PackageStore,
         callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
     ) {
@@ -566,6 +568,15 @@ pub mod qir {
 
         for (id, input_pat_id, normalized_signature) in normalized {
             let package = fir_store.get_mut(id.package);
+            let normalized_output = normalized_signature.map(|(input_ty, output_ty)| {
+                package
+                    .pats
+                    .get_mut(input_pat_id)
+                    .expect("callable input pattern should exist")
+                    .ty = input_ty;
+                normalize_pat_node_types(package, input_pat_id);
+                output_ty
+            });
             let qsc_fir::fir::ItemKind::Callable(callable_decl) = &mut package
                 .items
                 .get_mut(id.item)
@@ -574,12 +585,7 @@ pub mod qir {
             else {
                 panic!("callable should exist in lowered package");
             };
-            if let Some((input_ty, output_ty)) = normalized_signature {
-                package
-                    .pats
-                    .get_mut(input_pat_id)
-                    .expect("callable input pattern should exist")
-                    .ty = input_ty;
+            if let Some(output_ty) = normalized_output {
                 callable_decl.output = output_ty;
             }
             let CallableImpl::Spec(spec_impl) = &callable_decl.implementation else {

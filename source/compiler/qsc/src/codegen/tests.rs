@@ -2913,6 +2913,204 @@ fn runtime_callable_captures_emit_expected_operations() {
     }
 }
 
+#[test]
+fn runtime_mixed_callable_captures_preserve_operations() {
+    for functors in ["", "is Adj"] {
+        for make_flip in ["Flip(i, _)", "qs => Flip(i, qs)"] {
+            let source = format!(
+                r#"
+                operation A(qs : Qubit[]) : Unit {functors} {{ X(qs[0]); }}
+                operation Flip(i : Int, qs : Qubit[]) : Unit {functors} {{ X(qs[i]); }}
+                operation Both(a : (Qubit[] => Unit {functors}), b : (Qubit[] => Unit {functors}), qs : Qubit[]) : Unit {functors} {{
+                    a(qs); b(qs);
+                }}
+                function MakeBoth(a : (Qubit[] => Unit {functors}), b : (Qubit[] => Unit {functors})) : (Qubit[] => Unit {functors}) {{
+                    Both(a, b, _)
+                }}
+                function MakeFlip(i : Int) : (Qubit[] => Unit {functors}) {{ {make_flip} }}
+                operation Run(f : (Qubit[] => Unit {functors})) : Result[] {{
+                    use qs = Qubit[2];
+                    f(qs);
+                    MResetEachZ(qs)
+                }}
+                "#
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRI,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+            ] {
+                let mut interpreter = interpreter_with_capabilities(profile.into());
+                eval_fragments(&mut interpreter, &source);
+                let globals = interpreter.user_globals();
+                let global = |name: &str| {
+                    globals
+                        .iter()
+                        .find(|g| g.name.as_ref() == name)
+                        .unwrap_or_else(|| panic!("{name} should exist"))
+                        .value
+                        .clone()
+                };
+                let mut output = Cursor::new(Vec::new());
+                let mut receiver = CursorReceiver::new(&mut output);
+                let flip = interpreter
+                    .invoke(&mut receiver, global("MakeFlip"), Value::Int(1))
+                    .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)));
+                let composed = interpreter
+                    .invoke(
+                        &mut receiver,
+                        global("MakeBoth"),
+                        Value::Tuple(vec![global("A"), flip].into(), None),
+                    )
+                    .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)));
+                let expected =
+                    Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into());
+                assert_eq!(
+                    interpreter
+                        .invoke(&mut receiver, global("Run"), composed.clone())
+                        .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e))),
+                    expected,
+                );
+                // Preserve runtime construction: compiling the inline expression
+                // would bypass the closure-value reconstruction that failed.
+                let qir = interpreter
+                    .qirgen_from_callable(&global("Run"), composed)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "{profile:?}, {functors}, {make_flip}: {}",
+                            format_interpret_errors(e)
+                        )
+                    });
+                if profile == Profile::Adaptive {
+                    let calls = qir
+                        .lines()
+                        .filter(|line| line.contains("call void @X("))
+                        .map(str::trim)
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    expect![[r#"
+                        call void @X(ptr inttoptr (i64 0 to ptr))
+                        call void @X(ptr inttoptr (i64 1 to ptr))"#]]
+                    .assert_eq(&calls);
+                    assert!(qir.contains("call void @__quantum__qis__x__body("));
+                } else {
+                    assert_x_targets(&qir, &[0, 1]);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_normalization_updates_only_concrete_input_patterns() {
+    use qsc_fir::{
+        fir::{CallableDecl, CallableImpl, Package, Pat, PatId, PatKind},
+        ty::{FunctorSet, Ty},
+    };
+
+    fn controls(decl: &CallableDecl) -> Vec<PatId> {
+        let CallableImpl::Spec(specs) = &decl.implementation else {
+            return Vec::new();
+        };
+        std::iter::once(&specs.body)
+            .chain(specs.adj.iter())
+            .chain(specs.ctl.iter())
+            .chain(specs.ctl_adj.iter())
+            .filter_map(|spec| spec.input)
+            .collect()
+    }
+
+    fn patterns(package: &Package, mut roots: Vec<PatId>) -> Vec<Pat> {
+        let mut result = Vec::new();
+        while let Some(id) = roots.pop() {
+            let pat = package.get_pat(id);
+            if let PatKind::Tuple(children) = &pat.kind {
+                roots.extend(children);
+            }
+            result.push(pat.clone());
+        }
+        result
+    }
+
+    let source = r#"
+        operation ApplyAll(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit is Adj + Ctl {
+            for op in ops { op(q); }
+        }
+        function MakeAll(ops : (Qubit => Unit is Adj + Ctl)[]) : (Qubit => Unit is Adj + Ctl) {
+            ApplyAll(ops, _)
+        }
+    "#;
+    let (store, package_id, items) = compile_and_locate_items(
+        source,
+        &[(".lambda", true), ("ApplyAll", true)],
+        Profile::AdaptiveRIF.into(),
+    );
+    let lambda_id = fir_id_for(package_id, items[".lambda"]);
+    let generic_id = fir_id_for(package_id, items["ApplyAll"]);
+    let (mut fir_store, package_id, _) = lower_hir_to_fir(&store, package_id);
+    let package = fir_store.get(package_id);
+    let FirItemKind::Callable(lambda) = &package.get_item(lambda_id.item).kind else {
+        panic!("lifted lambda should exist");
+    };
+    assert!(lambda.generics.is_empty());
+    let lambda_inputs = patterns(package, vec![lambda.input]);
+    let control_inputs = patterns(package, controls(lambda));
+    assert!(
+        !control_inputs.is_empty(),
+        "fixture must include control bindings"
+    );
+    let is_parameterized_capture = |pat: &Pat| {
+        matches!(&pat.ty, Ty::Array(ty)
+            if matches!(ty.as_ref(), Ty::Arrow(arrow)
+                if matches!(arrow.functors, FunctorSet::Param(_))))
+    };
+    assert!(
+        lambda_inputs.iter().any(is_parameterized_capture),
+        "fixture must expose an inherited functor parameter",
+    );
+    let FirItemKind::Callable(generic) = &package.get_item(generic_id.item).kind else {
+        panic!("generic callable should exist");
+    };
+    assert!(!generic.generics.is_empty());
+    let mut generic_roots = controls(generic);
+    generic_roots.push(generic.input);
+    let generic_inputs = patterns(package, generic_roots);
+    let callables = FxHashSet::from_iter([lambda_id, generic_id]);
+
+    super::qir::normalize_callable_signatures(&mut fir_store, &callables);
+
+    let package = fir_store.get(package_id);
+    for before in &lambda_inputs {
+        let after = package.get_pat(before.id);
+        assert_eq!(
+            after.kind, before.kind,
+            "preserve input bindings and structure"
+        );
+        assert_eq!(after.span, before.span);
+        assert!(
+            !is_parameterized_capture(after),
+            "input must be concrete: {after:?}"
+        );
+        if let PatKind::Tuple(children) = &after.kind {
+            let Ty::Tuple(types) = &after.ty else {
+                panic!("tuple pattern must retain its tuple type");
+            };
+            assert_eq!(children.len(), types.len());
+            for (&child, ty) in children.iter().zip(types) {
+                assert_eq!(&package.get_pat(child).ty, ty);
+            }
+        }
+    }
+    for before in generic_inputs.iter().chain(&control_inputs) {
+        assert_eq!(
+            package.get_pat(before.id),
+            before,
+            "preserve generic inputs and controls"
+        );
+    }
+}
+
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
 
 #[test]
