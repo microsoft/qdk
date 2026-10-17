@@ -92,29 +92,54 @@ pub mod qir {
         }
     }
 
+    /// Lowers the HIR package store to FIR, optionally adapting codegen inputs.
+    ///
+    /// `package_override` replaces only the HIR for `package_id`.
+    /// `runtime_callables` selects package-qualified runtime declarations whose
+    /// inherited functor bounds must be closed before lowering discards them.
+    /// Normalization applies to the selected HIR, including an override, and
+    /// copies only packages containing selected nongeneric declarations. Neither
+    /// the stored HIR nor the supplied override is mutated.
+    ///
+    /// Returns the lowered store, the requested package's FIR ID, and an assigner.
+    /// The adapted path retains the requested package's assigner; the ordinary
+    /// path preserves the standard helper's result, including its last-package
+    /// assigner. This performs lowering only, not the subsequent FIR transforms.
     fn lower_to_fir(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         package_override: Option<&qsc_hir::hir::Package>,
+        runtime_callables: Option<&FxHashSet<qsc_fir::fir::StoreItemId>>,
     ) -> (
         qsc_fir::fir::PackageStore,
         qsc_fir::fir::PackageId,
         qsc_fir::assigner::Assigner,
     ) {
-        if let Some(package_override) = package_override {
+        if package_override.is_some() || runtime_callables.is_some() {
             let mut fir_store = qsc_fir::fir::PackageStore::new();
             let mut fir_assigner = qsc_fir::assigner::Assigner::new();
 
+            // Preserve store order so dependencies are available when later
+            // packages are lowered and their cross-package references validated.
             for (id, unit) in package_store {
-                let hir_package = if id == package_id {
-                    package_override
-                } else {
-                    &unit.package
-                };
-
                 let fir_id = qsc_lowerer::map_hir_package_to_fir(id);
+                // An override affects only the requested package, not its dependencies.
+                let hir_package = package_override
+                    .filter(|_| id == package_id)
+                    .unwrap_or(&unit.package);
+                // Runtime declarations can belong to any package. Normalize
+                // after selecting the HIR and keep the optional Cow alive until
+                // lowering has consumed the borrowed or newly copied package.
+                let normalized = runtime_callables.map(|callables| {
+                    normalize_runtime_callable_hir(hir_package, fir_id, callables)
+                });
+                let hir_package = normalized.as_deref().unwrap_or(hir_package);
+                // Node and local-variable allocation belong to one package.
                 let mut lowerer = qsc_lowerer::Lowerer::new();
                 let fir_package = if id == package_id {
+                    // Use update-style lowering for the adapted entry package.
+                    // It lowers items/statements before the entry and leaves
+                    // the entry execution graph in the lowerer for us to install.
                     let mut fir_package = Package {
                         id: fir_id,
                         ..Package::default()
@@ -123,9 +148,12 @@ pub mod qir {
                     fir_package.entry_exec_graph = lowerer.take_exec_graph();
                     fir_package
                 } else {
+                    // Complete-package lowering installs its entry graph and
+                    // validates references against the FIR store built so far.
                     lowerer.lower_package(hir_package, &fir_store, fir_id)
                 };
                 if id == package_id {
+                    // Retain this package's allocation counters for the caller.
                     fir_assigner = lowerer.into_assigner();
                 }
                 fir_store.insert(fir_id, fir_package);
@@ -137,6 +165,7 @@ pub mod qir {
                 fir_assigner,
             )
         } else {
+            // No codegen-specific HIR adaptation is needed.
             qsc_passes::lower_hir_to_fir(package_store, package_id)
         }
     }
@@ -530,21 +559,17 @@ pub mod qir {
         map
     }
 
-    /// Normalizes concrete runtime callable type copies before synthetic-entry lowering.
+    /// Preserves the structural signatures used to reconstruct runtime UDT values.
     ///
-    /// Interpreter-created callable values can retain inferred functor parameters
-    /// in their input patterns and body node types even when the callable itself is concrete.
-    /// Those stale parameters would violate post-monomorphization invariants once
-    /// the callable is made entry-reachable. Normalize the full primary input
-    /// pattern tree so its children agree with its root type; specialization
-    /// control patterns are already concrete qubit arrays. Generic callable signatures are left
-    /// intact so monomorphization can still infer and create concrete
-    /// specializations from closure targets.
-    pub(super) fn normalize_callable_signatures(
+    /// Runtime values carry tuple payloads rather than nominal UDT types. Keep
+    /// concrete input/output signatures aligned with those payloads before the
+    /// synthetic entry is transformed. Generic signatures remain available for
+    /// monomorphization; functor bounds were already resolved in HIR.
+    fn normalize_runtime_callable_udts(
         fir_store: &mut qsc_fir::fir::PackageStore,
         callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
     ) {
-        use qsc_fir::fir::{CallableImpl, Global, PackageLookup};
+        use qsc_fir::fir::{Global, PackageLookup};
 
         let normalized: Vec<_> = callables
             .iter()
@@ -556,8 +581,8 @@ pub mod qir {
                 let normalized_signature = if callable_decl.generics.is_empty() {
                     let input_pat = package.get_pat(callable_decl.input);
                     Some((
-                        resolve_functor_params(&resolve_udt_ty(fir_store, &input_pat.ty)),
-                        resolve_functor_params(&resolve_udt_ty(fir_store, &callable_decl.output)),
+                        resolve_udt_ty(fir_store, &input_pat.ty),
+                        resolve_udt_ty(fir_store, &callable_decl.output),
                     ))
                 } else {
                     None
@@ -567,16 +592,15 @@ pub mod qir {
             .collect();
 
         for (id, input_pat_id, normalized_signature) in normalized {
+            let Some((input_ty, output_ty)) = normalized_signature else {
+                continue;
+            };
             let package = fir_store.get_mut(id.package);
-            let normalized_output = normalized_signature.map(|(input_ty, output_ty)| {
-                package
-                    .pats
-                    .get_mut(input_pat_id)
-                    .expect("callable input pattern should exist")
-                    .ty = input_ty;
-                normalize_pat_node_types(package, input_pat_id);
-                output_ty
-            });
+            package
+                .pats
+                .get_mut(input_pat_id)
+                .expect("callable input pattern should exist")
+                .ty = input_ty;
             let qsc_fir::fir::ItemKind::Callable(callable_decl) = &mut package
                 .items
                 .get_mut(id.item)
@@ -585,174 +609,109 @@ pub mod qir {
             else {
                 panic!("callable should exist in lowered package");
             };
-            if let Some(output_ty) = normalized_output {
-                callable_decl.output = output_ty;
-            }
-            let CallableImpl::Spec(spec_impl) = &callable_decl.implementation else {
-                continue;
+            callable_decl.output = output_ty;
+        }
+    }
+
+    /// Closes inherited functor parameters in concrete runtime declarations.
+    ///
+    /// Lifted lambdas can retain functor parameters even without declared generics.
+    /// HIR still carries their checked lower bounds; FIR retains only parameter
+    /// IDs. Resolve those bounds before lowering, without specializing shared
+    /// declarations to individual runtime values. Generic templates are left for
+    /// monomorphization, and packages are copied only when a concrete item is selected.
+    pub(super) fn normalize_runtime_callable_hir<'a>(
+        package: &'a qsc_hir::hir::Package,
+        package_id: qsc_fir::fir::PackageId,
+        callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
+    ) -> std::borrow::Cow<'a, qsc_hir::hir::Package> {
+        use qsc_hir::mut_visit::MutVisitor;
+        use std::borrow::Cow;
+
+        let mut normalized = Cow::Borrowed(package);
+        for id in callables.iter().filter(|id| id.package == package_id) {
+            let local_id = qsc_lowerer::map_fir_local_item_to_hir(id.item);
+            let item = package
+                .items
+                .get(local_id)
+                .expect("runtime callable should exist");
+            let qsc_hir::hir::ItemKind::Callable(decl) = &item.kind else {
+                panic!("runtime item should be callable");
             };
-            let mut block_ids = vec![spec_impl.body.block];
-            block_ids.extend(
-                spec_impl
-                    .adj
-                    .iter()
-                    .chain(spec_impl.ctl.iter())
-                    .chain(spec_impl.ctl_adj.iter())
-                    .map(|spec| spec.block),
-            );
+            if decl.generics.is_empty() {
+                RuntimeFunctorNormalizer.visit_item(
+                    normalized
+                        .to_mut()
+                        .items
+                        .get_mut(local_id)
+                        .expect("runtime callable should exist"),
+                );
+            }
+        }
+        normalized
+    }
 
-            for block_id in block_ids {
-                normalize_block_node_types(package, block_id);
+    struct RuntimeFunctorNormalizer;
+
+    impl RuntimeFunctorNormalizer {
+        fn normalize_ty(ty: &qsc_hir::ty::Ty) -> qsc_hir::ty::Ty {
+            use qsc_hir::ty::{Arrow, FunctorSet, Ty};
+            use std::{cell::RefCell, rc::Rc};
+
+            match ty {
+                Ty::Arrow(arrow) => {
+                    let functors = match *arrow.functors.borrow() {
+                        FunctorSet::Param(_, bound) => FunctorSet::Value(bound),
+                        other => other,
+                    };
+                    // HIR clones share arrow cells. Build fresh arrows all the
+                    // way down so normalization cannot mutate the interpreter.
+                    Ty::Arrow(Rc::new(Arrow {
+                        kind: arrow.kind,
+                        input: RefCell::new(Self::normalize_ty(&arrow.input.borrow())),
+                        output: RefCell::new(Self::normalize_ty(&arrow.output.borrow())),
+                        functors: RefCell::new(functors),
+                    }))
+                }
+                Ty::Array(item) => Ty::Array(Box::new(Self::normalize_ty(item))),
+                Ty::Tuple(items) => Ty::Tuple(items.iter().map(Self::normalize_ty).collect()),
+                _ => ty.clone(),
             }
         }
     }
 
-    fn normalize_block_node_types(
-        package: &mut qsc_fir::fir::Package,
-        block_id: qsc_fir::fir::BlockId,
-    ) {
-        let stmt_ids = package
-            .blocks
-            .get_mut(block_id)
-            .expect("callable block should exist")
-            .stmts
-            .clone();
-
-        for stmt_id in stmt_ids {
-            let stmt = package
-                .stmts
-                .get(stmt_id)
-                .expect("callable statement should exist");
-            let (pat_id, expr_id) = match stmt.kind {
-                qsc_fir::fir::StmtKind::Expr(expr_id) | qsc_fir::fir::StmtKind::Semi(expr_id) => {
-                    (None, Some(expr_id))
-                }
-                qsc_fir::fir::StmtKind::Local(_, pat_id, expr_id) => (Some(pat_id), Some(expr_id)),
-                qsc_fir::fir::StmtKind::Item(_) => (None, None),
-            };
-
-            if let Some(pat_id) = pat_id {
-                normalize_pat_node_types(package, pat_id);
-            }
-            if let Some(expr_id) = expr_id {
-                normalize_expr_node_types(package, expr_id);
-            }
+    impl qsc_hir::mut_visit::MutVisitor for RuntimeFunctorNormalizer {
+        fn visit_callable_decl(&mut self, decl: &mut qsc_hir::hir::CallableDecl) {
+            decl.output = Self::normalize_ty(&decl.output);
+            qsc_hir::mut_visit::walk_callable_decl(self, decl);
         }
 
-        let block = package
-            .blocks
-            .get_mut(block_id)
-            .expect("callable block should exist");
-        block.ty = resolve_functor_params(&block.ty);
-    }
-
-    fn normalize_pat_node_types(package: &mut qsc_fir::fir::Package, pat_id: qsc_fir::fir::PatId) {
-        let child_pats = {
-            let pat = package
-                .pats
-                .get_mut(pat_id)
-                .expect("callable pattern should exist");
-            pat.ty = resolve_functor_params(&pat.ty);
-            match &pat.kind {
-                qsc_fir::fir::PatKind::Tuple(pats) => pats.clone(),
-                qsc_fir::fir::PatKind::Bind(_) | qsc_fir::fir::PatKind::Discard => Vec::new(),
-            }
-        };
-        for child_pat in child_pats {
-            normalize_pat_node_types(package, child_pat);
+        fn visit_pat(&mut self, pat: &mut qsc_hir::hir::Pat) {
+            pat.ty = Self::normalize_ty(&pat.ty);
+            qsc_hir::mut_visit::walk_pat(self, pat);
         }
-    }
 
-    fn normalize_expr_node_types(
-        package: &mut qsc_fir::fir::Package,
-        expr_id: qsc_fir::fir::ExprId,
-    ) {
-        let (child_exprs, child_blocks) = {
-            let expr = package
-                .exprs
-                .get_mut(expr_id)
-                .expect("callable expression should exist");
-            expr.ty = resolve_functor_params(&expr.ty);
-            child_nodes_for_expr_kind(&expr.kind)
-        };
-
-        for child_expr in child_exprs {
-            normalize_expr_node_types(package, child_expr);
-        }
-        for child_block in child_blocks {
-            normalize_block_node_types(package, child_block);
-        }
-    }
-
-    fn child_nodes_for_expr_kind(
-        kind: &qsc_fir::fir::ExprKind,
-    ) -> (Vec<qsc_fir::fir::ExprId>, Vec<qsc_fir::fir::BlockId>) {
-        let mut exprs = Vec::new();
-        let mut blocks = Vec::new();
-        match kind {
-            qsc_fir::fir::ExprKind::Array(child_exprs)
-            | qsc_fir::fir::ExprKind::ArrayLit(child_exprs)
-            | qsc_fir::fir::ExprKind::Tuple(child_exprs) => exprs.extend(child_exprs.iter()),
-            qsc_fir::fir::ExprKind::ArrayRepeat(left, right)
-            | qsc_fir::fir::ExprKind::Assign(left, right)
-            | qsc_fir::fir::ExprKind::AssignOp(_, left, right)
-            | qsc_fir::fir::ExprKind::BinOp(_, left, right)
-            | qsc_fir::fir::ExprKind::Call(left, right)
-            | qsc_fir::fir::ExprKind::Index(left, right)
-            | qsc_fir::fir::ExprKind::AssignField(left, _, right)
-            | qsc_fir::fir::ExprKind::UpdateField(left, _, right) => {
-                exprs.push(*left);
-                exprs.push(*right);
-            }
-            qsc_fir::fir::ExprKind::AssignIndex(first, second, third)
-            | qsc_fir::fir::ExprKind::UpdateIndex(first, second, third) => {
-                exprs.push(*first);
-                exprs.push(*second);
-                exprs.push(*third);
-            }
-            qsc_fir::fir::ExprKind::Block(block_id) => blocks.push(*block_id),
-            qsc_fir::fir::ExprKind::Closure(_, _)
-            | qsc_fir::fir::ExprKind::Hole
-            | qsc_fir::fir::ExprKind::Lit(_)
-            | qsc_fir::fir::ExprKind::Var(_, _) => {}
-            qsc_fir::fir::ExprKind::Fail(expr_id)
-            | qsc_fir::fir::ExprKind::Field(expr_id, _)
-            | qsc_fir::fir::ExprKind::Return(expr_id)
-            | qsc_fir::fir::ExprKind::UnOp(_, expr_id) => exprs.push(*expr_id),
-            qsc_fir::fir::ExprKind::If(cond, body, otherwise) => {
-                exprs.push(*cond);
-                exprs.push(*body);
-                if let Some(otherwise) = otherwise {
-                    exprs.push(*otherwise);
+        fn visit_expr(&mut self, expr: &mut qsc_hir::hir::Expr) {
+            expr.ty = Self::normalize_ty(&expr.ty);
+            if let qsc_hir::hir::ExprKind::Var(_, args) = &mut expr.kind {
+                for arg in args {
+                    match arg {
+                        qsc_hir::ty::GenericArg::Ty(ty) => *ty = Self::normalize_ty(ty),
+                        qsc_hir::ty::GenericArg::Functor(functors) => {
+                            if let qsc_hir::ty::FunctorSet::Param(_, bound) = *functors {
+                                *functors = qsc_hir::ty::FunctorSet::Value(bound);
+                            }
+                        }
+                    }
                 }
             }
-            qsc_fir::fir::ExprKind::Range(start, step, end) => {
-                exprs.extend([start, step, end].into_iter().flatten().copied());
-            }
-            qsc_fir::fir::ExprKind::Struct(_, copy, fields) => {
-                if let Some(copy) = copy {
-                    exprs.push(*copy);
-                }
-                exprs.extend(fields.iter().map(|field| field.value));
-            }
-            qsc_fir::fir::ExprKind::String(components) => {
-                exprs.extend(components.iter().filter_map(|component| match component {
-                    qsc_fir::fir::StringComponent::Expr(expr_id) => Some(*expr_id),
-                    qsc_fir::fir::StringComponent::Lit(_) => None,
-                }));
-            }
-            qsc_fir::fir::ExprKind::While(cond, block_id) => {
-                exprs.push(*cond);
-                blocks.push(*block_id);
-            }
-            qsc_fir::fir::ExprKind::Parallel(limit, body) => {
-                if let Some(limit) = limit {
-                    exprs.push(*limit);
-                }
-                exprs.push(*body);
-            }
+            qsc_hir::mut_visit::walk_expr(self, expr);
         }
-        (exprs, blocks)
+
+        fn visit_block(&mut self, block: &mut qsc_hir::hir::Block) {
+            block.ty = Self::normalize_ty(&block.ty);
+            qsc_hir::mut_visit::walk_block(self, block);
+        }
     }
 
     /// Seeds the package entry with a synthetic `Call(target, args)` expression.
@@ -1151,9 +1110,8 @@ pub mod qir {
 
     /// Resolves `FunctorSet::Param` to `FunctorSet::Value(Empty)` recursively in a type.
     ///
-    /// The lowerer may produce parametric functor sets for arrow-typed inputs. The synthetic
-    /// Call uses concrete types to satisfy post-mono invariants without requiring actual
-    /// monomorphization specialization of the pinned target.
+    /// Retains the existing fallback for synthetic value and target type construction.
+    /// Concrete runtime declarations preserve their checked bounds separately, in HIR.
     fn resolve_functor_params(ty: &qsc_fir::ty::Ty) -> qsc_fir::ty::Ty {
         match ty {
             qsc_fir::ty::Ty::Arrow(arrow) => {
@@ -1998,14 +1956,18 @@ pub mod qir {
             ));
         }
 
-        let (mut fir_store, fir_package_id, _assigner) =
-            lower_to_fir(package_store, callable.package, None);
+        let (mut fir_store, fir_package_id, _assigner) = lower_to_fir(
+            package_store,
+            callable.package,
+            None,
+            Some(&concrete_callables),
+        );
 
-        // Pre-compute callable value types before normalizing concrete callable
-        // bodies, so closure values still expose the original generic target
-        // signatures needed by monomorphization.
+        // Concrete functor bounds are already closed in HIR. Cache callable value
+        // types before adapting the nongeneric UDT signatures to runtime payloads;
+        // generic declarations remain available for monomorphization.
         let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
-        normalize_callable_signatures(&mut fir_store, &concrete_callables);
+        normalize_runtime_callable_udts(&mut fir_store, &concrete_callables);
 
         // Build synthetic Call(Var(target), args) as the entry expression.
         // This makes the target and all callable args entry-reachable for pipeline transforms.
@@ -2065,7 +2027,7 @@ pub mod qir {
         mut concrete_callables: FxHashSet<qsc_fir::fir::StoreItemId>,
     ) -> Result<CodegenFir, Vec<Error>> {
         let (mut fir_store, fir_package_id, _assigner) =
-            lower_to_fir(package_store, callable.package, None);
+            lower_to_fir(package_store, callable.package, None, None);
 
         let mut pinned_callables: Vec<qsc_fir::fir::StoreItemId> = Vec::new();
         concrete_callables.retain(|store_item_id| {
@@ -2166,7 +2128,7 @@ pub mod qir {
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
         let (fir_store, fir_package_id, _) =
-            lower_to_fir(package_store, package_id, package_override);
+            lower_to_fir(package_store, package_id, package_override, None);
 
         prepare_codegen_fir_from_lowered_store(
             package_store,
@@ -2233,7 +2195,7 @@ pub mod qir {
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
         let (mut fir_store, fir_package_id, _assigner) =
-            lower_to_fir(package_store, callable.package, None);
+            lower_to_fir(package_store, callable.package, None, None);
 
         if callable_has_arrow_input(&fir_store, callable) {
             // Callable-based codegen receives the concrete callable arguments later through
