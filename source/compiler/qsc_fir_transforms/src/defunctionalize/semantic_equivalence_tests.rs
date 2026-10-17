@@ -13,6 +13,109 @@ use qsc_eval::val::{Result as MeasurementResult, Value};
 use super::test_cases;
 
 #[test]
+fn nested_callable_arrays_preserve_distinct_captures() {
+    for (left, right, expected) in [
+        ("A", "B", [true, true]),
+        ("B", "A", [true, true]),
+        ("A", "A", [false, false]),
+    ] {
+        let source = formatdoc! {r#"
+            operation A(q : Qubit[]) : Unit is Ctl {{ X(q[0]); }}
+            operation B(q : Qubit[]) : Unit is Ctl {{ X(q[1]); }}
+            operation ApplyAll(ops : (Qubit[] => Unit is Ctl)[], q : Qubit[]) : Unit is Ctl {{
+                for op in ops {{ op(q); }}
+            }}
+            function MakeAll(ops : (Qubit[] => Unit is Ctl)[]) : (Qubit[] => Unit is Ctl) {{
+                ApplyAll(ops, _)
+            }}
+            operation Run(f : Qubit[] => Unit is Ctl) : Result[] {{
+                use (control, q) = (Qubit(), Qubit[2]);
+                X(control);
+                Controlled f([control], q);
+                Reset(control);
+                MResetEachZ(q)
+            }}
+            @EntryPoint() operation Main() : Result[] {{
+                Run(MakeAll([MakeAll([{left}]), MakeAll([{right}])]))
+            }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            Value::Array(
+                expected
+                    .into_iter()
+                    .map(|result| Value::Result(MeasurementResult::Val(result)))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+        );
+    }
+}
+
+#[test]
+fn nested_callable_arrays_preserve_captured_functors() {
+    for (left, right, expected) in [
+        ("Phase", "Adjoint Phase", false),
+        ("Adjoint Phase", "Phase", false),
+        ("Phase", "Phase", true),
+    ] {
+        let source = formatdoc! {r#"
+            operation Phase(q : Qubit) : Unit is Adj + Ctl {{ S(q); }}
+            operation ApplyAll(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit is Adj + Ctl {{
+                for op in ops {{ op(q); }}
+            }}
+            function MakeAll(ops : (Qubit => Unit is Adj + Ctl)[]) : (Qubit => Unit is Adj + Ctl) {{
+                ApplyAll(ops, _)
+            }}
+            operation Run(f : Qubit => Unit is Adj + Ctl) : Result {{
+                use q = Qubit();
+                H(q);
+                f(q);
+                H(q);
+                MResetZ(q)
+            }}
+            @EntryPoint() operation Main() : Result {{
+                Run(MakeAll([MakeAll([{left}]), MakeAll([{right}])]))
+            }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            &source,
+            Value::Result(MeasurementResult::Val(expected)),
+        );
+    }
+}
+
+#[test]
+fn nested_function_arrays_preserve_order_and_environments() {
+    for (left, right, expected) in [
+        ("[Inc]", "[Double]", 4),
+        ("[Double]", "[Inc]", 3),
+        ("[Inc]", "[Inc]", 3),
+        ("[MakeAffine(2, 1)]", "[MakeAffine(3, 4)]", 13),
+        ("[MakeAffine(3, 4)]", "[MakeAffine(2, 1)]", 15),
+    ] {
+        let source = formatdoc! {r#"
+            function Inc(x : Int) : Int {{ x + 1 }}
+            function Double(x : Int) : Int {{ 2 * x }}
+            function MakeAffine(scale : Int, offset : Int) : Int -> Int {{
+                x -> scale * x + offset
+            }}
+            function ApplyAll(fs : (Int -> Int)[], x : Int) : Int {{
+                mutable result = x;
+                for f in fs {{ set result = f(result); }}
+                result
+            }}
+            function MakeAll(fs : (Int -> Int)[]) : Int -> Int {{ ApplyAll(fs, _) }}
+            function Run(f : Int -> Int) : Int {{ f(1) }}
+            @EntryPoint() operation Main() : Int {{
+                Run(MakeAll([MakeAll({left}), MakeAll({right})]))
+            }}
+        "#};
+        crate::test_utils::check_semantic_equivalence_with_expected(&source, Value::Int(expected));
+    }
+}
+
+#[test]
 fn conditional_factory_assignment_preserves_target_and_capture_time() {
     for (selection, expected) in [
         ("if true { set f = Twice(g); }", 12),

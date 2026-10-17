@@ -3111,6 +3111,49 @@ fn runtime_callable_normalization_updates_only_concrete_input_patterns() {
     }
 }
 
+#[test]
+fn nested_callable_arrays_control_each_target() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit is Ctl { X(q[0]); }
+        operation B(q : Qubit[]) : Unit is Ctl { X(q[1]); }
+        operation ApplyAll(ops : (Qubit[] => Unit is Ctl)[], q : Qubit[]) : Unit is Ctl {
+            for op in ops { op(q); }
+        }
+        function MakeAll(ops : (Qubit[] => Unit is Ctl)[]) : (Qubit[] => Unit is Ctl) {
+            ApplyAll(ops, _)
+        }
+        operation Run(f : Qubit[] => Unit is Ctl) : Result[] {
+            use (control, q) = (Qubit(), Qubit[2]);
+            X(control);
+            Controlled f([control], q);
+            Reset(control);
+            MResetEachZ(q)
+        }
+        @EntryPoint() operation Main() : Result[] {
+            Run(MakeAll([MakeAll([A]), MakeAll([B])]))
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        let gates = qir
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("call void @__quantum__qis__cx__body("))
+            .map(|line| line.replace("%Qubit*", "ptr"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        expect![[r#"
+            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))"#]]
+        .assert_eq(&gates);
+    }
+}
+
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
 
 #[test]
