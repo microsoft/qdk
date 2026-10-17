@@ -2915,7 +2915,7 @@ fn runtime_callable_captures_emit_expected_operations() {
 
 #[test]
 fn runtime_mixed_callable_captures_preserve_operations() {
-    for functors in ["", "is Adj"] {
+    for functors in ["", "is Adj", "is Ctl", "is Adj + Ctl"] {
         for make_flip in ["Flip(i, _)", "qs => Flip(i, qs)"] {
             let source = format!(
                 r#"
@@ -3003,10 +3003,126 @@ fn runtime_mixed_callable_captures_preserve_operations() {
 }
 
 #[test]
-fn runtime_callable_normalization_updates_only_concrete_input_patterns() {
+fn runtime_callable_arrays_preserve_declared_functors() {
+    for functors in ["is Ctl", "is Adj + Ctl"] {
+        for factory in ["ApplyAll(ops, _)", "q => ApplyAll(ops, q)"] {
+            let source = format!(
+                r#"
+                operation A(q : Qubit[]) : Unit {functors} {{ X(q[0]); }}
+                operation B(q : Qubit[]) : Unit is Adj + Ctl {{ X(q[1]); }}
+                operation Flip(i : Int, q : Qubit[]) : Unit {functors} {{ X(q[i]); }}
+                operation ApplyAll(ops : (Qubit[] => Unit {functors})[], q : Qubit[]) : Unit {functors} {{
+                    for op in ops {{ op(q); }}
+                }}
+                function MakeAll(ops : (Qubit[] => Unit {functors})[]) : (Qubit[] => Unit {functors}) {{
+                    {factory}
+                }}
+                function MakeFlip(i : Int) : (Qubit[] => Unit {functors}) {{ Flip(i, _) }}
+                operation Run(f : Qubit[] => Unit {functors}) : Result[] {{
+                    use (control, q) = (Qubit(), Qubit[2]);
+                    X(control);
+                    Controlled f([control], q);
+                    Reset(control);
+                    MResetEachZ(q)
+                }}
+                "#
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRI,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+            ] {
+                let mut interpreter = interpreter_with_capabilities(profile.into());
+                eval_fragments(&mut interpreter, &source);
+                let globals = interpreter.user_globals();
+                let global = |name: &str| {
+                    globals
+                        .iter()
+                        .find(|g| g.name.as_ref() == name)
+                        .unwrap_or_else(|| panic!("{name} should exist"))
+                        .value
+                        .clone()
+                };
+                let invoke = |interpreter: &mut crate::interpret::Interpreter, name, args| {
+                    let mut output = Cursor::new(Vec::new());
+                    interpreter
+                        .invoke(&mut CursorReceiver::new(&mut output), global(name), args)
+                        .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)))
+                };
+                for case in ["globals", "partial", "empty", "nested"] {
+                    let values = match case {
+                        "globals" => vec![global("A"), global("B")],
+                        "partial" => vec![
+                            invoke(&mut interpreter, "MakeFlip", Value::Int(0)),
+                            global("B"),
+                        ],
+                        "empty" => Vec::new(),
+                        "nested" => ["A", "B"]
+                            .map(|name| {
+                                invoke(
+                                    &mut interpreter,
+                                    "MakeAll",
+                                    Value::Array(vec![global(name)].into()),
+                                )
+                            })
+                            .to_vec(),
+                        _ => unreachable!(),
+                    };
+                    let composed = invoke(&mut interpreter, "MakeAll", Value::Array(values.into()));
+                    assert_eq!(
+                        invoke(&mut interpreter, "Run", composed.clone()),
+                        Value::Array(
+                            vec![Value::Result(qsc_eval::val::Result::Val(case != "empty")); 2]
+                                .into()
+                        ),
+                    );
+                    let qir = interpreter
+                        .qirgen_from_callable(&global("Run"), composed.clone())
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "{profile:?}, {functors}, {factory}, {case}: {}",
+                                format_interpret_errors(e)
+                            )
+                        });
+                    let calls = qir
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| line.starts_with("call void @__quantum__qis__cx__body("))
+                        .map(|line| line.replace("%Qubit*", "ptr"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if case == "empty" {
+                        assert!(
+                            calls.is_empty(),
+                            "empty captures must apply no controlled gates"
+                        );
+                    } else {
+                        expect![[r#"
+                            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+                            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))"#]]
+                        .assert_eq(&calls);
+                    }
+                    if case == "partial" {
+                        let repeated = interpreter
+                            .qirgen_from_callable(&global("Run"), composed)
+                            .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)));
+                        assert_eq!(
+                            qir, repeated,
+                            "compilation must preserve reusable runtime values"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_normalization_preserves_bounds_and_templates() {
     use qsc_fir::{
         fir::{CallableDecl, CallableImpl, Package, Pat, PatId, PatKind},
-        ty::{FunctorSet, Ty},
+        ty::{FunctorSet, FunctorSetValue, Ty},
     };
 
     fn controls(decl: &CallableDecl) -> Vec<PatId> {
@@ -3048,7 +3164,13 @@ fn runtime_callable_normalization_updates_only_concrete_input_patterns() {
     );
     let lambda_id = fir_id_for(package_id, items[".lambda"]);
     let generic_id = fir_id_for(package_id, items["ApplyAll"]);
-    let (mut fir_store, package_id, _) = lower_hir_to_fir(&store, package_id);
+    let hir_package = &store
+        .get(package_id)
+        .expect("source package exists")
+        .package;
+    // A shallow HIR clone shares mutable arrow cells, so snapshot their values.
+    let original_hir = format!("{hir_package:?}");
+    let (fir_store, package_id, _) = lower_hir_to_fir(&store, package_id);
     let package = fir_store.get(package_id);
     let FirItemKind::Callable(lambda) = &package.get_item(lambda_id.item).kind else {
         panic!("lifted lambda should exist");
@@ -3078,9 +3200,35 @@ fn runtime_callable_normalization_updates_only_concrete_input_patterns() {
     let generic_inputs = patterns(package, generic_roots);
     let callables = FxHashSet::from_iter([lambda_id, generic_id]);
 
-    super::qir::normalize_callable_signatures(&mut fir_store, &callables);
+    let normalized =
+        super::qir::normalize_runtime_callable_hir(hir_package, package_id, &callables);
+    assert_eq!(format!("{hir_package:?}"), original_hir);
+    assert_eq!(
+        normalized.items.get(items["ApplyAll"]),
+        hir_package.items.get(items["ApplyAll"]),
+        "preserve the entire generic declaration"
+    );
+    let repeated = super::qir::normalize_runtime_callable_hir(&normalized, package_id, &callables);
+    assert_eq!(
+        format!("{normalized:?}"),
+        format!("{repeated:?}"),
+        "normalization is idempotent"
+    );
+    let foreign_callables = callables
+        .iter()
+        .map(|id| StoreItemId {
+            package: qsc_fir::fir::PackageId::from(0_usize),
+            ..*id
+        })
+        .collect();
+    assert!(matches!(
+        super::qir::normalize_runtime_callable_hir(hir_package, package_id, &foreign_callables),
+        std::borrow::Cow::Borrowed(_)
+    ));
 
-    let package = fir_store.get(package_id);
+    let normalized_fir =
+        qsc_lowerer::Lowerer::new().lower_package(&normalized, &fir_store, package_id);
+    let package = &normalized_fir;
     for before in &lambda_inputs {
         let after = package.get_pat(before.id);
         assert_eq!(
@@ -3092,6 +3240,15 @@ fn runtime_callable_normalization_updates_only_concrete_input_patterns() {
             !is_parameterized_capture(after),
             "input must be concrete: {after:?}"
         );
+        if let Ty::Array(item) = &after.ty
+            && let Ty::Arrow(arrow) = item.as_ref()
+        {
+            assert_eq!(
+                arrow.functors,
+                FunctorSet::Value(FunctorSetValue::CtlAdj),
+                "preserve the capture's declared functor bound"
+            );
+        }
         if let PatKind::Tuple(children) = &after.kind {
             let Ty::Tuple(types) = &after.ty else {
                 panic!("tuple pattern must retain its tuple type");
