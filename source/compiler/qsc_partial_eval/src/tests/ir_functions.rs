@@ -948,7 +948,6 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
                 Return Integer(0)
             Block 1:Block:
                 Variable(1, Integer) = Alloca
-                Variable(4, Integer) = Alloca
                 Variable(1, Integer) = Store Integer(0)
                 Call id(3), args( Variable(0, Qubit), Result(0), )
                 Variable(2, Boolean) = Call id(4), args( Result(0), )
@@ -957,13 +956,11 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
                 Variable(1, Integer) = Store Integer(5)
                 Jump(3)
             Block 3:Block:
-                Variable(8, Integer) = Load Variable(1, Integer)
-                Variable(4, Integer) = Store Variable(8, Integer)
-                Variable(10, Integer) = Load Variable(4, Integer)
-                Variable(5, Integer) = Add Variable(10, Integer), Integer(1)
+                Variable(4, Integer) = Load Variable(1, Integer)
+                Variable(5, Integer) = Add Variable(4, Integer), Integer(1)
                 Variable(1, Integer) = Store Variable(5, Integer)
-                Variable(12, Integer) = Load Variable(1, Integer)
-                Return Variable(12, Integer)"#]],
+                Variable(9, Integer) = Load Variable(1, Integer)
+                Return Variable(9, Integer)"#]],
     );
 }
 

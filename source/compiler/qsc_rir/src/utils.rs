@@ -157,8 +157,12 @@ pub(crate) fn map_variable_use_in_block(
                 } else if let Operand::Variable(mapped_var) = operand.mapped(var_map)
                     && var_stor_to_keep.contains(&mapped_var.variable_id)
                 {
-                    *operand = Operand::Variable(mapped_var);
                     var_map.remove(&var.variable_id);
+
+                    // Turn this store instruction into a direct load instruction from
+                    // the mapped variable into the target variable.
+                    block.0.push(Instruction::Load(mapped_var, *var));
+                    continue;
                 } else {
                     update_variable_mapping(var_map, &mut reverse_deep_map, operand, var);
                     continue;

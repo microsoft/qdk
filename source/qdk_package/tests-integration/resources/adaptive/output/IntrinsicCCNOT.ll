@@ -18,14 +18,8 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_9 = alloca i64
-  %var_10 = alloca i64
-  %var_15 = alloca i64
   %var_20 = alloca i64
-  %var_21 = alloca i64
-  %var_25 = alloca i64
   %var_29 = alloca i64
-  %var_30 = alloca i64
-  %var_34 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @CCNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -34,21 +28,18 @@ block_0:
   store i64 0, ptr %var_9
   br label %block_1
 block_1:
-  %var_37 = load i64, ptr %var_9
-  store i64 %var_37, ptr %var_10
-  %var_39 = load i64, ptr %var_10
-  %var_11 = icmp slt i64 %var_39, 3
+  %var_10 = load i64, ptr %var_9
+  %var_11 = icmp slt i64 %var_10, 3
   br i1 %var_11, label %block_2, label %block_3
 block_2:
-  %var_58 = load i64, ptr %var_9
-  %var_59_offset_chk = icmp slt i64 %var_58, 0
-  %var_59_offset = select i1 %var_59_offset_chk, i64 1, i64 0
-  %var_59 = getelementptr [3 x ptr], ptr @array0, i64 %var_59_offset, i64 %var_58
-  %var_12 = load ptr, ptr %var_59
+  %var_45 = load i64, ptr %var_9
+  %var_46_offset_chk = icmp slt i64 %var_45, 0
+  %var_46_offset = select i1 %var_46_offset_chk, i64 1, i64 0
+  %var_46 = getelementptr [3 x ptr], ptr @array0, i64 %var_46_offset, i64 %var_45
+  %var_12 = load ptr, ptr %var_46
   call void @Reset(ptr %var_12)
-  store i64 %var_58, ptr %var_15
-  %var_61 = load i64, ptr %var_15
-  %var_16 = add i64 %var_61, 1
+  %var_15 = load i64, ptr %var_9
+  %var_16 = add i64 %var_15, 1
   store i64 %var_16, ptr %var_9
   br label %block_1
 block_3:
@@ -60,21 +51,18 @@ block_3:
   store i64 0, ptr %var_20
   br label %block_4
 block_4:
-  %var_41 = load i64, ptr %var_20
-  store i64 %var_41, ptr %var_21
-  %var_43 = load i64, ptr %var_21
-  %var_22 = icmp slt i64 %var_43, 3
+  %var_21 = load i64, ptr %var_20
+  %var_22 = icmp slt i64 %var_21, 3
   br i1 %var_22, label %block_5, label %block_6
 block_5:
-  %var_53 = load i64, ptr %var_20
-  %var_54_offset_chk = icmp slt i64 %var_53, 0
-  %var_54_offset = select i1 %var_54_offset_chk, i64 1, i64 0
-  %var_54 = getelementptr [3 x ptr], ptr @array1, i64 %var_54_offset, i64 %var_53
-  %var_23 = load ptr, ptr %var_54
+  %var_42 = load i64, ptr %var_20
+  %var_43_offset_chk = icmp slt i64 %var_42, 0
+  %var_43_offset = select i1 %var_43_offset_chk, i64 1, i64 0
+  %var_43 = getelementptr [3 x ptr], ptr @array1, i64 %var_43_offset, i64 %var_42
+  %var_23 = load ptr, ptr %var_43
   call void @Reset(ptr %var_23)
-  store i64 %var_53, ptr %var_25
-  %var_56 = load i64, ptr %var_25
-  %var_26 = add i64 %var_56, 1
+  %var_25 = load i64, ptr %var_20
+  %var_26 = add i64 %var_25, 1
   store i64 %var_26, ptr %var_20
   br label %block_4
 block_6:
@@ -87,21 +75,18 @@ block_6:
   store i64 0, ptr %var_29
   br label %block_7
 block_7:
-  %var_45 = load i64, ptr %var_29
-  store i64 %var_45, ptr %var_30
-  %var_47 = load i64, ptr %var_30
-  %var_31 = icmp slt i64 %var_47, 3
+  %var_30 = load i64, ptr %var_29
+  %var_31 = icmp slt i64 %var_30, 3
   br i1 %var_31, label %block_8, label %block_9
 block_8:
-  %var_48 = load i64, ptr %var_29
-  %var_49_offset_chk = icmp slt i64 %var_48, 0
-  %var_49_offset = select i1 %var_49_offset_chk, i64 1, i64 0
-  %var_49 = getelementptr [3 x ptr], ptr @array2, i64 %var_49_offset, i64 %var_48
-  %var_32 = load ptr, ptr %var_49
+  %var_39 = load i64, ptr %var_29
+  %var_40_offset_chk = icmp slt i64 %var_39, 0
+  %var_40_offset = select i1 %var_40_offset_chk, i64 1, i64 0
+  %var_40 = getelementptr [3 x ptr], ptr @array2, i64 %var_40_offset, i64 %var_39
+  %var_32 = load ptr, ptr %var_40
   call void @Reset(ptr %var_32)
-  store i64 %var_48, ptr %var_34
-  %var_51 = load i64, ptr %var_34
-  %var_35 = add i64 %var_51, 1
+  %var_34 = load i64, ptr %var_29
+  %var_35 = add i64 %var_34, 1
   store i64 %var_35, ptr %var_29
   br label %block_7
 block_9:

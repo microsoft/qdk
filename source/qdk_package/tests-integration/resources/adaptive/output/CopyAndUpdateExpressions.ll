@@ -12,8 +12,6 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_4 = alloca i64
-  %var_5 = alloca i64
-  %var_9 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -25,21 +23,18 @@ block_0:
   store i64 0, ptr %var_4
   br label %block_1
 block_1:
-  %var_12 = load i64, ptr %var_4
-  store i64 %var_12, ptr %var_5
-  %var_14 = load i64, ptr %var_5
-  %var_6 = icmp slt i64 %var_14, 2
+  %var_5 = load i64, ptr %var_4
+  %var_6 = icmp slt i64 %var_5, 2
   br i1 %var_6, label %block_2, label %block_3
 block_2:
-  %var_15 = load i64, ptr %var_4
-  %var_16_offset_chk = icmp slt i64 %var_15, 0
-  %var_16_offset = select i1 %var_16_offset_chk, i64 1, i64 0
-  %var_16 = getelementptr [2 x ptr], ptr @array0, i64 %var_16_offset, i64 %var_15
-  %var_7 = load ptr, ptr %var_16
+  %var_12 = load i64, ptr %var_4
+  %var_13_offset_chk = icmp slt i64 %var_12, 0
+  %var_13_offset = select i1 %var_13_offset_chk, i64 1, i64 0
+  %var_13 = getelementptr [2 x ptr], ptr @array0, i64 %var_13_offset, i64 %var_12
+  %var_7 = load ptr, ptr %var_13
   call void @X(ptr %var_7)
-  store i64 %var_15, ptr %var_9
-  %var_18 = load i64, ptr %var_9
-  %var_10 = add i64 %var_18, 1
+  %var_9 = load i64, ptr %var_4
+  %var_10 = add i64 %var_9, 1
   store i64 %var_10, ptr %var_4
   br label %block_1
 block_3:

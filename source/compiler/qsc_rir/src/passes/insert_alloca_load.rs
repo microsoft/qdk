@@ -212,13 +212,15 @@ fn add_alloca_load_to_block(
 
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
-            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
+            // Some Load instructions may already have been inserted by the prune_unneeded_stores pass, so
+            // ignore those here.
+            Instruction::Phi(..)
+            | Instruction::Jump(..)
+            | Instruction::Return(None)
+            | Instruction::Load(..) => {}
 
             Instruction::Alloca(..) => {
                 panic!("alloca not expected in alloca insertion")
-            }
-            Instruction::Load(..) => {
-                panic!("load not expected in alloca insertion")
             }
         }
         block.0.push(instr);
