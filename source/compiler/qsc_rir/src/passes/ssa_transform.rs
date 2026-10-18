@@ -92,6 +92,7 @@ fn transform_body_to_ssa(
                 program.get_block_mut(block_id),
                 &mut var_map,
                 &FxHashSet::default(),
+                None,
             );
             block_var_map.insert(block_id, var_map);
             continue;
@@ -189,7 +190,7 @@ fn transform_body_to_ssa(
 
         // Now that the block has finished processing, apply any updates to the block and
         // merge those updates into the stored variable map to propagate to successors.
-        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default());
+        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default(), None);
 
         block_var_map.insert(block_id, var_map);
     }
