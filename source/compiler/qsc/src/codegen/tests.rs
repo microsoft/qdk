@@ -2739,6 +2739,477 @@ fn interpreter_with_capabilities(
     .expect("interpreter should be created")
 }
 
+fn assert_runtime_argument_type_error(
+    errors: &[crate::interpret::Error],
+    expected_type: &str,
+    actual_type: &str,
+) {
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let error = &errors[0];
+    let crate::interpret::Error::InvalidRuntimeCallableArgumentType { expected, actual } = error
+    else {
+        panic!("expected a runtime callable signature diagnostic, got {error:?}");
+    };
+    assert_eq!(expected.to_string(), expected_type);
+    assert_eq!(actual.to_string(), actual_type);
+    assert_eq!(
+        miette::Diagnostic::code(error)
+            .expect("diagnostic code")
+            .to_string(),
+        "Qdk.Qsc.Interpret.InvalidRuntimeCallableArgumentType"
+    );
+}
+
+fn runtime_argument_global(interpreter: &crate::interpret::Interpreter, name: &str) -> Value {
+    interpreter
+        .user_globals()
+        .into_iter()
+        .chain(interpreter.source_globals())
+        .find(|global| global.name.as_ref() == name)
+        .expect("source global")
+        .value
+}
+
+#[test]
+fn runtime_callable_argument_signature_mismatch_is_rejected() {
+    let source = r#"
+        namespace Test {
+            function DoubleFunc(x : Int) : Double { 0.5 }
+            function WrongInput(x : Double) : Int { 0 }
+            operation WrongKind(x : Int) : Int { 0 }
+            operation NotFromFunc(f : Int -> Int) : Int { ~~~f(0) }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let target = eval_fragments(&mut interpreter, "Test.NotFromFunc");
+        for (argument, expected, actual) in [
+            ("Test.DoubleFunc", "Int", "Double"),
+            ("Test.WrongInput", "Int", "Double"),
+            ("Test.WrongKind", "(Int -> Int)", "(Int => Int)"),
+        ] {
+            let args = eval_fragments(&mut interpreter, argument);
+            let errors = interpreter
+                .qirgen_from_callable(&target, args)
+                .expect_err("incompatible callable must not produce QIR");
+            assert_runtime_argument_type_error(&errors, expected, actual);
+        }
+        let errors = interpreter
+            .qirgen("Test.NotFromFunc(Test.DoubleFunc)")
+            .expect_err("inline call must retain source type checking");
+        assert!(matches!(&errors[0], crate::interpret::Error::Compile(_)));
+        assert!(format!("{errors:?}").contains("TyMismatch"));
+    }
+}
+
+#[test]
+fn runtime_callable_argument_aggregate_mismatch_is_rejected() {
+    let source = r#"
+        namespace Test {
+            function Good(x : Int) : Int { x }
+            function Bad(x : Int) : Double { 0.5 }
+            struct Config { Transform : Int -> Int, Data : Int }
+            operation Nested(pair : (Int, (Int -> Int, Int))) : Unit {
+                let (_, (f, n)) = pair;
+                let _ = f(n);
+            }
+            operation Each(fs : (Int -> Int)[]) : Unit {
+                for f in fs { let _ = f(0); }
+            }
+            operation Wrapped(config : Config) : Unit { let _ = config.Transform(0); }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let caps = profile.into();
+        let (store, pkg, items) = compile_and_locate_items(
+            source,
+            &[
+                ("Good", true),
+                ("Bad", true),
+                ("Nested", true),
+                ("Each", true),
+                ("Wrapped", true),
+                ("Config", false),
+            ],
+            caps,
+        );
+        let good = Value::Global(fir_id_for(pkg, items["Good"]), FunctorApp::default());
+        let bad = Value::Global(fir_id_for(pkg, items["Bad"]), FunctorApp::default());
+        for (target, args) in [
+            (
+                "Nested",
+                Value::Tuple(
+                    vec![
+                        Value::Int(0),
+                        Value::Tuple(vec![bad.clone(), Value::Int(0)].into(), None),
+                    ]
+                    .into(),
+                    None,
+                ),
+            ),
+            ("Each", Value::Array(vec![good, bad.clone()].into())),
+            (
+                "Wrapped",
+                Value::Tuple(
+                    vec![bad, Value::Int(0)].into(),
+                    Some(Rc::new(fir_id_for(pkg, items["Config"]))),
+                ),
+            ),
+        ] {
+            let errors = prepare_codegen_fir_from_callable_args(
+                &store,
+                hir_id_for(pkg, items[target]),
+                &args,
+                caps,
+            )
+            .err()
+            .expect("all callable positions must be checked");
+            assert_runtime_argument_type_error(&errors, "Int", "Double");
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_closure_mismatch_is_rejected() {
+    let source = r#"
+        namespace Test {
+            function Partial(x : Int, y : Int) : Double { 0.5 }
+            function MakeBad() : (Int -> Double) { x -> 0.5 }
+            function Capture<'T>(value : 'T) : (Int -> 'T) { x -> value }
+            operation Run(f : Int -> Int) : Unit { let _ = f(0); }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let target = eval_fragments(&mut interpreter, "Test.Run");
+        for argument in ["Test.MakeBad()", "Test.Partial(1, _)", "Test.Capture(0.5)"] {
+            let args = eval_fragments(&mut interpreter, argument);
+            let errors = interpreter
+                .qirgen_from_callable(&target, args)
+                .expect_err("closure's remaining signature must be checked");
+            assert_runtime_argument_type_error(&errors, "Int", "Double");
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_generic_bindings_are_consistent_and_scoped() {
+    let source = r#"
+        namespace Test {
+            function Identity<'T>(x : 'T) : 'T { x }
+            operation Wrong(f : Int -> Double) : Unit { let _ = f(0); }
+            operation Pair<'T>(value : 'T, f : 'T -> 'T) : Unit { let _ = f(value); }
+            operation Independent<'T>(value : 'T, f : Int -> Int) : Unit { let _ = (value, f(0)); }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let identity = runtime_argument_global(&interpreter, "Identity");
+        let wrong = eval_fragments(&mut interpreter, "Test.Wrong");
+        let errors = interpreter
+            .qirgen_from_callable(&wrong, identity.clone())
+            .expect_err("one type parameter cannot be both Int and Double");
+        assert_runtime_argument_type_error(&errors, "Double", "Int");
+
+        let pair = runtime_argument_global(&interpreter, "Pair");
+        let args = Value::Tuple(vec![Value::Int(1), identity.clone()].into(), None);
+        interpreter
+            .qirgen_from_callable(&pair, args)
+            .expect("shared type requirements should infer Int");
+
+        let independent = runtime_argument_global(&interpreter, "Independent");
+        let args = Value::Tuple(vec![Value::Double(0.5), identity].into(), None);
+        interpreter
+            .qirgen_from_callable(&independent, args)
+            .expect("distinct declarations' type parameters must not conflict");
+    }
+}
+
+#[test]
+fn runtime_callable_argument_mismatch_is_checked_before_reinvocation() {
+    let source = r#"
+        namespace Test {
+            function Bad(x : Int) : Double { 0.5 }
+            operation Run(q : Qubit, n : Int, f : Int -> Int) : Unit { let _ = f(n); }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let caps = profile.into();
+        let (store, pkg, items) =
+            compile_and_locate_items(source, &[("Bad", true), ("Run", true)], caps);
+        let qubit = Rc::new(qsc_eval::val::Qubit(0));
+        for n in [
+            Value::Int(0),
+            Value::Var(qsc_eval::val::Var {
+                id: 0,
+                ty: qsc_eval::val::VarTy::Integer,
+            }),
+        ] {
+            let args = Value::Tuple(
+                vec![
+                    Value::Qubit((&qubit).into()),
+                    n,
+                    Value::Global(fir_id_for(pkg, items["Bad"]), FunctorApp::default()),
+                ]
+                .into(),
+                None,
+            );
+            let errors = prepare_codegen_fir_from_callable_args(
+                &store,
+                hir_id_for(pkg, items["Run"]),
+                &args,
+                caps,
+            )
+            .err()
+            .expect("runtime identities or unknown siblings must not bypass the check");
+            assert_runtime_argument_type_error(&errors, "Int", "Double");
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_valid_values_match_source_qir() {
+    let source = r#"
+        namespace Test {
+            function Good(x : Int) : Int { x }
+            function Identity<'T>(x : 'T) : 'T { x }
+            function Add(x : Int, y : Int) : Int { x + y }
+            operation Run(f : Int -> Int) : Result {
+                use q = Qubit();
+                if f(0) == 0 { X(q); }
+                MResetZ(q)
+            }
+            operation Each(fs : (Int -> Int)[]) : Result {
+                use q = Qubit();
+                for f in fs { if f(0) == 0 { X(q); } }
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (target, argument) in [
+            ("Test.Run", "Test.Good"),
+            ("Test.Run", "Test.Identity"),
+            ("Test.Run", "Test.Add(0, _)"),
+            ("Test.Each", "[]"),
+            ("Test.Each", "[Test.Identity]"),
+        ] {
+            let source_call = format!("{target}({argument})");
+            let target = eval_fragments(&mut interpreter, target);
+            let args = match argument {
+                "Test.Identity" => runtime_argument_global(&interpreter, "Identity"),
+                "[]" => Value::Array(Vec::new().into()),
+                "[Test.Identity]" => {
+                    Value::Array(vec![runtime_argument_global(&interpreter, "Identity")].into())
+                }
+                _ => eval_fragments(&mut interpreter, argument),
+            };
+            let qir = interpreter
+                .qirgen_from_callable(&target, args)
+                .expect("valid callable arguments must still compile");
+            let source_qir = interpreter.qirgen(&source_call).expect("source invocation");
+            assert_eq!(qir, source_qir, "{profile:?}: {source_call}");
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_functor_shapes_match_source_qir() {
+    let source = r#"
+        namespace Test {
+            operation Extra(q : Qubit) : Unit is Adj + Ctl { X(q); }
+            operation Run(f : Qubit => Unit is Adj) : Result {
+                use q = Qubit();
+                f(q);
+                MResetZ(q)
+            }
+            operation RunControlled(f : (Qubit[], Qubit) => Unit) : Result {
+                use q = Qubit();
+                f([], q);
+                MResetZ(q)
+            }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        for (target, argument) in [
+            ("Test.Run", "Test.Extra"),
+            ("Test.Run", "Adjoint Test.Extra"),
+            ("Test.RunControlled", "Controlled Test.Extra"),
+        ] {
+            let source_call = format!("{target}({argument})");
+            let target = eval_fragments(&mut interpreter, target);
+            let args = eval_fragments(&mut interpreter, argument);
+            let qir = interpreter
+                .qirgen_from_callable(&target, args)
+                .expect("supported extra functors and runtime control layers must remain valid");
+            let source_qir = interpreter.qirgen(&source_call).expect("source invocation");
+            assert_eq!(qir, source_qir, "{profile:?}: {source_call}");
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_preserves_nominal_udt_identity() {
+    let source = r#"
+        namespace Test {
+            struct A { Data : Int }
+            struct B { Data : Int }
+            struct Config { Transform : A -> A }
+            newtype Scalar = Int;
+            newtype PairValue = (Int, Int);
+            function Identity<'T>(x : 'T) : 'T { x }
+            function IdA(x : A) : A { x }
+            function IdB(x : B) : B { x }
+            function ToB(x : Int) : B { new B { Data = x } }
+            function MakeA(x : A) : (Unit -> A) { () -> x }
+            operation Run(f : A -> A) : Unit { let _ = f(new A { Data = 0 }); }
+            operation Output(f : Int -> A) : Unit { let _ = f(0); }
+            operation Wrapped(config : Config) : Unit {
+                let _ = config.Transform(new A { Data = 0 });
+            }
+            operation Factory(f : Unit -> A) : Unit { let _ = f(); }
+            operation Alias(f : Scalar -> Scalar) : Unit { let _ = f(Scalar(1)); }
+            operation Same<'T>(left : 'T -> 'T, right : 'T -> 'T) : Unit {}
+            operation TupleInput(data : (Int, Int), f : Int -> Int) : Unit {
+                let (x, y) = data;
+                let _ = f(x + y);
+            }
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let nominal_type = |value: Value| {
+            let Value::Tuple(_, Some(id)) = value else {
+                panic!("expected a tagged UDT value");
+            };
+            qsc_fir::ty::Ty::Udt(FirRes::Item(qsc_fir::fir::ItemId {
+                package: id.package,
+                item: id.item,
+            }))
+        };
+        let expected = nominal_type(eval_fragments(&mut interpreter, "new Test.A { Data = 0 }"));
+        let actual = nominal_type(eval_fragments(&mut interpreter, "new Test.B { Data = 0 }"));
+        for (target, argument) in [
+            ("Test.Run", "Test.IdB"),
+            ("Test.Output", "Test.ToB"),
+            ("Test.Wrapped", "new Test.Config { Transform = Test.IdB }"),
+            ("Test.Same", "Test.IdA, Test.IdB"),
+        ] {
+            let args = if target == "Test.Same" {
+                Value::Tuple(
+                    vec![
+                        runtime_argument_global(&interpreter, "IdA"),
+                        runtime_argument_global(&interpreter, "IdB"),
+                    ]
+                    .into(),
+                    None,
+                )
+            } else if target == "Test.Wrapped" {
+                let config =
+                    eval_fragments(&mut interpreter, "new Test.Config { Transform = Test.IdA }");
+                let Value::Tuple(_, id) = config else {
+                    panic!("Config tuple");
+                };
+                Value::Tuple(
+                    vec![runtime_argument_global(&interpreter, "IdB")].into(),
+                    id,
+                )
+            } else {
+                eval_fragments(&mut interpreter, argument)
+            };
+            let target_value = runtime_argument_global(
+                &interpreter,
+                target.strip_prefix("Test.").expect("test namespace"),
+            );
+            let errors = interpreter
+                .qirgen_from_callable(&target_value, args)
+                .expect_err("equal payload layouts must not erase a declared type mismatch");
+            assert_runtime_argument_type_error(&errors, &expected.to_string(), &actual.to_string());
+            let source_errors = interpreter
+                .qirgen(&format!("{target}({argument})"))
+                .expect_err("source type checker must reject the same nominal mismatch");
+            assert!(format!("{source_errors:?}").contains("TyMismatch"));
+        }
+        for (target, argument) in [
+            ("Test.Run", "Test.IdA"),
+            ("Test.Factory", "Test.MakeA(new Test.A { Data = 0 })"),
+            ("Test.Alias", "Test.Identity"),
+            ("Test.TupleInput", "Test.PairValue(1, 2)!, Test.Identity"),
+        ] {
+            let target_value = eval_fragments(&mut interpreter, target);
+            let args = if target == "Test.TupleInput" {
+                Value::Tuple(
+                    vec![
+                        eval_fragments(&mut interpreter, "Test.PairValue(1, 2)!"),
+                        runtime_argument_global(&interpreter, "Identity"),
+                    ]
+                    .into(),
+                    None,
+                )
+            } else if argument == "Test.Identity" {
+                runtime_argument_global(&interpreter, "Identity")
+            } else {
+                eval_fragments(&mut interpreter, argument)
+            };
+            let native = interpreter
+                .qirgen_from_callable(&target_value, args)
+                .expect("matching UDT declarations and erased payloads must remain valid");
+            let source = interpreter
+                .qirgen(&format!("{target}({argument})"))
+                .expect("valid source call");
+            assert_eq!(native, source, "{profile:?}: {target}({argument})");
+        }
+    }
+}
+
 fn assert_x_targets(qir: &str, expected: &[usize]) {
     let calls: Vec<_> = qir
         .lines()
