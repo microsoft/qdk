@@ -397,6 +397,45 @@ fn static_circuit_from_callable_with_callable_arg_matches_classical_eval() {
 }
 
 #[test]
+fn static_circuit_rejects_runtime_callable_signature_mismatch() {
+    let code = r#"
+        namespace Test {
+            function DoubleFunc(x : Int) : Double { 0.5 }
+            operation NotFromFunc(f : Int -> Int) : Int { ~~~f(0) }
+        }
+    "#;
+    for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+        let mut interp = interpreter(code, PackageType::Lib, profile);
+        let globals = interp.source_globals();
+        let value = |wanted: &str| {
+            globals
+                .iter()
+                .find(|global| global.name.as_ref() == wanted)
+                .expect("source callable")
+                .value
+                .clone()
+        };
+        let errors = interp
+            .circuit(
+                CircuitEntryPoint::Callable(value("NotFromFunc"), value("DoubleFunc")),
+                CircuitGenerationMethod::Static,
+                default_test_tracer_config(),
+            )
+            .expect_err("invalid callable argument must not produce a circuit");
+        assert_eq!(errors.len(), 1);
+        let Error::InvalidRuntimeCallableArgumentType { expected, actual } = &errors[0] else {
+            panic!("expected signature diagnostic, got {errors:?}");
+        };
+        assert_eq!(**expected, qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int));
+        assert_eq!(**actual, qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Double));
+        assert_eq!(
+            errors[0].code().expect("diagnostic code").to_string(),
+            "Qdk.Qsc.Interpret.InvalidRuntimeCallableArgumentType",
+        );
+    }
+}
+
+#[test]
 fn empty() {
     let circ = circuit_without_groups(
         r#"
