@@ -14,6 +14,8 @@ from qdk.qre import (
     Profiler,
     ProfilerResult,
     SequentialCountingProfiler,
+    TemporalProfiles,
+    TotalCounts,
     ErrorComposition,
     EstimationResult,
     LatticeSurgery,
@@ -337,15 +339,19 @@ def test_qsharp_application_profile():
 
     assert isinstance(profiler, Profiler)
     assert isinstance(result, ProfilerResult)
-    assert result.logical_qubits == 2
-    assert result.physical_qubits == 20
-    assert result.calls_per_operation == {"x": 2, "mz_store": 2, "read_result": 2}
-    assert result.runtime_sec_per_operation == {
+    assert isinstance(result.totals, TotalCounts)
+    assert result.totals.logical_qubits == 2
+    assert result.totals.physical_qubits == 20
+    assert result.totals.calls_per_operation == {"x": 2, "mz_store": 2, "read_result": 2}
+    assert result.totals.runtime_sec_per_operation == {
         "x": 0.5,
         "mz_store": 1.0,
         "read_result": 0.25,
     }
-    assert result.total_runtime_sec == 0.875 * 2
+    assert result.totals.total_runtime_sec == 0.875 * 2
+    assert isinstance(result.profiles, TemporalProfiles)
+    assert result.profiles.profiles == []
+    assert result.profiles.aggregation_window_sec is None
     assert result.infos == []
 
 
@@ -370,7 +376,8 @@ def test_qsharp_application_profile_no_gate_times():
 
     assert isinstance(profiler, Profiler)
     assert isinstance(result, ProfilerResult)
-    assert result.calls_per_operation == {}
-    assert result.runtime_sec_per_operation == {}
-    assert result.total_runtime_sec == 0.0
+    assert result.totals.calls_per_operation == {}
+    assert result.totals.runtime_sec_per_operation == {}
+    assert result.totals.total_runtime_sec == 0.0
+    assert result.profiles.profiles == []
     assert result.infos == ["These gates did not have time configured, assumed 0: [x]"]

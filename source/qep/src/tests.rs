@@ -188,7 +188,7 @@ fn profiles_shors_50_qir() -> Result<(), String> {
     let result = unsafe { profiler.profile_qir(qir_path) }?;
     let elapsed = start.elapsed();
     assert!(result.infos.is_empty(), "{:?}", result.infos);
-    let operation_count: u64 = result.calls_per_operation.values().sum();
+    let operation_count: u64 = result.totals.calls_per_operation.values().sum();
 
     assert!(operation_count > 0);
     let ns_per_operation = elapsed.as_nanos() / u128::from(operation_count);
@@ -223,7 +223,7 @@ fn profiles_mod_mul() -> Result<(), String> {
     let result = unsafe { profiler.profile_qir(qir.path()?) }?;
     let elapsed = start.elapsed();
     assert!(result.infos.is_empty(), "{:?}", result.infos);
-    let operation_count: u64 = result.calls_per_operation.values().sum();
+    let operation_count: u64 = result.totals.calls_per_operation.values().sum();
 
     assert!(operation_count > 0);
     let ns_per_operation = elapsed.as_nanos() / u128::from(operation_count);
@@ -239,7 +239,7 @@ fn profiles_mod_mul() -> Result<(), String> {
         ("swap", 249_500),
     ] {
         assert_eq!(
-            result.calls_per_operation.get(name),
+            result.totals.calls_per_operation.get(name),
             Some(&expected),
             "unexpected instruction count for {name}"
         );

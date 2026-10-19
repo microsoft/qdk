@@ -17,6 +17,9 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<TotalCounts>()?;
+    m.add_class::<TimeSeries>()?;
+    m.add_class::<TemporalProfiles>()?;
     m.add_class::<ProfilerResult>()?;
     m.add_class::<Profiler>()?;
     m.add_class::<SequentialCountingProfiler>()?;
@@ -63,26 +66,19 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 pyo3::create_exception!(qsharp.qre, EstimationError, PyException);
 
-/// Python representation of profiling data collected during QIR execution.
+/// Python representation of total operation and resource counts.
 #[pyclass(module = "qdk.qre", frozen)]
-pub struct ProfilerResult(qep::ProfilerResult);
-
-impl From<qep::ProfilerResult> for ProfilerResult {
-    /// Wraps a QEP profiler result for Python.
-    fn from(result: qep::ProfilerResult) -> Self {
-        Self(result)
-    }
-}
+pub struct TotalCounts(qep::TotalCounts);
 
 #[pymethods]
-impl ProfilerResult {
+impl TotalCounts {
     /// Returns the number of logical qubits used by the program.
     #[getter]
     fn logical_qubits(&self) -> u64 {
         self.0.logical_qubits
     }
 
-    /// Returns the estimated number of physical qubits.
+    /// Returns the number of physical qubits used by the program.
     #[getter]
     fn physical_qubits(&self) -> u64 {
         self.0.physical_qubits
@@ -104,6 +100,81 @@ impl ProfilerResult {
     #[getter]
     fn runtime_sec_per_operation(&self) -> FxHashMap<String, f64> {
         self.0.runtime_sec_per_operation.clone()
+    }
+}
+
+/// Python representation of a time-series profiling metric.
+#[pyclass(module = "qdk.qre", frozen)]
+pub struct TimeSeries(qep::TimeSeries);
+
+#[pymethods]
+impl TimeSeries {
+    /// Returns the name of the reported metric.
+    #[getter]
+    fn metric_name(&self) -> String {
+        self.0.metric_name.clone()
+    }
+
+    /// Returns the units used for the reported metric.
+    #[getter]
+    fn metric_units(&self) -> String {
+        self.0.metric_units.clone()
+    }
+
+    /// Returns pairs of elapsed time in seconds and metric values.
+    #[getter]
+    fn series(&self) -> Vec<(f64, f64)> {
+        self.0.series.clone()
+    }
+}
+
+/// Python representation of the temporal profiling data.
+#[pyclass(module = "qdk.qre", frozen)]
+pub struct TemporalProfiles(qep::TemporalProfiles);
+
+#[pymethods]
+impl TemporalProfiles {
+    /// Returns the collected time-series metrics.
+    #[getter]
+    fn profiles(&self, py: Python<'_>) -> PyResult<Vec<Py<TimeSeries>>> {
+        self.0
+            .profiles
+            .iter()
+            .cloned()
+            .map(|profile| Py::new(py, TimeSeries(profile)))
+            .collect()
+    }
+
+    /// Returns the aggregation window in seconds, if one was used.
+    #[getter]
+    fn aggregation_window_sec(&self) -> Option<f64> {
+        self.0.aggregation_window_sec
+    }
+}
+
+/// Python representation of profiling data collected during QIR execution.
+#[pyclass(module = "qdk.qre", frozen)]
+pub struct ProfilerResult(qep::ProfilerResult);
+
+impl From<qep::ProfilerResult> for ProfilerResult {
+    /// Wraps a QEP profiler result for Python.
+    fn from(result: qep::ProfilerResult) -> Self {
+        Self(result)
+    }
+}
+
+#[pymethods]
+impl ProfilerResult {
+    /// Returns the aggregate operation and resource counts.
+    #[getter]
+    fn totals(&self, py: Python<'_>) -> PyResult<Py<TotalCounts>> {
+        Py::new(py, TotalCounts(self.0.totals.clone()))
+    }
+
+    /// Returns the temporal profiling data.
+    #[getter]
+    fn profiles(&self, py: Python<'_>) -> PyResult<Py<TemporalProfiles>> {
+        Py::new(py, TemporalProfiles(self.0.profiles.clone()))
     }
 
     /// Returns informational messages generated while profiling.
