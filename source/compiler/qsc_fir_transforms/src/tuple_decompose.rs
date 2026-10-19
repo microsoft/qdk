@@ -17,7 +17,8 @@
 //!   decompose.
 //! - **Conservative eligibility.** A `Bind` of non-empty `Ty::Tuple` is
 //!   decomposed only when *every* use is `Field`, `AssignField`, or
-//!   `Assign(Var, Tuple)` (whole-tuple reassignment with a tuple literal). If
+//!   `Assign(Var, Tuple)` (whole-tuple reassignment with a tuple literal, as a
+//!   `;`-terminated statement; [`rewrite_assign_tuples`] splits only those). If
 //!   the value is ever passed whole (argument, return, closure capture), it is
 //!   left intact. `Bind(t)` becomes `Tuple([Bind(t_0), Bind(t_1), ...])`, field
 //!   accesses become direct var refs, and whole-tuple assigns split per element.
@@ -75,8 +76,8 @@ use std::rc::Rc;
 ///   rewritten by [`rewrite_field_accesses`] into a direct
 ///   `Var(t_i)` reference (or `Field(Var(t_i), Path(..))` for nested
 ///   paths).
-/// - `Assign(Var(t), Tuple([e0, e1, ...]))` — a whole-tuple
-///   reassignment whose RHS is a tuple literal, split by
+/// - `Assign(Var(t), Tuple([e0, e1, ...]))` as a `StmtKind::Semi`
+///   statement — a whole-tuple reassignment whose RHS is a tuple literal, split by
 ///   [`rewrite_assign_tuples`] into per-element `Assign(Var(t_i), ei)`
 ///   statements.
 ///

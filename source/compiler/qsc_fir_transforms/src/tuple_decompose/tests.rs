@@ -1324,6 +1324,61 @@ fn tuple_literal_assignment_snapshots_rhs_before_scalar_stores() {
 }
 
 #[test]
+fn mutable_tuple_literal_reassignment_as_trailing_block_expr_is_not_decomposed() {
+    // `set p = (1, 2)` without a `;` is the trailing `StmtKind::Expr` of the inner
+    // block. `rewrite_assign_tuples` only splits `Semi` statements, so `p` must stay
+    // whole; decomposing it would leave the assignment referring to the removed `p`.
+    let source = "struct P { X : Int, Y : Int }
+            operation Main() : (Int, Int) {
+                mutable p = new P { X = 0, Y = 0 };
+                let u = { set p = new P { X = 1, Y = 2 } };
+                (p.X, p.Y)
+            }";
+
+    check(
+        source,
+        &expect![[r#"
+        Callable Main: input=Tuple()
+          local: mutable Bind(p: (Int, Int))
+          local: Bind(u: Unit)"#]],
+    );
+    check_before_after_tuple_decompose(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype P = (Int, Int);
+        operation Main() : (Int, Int) {
+            mutable p : (Int, Int) = (0, 0);
+            let u : Unit = {
+                p = (1, 2)
+            };
+            (p::Item < 0 >, p::Item < 1 >)
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype P = (Int, Int);
+        operation Main() : (Int, Int) {
+            mutable p : (Int, Int) = (0, 0);
+            let u : Unit = {
+                p = (1, 2)
+            };
+            (p::Item < 0 >, p::Item < 1 >)
+        }
+        // entry
+        Main()
+    "#]],
+    );
+    let qir = generate_qir(source);
+    assert!(
+        qir.contains("__quantum__rt__int_record_output(i64 1,")
+            && qir.contains("__quantum__rt__int_record_output(i64 2,"),
+        "QIR should record the outputs 1 and 2:\n{qir}"
+    );
+}
+
+#[test]
 fn tuple_copy_assignment_saves_source_fields_before_scalar_stores() {
     // `set x = other` copies a whole tuple local. Copy-assignment normalization
     // rewrites the bare `Var` RHS into a projection tuple `set x = (other::0,
