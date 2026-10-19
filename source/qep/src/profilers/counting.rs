@@ -129,6 +129,7 @@ impl Profiler for SequentialCountingProfiler {
                 runtime_sec_per_operation,
             },
             profiles: TemporalProfiles::default(),
+            trace: None,
             infos,
         }
     }

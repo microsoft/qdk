@@ -32,7 +32,8 @@ pub use interface::{
     QuantumBackendResult,
 };
 pub use profilers::{
-    Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiles, TimeSeries, TotalCounts,
+    Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiler, TemporalProfiles,
+    TimeSeries, TotalCounts,
 };
 pub use runner::{
     DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutput, run_qir, run_qir_with_batch_size,

@@ -217,17 +217,18 @@ and a proof-of-concept for the whole QEP project.
 
 ### Advanced profiler: event queue based profiler.
 
-This section is WIP, but on high level:
-* There is event queue, event loop, and a clock.
-  * Queue is a priority queue keyed by (time, instruction_id)
-  * `instruction_id` is a counter needed so we process instructions coming at the same time in correct order.
-* Every incoming instruction enqueues event "start gate".
-* Event loop will:
-  * When sees "start gate", enqueue "end gate" at "now + gate time", if that qubit is free.
-  * If qubit is busy, put this event in another queue of events blocked by this qubit.
-* This model can also model how T-factories generates T states at fixed output, and T gates
-    might be blocked on T factories (then T factory is a bottleneck), or T gates might be too slow
-    then T factories must be slowed down. 
+`TemporalProfiler` is a prototype event-driven model with a simulated clock:
+* Instructions are ordered by their per-qubit and measurement-result dependencies. Independent
+  instructions can run concurrently, including successors unblocked by the same operation.
+* Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
+* The prototype assigns 1 ms to `h`, `x`, `t`, `cx`, and measurement-store instructions; `read_result`
+  takes 0 ns. Other instructions are not yet supported.
+* One T-state is produced every 1 ms, beginning at 1 ms. T gates consume one available T-state.
+* Instruction references and qubit/result dependencies persist across QIR batches, including the
+  adaptive-profile result barrier.
+
+Temporal profile collection is not implemented yet. `TemporalProfiler.get_result()` currently
+returns empty totals and profiles, and includes the simulated start/end timeline in `infos`.
 
 
 ### Resource estimation workflow.
@@ -258,5 +259,5 @@ qsharp.init(target_profile=qsharp.TargetProfile.Base)
 application = QSharpApplication("{ use q = Qubit(); X(q); }")
 profiler = SequentialCountingProfiler(10, {"x": 2.5e-9})
 result = application.profile(profiler)
-print(result.total_runtime_sec)
+print(result.totals.total_runtime_sec)
 ```

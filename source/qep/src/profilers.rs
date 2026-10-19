@@ -4,8 +4,9 @@
 mod counting;
 mod temporal;
 
-use crate::{QuantumBackend, run_qir};
+use crate::{QuantumBackend, QuantumBackendInstruction, run_qir};
 use rustc_hash::FxHashMap;
+use std::fmt;
 
 pub use counting::SequentialCountingProfiler;
 pub use temporal::TemporalProfiler;
@@ -57,6 +58,43 @@ pub struct TemporalProfiles {
     pub aggregation_window_sec: Option<f64>,
 }
 
+/// For every instruction, records start and end time of that instruction.
+#[derive(Clone, PartialEq)]
+pub struct InstructionTrace {
+    pub start_time_nanos: usize,
+    pub end_time_nanos: usize,
+    pub instruction: QuantumBackendInstruction,
+}
+
+impl fmt::Debug for InstructionTrace {
+    /// Formats the execution interval followed by the instruction.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}-{}: {:?}",
+            self.start_time_nanos, self.end_time_nanos, self.instruction
+        )
+    }
+}
+
+#[derive(Clone, PartialEq)]
+pub struct ExecutionTrace {
+    instructions: Vec<InstructionTrace>,
+}
+
+impl fmt::Debug for ExecutionTrace {
+    /// Formats instructions in trace order, separated by newlines.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, instruction) in self.instructions.iter().enumerate() {
+            if index > 0 {
+                f.write_str("\n")?;
+            }
+            write!(f, "{instruction:?}")?;
+        }
+        Ok(())
+    }
+}
+
 /// Profiling data collected during quantum execution.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProfilerResult {
@@ -65,6 +103,10 @@ pub struct ProfilerResult {
 
     /// Temporal profiles.
     pub profiles: TemporalProfiles,
+
+    /// Full execution trace.
+    /// This can be huge, so can be omitted.
+    pub trace: Option<ExecutionTrace>,
 
     /// Informational messages about assumptions made while profiling.
     pub infos: Vec<String>,
