@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Gate lists and seeded random Stim programs for the qdk-stim differential tests."""
+"""Gate lists and random Stim programs for the qdk-stim differential tests."""
 
 import random
 from typing import Optional
@@ -35,7 +35,6 @@ FEEDBACK = [
 
 
 def random_program(
-    seed: int,
     qubits: int = 5,
     length: int = 60,
     noise: Optional[float] = None,
@@ -48,7 +47,7 @@ def random_program(
     statistical tests. Programs first use qubits as 0, 1, 2, ... and only reset qubits
     by measuring them
     """
-    rng = random.Random(seed)
+    rng = random.Random()
     lines = ["R " + " ".join(map(str, range(qubits)))]
     records = 0
 

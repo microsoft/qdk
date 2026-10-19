@@ -24,7 +24,7 @@ ALGORITHMS = sorted(
     for path in RESOURCES.glob("*.stim")
     if path.stem not in SKIPPED_ALGORITHMS
 )
-RANDOM_PROGRAM_SEEDS = range(20)
+RANDOM_PROGRAMS = range(20)
 RANDOM_PROGRAM_NOISE = 0.05
 
 
@@ -40,9 +40,9 @@ def test_algorithm(program: str, backend: Backend) -> None:
 
 # Small programs keep the measurement record short, so the histograms stay sensitive.
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("seed", RANDOM_PROGRAM_SEEDS)
-def test_random_program(seed: int, backend: Backend) -> None:
+@pytest.mark.parametrize("index", RANDOM_PROGRAMS)
+def test_random_program(index: int, backend: Backend) -> None:
     source = random_program(
-        seed, qubits=4, length=40, noise=RANDOM_PROGRAM_NOISE, measure_at_end=True
+        qubits=4, length=40, noise=RANDOM_PROGRAM_NOISE, measure_at_end=True
     )
     assert_matches_stim(source, NOISY_SHOTS, backend)

@@ -45,7 +45,6 @@ from tableau_utils import (
 )
 
 RESOURCES = Path(__file__).parent / "resources"
-SEED = 42
 
 # Number of qdk-stim runs of each program with measurements, enough to see every outcome
 # of a few random measurements. Programs with one measurement use fewer, long ones more.
@@ -58,7 +57,7 @@ PREPARATION_BASES = ("RZ {q}", "RX {q}", "RY {q}")
 
 def assert_matches_stim_without_measurements(source: str) -> None:
     source = dedent(source).strip()
-    _assert_same_outcome(source, run_stim(source, SEED), run_qdk_stim(source, SEED))
+    _assert_same_outcome(source, run_stim(source), run_qdk_stim(source))
 
 
 def assert_matches_stim_with_measurements(
@@ -67,10 +66,10 @@ def assert_matches_stim_with_measurements(
     """Asserts that every qdk-stim run of `source` matches Stim replaying that run's
     measurement record: same record, and same final state."""
     source = dedent(source).strip()
-    program = QdkStimProgram(source, SEED)
+    program = QdkStimProgram(source)
     for _ in range(runs):
         actual = program.run()
-        expected = replay_in_stim(source, actual.record, SEED)
+        expected = replay_in_stim(source, actual.record)
         _assert_same_outcome(source, expected, actual)
 
 
@@ -269,7 +268,7 @@ def test_correlated_error(error: str) -> None:
 # # Step 5: algorithms and random programs
 
 ALGORITHMS = sorted(path.stem for path in RESOURCES.glob("*.stim"))
-RANDOM_PROGRAM_SEEDS = range(30)
+RANDOM_PROGRAMS = range(30)
 
 
 def read_resource(program: str) -> str:
@@ -283,7 +282,7 @@ def test_algorithm(program: str) -> None:
 
 
 # Random programs combine every gate, measurement, feedback and deterministic noise.
-@pytest.mark.parametrize("seed", RANDOM_PROGRAM_SEEDS)
-def test_random_program(seed: int) -> None:
-    source = random_program(seed, qubits=8, length=120)
+@pytest.mark.parametrize("index", RANDOM_PROGRAMS)
+def test_random_program(index: int) -> None:
+    source = random_program(qubits=8, length=120)
     assert_matches_stim_with_measurements(source, LONG_PROGRAM_RUNS)

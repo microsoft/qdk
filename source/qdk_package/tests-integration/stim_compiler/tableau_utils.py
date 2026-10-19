@@ -49,9 +49,9 @@ class RunResult:
 # ---------------------------------------------------------------------------
 
 
-def run_stim(src: str, seed: int) -> RunResult:
+def run_stim(src: str) -> RunResult:
     """Runs a Stim program on Stim's tableau simulator."""
-    sim = stim.TableauSimulator(seed=seed)
+    sim = stim.TableauSimulator()
     sim.do_circuit(stim.Circuit(src))
     return _result_of(sim)
 
@@ -70,14 +70,14 @@ _MEASURED_PAULI = {
 }
 
 
-def replay_in_stim(src: str, record: str, seed: int) -> RunResult:
+def replay_in_stim(src: str, record: str) -> RunResult:
     """Runs a program on Stim, forcing each measurement to its outcome in `record`.
 
     Raises `AssertionError` if an outcome is impossible, and `NotImplementedError` for
     random noise and noisy measurements, whose randomness isn't in the record. For the
     same reason, programs must not reset qubits that are entangled with others.
     """
-    sim = stim.TableauSimulator(seed=seed)
+    sim = stim.TableauSimulator()
     outcomes = iter(record)
     for inst in _flat_instructions(src):
         gate = stim.gate_data(inst.name)
@@ -97,7 +97,10 @@ def replay_in_stim(src: str, record: str, seed: int) -> RunResult:
                     _observable(gate.name, group), desired_value=outcome == "1"
                 )
             except ValueError as e:
-                raise AssertionError(f"recorded {outcome} is impossible: {inst}") from e
+                raise AssertionError(
+                    f"recorded {outcome} is impossible: {inst}\n"
+                    f"record: {record}\nprogram:\n{src}"
+                ) from e
             sim.do(_measurement(gate.name, group))
     return _result_of(sim)
 
@@ -150,22 +153,20 @@ def _paulis(paulis: Iterable[stim.PauliString]) -> List[str]:
 class QdkStimProgram:
     """A Stim program compiled once by qdk-stim, run on the QDK stabilizer simulator.
 
-    Runs use the shot seeds `seed`, `seed + 1`, ..., so they differ from each other but
-    are reproducible.
+    Each run is unseeded, so runs are independent and random.
     """
 
-    def __init__(self, src: str, seed: int):
+    def __init__(self, src: str):
+        self._src = src
         self._qir, self._noise = compile_stim(src)
-        self._next_seed = seed
 
     def run(self) -> RunResult:
         """Runs one shot."""
-        state = run_qir_clifford_and_get_tableau(
-            self._qir, self._noise, self._next_seed
-        )
-        self._next_seed += 1
+        state = run_qir_clifford_and_get_tableau(self._qir, self._noise)
         if state is None:
-            raise ValueError("final qdk-stim state is not a stabilizer state")
+            raise ValueError(
+                f"final qdk-stim state is not a stabilizer state\nprogram:\n{self._src}"
+            )
         destabilizers, stabilizers, measurements = state
         record = "".join(
             "0" if m == Result.Zero else "1" if m == Result.One else "L"
@@ -174,6 +175,6 @@ class QdkStimProgram:
         return RunResult("qdk-stim", destabilizers, stabilizers, record)
 
 
-def run_qdk_stim(src: str, seed: int) -> RunResult:
+def run_qdk_stim(src: str) -> RunResult:
     """Runs a Stim program once on qdk-stim."""
-    return QdkStimProgram(src, seed).run()
+    return QdkStimProgram(src).run()
