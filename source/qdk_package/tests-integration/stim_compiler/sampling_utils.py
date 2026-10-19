@@ -17,20 +17,28 @@ import pytest
 import stim as reference_stim
 
 from qdk import Result
+from qdk.simulation._simulation import try_create_gpu_adapter
 import qdk.stim as qdk_stim
 
 Backend = Literal["stabilizer", "cpu", "gpu"]
 
-BACKENDS = [
-    "stabilizer",
-    "cpu",
-    pytest.param(
+
+def gpu_param():
+    skip_reason = ""
+    try:
+        try_create_gpu_adapter()
+        if not os.environ.get("QDK_GPU_TESTS"):
+            skip_reason = "Env variable QDK_GPU_TESTS is not set"
+    except Exception:
+        skip_reason = "No GPU available"
+
+    return pytest.param(
         "gpu",
-        marks=pytest.mark.skipif(
-            not os.environ.get("QDK_GPU_TESTS"), reason="QDK_GPU_TESTS is not enabled"
-        ),
-    ),
-]
+        marks=pytest.mark.skipif(bool(skip_reason), reason=skip_reason),
+    )
+
+
+BACKENDS = ["stabilizer", "cpu", gpu_param()]
 
 NOISY_SHOTS = 50_000
 
