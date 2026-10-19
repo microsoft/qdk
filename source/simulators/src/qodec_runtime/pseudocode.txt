@@ -1,0 +1,1033 @@
+══════════════════════════════════════════════════════════════════════
+ QODEC LAYER RUNTIME — PSEUDOCODE
+══════════════════════════════════════════════════════════════════════
+
+Executes a program against a qodec (https://github.com/microsoft/qdk-ec/tree/main/qodec)
+by lowering it one layer at a time down to the bottom ISA.
+
+Tags used below:
+  [SPEC]     behaviour required or defined by the qodec specification
+  [RUNTIME]  a consumer choice made by this runtime; the spec leaves it open
+             ("how a consumer turns a multi-layer qodec into a concrete
+              execution ... is an implementation detail of that consumer")
+
+`yield req` sends a request to the layer below and receives its readout tuple.
+`yield* co` delegates to a sub-coroutine and evaluates to its return value.
+
+Deliberate differences from the Python reference implementation
+(qdk/simulation/_qodec).  Each fixes a bug found by formal verification:
+  - accepts() is exact; it never answers None when the outcome is determined.  §4.3
+  - BinarySystem must iterate its rows in insertion order (now stated).        §4.4
+  - Encodings may not share lower blocks or retype a lower block.              §4.6 §5 §8.7
+  - Live types constrain only the input side when binding operands.            §8.7
+  - The resolver knows which blocks are live (prepare on a fresh block).       §6
+  - Any failure after side effects poisons the layer, for every request kind.  §8.3
+  - Outputs always get a fresh BlockRef generation.  decode() corrections
+    never target inputs.                                                       §2 §8.7
+  - start() creates a fresh decoder session.                                   §8.2
+  - A `number` argument accepts any Int and never overflows.                   §4.2
+
+Sections
+   1. Spec data model
+   2. Runtime types
+   3. Layer stack
+   4. Spec helpers (operand binding, arguments, select, parity, encodings)
+   5. Layer plan
+   6. Operation resolver (generic operation -> ISA instruction, by action)
+   7. Gadget body runtime (inline call list)
+   8. Layer runtime
+   9. Reference decoder (Pauli-frame decoder)
+  10. Bottom executor contract
+
+══════════════════════════════════════════════════════════════════════
+ 1. SPEC DATA MODEL  [SPEC]
+══════════════════════════════════════════════════════════════════════
+
+Manifest        = (layers: List<Layer>)             // top (abstract) -> bottom (concrete)
+Layer           = (isa: ISA,
+                   codes:   Map<BlockType, Code>,   // empty on the bottom layer
+                   gadgets: Map<Mnemonic, Gadget>)  // empty on the bottom layer
+
+ISA             = (blocks: Map<BlockType, Int>,     // block type -> logical qubits encoded
+                   instructions: Map<Mnemonic, Instruction>)
+Instruction     = (mnemonic,
+                   in:  List<Operand>,              // positional
+                   out: List<Operand>,              // positional; default []
+                   parameters: Map<Name, ParamKind>,
+                   action: List<Step>,
+                   flags:  List<Name>)
+Operand         = (type: BlockType, variadic: Bool) // `[[t]]` => variadic
+ParamKind       = bit | number | integer | boolean | string | pauli
+Step            = (kind ∈ {clifford, pauli, observe, rotate, stabilize},
+                   payload,
+                   guard: None | (if|unless, List<bitParam | "outcomes[i]">))
+                   // observe can never be guarded
+observeCount(I) = Σ len(step.payload) over observe steps of I
+
+  Flat index space: operand j of a side occupies the next blocks[type_j]
+  consecutive indices.  Boundary width = max(in capacity, out capacity).
+  out > in: extra indices are fresh.  out < in: the extra input indices are
+  traced out.  An unconditional `stabilize` may introduce temporary indices
+  beyond the boundary, local to one invocation.
+
+Code            = (stabilizers: List<Pauli>,       // unsigned sparse Paulis
+                   x: List<Pauli>, z: List<Pauli>,  // one per logical qubit
+                   n: Int)                          // physical qubit count (inferred)
+
+Gadget          = (implements: Instruction,        // supplied by the layer if omitted
+                   circuit: Circuit,
+                   in:  List<Encoding>,             // one per instruction `in` operand
+                   out: List<Encoding>,             // one per instruction `out` operand
+                   parameterBindings: Map<InstrParam, SourceName>,
+                   checks:   List<Equation>,        // XOR == 0 on noiseless runs
+                   readouts: List<Equation>,        // observe outcomes ++ flags
+                   frames:   Map<FrameKey, Equation>)
+Encoding        = (blockType: BlockType,           // upper type (layer binds the code)
+                   code: Code,                      // the code the gadget was authored
+                                                    // against; must equal the layer's
+                   support: List<CircuitLabel>,     // lower blocks, code-qubit order
+                   lowerTypes: List<BlockType>)     // per support label, from circuit.in/out;
+                                                    // empty when the lower ISA has one type
+                   // If `in`/`out` is omitted, the default sequential layout applies:
+                   // operand i sits on the next k_i circuit qubits, where k_i is
+                   // the qubit count of that operand's layer-bound code.
+Circuit         = (isa: ISA,                       // the layer below's ISA
+                   source: List<Call> | Text,       // inline YAML, Stim, OpenQASM ...
+                   in:  Map<CircuitLabel, BlockType>,  // inferred when the lower ISA has
+                   out: Map<CircuitLabel, BlockType>)  // exactly one block type
+Call            = (mnemonic, operands: List<CircuitLabel>,
+                   args: Map<Name, Arg>, select: List<Pattern>)
+Pattern         = Map<flagName | "flags[i]", 0|1>   // AND inside a pattern, OR across
+
+Equation        = List<ParityTerm>                 // XOR of the terms; [] == 0
+ParityTerm      = 0 | 1 | Reference
+Reference       = "circuit.readouts[SEL]"           // circuit record bit(s)
+                | "readouts[SEL]"                   // this gadget's own readout(s)
+                | "in[e].stabilizers[SEL]"  | "in[e].x[SEL]"  | "in[e].z[SEL]"
+                | "out[e].stabilizers[SEL]" | "out[e].x[SEL]" | "out[e].z[SEL]"
+SEL             = i | a:b | a:b:s | [i,j,...]       // slices exclusive; unions keep
+                                                    // order and duplicates
+FrameKey        = "out[e].x[k]" | "out[e].z[k]"     // exactly one output logical sign
+
+  Reference aliases, normalized before use (see the spec's paths doc):
+    "in[e].code.B[SEL]"  ≡ "in[e].B[SEL]",  "out[e].code.B[SEL]" ≡ "out[e].B[SEL]"
+    "layers[n].gadgets[\"g\"].<gadget-local path>" ≡ "<gadget-local path>"
+        (only when it names the gadget being evaluated)
+
+  Circuit record: each call appends its observe outcomes, then its flags.
+  Hidden reset outcomes are not recorded.  `circuit.readouts[i]` counts from 0
+  across the whole circuit.
+
+══════════════════════════════════════════════════════════════════════
+ 2. RUNTIME TYPES  [RUNTIME]
+══════════════════════════════════════════════════════════════════════
+
+Label           = Int | String                     // upper block name (program operand)
+LowerId         = Int                              // lower block allocated by this layer
+Slot            = (block: Label | LowerId, index: Int, type: BlockType)
+Address         = LowerId | Slot                   // where one code qubit lives below
+BlockRef        = (label: Label, generation: Int, type: BlockType)
+Bit             = Bool | None                      // None = unresolved (not determinable)
+Readouts        = Tuple<Bit>
+Resources       = (qubits: Int, blocks: Map<BlockType, Int>)
+
+LiveBlock       = (ref: BlockRef,
+                   support: List<LowerId>,          // lower blocks holding it
+                   qubits:  List<Address>)          // its code qubits, in code order
+
+EncodingLayout  = (blockType: BlockType, code: Code,
+                   labels: List<CircuitLabel>,
+                   lowerTypes: List<BlockType>)     // lower type per label
+resources(L)    = countBy(L.lowerTypes)
+
+Invocation      = (id, gadget, call: Call,
+                   inputRefs: List<BlockRef>, outputRefs: List<BlockRef>)
+Decoded         = (outcomes: Readouts, flags: Readouts)
+readouts(d)     = d.outcomes ++ d.flags            // [SPEC] same order as gadget readouts
+Correction      = (blocks: List<BlockRef>, op: Operation)  // op targets are indices into
+                                                           // concat(blocks[*].qubits)
+
+Request         = InstructionCall(mnemonic, operands, args, select)
+                | Operation(name, targets, angle)   // generic gate / prepare / measure / discard
+                | FrameUpdate(pauli ∈ {x,y,z}, target)
+                | RestoreMeasured(target, value: Bool)
+
+Errors          Rejected     // a select pattern did not match (shot is discarded)
+                Unresolved   // a needed bit or frame sign is unknown
+                Inconsistent // parity equations contradict each other
+
+Decoder interface  [RUNTIME]   (a fresh session per start(); see §8.2)
+    before(inv)          -> Coroutine<Correction, None>      (optional)
+                            may target inv.inputRefs and other live blocks
+    decode(inv, raw)     -> Coroutine<Correction, Decoded>
+                            may target inv.outputRefs and other live blocks,
+                            never inv.inputRefs (they are dead by then)
+    discarded(refs)                                          (optional)
+    close()
+
+══════════════════════════════════════════════════════════════════════
+ 3. LAYER STACK  [SPEC structure, RUNTIME driver]
+══════════════════════════════════════════════════════════════════════
+
+// Layers 0..n-1 have gadgets. Layer n is the bottom (ISA only).
+// Gadgets of layer k use layer k+1's ISA as their circuit ISA.
+
+function buildStack(manifest, makeDecoder):
+    require len(manifest.layers) ≥ 2
+    for k in 0 .. n-1:
+        require for every gadget g of layer k: g.circuit.isa == manifest.layers[k+1].isa
+        runtimes[k] = LayerRuntime(buildPlan(manifest.layers[k]),
+                                   decoderFactory = () -> makeDecoder(manifest.layers[k]))
+    runtimes[n] = BottomExecutor(manifest.layers[n].isa)
+    return runtimes
+
+function startStack(runtimes, programResources):
+    res = programResources
+    for k in 0 .. n-1:
+        runtimes[k].start(res)
+        res = runtimes[k].requiredResources(res)
+    runtimes[n].start(res)
+
+coroutine-driver drive(k, request) -> Readouts:
+    if k == n: return runtimes[n].execute(request)
+    co = runtimes[k].handle(request);  r = None
+    loop:
+        (done, value) = co.resume(r)
+        if done: return value
+        r = drive(k + 1, value)
+
+// A program is a sequence of requests to layer 0.
+
+══════════════════════════════════════════════════════════════════════
+ 4. SPEC HELPERS  [SPEC]
+══════════════════════════════════════════════════════════════════════
+
+── 4.1 Operand binding (flat index space, variadics) ──────────────────
+
+// Both sides are bound against the same operand list: operand j is in[j]
+// and/or out[j].  len(targets) == max(#in, #out) after variadic expansion.
+// targets[#in:] are therefore output-only operands.
+
+// `inputTypes` constrains only the input side (live block types); output
+// types come from the instruction, so type-changing instructions bind.
+function bindOperands(isa, mnemonic, targets, inputTypes = {}, outputTypes = {})
+        -> (inputs, outputs):
+    I = isa.instructions[mnemonic] or error
+    require every target is a non-negative Int or a String, and all are distinct
+    inputs  = bindSide(I.in,  targets, isa.blocks, inputTypes)
+    outputs = bindSide(I.out, targets, isa.blocks, outputTypes)
+    require len(targets) == max(len(inputs), len(outputs))
+    return (inputs, outputs)      // each entry: (label, type, offset, width)
+
+function bindSide(operands, targets, caps, knownTypes):
+    if no operand is variadic:
+        require len(operands) ≤ len(targets)
+        types = [op.type for op in operands]
+    else:
+        // A variadic side consumes ALL targets.  Each variadic operand takes
+        // 0..k consecutive targets and each fixed operand exactly one.
+        // Enumerate the splittings whose total is len(targets) and whose types
+        // agree with knownTypes; require exactly one resulting type list.
+        types = uniqueTypeAssignment(operands, targets, knownTypes)
+                or error ("no match" | "ambiguous variadic types")
+    offset = 0;  bound = []
+    for (t, ty) in zip(targets, types):
+        require ty ∈ caps and knownTypes.get(t, ty) == ty
+        bound.append((t, ty, offset, caps[ty]));  offset += caps[ty]
+    return bound
+
+── 4.2 Arguments ──────────────────────────────────────────────────────
+
+function validateArguments(I, args):
+    require keys(args) == keys(I.parameters)           // no unknown, none missing
+    for (name, v) in args:
+        items = (v is List ? v : [v])
+        // [SPEC] A list argument is all non-negative Ints or all Strings
+        // (possibly empty).  No Bool, Float or mixed lists.
+        if v is List: require (all items are Int ≥ 0 and not Bool) or (all items are String)
+        for item in items:
+            require matches(I.parameters[name], item)
+
+function matches(kind, v):
+    number  : v is Int (any magnitude) or a finite Float, and not Bool
+              // test finiteness only on Floats; huge Ints must not overflow
+    integer : v is Int, and not Bool
+    bit     : v is Bool, or v is an Int (not Float) ∈ {0, 1}   // after readout substitution
+    boolean : v is Bool
+    string, pauli : v is String and does not start with "circuit.readouts["
+
+── 4.3 Selection ──────────────────────────────────────────────────────
+
+function compileSelect(flagNames, patterns) -> List<Map<Int, Bool>>:
+    for each pattern:
+        for (key, value) in pattern:
+            idx = (key matches "flags[i]") ? i : indexOf(flagNames, key)
+            require 0 ≤ idx < len(flagNames)
+            require value is the integer 0 or 1 (not a Bool)
+            require no conflicting value for idx in this pattern
+    return compiled patterns
+
+// Exact three-valued answer: true iff EVERY completion of the unknown flags
+// matches some pattern, false iff NO completion does, None otherwise.
+// (A per-pattern scan is not enough: [{f0:0},{f0:1}] with f0 unknown is
+//  accepted by every completion.)
+function accepts(compiled, flags: List<Bit>) -> Bool | None:
+    if compiled is empty: return true                  // [] or missing => no constraint
+    // Keep patterns consistent with the known flags, restricted to unknown ones.
+    live = [ {i: v for (i, v) in p if flags[i] == None}
+             for p in compiled
+             if all (flags[i] == None or flags[i] == v) for (i, v) in p ]
+    if live is empty:                return false
+    if any p in live with p == {}:   return true        // matches regardless
+    // Some completion matches.  Do all?  Enumerate the unknown flags that the
+    // live patterns mention (others cannot affect the result).
+    U = sorted(∪ keys(p) for p in live)
+    for each assignment a: U -> Bool:
+        if no p in live with all a[i] == v for (i, v) in p: return None
+    return true
+
+// Worst case is exponential in |U|.  |U| ≤ number of declared flags, which is
+// small in practice.  A tautology check on the DNF can replace the enumeration.
+
+function requireSelected(compiled, flags):
+    a = accepts(compiled, flags)
+    if a == false: raise Rejected
+    if a == None:  raise Unresolved
+
+── 4.4 Parity expressions ─────────────────────────────────────────────
+
+Var    = ("rec", i)                         // circuit.readouts[i]
+       | ("ro", i)                          // readouts[i]
+       | ("enc", in|out, e, stabilizers|x|z, k)
+Parity = (vars: Set<Var>, const: Bool)       // XOR of vars XOR const
+p ⊕ q  = (p.vars Δ q.vars, p.const xor q.const)
+
+function expr(equation) -> Parity:
+    acc = Parity({}, false)
+    for term in equation:
+        if term ∈ {0, 1}: acc = acc ⊕ Parity({}, term == 1)
+        else:
+            for ref in expandSelector(normalizeAliases(term)):  // slices/unions -> single
+                                                               // refs, in order
+                acc = acc ⊕ Parity({varOf(ref)}, false)
+    return acc                                  // duplicate refs cancel
+
+// GF(2) system with incremental elimination.
+// REQUIRED: `rows` is iterated in INSERTION order, and `add` only appends.
+// Each new row is reduced by all earlier rows, so no row contains an earlier
+// pivot, and one in-order pass of `reduce` eliminates every pivot.  With any
+// other order (e.g. a sorted or hash map), `value` can be wrong and
+// Inconsistent can be missed.  Counterexample with sorted order and
+// largest-var pivot: {a⊕c=0, a⊕b=0, b=1, c=0} is accepted without error.
+BinarySystem:
+    rows: InsertionOrderedMap<Var, Parity>     // pivot -> reduced row
+    reduce(p):  for (pivot, row) in rows: if pivot ∈ p.vars: p = p ⊕ row;  return p
+    add(p):     q = reduce(p)
+                if q.vars ≠ ∅: rows[any(q.vars)] = q
+                elif q.const: raise Inconsistent
+    value(p):   q = reduce(p);  return q.vars == ∅ ? q.const : None
+
+── 4.5 Frame deltas ───────────────────────────────────────────────────
+
+function prepareFrames(g) -> Map<(e, basis, k), Parity>:
+    out = {}
+    for (key, equation) in g.frames:
+        ref = single reference in normalizeAliases(key) or error
+        require ref = out[e].{x|z}[k] with 0 ≤ e < len(g.out)
+                and 0 ≤ k < len(code(g.out[e]).{x|z})
+        require (e, basis, k) ∉ out                      // no aliases for one target
+        out[(e, basis, k)] = localParity(g, equation)
+    return out
+
+// Frame values may use circuit readouts, literals, and readouts[...] aliases
+// that resolve (acyclically) to those.  Never in[...] or out[...], even if
+// they would cancel.
+function localParity(g, equation, active = {}):
+    acc = Parity()
+    for term in equation:
+        if term ∈ {0, 1}: acc ⊕= const(term)
+        else for ref in expandSelector(normalizeAliases(term)):
+            if ref is circuit.readouts[i]: acc ⊕= ("rec", i)
+            elif ref is readouts[i]:
+                require 0 ≤ i < len(g.readouts) and i ∉ active
+                acc ⊕= localParity(g, g.readouts[i], active ∪ {i})
+            else: error "frame values cannot reference encoding signs"
+    return acc
+
+── 4.6 Encodings and code-qubit addresses ─────────────────────────────
+
+function layoutBoundary(operands, encodings, codes, upperCaps, lowerCaps):
+    require len(operands) == len(encodings)
+    layouts = []
+    for (op, enc) in zip(operands, encodings):
+        code = codes[op.type] or error          // the layer binds the code, never the gadget
+        require enc.code == code
+        require len(code.x) == len(code.z) == upperCaps[op.type]
+        types = enc.lowerTypes  or  (size(lowerCaps)==1 ? [onlyKey(lowerCaps)] * len(enc.support)
+                                                      : error)
+        require len(types) == len(enc.support) and types ⊆ keys(lowerCaps)
+        require Σ lowerCaps[t] for t in types == code.n
+        require enc.support labels are distinct
+        layouts.append(EncodingLayout(op.type, code, enc.support, types))
+    // Distinct operands on the same side must not share lower blocks; otherwise
+    // two live blocks would own the same LowerId (double free).
+    require all labels across `layouts` are pairwise distinct
+    return layouts
+
+// Code-qubit position k → lower address.  With a single lower type of size
+// `stride`, this is offset k % stride inside support[k // stride].  Mixed
+// lower types contribute their own sizes, in support order.
+function codeQubits(L: EncodingLayout, placement, lowerCaps) -> List<Address>:
+    require len(L.labels) == len(L.lowerTypes)          // never truncate silently
+    bare = size(lowerCaps)==1 and onlyValue(lowerCaps)==1
+    return [ bare ? placement[lab] : Slot(placement[lab], i, t)
+             for (lab, t) in zip(L.labels, L.lowerTypes)
+             for i in 0 .. lowerCaps[t]-1 ]
+
+══════════════════════════════════════════════════════════════════════
+ 5. LAYER PLAN  (built once per layer)
+══════════════════════════════════════════════════════════════════════
+
+function buildPlan(layer):
+    plan.isa          = layer.isa
+    plan.capacities   = layer.isa.blocks                  // upper type -> logical qubits
+    plan.codes        = layer.codes
+    plan.lowerCaps    = None
+    plan.requirements = {}                                // upperType -> Map<lowerType, Int>
+    plan.scratch      = {}                                // lowerType -> Int
+    plan.gadgets      = {}
+
+    for (name, g) in layer.gadgets:
+        I = g.implements                                  // [SPEC] must be layer.isa[name]
+        caps = g.circuit.isa.blocks
+        if plan.gadgets not empty and caps ≠ plan.lowerCaps: error   // one lower ISA
+        plan.lowerCaps = caps
+
+        inputs  = layoutBoundary(I.in,  g.in,  plan.codes, plan.capacities, caps)
+        outputs = layoutBoundary(I.out, g.out, plan.codes, plan.capacities, caps)
+        body    = prepareCallList(g.circuit)              // §7
+
+        labels  = orderedUnique( concat(e.support for e in g.in)
+                               ++ body.labels
+                               ++ concat(e.support for e in g.out) )
+
+        labelType = copy(body.blockTypes)
+        for L in inputs ++ outputs:
+            plan.requirements[L.blockType] =
+                maxMerge(plan.requirements.get(L.blockType, {}), resources(L))
+            for (lab, t) in zip(L.labels, L.lowerTypes):
+                // A label has ONE lower type for the whole gadget; encodings and the
+                // circuit body must agree (no silent retyping of a lower block).
+                require labelType.get(lab, t) == t
+                labelType[lab] = t
+        if size(caps) == 1:
+            for lab in labels: labelType.setDefault(lab, onlyKey(caps))
+        require labels ⊆ keys(labelType)
+
+        boundary = maxMerge(sumMerge(resources(L) for L in inputs),
+                            sumMerge(resources(L) for L in outputs))
+        scratch  = positivePart(countBy(labelType[lab] for lab in labels) - boundary)
+        plan.scratch = maxMerge(plan.scratch, scratch)
+
+        plan.gadgets[name] = (g, I, body, labels, inputs, outputs, labelType)
+
+    plan.resolver = buildResolver(plan.isa)              // §6
+    return plan
+
+// maxMerge: per-key max.  sumMerge: per-key sum.  positivePart: drop keys ≤ 0.
+
+══════════════════════════════════════════════════════════════════════
+ 6. OPERATION RESOLVER  [RUNTIME, built on SPEC action semantics]
+══════════════════════════════════════════════════════════════════════
+
+// The spec has no generic operations: "the action is authoritative".  To run
+// generic requests (h, cx, rz, prepare, measure, ...), the runtime matches
+// them against each instruction's *action*, never its mnemonic.
+
+function buildResolver(isa):
+    for each instruction I in isa that has no variadic operands,
+            no `pauli` parameters, and no guarded steps:
+        width = max(Σ caps over I.in, Σ caps over I.out)
+        steps = []
+        for s in I.action:
+            clifford  T    -> steps += Clifford(T)
+            pauli     P    -> steps += [Op(lower(P[q]), [q]) for q in support(P)]
+            stabilize Z_q  -> steps += Op("prepare", [q])     // single +Z, q < width
+            observe   Z_q  -> steps += Op("measure", [q])     // single +Z
+            rotate (P, θ)  -> steps += Op("r" + axis*len(support), support, θ)
+                              // P has 1 or 2 qubits on the same positive axis
+            anything else  -> skip I (no static semantics)
+        semantics[I] = steps
+        // Clifford composition of ALL steps (clifford and pauli).  It is None if
+        // the action is empty or contains any prepare, measure or rotate step.
+        // Non-Clifford steps are never skipped.
+        clifford[I]  = (steps non-empty and every step is Clifford or Pauli)
+                       ? compose(steps, width) : None
+
+// `live` is the set of upper labels that currently hold a block.
+function resolve(op, slots, angle, spare, live) -> List<InstructionCall>:
+    try:   return [bindOne(op, slots, angle, spare, live)]
+    catch Unbound:
+        parts = decompose(op, angle) or rethrow     // e.g. rotation synthesis
+        return [bindOne(part.op, part.slots, part.angle, spare, live) for part in parts]
+
+function bindOne(op, slots, angle, spare, live) -> InstructionCall:
+    labels   = orderedUnique(s.block for s in slots)
+    offsets  = running sum of plan.capacities[type(label)] over labels
+    pos      = [offsets[s.block] + s.index for s in slots]   // must be distinct
+    width    = Σ capacities over labels
+    blocks   = [type(label) for label in labels]
+    allLive  = all label ∈ live for label in labels
+    noneLive = no label ∈ live for label in labels
+    // Ignore spare slots that are outside the targeted blocks or out of range.
+    spareP   = { offsets[s.block] + s.index for s in spare
+                 if s.block ∈ labels and s.type == type(s.block)
+                    and 0 ≤ s.index < plan.capacities[s.type] } \ pos
+    gate     = namedClifford(op, len(pos), angle)            // None for non-Clifford
+    matches  = []
+    // Inside this loop, a failed `require` skips the candidate I (no error).
+    for (I, steps) in semantics:
+        compatible =
+            op == "prepare" ? I.out types == blocks and I.in types ∈ {[], blocks}
+          : op == "measure" ? I.in types  == blocks and I.out types ∈ {[], blocks}
+          :                   I.in types == I.out types == blocks
+        if not compatible: continue
+        // An instruction with inputs needs live operands.  A fresh preparation
+        // (no inputs) is the only way to prepare a block that is not live.
+        if I.in types ≠ [] and not allLive: continue
+        if op == "prepare" and I.in types == [] and not (noneLive or allLive): continue
+        inPlace = (I.in types == I.out types)
+        touched = inPlace ? {} : ({0..width-1} \ pos)
+        if touched ⊄ spareP: continue                       // creating/consuming a block
+        flagged = I.flags not empty                         // touches all of its slots
+        if gate ≠ None:
+            if clifford[I] == embed(gate, pos, width): matches += ((flagged,F,F,F), I, {})
+            continue
+        if op == "mov" and steps empty: matches += ((flagged,F,F,F), I, {})
+        if op ∈ {prepare, measure}:
+            require angle == None and steps non-empty and every step is
+                    Op(op, [q]) with distinct q, and pos ⊆ {q}
+            touched ∪= {q} \ pos;  require touched ⊆ spareP
+            // On a live block, prefer resetting in place over replacing it.
+            matches += ((flagged, touched ≠ ∅, F, not inPlace), I, {})
+            continue
+        require len(steps) == 1 and steps[0] = Op(op, pos, a)
+        if a is a parameter name and angle ≠ None: matches += ((flagged,F,T,F), I, {a: angle})
+        elif a == None == angle:                    matches += ((flagged,F,F,F), I, {})
+        elif a, angle numeric and isclose(a, angle): matches += ((flagged,F,F,F), I, {})
+    if matches empty: raise Unbound
+    // Rank: (flagged, touches spare slots, parameterized, replaces block),
+    // compared lexicographically; lowest wins.
+    best = all matches with minimal rank
+    if len(best) > 1: prefer the one named "__quantum__qis__<op>__body"
+    if still > 1: error "ambiguous"
+    (I, args) = best[0]
+    call = InstructionCall(I.mnemonic, labels, args, select = [])
+    // The runtime cannot act on a raised flag for calls it issues itself,
+    // so it post-selects on all flags being zero.
+    if I.flags not empty: call.select = [{f: 0 for f in I.flags}]
+    return call
+
+function outcomeIndex(I, position) -> Int | None:
+    ms = [step.targets for step in semantics[I] if step.name == "measure"]
+    return indexOf(ms, [position])  or None
+
+══════════════════════════════════════════════════════════════════════
+ 7. GADGET BODY RUNTIME  (inline YAML call list)  [SPEC semantics]
+══════════════════════════════════════════════════════════════════════
+
+// Stim and OpenQASM sources need their own parsers, but their output must follow
+// the same record rules.
+
+function prepareCallList(circuit) -> PreparedBody:
+    calls  = parse(circuit.source)
+    labels = orderedUnique(str(o) for c in calls for o in c.operands)
+    blockTypes = {};  prepared = [];  offset = 0
+    for c in calls:
+        (ins, outs) = bindOperands(circuit.isa, c.mnemonic, c.operands, {})
+        I = circuit.isa.instructions[c.mnemonic]
+        for (name, a) in c.args:
+            require name ∈ I.parameters
+            if a is "circuit.readouts[SEL]":
+                // [SPEC] only `bit` parameters, exactly one earlier bit
+                require I.parameters[name] == bit
+                        and expandSelector(a) has exactly one index j and j < offset
+        count = observeCount(I) + len(I.flags)
+        prepared += (c, I, count, compileSelect(I.flags, c.select))
+        offset += count
+        for b in ins ++ outs: blockTypes[str(b.label)] = b.type
+    needs = (size(circuit.isa.blocks)==1 and onlyValue(...)==1)
+            ? Resources(qubits = len(labels))
+            : Resources(blocks = countBy(values(blockTypes)))
+    return (labels, blockTypes, createRuntime = () -> CallListRuntime(prepared, needs))
+
+CallListRuntime:
+    requiredResources(inv) = needs
+
+    coroutine run(inv) -> Readouts:
+        validateArguments(inv.gadget.implements, inv.call.args)
+        // [SPEC] parameter_bindings: instruction param -> circuit source name
+        forwarded = { src: inv.call.args[param]
+                      for (param, src) in inv.gadget.parameterBindings }
+        record = []
+        for (c, I, count, sel) in prepared:
+            args = {}
+            for (name, a) in c.args:
+                if a is String and a ∈ forwarded:      a = forwarded[a]
+                elif a is "circuit.readouts[j]":
+                    a = record[j];  if a == None: raise Unresolved
+                args[name] = a
+            validateArguments(I, args)
+            r = yield InstructionCall(c.mnemonic, c.operands, args, c.select)
+            require len(r) == count                    // observe outcomes ++ flags
+            requireSelected(sel, r[observeCount(I):])  // [RUNTIME] per-call select is a
+                                                       // spec hint, enforced here
+            record ++= r
+        return record                                  // the gadget's circuit.readouts
+
+══════════════════════════════════════════════════════════════════════
+ 8. LAYER RUNTIME  [RUNTIME]
+══════════════════════════════════════════════════════════════════════
+
+── 8.1 State ──────────────────────────────────────────────────────────
+
+blocks         : Map<Label, LiveBlock>
+free           : MinHeap<LowerId>
+typeOf         : Map<LowerId, BlockType>
+capacityByType : Map<BlockType, Int>
+generation     : Map<Label, Int>
+occupied       : Map<Label, Set<Int>>   // missing key => every slot occupied
+nextInvocation : Int
+sideEffects    : Int                     // see rule below
+failed         : Bool                    // poisoned: only close() is allowed
+decoder        : DecoderSession          // created from decoderFactory by start()
+
+// sideEffects rule: throughout §8, every `yield <request>` to the layer below
+// means `sideEffects += 1; yield <request>`.  Every write to blocks, free,
+// typeOf, generation, occupied, or a call to a decoder method that may change
+// decoder state (before, decode, discarded), also increments sideEffects.
+// handle() compares this counter to decide whether a failure poisons the layer.
+//
+// Shot lifecycle: Rejected, Unresolved and Inconsistent end the current shot.
+// If they occur after side effects (always the case for gadget post-selection),
+// the layer is poisoned.  A driver runs each shot as start() ... close(), so the
+// next shot starts from a clean state.
+
+── 8.2 Sizing and start ───────────────────────────────────────────────
+
+function requiredResources(upper) -> Resources:
+    need = copy(upper.blocks)
+    if upper.qubits > 0:
+        require size(plan.capacities) == 1
+        need[onlyKey(plan.capacities)] += upper.qubits
+    require keys(need) ⊆ keys(plan.requirements)
+    lower = copy(plan.scratch)
+    for (upType, count) in need:
+        for (lowType, k) in plan.requirements[upType]: lower[lowType] += count * k
+    if size(plan.lowerCaps) == 1 and onlyValue(plan.lowerCaps) == 1:
+        return Resources(qubits = Σ values(lower))
+    return Resources(blocks = lower)
+
+function start(res):
+    require keys(res.blocks) ⊆ keys(plan.lowerCaps)
+    capacityByType = copy(res.blocks)
+    if res.qubits > 0:
+        require size(plan.lowerCaps) == 1 and onlyValue(plan.lowerCaps) == 1
+        capacityByType[onlyKey(plan.lowerCaps)] += res.qubits
+    free = heap(0 .. res.qubits + Σ values(res.blocks) - 1)
+    clear blocks, typeOf, generation, occupied
+    // Generations restart, so BlockRefs repeat: the decoder must not keep state
+    // from a previous run.
+    decoder?.close();  decoder = decoderFactory()
+    nextInvocation = 0;  sideEffects = 0;  failed = false
+
+── 8.3 Dispatch ───────────────────────────────────────────────────────
+
+// Single entry point.  If anything fails after the layer has emitted a lower
+// request or changed its state, the layer and the layers below may disagree
+// (e.g. a discard interrupted halfway, or part of a decomposed `apply` done),
+// so the layer is poisoned.  This covers every request kind, not only
+// InstructionCall.
+coroutine handle(req) -> Readouts:
+    require not failed
+    mark = sideEffects
+    try:
+        return yield* dispatch(req)
+    catch any:
+        if sideEffects ≠ mark: failed = true
+        rethrow
+
+coroutine dispatch(req) -> Readouts:
+    match req:
+      FrameUpdate(p, t):
+          s = resolveSlot(t)
+          (ref, P) = logicalPauli(p, [s], None) or error "needs a layer code"
+          yield* applyCorrections(pauliCorrections(ref, P));  return ()
+
+      RestoreMeasured(t, v):
+          s = resolveSlot(t)
+          if s.block ∉ blocks:
+              yield* prepare(s)
+              if v: yield* apply("x", [s], None)
+          return ()
+
+      InstructionCall(m, ops, args, sel):
+          r = yield* execute(m, ops, args, sel)
+          for o in ops: occupied.remove(o)
+          return r
+
+      Operation(name, targets, angle):
+          slots = [resolveSlot(t) for t in targets]
+          if   name == "prepare": yield* prepare(slots[0])
+          elif name == "measure": return ( yield* measure(slots[0]) ,)
+          elif name == "discard": yield* discard(slots[0].block)
+          else:                   yield* apply(name, slots, angle)
+          return ()
+
+── 8.4 Slots ──────────────────────────────────────────────────────────
+
+function resolveSlot(t) -> Slot:
+    if t is Slot:                   s = t
+    elif t ∈ blocks:                s = Slot(t, 0, blocks[t].ref.type)
+    elif size(plan.capacities)==1:  s = Slot(t, 0, onlyKey(plan.capacities))
+    else: error "explicit block type required"
+    require s.type ∈ plan.capacities and 0 ≤ s.index < plan.capacities[s.type]
+    if s.block ∈ blocks: require blocks[s.block].ref.type == s.type
+    return s
+
+function spareSlots(s) -> List<Slot>:
+    others = {0 .. plan.capacities[s.type]-1} \ {s.index}
+    if s.block ∈ blocks: others = others \ occupied.get(s.block, default = others)
+    return [Slot(s.block, i, s.type) for i in sorted(others)]
+
+── 8.5 Logical operations ─────────────────────────────────────────────
+
+coroutine prepare(t):
+    s = resolveSlot(t)
+    [call] = plan.resolver.resolve("prepare", [s], None, spareSlots(s), keys(blocks))
+    yield* execute(call.mnemonic, call.operands, call.args, call.select)
+    if call's instruction has no `in`: occupied[s.block] = {s.index}
+    elif s.block ∈ occupied:          occupied[s.block].add(s.index)
+
+coroutine apply(op, targets, angle):
+    slots = [resolveSlot(t) for t in targets]
+    try:
+        calls = plan.resolver.resolve(op, slots, angle, [], keys(blocks))
+    catch Unbound:
+        (ref, P) = logicalPauli(op, slots, angle) or rethrow
+        yield* applyCorrections(pauliCorrections(ref, P))
+        calls = []
+    for c in calls: require c.mnemonic ∈ plan.gadgets
+    for c in calls: yield* execute(c.mnemonic, c.operands, c.args, c.select)
+    for s in slots: if s.block ∈ occupied: occupied[s.block].add(s.index)
+
+coroutine measure(t) -> Bit:
+    s = resolveSlot(t)
+    [call] = plan.resolver.resolve("measure", [s], None, spareSlots(s), keys(blocks))
+    r = yield* execute(call.mnemonic, call.operands, call.args, call.select)
+    if s.block ∉ blocks: occupied.remove(s.block)
+    i = outcomeIndex(call's instruction, s.index)
+    if i == None: require len(r) == 1;  i = 0
+    return r[i]
+
+// [RUNTIME] The spec has no discard.  A block is consumed by any instruction
+// that lists it in `in` but not in `out`.  This is a resource release.
+coroutine discard(label):
+    occupied.remove(label)
+    b = blocks.remove(label)
+    if b == None: return
+    for lb in b.support: yield* discardLower(lb)
+    decoder.discarded?([b.ref])
+
+coroutine discardLower(lb):
+    t = typeOf[lb]
+    addr = (size(plan.lowerCaps)==1 and plan.lowerCaps[t]==1) ? lb : Slot(lb, 0, t)
+    yield Operation("discard", [addr], None)
+    typeOf.remove(lb);  free.push(lb)
+
+// A logical Pauli with no ISA instruction becomes the code's logical operator
+// [SPEC: code.x / code.z], applied as frame corrections on the block's code qubits.
+function logicalPauli(op, slots, angle) -> (BlockRef, Pauli) | None:
+    if op ∉ {x,y,z} or angle ≠ None or len(slots) ≠ 1: return None
+    s = slots[0];  code = plan.codes.get(s.type)
+    if code == None or not 0 ≤ s.index < len(code.x): return None
+    b = blocks.get(s.block) or error "not prepared"
+    P = identity(code.n)
+    if op ∈ {x,y}: P = P * code.x[s.index]
+    if op ∈ {z,y}: P = P * code.z[s.index]
+    return (b.ref, P)
+
+coroutine pauliCorrections(ref, P):
+    for q in support(P): yield Correction([ref], Operation(lower(P[q]), [q], None))
+
+── 8.6 Corrections (decoder -> lower layer) ───────────────────────────
+
+coroutine applyCorrections(stream) -> T:
+    r = None
+    loop:
+        (done, c) = stream.resume(r)
+        if done: return c
+        require c.blocks are distinct
+        qubits = []
+        for ref in c.blocks:
+            b = blocks.get(ref.label)
+            require b ≠ None and b.ref == ref          // still live, same generation
+            qubits ++= b.qubits
+        idx = localIndices(c.op);  require all 0 ≤ i < len(qubits)
+        targets = [qubits[i] for i in idx]
+        if c.op.name ∈ {x,y,z} and len(targets)==1 and c.op.angle == None:
+            r = yield FrameUpdate(c.op.name, targets[0])   // Pauli frame, no gate
+        else:
+            r = yield Operation(c.op.name, targets, c.op.angle)
+        require r ≠ None
+
+── 8.7 Gadget execution ───────────────────────────────────────────────
+
+coroutine execute(m, targets, args, select) -> Readouts:
+    // Poisoning on failure is handled once, in handle() (§8.3).
+    ip = planInvocation(m, targets, args, select)       // pure: no side effects
+    id = nextInvocation;  nextInvocation += 1
+    return yield* runInvocation(ip, id)
+
+function planInvocation(m, targets, args, select):
+    gp = plan.gadgets[m] or error "no gadget"
+    // Only inputs are constrained by live types; outputs take the instruction's
+    // declared types, so type-changing instructions are allowed (spec).
+    (inOps, outOps) = bindOperands(plan.isa, m, targets,
+                                   inputTypes = {l: b.ref.type for (l, b) in blocks})
+    validateArguments(gp.I, args)                                          // §4.2
+    sel = compileSelect(gp.I.flags, select)                                // §4.3
+    require len(inOps) == len(gp.g.in) and len(outOps) == len(gp.g.out)
+
+    placement = {}                                     // circuit label -> LowerId
+    for (t, enc) in zip(targets, gp.g.in):
+        b = blocks.get(t) or error "not prepared"
+        require len(enc.support) == len(b.support)
+        for (lab, lb) in zip(enc.support, b.support):
+            require placement.get(lab, lb) == lb       // one label -> one lower block
+            // Placement is injective because live blocks never share lower blocks:
+            // inputs are distinct live blocks and outputs are disjoint (§4.6, §8.7).
+            require typeOf[lb] == gp.labelType[lab]    // no silent retyping of lower blocks
+            placement[lab] = lb
+
+    outOnly  = targets[len(gp.g.in):]
+    replaced = [blocks[t] for t in outOnly if t ∈ blocks]
+    require count(lab ∉ placement for lab in gp.labels)
+            ≤ size(free) + Σ len(b.support) for b in replaced
+    after = countBy(values(typeOf))
+    for b in replaced: for lb in b.support: after[typeOf[lb]] -= 1
+    for lab in gp.labels:
+        if lab ∈ placement: after[typeOf[placement[lab]]] -= 1
+        after[gp.labelType[lab]] += 1
+    require ∀t: after[t] ≤ capacityByType[t]
+
+    return (gp, call = (m, targets, args, select), sel, outOps, targets, placement)
+
+coroutine runInvocation(ip, id) -> Readouts:
+    gp = ip.gp;  nIn = len(gp.g.in)
+
+    for t in ip.targets[nIn:]: yield* discard(t)       // overwrite output-only operands
+
+    inRefs  = [blocks[t].ref for t in ip.targets[:nIn]]
+    outRefs = [freshRef(o.label, o.type) for o in ip.outOps]
+    inv     = Invocation(id, gp.g, ip.call, inRefs, outRefs)
+
+    // Correction contract: `before` may target inputRefs (and other live blocks),
+    // and runs while inputs are still published.  `decode` runs after outputs
+    // are published, so it may target outputRefs and other live blocks, never
+    // inputRefs.  Because outRefs are always fresh, a correction aimed at a
+    // consumed or in-place input fails the generation check in
+    // applyCorrections instead of landing on the output's lower blocks.
+    if decoder has before: yield* applyCorrections(decoder.before(inv))
+
+    placement = ip.placement
+    for lab in gp.labels:
+        if lab ∉ placement:
+            placement[lab] = free.popMin()
+            typeOf[placement[lab]] = gp.labelType[lab]
+
+    raw = yield* runGadgetCircuit(gp, inv, placement)  // the gadget's circuit.readouts
+
+    // publish outputs: an output block is the gadget's `out` encoding
+    for lab in gp.labels: typeOf[placement[lab]] = gp.labelType[lab]
+    for t in ip.targets[:nIn]: blocks.remove(t)
+    retained = {}
+    for (ref, L) in zip(outRefs, gp.outputs):
+        sup = [placement[lab] for lab in L.labels]
+        require sup ∩ retained == ∅                   // outputs never share lower blocks
+        blocks[ref.label] = LiveBlock(ref, sup, codeQubits(L, placement, plan.lowerCaps))
+        retained ∪= set(sup)
+
+    d = yield* applyCorrections(decoder.decode(inv, raw))    // §9
+    require len(d.outcomes) == observeCount(gp.I) and len(d.flags) == len(gp.I.flags)
+    // [RUNTIME] The spec calls `select` a hint that consumers may use.  This
+    // runtime enforces it as post-selection.
+    requireSelected(ip.sel, d.flags)
+
+    for lb in sorted(values(placement) \ retained): yield* discardLower(lb)
+    decoder.discarded?(inRefs)              // every input ref is dead: outRefs are fresh
+    return readouts(d)                                        // outcomes ++ flags
+
+// Every output gets a new generation, even when it reuses an input's label
+// in place.  Corrections or decoder state keyed by the old ref can therefore
+// never be applied to the new block.
+function freshRef(label, type) -> BlockRef:
+    generation[label] = generation.get(label, 0) + 1
+    return BlockRef(label, generation[label], type)
+
+coroutine runGadgetCircuit(gp, inv, placement) -> Readouts:
+    rt = gp.body.createRuntime()
+    try:
+        need = rt.requiredResources(inv)
+        require need.qubits + Σ values(need.blocks) ≤ size(placement)
+        require ∀t: need.blocks[t] ≤ countBy(values(gp.labelType))[t]
+        stream = rt.run(inv);  r = None
+        loop:
+            (done, q) = stream.resume(r)
+            if done: return q
+            match q:                                  // rewrite circuit labels to LowerIds
+              InstructionCall(m, ops, a, s):
+                  low = InstructionCall(m, [placement[str(o)] for o in ops], a, s)
+              RestoreMeasured(t, v): low = RestoreMeasured(mapTarget(t, gp, placement), v)
+              FrameUpdate(p, t):     low = FrameUpdate(p, mapTarget(t, gp, placement))
+              Operation(n, ts, ang): low = Operation(n, [mapTarget(t, gp, placement) for t in ts], ang)
+            r = yield low
+            require r ≠ None
+    finally:
+        rt.close?()
+
+function mapTarget(t, gp, placement) -> Address:
+    if t is Slot:
+        require gp.labelType[str(t.block)] == t.type
+        return Slot(placement[str(t.block)], t.index, t.type)
+    return placement[str(t)]
+
+function close():                     // allowed even when failed
+    clear blocks, free, typeOf, generation, capacityByType, occupied
+    decoder?.close();  decoder = None
+
+══════════════════════════════════════════════════════════════════════
+ 9. REFERENCE DECODER — PAULI-FRAME DECODER  [SPEC semantics]
+══════════════════════════════════════════════════════════════════════
+
+// It evaluates a gadget's checks, readouts and frames as one GF(2) system, and
+// carries every block's stabilizer and logical signs from one gadget's `out` to
+// the next gadget's `in`.  It never yields corrections: a nonzero check under
+// this model is an `Inconsistent` error.  A fault-tolerant decoder would instead
+// use nonzero checks as a syndrome and yield Corrections (§8.6) before
+// returning.
+
+FrameDecoder.prepare(layer):
+    for (name, g) in layer.gadgets:
+        plans[name] = ( checks    = [expr(c) for c in g.checks],
+                        readouts  = [expr(r) for r in g.readouts],
+                        frames    = prepareFrames(g),             // §4.5
+                        transport = circuitTransport(g) )         // may be None
+    signs: Map<BlockRef, Map<(basis, k), Bool>> = {}              // known boundary signs
+
+coroutine FrameDecoder.decode(inv, raw) -> Decoded:
+    p   = plans[inv.call.mnemonic]
+    sys = BinarySystem()
+    for c in p.checks: sys.add(c)                                   // check == 0
+    for (i, v) in enumerate(raw): if v ≠ None: sys.add(("rec",i) ⊕ const(v))
+    for (e, ref) in enumerate(inv.inputRefs):                        // incoming frame
+        for ((basis, k), v) in signs.get(ref, {}):
+            sys.add(("enc","in",e,basis,k) ⊕ const(v))
+    for (i, eq) in enumerate(p.readouts): sys.add(("ro",i) ⊕ eq)     // define readouts[i]
+
+    T = p.transport ?? actionTransport(inv, sys)
+    for (key = (e, basis, k), t) in T:                               // carry logical signs
+        sys.add(("enc","out",e,basis,k) ⊕ t ⊕ p.frames.get(key, Parity()))
+        // Missing frame entries add nothing. They never reset the transported sign.
+
+    pending = {}
+    for (e, ref) in enumerate(inv.outputRefs):
+        code = inv.gadget.out[e] code
+        pending[ref] = { (b, k): v
+                         for b in {stabilizers, x, z} for k in 0..len(code.b)-1
+                         if (v = sys.value(("enc","out",e,b,k))) ≠ None }
+
+    values = [sys.value(("ro", i)) for i in 0..len(p.readouts)-1]    // None = unresolved
+    signs.update(pending)
+    n = observeCount(inv.gadget.implements)
+    return Decoded(values[:n], values[n:])
+
+FrameDecoder.discarded(refs): for r in refs: signs.remove(r)   // no-op if r has no entry
+
+FrameDecoder.close(): signs.clear()
+
+── 9.1 Logical-sign transport from a Clifford-only body ───────────────
+
+// Applies when ALL of these hold; otherwise it returns None:
+//   - the gadget has inputs and outputs, and no instruction parameters;
+//   - the circuit source is an inline call list (not QIR or OpenQASM);
+//   - every encoding label has one consistent lower type across in/out;
+//   - every circuit call is an in==out instruction whose action is only
+//     unguarded Clifford and Pauli steps.
+function circuitTransport(g) -> Map<(e, x|z, k), Parity> | None:
+    assign each circuit label a range of positions (width = Σ caps)
+    U = identity Clifford(width)
+    for each call c: U = actionClifford(c) ∘ U on c's operand positions
+    gens = {}                                     // input generator -> image under U
+    for (e, enc) in g.in, b ∈ {stabilizers, x, z}, k:
+        gens[(e,b,k)] = U · place(code.b[k], enc.support) · U†
+    T = {}
+    for (e, enc) in g.out, b ∈ {x, z}, k:
+        L = place(code.b[k], enc.support)
+        // Solve over GF(2): which input generators multiply (up to sign) to L?
+        S = solve( Σ_{gen ∈ S} pauliBits(gens[gen]) == pauliBits(L) )
+            or error "circuit does not preserve the code boundary"
+        T[(e,b,k)] = XOR of ("enc","in",e',b',k') for (e',b',k') ∈ S
+    return T
+
+── 9.2 Logical-sign transport from the instruction action ─────────────
+
+// Each logical qubit q carries a pair (zSign_q, xSign_q) of Parities.
+// zSign is flipped by an X-type frame on q. xSign is flipped by a Z-type frame.
+function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
+    I     = inv.gadget.implements
+    nIn   = Σ len(code.x) over inv.gadget.in
+    prog  = action program of I for (nIn, nOut, inv.call.args)
+    s[q]  = (("enc","in",e,z,k), ("enc","in",e,x,k)) for input logical qubit q = (e,k)
+    s[q]  = (0, 0) for fresh and temporary qubits
+    for step in prog:
+        if step is guarded:
+            require every s[q] part has sys.value == false  else raise Unresolved
+            continue
+        clifford C:
+            new = all (0,0)
+            for q: for (v, image) in ((s[q].z, C(X_q)), (s[q].x, C(Z_q))):
+                for t in support(image):
+                    if image[t] ∈ {X,Y}: new[t].z ⊕= v
+                    if image[t] ∈ {Z,Y}: new[t].x ⊕= v
+            s = new
+        stabilize P: require for q ∈ support(P): s[q] parts are known zero, else Unresolved
+        rotate (P, θ):
+            require sys.value(⊕ {s[q].z : P[q] ∈ {Z,Y}} ⊕ {s[q].x : P[q] ∈ {X,Y}}) == false
+                    else Unresolved            // non-Clifford needs a realized frame
+        pauli, observe, allocate, trace-out: no change
+    T = {};  off = 0
+    for (e, enc) in inv.gadget.out:
+        for k in 0..len(code.x)-1:
+            T[(e,z,k)] = s[off+k].z;  T[(e,x,k)] = s[off+k].x
+        off += len(code.x)
+    return T
+
+══════════════════════════════════════════════════════════════════════
+ 10. BOTTOM EXECUTOR CONTRACT  [RUNTIME]
+══════════════════════════════════════════════════════════════════════
+
+The bottom layer has an ISA and no gadgets.  Its executor must accept:
+
+  InstructionCall(m, operands, args, select)
+      Run instruction m of the bottom ISA according to its action.
+      Return its observe outcomes followed by its flags, then apply select.
+  Operation(name, targets, angle)
+      A generic gate, prepare, measure, or discard on physical addresses.
+      measure returns a 1-tuple.  Everything else returns ().
+  FrameUpdate(p, target)
+      Fold the Pauli into the physical Pauli frame. Do not apply a gate.
+  RestoreMeasured(target, value)
+      Re-prepare a qubit consumed by a measurement, in |value>.
+
+Readout bits returned upward are Bool, or None when they cannot be determined.
