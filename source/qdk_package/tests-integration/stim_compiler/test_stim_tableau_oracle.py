@@ -23,7 +23,6 @@ qdk-stim numbers qubits in first-use order, so programs first use qubits as 0, 1
 
 from itertools import product
 from pathlib import Path
-import sys
 from textwrap import dedent
 
 import pytest
@@ -69,12 +68,9 @@ def assert_matches_stim_with_measurements(
     measurement record: same record, and same final state."""
     source = dedent(source).strip()
     program = QdkStimProgram(source, SEED)
-    seen = set()
     for _ in range(runs):
         actual = program.run()
         expected = replay_in_stim(source, actual.record, SEED)
-        if actual.record not in seen:
-            seen.add(actual.record)
         _assert_same_outcome(source, expected, actual)
 
 

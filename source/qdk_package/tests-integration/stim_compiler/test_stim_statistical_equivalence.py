@@ -6,7 +6,6 @@ that their histograms of measurement records match.
 """
 
 from pathlib import Path
-import sys
 
 import pytest
 
