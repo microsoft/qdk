@@ -31,12 +31,12 @@ stim = pytest.importorskip(
     "stim", reason="Stim is not available", exc_type=ImportError
 )
 
-from random_program_generator import (
+from .random_program_generator import (
     SINGLE_QUBIT_GATES,
     TWO_QUBIT_GATES,
     random_program,
 )
-from tableau_utils import (
+from .tableau_utils import (
     QdkStimProgram,
     RunResult,
     replay_in_stim,

@@ -11,8 +11,8 @@ import pytest
 
 pytest.importorskip("stim", reason="Stim is not available", exc_type=ImportError)
 
-from random_program_generator import random_program
-from sampling_utils import BACKENDS, NOISY_SHOTS, Backend, assert_matches_stim
+from .random_program_generator import random_program
+from .sampling_utils import BACKENDS, NOISY_SHOTS, Backend, assert_matches_stim
 
 RESOURCES = Path(__file__).parent / "resources"
 
