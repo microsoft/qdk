@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QuantumBackend, QuantumBackendInstruction, adapters::Adapter};
+use crate::{BatchResult, QuantumBackend, QuantumBackendInstruction, interface::Driver};
 use smallvec::smallvec;
 
 /// Decomposes CCX instructions into Clifford+T gates and forwards results unchanged.
@@ -20,7 +20,7 @@ impl<B: QuantumBackend> DecomposeToffoliAdapter<B> {
     }
 }
 
-impl<B: QuantumBackend> Adapter for DecomposeToffoliAdapter<B> {
+impl<B: QuantumBackend> Driver for DecomposeToffoliAdapter<B> {
     type Backend = B;
 
     /// Returns the wrapped backend.

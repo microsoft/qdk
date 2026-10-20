@@ -7,21 +7,19 @@ mod result_adapter;
 pub use decompose_toffoli_adapter::DecomposeToffoliAdapter;
 pub use result_adapter::ResultAdapter;
 
-use crate::{Profiler, QuantumBackend};
+use crate::{Profiler, QuantumBackend, interface::Driver};
 
-/// Adapter is a QuantumBackend that wraps another QuantumBackend.
-trait Adapter: QuantumBackend {
-    type Backend: QuantumBackend;
+/// Adapter is something that is both Driver and QuantumBackend.
+trait Adapter: Driver + QuantumBackend {}
 
-    /// Returns the wrapped backend.
-    fn get_backend(&self) -> &Self::Backend;
-}
+impl<T: Driver + QuantumBackend> Adapter for T {}
 
-/// Adapter wrapping a Profiler is a Profiler that forwards ProfilerResult from wrapped Profiler.
+/// Any adapter on top of Profiler produces a Profiler.
 impl<A: Adapter> Profiler for A
 where
     A::Backend: Profiler,
 {
+    /// Returns profiling data collected by the wrapped backend.
     fn get_result(&self) -> crate::ProfilerResult {
         self.get_backend().get_result()
     }

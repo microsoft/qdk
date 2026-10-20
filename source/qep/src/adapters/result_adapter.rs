@@ -3,7 +3,7 @@
 
 use crate::{
     BatchResult, ClassicalParameter::ResultId, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackendResult, adapters::Adapter,
+    QuantumBackendResult, interface::Driver,
 };
 
 /// Adapts result-register instructions for a backend without a result register.
@@ -85,8 +85,10 @@ impl<B: QuantumBackend> ResultAdapter<B> {
     }
 }
 
-impl<B: QuantumBackend> Adapter for ResultAdapter<B> {
+impl<B: QuantumBackend> Driver for ResultAdapter<B> {
     type Backend = B;
+
+    /// Returns the wrapped backend.
     fn get_backend(&self) -> &B {
         &self.backend
     }

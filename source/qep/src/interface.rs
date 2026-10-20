@@ -38,6 +38,15 @@ pub trait QuantumBackend {
     fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult;
 }
 
+/// Driver is something that owns a backend and provides access to it.
+/// Driver is a generic trait parametrized by type of its backend.
+pub trait Driver {
+    type Backend: QuantumBackend;
+
+    /// Returns the wrapped backend.
+    fn get_backend(&self) -> &Self::Backend;
+}
+
 // End of interface definition.
 
 impl From<bool> for QuantumBackendResult {
