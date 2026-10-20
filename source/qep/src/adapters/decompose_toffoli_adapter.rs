@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{BatchResult, QuantumBackend, QuantumBackendInstruction, interface::Driver};
+use crate::{
+    BatchResult, Parameter::QubitId, QuantumBackend, QuantumBackendInstruction, interface::Driver,
+};
 use smallvec::smallvec;
 
 /// Decomposes CCX instructions into Clifford+T gates and forwards results unchanged.
@@ -46,33 +48,36 @@ impl<B: QuantumBackend> QuantumBackend for DecomposeToffoliAdapter<B> {
                 continue;
             }
 
-            let &[ctl0, ctl1, target] = instruction.targets.as_slice() else {
+            let &[QubitId(ctl0), QubitId(ctl1), QubitId(target)] =
+                instruction.parameters.as_slice()
+            else {
                 panic!("Malformed CCX instruction: {instruction:?}");
             };
             transformed.extend(
                 [
-                    ("h", smallvec![target]),
-                    ("cx", smallvec![ctl1, target]),
-                    ("tadj", smallvec![target]),
-                    ("cx", smallvec![ctl0, target]),
-                    ("t", smallvec![target]),
-                    ("cx", smallvec![ctl1, target]),
-                    ("tadj", smallvec![target]),
-                    ("cx", smallvec![ctl0, target]),
-                    ("t", smallvec![ctl1]),
-                    ("t", smallvec![target]),
-                    ("h", smallvec![target]),
-                    ("cx", smallvec![ctl0, ctl1]),
-                    ("t", smallvec![ctl0]),
-                    ("tadj", smallvec![ctl1]),
-                    ("cx", smallvec![ctl0, ctl1]),
+                    ("h", smallvec![QubitId(target)]),
+                    ("cx", smallvec![QubitId(ctl1), QubitId(target)]),
+                    ("tadj", smallvec![QubitId(target)]),
+                    ("cx", smallvec![QubitId(ctl0), QubitId(target)]),
+                    ("t", smallvec![QubitId(target)]),
+                    ("cx", smallvec![QubitId(ctl1), QubitId(target)]),
+                    ("tadj", smallvec![QubitId(target)]),
+                    ("cx", smallvec![QubitId(ctl0), QubitId(target)]),
+                    ("t", smallvec![QubitId(ctl1)]),
+                    ("t", smallvec![QubitId(target)]),
+                    ("h", smallvec![QubitId(target)]),
+                    ("cx", smallvec![QubitId(ctl0), QubitId(ctl1)]),
+                    ("t", smallvec![QubitId(ctl0)]),
+                    ("tadj", smallvec![QubitId(ctl1)]),
+                    ("cx", smallvec![QubitId(ctl0), QubitId(ctl1)]),
                 ]
                 .into_iter()
-                .map(|(instruction_name, targets)| QuantumBackendInstruction {
-                    instruction_name,
-                    targets,
-                    classical_parameters: smallvec![],
-                }),
+                .map(
+                    |(instruction_name, classical_parameters)| QuantumBackendInstruction {
+                        instruction_name,
+                        parameters: classical_parameters,
+                    },
+                ),
             );
         }
         self.backend.execute_batch(&transformed)

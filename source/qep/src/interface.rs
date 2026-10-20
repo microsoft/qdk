@@ -4,19 +4,17 @@
 use smallvec::SmallVec;
 use std::fmt;
 
-type QubitID = usize;
-
 #[derive(Clone, PartialEq)]
-pub enum ClassicalParameter {
+pub enum Parameter {
     Float(f64),
     ResultId(usize),
+    QubitId(usize),
 }
 
 #[derive(Clone, PartialEq)]
 pub struct QuantumBackendInstruction {
     pub instruction_name: &'static str,
-    pub targets: SmallVec<[QubitID; 3]>,
-    pub classical_parameters: SmallVec<[ClassicalParameter; 1]>,
+    pub parameters: SmallVec<[Parameter; 3]>,
 }
 
 /// A measurement value or a backend-reported error.
@@ -60,12 +58,13 @@ impl From<bool> for QuantumBackendResult {
     }
 }
 
-impl fmt::Debug for ClassicalParameter {
+impl fmt::Debug for Parameter {
     /// Formats the contained value without its parameter variant name.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Float(value) => write!(f, "{value}"),
             Self::ResultId(value) => write!(f, "{value}"),
+            Self::QubitId(value) => write!(f, "{value}"),
         }
     }
 }
@@ -74,10 +73,7 @@ impl fmt::Debug for QuantumBackendInstruction {
     /// Formats the instruction name followed by space-separated qubits and classical values.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.instruction_name)?;
-        for qubit in &self.targets {
-            write!(f, " {qubit}")?;
-        }
-        for parameter in &self.classical_parameters {
+        for parameter in &self.parameters {
             write!(f, " {parameter:?}")?;
         }
         Ok(())

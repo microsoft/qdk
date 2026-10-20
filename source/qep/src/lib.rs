@@ -28,8 +28,7 @@ pub use instructions::{
     validate_instruction,
 };
 pub use interface::{
-    BatchResult, ClassicalParameter, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackendResult,
+    BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
 pub use profilers::{
     Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiler, TemporalProfiles,

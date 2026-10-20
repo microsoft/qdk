@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{ClassicalParameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult};
+use crate::{Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult};
 use smallvec::smallvec;
 
 /// Default number of instructions sent to a backend in one batch.
@@ -46,8 +46,7 @@ impl<'a> Batcher<'a> {
     pub(crate) fn read_result(&mut self, result_id: usize) -> Result<bool, String> {
         self.instructions.push(QuantumBackendInstruction {
             instruction_name: "read_result",
-            targets: smallvec![],
-            classical_parameters: smallvec![ClassicalParameter::ResultId(result_id)],
+            parameters: smallvec![Parameter::ResultId(result_id)],
         });
         self.flush(true)?.ok_or_else(|| {
             "QIR backend returned no result for a batch ending in read_result".into()
@@ -116,18 +115,15 @@ mod tests {
             let mut batcher = Batcher::new(&mut backend, 2)?;
             batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "h",
-                targets: smallvec::smallvec![0],
-                classical_parameters: smallvec::smallvec![],
+                parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
             })?;
             batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "x",
-                targets: smallvec::smallvec![1],
-                classical_parameters: smallvec::smallvec![],
+                parameters: smallvec::smallvec![crate::Parameter::QubitId(1)],
             })?;
             batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "z",
-                targets: smallvec::smallvec![2],
-                classical_parameters: smallvec::smallvec![],
+                parameters: smallvec::smallvec![crate::Parameter::QubitId(2)],
             })?;
             batcher.finish()?;
         }
@@ -151,8 +147,10 @@ mod tests {
             let mut batcher = Batcher::new(&mut backend, 10)?;
             batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "mz_store",
-                targets: smallvec::smallvec![0],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
+                parameters: smallvec::smallvec![
+                    crate::Parameter::QubitId(0),
+                    crate::Parameter::ResultId(1)
+                ],
             })?;
             batcher.read_result(1)?
         };
@@ -163,17 +161,14 @@ mod tests {
             &[
                 crate::QuantumBackendInstruction {
                     instruction_name: "mz_store",
-                    targets: smallvec::smallvec![0],
-                    classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
-                        1
-                    )]
+                    parameters: smallvec::smallvec![
+                        crate::Parameter::QubitId(0),
+                        crate::Parameter::ResultId(1)
+                    ]
                 },
                 crate::QuantumBackendInstruction {
                     instruction_name: "read_result",
-                    targets: smallvec::smallvec![],
-                    classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(
-                        1
-                    )]
+                    parameters: smallvec::smallvec![crate::Parameter::ResultId(1)]
                 }
             ]
         );
@@ -222,8 +217,7 @@ mod tests {
             } else {
                 batcher.push(crate::QuantumBackendInstruction {
                     instruction_name: "h",
-                    targets: smallvec::smallvec![0],
-                    classical_parameters: smallvec::smallvec![],
+                    parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
                 })?;
                 batcher.finish().expect_err("unexpected result")
             };

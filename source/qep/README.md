@@ -59,7 +59,7 @@ Backend must implement the following trait:
 
 ```rust
 trait QuantumBackend {
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> Result<BatchResult, String>;
+    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> Result<BatchResult, String>;
 }
 ```
 
@@ -67,27 +67,31 @@ trait QuantumBackend {
 The driver reuses its instruction buffer across calls.
 Backend failures are returned as `Err(String)` and propagated by adapters and the QIR runner.
 
-`QuantumInstruction` directly stores the instruction name, targets, and classical
-parameters. The QIR runner emits it directly, and backends dispatch on literal
-`instruction_name` strings and operand slices. Names are `&'static str`;
-targets use `SmallVec<[usize; 3]>` and classical parameters use
-`SmallVec<[ClassicalParameter; 1]>`. Every supported QIR instruction fits inline,
-without per-instruction heap allocation.
+`QuantumBackendInstruction` directly stores the instruction name and a unified
+operand list in `classical_parameters`. The QIR runner emits it directly, and
+backends dispatch on literal `instruction_name` strings and operand slices.
+Names are `&'static str`; the operand list uses `SmallVec<[Parameter; 3]>`.
+Every supported QIR instruction fits inline, without per-instruction heap allocation.
 
-Targets contain only qubit IDs. Rotations carry a `ClassicalParameter::Float`
-angle; `mz_store`, `mz_store_reset`, and `read_result` carry a
-`ClassicalParameter::ResultId`. A read has no targets. The `instructions` instruction table
+Qubit operands are `Parameter::QubitId` values and always precede other parameters.
+Rotations append a `Parameter::Float` angle; `mz_store` and `mz_store_reset`
+append a `Parameter::ResultId`. A `read_result` has only a `Parameter::ResultId`
+and no qubit operands. For example, `rx` takes `[QubitId(q), Float(angle)]`, while
+`mz_store` takes `[QubitId(q), ResultId(r)]`. Qubit iteration filters the operand
+list for `Parameter::QubitId`, ignoring angles and result IDs.
+The `instructions` instruction table
 defines canonical IDs (such as `H` and `READ_RESULT`), lowercase names, and operand
 shapes without aliases. `instruction_id_to_name` and `instruction_name_to_id` convert
 between IDs and names. Measurement instructions are `MZ_STORE` (21, `mz_store`) and
 `MZ_STORE_RESET` (22, `mz_store_reset`). Unknown IDs panic; unknown names return `None`.
 Immediate measurements are `MZ` (24, `mz`) and `MZ_RESET` (25, `mz_reset`).
-Both take one qubit target and no classical parameters. They append the measured
+Both take a single `Parameter::QubitId`. They append the measured
 bit directly to `BatchResult.results` without writing a result slot; `mz_reset` also
 resets the qubit to zero after measuring. Results from `mz`, `mz_reset`, and
 `read_result` appear in instruction order. Store variants do not append results.
 The profiler constructor converts unknown names into a string error. `validate_instruction` borrows
-a `QuantumInstruction` and panics for an unknown name or invalid operand shape.
+a `QuantumBackendInstruction` and panics for an unknown name or invalid operand shape,
+including incorrect parameter types or ordering.
 Validation can be performed explicitly before execution; the counting profiler
 does not repeat operand validation in its hot loop. Its constructor returns
 `Result<Self, String>` and rejects unknown timing names and negative or non-finite
@@ -100,7 +104,7 @@ the range are recorded in a set and warned about once, without retaining call
 counts or per-operation runtime entries. Unknown instruction names are also
 reported once without call counts. Configure timings for all executed
 instructions to keep counting on the array-index path after name resolution.
-`QuantumInstruction` is the sole instruction representation used by the runner,
+`QuantumBackendInstruction` is the sole instruction representation used by the runner,
 backends, profiler, and tests.
 
 ## QIR Runner

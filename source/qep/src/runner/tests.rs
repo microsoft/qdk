@@ -3,10 +3,9 @@
 
 use super::{OutputRecord, OutputValue, RunOutput, execute, run_qir};
 use crate::{
-    BatchResult,
-    ClassicalParameter::{Float, ResultId},
-    DEFAULT_MAX_BATCH_SIZE, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
-    SequentialCountingProfiler,
+    BatchResult, DEFAULT_MAX_BATCH_SIZE,
+    Parameter::{Float, QubitId, ResultId},
+    QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, SequentialCountingProfiler,
 };
 use inkwell::{context::Context, memory_buffer::MemoryBuffer};
 use rustc_hash::FxHashMap;
@@ -119,35 +118,34 @@ impl QuantumBackend for Recorder {
         for instruction in instructions {
             let result = match (
                 instruction.instruction_name,
-                instruction.targets.as_slice(),
-                instruction.classical_parameters.as_slice(),
+                instruction.parameters.as_slice(),
             ) {
-                ("ccx", &[a, b, c], []) => self.ccx(a, b, c),
-                ("cx", &[a, b], []) => self.cx(a, b),
-                ("cy", &[a, b], []) => self.cy(a, b),
-                ("cz", &[a, b], []) => self.cz(a, b),
-                ("rx", &[target], &[Float(angle)]) => self.rx(angle, target),
-                ("rxx", &[a, b], &[Float(angle)]) => self.rxx(angle, a, b),
-                ("ry", &[target], &[Float(angle)]) => self.ry(angle, target),
-                ("ryy", &[a, b], &[Float(angle)]) => self.ryy(angle, a, b),
-                ("rz", &[target], &[Float(angle)]) => self.rz(angle, target),
-                ("rzz", &[a, b], &[Float(angle)]) => self.rzz(angle, a, b),
-                ("h", &[target], []) => self.h(target),
-                ("s", &[target], []) => self.s(target),
-                ("sadj", &[target], []) => self.sadj(target),
-                ("sx", &[target], []) => self.sx(target),
-                ("t", &[target], []) => self.t(target),
-                ("tadj", &[target], []) => self.tadj(target),
-                ("x", &[target], []) => self.x(target),
-                ("y", &[target], []) => self.y(target),
-                ("z", &[target], []) => self.z(target),
-                ("swap", &[a, b], []) => self.swap(a, b),
-                ("reset", &[target], []) => self.reset(target),
-                ("mz_store", &[target], &[ResultId(result)]) => self.mz_store(target, result),
-                ("mz_store_reset", &[target], &[ResultId(result)]) => {
+                ("ccx", &[QubitId(a), QubitId(b), QubitId(c)]) => self.ccx(a, b, c),
+                ("cx", &[QubitId(a), QubitId(b)]) => self.cx(a, b),
+                ("cy", &[QubitId(a), QubitId(b)]) => self.cy(a, b),
+                ("cz", &[QubitId(a), QubitId(b)]) => self.cz(a, b),
+                ("rx", &[QubitId(target), Float(angle)]) => self.rx(angle, target),
+                ("rxx", &[QubitId(a), QubitId(b), Float(angle)]) => self.rxx(angle, a, b),
+                ("ry", &[QubitId(target), Float(angle)]) => self.ry(angle, target),
+                ("ryy", &[QubitId(a), QubitId(b), Float(angle)]) => self.ryy(angle, a, b),
+                ("rz", &[QubitId(target), Float(angle)]) => self.rz(angle, target),
+                ("rzz", &[QubitId(a), QubitId(b), Float(angle)]) => self.rzz(angle, a, b),
+                ("h", &[QubitId(target)]) => self.h(target),
+                ("s", &[QubitId(target)]) => self.s(target),
+                ("sadj", &[QubitId(target)]) => self.sadj(target),
+                ("sx", &[QubitId(target)]) => self.sx(target),
+                ("t", &[QubitId(target)]) => self.t(target),
+                ("tadj", &[QubitId(target)]) => self.tadj(target),
+                ("x", &[QubitId(target)]) => self.x(target),
+                ("y", &[QubitId(target)]) => self.y(target),
+                ("z", &[QubitId(target)]) => self.z(target),
+                ("swap", &[QubitId(a), QubitId(b)]) => self.swap(a, b),
+                ("reset", &[QubitId(target)]) => self.reset(target),
+                ("mz_store", &[QubitId(target), ResultId(result)]) => self.mz_store(target, result),
+                ("mz_store_reset", &[QubitId(target), ResultId(result)]) => {
                     self.mz_store_reset(target, result)
                 }
-                ("read_result", [], &[ResultId(result)]) => {
+                ("read_result", &[ResultId(result)]) => {
                     let value = self
                         .read_result(result)
                         .unwrap_or_else(|error| panic!("{error}"));
@@ -174,8 +172,7 @@ fn recorder_supports_multiple_reads_per_batch() {
     let empty = backend
         .execute_batch(&[crate::QuantumBackendInstruction {
             instruction_name: "h",
-            targets: smallvec::smallvec![0],
-            classical_parameters: smallvec::smallvec![],
+            parameters: smallvec::smallvec![QubitId(0)],
         }])
         .expect("batch should succeed");
     assert!(empty.results.is_empty());
@@ -185,38 +182,37 @@ fn recorder_supports_multiple_reads_per_batch() {
         .execute_batch(&[
             crate::QuantumBackendInstruction {
                 instruction_name: "mz_store",
-                targets: smallvec::smallvec![0],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+                parameters: smallvec::smallvec![
+                    QubitId(0),
+                    crate::Parameter::ResultId(0)
+                ],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
-                targets: smallvec::smallvec![],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+                parameters: smallvec::smallvec![crate::Parameter::ResultId(0)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "x",
-                targets: smallvec::smallvec![1],
-                classical_parameters: smallvec::smallvec![],
+                parameters: smallvec::smallvec![QubitId(1)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "mz_store_reset",
-                targets: smallvec::smallvec![1],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
+                parameters: smallvec::smallvec![
+                    QubitId(1),
+                    crate::Parameter::ResultId(1)
+                ],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
-                targets: smallvec::smallvec![],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
+                parameters: smallvec::smallvec![crate::Parameter::ResultId(1)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
-                targets: smallvec::smallvec![],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+                parameters: smallvec::smallvec![crate::Parameter::ResultId(0)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "h",
-                targets: smallvec::smallvec![0],
-                classical_parameters: smallvec::smallvec![],
+                parameters: smallvec::smallvec![QubitId(0)],
             },
         ])
         .expect("batch should succeed");
@@ -228,18 +224,18 @@ fn recorder_supports_multiple_reads_per_batch() {
         .execute_batch(&[
             crate::QuantumBackendInstruction {
                 instruction_name: "mz_store",
-                targets: smallvec::smallvec![0],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+                parameters: smallvec::smallvec![
+                    QubitId(0),
+                    crate::Parameter::ResultId(0)
+                ],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "read_result",
-                targets: smallvec::smallvec![],
-                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+                parameters: smallvec::smallvec![crate::Parameter::ResultId(0)],
             },
             crate::QuantumBackendInstruction {
                 instruction_name: "x",
-                targets: smallvec::smallvec![0],
-                classical_parameters: smallvec::smallvec![],
+                parameters: smallvec::smallvec![QubitId(0)],
             },
         ])
         .expect("batch should succeed");

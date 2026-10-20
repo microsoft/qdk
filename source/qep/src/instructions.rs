@@ -4,7 +4,7 @@
 //! Defines the logical instruction set that can appear in QIR emitted from Q#.
 
 use crate::interface::{
-    ClassicalParameter::{Float, ResultId},
+    Parameter::{Float, QubitId, ResultId},
     QuantumBackendInstruction,
 };
 
@@ -12,7 +12,7 @@ pub type InstructionId = usize;
 
 /// Defines canonical IDs, names, and operand shapes.
 macro_rules! define_instructions {
-    ($(($id:ident, $value:literal, $name:literal, $targets:pat, $parameters:pat)),* $(,)?) => {
+    ($(($id:ident, $value:literal, $name:literal, $parameters:pat)),* $(,)?) => {
         $(
             #[doc = concat!("Instruction ID for `", $name, "`.")]
             pub const $id: InstructionId = $value;
@@ -43,8 +43,8 @@ macro_rules! define_instructions {
         pub fn validate_instruction(instruction: &QuantumBackendInstruction) {
             let valid = match instruction.instruction_name {
                 $($name => matches!(
-                    (instruction.targets.as_slice(), instruction.classical_parameters.as_slice()),
-                    ($targets, $parameters)
+                    instruction.parameters.as_slice(),
+                    $parameters
                 ),)*
                 _ => false,
             };
@@ -54,32 +54,32 @@ macro_rules! define_instructions {
 }
 
 define_instructions! {
-    (CCX, 0, "ccx", [_, _, _], []),
-    (CX, 1, "cx", [_, _], []),
-    (CY, 2, "cy", [_, _], []),
-    (CZ, 3, "cz", [_, _], []),
-    (RX, 4, "rx", [_], [Float(_)]),
-    (RXX, 5, "rxx", [_, _], [Float(_)]),
-    (RY, 6, "ry", [_], [Float(_)]),
-    (RYY, 7, "ryy", [_, _], [Float(_)]),
-    (RZ, 8, "rz", [_], [Float(_)]),
-    (RZZ, 9, "rzz", [_, _], [Float(_)]),
-    (H, 10, "h", [_], []),
-    (S, 11, "s", [_], []),
-    (SADJ, 12, "sadj", [_], []),
-    (SX, 13, "sx", [_], []),
-    (T, 14, "t", [_], []),
-    (TADJ, 15, "tadj", [_], []),
-    (X, 16, "x", [_], []),
-    (Y, 17, "y", [_], []),
-    (Z, 18, "z", [_], []),
-    (SWAP, 19, "swap", [_, _], []),
-    (RESET, 20, "reset", [_], []),
-    (MZ_STORE, 21, "mz_store", [_], [ResultId(_)]),
-    (MZ_STORE_RESET, 22, "mz_store_reset", [_], [ResultId(_)]),
-    (READ_RESULT, 23, "read_result", [], [ResultId(_)]),  // returns Result.
-    (MZ, 24, "mz", [_], []),  // returns Result.
-    (MZ_RESET, 25, "mz_reset", [_], []),  // returns Result.
+    (CCX, 0, "ccx", [QubitId(_), QubitId(_), QubitId(_)]),
+    (CX, 1, "cx", [QubitId(_), QubitId(_)]),
+    (CY, 2, "cy", [QubitId(_), QubitId(_)]),
+    (CZ, 3, "cz", [QubitId(_), QubitId(_)]),
+    (RX, 4, "rx", [QubitId(_), Float(_)]),
+    (RXX, 5, "rxx", [QubitId(_), QubitId(_), Float(_)]),
+    (RY, 6, "ry", [QubitId(_), Float(_)]),
+    (RYY, 7, "ryy", [QubitId(_), QubitId(_), Float(_)]),
+    (RZ, 8, "rz", [QubitId(_), Float(_)]),
+    (RZZ, 9, "rzz", [QubitId(_), QubitId(_), Float(_)]),
+    (H, 10, "h", [QubitId(_)]),
+    (S, 11, "s", [QubitId(_)]),
+    (SADJ, 12, "sadj", [QubitId(_)]),
+    (SX, 13, "sx", [QubitId(_)]),
+    (T, 14, "t", [QubitId(_)]),
+    (TADJ, 15, "tadj", [QubitId(_)]),
+    (X, 16, "x", [QubitId(_)]),
+    (Y, 17, "y", [QubitId(_)]),
+    (Z, 18, "z", [QubitId(_)]),
+    (SWAP, 19, "swap", [QubitId(_), QubitId(_)]),
+    (RESET, 20, "reset", [QubitId(_)]),
+    (MZ_STORE, 21, "mz_store", [QubitId(_), ResultId(_)]),
+    (MZ_STORE_RESET, 22, "mz_store_reset", [QubitId(_), ResultId(_)]),
+    (READ_RESULT, 23, "read_result", [ResultId(_)]),  // returns Result.
+    (MZ, 24, "mz", [QubitId(_)]),  // returns Result.
+    (MZ_RESET, 25, "mz_reset", [QubitId(_)]),  // returns Result.
 }
 
 #[cfg(test)]
@@ -88,7 +88,7 @@ mod tests {
         MZ_STORE, MZ_STORE_RESET, instruction_id_to_name, instruction_name_to_id,
         validate_instruction,
     };
-    use crate::{ClassicalParameter::ResultId, QuantumBackendInstruction};
+    use crate::{Parameter::ResultId, QuantumBackendInstruction};
     use smallvec::smallvec;
 
     #[test]
@@ -103,8 +103,7 @@ mod tests {
             assert_eq!(instruction_name_to_id(name), Some(id));
             validate_instruction(&QuantumBackendInstruction {
                 instruction_name: name,
-                targets: smallvec![0],
-                classical_parameters: smallvec![ResultId(1)],
+                parameters: smallvec![crate::Parameter::QubitId(0), ResultId(1)],
             });
         }
         assert_eq!(instruction_name_to_id("mresetz"), None);
@@ -119,8 +118,7 @@ mod tests {
             assert_eq!(instruction_name_to_id(name), Some(id));
             validate_instruction(&QuantumBackendInstruction {
                 instruction_name: name,
-                targets: smallvec![0],
-                classical_parameters: smallvec![],
+                parameters: smallvec![crate::Parameter::QubitId(0)],
             });
         }
     }

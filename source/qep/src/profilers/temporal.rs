@@ -3,7 +3,7 @@
 
 use super::{Profiler, ProfilerResult, TemporalProfiles, TotalCounts};
 use crate::{
-    ClassicalParameter, QuantumBackendResult,
+    Parameter, QuantumBackendResult,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
     profilers::{ExecutionTrace, InstructionTrace},
 };
@@ -160,22 +160,25 @@ impl TemporalProfiler {
             instruction_refs.push(instruction_ref);
 
             let mut dependencies = FxHashSet::default();
-            for &qubit in &instruction.targets {
+            for parameter in &instruction.parameters {
+                let Parameter::QubitId(qubit) = *parameter else {
+                    continue;
+                };
                 if let Some(dependency) = self.qubits[qubit] {
                     dependencies.insert(dependency);
                 }
                 self.qubits[qubit] = Some(instruction_ref);
             }
             if instruction.instruction_name == "read_result"
-                && let Some(ClassicalParameter::ResultId(result_id)) =
-                    instruction.classical_parameters.first()
+                && let Some(Parameter::ResultId(result_id)) =
+                    instruction.parameters.first()
                 && let Some(dependency) = self.result_writers.get(result_id)
             {
                 dependencies.insert(*dependency);
             }
             if matches!(instruction.instruction_name, "mz_store" | "mz_store_reset")
-                && let Some(ClassicalParameter::ResultId(result_id)) =
-                    instruction.classical_parameters.first()
+                && let [Parameter::QubitId(_), Parameter::ResultId(result_id)] =
+                    instruction.parameters.as_slice()
             {
                 self.result_writers.insert(*result_id, instruction_ref);
             }
@@ -445,7 +448,11 @@ impl QuantumBackend for TemporalProfiler {
         // Grow the qubit reference array to fit all instructions.
         let max_qubit_id: usize = instructions
             .iter()
-            .flat_map(|instruction| instruction.targets.iter().copied())
+            .flat_map(|instruction| instruction.parameters.iter())
+            .filter_map(|parameter| match parameter {
+                Parameter::QubitId(qubit) => Some(*qubit),
+                _ => None,
+            })
             .max()
             .unwrap_or(0);
         if max_qubit_id + 1 > self.qubits.len() {

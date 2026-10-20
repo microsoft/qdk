@@ -3,7 +3,7 @@
 
 use super::{OutputRecord, OutputValue};
 use crate::runner::batcher::Batcher;
-use crate::{ClassicalParameter, QuantumBackend, QuantumBackendInstruction};
+use crate::{Parameter, QuantumBackend, QuantumBackendInstruction};
 use inkwell::{
     attributes::AttributeLoc,
     builder::BuilderError,
@@ -160,8 +160,7 @@ macro_rules! gates {
                 $(let $qubit = state.qubit($qubit)?;)+
                 state.send(QuantumBackendInstruction {
                     instruction_name: stringify!($gate),
-                    targets: smallvec![$($qubit),+],
-                    classical_parameters: smallvec![],
+                    parameters: smallvec![$(Parameter::QubitId($qubit)),+],
                 })
             }); }
         }
@@ -182,8 +181,7 @@ macro_rules! rotations {
                 $(let $qubit = state.qubit($qubit)?;)+
                 state.send(QuantumBackendInstruction {
                     instruction_name: stringify!($gate),
-                    targets: smallvec![$($qubit),+],
-                    classical_parameters: smallvec![ClassicalParameter::Float(angle)],
+                    parameters: smallvec![$(Parameter::QubitId($qubit),)+ Parameter::Float(angle)],
                 })
             }); }
         }
@@ -202,10 +200,10 @@ macro_rules! measurement {
                     state.result_slot(result)?;
                     state.send(QuantumBackendInstruction {
                         instruction_name: stringify!($method),
-                        targets: smallvec![qubit],
-                        classical_parameters: smallvec![ClassicalParameter::ResultId(
-                            result as usize
-                        )],
+                        parameters: smallvec![
+                            Parameter::QubitId(qubit),
+                            Parameter::ResultId(result as usize)
+                        ],
                     })?;
                     *state.result_slot(result)? = true;
                     Ok(())
