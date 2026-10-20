@@ -44,6 +44,12 @@ impl TumblingWindowAggregator {
         counts[window_id] += 1;
     }
 
+    /// Returns the total number of events across all metrics and windows.
+    #[must_use]
+    pub fn total_event_count(&self) -> usize {
+        self.event_counts.values().flatten().sum()
+    }
+
     /// Returns event rates in events/second at each window's start time.
     /// Profiles are ordered by metric name.
     #[must_use]
@@ -80,6 +86,7 @@ mod tests {
     #[test]
     fn collects_two_event_metrics_across_windows() {
         let mut aggregator = TumblingWindowAggregator::new(500_000_000);
+        assert_eq!(aggregator.total_event_count(), 0);
         assert_eq!(
             aggregator.get_profiles(),
             TemporalProfiles {
@@ -94,6 +101,7 @@ mod tests {
         for time_nanos in [0, 100_000_000, 400_000_000, 1_000_000_000] {
             aggregator.record_event(time_nanos, "T gate");
         }
+        assert_eq!(aggregator.total_event_count(), 10);
 
         assert_eq!(
             aggregator.get_profiles(),

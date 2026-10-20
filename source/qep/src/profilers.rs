@@ -29,6 +29,9 @@ pub struct TotalCounts {
     /// Estimated runtime of the program.
     pub total_runtime_sec: f64,
 
+    /// Total number of operations.
+    pub total_operations_count: usize,
+
     /// For each operation, number of calls.
     pub calls_per_operation: FxHashMap<String, u64>,
 

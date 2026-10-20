@@ -121,12 +121,15 @@ impl Profiler for SequentialCountingProfiler {
 
         let logical_qubits = self.max_qubit_id.map_or(0, |id| id + 1);
         let physical_qubits = logical_qubits * self.physical_qubits_per_logical;
+        let total_operations_count = usize::try_from(calls_per_operation.values().sum::<u64>())
+            .expect("total operation count should fit in usize");
 
         ProfilerResult {
             totals: TotalCounts {
                 logical_qubits,
                 physical_qubits,
                 total_runtime_sec,
+                total_operations_count,
                 calls_per_operation,
                 runtime_sec_per_operation,
             },

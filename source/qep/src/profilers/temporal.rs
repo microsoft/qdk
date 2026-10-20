@@ -17,6 +17,7 @@ use std::{
 fn instruction_time_nanos(instruction: &QuantumBackendInstruction) -> usize {
     match instruction.instruction_name {
         "h" | "x" | "t" | "cx" | "mz" | "mz_store" | "mz_store_reset" => 1,
+        "swap" | "ccx" | "cz" | "tadj" | "s" | "sadj" | "z" | "reset" => 1,
         "read_result" => 0,
         _ => panic!("Unsupported temporal-profiler instruction: {instruction:?}"),
     }
@@ -288,11 +289,18 @@ impl TemporalProfiler {
             .current_time_nanos
             .checked_add(instruction_time_nanos(&instruction))
             .expect("simulated instruction time overflow");
+
+        // Record gate in aggreator, using gate start time as gate time.
+        self.aggregator
+            .record_event(self.current_time_nanos, &instruction.instruction_name);
+
+        // Record instruction in detailed profile.
         self.logs.push(InstructionTrace {
             start_time_nanos: self.current_time_nanos,
             end_time_nanos,
             instruction,
         });
+
         self.enqueue_event(end_time_nanos, Event::InstructionFinished(instruction_ref));
     }
 
@@ -490,6 +498,7 @@ impl Profiler for TemporalProfiler {
             logical_qubits: self.qubits.len(),
             physical_qubits: 0,
             total_runtime_sec,
+            total_operations_count: self.aggregator.total_event_count(),
             calls_per_operation: Default::default(),
             runtime_sec_per_operation: Default::default(),
         };
@@ -506,9 +515,12 @@ impl Profiler for TemporalProfiler {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+    use std::time::Instant;
+
     use super::TemporalProfiler;
-    use crate::Profiler;
     use crate::tests::compile_qsharp_to_qir;
+    use crate::{Profiler, QftRotationSynthesisAdapter};
     use expect_test::expect;
     use qsc::target::Profile;
 
@@ -583,6 +595,35 @@ mod tests {
         let _ = unsafe { profiler.profile_qir(file.path()?) }?;
         let _ = profiler.get_result();
 
+        Ok(())
+    }
+
+    #[test]
+    /// Profiles the Shor's algorithm QIR fixture and reports the elapsed time.
+    fn temporal_profiler_shors_16_qir() -> Result<(), String> {
+        if cfg!(debug_assertions) {
+            return Ok(()); // Skip in debug mode
+        }
+
+        let qir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/shors_16.ll");
+        let qir_path = qir_path
+            .to_str()
+            .ok_or("Shor's algorithm QIR path is not valid UTF-8")?;
+        let mut profiler = TemporalProfiler::default();
+        let mut profiler = QftRotationSynthesisAdapter::new(profiler);
+        let start = Instant::now();
+
+        // SAFETY: The checked-in QIR fixture was produced by a trusted compiler.
+        let result = unsafe { profiler.profile_qir(qir_path) }?;
+        let elapsed = start.elapsed();
+        assert!(result.infos.is_empty(), "{:?}", result.infos);
+        let op_count: usize = result.totals.total_operations_count;
+
+        assert!(op_count > 0);
+        let ns_per_op = (elapsed.as_nanos() as f64) / (op_count as f64);
+        println!(
+            "Profiled shors_16.ll: {op_count} operations in {elapsed:?} ({ns_per_op:.1} ns/op)"
+        );
         Ok(())
     }
 }
