@@ -67,12 +67,12 @@ trait QuantumBackend {
 The driver reuses its instruction buffer across calls.
 Backend failures are returned as `Err(String)` and propagated by adapters and the QIR runner.
 
-`FullStateSimulatorBackend::new(num_qubits, seed, noise)` creates a dense
-simulator supporting all QEP instructions. It reserves a private measurement
-scratch slot; stored QIR result IDs are maintained separately across batches,
-so immediate measurements cannot overwrite them. Reading an unwritten result
-or measuring a lost qubit returns an error. CCX uses the shared Toffoli
-decomposition. The underlying simulator is available through `simulator`.
+`QuantumBackends::sparse_sim()` creates a sparse simulator wrapped in
+`QsBackendShim`, supporting all QEP instructions. Qubits are allocated lazily;
+stored QIR result IDs are maintained separately across batches, so immediate
+measurements cannot overwrite them. Reading an unwritten result or measuring a
+lost qubit returns an error. The underlying simulator is available through
+`backend()` and `backend_mut()`.
 
 `QftRotationSynthesisAdapter` replaces `rz` angles of +/- 2^k * pi for
 k >= -29 with Clifford+T sequences (including X and H gates). It accepts absolute

@@ -173,7 +173,7 @@ mod tests {
     use crate::{
         BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
         QuantumBackendResult::{Error, One, Zero},
-        SparseSimBackend, validate_instruction,
+        QuantumBackends, validate_instruction,
     };
     use std::collections::VecDeque;
 
@@ -348,7 +348,7 @@ mod tests {
     fn simulates_measurement_and_reset() {
         use Parameter::ResultId;
 
-        let mut adapter = ResultAdapter::new(SparseSimBackend::default());
+        let mut adapter = ResultAdapter::new(QuantumBackends::sparse_sim());
         let output = adapter
             .execute_batch(&[
                 instruction("x", &[crate::Parameter::QubitId(0)]),

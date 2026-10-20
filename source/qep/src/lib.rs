@@ -23,7 +23,7 @@ mod profilers;
 mod runner;
 mod transpilers;
 pub use adapters::{ResultAdapter, TranspilingAdapter};
-pub use backends::{FullStateSimulatorBackend, QsBackendShim, SparseSimBackend};
+pub use backends::{QsBackendShim, QuantumBackends};
 pub use instructions::{
     InstructionId, OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id,
     validate_instruction,

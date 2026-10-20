@@ -119,13 +119,13 @@ impl Transpiler for RzQftTranspiler {
 mod tests {
     use super::*;
     use crate::{
-        BatchResult, FullStateSimulatorBackend, QuantumBackend, SparseSimBackend,
-        TranspilingAdapter, interface::Driver, run_qir, tests::compile_qsharp_to_qir,
+        BatchResult, QuantumBackend, QuantumBackends, TranspilingAdapter, run_qir,
+        tests::compile_qsharp_to_qir,
     };
     use num_bigint::BigUint;
     use num_complex::Complex64;
-    use qdk_simulators::Simulator;
     use qsc::target::Profile;
+    use qsc_eval::backend::Backend;
 
     #[test]
     /// Checks synthesis for gates Rz(+/- pi*2^-k).
@@ -145,14 +145,18 @@ mod tests {
                     },
                 ];
                 let mut adapter = TranspilingAdapter::new(
-                    SparseSimBackend::default(),
+                    QuantumBackends::sparse_sim(),
                     vec![Box::new(RzQftTranspiler)],
                 )?;
                 assert_eq!(
                     adapter.execute_batch(&instructions)?,
                     BatchResult::default()
                 );
-                let state = adapter.get_backend_mut().wavefunction();
+                let state = adapter
+                    .get_backend_mut()
+                    .backend_mut()
+                    .capture_quantum_state()?
+                    .0;
                 assert_eq!(state.len(), 2, "angle {angle}: expected |0> and |1>");
                 assert_eq!(state[0].0, BigUint::from(0_u32));
                 assert_eq!(state[1].0, BigUint::from(1_u32));
@@ -200,9 +204,9 @@ mod tests {
                 "#
         );
         let file = compile_qsharp_to_qir(&source, Profile::Base);
-        let mut reference = FullStateSimulatorBackend::new(num_qubits, 0, Default::default());
+        let mut reference = QuantumBackends::sparse_sim();
         let mut synthesized = TranspilingAdapter::new(
-            FullStateSimulatorBackend::new(num_qubits, 0, Default::default()),
+            QuantumBackends::sparse_sim(),
             vec![Box::new(RzQftTranspiler)],
         )?;
         // SAFETY: The QIR was compiled from the trusted Q# source above.
@@ -210,16 +214,23 @@ mod tests {
             run_qir(&file.0, &mut reference)?;
             run_qir(&file.0, &mut synthesized)?;
         }
-        let expected = reference.simulator.state_dump().data();
-        let actual = synthesized.get_backend().simulator.state_dump().data();
+        let expected = reference.backend_mut().capture_quantum_state()?.0;
+        let actual = synthesized
+            .get_backend_mut()
+            .backend_mut()
+            .capture_quantum_state()?
+            .0;
         assert_eq!(expected.len(), 1 << num_qubits);
         assert_eq!(actual.len(), expected.len());
-        let phase_ratio = actual[0] / expected[0];
+        let phase_ratio = actual[0].1 / expected[0].1;
         let global_phase = phase_ratio / phase_ratio.norm();
         let distance = actual
             .iter()
             .zip(expected.iter())
-            .map(|(actual, expected)| (actual - global_phase * expected).norm_sqr())
+            .map(|(actual, expected)| {
+                assert_eq!(actual.0, expected.0);
+                (actual.1 - global_phase * expected.1).norm_sqr()
+            })
             .sum::<f64>()
             .sqrt();
         assert!(distance < 1e-9, "{distance:.e}"); // Actual distance is ~3e-10.

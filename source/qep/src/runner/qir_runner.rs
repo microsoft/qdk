@@ -76,10 +76,10 @@ pub struct RunOutput {
 /// # Example
 ///
 /// ```no_run
-/// use qep::{SparseSimBackend, run_qir};
+/// use qep::{QuantumBackends, run_qir};
 ///
 /// # fn example() -> Result<(), String> {
-/// let mut backend = SparseSimBackend::default();
+/// let mut backend = QuantumBackends::sparse_sim();
 /// // SAFETY: This file was produced by a trusted compiler and meets the ABI contract.
 /// let output = unsafe { run_qir("program.ll", &mut backend) }?;
 /// println!("{:?}", output.records);

@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    OutputValue, Profiler, QsBackendShim, QuantumBackend, ResultAdapter,
-    SequentialCountingProfiler, SparseSimBackend, TranspilingAdapter, run_qir,
+    OutputValue, Profiler, QsBackendShim, QuantumBackend, QuantumBackends, ResultAdapter,
+    SequentialCountingProfiler, TranspilingAdapter, run_qir,
 };
 use qsc::{CliffordSim, LanguageFeatures, SourceMap, codegen::qir::get_qir, target::Profile};
 use qsc_eval::backend::SparseSim;
@@ -128,13 +128,16 @@ fn qsharp_adder_with_different_backends() -> Result<(), String> {
     let qir = std::fs::read_to_string(&file.0).map_err(|error| error.to_string())?;
     assert!(qir.contains("\"required_num_qubits\"=\"11\""));
 
-    assert_adder_result(&file, &mut SparseSimBackend::default())?;
+    assert_adder_result(&file, &mut QuantumBackends::sparse_sim())?;
     assert_adder_result(&file, &mut QsBackendShim::new(SparseSim::new()))?;
     assert_adder_result(
         &file,
         &mut TranspilingAdapter::with_defaults(QsBackendShim::new(CliffordSim::new(11))),
     )?;
-    assert_adder_result(&file, &mut ResultAdapter::new(SparseSimBackend::default()))?;
+    assert_adder_result(
+        &file,
+        &mut ResultAdapter::new(QuantumBackends::sparse_sim()),
+    )?;
     assert_adder_result(
         &file,
         &mut ResultAdapter::new(QsBackendShim::new(SparseSim::new())),
