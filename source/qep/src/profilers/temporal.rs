@@ -435,7 +435,10 @@ impl Default for TemporalProfiler {
 
 impl QuantumBackend for TemporalProfiler {
     /// Builds dependencies, simulates the batch, and returns measurement results.
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
         self.current_batch_result = BatchResult::default();
         let batch_start = self.all_instructions_offset + self.all_instructions.len();
 
@@ -453,7 +456,7 @@ impl QuantumBackend for TemporalProfiler {
 
         let batch_end = batch_start + instructions.len();
         self.event_loop(batch_end);
-        std::mem::take(&mut self.current_batch_result)
+        Ok(std::mem::take(&mut self.current_batch_result))
     }
 }
 

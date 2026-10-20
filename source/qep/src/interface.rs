@@ -35,7 +35,11 @@ pub struct BatchResult {
 
 pub trait QuantumBackend {
     /// Produces one result per `read_result`, `mz`, or `mz_reset`, in input order.
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult;
+    /// Returns an error if the batch cannot be executed.
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String>;
 }
 
 /// Driver is something that owns a backend and provides access to it.

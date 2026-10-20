@@ -260,7 +260,10 @@ impl SparseSimBackend {
 
 impl QuantumBackend for SparseSimBackend {
     /// Simulates QIR instructions and returns each requested measurement in order.
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
         let mut batch_result = BatchResult::default();
         for instruction in instructions {
             let result = match (
@@ -316,6 +319,6 @@ impl QuantumBackend for SparseSimBackend {
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
-        batch_result
+        Ok(batch_result)
     }
 }

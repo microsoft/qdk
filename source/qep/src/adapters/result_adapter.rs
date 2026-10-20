@@ -53,16 +53,19 @@ use crate::{
 /// The adapter relies on the downstream backend following this contract and
 /// guarantees that its own output follows it.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if:
+/// Returns an error if:
 /// - The downstream backend returns fewer or more results than the number of
 ///   `MZ` and `MZ_RESET` instructions it received.
-/// - The downstream backend returns an error result.
+/// - The downstream backend returns an error.
 /// - A result slot is read before it has been written in the current batch or
 ///   any previous batch.
-/// - Debug assertions are enabled and an input instruction has an invalid name
-///   or operand shape.
+///
+/// # Panics
+///
+/// Panics if debug assertions are enabled and an input instruction has an invalid name
+/// or operand shape.
 pub struct ResultAdapter<B> {
     backend: B,
     results_register: Vec<Option<QuantumBackendResult>>,
@@ -96,7 +99,10 @@ impl<B: QuantumBackend> Driver for ResultAdapter<B> {
 
 impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
     /// Transforms a batch and reconstructs its results using the local register.
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
         let mut transformed = Vec::with_capacity(instructions.len());
         for instruction in instructions {
             #[cfg(debug_assertions)]
@@ -117,11 +123,7 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
             transformed.push(instruction);
         }
 
-        let downstream = self.backend.execute_batch(&transformed);
-        assert!(
-            !downstream.results.contains(&QuantumBackendResult::Error),
-            "Result adapter backend returned an error result"
-        );
+        let downstream = self.backend.execute_batch(&transformed)?;
         let mut results = downstream.results.into_iter();
         let mut output = BatchResult::default();
         for instruction in instructions {
@@ -133,13 +135,13 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
                     output.results.push(
                         results
                             .next()
-                            .expect("Result adapter backend returned too few results"),
+                            .ok_or("Result adapter backend returned too few results")?,
                     );
                 }
                 ("mz_store" | "mz_store_reset", &[ResultId(result)]) => {
                     let value = results
                         .next()
-                        .expect("Result adapter backend returned too few results");
+                        .ok_or("Result adapter backend returned too few results")?;
                     self.ensure_result_size(result);
                     self.results_register[result] = Some(value);
                 }
@@ -149,17 +151,16 @@ impl<B: QuantumBackend> QuantumBackend for ResultAdapter<B> {
                         .get(result)
                         .copied()
                         .flatten()
-                        .unwrap_or_else(|| panic!("Result ID {result} has not been written"));
+                        .ok_or_else(|| format!("Result ID {result} has not been written"))?;
                     output.results.push(value);
                 }
                 _ => {}
             }
         }
-        assert!(
-            results.next().is_none(),
-            "Result adapter backend returned too many results"
-        );
-        output
+        if results.next().is_some() {
+            return Err("Result adapter backend returned too many results".into());
+        }
+        Ok(output)
     }
 }
 
@@ -196,7 +197,10 @@ mod tests {
 
     impl QuantumBackend for RecordingBackend {
         /// Records valid register-free instructions and returns the next configured batch.
-        fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+        fn execute_batch(
+            &mut self,
+            instructions: &[QuantumBackendInstruction],
+        ) -> Result<BatchResult, String> {
             for instruction in instructions {
                 validate_instruction(instruction);
                 assert!(!matches!(
@@ -205,9 +209,14 @@ mod tests {
                 ));
             }
             self.batches.push(instructions.to_vec());
-            self.results
+            let result = self
+                .results
                 .pop_front()
-                .expect("unexpected downstream batch")
+                .expect("unexpected downstream batch");
+            if result.results.contains(&Error) {
+                return Err("backend returned an error result".into());
+            }
+            Ok(result)
         }
     }
 
@@ -231,25 +240,31 @@ mod tests {
 
         let backend = RecordingBackend::new([vec![One, Zero], vec![], vec![Zero]]);
         let mut adapter = ResultAdapter::new(backend);
-        let output = adapter.execute_batch(&[
-            instruction("mz_store", &[0], &[ResultId(5)]),
-            instruction("mz_store_reset", &[1], &[ResultId(2)]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("mz_store", &[0], &[ResultId(5)]),
+                instruction("mz_store_reset", &[1], &[ResultId(2)]),
+            ])
+            .expect("batch should succeed");
         assert!(output.results.is_empty());
 
-        let output = adapter.execute_batch(&[
-            instruction("read_result", &[], &[ResultId(5)]),
-            instruction("read_result", &[], &[ResultId(2)]),
-            instruction("read_result", &[], &[ResultId(5)]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("read_result", &[], &[ResultId(5)]),
+                instruction("read_result", &[], &[ResultId(2)]),
+                instruction("read_result", &[], &[ResultId(5)]),
+            ])
+            .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[One, Zero, One]);
 
-        let output = adapter.execute_batch(&[
-            instruction("x", &[0], &[]),
-            instruction("mz_store", &[0], &[ResultId(5)]),
-            instruction("read_result", &[], &[ResultId(5)]),
-            instruction("read_result", &[], &[ResultId(2)]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("x", &[0], &[]),
+                instruction("mz_store", &[0], &[ResultId(5)]),
+                instruction("read_result", &[], &[ResultId(5)]),
+                instruction("read_result", &[], &[ResultId(2)]),
+            ])
+            .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[Zero, Zero]);
         assert_eq!(
             adapter.backend.batches,
@@ -271,17 +286,19 @@ mod tests {
 
         let backend = RecordingBackend::new([vec![One, Zero, Zero, One]]);
         let mut adapter = ResultAdapter::new(backend);
-        let output = adapter.execute_batch(&[
-            instruction("h", &[0], &[]),
-            instruction("rx", &[1], &[Float(0.5)]),
-            instruction("mz_store", &[0], &[ResultId(3)]),
-            instruction("read_result", &[], &[ResultId(3)]),
-            instruction("mz", &[1], &[]),
-            instruction("mz_store_reset", &[2], &[ResultId(3)]),
-            instruction("read_result", &[], &[ResultId(3)]),
-            instruction("mz_reset", &[4], &[]),
-            instruction("read_result", &[], &[ResultId(3)]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("h", &[0], &[]),
+                instruction("rx", &[1], &[Float(0.5)]),
+                instruction("mz_store", &[0], &[ResultId(3)]),
+                instruction("read_result", &[], &[ResultId(3)]),
+                instruction("mz", &[1], &[]),
+                instruction("mz_store_reset", &[2], &[ResultId(3)]),
+                instruction("read_result", &[], &[ResultId(3)]),
+                instruction("mz_reset", &[4], &[]),
+                instruction("read_result", &[], &[ResultId(3)]),
+            ])
+            .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[One, Zero, Zero, One, Zero]);
         assert_eq!(
             adapter.backend.batches,
@@ -303,11 +320,13 @@ mod tests {
 
         let backend = RecordingBackend::new([vec![One, Zero]]);
         let mut adapter = ResultAdapter::new(backend);
-        let output = adapter.execute_batch(&[
-            instruction("mz_store", &[0], &[ResultId(7)]),
-            instruction("mz_store", &[1], &[ResultId(7)]),
-            instruction("read_result", &[], &[ResultId(7)]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("mz_store", &[0], &[ResultId(7)]),
+                instruction("mz_store", &[1], &[ResultId(7)]),
+                instruction("read_result", &[], &[ResultId(7)]),
+            ])
+            .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[Zero]);
         assert_eq!(
             adapter.backend.batches,
@@ -324,22 +343,26 @@ mod tests {
         use ClassicalParameter::ResultId;
 
         let mut adapter = ResultAdapter::new(SparseSimBackend::default());
-        let output = adapter.execute_batch(&[
-            instruction("x", &[0], &[]),
-            instruction("mz_store_reset", &[0], &[ResultId(0)]),
-            instruction("mz", &[0], &[]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("x", &[0], &[]),
+                instruction("mz_store_reset", &[0], &[ResultId(0)]),
+                instruction("mz", &[0], &[]),
+            ])
+            .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[Zero]);
 
-        let output = adapter.execute_batch(&[
-            instruction("read_result", &[], &[ResultId(0)]),
-            instruction("x", &[0], &[]),
-            instruction("mz_store", &[0], &[ResultId(0)]),
-            instruction("mz_store", &[0], &[ResultId(0)]),
-            instruction("read_result", &[], &[ResultId(0)]),
-            instruction("mz_reset", &[0], &[]),
-            instruction("mz", &[0], &[]),
-        ]);
+        let output = adapter
+            .execute_batch(&[
+                instruction("read_result", &[], &[ResultId(0)]),
+                instruction("x", &[0], &[]),
+                instruction("mz_store", &[0], &[ResultId(0)]),
+                instruction("mz_store", &[0], &[ResultId(0)]),
+                instruction("read_result", &[], &[ResultId(0)]),
+                instruction("mz_reset", &[0], &[]),
+                instruction("mz", &[0], &[]),
+            ])
+            .expect("batch should succeed");
         assert_eq!(output.results.as_slice(), &[One, One, One, Zero]);
     }
 
@@ -348,64 +371,90 @@ mod tests {
     fn forwards_batches_without_measurements() {
         let backend = RecordingBackend::new([vec![], vec![]]);
         let mut adapter = ResultAdapter::new(backend);
-        assert!(adapter.execute_batch(&[]).results.is_empty());
+        assert!(
+            adapter
+                .execute_batch(&[])
+                .expect("batch should succeed")
+                .results
+                .is_empty()
+        );
         let gates = [instruction("h", &[2], &[]), instruction("cx", &[2, 0], &[])];
-        assert!(adapter.execute_batch(&gates).results.is_empty());
+        assert!(
+            adapter
+                .execute_batch(&gates)
+                .expect("batch should succeed")
+                .results
+                .is_empty()
+        );
         assert_eq!(adapter.backend.batches, [vec![], gates.to_vec()]);
     }
 
     #[test]
-    #[should_panic(expected = "too few results")]
     /// Rejects a downstream batch missing a measurement result.
     fn rejects_missing_results() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![]]));
-        adapter.execute_batch(&[instruction("mz", &[0], &[])]);
+        assert_eq!(
+            adapter
+                .execute_batch(&[instruction("mz", &[0], &[])])
+                .expect_err("missing result"),
+            "Result adapter backend returned too few results"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "too many results")]
     /// Rejects leftover downstream results after replay.
     fn rejects_extra_results() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![One, Zero]]));
-        adapter.execute_batch(&[instruction("mz", &[0], &[])]);
+        assert_eq!(
+            adapter
+                .execute_batch(&[instruction("mz", &[0], &[])])
+                .expect_err("extra results"),
+            "Result adapter backend returned too many results"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "has not been written")]
     /// Rejects reads beyond the end of the local register.
     fn rejects_unwritten_result() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![]]));
-        adapter.execute_batch(&[instruction(
-            "read_result",
-            &[],
-            &[ClassicalParameter::ResultId(0)],
-        )]);
+        let error = adapter
+            .execute_batch(&[instruction(
+                "read_result",
+                &[],
+                &[ClassicalParameter::ResultId(0)],
+            )])
+            .expect_err("unwritten result");
+        assert_eq!(error, "Result ID 0 has not been written");
     }
 
     #[test]
-    #[should_panic(expected = "Result ID 1 has not been written")]
     /// Rejects unwritten holes created by storing into a higher result slot.
     fn rejects_unwritten_hole() {
         use ClassicalParameter::ResultId;
 
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![One]]));
-        adapter.execute_batch(&[
-            instruction("mz_store", &[0], &[ResultId(3)]),
-            instruction("read_result", &[], &[ResultId(1)]),
-        ]);
+        let error = adapter
+            .execute_batch(&[
+                instruction("mz_store", &[0], &[ResultId(3)]),
+                instruction("read_result", &[], &[ResultId(1)]),
+            ])
+            .expect_err("unwritten result slot");
+        assert_eq!(error, "Result ID 1 has not been written");
     }
 
     #[test]
-    #[should_panic(expected = "has not been written")]
     /// Rejects reading a slot before its first store later in the same batch.
     fn rejects_read_before_store() {
         use ClassicalParameter::ResultId;
 
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![One]]));
-        adapter.execute_batch(&[
-            instruction("read_result", &[], &[ResultId(0)]),
-            instruction("mz_store", &[0], &[ResultId(0)]),
-        ]);
+        let error = adapter
+            .execute_batch(&[
+                instruction("read_result", &[], &[ResultId(0)]),
+                instruction("mz_store", &[0], &[ResultId(0)]),
+            ])
+            .expect_err("read before store");
+        assert_eq!(error, "Result ID 0 has not been written");
     }
 
     #[cfg(debug_assertions)]
@@ -414,18 +463,20 @@ mod tests {
     /// Rejects malformed store operands before sending anything downstream.
     fn rejects_malformed_store() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([]));
-        adapter.execute_batch(&[instruction("mz_store", &[0], &[])]);
+        let _ = adapter.execute_batch(&[instruction("mz_store", &[0], &[])]);
     }
 
     #[test]
-    #[should_panic(expected = "backend returned an error result")]
     /// Reports a failed stored measurement even when its result is never read.
     fn rejects_downstream_error() {
         let mut adapter = ResultAdapter::new(RecordingBackend::new([vec![Error]]));
-        adapter.execute_batch(&[instruction(
-            "mz_store",
-            &[0],
-            &[ClassicalParameter::ResultId(0)],
-        )]);
+        let error = adapter
+            .execute_batch(&[instruction(
+                "mz_store",
+                &[0],
+                &[ClassicalParameter::ResultId(0)],
+            )])
+            .expect_err("downstream failure");
+        assert_eq!(error, "backend returned an error result");
     }
 }

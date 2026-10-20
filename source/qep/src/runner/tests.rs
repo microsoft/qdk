@@ -111,7 +111,10 @@ impl Recorder {
 
 impl QuantumBackend for Recorder {
     /// Records instructions and supplies each requested measurement in read order.
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
         let mut batch_result = BatchResult::default();
         for instruction in instructions {
             let result = match (
@@ -155,7 +158,7 @@ impl QuantumBackend for Recorder {
             };
             result.unwrap_or_else(|error| panic!("{error}"));
         }
-        batch_result
+        Ok(batch_result)
     }
 }
 
@@ -168,72 +171,78 @@ fn recorder_supports_multiple_reads_per_batch() {
         measurements: VecDeque::from([true, false, true]),
         ..Default::default()
     };
-    let empty = backend.execute_batch(&[crate::QuantumBackendInstruction {
-        instruction_name: "h",
-        targets: smallvec::smallvec![0],
-        classical_parameters: smallvec::smallvec![],
-    }]);
-    assert!(empty.results.is_empty());
-    assert!(!empty.results.spilled());
-
-    let multiple = backend.execute_batch(&[
-        crate::QuantumBackendInstruction {
-            instruction_name: "mz_store",
-            targets: smallvec::smallvec![0],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "read_result",
-            targets: smallvec::smallvec![],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "x",
-            targets: smallvec::smallvec![1],
-            classical_parameters: smallvec::smallvec![],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "mz_store_reset",
-            targets: smallvec::smallvec![1],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "read_result",
-            targets: smallvec::smallvec![],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "read_result",
-            targets: smallvec::smallvec![],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
-        },
-        crate::QuantumBackendInstruction {
+    let empty = backend
+        .execute_batch(&[crate::QuantumBackendInstruction {
             instruction_name: "h",
             targets: smallvec::smallvec![0],
             classical_parameters: smallvec::smallvec![],
-        },
-    ]);
+        }])
+        .expect("batch should succeed");
+    assert!(empty.results.is_empty());
+    assert!(!empty.results.spilled());
+
+    let multiple = backend
+        .execute_batch(&[
+            crate::QuantumBackendInstruction {
+                instruction_name: "mz_store",
+                targets: smallvec::smallvec![0],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "read_result",
+                targets: smallvec::smallvec![],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "x",
+                targets: smallvec::smallvec![1],
+                classical_parameters: smallvec::smallvec![],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "mz_store_reset",
+                targets: smallvec::smallvec![1],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "read_result",
+                targets: smallvec::smallvec![],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(1)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "read_result",
+                targets: smallvec::smallvec![],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "h",
+                targets: smallvec::smallvec![0],
+                classical_parameters: smallvec::smallvec![],
+            },
+        ])
+        .expect("batch should succeed");
     assert_eq!(multiple.results.as_slice(), &[One, Zero, One]);
     assert_eq!(backend.measurements, VecDeque::from([true]));
     assert_eq!(backend.events.last(), Some(&Event("h", vec![0], None)));
 
-    let single = backend.execute_batch(&[
-        crate::QuantumBackendInstruction {
-            instruction_name: "mz_store",
-            targets: smallvec::smallvec![0],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "read_result",
-            targets: smallvec::smallvec![],
-            classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
-        },
-        crate::QuantumBackendInstruction {
-            instruction_name: "x",
-            targets: smallvec::smallvec![0],
-            classical_parameters: smallvec::smallvec![],
-        },
-    ]);
+    let single = backend
+        .execute_batch(&[
+            crate::QuantumBackendInstruction {
+                instruction_name: "mz_store",
+                targets: smallvec::smallvec![0],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "read_result",
+                targets: smallvec::smallvec![],
+                classical_parameters: smallvec::smallvec![crate::ClassicalParameter::ResultId(0)],
+            },
+            crate::QuantumBackendInstruction {
+                instruction_name: "x",
+                targets: smallvec::smallvec![0],
+                classical_parameters: smallvec::smallvec![],
+            },
+        ])
+        .expect("batch should succeed");
     assert_eq!(single.results.as_slice(), &[One]);
     assert!(!single.results.spilled());
     assert!(backend.measurements.is_empty());
@@ -666,8 +675,11 @@ fn backend_must_return_requested_result() {
 
     impl QuantumBackend for MissingResultBackend {
         /// Intentionally violates the batch result protocol.
-        fn execute_batch(&mut self, _instructions: &[QuantumBackendInstruction]) -> BatchResult {
-            BatchResult::default()
+        fn execute_batch(
+            &mut self,
+            _instructions: &[QuantumBackendInstruction],
+        ) -> Result<BatchResult, String> {
+            Ok(BatchResult::default())
         }
     }
 
@@ -698,10 +710,13 @@ fn backend_error_results_terminate_execution() {
 
     impl QuantumBackend for ErrorBackend {
         /// Reports an error for every submitted batch.
-        fn execute_batch(&mut self, _instructions: &[QuantumBackendInstruction]) -> BatchResult {
-            BatchResult {
+        fn execute_batch(
+            &mut self,
+            _instructions: &[QuantumBackendInstruction],
+        ) -> Result<BatchResult, String> {
+            Ok(BatchResult {
                 results: [QuantumBackendResult::Error].into_iter().collect(),
-            }
+            })
         }
     }
 

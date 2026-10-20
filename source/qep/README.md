@@ -59,12 +59,13 @@ Backend must implement the following trait:
 
 ```rust
 trait QuantumBackend {
-    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> BatchResult;
+    fn execute_batch(&mut self, instructions: &[QuantumInstruction]) -> Result<BatchResult, String>;
 }
 ```
 
 `execute_batch` processes all instructions synchronously and in order before returning.
 The driver reuses its instruction buffer across calls.
+Backend failures are returned as `Err(String)` and propagated by adapters and the QIR runner.
 
 `QuantumInstruction` directly stores the instruction name, targets, and classical
 parameters. The QIR runner emits it directly, and backends dispatch on literal

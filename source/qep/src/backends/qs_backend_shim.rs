@@ -225,7 +225,10 @@ impl<B: Backend> QsBackendShim<B> {
 
 impl<B: Backend> QuantumBackend for QsBackendShim<B> {
     /// Delegates a batch of QIR instructions to the wrapped Q# evaluator backend.
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
         let mut result = BatchResult::default();
         for instruction in instructions {
             if let Some(value) = self
@@ -235,6 +238,6 @@ impl<B: Backend> QuantumBackend for QsBackendShim<B> {
                 result.results.push(value);
             }
         }
-        result
+        Ok(result)
     }
 }

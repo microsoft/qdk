@@ -32,7 +32,10 @@ impl<B: QuantumBackend> Driver for DecomposeToffoliAdapter<B> {
 impl<B: QuantumBackend> QuantumBackend for DecomposeToffoliAdapter<B> {
     /// Replaces each CCX in place and returns the downstream batch result unchanged.
     /// See fig.1 in https://arxiv.org/pdf/0803.2316
-    fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
         let mut transformed = Vec::with_capacity(instructions.len());
         for instruction in instructions {
             #[cfg(debug_assertions)]

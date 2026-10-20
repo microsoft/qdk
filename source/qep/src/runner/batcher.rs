@@ -66,6 +66,7 @@ impl<'a> Batcher<'a> {
     fn flush(&mut self, expects_result: bool) -> Result<Option<bool>, String> {
         let batch = self.backend.execute_batch(&self.instructions);
         self.instructions.clear();
+        let batch = batch?;
 
         if batch.results.contains(&QuantumBackendResult::Error) {
             return Err("QIR backend returned an error result".into());
@@ -98,9 +99,12 @@ mod tests {
 
     impl QuantumBackend for RecordingBackend {
         /// Records each batch and returns the next configured result.
-        fn execute_batch(&mut self, instructions: &[QuantumBackendInstruction]) -> BatchResult {
+        fn execute_batch(
+            &mut self,
+            instructions: &[QuantumBackendInstruction],
+        ) -> Result<BatchResult, String> {
             self.batches.push(instructions.to_vec());
-            self.results.pop_front().unwrap_or_default()
+            Ok(self.results.pop_front().unwrap_or_default())
         }
     }
 
