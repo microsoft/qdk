@@ -482,14 +482,21 @@ impl<'noise> NoiseAccumulator<'noise> {
 
         let mut pauli_strings = Vec::new();
         let mut probabilities = Vec::new();
+        let mut outcome_indices = FxHashMap::default();
         let mut remaining_probability = 1.0;
         for row in rows {
             let mut pauli_string_chars = vec!["I"; pauli_string_width];
             for fault in row.faults {
                 pauli_string_chars[column_of_qubit[&fault.q]] = fault.kind.as_str();
             }
-            pauli_strings.push(encode_pauli(&pauli_string_chars.concat()));
-            probabilities.push(remaining_probability * row.probability); // each row fires only if all previous ones didn't
+            let pauli_string = encode_pauli(&pauli_string_chars.concat());
+            let index = *outcome_indices.entry(pauli_string).or_insert_with(|| {
+                pauli_strings.push(pauli_string);
+                probabilities.push(0.0);
+                probabilities.len() - 1
+            });
+            // Merge duplicates so keyed noise tables cannot overwrite their probabilities.
+            probabilities[index] += remaining_probability * row.probability;
             remaining_probability *= 1.0 - row.probability;
         }
         let noise_table =
