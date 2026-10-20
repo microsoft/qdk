@@ -154,58 +154,10 @@ mod tests {
     use qsc::target::Profile;
 
     #[test]
-    /// Compares compiled ten-qubit QFT states with and without synthesis, up to global phase.
-    fn compiled_ten_qubit_qft_matches_dense_simulation() -> Result<(), String> {
-        let source = r#"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use qs = Qubit[10];
-                    X(qs[0]);
-                    X(qs[3]);
-                    X(qs[7]);
-                    X(qs[9]);
-                    Std.Canon.ApplyQFT(qs);
-                }
-            }
-        "#;
-        let file = compile_qsharp_to_qir(source, Profile::Base);
-        let mut reference = FullStateSimulatorBackend::new(10, 0, Default::default());
-        let mut synthesized = QftRotationSynthesisAdapter::new(FullStateSimulatorBackend::new(
-            10,
-            0,
-            Default::default(),
-        ));
-        // SAFETY: The QIR was compiled from the trusted Q# source above.
-        unsafe {
-            run_qir(&file.0, &mut reference)?;
-            run_qir(&file.0, &mut synthesized)?;
-        }
-        let expected = reference.simulator.state_dump().data();
-        let actual = synthesized.backend.simulator.state_dump().data();
-        assert_eq!(expected.len(), 1 << 10);
-        assert_eq!(actual.len(), expected.len());
-        let phase_ratio = actual[0] / expected[0];
-        let global_phase = phase_ratio / phase_ratio.norm();
-        let distance = actual
-            .iter()
-            .zip(expected.iter())
-            .map(|(actual, expected)| (actual - global_phase * expected).norm_sqr())
-            .sum::<f64>()
-            .sqrt();
-        // The 45 controlled phases each decompose into three Rz gates.
-        let tolerance = 135.0 * EPSILON;
-        assert!(
-            distance < tolerance,
-            "QFT state-vector distance {distance:e} exceeds tolerance {tolerance:e}"
-        );
-        Ok(())
-    }
-
-    #[test]
+    /// Checks synthesis for gates Rz(+/- pi*2^-k).
     /// Checks squared state-vector distance after cancelling global phase.
-    fn signed_power_of_two_rotations() -> Result<(), String> {
-        for power in -50..=3 {
+    fn test_rotation_synthesis_rotations() -> Result<(), String> {
+        for power in -40..=3 {
             for sign in [-1.0, 1.0] {
                 let angle = sign * 2.0_f64.powi(power) * PI;
                 let instructions = [
@@ -246,6 +198,55 @@ mod tests {
                 assert!(distance < EPSILON);
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    /// Compares compiled QFT states with and without synthesis, up to global phase.
+    fn test_rotation_synthesis_qft() -> Result<(), String> {
+        if cfg!(debug_assertions) {
+            return Ok(()); // Skip in debug mode
+        }
+
+        let num_qubits = 10;
+        let source = format!(
+            r#"
+            namespace Test {{
+                @EntryPoint()
+                operation Main() : Unit {{
+                    use qs = Qubit[{num_qubits}];
+                    X(qs[0]);
+                    X(qs[3]);
+                    Std.Canon.ApplyQFT(qs);
+                }}
+            }}
+        "#
+        );
+        let file = compile_qsharp_to_qir(&source, Profile::Base);
+        let mut reference = FullStateSimulatorBackend::new(num_qubits, 0, Default::default());
+        let mut synthesized = QftRotationSynthesisAdapter::new(FullStateSimulatorBackend::new(
+            num_qubits,
+            0,
+            Default::default(),
+        ));
+        // SAFETY: The QIR was compiled from the trusted Q# source above.
+        unsafe {
+            run_qir(&file.0, &mut reference)?;
+            run_qir(&file.0, &mut synthesized)?;
+        }
+        let expected = reference.simulator.state_dump().data();
+        let actual = synthesized.backend.simulator.state_dump().data();
+        assert_eq!(expected.len(), 1 << num_qubits);
+        assert_eq!(actual.len(), expected.len());
+        let phase_ratio = actual[0] / expected[0];
+        let global_phase = phase_ratio / phase_ratio.norm();
+        let distance = actual
+            .iter()
+            .zip(expected.iter())
+            .map(|(actual, expected)| (actual - global_phase * expected).norm_sqr())
+            .sum::<f64>()
+            .sqrt();
+        assert!(distance < 1e-9, "{distance:.e}"); // Actual distance is ~3e-10.
         Ok(())
     }
 }

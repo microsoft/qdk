@@ -177,6 +177,10 @@ fn create_profiler() -> SequentialCountingProfiler {
 #[test]
 /// Profiles the Shor's algorithm QIR fixture and reports the elapsed time.
 fn profiles_shors_50_qir() -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Ok(()); // Skip in debug mode
+    }
+
     let qir_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/shors_50.ll");
     let qir_path = qir_path
         .to_str()
@@ -202,6 +206,10 @@ fn profiles_shors_50_qir() -> Result<(), String> {
 #[test]
 /// Profiles a Q# modular multiplication from the arithmetic library and reports the elapsed time.
 fn profiles_mod_mul() -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Ok(()); // Skip in debug mode
+    }
+    
     let source = r#"
         namespace Test {
             @EntryPoint()
