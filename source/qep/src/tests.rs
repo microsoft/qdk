@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    DecomposeToffoliAdapter, OutputValue, Profiler, QsBackendShim, QuantumBackend, ResultAdapter,
-    SequentialCountingProfiler, SparseSimBackend, run_qir,
+    OutputValue, Profiler, QsBackendShim, QuantumBackend, ResultAdapter,
+    SequentialCountingProfiler, SparseSimBackend, TranspilingAdapter, run_qir,
 };
 use qsc::{CliffordSim, LanguageFeatures, SourceMap, codegen::qir::get_qir, target::Profile};
 use qsc_eval::backend::SparseSim;
@@ -132,7 +132,7 @@ fn qsharp_adder_with_different_backends() -> Result<(), String> {
     assert_adder_result(&file, &mut QsBackendShim::new(SparseSim::new()))?;
     assert_adder_result(
         &file,
-        &mut DecomposeToffoliAdapter::new(QsBackendShim::new(CliffordSim::new(11))),
+        &mut TranspilingAdapter::with_defaults(QsBackendShim::new(CliffordSim::new(11))),
     )?;
     assert_adder_result(&file, &mut ResultAdapter::new(SparseSimBackend::default()))?;
     assert_adder_result(
@@ -141,7 +141,7 @@ fn qsharp_adder_with_different_backends() -> Result<(), String> {
     )?;
     assert_adder_result(
         &file,
-        &mut ResultAdapter::new(DecomposeToffoliAdapter::new(QsBackendShim::new(
+        &mut ResultAdapter::new(TranspilingAdapter::with_defaults(QsBackendShim::new(
             CliffordSim::new(11),
         ))),
     )?;

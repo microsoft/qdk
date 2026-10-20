@@ -21,7 +21,8 @@ pub mod instructions;
 pub mod interface;
 mod profilers;
 mod runner;
-pub use adapters::{DecomposeToffoliAdapter, QftRotationSynthesisAdapter, ResultAdapter};
+mod transpilers;
+pub use adapters::{ResultAdapter, TranspilingAdapter};
 pub use backends::{FullStateSimulatorBackend, QsBackendShim, SparseSimBackend};
 pub use instructions::{
     InstructionId, OPERATION_COUNT, instruction_id_to_name, instruction_name_to_id,
@@ -37,3 +38,4 @@ pub use profilers::{
 pub use runner::{
     DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutput, run_qir, run_qir_with_batch_size,
 };
+pub use transpilers::{RzQftTranspiler, SwapTransplier, Transpiler};

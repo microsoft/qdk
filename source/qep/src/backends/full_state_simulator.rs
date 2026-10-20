@@ -44,20 +44,27 @@ impl FullStateSimulatorBackend {
     }
 
     /// Implements ancilla-free Toffoli using seven T/T-adjoint gates and six CNOTs.
-    fn ccx(&mut self, control0: usize, control1: usize, target: usize) -> Result<(), String> {
-        use crate::DecomposeToffoliAdapter;
-        // Reuse the shared decomposition rather than duplicating its gate sequence.
-        let mut adapter = DecomposeToffoliAdapter::new(self);
-        adapter.execute_batch(&[QuantumBackendInstruction {
-            instruction_name: "ccx",
-            parameters: smallvec::smallvec![QubitId(control0), QubitId(control1), QubitId(target)],
-        }])?;
-        Ok(())
+    fn ccx(&mut self, control0: usize, control1: usize, target: usize) {
+        self.simulator.h(target);
+        self.simulator.cx(control1, target);
+        self.simulator.t_adj(target);
+        self.simulator.cx(control0, target);
+        self.simulator.t(target);
+        self.simulator.cx(control1, target);
+        self.simulator.t_adj(target);
+        self.simulator.cx(control0, target);
+        self.simulator.t(control1);
+        self.simulator.t(target);
+        self.simulator.h(target);
+        self.simulator.cx(control0, control1);
+        self.simulator.t(control0);
+        self.simulator.t_adj(control1);
+        self.simulator.cx(control0, control1);
     }
 }
 
 impl QuantumBackend for &mut FullStateSimulatorBackend {
-    /// Forwards borrowed execution so the shared Toffoli adapter can wrap this backend.
+    /// Forwards execution through a mutable reference to this backend.
     fn execute_batch(
         &mut self,
         instructions: &[QuantumBackendInstruction],
@@ -78,7 +85,7 @@ impl QuantumBackend for FullStateSimulatorBackend {
                 instruction.instruction_name,
                 instruction.parameters.as_slice(),
             ) {
-                ("ccx", &[QubitId(a), QubitId(b), QubitId(c)]) => self.ccx(a, b, c)?,
+                ("ccx", &[QubitId(a), QubitId(b), QubitId(c)]) => self.ccx(a, b, c),
                 ("x", &[QubitId(q)]) => self.simulator.x(q),
                 ("y", &[QubitId(q)]) => self.simulator.y(q),
                 ("z", &[QubitId(q)]) => self.simulator.z(q),

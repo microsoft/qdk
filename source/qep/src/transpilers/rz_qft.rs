@@ -1,21 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{
-    BatchResult,
-    Parameter::{Float, QubitId},
-    QuantumBackend, QuantumBackendInstruction,
-    interface::Driver,
-};
+use super::Transpiler;
+use crate::{Parameter::Float, Parameter::QubitId, QuantumBackendInstruction};
 use smallvec::smallvec;
 use std::f64::consts::PI;
-
-/// Decomposes supported Rz rotations into Clifford+T gates, up to global phase.
-///
-/// Supports only angles of form pi*2^-k for integer k.
-pub struct QftRotationSynthesisAdapter<B> {
-    backend: B,
-}
 
 /// Guarenteed upper bound on the error.
 const EPSILON: f64 = 1e-10;
@@ -23,12 +12,11 @@ const EPSILON: f64 = 1e-10;
 /// Entry k approximates Rz(pi / 2^k); Rust parses the generated array at compile time.
 const ROTATION_SEQUENCES: &[&str] = include!("qft_rotations.inc");
 
-impl<B: QuantumBackend> QftRotationSynthesisAdapter<B> {
-    /// Wraps a backend that can execute the Clifford+T decomposition.
-    pub fn new(backend: B) -> Self {
-        Self { backend }
-    }
+/// Decomposes Rz rotations with angles of the form +/- pi*2^k into Clifford+T gates.
+#[derive(Default)]
+pub struct RzQftTranspiler;
 
+impl RzQftTranspiler {
     /// Synthesizes a nonnegative Z rotation as a gate sequence up to global phase.
     /// Returns string of following gates only: x,z,s,h,t.
     fn synthesize_rz(angle: f64) -> Result<&'static str, String> {
@@ -83,61 +71,47 @@ impl<B: QuantumBackend> QftRotationSynthesisAdapter<B> {
     }
 }
 
-impl<B: QuantumBackend> Driver for QftRotationSynthesisAdapter<B> {
-    type Backend = B;
-
-    /// Returns the wrapped backend.
-    fn get_backend(&self) -> &B {
-        &self.backend
+impl Transpiler for RzQftTranspiler {
+    /// Returns the Z-rotation instruction name.
+    fn source_instruction_name(&self) -> &'static str {
+        "rz"
     }
-}
 
-impl<B: QuantumBackend> QuantumBackend for QftRotationSynthesisAdapter<B> {
-    /// Replaces supported Rz gates and rejects unsupported rotations before execution.
-    fn execute_batch(
-        &mut self,
-        instructions: &[QuantumBackendInstruction],
-    ) -> Result<BatchResult, String> {
-        let mut transformed = Vec::with_capacity(instructions.len());
-        for instruction in instructions {
-            match instruction.instruction_name {
-                "rx" | "rxx" | "ry" | "ryy" | "rzz" => {
-                    return Err(format!(
-                        "Unexpected rotation type: {}",
-                        instruction.instruction_name
-                    ));
-                }
-                "rz" => {
-                    let &[QubitId(qubit_id), Float(angle)] = instruction.parameters.as_slice()
-                    else {
-                        return Err(format!("Malformed Rz instruction: {instruction:?}"));
-                    };
-                    let mut gates: Vec<_> = Self::synthesize_rz(angle.abs())?
-                        .chars()
-                        .map(|gate| match gate {
-                            'x' => "x",
-                            'z' => "z",
-                            's' => "s",
-                            'h' => "h",
-                            't' => "t",
-                            _ => panic!("Unsupported gate in synthesized sequence: {gate}"),
-                        })
-                        .collect();
-                    if angle < 0.0 {
-                        gates = Self::make_adjoint(gates);
-                    }
-                    transformed.extend(gates.into_iter().map(|instruction_name| {
-                        QuantumBackendInstruction {
-                            instruction_name,
-                            parameters: smallvec![QubitId(qubit_id)],
-                        }
-                    }));
-                }
-
-                _ => transformed.push(instruction.clone()),
-            }
+    /// Appends the synthesized rotation sequence, up to global phase.
+    fn transpile(
+        &self,
+        source: &QuantumBackendInstruction,
+        output: &mut Vec<QuantumBackendInstruction>,
+    ) -> Result<(), String> {
+        if source.instruction_name != self.source_instruction_name() {
+            return Err(format!("Expected an Rz instruction, got {source:?}"));
         }
-        self.backend.execute_batch(&transformed)
+        let &[QubitId(qubit_id), Float(angle)] = source.parameters.as_slice() else {
+            return Err(format!("Malformed Rz instruction: {source:?}"));
+        };
+        let mut gates: Vec<_> = Self::synthesize_rz(angle.abs())?
+            .chars()
+            .map(|gate| match gate {
+                'x' => "x",
+                'z' => "z",
+                's' => "s",
+                'h' => "h",
+                't' => "t",
+                _ => panic!("Unsupported gate in synthesized sequence: {gate}"),
+            })
+            .collect();
+        if angle < 0.0 {
+            gates = Self::make_adjoint(gates);
+        }
+        output.extend(
+            gates
+                .into_iter()
+                .map(|instruction_name| QuantumBackendInstruction {
+                    instruction_name,
+                    parameters: smallvec![QubitId(qubit_id)],
+                }),
+        );
+        Ok(())
     }
 }
 
@@ -145,7 +119,8 @@ impl<B: QuantumBackend> QuantumBackend for QftRotationSynthesisAdapter<B> {
 mod tests {
     use super::*;
     use crate::{
-        FullStateSimulatorBackend, SparseSimBackend, run_qir, tests::compile_qsharp_to_qir,
+        BatchResult, FullStateSimulatorBackend, QuantumBackend, SparseSimBackend,
+        TranspilingAdapter, interface::Driver, run_qir, tests::compile_qsharp_to_qir,
     };
     use num_bigint::BigUint;
     use num_complex::Complex64;
@@ -169,12 +144,15 @@ mod tests {
                         parameters: smallvec![QubitId(0), Float(angle)],
                     },
                 ];
-                let mut adapter = QftRotationSynthesisAdapter::new(SparseSimBackend::default());
+                let mut adapter = TranspilingAdapter::new(
+                    SparseSimBackend::default(),
+                    vec![Box::new(RzQftTranspiler)],
+                )?;
                 assert_eq!(
                     adapter.execute_batch(&instructions)?,
                     BatchResult::default()
                 );
-                let state = adapter.backend.wavefunction();
+                let state = adapter.get_backend_mut().wavefunction();
                 assert_eq!(state.len(), 2, "angle {angle}: expected |0> and |1>");
                 assert_eq!(state[0].0, BigUint::from(0_u32));
                 assert_eq!(state[1].0, BigUint::from(1_u32));
@@ -210,31 +188,30 @@ mod tests {
         let num_qubits = 10;
         let source = format!(
             r#"
-            namespace Test {{
-                @EntryPoint()
-                operation Main() : Unit {{
-                    use qs = Qubit[{num_qubits}];
-                    X(qs[0]);
-                    X(qs[3]);
-                    Std.Canon.ApplyQFT(qs);
-                }}
-            }}
-        "#
+                    namespace Test {{
+                        @EntryPoint()
+                        operation Main() : Unit {{
+                            use qs = Qubit[{num_qubits}];
+                            X(qs[0]);
+                            X(qs[3]);
+                            Std.Canon.ApplyQFT(qs);
+                        }}
+                    }}
+                "#
         );
         let file = compile_qsharp_to_qir(&source, Profile::Base);
         let mut reference = FullStateSimulatorBackend::new(num_qubits, 0, Default::default());
-        let mut synthesized = QftRotationSynthesisAdapter::new(FullStateSimulatorBackend::new(
-            num_qubits,
-            0,
-            Default::default(),
-        ));
+        let mut synthesized = TranspilingAdapter::new(
+            FullStateSimulatorBackend::new(num_qubits, 0, Default::default()),
+            vec![Box::new(RzQftTranspiler)],
+        )?;
         // SAFETY: The QIR was compiled from the trusted Q# source above.
         unsafe {
             run_qir(&file.0, &mut reference)?;
             run_qir(&file.0, &mut synthesized)?;
         }
         let expected = reference.simulator.state_dump().data();
-        let actual = synthesized.backend.simulator.state_dump().data();
+        let actual = synthesized.get_backend().simulator.state_dump().data();
         assert_eq!(expected.len(), 1 << num_qubits);
         assert_eq!(actual.len(), expected.len());
         let phase_ratio = actual[0] / expected[0];

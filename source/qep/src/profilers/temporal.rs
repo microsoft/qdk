@@ -17,7 +17,7 @@ use std::{
 fn instruction_time_nanos(instruction: &QuantumBackendInstruction) -> usize {
     match instruction.instruction_name {
         "h" | "x" | "t" | "cx" | "mz" | "mz_store" | "mz_store_reset" => 1,
-        "swap" | "ccx" | "cz" | "tadj" | "s" | "sadj" | "z" | "reset" => 1,
+        "cz" | "tadj" | "s" | "sadj" | "z" | "reset" => 1,
         "read_result" => 0,
         _ => panic!("Unsupported temporal-profiler instruction: {instruction:?}"),
     }
@@ -520,7 +520,7 @@ mod tests {
 
     use super::TemporalProfiler;
     use crate::tests::compile_qsharp_to_qir;
-    use crate::{Profiler, QftRotationSynthesisAdapter};
+    use crate::{Profiler, TranspilingAdapter};
     use expect_test::expect;
     use qsc::target::Profile;
 
@@ -609,8 +609,8 @@ mod tests {
         let qir_path = qir_path
             .to_str()
             .ok_or("Shor's algorithm QIR path is not valid UTF-8")?;
-        let mut profiler = TemporalProfiler::default();
-        let mut profiler = QftRotationSynthesisAdapter::new(profiler);
+        let profiler = TemporalProfiler::default();
+        let mut profiler = TranspilingAdapter::with_defaults(profiler);
         let start = Instant::now();
 
         // SAFETY: The checked-in QIR fixture was produced by a trusted compiler.

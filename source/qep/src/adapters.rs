@@ -1,13 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod decompose_toffoli_adapter;
-mod qft_rotation_syntesis_adapter;
 mod result_adapter;
+mod transpiling_adapter;
 
-pub use decompose_toffoli_adapter::DecomposeToffoliAdapter;
-pub use qft_rotation_syntesis_adapter::QftRotationSynthesisAdapter;
 pub use result_adapter::ResultAdapter;
+pub use transpiling_adapter::TranspilingAdapter;
 
 use crate::{Profiler, QuantumBackend, interface::Driver};
 
