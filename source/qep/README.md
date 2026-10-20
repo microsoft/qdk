@@ -67,6 +67,27 @@ trait QuantumBackend {
 The driver reuses its instruction buffer across calls.
 Backend failures are returned as `Err(String)` and propagated by adapters and the QIR runner.
 
+`FullStateSimulatorBackend::new(num_qubits, seed, noise)` creates a dense
+simulator supporting all QEP instructions. It reserves a private measurement
+scratch slot; stored QIR result IDs are maintained separately across batches,
+so immediate measurements cannot overwrite them. Reading an unwritten result
+or measuring a lost qubit returns an error. CCX uses the shared Toffoli
+decomposition. The underlying simulator is available through `simulator`.
+
+`QftRotationSynthesisAdapter` replaces `rz` angles of +/- 2^k * pi for
+k >= -29 with Clifford+T sequences (including X and H gates). It accepts absolute
+angle discrepancies up to `1e-10` radians, including angles near zero.
+The decomposition is up to global phase. For k >= -2, the emitted phase gate is
+`exp(i * angle / 2) * Rz(angle)`; smaller angles use approximate sequences.
+The synthesis notebook `tmp/Synthesis.ipynb` writes `src/adapters/qft_rotations.inc`,
+an array of strings parsed by Rust's `include!` at compile time. Normal builds
+require neither Python nor `pygridsynth`. Run the notebook from within the
+repository using an environment with `mpmath` and `pygridsynth` to regenerate
+the table at synthesis precision `1e-10`.
+Non-finite angles and other rotation types return errors; arbitrary-angle
+synthesis is not yet implemented. Non-rotation instructions and backend results
+pass through unchanged.
+
 `QuantumBackendInstruction` directly stores the instruction name and a unified
 operand list in `classical_parameters`. The QIR runner emits it directly, and
 backends dispatch on literal `instruction_name` strings and operand slices.

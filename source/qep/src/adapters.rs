@@ -2,9 +2,11 @@
 // Licensed under the MIT License.
 
 mod decompose_toffoli_adapter;
+mod qft_rotation_syntesis_adapter;
 mod result_adapter;
 
 pub use decompose_toffoli_adapter::DecomposeToffoliAdapter;
+pub use qft_rotation_syntesis_adapter::QftRotationSynthesisAdapter;
 pub use result_adapter::ResultAdapter;
 
 use crate::{Profiler, QuantumBackend, interface::Driver};
