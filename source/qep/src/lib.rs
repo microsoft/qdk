@@ -32,7 +32,7 @@ pub use interface::{
 };
 pub use profilers::{
     Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiler, TemporalProfiles,
-    TimeSeries, TotalCounts,
+    TimeSeries, TotalCounts, TumblingWindowAggregator,
 };
 pub use runner::{
     DEFAULT_MAX_BATCH_SIZE, OutputRecord, OutputValue, RunOutput, run_qir, run_qir_with_batch_size,

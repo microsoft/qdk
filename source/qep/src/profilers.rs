@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod aggregators;
 mod counting;
 mod temporal;
 
@@ -8,8 +9,13 @@ use crate::{QuantumBackend, QuantumBackendInstruction, run_qir};
 use rustc_hash::FxHashMap;
 use std::fmt;
 
+pub use aggregators::TumblingWindowAggregator;
 pub use counting::SequentialCountingProfiler;
 pub use temporal::TemporalProfiler;
+
+pub struct ProfilerConfig {
+    aggregation_window_nanos: usize,
+}
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct TotalCounts {
@@ -40,7 +46,7 @@ pub struct TotalCounts {
 /// If profiler uses window (sliding or tumbling), rates should be computed as
 ///   "number events per window / window size".
 /// Profiler may also report gate counts per aggregations window, e.g. "X gates per window", but
-///    that metruic will depend on window size, so it's not recommended.
+///    that metric will depend on window size, so it's not recommended.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimeSeries {
     pub metric_name: String,
