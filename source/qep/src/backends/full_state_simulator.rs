@@ -17,6 +17,7 @@ pub struct FullStateSimulatorBackend {
 
 impl FullStateSimulatorBackend {
     /// Creates a dense simulator with a private scratch slot for all measurements.
+    #[must_use]
     pub fn new(
         num_qubits: usize,
         seed: u32,

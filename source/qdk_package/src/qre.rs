@@ -74,13 +74,13 @@ pub struct TotalCounts(qep::TotalCounts);
 impl TotalCounts {
     /// Returns the number of logical qubits used by the program.
     #[getter]
-    fn logical_qubits(&self) -> u64 {
+    fn logical_qubits(&self) -> usize {
         self.0.logical_qubits
     }
 
     /// Returns the number of physical qubits used by the program.
     #[getter]
-    fn physical_qubits(&self) -> u64 {
+    fn physical_qubits(&self) -> usize {
         self.0.physical_qubits
     }
 
@@ -219,7 +219,7 @@ impl SequentialCountingProfiler {
     #[new]
     #[pyo3(signature = (physical_qubits_per_logical, gate_time_sec=None))]
     fn new(
-        physical_qubits_per_logical: u64,
+        physical_qubits_per_logical: usize,
         gate_time_sec: Option<FxHashMap<String, f64>>,
     ) -> PyResult<PyClassInitializer<Self>> {
         Ok(PyClassInitializer::from(Profiler {

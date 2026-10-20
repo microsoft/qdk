@@ -13,6 +13,7 @@ pub use aggregators::TumblingWindowAggregator;
 pub use counting::SequentialCountingProfiler;
 pub use temporal::TemporalProfiler;
 
+#[derive(Clone, Copy)]
 pub struct ProfilerConfig {
     aggregation_window_nanos: usize,
 }
@@ -20,10 +21,10 @@ pub struct ProfilerConfig {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct TotalCounts {
     /// Number of logical qubits used by the program.
-    pub logical_qubits: u64,
+    pub logical_qubits: usize,
 
     /// Number of physical qubits used by program.
-    pub physical_qubits: u64,
+    pub physical_qubits: usize,
 
     /// Estimated runtime of the program.
     pub total_runtime_sec: f64,
@@ -41,6 +42,7 @@ pub struct TotalCounts {
 ///   - "T state consumption rate", "state/s"
 ///   - "compute qubits used", "qubits" (how many qubits were used in this time window)
 ///   - "max qubit usage", "qubits" - max qubit usage at any point from execution start till now.
+///
 /// It's responsibility of the profiler to compute these and provide correct units.
 /// UI will display them as is without any post-processing.
 /// If profiler uses window (sliding or tumbling), rates should be computed as

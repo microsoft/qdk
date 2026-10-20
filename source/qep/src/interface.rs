@@ -63,8 +63,7 @@ impl fmt::Debug for Parameter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Float(value) => write!(f, "{value}"),
-            Self::ResultId(value) => write!(f, "{value}"),
-            Self::QubitId(value) => write!(f, "{value}"),
+            Self::ResultId(value) | Self::QubitId(value) => write!(f, "{value}"),
         }
     }
 }

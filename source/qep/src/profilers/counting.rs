@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// Profiles instructions as if every operation executes sequentially.
 pub struct SequentialCountingProfiler {
     /// The physical-qubit overhead applied to each observed logical qubit.
-    physical_qubits_per_logical: u64,
+    physical_qubits_per_logical: usize,
     /// The duration of one call, keyed by the stable QIR instruction name.
     gate_time_sec: FxHashMap<String, f64>,
     /// Call counts indexed by IDs up to the highest configured timing.
@@ -28,7 +28,7 @@ impl SequentialCountingProfiler {
     ///
     /// Returns an error for unknown names, invalid durations, or allocation failures.
     pub fn new(
-        physical_qubits_per_logical: u64,
+        physical_qubits_per_logical: usize,
         gate_time_sec: FxHashMap<String, f64>,
     ) -> Result<Self, String> {
         let mut count_len = 0;
@@ -119,12 +119,7 @@ impl Profiler for SequentialCountingProfiler {
             )]
         };
 
-        let logical_qubits = self.max_qubit_id.map_or(0, |id| {
-            u64::try_from(id)
-                .expect("logical qubit ID should fit in u64")
-                .checked_add(1)
-                .expect("logical qubit count overflow")
-        });
+        let logical_qubits = self.max_qubit_id.map_or(0, |id| id + 1);
         let physical_qubits = logical_qubits * self.physical_qubits_per_logical;
 
         ProfilerResult {

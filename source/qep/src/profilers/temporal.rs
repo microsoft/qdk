@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{Profiler, ProfilerResult, TemporalProfiles, TotalCounts};
+use super::{Profiler, ProfilerResult, TotalCounts};
 use crate::{
     Parameter, QuantumBackendResult, TumblingWindowAggregator,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
@@ -99,18 +99,29 @@ impl InstructionState {
 /// profiles. Instructions with no resource dependency may start while earlier resource-production
 /// events remain scheduled, and each batch runs the event loop only until that batch completes.
 pub struct TemporalProfiler {
+    /// Latest instruction touching each qubit, indexed by qubit ID.
     qubits: Vec<Option<InstructionRef>>,
+    /// Latest measurement instruction writing each result ID.
     result_writers: FxHashMap<usize, InstructionRef>,
+    /// Measurement and readout results for the batch being executed.
     current_batch_result: BatchResult,
     /// Events are ordered by time and then by insertion sequence.
     events_queue: BinaryHeap<Reverse<(usize, u64, Event)>>,
+    /// Sequence number assigned to the next event to break timestamp ties.
     next_event_sequence: u64,
+    /// Current simulated time in nanoseconds.
     current_time_nanos: usize,
+    /// Available quantities of produced resources.
     resource_counts: FxHashMap<ResourceType, usize>,
+    /// FIFO queues of instructions waiting for each resource type.
     instructions_blocked_on_resources: FxHashMap<ResourceType, VecDeque<InstructionRef>>,
+    /// Scheduling states retained until completed instructions can be retired.
     all_instructions: VecDeque<InstructionState>,
+    /// Global instruction index corresponding to the front of `all_instructions`.
     all_instructions_offset: usize,
+    /// Instruction execution intervals recorded in start order.
     logs: Vec<InstructionTrace>,
+    /// Collects event counts into fixed-window rate profiles.
     aggregator: TumblingWindowAggregator,
 }
 
@@ -431,9 +442,10 @@ impl TemporalProfiler {
 }
 
 impl Default for TemporalProfiler {
+    /// Creates a profiler with one-second aggregation windows.
     fn default() -> Self {
         Self::new(ProfilerConfig {
-            aggregation_window_nanos: 1000_000_000,
+            aggregation_window_nanos: 1_000_000_000,
         })
     }
 }
@@ -472,9 +484,18 @@ impl QuantumBackend for TemporalProfiler {
 impl Profiler for TemporalProfiler {
     /// Returns the profiling shell and the recorded instruction timeline.
     fn get_result(&self) -> ProfilerResult {
+        #[allow(clippy::cast_precision_loss)]
+        let total_runtime_sec = self.current_time_nanos as f64 / 1e9;
+        let totals = TotalCounts {
+            logical_qubits: self.qubits.len(),
+            physical_qubits: 0,
+            total_runtime_sec,
+            calls_per_operation: Default::default(),
+            runtime_sec_per_operation: Default::default(),
+        };
         ProfilerResult {
-            totals: TotalCounts::default(),
-            profiles: TemporalProfiles::default(),
+            totals,
+            profiles: self.aggregator.get_profiles(),
             trace: Some(ExecutionTrace {
                 instructions: self.logs.clone(),
             }),
@@ -516,6 +537,8 @@ mod tests {
         let _ = unsafe { profiler.profile_qir(file.path()?) }?;
 
         let result = profiler.get_result();
+        assert_eq!(result.totals.logical_qubits, 2);
+        assert!((result.totals.total_runtime_sec - 6e-9).abs() < 1e-20);
         expect![[r#"
             0-1: x 0
             0-1: h 1
@@ -527,7 +550,12 @@ mod tests {
             5-6: mz_store 1 1
             5-5: read_result 0
             6-6: read_result 1"#]]
-        .assert_eq(&format!("{:?}", result.trace.unwrap()));
+        .assert_eq(&format!(
+            "{:?}",
+            result
+                .trace
+                .expect("temporal profiler should record a trace")
+        ));
         Ok(())
     }
 

@@ -51,17 +51,16 @@ impl<B: QuantumBackend> QftRotationSynthesisAdapter<B> {
             ));
         }
 
-        match power_of_2 {
-            1.. => Ok(""),
-            _ => {
-                let index = usize::try_from(-power_of_2)
-                    .expect("nonpositive power has a nonnegative sequence index");
-                ROTATION_SEQUENCES.get(index).copied().ok_or_else(|| {
-                    format!(
-                        "Unsupported Rz angle {angle}: no synthesis sequence for power {power_of_2}"
-                    )
-                })
-            }
+        if power_of_2 >= 1 {
+            Ok("")
+        } else {
+            let index = usize::try_from(-power_of_2)
+                .expect("nonpositive power has a nonnegative sequence index");
+            ROTATION_SEQUENCES.get(index).copied().ok_or_else(|| {
+                format!(
+                    "Unsupported Rz angle {angle}: no synthesis sequence for power {power_of_2}"
+                )
+            })
         }
     }
 
