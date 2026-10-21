@@ -429,6 +429,27 @@ fn else_correlated_error_without_preceding_else_correlated_error_yields_error() 
 }
 
 #[test]
+fn correlated_error_chain_on_too_many_qubits_yields_error() {
+    let targets: Vec<String> = (0..22).map(|qubit| format!("Z{qubit}")).collect();
+    let source = format!(
+        "CORRELATED_ERROR(0.01) X0\nELSE_CORRELATED_ERROR(0.02) {}",
+        targets.join(" ")
+    );
+    check(
+        &source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.CorrelatedErrorTooManyQubits
+
+          x correlated error chain acts on 22 qubits, but at most 21 are supported
+           ,-[1:1]
+         1 | ,-> CORRELATED_ERROR(0.01) X0
+         2 | `-> ELSE_CORRELATED_ERROR(0.02) Z0 Z1 Z2 Z3 Z4 Z5 Z6 Z7 Z8 Z9 Z10 Z11 Z12 Z13 Z14 Z15 Z16 Z17 Z18 Z19 Z20 Z21
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn correlated_error_chain_does_not_continue_into_select_block() {
     let source = indoc! {"
         CORRELATED_ERROR(0.01) X0

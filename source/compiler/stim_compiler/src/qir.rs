@@ -22,6 +22,9 @@ type StimQubitId = u32;
 type QubitId = u32;
 type ResultId = u32;
 
+/// Each qubit takes 3 bits in a [`PauliAndLossString`].
+const MAX_CORRELATED_ERROR_QUBITS: usize = PauliAndLossString::BITS as usize / 3;
+
 type Radians = f64;
 
 struct QirWriter {
@@ -332,6 +335,15 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error(
+        "correlated error chain acts on {num_qubits} qubits, but at most {MAX_CORRELATED_ERROR_QUBITS} are supported"
+    )]
+    #[diagnostic(code("Qdk.Stim.Compiler.CorrelatedErrorTooManyQubits"))]
+    CorrelatedErrorTooManyQubits {
+        num_qubits: usize,
+        #[label]
+        span: Span,
+    },
 }
 
 struct IdMap {
@@ -403,6 +415,7 @@ fn select_label(scope_id: u32) -> String {
 struct CorrelatedRow {
     faults: Vec<semantic::Fault>,
     probability: f64,
+    span: Span,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -494,7 +507,7 @@ impl<'noise> NoiseAccumulator<'noise> {
         }
     }
 
-    fn flush_correlated_group(&mut self) -> (NoiseTable<f64>, Vec<StimQubitId>) {
+    fn flush_correlated_group(&mut self) -> Result<(NoiseTable<f64>, Vec<StimQubitId>), Error> {
         let rows: Vec<CorrelatedRow> = self
             .current_correlated_group
             .take()
@@ -502,12 +515,22 @@ impl<'noise> NoiseAccumulator<'noise> {
             .into_iter()
             .map(|row| CorrelatedRow {
                 faults: combine_faults_per_qubit(&row.faults),
-                probability: row.probability,
+                ..row
             })
             .collect();
 
         let qubits = self.collect_qubits(&rows);
         let pauli_string_width = qubits.len();
+        if pauli_string_width > MAX_CORRELATED_ERROR_QUBITS {
+            let (first, last) = (&rows[0], &rows[rows.len() - 1]);
+            return Err(Error::CorrelatedErrorTooManyQubits {
+                num_qubits: pauli_string_width,
+                span: Span {
+                    lo: first.span.lo,
+                    hi: last.span.hi,
+                },
+            });
+        }
         let column_of_qubit = self.build_column_map(&qubits);
 
         let mut pauli_strings = Vec::new();
@@ -537,7 +560,7 @@ impl<'noise> NoiseAccumulator<'noise> {
         }
         let noise_table =
             self.build_noise_table(pauli_string_width as u32, pauli_strings, probabilities);
-        (noise_table, qubits)
+        Ok((noise_table, qubits))
     }
 
     fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<StimQubitId> {
@@ -1106,7 +1129,7 @@ impl<'noise> Compiler<'noise> {
                 faults,
             } => match kind {
                 semantic::CorrelatedErrorKind::Initial => {
-                    self.accumulate_correlated_noise(*probability, faults);
+                    self.accumulate_correlated_noise(instruction_span, *probability, faults);
                 }
                 semantic::CorrelatedErrorKind::Else => {
                     self.continue_correlated_noise(instruction_span, *probability, faults);
@@ -1353,10 +1376,16 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_label(&continue_label);
     }
 
-    fn accumulate_correlated_noise(&mut self, probability: f64, faults: &[semantic::Fault]) {
+    fn accumulate_correlated_noise(
+        &mut self,
+        instruction_span: Span,
+        probability: f64,
+        faults: &[semantic::Fault],
+    ) {
         self.noise_accumulator.push_correlated_row(CorrelatedRow {
             probability,
             faults: faults.to_vec(),
+            span: instruction_span,
         });
     }
 
@@ -1372,14 +1401,20 @@ impl<'noise> Compiler<'noise> {
             });
             return;
         }
-        self.accumulate_correlated_noise(probability, faults);
+        self.accumulate_correlated_noise(instruction_span, probability, faults);
     }
 
     fn finish_correlated_noise(&mut self) {
         if self.noise_accumulator.current_correlated_group.is_none() {
             return;
         }
-        let (noise_table, qubits) = self.noise_accumulator.flush_correlated_group();
+        let (noise_table, qubits) = match self.noise_accumulator.flush_correlated_group() {
+            Ok(flushed) => flushed,
+            Err(error) => {
+                self.push_error(error);
+                return;
+            }
+        };
         if qubits.is_empty() {
             // Every outcome cancelled to the identity, so there is no noise to apply.
             return;
