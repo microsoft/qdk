@@ -4,6 +4,14 @@ umask 0022
 
 info() { printf '[sandbox] %s\n' "$*" >&2; }
 
+verify_policy() {
+    local policy=/etc/github-copilot/policy.d/copilot-sandbox.json
+    if [[ ! -f $policy || -L $policy || $(stat -c '%a:%u:%g' "$policy") != 444:0:0 ]]; then
+        info "Refusing to start: $policy must be a regular file owned by root:root with mode 0444."
+        return 1
+    fi
+}
+
 configure_git() {
     git config --global user.name "${QDK_GIT_NAME:-agent}"
     git config --global user.email "${QDK_GIT_EMAIL:-agent@localhost}"
@@ -123,6 +131,7 @@ sync_outbox() {
 }
 
 main() {
+    verify_policy
     REPO=/work/qdk
     SEED=/seed.git
     OUTBOX=/outbox.git

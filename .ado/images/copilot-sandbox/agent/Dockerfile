@@ -56,7 +56,9 @@ RUN --mount=type=bind,from=qdk,target=/qdk,readonly \
 # Lock things down (proxy, copilot hooks, etc)
 FROM prepared AS runtime-base
 COPY --chmod=0444 runtime/policy/copilot-sandbox.json /etc/github-copilot/policy.d/copilot-sandbox.json
-RUN chmod 0755 /etc/github-copilot /etc/github-copilot/policy.d \
+RUN chown 0:0 /etc/github-copilot/policy.d/copilot-sandbox.json \
+    && chmod 0444 /etc/github-copilot/policy.d/copilot-sandbox.json \
+    && chmod 0755 /etc/github-copilot /etc/github-copilot/policy.d \
     && chmod 0555 /opt/sandbox/runtime/entrypoint.sh /opt/sandbox/runtime/sandbox-push \
         /opt/sandbox/runtime/hooks/* /opt/sandbox/runtime/policy/tool_policy.py \
     && ln -s /opt/sandbox/copilot/node_modules/.bin/copilot /usr/local/bin/copilot \
@@ -83,7 +85,7 @@ WORKDIR /work
 # Make sure the QDK still builds locked down
 FROM runtime-base AS verify
 RUN --network=none --mount=type=bind,from=qdk,target=/qdk,readonly \
-    test -r /etc/github-copilot/policy.d/copilot-sandbox.json \
+    bash -c 'source /opt/sandbox/runtime/entrypoint.sh; verify_policy' \
     && bash /opt/sandbox/scripts/build_qdk.sh \
     && printf '%s\n' "$QDK_BUILD_ARGS" > /tmp/offline-verified
 
