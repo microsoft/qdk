@@ -92,11 +92,6 @@ extends:
                   - checkout: self
                     clean: true
                     persistCredentials: false
-                  - task: DownloadSecureFile@1
-                    name: msrustupInstaller
-                    displayName: Obtain the reviewed msrustup installer
-                    inputs:
-                      secureFile: install-msrustup.sh
                   - task: PipAuthenticate@1
                     inputs:
                       artifactFeeds: AzureQuantum/azure-quantum
@@ -121,7 +116,7 @@ extends:
                     env:
                       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
                       PIP_INDEX_URL: $(PIP_INDEX_URL)
-                      MSRUSTUP_INSTALLER: $(msrustupInstaller.secureFilePath)
+                      MSRUSTUP_INSTALLER: $(Build.SourcesDirectory)/.ado/images/install-msrustup.sh
                       NPMRC_PATH: $(Agent.TempDirectory)/sandbox.npmrc
                       TOOLCHAIN_FEED: $(toolchainFeed)
                       CRATES_FEED: $(cratesIoFeedOverride)

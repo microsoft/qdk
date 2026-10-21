@@ -220,7 +220,7 @@ To mimic the pipeline build locally, you need to pass a lot more arguments:
 ```sh
 .venv/bin/python tools/copilot-sandbox/build_images.py build \
   --package-source azure \
-  --installer /secure/install-msrustup.sh \
+  --installer .ado/images/install-msrustup.sh \
   --secret-file npmrc=/secure/sandbox.npmrc \
   --secret-env msrustup_access_token=SYSTEM_ACCESSTOKEN \
   --secret-env pip_index_url=PIP_INDEX_URL \
@@ -228,7 +228,7 @@ To mimic the pipeline build locally, you need to pass a lot more arguments:
   --crates-feed "$CRATES_FEED"
 ```
 
-- `install-msrustup.sh` can be downloaded from [https://aka.ms/install-msrustup.sh](https://aka.ms/install-msrustup.sh).
+- The installer is checked in at [.ado/images/install-msrustup.sh](../../.ado/images/install-msrustup.sh).
 - `sandbox.npmrc` is constructed from the npm feed URI from Azure Artifacts and a token from `artifacts-npm-credprovider`.
 - `SYSTEM_ACCESSTOKEN` comes from `azureauth ado token`.
 - `PIP_INDEX_URL` is the pip feed URI from Azure Artifacts with an embedded token.
