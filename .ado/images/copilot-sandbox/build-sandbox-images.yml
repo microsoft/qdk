@@ -52,32 +52,9 @@ extends:
     stages:
       - stage: build
         jobs:
-          - job: resolveBase
-            displayName: Resolve the shared MCR base index
-            pool:
-              name: Azure-Pipelines-DevTools-EO
-              image: ubuntu-22.04
-              os: linux
-            templateContext:
-              authenticatedContainerRegistries:
-                - serviceConnection: qdkacr
-            steps:
-              - checkout: self
-                clean: true
-                persistCredentials: false
-                fetchDepth: 1
-                fetchTags: false
-              - bash: |
-                  set -euo pipefail
-                  base="$(python3 tools/copilot-sandbox/build_images.py resolve-base)"
-                  printf '##vso[task.setvariable variable=BASE_IMAGE;isOutput=true]%s\n' "$base"
-                name: base
-                displayName: Pin Azure Linux core 3.0 for this run
-
           - ${{ each target in parameters.matrix }}:
               - job: build_${{ target.name }}
                 displayName: Build and verify ${{ target.arch }} natively
-                dependsOn: resolveBase
                 timeoutInMinutes: 180
                 pool:
                   name: ${{ target.poolName }}
@@ -85,8 +62,6 @@ extends:
                   os: linux
                   ${{ if eq(target.arch, 'arm64') }}:
                     hostArchitecture: Arm64
-                variables:
-                  BASE_IMAGE: $[ dependencies.resolveBase.outputs['base.BASE_IMAGE'] ]
                 templateContext:
                   authenticatedContainerRegistries:
                     - serviceConnection: qdkacr
@@ -116,7 +91,6 @@ extends:
                         --secret-env pip_index_url=PIP_INDEX_URL \
                         --toolchain-feed "$TOOLCHAIN_FEED" \
                         --crates-feed "$CRATES_FEED" \
-                        --base-image "$BASE_IMAGE" \
                         --platform linux/${{ target.arch }} \
                         --registry "$ACR_SERVER" --tag "$BUILD_BUILDID"
                     displayName: Build offline-verified agent and proxy
@@ -127,7 +101,6 @@ extends:
                       NPMRC_PATH: $(Agent.TempDirectory)/sandbox.npmrc
                       TOOLCHAIN_FEED: $(toolchainFeed)
                       CRATES_FEED: $(cratesIoFeedOverride)
-                      BASE_IMAGE: $(BASE_IMAGE)
                       ACR_SERVER: ${{ parameters.ACR_SERVER }}
                   - task: ComponentGovernanceComponentDetection@0
                     displayName: Detect components in both local runtime images
