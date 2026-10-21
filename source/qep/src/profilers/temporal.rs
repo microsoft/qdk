@@ -15,12 +15,38 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
-/// Returns the simulated duration of a supported instruction.
+/// Returns a coarse logical-instruction duration, in nanoseconds.
+///
+/// Litinski, arXiv:1808.02892, Section 1, defines a logical time step as roughly
+/// d surface-code cycles; Section 4 assumes a 1 us physical code cycle. For this
+/// distance-5 demo, one logical step is therefore 5 * 1_000 = 5_000 ns.
+/// This is a fixed benchmark, not a hardware calibration or a distance-dependent
+/// estimate: it does not currently use `ProfilerConfig::ecc_distance`.
+///
+/// We charge every Clifford one logical step. Actual costs differ: Pauli gates
+/// can be tracked classically, and lattice-surgery CNOTs can require several
+/// stages. Destructive logical readout need not take d rounds (Section 1);
+/// we allow one physical code cycle for measurement, reset, or their combination,
+/// rather than modeling their separate hardware and decoding latencies.
 fn instruction_time_nanos(instruction: &QuantumBackendInstruction) -> usize {
+    const CLIFFORD_TIME_NANOS: usize = 5_000;
+    const MEASUREMENT_RESET_TIME_NANOS: usize = 1_000;
+
     match instruction.instruction_name {
-        "h" | "x" | "t" | "cx" | "mz" | "mz_store" | "mz_store_reset" | "cz" | "tadj"
-        | "inject_t" | "inject_tadj" | "s" | "sadj" | "z" | "reset" => 1,
+        "cx" | "cy" | "cz" | "h" | "s" | "sadj" | "sx" | "x" | "y" | "z" | "swap" => {
+            CLIFFORD_TIME_NANOS
+        }
+        "mz" | "mz_reset" | "mz_store" | "mz_store_reset" | "reset" => MEASUREMENT_RESET_TIME_NANOS,
+        // Explicit injection: CNOT + measurement + worst-case conditional S,
+        // with CNOT and S each charged one Clifford step: 11_000 ns. We omit
+        // extra classical feedforward latency and assume a distilled state is
+        // already available; the scheduler accounts for factory waiting.
+        // This is not Litinski's optimized fast-block consumption time of one
+        // logical step, which tracks or avoids the separate correction.
+        "inject_t" | "inject_tadj" => 2 * CLIFFORD_TIME_NANOS + MEASUREMENT_RESET_TIME_NANOS,
+
         "read_result" => 0,
+        "t" | "tadj" => panic!("These should be implemented by inject gates"),
         _ => panic!("Unsupported temporal-profiler instruction: {instruction:?}"),
     }
 }
@@ -421,6 +447,8 @@ impl TemporalProfiler {
         match event {
             Event::DistillationRoundFinished(factory) => {
                 if self.rng.random::<f64>() < self.factories[factory.0].probability_success {
+                    self.aggregator
+                        .record_event(self.current_time_nanos, "T state produced");
                     self.available_resources
                         .entry(ResourceType::TState)
                         .or_default()
@@ -440,6 +468,8 @@ impl TemporalProfiler {
                 }
                 let instruction = &self.all_instructions[index].instruction;
                 if matches!(instruction.instruction_name, "inject_t" | "inject_tadj") {
+                    self.aggregator
+                        .record_event(self.current_time_nanos, "T state consumed");
                     let [Parameter::FactoryId(factory), Parameter::QubitId(_)] =
                         instruction.parameters.as_slice()
                     else {
@@ -548,7 +578,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Instant;
 
-    use super::{Event, FactoryId, ResourceType, TemporalProfiler};
+    use super::{Event, FactoryId, ResourceType, TemporalProfiler, instruction_time_nanos};
     use crate::tests::compile_qsharp_to_qir;
     use crate::{
         Parameter::{FactoryId as FactoryParameter, QubitId},
@@ -560,146 +590,11 @@ mod tests {
     /// Creates a repeatable single-factory profiler for timing tests.
     fn seeded_profiler() -> TemporalProfiler {
         TemporalProfiler::new(ProfilerConfig {
-            t_factories_count: 1,
+            t_factories_count: 5,
+            aggregation_window_nanos: 1_000_000_000,
             seed: Some(42),
             ..ProfilerConfig::default()
         })
-    }
-
-    /// Checks that T and T-adjoint each consume one state while H needs none.
-    #[test]
-    fn schedules_optional_single_resource_requirements() -> Result<(), String> {
-        let mut profiler = seeded_profiler();
-        let instructions: Vec<_> = [("t", 0), ("tadj", 1), ("h", 2)]
-            .into_iter()
-            .map(|(instruction_name, qubit)| QuantumBackendInstruction {
-                instruction_name,
-                parameters: smallvec::smallvec![QubitId(qubit)],
-            })
-            .collect();
-
-        profiler.execute_batch(&instructions)?;
-
-        let intervals: Vec<_> = profiler
-            .logs
-            .iter()
-            .map(|trace| {
-                (
-                    trace.instruction.instruction_name,
-                    trace.start_time_nanos,
-                    trace.end_time_nanos,
-                )
-            })
-            .collect();
-        assert_eq!(
-            intervals,
-            vec![
-                ("round", 0, 11),
-                ("h", 0, 1),
-                ("round", 11, 22),
-                ("round", 22, 33),
-                ("round", 33, 44),
-                ("inject_t", 44, 45),
-                ("round", 45, 56),
-                ("inject_tadj", 56, 57),
-                ("round", 57, 68),
-            ]
-        );
-        assert!(
-            profiler
-                .available_resources
-                .values()
-                .all(std::collections::VecDeque::is_empty)
-        );
-        assert_eq!(profiler.aggregator.total_event_count(), profiler.logs.len());
-        assert!(
-            profiler
-                .instructions_blocked_on_resources
-                .values()
-                .all(std::collections::VecDeque::is_empty)
-        );
-        Ok(())
-    }
-
-    #[test]
-    /// Snapshots instruction timing and dependencies for a simple program.
-    fn profiles_simple_program() -> Result<(), String> {
-        let source = r#"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Result[] {
-                    use q = Qubit[2];
-                    X(q[0]);
-                    H(q[0]);
-                    H(q[1]);
-                    CNOT(q[0], q[1]);
-                    T(q[0]);
-                    Adjoint T(q[1]);
-                    [M(q[0]), M(q[1])]
-                }
-            }
-        "#;
-        let file = compile_qsharp_to_qir(source, Profile::Base);
-        let mut profiler = seeded_profiler();
-
-        // SAFETY: The QIR was generated by the in-tree Q# compiler from trusted source.
-        let _ = unsafe { profiler.profile_qir(file.path()?) }?;
-
-        let result = profiler.get_result();
-        //assert_eq!(result.totals.logical_qubits, 2);
-        //assert!((result.totals.total_runtime_sec - 6e-9).abs() < 1e-20);
-        expect![[r#"
-            0-11: round 0
-            0-1: x 0
-            0-1: h 1
-            1-2: h 0
-            2-3: cx 0 1
-            11-22: round 0
-            22-33: round 0
-            33-44: round 0
-            44-45: inject_t 0 0
-            45-56: round 0
-            45-46: mz_store 0 0
-            46-46: read_result 0
-            56-67: round 0
-            67-68: inject_tadj 0 1
-            68-79: round 0
-            68-69: mz_store 1 1
-            69-69: read_result 1"#]]
-        .assert_eq(&format!(
-            "{:?}",
-            result
-                .trace
-                .expect("temporal profiler should record a trace")
-        ));
-        Ok(())
-    }
-
-    #[test]
-    /// Keeps qubit and measurement dependencies valid across adaptive result batches.
-    fn profiles_adaptive_program_across_batches() -> Result<(), String> {
-        let source = r#"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    use q = Qubit();
-                    let result = M(q);
-                    if result == One {
-                        X(q);
-                    } else {
-                        H(q);
-                    }
-                }
-            }
-        "#;
-        let file = compile_qsharp_to_qir(source, Profile::Adaptive);
-        let mut profiler = seeded_profiler();
-
-        // SAFETY: The QIR was generated by the in-tree Q# compiler from trusted source.
-        let _ = unsafe { profiler.profile_qir(file.path()?) }?;
-        let _ = profiler.get_result();
-
-        Ok(())
     }
 
     #[test]
@@ -736,24 +631,188 @@ mod tests {
         Ok(())
     }
 
+    /// Checks each instruction category against the fixed nanosecond benchmark.
+    #[test]
+    fn instruction_durations_use_logical_timing_assumptions() {
+        for (names, expected) in [
+            (
+                &[
+                    "cx", "cy", "cz", "h", "s", "sadj", "sx", "x", "y", "z", "swap",
+                ][..],
+                5_000,
+            ),
+            (
+                &["mz", "mz_reset", "mz_store", "mz_store_reset", "reset"][..],
+                1_000,
+            ),
+            (&["inject_t", "inject_tadj"][..], 11_000),
+            (&["read_result"][..], 0),
+        ] {
+            for &instruction_name in names {
+                assert_eq!(
+                    instruction_time_nanos(&QuantumBackendInstruction {
+                        instruction_name,
+                        parameters: smallvec::smallvec![],
+                    }),
+                    expected,
+                    "{instruction_name}"
+                );
+            }
+        }
+    }
+
+    /// Checks that T and T-adjoint each consume one state while H needs none.
+    #[test]
+    fn schedules_optional_single_resource_requirements() -> Result<(), String> {
+        let mut profiler = seeded_profiler();
+        profiler.factories[0].probability_success = 1.0;
+        let instructions: Vec<_> = [("t", 0), ("tadj", 1), ("h", 2)]
+            .into_iter()
+            .map(|(instruction_name, qubit)| QuantumBackendInstruction {
+                instruction_name,
+                parameters: smallvec::smallvec![QubitId(qubit)],
+            })
+            .collect();
+
+        profiler.execute_batch(&instructions)?;
+
+        let intervals: Vec<_> = profiler
+            .logs
+            .iter()
+            .map(|trace| {
+                (
+                    trace.instruction.instruction_name,
+                    trace.start_time_nanos,
+                    trace.end_time_nanos,
+                )
+            })
+            .collect();
+        assert_eq!(
+            intervals,
+            vec![
+                ("round", 0, 55_000),
+                ("h", 0, 5_000),
+                ("inject_t", 55_000, 66_000),
+                ("round", 66_000, 121_000),
+                ("inject_tadj", 121_000, 132_000),
+                ("round", 132_000, 187_000),
+            ]
+        );
+        assert!(
+            profiler
+                .available_resources
+                .values()
+                .all(std::collections::VecDeque::is_empty)
+        );
+        // Production and consumption each add one metric event per injected state.
+        assert_eq!(
+            profiler.aggregator.total_event_count(),
+            profiler.logs.len() + 4
+        );
+        assert!(
+            profiler
+                .instructions_blocked_on_resources
+                .values()
+                .all(std::collections::VecDeque::is_empty)
+        );
+        Ok(())
+    }
+
+    #[test]
+    /// Snapshots instruction timing and dependencies for a simple program.
+    fn profiles_simple_program() -> Result<(), String> {
+        let source = r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Result[] {
+                    use q = Qubit[2];
+                    X(q[0]);
+                    H(q[0]);
+                    H(q[1]);
+                    CNOT(q[0], q[1]);
+                    T(q[0]);
+                    Adjoint T(q[1]);
+                    [M(q[0]), M(q[1])]
+                }
+            }
+        "#;
+        let file = compile_qsharp_to_qir(source, Profile::Base);
+        let mut profiler = seeded_profiler();
+
+        // SAFETY: The QIR was generated by the in-tree Q# compiler from trusted source.
+        let _ = unsafe { profiler.profile_qir(file.path()?) }?;
+
+        let result = profiler.get_result();
+        assert_eq!(result.totals.logical_qubits, 2);
+        assert!((result.totals.total_runtime_sec - 133_000e-9).abs() < 1e-18);
+        expect![[r#"
+            0-55000: round 0
+            0-5000: x 0
+            0-5000: h 1
+            5000-10000: h 0
+            10000-15000: cx 0 1
+            55000-66000: inject_t 0 0
+            66000-121000: round 0
+            66000-67000: mz_store 0 0
+            67000-67000: read_result 0
+            121000-132000: inject_tadj 0 1
+            132000-187000: round 0
+            132000-133000: mz_store 1 1
+            133000-133000: read_result 1"#]]
+        .assert_eq(&format!(
+            "{:?}",
+            result
+                .trace
+                .expect("temporal profiler should record a trace")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    /// Keeps qubit and measurement dependencies valid across adaptive result batches.
+    fn profiles_adaptive_program_across_batches() -> Result<(), String> {
+        let source = r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    let result = M(q);
+                    if result == One {
+                        X(q);
+                    } else {
+                        H(q);
+                    }
+                }
+            }
+        "#;
+        let file = compile_qsharp_to_qir(source, Profile::Adaptive);
+        let mut profiler = seeded_profiler();
+
+        // SAFETY: The QIR was generated by the in-tree Q# compiler from trusted source.
+        let _ = unsafe { profiler.profile_qir(file.path()?) }?;
+        let _ = profiler.get_result();
+
+        Ok(())
+    }
+
     /// Failed rounds retry immediately, while successful factories wait without producing more.
     #[test]
     fn retries_failed_rounds_and_holds_one_ready_state() {
         let mut profiler = seeded_profiler();
         profiler.factories[0].probability_success = 0.0;
         let Reverse((time, _, event)) = profiler.events_queue.pop().expect("initial round");
-        assert_eq!(time, 11);
+        assert_eq!(time, 55_000);
         assert_eq!(event, Event::DistillationRoundFinished(FactoryId(0)));
         profiler.current_time_nanos = time;
         profiler.process_event(event);
         assert!(profiler.available_resources.is_empty());
         assert_eq!(profiler.logs.len(), 2);
-        assert_eq!(profiler.logs[1].start_time_nanos, 11);
-        assert_eq!(profiler.logs[1].end_time_nanos, 22);
+        assert_eq!(profiler.logs[1].start_time_nanos, 55_000);
+        assert_eq!(profiler.logs[1].end_time_nanos, 110_000);
 
         profiler.factories[0].probability_success = 1.0;
         let Reverse((time, _, event)) = profiler.events_queue.pop().expect("retry round");
-        assert_eq!(time, 22);
+        assert_eq!(time, 110_000);
         profiler.current_time_nanos = time;
         profiler.process_event(event);
         assert_eq!(
@@ -790,9 +849,9 @@ mod tests {
             .collect();
         assert_eq!(injections.len(), 3);
         for (trace, name, factory, qubit, start) in [
-            (injections[0], "inject_t", 0, 0, 11),
-            (injections[1], "inject_tadj", 1, 1, 11),
-            (injections[2], "inject_t", 0, 2, 23),
+            (injections[0], "inject_t", 0, 0, 55_000),
+            (injections[1], "inject_tadj", 1, 1, 55_000),
+            (injections[2], "inject_t", 0, 2, 121_000),
         ] {
             assert_eq!(trace.instruction.instruction_name, name);
             assert_eq!(
@@ -801,11 +860,11 @@ mod tests {
             );
             assert_eq!(
                 (trace.start_time_nanos, trace.end_time_nanos),
-                (start, start + 1)
+                (start, start + 11_000)
             );
             crate::validate_instruction(&trace.instruction);
         }
-        assert_eq!(profiler.current_time_nanos, 24);
+        assert_eq!(profiler.current_time_nanos, 132_000);
         assert_eq!(
             profiler.available_resources[&ResourceType::TState],
             std::collections::VecDeque::from([FactoryId(1)])
@@ -816,8 +875,8 @@ mod tests {
                 .iter()
                 .any(|trace| trace.instruction.instruction_name == "round"
                     && trace.instruction.parameters.as_slice() == [FactoryParameter(0)]
-                    && trace.start_time_nanos == 24
-                    && trace.end_time_nanos == 35)
+                    && trace.start_time_nanos == 132_000
+                    && trace.end_time_nanos == 187_000)
         );
 
         profiler.execute_batch(&[QuantumBackendInstruction {
@@ -831,10 +890,14 @@ mod tests {
                 .any(|trace| trace.instruction.instruction_name == "inject_tadj"
                     && trace.instruction.parameters.as_slice()
                         == [FactoryParameter(1), QubitId(0)]
-                    && trace.start_time_nanos == 24
-                    && trace.end_time_nanos == 25)
+                    && trace.start_time_nanos == 132_000
+                    && trace.end_time_nanos == 143_000)
         );
-        assert_eq!(profiler.aggregator.total_event_count(), profiler.logs.len());
+        // Four states have been produced and consumed, including the second batch.
+        assert_eq!(
+            profiler.aggregator.total_event_count(),
+            profiler.logs.len() + 8
+        );
         Ok(())
     }
 
@@ -879,7 +942,7 @@ mod tests {
             parameters: smallvec::smallvec![QubitId(0)],
         };
         profiler.execute_batch(&vec![h; 40])?;
-        assert_eq!(profiler.current_time_nanos, 40);
+        assert_eq!(profiler.current_time_nanos, 200_000);
         assert!(profiler.events_queue.is_empty());
         assert_eq!(
             profiler.available_resources[&ResourceType::TState],
@@ -898,12 +961,15 @@ mod tests {
             instruction_name: "t",
             parameters: smallvec::smallvec![QubitId(0)],
         }])?;
-        assert_eq!(profiler.current_time_nanos, 41);
+        assert_eq!(profiler.current_time_nanos, 211_000);
         let trace = profiler.logs.last().expect("restarted round");
         assert_eq!(trace.instruction.instruction_name, "round");
-        assert_eq!((trace.start_time_nanos, trace.end_time_nanos), (41, 52));
-        assert_eq!(profiler.get_result().totals.total_operations_count, 43);
-        assert!((profiler.get_result().totals.total_runtime_sec - 41e-9).abs() < 1e-20);
+        assert_eq!(
+            (trace.start_time_nanos, trace.end_time_nanos),
+            (211_000, 266_000)
+        );
+        assert_eq!(profiler.get_result().totals.total_operations_count, 45);
+        assert!((profiler.get_result().totals.total_runtime_sec - 211_000e-9).abs() < 1e-18);
         let metrics = profiler.get_result().profiles.profiles;
         let round_profile = metrics
             .iter()

@@ -17,6 +17,7 @@
 ///   - Or it gets moved into memory buffer (this is not implemented for now).  
 /// * After T state is used, distillation can start again.
 ///
+/// For the demo, I am using 15-1 factory from fig.15 in https://arxiv.org/pdf/1808.02892
 #[derive(Clone)]
 pub(super) struct TFactory {
     logical_qubits: usize,
@@ -28,20 +29,41 @@ pub(super) struct TFactory {
 }
 
 impl TFactory {
-    /// Creates a five-qubit factory with a 50% distillation success rate.
+    /// Creates a distance-5 demo factory with a 98.5% distillation success rate.
     pub fn new() -> Self {
         Self {
             logical_qubits: 5,
             distance: 5,
-            probability_success: 0.5,
-            distillation_round_duration_nanos: 11,
+            probability_success: 0.985, // 1 - (0.001*15), assuming 0.1% error per magic state.
+            // Litinski, arXiv:1808.02892, Section 3.3 / Fig. 17c: the 15-to-1
+            // protocol takes 11 logical steps. Section 1 identifies each step
+            // with roughly d physical code cycles; Section 4 assumes 1 us per
+            // code cycle. At the fixed demo distance 5 this gives
+            // 11 * 5 * 1_000 = 55_000 ns per attempt, not 11 ns.
+            // This leading-order estimate assumes state preparation and
+            // classical processing do not add latency (Section 3.3's caveat).
+            distillation_round_duration_nanos: 11 * 5 * 1_000,
             input_state_error: 1e-2,
             output_state_error: 1e-2,
         }
     }
 
-    /// Returns the duration of one distillation attempt.
+    /// Returns one attempt's duration, without averaging over failed attempts.
+    ///
+    /// The scheduler samples success and retries failed rounds itself, so
+    /// dividing this duration by the success probability would count retries twice.
     pub fn distillation_round_duration_nanos(&self) -> usize {
         self.distillation_round_duration_nanos
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TFactory;
+
+    /// Verifies that eleven distance-5 logical steps take 55 microseconds.
+    #[test]
+    fn distillation_duration_uses_logical_steps() {
+        assert_eq!(TFactory::new().distillation_round_duration_nanos(), 55_000);
     }
 }
