@@ -3,6 +3,7 @@
 
 mod aggregators;
 mod counting;
+mod factories;
 mod temporal;
 
 use crate::{QuantumBackend, QuantumBackendInstruction, run_qir};
@@ -15,7 +16,27 @@ pub use temporal::TemporalProfiler;
 
 #[derive(Clone, Copy)]
 pub struct ProfilerConfig {
-    aggregation_window_nanos: usize,
+    pub aggregation_window_nanos: usize,
+    pub t_factories_count: usize,
+    /// Seed for temporal-profiler distillation and measurement randomness.
+    pub seed: Option<u64>,
+
+    /// Distanceof the error-coorecting code.
+    /// Assumes that all logical qubits have the same error correcting code.
+    /// TODO: change it to specify different ECCs for different qubits.
+    pub ecc_distance: usize,
+}
+
+impl Default for ProfilerConfig {
+    /// Uses ten factories, one-second windows, and unseeded randomness.
+    fn default() -> Self {
+        Self {
+            aggregation_window_nanos: 1_000_000_000,
+            t_factories_count: 10,
+            seed: None,
+            ecc_distance: 5,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]

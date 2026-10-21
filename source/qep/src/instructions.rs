@@ -4,7 +4,7 @@
 //! Defines the logical instruction set that can appear in QIR emitted from Q#.
 
 use crate::interface::{
-    Parameter::{Float, QubitId, ResultId},
+    Parameter::{FactoryId, Float, QubitId, ResultId},
     QuantumBackendInstruction,
 };
 
@@ -80,6 +80,14 @@ define_instructions! {
     (READ_RESULT, 23, "read_result", [ResultId(_)]),  // returns Result.
     (MZ, 24, "mz", [QubitId(_)]),  // returns Result.
     (MZ_RESET, 25, "mz_reset", [QubitId(_)]),  // returns Result.
+
+    // These instructions are used internally by the profilers.
+    // We really only need them to put inside events and detailed traces, so maybe they should not
+    // part of the public ISA.
+    (INJECT_T, 26, "inject_t", [FactoryId(_), QubitId(_)]),
+    (INJECT_TADJ, 27, "inject_tadj", [FactoryId(_), QubitId(_)]),
+    (ROUND, 28, "round", [FactoryId(_)]),
+
 }
 
 #[cfg(test)]

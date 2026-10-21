@@ -9,6 +9,7 @@ pub enum Parameter {
     Float(f64),
     ResultId(usize),
     QubitId(usize),
+    FactoryId(usize),
 }
 
 #[derive(Clone, PartialEq)]
@@ -63,7 +64,9 @@ impl fmt::Debug for Parameter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Float(value) => write!(f, "{value}"),
-            Self::ResultId(value) | Self::QubitId(value) => write!(f, "{value}"),
+            Self::ResultId(value) | Self::QubitId(value) | Self::FactoryId(value) => {
+                write!(f, "{value}")
+            }
         }
     }
 }

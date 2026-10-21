@@ -247,14 +247,24 @@ and a proof-of-concept for the whole QEP project.
 * Instructions are ordered by their per-qubit and measurement-result dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
 * Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
-* The prototype assigns 1 ms to `h`, `x`, `t`, `cx`, and measurement-store instructions; `read_result`
-  takes 0 ns. Other instructions are not yet supported.
-* One T-state is produced every 1 ms, beginning at 1 ms. T gates consume one available T-state.
+* Supported gates and measurements take 1 ns; `read_result` takes 0 ns.
+* Every T factory starts an 11 ns distillation round at startup. Each attempt succeeds with
+  probability 0.5; failures immediately retry. A successful factory holds one T-state and pauses
+  until that state is consumed.
+* `t` and `tadj` reserve a ready factory and execute as `inject_t` and `inject_tadj`, with operands
+  `[FactoryId, QubitId]`. The factory starts its next round only when the 1 ns injection finishes.
+  Ready factories are selected FIFO within each resource type.
 * Instruction references and qubit/result dependencies persist across QIR batches, including the
   adaptive-profile result barrier.
+* `ProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
+  `seed`. Defaults use ten factories and no seed. A fixed seed reproduces both distillation
+  outcomes and measurement bits. Construction requires at least one factory and a nonzero window.
 
-Temporal profile collection is not implemented yet. `TemporalProfiler.get_result()` currently
-returns empty totals and profiles, and includes the simulated start/end timeline in `infos`.
+`TemporalProfiler.get_result()` returns logical qubit usage, simulated elapsed time, operation
+counts, rate profiles, and a detailed execution trace. Round starts count as `round` operations;
+injections count as `inject_t`/`inject_tadj`, not `t`/`tadj`. The trace includes all scheduled round
+intervals, even rounds extending beyond execution. Pending rounds do not extend the reported
+runtime: each batch stops as soon as its instructions finish.
 
 
 ### Resource estimation workflow.
