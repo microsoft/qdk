@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import json
 import re
 
@@ -11,6 +13,17 @@ REGISTRY = "qdkacr-cfgqhwddajdaebhg.azurecr.io"
 LOCAL_IMAGE_PREFIX = "copilot-sandbox-"
 LOCAL_IMAGE_TAG = "dev"
 BUILD_ID_LABEL = "qdk.copilot-sandbox.build-id"
+
+
+@dataclass(frozen=True)
+class _RemoteImage:
+    reference: str
+    image_id: str
+    build_id: str
+
+
+class _RegistryError(LauncherError):
+    pass
 
 
 def _request_user_confirmation(prompt: str) -> bool:
@@ -29,97 +42,179 @@ def _get_local_image_metadata(image: str) -> dict | None:
     return json.loads(result.stdout)[0] if result.returncode == 0 else None
 
 
-def _is_local_image_in_manifest(
-    local: dict, manifest: object, architecture: str
-) -> bool:
-    entries = manifest if isinstance(manifest, list) else [manifest]
-    for entry in entries:
-        if not isinstance(entry, dict):
-            raise LauncherError("Registry manifest has an unexpected shape.")
-        descriptor = entry.get("Descriptor", {})
-        platform = descriptor.get("platform", {})
-        if (
-            platform.get("architecture", architecture) != architecture
-            or platform.get("os", "linux") != "linux"
-        ):
-            continue
-        if any(
-            item.endswith("@" + descriptor.get("digest", "missing"))
-            for item in local.get("RepoDigests", [])
-        ):
-            return True
-        body = entry.get("SchemaV2Manifest", entry.get("OCIManifest", {}))
-        if body.get("config", {}).get("digest") == local.get("Id"):
-            return True
-    return False
-
-
-# Pull the image if we don't already have it
-def _ensure_image(image: str, architecture: str, *, dev: bool = False) -> str:
-    local = _get_local_image_metadata(image)
-    if dev:
-        if not local:
-            raise LauncherError(
-                "Development image is missing. Build it with the maintainer tool first."
-            )
-        return local["Id"]
-    remote = run(["docker", "manifest", "inspect", "--verbose", image], check=False)
-    if remote.returncode:
-        if _request_user_confirmation(
-            "Registry inspection failed. Run az acr login --name qdkacr and retry?"
-        ):
-            run(["az", "acr", "login", "--name", "qdkacr"])
-            remote = run(
-                ["docker", "manifest", "inspect", "--verbose", image], check=False
-            )
-        if remote.returncode:
-            if local and _request_user_confirmation(
-                "Cannot compare registry digests. Continue with the cached image?"
-            ):
-                return local["Id"]
-            raise LauncherError(
-                "Cannot inspect the registry image; verify ACR access and connectivity."
-            )
-    changed = local is None or not _is_local_image_in_manifest(
-        local, json.loads(remote.stdout), architecture
-    )
-    if changed and _request_user_confirmation(
-        f"{'Pull missing' if local is None else 'Pull updated'} image {image}?"
-    ):
-        pulled = run(["docker", "pull", image], check=False)
-        if pulled.returncode and _request_user_confirmation(
-            "Pull failed. Run az acr login --name qdkacr and retry?"
-        ):
-            run(["az", "acr", "login", "--name", "qdkacr"])
-            run(["docker", "pull", image])
-        elif pulled.returncode:
-            raise LauncherError("Image pull failed.")
-        local = _get_local_image_metadata(image)
-    if local is None:
+def _get_build_id(image: dict) -> str:
+    build_id = ((image.get("Config") or {}).get("Labels") or {}).get(BUILD_ID_LABEL)
+    if not isinstance(build_id, str) or not build_id:
         raise LauncherError(
-            "A local image is required; pull was declined or unsuccessful."
+            "Image has no sandbox build-id label; rebuild or select a paired release."
         )
-    return local["Id"]
+    get_image_names_for_tag(build_id)
+    return build_id
+
+
+def _get_remote_image_metadata(image: str, architecture: str) -> _RemoteImage:
+    result = run(["docker", "manifest", "inspect", "--verbose", image], check=False)
+    if result.returncode:
+        raise _RegistryError("Cannot inspect the registry image.")
+    try:
+        manifest = json.loads(result.stdout)
+        entries = manifest if isinstance(manifest, list) else [manifest]
+        for entry in entries:
+            descriptor = entry["Descriptor"]
+            platform = descriptor.get("platform", {})
+            if (
+                platform.get("architecture", architecture) != architecture
+                or platform.get("os", "linux") != "linux"
+            ):
+                continue
+            digest = descriptor["digest"]
+            body = entry.get("SchemaV2Manifest", entry.get("OCIManifest", {}))
+            image_id = body["config"]["digest"]
+            if not all(
+                re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+                for value in (digest, image_id)
+            ):
+                raise ValueError("Invalid image digest.")
+            reference = image.rsplit(":", 1)[0] + "@" + digest
+            configuration = run(
+                [
+                    "docker",
+                    "buildx",
+                    "imagetools",
+                    "inspect",
+                    reference,
+                    "--format",
+                    "{{json .Image}}",
+                ],
+                check=False,
+            )
+            if configuration.returncode:
+                raise _RegistryError("Cannot inspect the registry image configuration.")
+            data = json.loads(configuration.stdout)
+            candidates = [data] if "architecture" in data else data.values()
+            matches = [
+                candidate
+                for candidate in candidates
+                if isinstance(candidate, dict)
+                and candidate.get("architecture") == architecture
+                and candidate.get("os") == "linux"
+            ]
+            if len(matches) != 1:
+                raise ValueError("Unexpected image platform.")
+            build_id = _get_build_id({"Config": matches[0].get("config")})
+            return _RemoteImage(reference, image_id, build_id)
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise LauncherError(
+            "Registry image metadata has an unexpected shape."
+        ) from None
+    raise LauncherError(f"Registry image has no linux/{architecture} manifest.")
+
+
+def _get_cached_image_pair(base: str, *, dev: bool = False) -> tuple[str, str, str]:
+    agent = _get_local_image_metadata(base)
+    if agent is None:
+        raise LauncherError("A local agent image is required; build or pull it first.")
+    build_id = _get_build_id(agent)
+    _, proxy = get_image_names_for_tag(build_id, dev=dev)
+    proxy_image = _get_local_image_metadata(proxy)
+    if proxy_image is None:
+        raise LauncherError("The cached agent's matching proxy image is missing.")
+    if _get_build_id(proxy_image) != build_id:
+        raise LauncherError(
+            "Agent and proxy build-id labels differ; refusing a mixed-build session."
+        )
+    return agent["Id"], proxy_image["Id"], build_id
+
+
+def _get_remote_image_pair(
+    base: str, architecture: str
+) -> tuple[_RemoteImage, _RemoteImage]:
+    agent = _get_remote_image_metadata(base, architecture)
+    _, proxy_name = get_image_names_for_tag(agent.build_id)
+    proxy = _get_remote_image_metadata(proxy_name, architecture)
+    if proxy.build_id != agent.build_id:
+        raise LauncherError(
+            "Agent and proxy build-id labels differ; refusing a mixed-build session."
+        )
+    return agent, proxy
+
+
+def _pull_images(remote_images: list[_RemoteImage]) -> list[_RemoteImage]:
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        pending = [
+            executor.submit(run, ["docker", "pull", image.reference], check=False)
+            for image in remote_images
+        ]
+        return [
+            image
+            for image, future in zip(remote_images, pending)
+            if future.result().returncode
+        ]
 
 
 def get_image_pair(
     base: str, architecture: str, *, dev: bool = False
 ) -> tuple[str, str, str]:
-    agent_id = _ensure_image(base, architecture, dev=dev)
-    agent = _get_local_image_metadata(agent_id) or {}
-    build_id = ((agent.get("Config") or {}).get("Labels") or {}).get(BUILD_ID_LABEL)
-    if not isinstance(build_id, str) or not build_id:
-        raise LauncherError(
-            "Agent image has no sandbox build-id label; rebuild or select a paired release."
-        )
-    _, proxy = get_image_names_for_tag(build_id, dev=dev)
-    proxy_id = _ensure_image(proxy, architecture, dev=dev)
-    proxy_image = _get_local_image_metadata(proxy_id) or {}
-    proxy_build = ((proxy_image.get("Config") or {}).get("Labels") or {}).get(
-        BUILD_ID_LABEL
-    )
-    if proxy_build != build_id:
-        raise LauncherError(
-            "Agent and proxy build-id labels differ; refusing a mixed-build session."
-        )
-    return agent_id, proxy_id, build_id
+    if dev:
+        return _get_cached_image_pair(base, dev=True)
+    try:
+        pair = _get_remote_image_pair(base, architecture)
+    except _RegistryError:
+        pair = None
+        if _request_user_confirmation(
+            "Registry inspection failed. Run az acr login --name qdkacr and retry?"
+        ):
+            run(["az", "acr", "login", "--name", "qdkacr"])
+            try:
+                pair = _get_remote_image_pair(base, architecture)
+            except _RegistryError:
+                pass
+        if pair is None:
+            try:
+                cached = _get_cached_image_pair(base)
+            except LauncherError:
+                raise LauncherError(
+                    "Cannot inspect the registry image pair; verify ACR access, Docker Buildx and connectivity."
+                ) from None
+            if _request_user_confirmation(
+                "Cannot compare registry digests. Continue with the cached image pair?"
+            ):
+                return cached
+            raise LauncherError("Use of the cached image pair was declined.")
+    required = [
+        image for image in pair if _get_local_image_metadata(image.image_id) is None
+    ]
+    if required:
+        if not _request_user_confirmation(
+            f"Pull required sandbox images for build {pair[0].build_id}?\n"
+            + "\n".join(f"  {image.reference}" for image in required)
+        ):
+            try:
+                return _get_cached_image_pair(base)
+            except LauncherError:
+                raise LauncherError(
+                    "Downloads declined and no matching cached image pair is available."
+                ) from None
+        failed = _pull_images(required)
+        if failed:
+            if not _request_user_confirmation(
+                "Image pulls failed. Run az acr login --name qdkacr and retry failed pulls?"
+            ):
+                raise LauncherError("Image pull failed.")
+            run(["az", "acr", "login", "--name", "qdkacr"])
+            if _pull_images(failed):
+                raise LauncherError("Image pull failed after authentication retry.")
+    for image in pair:
+        local = _get_local_image_metadata(image.image_id)
+        if (
+            local is None
+            or local.get("Id") != image.image_id
+            or _get_build_id(local) != image.build_id
+        ):
+            raise LauncherError("Downloaded image does not match the selected release.")
+    _, proxy_name = get_image_names_for_tag(pair[0].build_id)
+    for name, image in zip((base, proxy_name), pair):
+        tagged = _get_local_image_metadata(name)
+        if tagged is None or tagged.get("Id") != image.image_id:
+            run(["docker", "tag", image.image_id, name])
+    return pair[0].image_id, pair[1].image_id, pair[0].build_id
