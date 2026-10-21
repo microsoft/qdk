@@ -37,7 +37,7 @@ ENV MSRUSTUP_HOME=/opt/msrustup \
     PYRIGHT_PYTHON_CACHE_DIR=/opt/pyright \
     QDK_BUILD_ARGS=${QDK_BUILD_ARGS} \
     PATH=/opt/qdk-venv/bin:/opt/msrustup/multiplexers/bin:/opt/msrustup/bin:/opt/rustup/bin:/usr/local/bin:/usr/bin:/bin
-RUN --mount=type=secret,id=msrustup_installer \
+RUN --mount=type=bind,from=qdk,source=.ado/images/install-msrustup.sh,target=/opt/sandbox/install-msrustup.sh,readonly \
     --mount=type=secret,id=msrustup_access_token \
     --mount=type=tmpfs,target=/tmp \
     bash /opt/sandbox/scripts/install_rust.sh
