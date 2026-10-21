@@ -37,7 +37,7 @@ impl TumblingWindowAggregator {
             None => self.event_counts.entry(event_name.to_owned()).or_default(),
         };
         let window_id = time_nanos / self.window_size_nanos;
-        let window_count = window_id+1;
+        let window_count = window_id + 1;
         if counts.len() < window_count {
             counts.resize(window_count, 0);
         }

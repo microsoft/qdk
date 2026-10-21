@@ -8,7 +8,13 @@ mod temporal;
 
 use crate::{QuantumBackend, QuantumBackendInstruction, run_qir};
 use rustc_hash::FxHashMap;
-use std::fmt;
+use serde::Serialize;
+use std::{
+    fmt,
+    fs::File,
+    io::{BufWriter, Write},
+    path::Path,
+};
 
 pub use aggregators::TumblingWindowAggregator;
 pub use counting::SequentialCountingProfiler;
@@ -20,6 +26,9 @@ pub struct ProfilerConfig {
     pub t_factories_count: usize,
     /// Seed for temporal-profiler distillation and measurement randomness.
     pub seed: Option<u64>,
+    /// Records temporal instruction and factory-round intervals when true.
+    /// Disabling this leaves metrics unchanged and returns no execution trace.
+    pub record_trace: bool,
 
     /// Distanceof the error-coorecting code.
     /// Assumes that all logical qubits have the same error correcting code.
@@ -28,18 +37,19 @@ pub struct ProfilerConfig {
 }
 
 impl Default for ProfilerConfig {
-    /// Uses ten factories, one-second windows, and unseeded randomness.
+    /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
     fn default() -> Self {
         Self {
             aggregation_window_nanos: 1_000_000_000,
             t_factories_count: 10,
             seed: None,
+            record_trace: false,
             ecc_distance: 5,
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize)]
 pub struct TotalCounts {
     /// Number of logical qubits used by the program.
     pub logical_qubits: usize,
@@ -73,7 +83,7 @@ pub struct TotalCounts {
 ///   "number events per window / window size".
 /// Profiler may also report gate counts per aggregations window, e.g. "X gates per window", but
 ///    that metric will depend on window size, so it's not recommended.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TimeSeries {
     pub metric_name: String,
     pub metric_units: String,
@@ -82,7 +92,7 @@ pub struct TimeSeries {
 }
 
 /// Time series reporting metrics per time.
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize)]
 pub struct TemporalProfiles {
     pub profiles: Vec<TimeSeries>,
 
@@ -91,7 +101,7 @@ pub struct TemporalProfiles {
 }
 
 /// For every instruction, records start and end time of that instruction.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct InstructionTrace {
     pub start_time_nanos: usize,
     pub end_time_nanos: usize,
@@ -109,7 +119,7 @@ impl fmt::Debug for InstructionTrace {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct ExecutionTrace {
     instructions: Vec<InstructionTrace>,
 }
@@ -128,7 +138,7 @@ impl fmt::Debug for ExecutionTrace {
 }
 
 /// Profiling data collected during quantum execution.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct ProfilerResult {
     /// Total counts.
     pub totals: TotalCounts,
@@ -142,6 +152,26 @@ pub struct ProfilerResult {
 
     /// Informational messages about assumptions made while profiling.
     pub infos: Vec<String>,
+}
+
+impl ProfilerResult {
+    /// Writes all result fields as pretty-printed JSON, creating or replacing the file.
+    ///
+    /// Instruction parameters retain their variant names, and absent traces are
+    /// serialized as `null`. Parent directories must already exist.
+    /// Returns a path-qualified error if creation, serialization, or flushing fails.
+    pub fn to_json(&self, path: impl AsRef<Path>) -> Result<(), String> {
+        let path = path.as_ref();
+        let file = File::create(path)
+            .map_err(|error| format!("Failed to create {}: {error}", path.display()))?;
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer_pretty(&mut writer, self).map_err(|error| {
+            format!("Failed to serialize result to {}: {error}", path.display())
+        })?;
+        writer
+            .flush()
+            .map_err(|error| format!("Failed to flush {}: {error}", path.display()))
+    }
 }
 
 /// A quantum backend that reports profiling data after execution.

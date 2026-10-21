@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use serde::Serialize;
 use smallvec::SmallVec;
 use std::fmt;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub enum Parameter {
     Float(f64),
     ResultId(usize),
@@ -12,7 +13,7 @@ pub enum Parameter {
     FactoryId(usize),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct QuantumBackendInstruction {
     pub instruction_name: &'static str,
     pub parameters: SmallVec<[Parameter; 3]>,
