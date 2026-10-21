@@ -82,7 +82,7 @@ There can also be private configuration and history data in `.git`.
   Docker Desktop must be allowed to share the checkout and instance directory.
   The launcher does not change host ownership or ACLs.
 
-Images must first be published by the separate image pipeline, or built with the maintainer tool.
+Images must first be published by the separate image pipeline or built with the maintainer tool.
 This launcher does not install prerequisites.
 Docker's daemon is a trusted host service; rootless/remote-daemon networking and file sharing are not certified by these unit tests.
 
@@ -140,7 +140,13 @@ pass init YOUR_GPG_KEY_FINGERPRINT
 
 **Don't run Docker Compose directly.**
 
-From the repository root on Linux/macOS:
+First, start Docker Desktop and login to ACR:
+
+```sh
+az acr login --name qdkacr
+```
+
+Then, from the repository root:
 
 ```sh
 .venv/bin/python tools/copilot-sandbox/sandbox.py run
