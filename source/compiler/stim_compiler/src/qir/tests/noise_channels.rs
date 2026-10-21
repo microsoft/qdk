@@ -31,6 +31,96 @@ fn correlated_error_yields_expected_qir() {
 }
 
 #[test]
+fn correlated_error_repeated_pauli_on_same_qubit_cancels() {
+    let source = "E(0.1) X0 X0";
+    check(
+        source,
+        &expect![[r#"
+        [metadata]
+          required_num_qubits = 0
+          required_num_results = 0"#]],
+    );
+}
+
+#[test]
+fn correlated_error_composes_paulis_on_same_qubit() {
+    let source = "E(0.1) X0 Z1 Z0 X0";
+    check(
+        source,
+        &expect![[r#"
+        [entry_point]
+            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+
+        [declarations]
+          declare void @noise_intrinsic_0(ptr, ptr) #2
+
+        [metadata]
+          required_num_qubits = 2
+          required_num_results = 0
+          uses_noise = true
+
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 2
+                ZZ: 0.1"#]],
+    );
+}
+
+#[test]
+fn correlated_error_loss_absorbs_paulis_on_same_qubit() {
+    let source = "E(0.1) X0 L0 Z0";
+    check(
+        source,
+        &expect![[r#"
+        [entry_point]
+            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+        [declarations]
+          declare void @noise_intrinsic_0(ptr) #2
+
+        [metadata]
+          required_num_qubits = 1
+          required_num_results = 0
+          uses_noise = true
+
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                L: 0.1"#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_cancelled_row_still_consumes_probability() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.5) X0 X0
+        ELSE_CORRELATED_ERROR(0.5) Z0
+    "};
+    check(
+        source,
+        &expect![[r#"
+        [entry_point]
+            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+        [declarations]
+          declare void @noise_intrinsic_0(ptr) #2
+
+        [metadata]
+          required_num_qubits = 1
+          required_num_results = 0
+          uses_noise = true
+
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                Z: 0.25"#]],
+    );
+}
+
+#[test]
 fn correlated_error_chain_merges_duplicate_outcome_probabilities() {
     let source = indoc! {"
         CORRELATED_ERROR(0.5) X0

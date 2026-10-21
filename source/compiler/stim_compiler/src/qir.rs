@@ -424,6 +424,30 @@ impl NoiseKey {
     }
 }
 
+/// Combines all faults acting on the same qubit into a single fault. Paulis are
+/// multiplied (ignoring the global phase). Loss absorbs any Pauli on the same qubit.
+/// Qubits whose faults cancel to the identity are omitted from the result.
+fn combine_faults_per_qubit(faults: &[semantic::Fault]) -> Vec<semantic::Fault> {
+    use semantic::FaultKind::{Loss, X, Y, Z};
+
+    let mut combined = FxHashMap::<StimQubitId, Option<semantic::FaultKind>>::default();
+    for fault in faults {
+        let kind = combined.entry(fault.qubit).or_default();
+        *kind = match (*kind, fault.kind) {
+            (None, new) => Some(new),
+            (Some(Loss), _) | (_, Loss) => Some(Loss),
+            (Some(X), X) | (Some(Y), Y) | (Some(Z), Z) => None,
+            (Some(X), Y) | (Some(Y), X) => Some(Z),
+            (Some(Y), Z) | (Some(Z), Y) => Some(X),
+            (Some(X), Z) | (Some(Z), X) => Some(Y),
+        };
+    }
+    combined
+        .into_iter()
+        .filter_map(|(qubit, kind)| Some(semantic::Fault { kind: kind?, qubit }))
+        .collect()
+}
+
 struct NoiseAccumulator<'noise> {
     config: &'noise mut NoiseConfig<f64, f64>,
     intrinsic_ids: FxHashMap<NoiseKey, u32>,
@@ -471,10 +495,16 @@ impl<'noise> NoiseAccumulator<'noise> {
     }
 
     fn flush_correlated_group(&mut self) -> (NoiseTable<f64>, Vec<StimQubitId>) {
-        let rows = self
+        let rows: Vec<CorrelatedRow> = self
             .current_correlated_group
             .take()
-            .expect("a correlated group must be present to flush"); // this is a compiler invariant
+            .expect("a correlated group must be present to flush") // this is a compiler invariant
+            .into_iter()
+            .map(|row| CorrelatedRow {
+                faults: combine_faults_per_qubit(&row.faults),
+                probability: row.probability,
+            })
+            .collect();
 
         let qubits = self.collect_qubits(&rows);
         let pauli_string_width = qubits.len();
@@ -485,6 +515,12 @@ impl<'noise> NoiseAccumulator<'noise> {
         let mut outcome_indices = FxHashMap::default();
         let mut remaining_probability = 1.0;
         for row in rows {
+            // Faults that cancel to the identity are a no-op outcome, but they still
+            // consume probability so that later ELSE_CORRELATED_ERROR rows are not triggered.
+            if row.faults.is_empty() {
+                remaining_probability *= 1.0 - row.probability;
+                continue;
+            }
             let mut pauli_string_chars = vec!["I"; pauli_string_width];
             for fault in row.faults {
                 pauli_string_chars[column_of_qubit[&fault.q]] = fault.kind.as_str();
@@ -1344,6 +1380,10 @@ impl<'noise> Compiler<'noise> {
             return;
         }
         let (noise_table, qubits) = self.noise_accumulator.flush_correlated_group();
+        if qubits.is_empty() {
+            // Every outcome cancelled to the identity, so there is no noise to apply.
+            return;
+        }
         self.emit_noise(noise_table, &qubits);
     }
 
