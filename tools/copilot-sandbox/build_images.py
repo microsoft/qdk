@@ -155,13 +155,6 @@ def snapshot_repo(repo: Path, destination: Path) -> str:
 
 def load_secrets(args: argparse.Namespace) -> list[str]:
     specifications = {}
-    if args.installer:
-        installer = args.installer.resolve(strict=True)
-        if not installer.is_file() or "," in str(installer):
-            raise BuildError(
-                "Installer must be a regular file without commas in its path."
-            )
-        specifications["msrustup_installer"] = f"id=msrustup_installer,src={installer}"
     for kind, inputs in (("src", args.secret_file), ("env", args.secret_env)):
         for item in inputs:
             identifier, separator, location = item.partition("=")
@@ -196,14 +189,13 @@ def load_secrets(args: argparse.Namespace) -> list[str]:
                 raise BuildError("Build secrets require --package-source azure.")
             return []
         required = {
-            "msrustup_installer",
             "msrustup_access_token",
             "npmrc",
             "pip_index_url",
         }
         if not required.issubset(specifications):
             raise BuildError(
-                "Azure builds require installer, msrustup_access_token, npmrc and pip_index_url secrets."
+                "Azure builds require msrustup_access_token, npmrc and pip_index_url secrets."
             )
         if "cargo_token" not in specifications:
             specifications["cargo_token"] = (
@@ -376,16 +368,12 @@ def build_images(args: argparse.Namespace) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     actions = parser.add_subparsers(dest="action", required=True)
-    actions.add_parser(
-        "resolve-base", help="Resolve the approved MCR base to an index digest."
-    )
     builder = actions.add_parser(
         "build", help="Build and verify images; never pushes or logs in."
     )
     builder.add_argument(
         "--repo", type=Path, default=Path(__file__).resolve().parents[2]
     )
-    builder.add_argument("--installer", type=Path)
     builder.add_argument(
         "--package-source",
         choices=("public", "azure"),
@@ -422,11 +410,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        args = parse_args(argv)
-        if args.action == "resolve-base":
-            print(get_pinned_base())
-        else:
-            build_images(args)
+        build_images(parse_args(argv))
     except (
         BuildError,
         OSError,

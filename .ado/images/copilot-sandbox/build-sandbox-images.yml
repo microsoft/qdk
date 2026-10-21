@@ -83,9 +83,7 @@ extends:
                   - bash: |
                       set -euo pipefail
                       python3 tools/copilot-sandbox/build_images.py build \
-                        --repo "$BUILD_SOURCESDIRECTORY" \
                         --package-source azure \
-                        --installer "$MSRUSTUP_INSTALLER" \
                         --secret-env msrustup_access_token=SYSTEM_ACCESSTOKEN \
                         --secret-file "npmrc=$NPMRC_PATH" \
                         --secret-env pip_index_url=PIP_INDEX_URL \
@@ -97,7 +95,6 @@ extends:
                     env:
                       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
                       PIP_INDEX_URL: $(PIP_INDEX_URL)
-                      MSRUSTUP_INSTALLER: $(Build.SourcesDirectory)/.ado/images/install-msrustup.sh
                       NPMRC_PATH: $(Agent.TempDirectory)/sandbox.npmrc
                       TOOLCHAIN_FEED: $(toolchainFeed)
                       CRATES_FEED: $(cratesIoFeedOverride)
@@ -139,11 +136,7 @@ extends:
               authenticatedContainerRegistries:
                 - serviceConnection: qdkacr
             steps:
-              - checkout: self
-                clean: true
-                persistCredentials: false
-                fetchDepth: 1
-                fetchTags: false
+              - checkout: none
               - bash: |
                   set -euo pipefail
                   for component in agent proxy; do

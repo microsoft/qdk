@@ -32,7 +32,7 @@ run() {
         exit "$status"
     fi
 }
-run bootstrap bash /run/secrets/msrustup_installer
+run bootstrap bash /opt/sandbox/install-msrustup.sh
 run install-help ./msrustup toolchain install --help
 components=()
 if grep -Eq -- '(^|[[:space:],])--component([[:space:]=<]|$)' "$bootstrap/install-help.log"; then
