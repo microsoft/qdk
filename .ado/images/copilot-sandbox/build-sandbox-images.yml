@@ -65,6 +65,8 @@ extends:
               - checkout: self
                 clean: true
                 persistCredentials: false
+                fetchDepth: 1
+                fetchTags: false
               - bash: |
                   set -euo pipefail
                   base="$(python3 tools/copilot-sandbox/build_images.py resolve-base)"
@@ -92,6 +94,8 @@ extends:
                   - checkout: self
                     clean: true
                     persistCredentials: false
+                    fetchDepth: 1
+                    fetchTags: false
                   - task: PipAuthenticate@1
                     inputs:
                       artifactFeeds: AzureQuantum/azure-quantum
@@ -165,6 +169,8 @@ extends:
               - checkout: self
                 clean: true
                 persistCredentials: false
+                fetchDepth: 1
+                fetchTags: false
               - bash: |
                   set -euo pipefail
                   for component in agent proxy; do
