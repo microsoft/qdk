@@ -445,7 +445,7 @@ fn combine_faults_per_qubit(faults: &[semantic::Fault]) -> Vec<semantic::Fault> 
 
     let mut combined = FxHashMap::<StimQubitId, Option<semantic::FaultKind>>::default();
     for fault in faults {
-        let kind = combined.entry(fault.qubit).or_default();
+        let kind = combined.entry(fault.q).or_default();
         *kind = match (*kind, fault.kind) {
             (None, new) => Some(new),
             (Some(Loss), _) | (_, Loss) => Some(Loss),
@@ -457,7 +457,7 @@ fn combine_faults_per_qubit(faults: &[semantic::Fault]) -> Vec<semantic::Fault> 
     }
     combined
         .into_iter()
-        .filter_map(|(qubit, kind)| Some(semantic::Fault { kind: kind?, qubit }))
+        .filter_map(|(q, kind)| Some(semantic::Fault { kind: kind?, q }))
         .collect()
 }
 
