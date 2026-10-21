@@ -74,7 +74,7 @@ There can also be private configuration and history data in `.git`.
   The launcher checks the server, not just the client.
 - Git; 2.45.1 or newer is recommended and older versions get a warning.
   It contains some security fixes related to nested .git folders.
-- For published images only: Azure CLI with permission to pull from the team's `qdkacr` registry.
+- For published images only: Docker Buildx and Azure CLI with permission to pull from the team's `qdkacr` registry.
   The launcher offers `az acr login --name qdkacr` when registry access fails.
   Locally built images launched with `--dev` do not need ACR access.
 - A secret store: initialized `pass` plus GnuPG on Linux, unlocked Keychain (`security`) on macOS, or current-user DPAPI on Windows.
@@ -178,7 +178,11 @@ qdkacr-cfgqhwddajdaebhg.azurecr.io/copilot-sandbox/proxy:<agent-build-id>
 ```
 
 `--tag BUILD_ID` selects another published tag.
-The launcher compares the local image identity with the registry's architecture-specific manifest, asks before pulling, and pins the session to the selected local image IDs. If registry inspection fails, using a cached image requires explicit confirmation.
+The launcher resolves the architecture-specific agent/proxy pair from registry metadata before downloading image layers.
+It asks once for any required downloads, pulls those images in parallel by immutable digest, and pins the session to the selected local image IDs.
+There is no download prompt when both images are already available locally.
+Declining downloads uses the existing matching cached pair, or fails if that pair is unavailable.
+If registry inspection fails, using a cached pair requires explicit confirmation. Authentication retries can prompt separately.
 The agent's `qdk.copilot-sandbox.build-id` label selects the proxy tag, and both labels must match.
 The proxy's `latest` tag is never used for pairing.
 
