@@ -157,12 +157,10 @@ def load_secrets(args: argparse.Namespace) -> list[str]:
     specifications = {}
     if args.installer:
         installer = args.installer.resolve(strict=True)
-        if (
-            not installer.is_file()
-            or "," in str(installer)
-            or installer.is_relative_to(args.repo.resolve())
-        ):
-            raise BuildError("Installer must be a regular file outside the checkout.")
+        if not installer.is_file() or "," in str(installer):
+            raise BuildError(
+                "Installer must be a regular file without commas in its path."
+            )
         specifications["msrustup_installer"] = f"id=msrustup_installer,src={installer}"
     for kind, inputs in (("src", args.secret_file), ("env", args.secret_env)):
         for item in inputs:
