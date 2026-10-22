@@ -44,11 +44,21 @@ def get_sandbox_instance_dir(instance_name: str) -> Path:
 
 def get_sandbox_instance_config(sandbox_instance_dir: Path) -> dict:
     config = read_json(sandbox_instance_dir / "config.json")
-    allowed = {"cpus", "memory", "to_copilot", "from_copilot", "repo"}
+    allowed = {
+        "cpus",
+        "memory",
+        "to_copilot",
+        "from_copilot",
+        "repo",
+        "image_source",
+        "tag",
+    }
     if set(config) - allowed or any(
         not isinstance(value, str) for value in config.values()
     ):
         raise LauncherError("Instance configuration has unsupported keys or values.")
+    if config.get("image_source", "registry") not in {"local", "registry"}:
+        raise LauncherError("Instance image source must be local or registry.")
     return config
 
 

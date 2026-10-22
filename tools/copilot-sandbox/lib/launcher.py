@@ -242,9 +242,16 @@ def _run_session(
     store = TokenStore(args.instance, directory)
     token = store.load()
     validate_token_properties(token, instance=args.instance)
-    base, _ = get_image_names_for_tag(
-        args.tag or (LOCAL_IMAGE_TAG if args.dev else "latest"), dev=args.dev
+    saved_source = config.get("image_source", "registry")
+    if args.dev is None:
+        args.dev = saved_source == "local"
+    image_source = "local" if args.dev else "registry"
+    tag = (
+        args.tag
+        or (config.get("tag") if image_source == saved_source else None)
+        or (LOCAL_IMAGE_TAG if args.dev else "latest")
     )
+    base, _ = get_image_names_for_tag(tag, dev=args.dev)
     agent_id, proxy_id, _ = get_image_pair(base, architecture, dev=args.dev)
     allowlist, _ = _load_local_allowlist(directory)
     incoming.mkdir(parents=True, exist_ok=True)
@@ -255,7 +262,9 @@ def _run_session(
         {"repo": str(REPO), "to_copilot": str(incoming), "from_copilot": str(outgoing)}
     )
     if args.save:
-        config.update({"cpus": cpus, "memory": memory})
+        config.update(
+            {"cpus": cpus, "memory": memory, "image_source": image_source, "tag": tag}
+        )
     write_json(directory / "config.json", config)
     environment = _make_base_environment(args.instance)
     environment.update(
@@ -490,10 +499,19 @@ def make_argument_parser() -> argparse.ArgumentParser:
     launch.add_argument(
         "--tag", help="Registry image tag (default latest, or dev with --dev)"
     )
-    launch.add_argument(
+    image_source = launch.add_mutually_exclusive_group()
+    image_source.add_argument(
         "--dev",
         action="store_true",
+        default=None,
         help="Use prebuilt local copilot-sandbox-{agent,proxy}:dev images; never pull",
+    )
+    image_source.add_argument(
+        "--registry",
+        dest="dev",
+        action="store_false",
+        default=None,
+        help="Use published registry images instead of a saved local-image preference",
     )
     launch.add_argument(
         "--branch", help="Ask the runtime to switch branches, only with a clean tree"
@@ -503,7 +521,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
     launch.add_argument(
         "--save",
         action="store_true",
-        help="Persist CPU and memory limits for this instance",
+        help="Persist CPU, memory, image source and tag for this instance",
     )
     launch.add_argument(
         "--to-copilot-dir", help="Relocate the read-only context exchange directory"

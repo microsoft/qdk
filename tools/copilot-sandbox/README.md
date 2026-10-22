@@ -256,13 +256,15 @@ On Windows, directory access follows the user's inherited profile ACLs and DPAPI
 Symlinks and Windows reparse points are refused in state and mount paths.
 Reusing an instance from another checkout warns and updates the remembered checkout; its work clone is preserved and subsequent fetches use the newly mounted seed.
 
-- `config.json`: last checkout, exchange locations, saved CPU/memory limits.
+- `config.json`: last checkout, exchange locations, saved CPU/memory limits and image selection.
 - `allowlist.local.txt`: additional domains, one per line, optional `#` comments.
   This non-secret file is mode 0644 so Squid can read the bind mount.
 - `outbox.git`: container-writable bare repository containing sandbox commits.
 - `token.dpapi`: Windows only; other platforms store the PAT in their secret store.
 
 CPU/memory limits apply for one launch unless `--save` is supplied. `0` means unlimited; examples are `--cpus 2.5 --memory 8g`.
+`--save` also remembers the image source and tag. Without explicit image options, later launches use that saved selection.
+Use `--registry` to override a saved local-image preference; switching image sources resets the tag to that source's default unless `--tag` is supplied.
 Exchange relocations are saved when launching successfully far enough to configure the stack.
 
 Different instances can run at the same time, with at most one active session per instance.
