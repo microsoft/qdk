@@ -8,6 +8,8 @@ from typing import Any, Callable, Iterator, Optional, overload
 
 import pandas as pd
 
+from .._native import Closure, GlobalCallable, Interpreter
+
 class TotalCounts:
     @property
     def logical_qubits(self) -> int: ...
@@ -44,6 +46,15 @@ class ProfilerResult:
 
 class Profiler:
     def profile_qir(self, qir_file_name: str) -> ProfilerResult: ...
+    def profile_qsharp_expr(
+        self, interpreter: Interpreter, entry_expr: str
+    ) -> ProfilerResult: ...
+    def profile_qsharp(
+        self,
+        interpreter: Interpreter,
+        callable: GlobalCallable | Closure,
+        args: Optional[Any] = None,
+    ) -> ProfilerResult: ...
 
 class SequentialCountingProfiler(Profiler):
     def __new__(

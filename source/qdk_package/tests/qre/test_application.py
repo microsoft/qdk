@@ -4,7 +4,9 @@
 
 from dataclasses import dataclass, field
 
-from qdk import qsharp
+import pytest
+from qdk import Context, qsharp
+from qdk.estimator import LogicalCounts
 
 from qdk.qre import (
     Application,
@@ -316,8 +318,8 @@ def test_trace_iter_gate_attributes():
     assert gates[0].params == [3.14]
 
 
-
-def test_qsharp_application_profile():
+@pytest.mark.parametrize("use_qir", [False, True])
+def test_qsharp_application_profile(use_qir: bool):
     """Test profiling Q# code through the Python API."""
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     app = QSharpApplication(
@@ -335,14 +337,18 @@ def test_qsharp_application_profile():
         gate_time_sec={"x": 0.25, "mz_store": 0.5, "read_result": 0.125},
     )
 
-    result = app.profile(profiler)
+    result = app.profile(profiler, use_qir=use_qir)
 
     assert isinstance(profiler, Profiler)
     assert isinstance(result, ProfilerResult)
     assert isinstance(result.totals, TotalCounts)
     assert result.totals.logical_qubits == 2
     assert result.totals.physical_qubits == 20
-    assert result.totals.calls_per_operation == {"x": 2, "mz_store": 2, "read_result": 2}
+    assert result.totals.calls_per_operation == {
+        "x": 2,
+        "mz_store": 2,
+        "read_result": 2,
+    }
     assert result.totals.runtime_sec_per_operation == {
         "x": 0.5,
         "mz_store": 1.0,
@@ -353,7 +359,6 @@ def test_qsharp_application_profile():
     assert result.profiles.profiles == []
     assert result.profiles.aggregation_window_sec is None
     assert result.infos == []
-
 
 
 def test_qsharp_application_profile_no_gate_times():

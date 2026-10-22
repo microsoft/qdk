@@ -19,10 +19,11 @@ num-bigint = { workspace = true }
 num-complex = { workspace = true }
 qdk_simulators = { path = "../simulators", default-features = false }
 qsc_eval = { path = "../compiler/qsc_eval" }
+qsc = { path = "../compiler/qsc" }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }
-qsc = { path = "../compiler/qsc" }
 resource_estimator = { path = "../resource_estimator" }
 
 [lints]

@@ -6,7 +6,8 @@ mod counting;
 mod factories;
 mod temporal;
 
-use crate::{QuantumBackend, QuantumBackendInstruction, run_qir};
+use crate::{QuantumBackend, QuantumBackendInstruction, run_qir, run_qsharp_call, run_qsharp_expr};
+use qsc::interpret::{Interpreter, Value};
 use rustc_hash::FxHashMap;
 use serde::Serialize;
 use std::{
@@ -190,6 +191,33 @@ pub trait Profiler: QuantumBackend {
     {
         // SAFETY: The caller accepts the safety contract inherited from `run_qir`.
         unsafe { run_qir(qir_file_name, self)? };
+        Ok(self.get_result())
+    }
+
+    /// Invokes a Q# callable and returns the profiling data collected afterward.
+    fn profile_qsharp(
+        &mut self,
+        interpreter: &mut Interpreter,
+        callable: Value,
+        args: Value,
+    ) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        run_qsharp_call(interpreter, callable, args, self).map_err(|error| error.to_string())?;
+        Ok(self.get_result())
+    }
+
+    /// Runs a Q# expression and returns the profiling data collected afterward.
+    fn profile_qsharp_expr(
+        &mut self,
+        interpreter: &mut Interpreter,
+        expr: &str,
+    ) -> Result<ProfilerResult, String>
+    where
+        Self: Sized,
+    {
+        run_qsharp_expr(interpreter, expr, self).map_err(|error| error.to_string())?;
         Ok(self.get_result())
     }
 }

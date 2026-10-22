@@ -16,6 +16,8 @@ use qre::TraceTransform;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
+use crate::interpreter::{Interpreter, args_to_values, extract_callable_value};
+
 pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TotalCounts>()?;
     m.add_class::<TimeSeries>()?;
@@ -152,7 +154,7 @@ impl TemporalProfiles {
     }
 }
 
-/// Python representation of profiling data collected during QIR execution.
+/// Python representation of profiling data collected during quantum execution.
 #[pyclass(module = "qdk.qre", frozen)]
 pub struct ProfilerResult(qep::ProfilerResult);
 
@@ -188,7 +190,7 @@ enum ProfilerBackend {
     SequentialCounting(qep::SequentialCountingProfiler),
 }
 
-/// Base class for QIR profilers exposed to Python.
+/// Base class for quantum profilers exposed to Python.
 #[pyclass(subclass, module = "qdk.qre")]
 pub struct Profiler {
     backend: ProfilerBackend,
@@ -196,6 +198,46 @@ pub struct Profiler {
 
 #[pymethods]
 impl Profiler {
+    /// Profiles a Q# expression using the supplied interpreter.
+    fn profile_qsharp_expr(
+        &mut self,
+        mut interpreter: PyRefMut<'_, Interpreter>,
+        entry_expr: &str,
+    ) -> PyResult<ProfilerResult> {
+        use qep::Profiler as _;
+
+        let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
+        profiler
+            .profile_qsharp_expr(&mut interpreter.interpreter, entry_expr)
+            .map(Into::into)
+            .map_err(PyRuntimeError::new_err)
+    }
+
+    /// Profiles a callable using its interpreter and converted Python arguments.
+    #[pyo3(signature = (interpreter, callable, args=None))]
+    #[allow(clippy::needless_pass_by_value)]
+    fn profile_qsharp(
+        &mut self,
+        py: Python<'_>,
+        mut interpreter: PyRefMut<'_, Interpreter>,
+        callable: Py<PyAny>,
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<ProfilerResult> {
+        use qep::Profiler as _;
+
+        let callable = extract_callable_value(py, &callable)?;
+        let (input_ty, output_ty) = interpreter
+            .interpreter
+            .global_callable_ty(&callable)
+            .ok_or_else(|| PyValueError::new_err("callable not found"))?;
+        let args = args_to_values(&interpreter.interpreter, py, args, &input_ty, &output_ty)?;
+        let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
+        profiler
+            .profile_qsharp(&mut interpreter.interpreter, callable, args)
+            .map(Into::into)
+            .map_err(PyRuntimeError::new_err)
+    }
+
     /// Profiles a QIR file and returns the collected data.
     fn profile_qir(&mut self, py: Python<'_>, qir_file_name: &str) -> PyResult<ProfilerResult> {
         use qep::Profiler as _;

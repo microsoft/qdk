@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 from typing import Callable
 
 from ... import qsharp, telemetry_events
+from ..._interpreter import _get_context_or_default
 from ...estimator import LogicalCounts
 from .._application import Application
 from .._qre import Profiler, ProfilerResult, Trace
@@ -75,9 +76,26 @@ class QSharpApplication(Application[None]):
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(str(qir))
 
-    def profile(self, profiler: Profiler) -> ProfilerResult:
-        """Profile the Q# application with the supplied profiler."""
-        with TemporaryDirectory() as temporary_directory:
-            qir_path = Path(temporary_directory) / "program.ll"
-            self.to_qir(str(qir_path))
-            return profiler.profile_qir(str(qir_path))
+    def profile(self, profiler: Profiler, use_qir: bool = True) -> ProfilerResult:
+        """Profile through QIR, or directly using the Q# interpreter.
+
+        Raises:
+            ValueError: If ``use_qir=False`` and the entry expression is not
+                a string or Q# callable.
+        """
+        context = _get_context_or_default(self.entry_expr)
+
+        if use_qir:
+            with TemporaryDirectory() as temporary_directory:
+                qir_path = Path(temporary_directory) / "program.ll"
+                self.to_qir(str(qir_path))
+                return profiler.profile_qir(str(qir_path))
+
+        if isinstance(self.entry_expr, str):
+            return profiler.profile_qsharp_expr(context._interpreter, self.entry_expr)
+        else:
+            return profiler.profile_qsharp(
+                context._interpreter,
+                getattr(self.entry_expr, "__global_callable"),
+                context._python_args_to_interpreter_args(self.args),
+            )

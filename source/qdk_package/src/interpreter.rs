@@ -1110,7 +1110,8 @@ impl Interpreter {
     }
 }
 
-fn args_to_values(
+/// Validates interop types and converts Python arguments into a Q# value.
+pub(crate) fn args_to_values(
     ctx: &interpret::Interpreter,
     py: Python,
     args: Option<Py<PyAny>>,
@@ -1148,7 +1149,8 @@ fn args_to_values(
     }
 }
 
-fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
+/// Extracts a Q# callable and rejects applied functors.
+pub(crate) fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
     let callable_val = if let Ok(global_callable) = callable.extract::<GlobalCallable>(py) {
         global_callable.0
     } else if let Ok(closure) = callable.extract::<Closure>(py) {
@@ -1159,7 +1161,6 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
         ));
     };
 
-    // Ensure the value is either a callabe with no functors or a closure with no functors
     match &callable_val {
         Value::Closure(closure) if closure.functor == FunctorApp::default() => {}
         Value::Global(_, functor) if *functor == FunctorApp::default() => {}
