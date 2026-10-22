@@ -4,6 +4,7 @@
 # pyright: reportOverlappingOverload=false
 
 from __future__ import annotations
+from os import PathLike
 from typing import Any, Callable, Iterator, Optional, overload
 
 import pandas as pd
@@ -37,6 +38,9 @@ class TemporalProfiles:
     def aggregation_window_sec(self) -> Optional[float]: ...
 
 class ProfilerResult:
+    # Returns total counts and compact trace and time-series summaries.
+    def __repr__(self) -> str: ...
+    def to_json(self, path: str | PathLike[str]) -> None:
     @property
     def totals(self) -> TotalCounts: ...
     @property
@@ -45,6 +49,7 @@ class ProfilerResult:
     def infos(self) -> list[str]: ...
 
 class Profiler:
+    def add_adapter(self, adapter: str) -> None:
     def profile_qir(self, qir_file_name: str) -> ProfilerResult: ...
     def profile_qsharp_expr(
         self, interpreter: Interpreter, entry_expr: str

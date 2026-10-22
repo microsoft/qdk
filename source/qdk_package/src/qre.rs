@@ -205,11 +205,36 @@ impl ProfilerResult {
 /// Base class for quantum profilers exposed to Python.
 #[pyclass(subclass, module = "qdk.qre")]
 pub struct Profiler {
-    backend: Box<dyn qep::Profiler + Send + Sync>,
+    backend: Option<Box<dyn qep::Profiler + Send + Sync>>,
+}
+
+impl Profiler {
+    /// Borrows the backend, which is absent only while an adapter is being installed.
+    fn backend_mut(&mut self) -> &mut Box<dyn qep::Profiler + Send + Sync> {
+        self.backend
+            .as_mut()
+            .expect("profiler backend is installed")
+    }
 }
 
 #[pymethods]
 impl Profiler {
+    /// Wraps this profiler in the named adapter, preserving its collected data.
+    fn add_adapter(&mut self, adapter: &str) -> PyResult<()> {
+        match adapter {
+            "transpiler" => {
+                let backend = self.backend.take().expect("profiler backend is installed");
+                self.backend = Some(Box::new(qep::TranspilingAdapter::with_defaults(backend)));
+            }
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown profiler adapter {adapter:?}; supported adapters: transpiler"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// Profiles a Q# expression using the supplied interpreter.
     fn profile_qsharp_expr(
         &mut self,
@@ -218,7 +243,7 @@ impl Profiler {
     ) -> PyResult<ProfilerResult> {
         use qep::Profiler as _;
 
-        self.backend
+        self.backend_mut()
             .profile_qsharp_expr(&mut interpreter.interpreter, entry_expr)
             .map(Into::into)
             .map_err(PyRuntimeError::new_err)
@@ -242,7 +267,7 @@ impl Profiler {
             .global_callable_ty(&callable)
             .ok_or_else(|| PyValueError::new_err("callable not found"))?;
         let args = args_to_values(&interpreter.interpreter, py, args, &input_ty, &output_ty)?;
-        self.backend
+        self.backend_mut()
             .profile_qsharp(&mut interpreter.interpreter, callable, args)
             .map(Into::into)
             .map_err(PyRuntimeError::new_err)
@@ -254,7 +279,8 @@ impl Profiler {
 
         let result = py.detach(|| {
             // SAFETY: The Python API inherits QEP's requirement that callers provide trusted QIR.
-            unsafe { self.backend.profile_qir(qir_file_name) }.map_err(PyRuntimeError::new_err)
+            unsafe { self.backend_mut().profile_qir(qir_file_name) }
+                .map_err(PyRuntimeError::new_err)
         })?;
         Ok(result.into())
     }
@@ -274,13 +300,13 @@ impl SequentialCountingProfiler {
         gate_time_sec: Option<FxHashMap<String, f64>>,
     ) -> PyResult<PyClassInitializer<Self>> {
         Ok(PyClassInitializer::from(Profiler {
-            backend: Box::new(
+            backend: Some(Box::new(
                 qep::SequentialCountingProfiler::new(
                     physical_qubits_per_logical,
                     gate_time_sec.unwrap_or_default(),
                 )
                 .map_err(PyValueError::new_err)?,
-            ),
+            )),
         })
         .add_subclass(Self))
     }
@@ -347,7 +373,7 @@ impl TemporalProfiler {
                 ecc_distance: config.ecc_distance,
             });
         PyClassInitializer::from(Profiler {
-            backend: Box::new(qep::TemporalProfiler::new(config)),
+            backend: Some(Box::new(qep::TemporalProfiler::new(config))),
         })
         .add_subclass(Self)
     }

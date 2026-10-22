@@ -12,7 +12,7 @@ pub use tolffoli::DecomposeToffoliTranspiler;
 use crate::QuantumBackendInstruction;
 
 /// Replaces an instruction of one type with an exact or approximate sequence.
-pub trait Transpiler {
+pub trait Transpiler: Send + Sync {
     /// Returns the instruction name accepted by this transpiler.
     fn source_instruction_name(&self) -> &'static str;
 
