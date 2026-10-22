@@ -31,10 +31,24 @@ pub(super) struct TFactory {
 impl TFactory {
     /// Creates a distance-5 demo factory with a 98.5% distillation success rate.
     pub fn new() -> Self {
+        // Formulas from https://arxiv.org/abs/2211.07629
+
+        // Input T-state error rate (TODO: take as input parameter).
+        let input_state_error: f64 = 1e-3;
+
+        // Average error rate for clifford operations.
+        // TODO: use formula epsilon ≈ 0.03 * (p_phys / 0.01)^((d + 1) / 2)
+        let epsilon = 1e-5;
+
+        // Error of resulting T state.
+        let output_state_error = 35.0 * input_state_error.powf(3.0) + 7.1 * epsilon;
+
+        let discard_probability = 15.0 * input_state_error + 356.0 * epsilon;
+
         Self {
             logical_qubits: 5,
             distance: 5,
-            probability_success: 0.985, // 1 - (0.001*15), assuming 0.1% error per magic state.
+            probability_success: 1.0 - discard_probability,
             // Litinski, arXiv:1808.02892, Section 3.3 / Fig. 17c: the 15-to-1
             // protocol takes 11 logical steps. Section 1 identifies each step
             // with roughly d physical code cycles; Section 4 assumes 1 us per
@@ -43,8 +57,8 @@ impl TFactory {
             // This leading-order estimate assumes state preparation and
             // classical processing do not add latency (Section 3.3's caveat).
             distillation_round_duration_nanos: 11 * 5 * 1_000,
-            input_state_error: 1e-2,
-            output_state_error: 1e-2,
+            input_state_error,
+            output_state_error,
         }
     }
 
