@@ -382,8 +382,38 @@ def _list_instances() -> None:
         raise_if_link(child)
         if child.is_dir():
             config = get_sandbox_instance_config(child)
+            running = _get_running_agents(child.name, owned=True)
+            active = ""
+            if running:
+                status = "running"
+                result = run(
+                    [
+                        "docker",
+                        "inspect",
+                        "--format",
+                        "{{json .HostConfig}}",
+                        running[0],
+                    ]
+                )
+                try:
+                    limits = json.loads(result.stdout)
+                    active = (
+                        f", active_cpus={limits['NanoCpus'] / 1_000_000_000:g}"
+                        f", active_memory={limits['Memory']}b"
+                    )
+                except (ValueError, KeyError, TypeError) as error:
+                    raise LauncherError(
+                        f"Cannot read active resource limits for instance '{child.name}'."
+                    ) from error
+            else:
+                try:
+                    with session_lock(root, f".instance-{child.name}.lock"):
+                        status = "stopped"
+                except LockBusyError:
+                    status = "busy"
             print(
-                f"{child.name}: {'running' if _get_running_agents(child.name) else 'stopped'}, cpus={config.get('cpus', '0')}, memory={config.get('memory', '0')}"
+                f"{child.name}: {status}, saved_cpus={config.get('cpus', '0')}, "
+                f"saved_memory={config.get('memory', '0')}{active}"
             )
 
 
