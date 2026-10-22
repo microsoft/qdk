@@ -10,7 +10,7 @@ updates:
     cooldown:
       default-days: 7
   - package-ecosystem: "npm"
-    directory: "/.ado/images/copilot-sandbox/agent/copilot"
+    directory: "/.ado/images/sandbox-agent/copilot"
     schedule:
       interval: "weekly"
     cooldown:

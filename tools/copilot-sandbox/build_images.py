@@ -292,7 +292,7 @@ def build_images(args: argparse.Namespace) -> None:
         for target in args.target:
             context = root / target
             stage_docker_build_context(
-                repo / ".ado/images/copilot-sandbox" / target, context
+                repo / ".ado/images" / f"sandbox-{target}", context
             )
             if re.search(
                 r"^\s*#\s*syntax\s*=",

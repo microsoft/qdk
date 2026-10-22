@@ -103,7 +103,7 @@ extends:
                     displayName: Detect components in both local runtime images
                     inputs:
                       scanType: Register
-                      sourceScanPath: $(Build.SourcesDirectory)/.ado/images/copilot-sandbox
+                      sourceScanPath: $(Build.SourcesDirectory)/.ado/images
                       dockerImagesToScan: ${{ parameters.ACR_SERVER }}/copilot-sandbox/agent:$(Build.BuildId)-${{ target.arch }},${{ parameters.ACR_SERVER }}/copilot-sandbox/proxy:$(Build.BuildId)-${{ target.arch }}
                   - task: 1ES.PushContainerImage@1
                     displayName: Push scanned agent architecture
