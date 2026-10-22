@@ -2,13 +2,14 @@
 // Licensed under the MIT License.
 
 use std::{
+    path::PathBuf,
     ptr::NonNull,
     sync::{Arc, RwLock},
 };
 
 use pyo3::{
     IntoPyObjectExt,
-    exceptions::{PyException, PyKeyError, PyRuntimeError, PyTypeError, PyValueError},
+    exceptions::{PyException, PyIOError, PyKeyError, PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
@@ -25,6 +26,8 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ProfilerResult>()?;
     m.add_class::<Profiler>()?;
     m.add_class::<SequentialCountingProfiler>()?;
+    m.add_class::<ProfilerConfig>()?;
+    m.add_class::<TemporalProfiler>()?;
     m.add_class::<ISA>()?;
     m.add_class::<ISARequirements>()?;
     m.add_class::<Instruction>()?;
@@ -167,6 +170,19 @@ impl From<qep::ProfilerResult> for ProfilerResult {
 
 #[pymethods]
 impl ProfilerResult {
+    /// Returns total counts and compact summaries of the trace and time series.
+    fn __repr__(&self) -> String {
+        format!("{:?}", self.0)
+    }
+
+    /// Writes all profiling data as pretty-printed JSON, creating or replacing the file.
+    ///
+    /// Accepts a string or path-like object. Parent directories must already exist.
+    /// Raises OSError with the file path if creation, serialization, or flushing fails.
+    fn to_json(&self, path: PathBuf) -> PyResult<()> {
+        self.0.to_json(path).map_err(PyIOError::new_err)
+    }
+
     /// Returns the aggregate operation and resource counts.
     #[getter]
     fn totals(&self, py: Python<'_>) -> PyResult<Py<TotalCounts>> {
@@ -186,14 +202,10 @@ impl ProfilerResult {
     }
 }
 
-enum ProfilerBackend {
-    SequentialCounting(qep::SequentialCountingProfiler),
-}
-
 /// Base class for quantum profilers exposed to Python.
 #[pyclass(subclass, module = "qdk.qre")]
 pub struct Profiler {
-    backend: ProfilerBackend,
+    backend: Box<dyn qep::Profiler + Send + Sync>,
 }
 
 #[pymethods]
@@ -206,8 +218,7 @@ impl Profiler {
     ) -> PyResult<ProfilerResult> {
         use qep::Profiler as _;
 
-        let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
-        profiler
+        self.backend
             .profile_qsharp_expr(&mut interpreter.interpreter, entry_expr)
             .map(Into::into)
             .map_err(PyRuntimeError::new_err)
@@ -231,8 +242,7 @@ impl Profiler {
             .global_callable_ty(&callable)
             .ok_or_else(|| PyValueError::new_err("callable not found"))?;
         let args = args_to_values(&interpreter.interpreter, py, args, &input_ty, &output_ty)?;
-        let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
-        profiler
+        self.backend
             .profile_qsharp(&mut interpreter.interpreter, callable, args)
             .map(Into::into)
             .map_err(PyRuntimeError::new_err)
@@ -242,10 +252,9 @@ impl Profiler {
     fn profile_qir(&mut self, py: Python<'_>, qir_file_name: &str) -> PyResult<ProfilerResult> {
         use qep::Profiler as _;
 
-        let ProfilerBackend::SequentialCounting(profiler) = &mut self.backend;
         let result = py.detach(|| {
             // SAFETY: The Python API inherits QEP's requirement that callers provide trusted QIR.
-            unsafe { profiler.profile_qir(qir_file_name) }.map_err(PyRuntimeError::new_err)
+            unsafe { self.backend.profile_qir(qir_file_name) }.map_err(PyRuntimeError::new_err)
         })?;
         Ok(result.into())
     }
@@ -265,7 +274,7 @@ impl SequentialCountingProfiler {
         gate_time_sec: Option<FxHashMap<String, f64>>,
     ) -> PyResult<PyClassInitializer<Self>> {
         Ok(PyClassInitializer::from(Profiler {
-            backend: ProfilerBackend::SequentialCounting(
+            backend: Box::new(
                 qep::SequentialCountingProfiler::new(
                     physical_qubits_per_logical,
                     gate_time_sec.unwrap_or_default(),
@@ -274,6 +283,73 @@ impl SequentialCountingProfiler {
             ),
         })
         .add_subclass(Self))
+    }
+}
+
+/// Immutable configuration for temporal quantum profiling.
+#[pyclass(module = "qdk.qre", frozen, get_all)]
+pub struct ProfilerConfig {
+    aggregation_window_nanos: usize,
+    t_factories_count: usize,
+    seed: Option<u64>,
+    record_trace: bool,
+    ecc_distance: usize,
+}
+
+#[pymethods]
+impl ProfilerConfig {
+    /// Creates a configuration with validated window and factory counts.
+    #[new]
+    #[pyo3(signature = (*, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=5))]
+    fn new(
+        aggregation_window_nanos: usize,
+        t_factories_count: usize,
+        seed: Option<u64>,
+        record_trace: bool,
+        ecc_distance: usize,
+    ) -> PyResult<Self> {
+        if aggregation_window_nanos == 0 {
+            return Err(PyValueError::new_err(
+                "aggregation_window_nanos must be greater than zero",
+            ));
+        }
+        if t_factories_count == 0 {
+            return Err(PyValueError::new_err(
+                "t_factories_count must be greater than zero",
+            ));
+        }
+        Ok(Self {
+            aggregation_window_nanos,
+            t_factories_count,
+            seed,
+            record_trace,
+            ecc_distance,
+        })
+    }
+}
+
+/// Dependency-aware temporal profiler exposed to Python.
+#[pyclass(extends = Profiler, module = "qdk.qre")]
+pub struct TemporalProfiler;
+
+#[pymethods]
+impl TemporalProfiler {
+    /// Creates a temporal profiler using the supplied or default configuration.
+    #[new]
+    #[pyo3(signature = (config=None))]
+    fn new(config: Option<PyRef<'_, ProfilerConfig>>) -> PyClassInitializer<Self> {
+        let config =
+            config.map_or_else(qep::ProfilerConfig::default, |config| qep::ProfilerConfig {
+                aggregation_window_nanos: config.aggregation_window_nanos,
+                t_factories_count: config.t_factories_count,
+                seed: config.seed,
+                record_trace: config.record_trace,
+                ecc_distance: config.ecc_distance,
+            });
+        PyClassInitializer::from(Profiler {
+            backend: Box::new(qep::TemporalProfiler::new(config)),
+        })
+        .add_subclass(Self)
     }
 }
 

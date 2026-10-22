@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
+from os import PathLike
 from typing import (
     Any,
     Callable,
@@ -50,6 +51,11 @@ class TemporalProfiles:
     def aggregation_window_sec(self) -> Optional[float]: ...
 
 class ProfilerResult:
+    # Returns total counts and compact trace and time-series summaries.
+    def __repr__(self) -> str: ...
+    def to_json(self, path: str | PathLike[str]) -> None:
+        """Write all profiling data to a JSON file; raise OSError on failure."""
+        ...
     @property
     def totals(self) -> TotalCounts: ...
     @property
@@ -75,6 +81,30 @@ class SequentialCountingProfiler(Profiler):
         physical_qubits_per_logical: int,
         gate_time_sec: Optional[Dict[str, float]] = None,
     ) -> SequentialCountingProfiler: ...
+
+class ProfilerConfig:
+    def __new__(
+        cls,
+        *,
+        aggregation_window_nanos: int = 1_000_000_000,
+        t_factories_count: int = 10,
+        seed: Optional[int] = None,
+        record_trace: bool = False,
+        ecc_distance: int = 5,
+    ) -> ProfilerConfig: ...
+    @property
+    def aggregation_window_nanos(self) -> int: ...
+    @property
+    def t_factories_count(self) -> int: ...
+    @property
+    def seed(self) -> Optional[int]: ...
+    @property
+    def record_trace(self) -> bool: ...
+    @property
+    def ecc_distance(self) -> int: ...
+
+class TemporalProfiler(Profiler):
+    def __new__(cls, config: Optional[ProfilerConfig] = None) -> TemporalProfiler: ...
 
 class OutputSemantics(Enum):
     """

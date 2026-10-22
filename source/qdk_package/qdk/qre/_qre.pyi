@@ -63,6 +63,30 @@ class SequentialCountingProfiler(Profiler):
         gate_time_sec: Optional[dict[str, float]] = None,
     ) -> SequentialCountingProfiler: ...
 
+class ProfilerConfig:
+    def __new__(
+        cls,
+        *,
+        aggregation_window_nanos: int = 1_000_000_000,
+        t_factories_count: int = 10,
+        seed: Optional[int] = None,
+        record_trace: bool = False,
+        ecc_distance: int = 5,
+    ) -> ProfilerConfig: ...
+    @property
+    def aggregation_window_nanos(self) -> int: ...
+    @property
+    def t_factories_count(self) -> int: ...
+    @property
+    def seed(self) -> Optional[int]: ...
+    @property
+    def record_trace(self) -> bool: ...
+    @property
+    def ecc_distance(self) -> int: ...
+
+class TemporalProfiler(Profiler):
+    def __new__(cls, config: Optional[ProfilerConfig] = None) -> TemporalProfiler: ...
+
 class ISA:
     def __add__(self, other: ISA) -> ISA:
         """

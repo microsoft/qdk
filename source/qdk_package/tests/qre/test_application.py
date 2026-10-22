@@ -2,7 +2,9 @@
 # Licensed under the MIT License.
 
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 from qdk import Context, qsharp
@@ -14,8 +16,10 @@ from qdk.qre import (
     LOGICAL,
     PSSPC,
     Profiler,
+    ProfilerConfig,
     ProfilerResult,
     SequentialCountingProfiler,
+    TemporalProfiler,
     TemporalProfiles,
     TotalCounts,
     ErrorComposition,
@@ -319,7 +323,7 @@ def test_trace_iter_gate_attributes():
 
 
 @pytest.mark.parametrize("use_qir", [False, True])
-def test_qsharp_application_profile(use_qir: bool):
+def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
     """Test profiling Q# code through the Python API."""
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     app = QSharpApplication(
@@ -359,6 +363,34 @@ def test_qsharp_application_profile(use_qir: bool):
     assert result.profiles.profiles == []
     assert result.profiles.aggregation_window_sec is None
     assert result.infos == []
+    summary = repr(result)
+    assert summary.startswith("ProfilerResult { totals: TotalCounts {")
+    assert "logical_qubits: 2" in summary
+    assert "physical_qubits: 20" in summary
+    assert "total_operations_count: 6" in summary
+    assert "time_series_count: 0" in summary
+    assert "trace_operations_count" not in summary
+    path = tmp_path / "profile.json"
+    for destination in (path, str(path)):
+        path.write_text("old contents", encoding="utf-8")
+        assert result.to_json(destination) is None
+        assert json.loads(path.read_text(encoding="utf-8")) == {
+            "totals": {
+                "logical_qubits": 2,
+                "physical_qubits": 20,
+                "total_runtime_sec": 1.75,
+                "total_operations_count": 6,
+                "calls_per_operation": result.totals.calls_per_operation,
+                "runtime_sec_per_operation": result.totals.runtime_sec_per_operation,
+            },
+            "profiles": {"profiles": [], "aggregation_window_sec": None},
+            "trace": None,
+            "infos": [],
+        }
+    missing_path = tmp_path / "missing" / "profile.json"
+    with pytest.raises(OSError, match="Failed to create") as error:
+        result.to_json(missing_path)
+    assert str(missing_path) in str(error.value)
 
 
 def test_qsharp_application_profile_no_gate_times():
@@ -386,3 +418,42 @@ def test_qsharp_application_profile_no_gate_times():
     assert result.totals.total_runtime_sec == 0.0
     assert result.profiles.profiles == []
     assert result.infos == ["These gates did not have time configured, assumed 0: [x]"]
+
+
+
+@pytest.mark.parametrize("use_qir", [False, True])
+def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
+    """Profile gate dependencies and seeded T-state production from Python."""
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    app = QSharpApplication(
+        """
+        {
+            use qs = Qubit[2];
+            X(qs[0]);
+            H(qs[0]);
+            H(qs[1]);
+            CNOT(qs[0], qs[1]);
+            T(qs[0]);
+            Adjoint T(qs[1]);
+            [M(qs[0]), M(qs[1])]
+        }
+        """
+    )
+    config = ProfilerConfig(
+        aggregation_window_nanos=10_000,
+        t_factories_count=5,
+        seed=42,
+        record_trace=True,
+        ecc_distance=7,
+    )
+    profiler = TemporalProfiler(config)
+
+    result = app.profile(profiler, use_qir=use_qir)
+    summary = repr(result)
+    assert summary.startswith("ProfilerResult { totals: TotalCounts {")
+
+    path = tmp_path / "temporal.json"
+    result.to_json(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["totals"]["logical_qubits"] == result.totals.logical_qubits
+ 
