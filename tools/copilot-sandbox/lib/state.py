@@ -55,7 +55,7 @@ def get_sandbox_instance_config(sandbox_instance_dir: Path) -> dict:
 # Lock access to the instance state
 @contextmanager
 def session_lock(
-    root: Path, filename: str = ".launcher.lock"
+    root: Path, filename: str = ".launcher.lock", *, blocking: bool = False
 ) -> Generator[None, None, None]:
     make_private_dir(root)
     if not re.fullmatch(r"\.[a-z0-9_-]+\.lock", filename):
@@ -74,11 +74,13 @@ def session_lock(
                 if stream.seek(0, os.SEEK_END) == 0:
                     stream.write(b"\0")
                 stream.seek(0)
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+                msvcrt.locking(stream.fileno(), mode, 1)
             else:
                 import fcntl
 
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                mode = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+                fcntl.flock(stream.fileno(), mode)
         except OSError as error:
             if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
                 raise LauncherError(

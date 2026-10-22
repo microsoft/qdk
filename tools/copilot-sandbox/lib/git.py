@@ -8,6 +8,7 @@ import re
 import tempfile
 
 from .common import LauncherError, make_process_env, raise_if_link, run
+from .state import get_sandbox_state_dir, session_lock
 
 
 def run_git_command(repo: Path, *args: str, check: bool = True):
@@ -83,30 +84,31 @@ def configure_outbox_repo(repo: Path, directory: Path, name: str) -> Path:
         run_git_command(repo, "-c", "init.templateDir=", "init", "--bare", str(outbox))
     remote = "sandbox-" + name
     # Fetching the raw outbox would run upload-pack on agent-written config; fetch_outbox uses a clean view.
-    run_git_command(
-        repo,
-        "config",
-        "--replace-all",
-        f"remote.{remote}.url",
-        "disabled://use-sandbox.py",
-    )
-    run_git_command(
-        repo, "config", "--replace-all", f"remote.{remote}.skipFetchAll", "true"
-    )
-    run_git_command(
-        repo,
-        "config",
-        "--replace-all",
-        f"remote.{remote}.fetch",
-        f"+refs/heads/*:refs/remotes/{remote}/*",
-    )
-    run_git_command(
-        repo,
-        "config",
-        "--replace-all",
-        f"remote.{remote}.pushurl",
-        "disabled://fetch-only",
-    )
+    with session_lock(get_sandbox_state_dir(), ".git-config.lock", blocking=True):
+        run_git_command(
+            repo,
+            "config",
+            "--replace-all",
+            f"remote.{remote}.url",
+            "disabled://use-sandbox.py",
+        )
+        run_git_command(
+            repo, "config", "--replace-all", f"remote.{remote}.skipFetchAll", "true"
+        )
+        run_git_command(
+            repo,
+            "config",
+            "--replace-all",
+            f"remote.{remote}.fetch",
+            f"+refs/heads/*:refs/remotes/{remote}/*",
+        )
+        run_git_command(
+            repo,
+            "config",
+            "--replace-all",
+            f"remote.{remote}.pushurl",
+            "disabled://fetch-only",
+        )
     return outbox
 
 
@@ -189,6 +191,7 @@ def fetch_outbox_repo_safe(repo: Path, outbox: Path, name: str) -> None:
             "-c",
             "transfer.fsckObjects=true",
             "fetch",
+            "--no-write-fetch-head",
             "--no-tags",
             "--no-recurse-submodules",
             "--upload-pack=git-upload-pack",
