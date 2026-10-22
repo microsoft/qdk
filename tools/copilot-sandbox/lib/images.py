@@ -294,13 +294,13 @@ def get_image_pair(
                 )
     local_ids = []
     for image in pair:
-        local = _get_local_image_metadata(image.reference)
-        if local is None:
+        metadata = _get_local_image_metadata(image.reference)
+        if metadata is None:
             raise LauncherError(
                 f"Downloaded image is missing locally: {image.reference}\n"
                 f"Expected build: {image.build_id}"
             )
-        local_id = local.get("Id")
+        local_id = metadata.get("Id")
         manifest_id = image.reference.rsplit("@", 1)[1]
         if local_id not in (image.image_id, manifest_id):
             raise LauncherError(
@@ -310,7 +310,7 @@ def get_image_pair(
                 f"Actual local ID: {local_id}"
             )
         try:
-            build_id = _get_build_id(local)
+            build_id = _get_build_id(metadata)
         except LauncherError as error:
             raise LauncherError(
                 f"Cannot validate downloaded image: {image.reference}\n"
