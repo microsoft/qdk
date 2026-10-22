@@ -52,6 +52,9 @@ def get_sandbox_instance_config(sandbox_instance_dir: Path) -> dict:
         "repo",
         "image_source",
         "tag",
+        "agent_id",
+        "proxy_id",
+        "build_id",
     }
     if set(config) - allowed or any(
         not isinstance(value, str) for value in config.values()

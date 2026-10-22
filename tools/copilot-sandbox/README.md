@@ -197,6 +197,13 @@ If registry inspection fails, using a cached pair requires explicit confirmation
 The agent's `qdk.copilot-sandbox.build-id` label selects the proxy tag, and both labels must match.
 The proxy's `latest` tag is never used for pairing.
 
+### Reusing an Image Pair
+
+Use `sandbox.py run --instance NAME --reuse` to launch a new agent with that instance's last selected image pair.
+It checks the exact local image IDs, Linux architecture, and matching build labels without contacting ACR, logging in, or downloading images.
+Missing history or missing/invalid images cause an error; no other images are substituted.
+This isn't an offline mode - it's just a way to avoid upgrading your container.
+
 ### Local (Public Feeds)
 
 Local images can be built without using any Microsoft-internal resources.
@@ -263,7 +270,7 @@ On Windows, directory access follows the user's inherited profile ACLs and DPAPI
 Symlinks and Windows reparse points are refused in state and mount paths.
 Reusing an instance from another checkout warns and updates the remembered checkout; its work clone is preserved and subsequent fetches use the newly mounted seed.
 
-- `config.json`: last checkout, exchange locations, saved CPU/memory limits and image selection.
+- `config.json`: last checkout, saved exchange paths, resource limits and image preferences, plus the image IDs and build ID from the last agent launch attempt.
 - `allowlist.local.txt`: additional domains, one per line, optional `#` comments.
   This non-secret file is mode 0644 so Squid can read the bind mount.
 - `outbox.git`: container-writable bare repository containing sandbox commits.

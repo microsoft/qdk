@@ -187,6 +187,52 @@ def _get_cached_image_pair(base: str, *, local: bool = False) -> tuple[str, str,
     return agent["Id"], proxy_image["Id"], build_id
 
 
+def get_reused_image_pair(
+    config: dict, architecture: str, *, instance: str
+) -> tuple[str, str, str]:
+    if not any(key in config for key in ("agent_id", "proxy_id", "build_id")):
+        raise LauncherError(
+            f"No previous image pair is recorded for instance '{instance}'. "
+            "Launch it without --reuse first."
+        )
+    for key in ("agent_id", "proxy_id"):
+        value = config.get(key)
+        if not isinstance(value, str) or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", value
+        ):
+            raise LauncherError(
+                f"Invalid recorded image ID '{key}' for instance '{instance}'."
+            )
+    build_id = config.get("build_id")
+    if not isinstance(build_id, str):
+        raise LauncherError(f"Invalid recorded build ID for instance '{instance}'.")
+    get_image_names_for_tag(build_id)
+    for key in ("agent_id", "proxy_id"):
+        image_id = config[key]
+        metadata = _get_local_image_metadata(image_id)
+        if metadata is None:
+            raise LauncherError(
+                f"Cannot reuse instance '{instance}': {key} {image_id} is missing locally. "
+                "Launch without --reuse to select another image pair."
+            )
+        if metadata.get("Id") != image_id:
+            raise LauncherError(
+                f"Recorded image identity does not match {key}: {image_id}"
+            )
+        if (
+            metadata.get("Os") != "linux"
+            or metadata.get("Architecture") != architecture
+        ):
+            raise LauncherError(
+                f"Recorded image {key} is not linux/{architecture}: {image_id}"
+            )
+        if _get_build_id(metadata) != build_id:
+            raise LauncherError(
+                f"Recorded image {key} does not match build {build_id}: {image_id}"
+            )
+    return config["agent_id"], config["proxy_id"], build_id
+
+
 def _get_remote_image_pair(
     base: str, architecture: str
 ) -> tuple[_RemoteImage, _RemoteImage]:

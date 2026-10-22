@@ -32,6 +32,7 @@ from .images import (
     LOCAL_IMAGE_TAG,
     get_image_names_for_tag,
     get_image_pair,
+    get_reused_image_pair,
 )
 from .secrets import TokenStore, request_and_store_token, validate_token_properties
 from .state import (
@@ -242,17 +243,29 @@ def _run_session(
     store = TokenStore(args.instance, directory)
     token = store.load()
     validate_token_properties(token, instance=args.instance)
-    saved_source = config.get("image_source", "registry")
-    if args.local is None:
-        args.local = saved_source == "local"
-    image_source = "local" if args.local else "registry"
-    tag = (
-        args.tag
-        or (config.get("tag") if image_source == saved_source else None)
-        or (LOCAL_IMAGE_TAG if args.local else "latest")
-    )
-    base, _ = get_image_names_for_tag(tag, local=args.local)
-    agent_id, proxy_id, _ = get_image_pair(base, architecture, local=args.local)
+    if args.reuse:
+        agent_id, proxy_id, build_id = get_reused_image_pair(
+            config, architecture, instance=args.instance
+        )
+        print(f"Reusing build {build_id} for instance '{args.instance}'.")
+        print(f"  agent: {agent_id}\n  proxy: {proxy_id}")
+        args.local = False
+    else:
+        saved_source = config.get("image_source", "registry")
+        if args.local is None:
+            args.local = saved_source == "local"
+        image_source = "local" if args.local else "registry"
+        tag = (
+            args.tag
+            or (config.get("tag") if image_source == saved_source else None)
+            or (LOCAL_IMAGE_TAG if args.local else "latest")
+        )
+        base, _ = get_image_names_for_tag(tag, local=args.local)
+        agent_id, proxy_id, build_id = get_image_pair(
+            base, architecture, local=args.local
+        )
+        if args.save:
+            config.update({"image_source": image_source, "tag": tag})
     allowlist, _ = _load_local_allowlist(directory)
     incoming.mkdir(parents=True, exist_ok=True)
     outgoing.mkdir(parents=True, exist_ok=True)
@@ -264,13 +277,10 @@ def _run_session(
             {
                 "cpus": cpus,
                 "memory": memory,
-                "image_source": image_source,
-                "tag": tag,
                 "to_copilot": str(incoming),
                 "from_copilot": str(outgoing),
             }
         )
-    write_json(directory / "config.json", config)
     environment = _make_base_environment(args.instance)
     environment.update(
         {
@@ -322,6 +332,10 @@ def _run_session(
             if arguments[0] == "--":
                 arguments = arguments[1:]
             command.extend(arguments)
+        config.update(
+            {"agent_id": agent_id, "proxy_id": proxy_id, "build_id": build_id}
+        )
+        write_json(directory / "config.json", config)
         status = _run_compose_command(
             command, environment, local=args.local, interactive=True, check=False
         ).returncode
@@ -331,10 +345,10 @@ def _run_session(
         try:
             for container in _get_running_agents(args.instance, owned=True):
                 run(["docker", "rm", "--force", container])
-        except LauncherError as error:
+        except (LauncherError, OSError, ValueError) as error:
             cleanup_failed = True
             LOGGER.warning(
-                "Could not stop the agent; quarantine and fetch were not run while it may still be writing.\n%s",
+                "Could not stop the agent; quarantine and fetch were skipped.\n%s",
                 format_error(error),
             )
         if not cleanup_failed:
@@ -526,6 +540,11 @@ def make_argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="Use published registry images instead of a saved local-image preference",
     )
+    image_source.add_argument(
+        "--reuse",
+        action="store_true",
+        help="Reuse this instance's last image pair by ID; never contact the registry or pull",
+    )
     launch.add_argument(
         "--branch", help="Ask the runtime to switch branches, only with a clean tree"
     )
@@ -557,6 +576,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     parser = make_argument_parser()
     args = parser.parse_args(argv)
+    if args.action == "run" and args.reuse and args.tag is not None:
+        parser.error("--reuse cannot be combined with --tag.")
     if args.action == "run" and args.command:
         if args.command[0] != "--":
             parser.error(
