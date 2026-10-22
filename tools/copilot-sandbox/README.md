@@ -262,4 +262,7 @@ Reusing an instance from another checkout warns and updates the remembered check
 CPU/memory limits apply for one launch unless `--save` is supplied. `0` means unlimited; examples are `--cpus 2.5 --memory 8g`.
 Exchange relocations are saved when launching successfully far enough to configure the stack.
 
-An OS-held per-user session lock prevents simultaneous launcher races across instances, and Docker running-agent labels enforce the v1 one-agent limit.
+Different instances can run at the same time, with at most one active session per instance.
+An OS-held per-instance lock prevents duplicate launches, including while the launcher is starting or waiting for input.
+Agent container names and running-agent checks are scoped to the selected instance.
+Host Git configuration updates are briefly serialized; this does not lock other instances for the duration of a session.

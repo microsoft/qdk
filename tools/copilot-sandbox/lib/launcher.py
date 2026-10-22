@@ -95,9 +95,9 @@ def _get_running_agents(name: str | None = None, *, owned: bool = False) -> list
     return run(args).stdout.split()
 
 
-def _ensure_idle() -> None:
-    if _get_running_agents():
-        raise LauncherError("An agent is already running.")
+def _ensure_idle(name: str) -> None:
+    if _get_running_agents(name):
+        raise LauncherError(f"An agent is already running for instance '{name}'.")
 
 
 def _check_project_owner(name: str) -> None:
@@ -300,7 +300,7 @@ def _run_session(
             "--pull",
             "never",
             "--name",
-            "qdk-copilot-sandbox-active-agent",
+            _get_project_name(args.instance) + "-agent",
             "agent",
         ]
         if args.copilot_args:
@@ -419,9 +419,10 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
     )
     TokenStore(args.instance, directory).delete()
     if config.get("repo") == str(REPO):
-        run_git_command(
-            REPO, "remote", "remove", "sandbox-" + args.instance, check=False
-        )
+        with session_lock(get_sandbox_state_dir(), ".git-config.lock", blocking=True):
+            run_git_command(
+                REPO, "remote", "remove", "sandbox-" + args.instance, check=False
+            )
     else:
         print(
             "The last checkout differs; remove its sandbox remote manually if it still exists."
@@ -534,9 +535,8 @@ def main(argv: list[str] | None = None) -> int:
                 ):
                     _delete_instance(args, directory, config)
                 return 0
-            with session_lock(get_sandbox_state_dir()):
-                _ensure_idle()
-                return _run_session(args, directory, config, architecture)
+            _ensure_idle(args.instance)
+            return _run_session(args, directory, config, architecture)
     except KeyboardInterrupt:
         print("Sandbox interrupted.", file=sys.stderr)
         return 130
