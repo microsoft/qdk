@@ -12,6 +12,7 @@ import pandas as pd
 from .._native import Closure, GlobalCallable, Interpreter
 
 class TotalCounts:
+    def __repr__(self) -> str:
     @property
     def logical_qubits(self) -> int: ...
     @property
