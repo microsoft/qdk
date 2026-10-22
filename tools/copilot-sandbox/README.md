@@ -154,6 +154,7 @@ Then, from the repository root:
 
 The default command is `copilot --allow-all`.
 You can pass your own after `--`, for example `copilot --resume=SESSIONID --allow-all`.
+The `--` separator is required for custom commands; put all sandbox options, including `--instance`, before it.
 
 You may find it convenient to launch a bash prompt in the same session:
 
