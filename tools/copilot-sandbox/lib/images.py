@@ -14,7 +14,7 @@ from .common import LauncherError, command_error, format_error, run
 
 REGISTRY = "qdkacr-cfgqhwddajdaebhg.azurecr.io"
 LOCAL_IMAGE_PREFIX = "copilot-sandbox-"
-LOCAL_IMAGE_TAG = "dev"
+LOCAL_IMAGE_TAG = "local"
 BUILD_ID_LABEL = "qdk.copilot-sandbox.build-id"
 LOGGER = logging.getLogger(__name__)
 

@@ -500,14 +500,14 @@ def make_argument_parser() -> argparse.ArgumentParser:
     )
     launch.add_argument(
         "--tag",
-        help="Image tag (default: saved tag, latest for registry, dev for local)",
+        help=f"Image tag (default: saved tag, latest for registry, {LOCAL_IMAGE_TAG} for local)",
     )
     image_source = launch.add_mutually_exclusive_group()
     image_source.add_argument(
         "--local",
         action="store_true",
         default=None,
-        help="Use prebuilt local images (default tag dev); never pull",
+        help=f"Use prebuilt local images (default tag {LOCAL_IMAGE_TAG}); never pull",
     )
     image_source.add_argument(
         "--registry",
