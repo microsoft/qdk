@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 import logging
 import re
+import shutil
 from subprocess import CompletedProcess
 
 from .common import LauncherError, command_error, format_error, run
@@ -65,6 +66,13 @@ class _RegistryError(LauncherError):
 
 def _request_user_confirmation(prompt: str) -> bool:
     return input(prompt + " [y/N]: ").strip().lower() == "y"
+
+
+def _login_to_registry() -> None:
+    executable = shutil.which("az")
+    if executable is None:
+        raise LauncherError("Azure CLI (az) is not installed or available on PATH.")
+    run([executable, "acr", "login", "--name", "qdkacr"], interactive=True)
 
 
 def get_image_names_for_tag(tag: str, *, dev: bool = False) -> tuple[str, str]:
@@ -231,7 +239,7 @@ def get_image_pair(
             "Run az acr login --name qdkacr and retry?"
         ):
             try:
-                run(["az", "acr", "login", "--name", "qdkacr"])
+                _login_to_registry()
                 pair = _get_remote_image_pair(base, architecture)
             except LauncherError as retry_error:
                 LOGGER.warning("Registry retry failed:\n%s", format_error(retry_error))
@@ -275,7 +283,7 @@ def get_image_pair(
             ):
                 raise LauncherError("Image pull retry declined.")
             try:
-                run(["az", "acr", "login", "--name", "qdkacr"])
+                _login_to_registry()
             except LauncherError as error:
                 raise LauncherError(
                     "Image pull authentication retry failed."
