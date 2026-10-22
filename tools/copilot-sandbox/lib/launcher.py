@@ -431,6 +431,17 @@ def _list_instances() -> None:
             )
 
 
+def _stop_instance(name: str) -> None:
+    _check_project_owner(name)
+    running = _get_running_agents(name, owned=True)
+    if not running:
+        with session_lock(get_sandbox_state_dir(), f".instance-{name}.lock"):
+            print(f"Instance '{name}' is not running.")
+        return
+    run(["docker", "stop", *running])
+    print(f"Stopped agent for instance '{name}'. Work and settings are retained.")
+
+
 def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) -> None:
     if not directory.exists():
         raise LauncherError("Instance does not exist.")
@@ -489,6 +500,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
         ("fetch", "Fetch sandbox branches now, briefly pausing a running agent"),
         ("set-token", "Create and store a seven-day fine-grained PAT"),
         ("shell", "Open a shell in a running agent; never start a sandbox"),
+        ("stop", "Stop the selected instance's agent without deleting its work"),
     ):
         commands.add_parser(command, help=help_text, parents=[instance_options])
     commands.add_parser(
@@ -555,6 +567,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.action == "shell":
             return _open_shell_on_existing_session(args.instance)
+        if args.action == "stop":
+            _stop_instance(args.instance)
+            return 0
         if args.action == "list":
             _check_prerequisites()
             _list_instances()
