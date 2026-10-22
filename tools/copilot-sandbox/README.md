@@ -213,13 +213,13 @@ After the build succeeds, launch Copilot:
 .venv/bin/python tools/copilot-sandbox/sandbox.py run --local
 ```
 
-The build tool produces `copilot-sandbox-agent:dev`, `copilot-sandbox-proxy:dev` and additional build-id pairing tags.
+The build tool produces `copilot-sandbox-agent:local`, `copilot-sandbox-proxy:local` and additional build-id pairing tags.
 The launcher selects the local agent and its matching build-id-tagged proxy.
-Keep those pairing tags; the two `:dev` tags alone are not sufficient.
+Keep those pairing tags; the two `:local` tags alone are not sufficient.
 `run --local --tag TAG` selects another local agent tag.
 
 `--local` does not inspect the registry, pull images, or build missing images.
-Without it, the launcher checks the published ACR images even if local `:dev` images exist.
+Without it, the launcher checks the published ACR images even if local `:local` images exist.
 The launcher uses the selected agent/proxy pair directly and does not build per-instance custom images.
 
 ### Local (Internal Feeds)
