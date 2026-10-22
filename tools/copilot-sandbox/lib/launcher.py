@@ -432,7 +432,7 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
     if _get_running_agents(args.instance):
         raise LauncherError("Cannot delete a running instance. Exit its agent first.")
     print(
-        "This deletes work and Copilot volumes, saved PAT, settings, extra Dockerfile, and outbox commits."
+        "This deletes work and Copilot volumes, saved PAT, settings, and outbox commits."
     )
     print("Exchange folders and any already-fetched host commits are retained.")
     if (
@@ -453,9 +453,7 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
             "QDK_SANDBOX_TOKEN": "unused",
         }
     )
-    _run_compose_command(
-        ["down", "--volumes", "--remove-orphans"], environment, local=args.local
-    )
+    _run_compose_command(["down", "--volumes", "--remove-orphans"], environment)
     TokenStore(args.instance, directory).delete()
     if config.get("repo") == str(REPO):
         with session_lock(get_sandbox_state_dir(), ".git-config.lock", blocking=True):
@@ -488,15 +486,10 @@ def make_argument_parser() -> argparse.ArgumentParser:
         ("shell", "Open a shell in a running agent; never start a sandbox"),
     ):
         commands.add_parser(command, help=help_text, parents=[instance_options])
-    delete = commands.add_parser(
-        "delete-instance",
+    commands.add_parser(
+        "delete",
         help="Confirm and delete the selected instance, including its volumes",
         parents=[instance_options],
-    )
-    delete.add_argument(
-        "--local",
-        action="store_true",
-        help="Use the local-image Compose configuration",
     )
     launch.add_argument(
         "--tag",
@@ -588,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
             config = get_sandbox_instance_config(directory)
             architecture = _check_prerequisites()
             _check_project_owner(args.instance)
-            if args.action == "delete-instance":
+            if args.action == "delete":
                 with session_lock(
                     get_sandbox_state_dir(), f".token-{args.instance}.lock"
                 ):

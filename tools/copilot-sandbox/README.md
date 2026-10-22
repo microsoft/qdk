@@ -272,3 +272,6 @@ Different instances can run at the same time, with at most one active session pe
 An OS-held per-instance lock prevents duplicate launches, including while the launcher is starting or waiting for input.
 Agent container names and running-agent checks are scoped to the selected instance.
 Host Git configuration updates are briefly serialized; this does not lock other instances for the duration of a session.
+
+Use `sandbox.py delete --instance NAME` to confirm and delete an idle instance, including its volumes and saved PAT.
+Deletion does not need an image source or tag; exchange folders and already-fetched commits are retained.
