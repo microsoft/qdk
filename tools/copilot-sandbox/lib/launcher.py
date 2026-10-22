@@ -542,7 +542,15 @@ def main(argv: list[str] | None = None) -> int:
     if sys.version_info < (3, 10):
         print("Python >= 3.10 is required.", file=sys.stderr)
         return 1
-    args = make_argument_parser().parse_args(argv)
+    parser = make_argument_parser()
+    args = parser.parse_args(argv)
+    if args.action == "run" and args.copilot_args:
+        if args.copilot_args[0] != "--":
+            parser.error(
+                "Custom commands must follow '--'; put sandbox options before '--'."
+            )
+        if len(args.copilot_args) == 1:
+            parser.error("Expected a command after '--'.")
     try:
         if args.action == "shell":
             return _open_shell_on_existing_session(args.instance)
