@@ -248,7 +248,7 @@ def get_image_pair(
                 return cached
             raise LauncherError("Use of the cached image pair was declined.") from None
     required = [
-        image for image in pair if _get_local_image_metadata(image.image_id) is None
+        image for image in pair if _get_local_image_metadata(image.reference) is None
     ]
     if required:
         if not _request_user_confirmation(
@@ -284,17 +284,39 @@ def get_image_pair(
                 raise LauncherError(
                     "Image pull failed after authentication retry; see diagnostics above."
                 )
+    local_ids = []
     for image in pair:
-        local = _get_local_image_metadata(image.image_id)
-        if (
-            local is None
-            or local.get("Id") != image.image_id
-            or _get_build_id(local) != image.build_id
-        ):
-            raise LauncherError("Downloaded image does not match the selected release.")
+        local = _get_local_image_metadata(image.reference)
+        if local is None:
+            raise LauncherError(
+                f"Downloaded image is missing locally: {image.reference}\n"
+                f"Expected build: {image.build_id}"
+            )
+        local_id = local.get("Id")
+        manifest_id = image.reference.rsplit("@", 1)[1]
+        if local_id not in (image.image_id, manifest_id):
+            raise LauncherError(
+                f"Downloaded image identity mismatch: {image.reference}\n"
+                f"Expected config ID: {image.image_id}\n"
+                f"Expected manifest ID: {manifest_id}\n"
+                f"Actual local ID: {local_id}"
+            )
+        try:
+            build_id = _get_build_id(local)
+        except LauncherError as error:
+            raise LauncherError(
+                f"Cannot validate downloaded image: {image.reference}\n"
+                f"Expected build: {image.build_id}"
+            ) from error
+        if build_id != image.build_id:
+            raise LauncherError(
+                f"Downloaded image build-id mismatch: {image.reference}\n"
+                f"Expected build: {image.build_id}\nActual build: {build_id}"
+            )
+        local_ids.append(local_id)
     _, proxy_name = get_image_names_for_tag(pair[0].build_id)
-    for name, image in zip((base, proxy_name), pair):
+    for name, local_id in zip((base, proxy_name), local_ids):
         tagged = _get_local_image_metadata(name)
-        if tagged is None or tagged.get("Id") != image.image_id:
-            run(["docker", "tag", image.image_id, name])
-    return pair[0].image_id, pair[1].image_id, pair[0].build_id
+        if tagged is None or tagged.get("Id") != local_id:
+            run(["docker", "tag", local_id, name])
+    return local_ids[0], local_ids[1], pair[0].build_id
