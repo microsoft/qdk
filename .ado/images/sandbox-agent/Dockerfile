@@ -9,7 +9,7 @@ ARG TOOLCHAIN_FEED
 ARG CRATES_FEED
 ARG BUILD_ID
 ARG QDK_SOURCE_SHA
-ARG QDK_BUILD_ARGS='["--qdk","--no-check","--no-test"]'
+ARG QDK_BUILD_ARGS='["--qdk"]'
 LABEL qdk.copilot-sandbox.build-id=${BUILD_ID} \
     org.opencontainers.image.revision=${QDK_SOURCE_SHA}
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
