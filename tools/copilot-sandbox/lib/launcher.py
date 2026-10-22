@@ -241,7 +241,7 @@ def _run_session(
     make_private_dir(directory)
     store = TokenStore(args.instance, directory)
     token = store.load()
-    validate_token_properties(token)
+    validate_token_properties(token, instance=args.instance)
     base, _ = get_image_names_for_tag(
         args.tag or (LOCAL_IMAGE_TAG if args.dev else "latest"), dev=args.dev
     )

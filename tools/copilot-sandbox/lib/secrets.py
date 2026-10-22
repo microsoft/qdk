@@ -76,6 +76,7 @@ class TokenStore:
         self.directory = directory
 
     def load(self) -> str:
+        setup = f"sandbox.py set-token --instance {self.name}"
         if sys.platform == "win32":
             path = raise_if_link(self.directory / "token.dpapi")
             try:
@@ -84,7 +85,7 @@ class TokenStore:
                 )
             except (OSError, UnicodeError):
                 raise LauncherError(
-                    "Cannot load this instance's PAT; run 'sandbox.py set-token'."
+                    f"Cannot load this instance's PAT; run '{setup}'."
                 ) from None
         if sys.platform == "darwin":
             result = run(
@@ -103,7 +104,7 @@ class TokenStore:
             result = run(["pass", "show", f"{SERVICE}/{self.name}"], check=False)
         if result.returncode:
             raise LauncherError(
-                "Cannot load this instance's PAT; unlock the secret store or run 'sandbox.py set-token'."
+                f"Cannot load this instance's PAT; unlock the secret store or run '{setup}'."
             )
         return _validate_token_text(result.stdout)
 
@@ -165,7 +166,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def validate_token_properties(token: str, *, now: datetime | None = None) -> None:
+def validate_token_properties(
+    token: str, *, instance: str = "default", now: datetime | None = None
+) -> None:
+    setup = (
+        f"sandbox.py set-token --instance {validate_sandbox_instance_name(instance)}"
+    )
     request = urllib.request.Request(
         "https://api.github.com/user",
         headers={
@@ -182,7 +188,7 @@ def validate_token_properties(token: str, *, now: datetime | None = None) -> Non
     except urllib.error.HTTPError as error:
         if error.code == 401:
             raise LauncherError(
-                "GitHub rejected the PAT (401); run 'sandbox.py set-token'."
+                f"GitHub rejected the PAT (401); run '{setup}'."
             ) from None
         raise LauncherError(
             f"GitHub PAT validation failed (HTTP status: {error.code}); check GitHub availability and PAT permissions."
@@ -203,7 +209,7 @@ def validate_token_properties(token: str, *, now: datetime | None = None) -> Non
                 expiration = expiration.replace(tzinfo=timezone.utc)
             if expiration <= (now or datetime.now(timezone.utc)) + timedelta(days=2):
                 print(
-                    "Warning: this PAT expires within two days; rotate with 'sandbox.py set-token'."
+                    f"Warning: this PAT expires within two days; rotate with '{setup}'."
                 )
         except (ValueError, TypeError, OverflowError):
             print("Warning: GitHub returned an unreadable PAT expiration date.")
@@ -236,8 +242,8 @@ def request_and_store_token(store: TokenStore) -> None:
             token = _validate_token_text(getpass.getpass("Fine-grained PAT (hidden): "))
     except getpass.GetPassWarning:
         raise LauncherError(
-            "A terminal supporting hidden input is required for 'sandbox.py set-token'."
+            f"A terminal supporting hidden input is required for 'sandbox.py set-token --instance {store.name}'."
         ) from None
-    validate_token_properties(token)
+    validate_token_properties(token, instance=store.name)
     store.save(token)
     print("PAT stored for this instance.")
