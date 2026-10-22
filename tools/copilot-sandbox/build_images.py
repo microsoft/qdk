@@ -246,7 +246,7 @@ def get_repo_build_arguments(args: argparse.Namespace) -> list[str]:
     arguments = args.build_args
     if arguments[:1] == ["--"]:
         return arguments[1:]
-    return arguments or ["--qdk", "--no-check", "--no-test"]
+    return arguments or ["--qdk"]
 
 
 def build_images(args: argparse.Namespace) -> None:
@@ -403,7 +403,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     builder.add_argument(
         "build_args",
         nargs=argparse.REMAINDER,
-        help="build.py arguments after -- (default: --qdk --no-check --no-test)",
+        help="build.py arguments after -- (default: --qdk)",
     )
     return parser.parse_args(argv)
 
