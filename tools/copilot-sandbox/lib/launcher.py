@@ -122,7 +122,7 @@ def _run_compose_command(
     args: list[str],
     environment: dict[str, str],
     *,
-    dev: bool = False,
+    local: bool = False,
     interactive: bool = False,
     check: bool = True,
 ):
@@ -138,8 +138,8 @@ def _run_compose_command(
         "-f",
         str(ROOT / "compose.yaml"),
     ]
-    if dev:
-        command.extend(["-f", str(ROOT / "compose.dev.yaml")])
+    if local:
+        command.extend(["-f", str(ROOT / "compose.local.yaml")])
     return run([*command, *args], env=environment, interactive=interactive, check=check)
 
 
@@ -243,16 +243,16 @@ def _run_session(
     token = store.load()
     validate_token_properties(token, instance=args.instance)
     saved_source = config.get("image_source", "registry")
-    if args.dev is None:
-        args.dev = saved_source == "local"
-    image_source = "local" if args.dev else "registry"
+    if args.local is None:
+        args.local = saved_source == "local"
+    image_source = "local" if args.local else "registry"
     tag = (
         args.tag
         or (config.get("tag") if image_source == saved_source else None)
-        or (LOCAL_IMAGE_TAG if args.dev else "latest")
+        or (LOCAL_IMAGE_TAG if args.local else "latest")
     )
-    base, _ = get_image_names_for_tag(tag, dev=args.dev)
-    agent_id, proxy_id, _ = get_image_pair(base, architecture, dev=args.dev)
+    base, _ = get_image_names_for_tag(tag, local=args.local)
+    agent_id, proxy_id, _ = get_image_pair(base, architecture, local=args.local)
     allowlist, _ = _load_local_allowlist(directory)
     incoming.mkdir(parents=True, exist_ok=True)
     outgoing.mkdir(parents=True, exist_ok=True)
@@ -293,7 +293,7 @@ def _run_session(
     status = 1
     cleanup_failed = False
     try:
-        _run_compose_command(proxy_args, environment, dev=args.dev)
+        _run_compose_command(proxy_args, environment, local=args.local)
         environment.update(
             {
                 "QDK_SANDBOX_TOKEN": token,
@@ -318,7 +318,7 @@ def _run_session(
                 arguments = arguments[1:]
             command.extend(arguments)
         status = _run_compose_command(
-            command, environment, dev=args.dev, interactive=True, check=False
+            command, environment, local=args.local, interactive=True, check=False
         ).returncode
     finally:
         environment.pop("QDK_SANDBOX_TOKEN", None)
@@ -454,7 +454,7 @@ def _delete_instance(args: argparse.Namespace, directory: Path, config: dict) ->
         }
     )
     _run_compose_command(
-        ["down", "--volumes", "--remove-orphans"], environment, dev=args.dev
+        ["down", "--volumes", "--remove-orphans"], environment, local=args.local
     )
     TokenStore(args.instance, directory).delete()
     if config.get("repo") == str(REPO):
@@ -494,21 +494,24 @@ def make_argument_parser() -> argparse.ArgumentParser:
         parents=[instance_options],
     )
     delete.add_argument(
-        "--dev", action="store_true", help="Use the development Compose configuration"
+        "--local",
+        action="store_true",
+        help="Use the local-image Compose configuration",
     )
     launch.add_argument(
-        "--tag", help="Registry image tag (default latest, or dev with --dev)"
+        "--tag",
+        help="Image tag (default: saved tag, latest for registry, dev for local)",
     )
     image_source = launch.add_mutually_exclusive_group()
     image_source.add_argument(
-        "--dev",
+        "--local",
         action="store_true",
         default=None,
-        help="Use prebuilt local copilot-sandbox-{agent,proxy}:dev images; never pull",
+        help="Use prebuilt local images (default tag dev); never pull",
     )
     image_source.add_argument(
         "--registry",
-        dest="dev",
+        dest="local",
         action="store_false",
         default=None,
         help="Use published registry images instead of a saved local-image preference",

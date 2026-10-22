@@ -76,7 +76,7 @@ There can also be private configuration and history data in `.git`.
   It contains some security fixes related to nested .git folders.
 - For published images only: Docker Buildx and Azure CLI with permission to pull from the team's `qdkacr` registry.
   The launcher offers `az acr login --name qdkacr` when registry access fails.
-  Locally built images launched with `--dev` do not need ACR access.
+  Locally built images launched with `--local` do not need ACR access.
 - A secret store: initialized `pass` plus GnuPG on Linux, unlocked Keychain (`security`) on macOS, or current-user DPAPI on Windows.
 - On Linux, host bind mounts must be readable/writable by container uid 1000 as appropriate.
   Docker Desktop must be allowed to share the checkout and instance directory.
@@ -210,15 +210,15 @@ DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py build -
 After the build succeeds, launch Copilot:
 
 ```sh
-.venv/bin/python tools/copilot-sandbox/sandbox.py run --dev
+.venv/bin/python tools/copilot-sandbox/sandbox.py run --local
 ```
 
 The build tool produces `copilot-sandbox-agent:dev`, `copilot-sandbox-proxy:dev` and additional build-id pairing tags.
 The launcher selects the local agent and its matching build-id-tagged proxy.
 Keep those pairing tags; the two `:dev` tags alone are not sufficient.
-`run --dev --tag TAG` selects another local agent tag.
+`run --local --tag TAG` selects another local agent tag.
 
-`--dev` does not inspect the registry, pull images, or build missing images.
+`--local` does not inspect the registry, pull images, or build missing images.
 Without it, the launcher checks the published ACR images even if local `:dev` images exist.
 The launcher uses the selected agent/proxy pair directly and does not build per-instance custom images.
 

@@ -75,10 +75,10 @@ def _login_to_registry() -> None:
     run([executable, "acr", "login", "--name", "qdkacr"], interactive=True)
 
 
-def get_image_names_for_tag(tag: str, *, dev: bool = False) -> tuple[str, str]:
+def get_image_names_for_tag(tag: str, *, local: bool = False) -> tuple[str, str]:
     if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag):
         raise LauncherError("Invalid image tag.")
-    prefix = LOCAL_IMAGE_PREFIX if dev else f"{REGISTRY}/copilot-sandbox/"
+    prefix = LOCAL_IMAGE_PREFIX if local else f"{REGISTRY}/copilot-sandbox/"
     return f"{prefix}agent:{tag}", f"{prefix}proxy:{tag}"
 
 
@@ -169,12 +169,12 @@ def _get_remote_image_metadata(image: str, architecture: str) -> _RemoteImage:
     raise LauncherError(f"Registry image {image} has no linux/{architecture} manifest.")
 
 
-def _get_cached_image_pair(base: str, *, dev: bool = False) -> tuple[str, str, str]:
+def _get_cached_image_pair(base: str, *, local: bool = False) -> tuple[str, str, str]:
     agent = _get_local_image_metadata(base)
     if agent is None:
         raise LauncherError(f"No local agent image is available as {base}.")
     build_id = _get_build_id(agent)
-    _, proxy = get_image_names_for_tag(build_id, dev=dev)
+    _, proxy = get_image_names_for_tag(build_id, local=local)
     proxy_image = _get_local_image_metadata(proxy)
     if proxy_image is None:
         raise LauncherError(
@@ -226,10 +226,10 @@ def _pull_images(
 
 
 def get_image_pair(
-    base: str, architecture: str, *, dev: bool = False
+    base: str, architecture: str, *, local: bool = False
 ) -> tuple[str, str, str]:
-    if dev:
-        return _get_cached_image_pair(base, dev=True)
+    if local:
+        return _get_cached_image_pair(base, local=True)
     try:
         pair = _get_remote_image_pair(base, architecture)
     except _RegistryError as error:
