@@ -162,6 +162,12 @@ You may find it convenient to launch a bash prompt in the same session:
 .venv/bin/python tools/copilot-sandbox/sandbox.py shell
 ```
 
+To stop an agent from another terminal, use `sandbox.py stop --instance NAME`.
+This preserves the instance's work, volumes, PAT, and settings; the proxy is left available for the next launch.
+An active launcher performs its normal cleanup and fetch after the agent exits.
+If the launcher is no longer running, use `sandbox.py fetch --instance NAME` to fetch the stopped agent's commits.
+If a launcher is still starting or waiting for input without an agent, exit that launcher instead.
+
 ### Local Allowlist
 
 The local allowlist goes in `~/qdk-copilot-sandbox/NAME/allowlist.local.txt` with one domain per line.
