@@ -139,7 +139,7 @@ impl fmt::Debug for ExecutionTrace {
 }
 
 /// Profiling data collected during quantum execution.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct ProfilerResult {
     /// Total counts.
     pub totals: TotalCounts,
@@ -153,6 +153,26 @@ pub struct ProfilerResult {
 
     /// Informational messages about assumptions made while profiling.
     pub infos: Vec<String>,
+}
+
+impl fmt::Debug for ProfilerResult {
+    /// Summarizes profiling data without dumping trace instructions or time-series points.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut result = f.debug_struct("ProfilerResult");
+        result
+            .field("totals", &self.totals)
+            .field("time_series_count", &self.profiles.profiles.len())
+            .field(
+                "aggregation_window_sec",
+                &self.profiles.aggregation_window_sec,
+            );
+        if let Some(trace) = &self.trace
+            && !trace.instructions.is_empty()
+        {
+            result.field("trace_operations_count", &trace.instructions.len());
+        }
+        result.field("infos", &self.infos).finish()
+    }
 }
 
 impl ProfilerResult {
@@ -175,7 +195,108 @@ impl ProfilerResult {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Boxed trait objects execute instructions and return each profiler's collected data.
+    #[test]
+    fn boxed_profilers() -> Result<(), String> {
+        let profilers: [Box<dyn Profiler + Send + Sync>; 2] = [
+            Box::new(SequentialCountingProfiler::new(
+                10,
+                FxHashMap::from_iter([("x".into(), 1.0)]),
+            )?),
+            Box::new(TemporalProfiler::new(ProfilerConfig::default())),
+        ];
+        for mut profiler in profilers {
+            assert_eq!(profiler.get_result().totals.logical_qubits, 0);
+            profiler.execute_batch(&[QuantumBackendInstruction {
+                instruction_name: "x",
+                parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
+            }])?;
+            let result = profiler.get_result();
+            assert_eq!(result.totals.logical_qubits, 1);
+            assert!(result.totals.total_operations_count > 0);
+            assert!(result.totals.total_runtime_sec > 0.0);
+        }
+        Ok(())
+    }
+
+    /// Omits the trace count for both absent and empty traces.
+    #[test]
+    fn profiler_result_debug_without_trace_operations() {
+        let mut result = ProfilerResult {
+            totals: TotalCounts::default(),
+            profiles: TemporalProfiles::default(),
+            trace: None,
+            infos: Vec::new(),
+        };
+        let expected = format!(
+            "ProfilerResult {{ totals: {:?}, time_series_count: 0, aggregation_window_sec: None, infos: [] }}",
+            result.totals
+        );
+        assert_eq!(format!("{result:?}"), expected);
+        result.trace = Some(ExecutionTrace {
+            instructions: Vec::new(),
+        });
+        assert_eq!(format!("{result:?}"), expected);
+    }
+
+    /// Counts trace entries and metrics while preserving totals and metadata.
+    #[test]
+    fn profiler_result_debug_with_trace_and_profiles() {
+        let result = ProfilerResult {
+            totals: TotalCounts {
+                logical_qubits: 2,
+                physical_qubits: 20,
+                total_runtime_sec: 0.5,
+                total_operations_count: 3,
+                ..TotalCounts::default()
+            },
+            profiles: TemporalProfiles {
+                profiles: vec![
+                    TimeSeries {
+                        metric_name: "hidden metric".into(),
+                        metric_units: "events/s".into(),
+                        series: vec![(0.0, 123.0), (1.0, 456.0)],
+                    };
+                    2
+                ],
+                aggregation_window_sec: Some(1.0),
+            },
+            trace: Some(ExecutionTrace {
+                instructions: vec![
+                    InstructionTrace {
+                        start_time_nanos: 0,
+                        end_time_nanos: 5,
+                        instruction: QuantumBackendInstruction {
+                            instruction_name: "hidden_instruction",
+                            parameters: smallvec::smallvec![],
+                        },
+                    };
+                    4
+                ],
+            }),
+            infos: vec!["profiling information".into()],
+        };
+        assert_eq!(
+            format!("{result:?}"),
+            format!(
+                "ProfilerResult {{ totals: {:?}, time_series_count: 2, aggregation_window_sec: Some(1.0), trace_operations_count: 4, infos: [\"profiling information\"] }}",
+                result.totals
+            )
+        );
+        let pretty = format!("{result:#?}");
+        assert!(pretty.contains("trace_operations_count: 4"));
+        assert!(!pretty.contains("hidden metric"));
+        assert!(!pretty.contains("hidden_instruction"));
+    }
+}
+
 /// A quantum backend that reports profiling data after execution.
+///
+/// Boxed profilers, including trait objects, support the execution helpers below.
 pub trait Profiler: QuantumBackend {
     /// Returns the profiling data collected so far.
     fn get_result(&self) -> ProfilerResult;
