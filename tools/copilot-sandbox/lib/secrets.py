@@ -15,7 +15,7 @@ import urllib.request
 import warnings
 import webbrowser
 
-from .common import LauncherError, raise_if_link, write_atomic, run
+from .common import LauncherError, raise_if_link, register_secret, write_atomic, run
 from .state import validate_sandbox_instance_name
 
 SERVICE = "qdk-copilot-sandbox"
@@ -30,6 +30,7 @@ def _validate_token_text(token: str) -> str:
         or "\0" in token
     ):
         raise LauncherError("The PAT must be a single nonempty ASCII value.")
+    register_secret(token)
     return token
 
 
@@ -184,12 +185,12 @@ def validate_token_properties(token: str, *, now: datetime | None = None) -> Non
                 "GitHub rejected the PAT (401); run 'sandbox.py set-token'."
             ) from None
         raise LauncherError(
-            "GitHub PAT validation failed; no response details displayed."
+            f"GitHub PAT validation failed (HTTP status: {error.code}); check GitHub availability and PAT permissions."
         ) from None
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
         raise LauncherError(
             "GitHub PAT validation failed; check connectivity."
-        ) from None
+        ) from error
     if expiry:
         try:
             try:

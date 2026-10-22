@@ -4,6 +4,7 @@ import argparse
 from contextlib import ExitStack
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,7 @@ import sys
 
 from .common import (
     LauncherError,
+    format_error,
     make_private_dir,
     raise_if_link,
     write_atomic,
@@ -33,6 +35,7 @@ from .images import (
 )
 from .secrets import TokenStore, request_and_store_token, validate_token_properties
 from .state import (
+    LockBusyError,
     get_sandbox_instance_config,
     get_sandbox_instance_dir,
     validate_sandbox_instance_name,
@@ -43,6 +46,7 @@ from .state import (
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parents[1]
 ROLE_LABEL = "io.qdk.copilot-sandbox.role=agent"
+LOGGER = logging.getLogger(__name__)
 
 
 def _get_project_name(name: str) -> str:
@@ -278,7 +282,7 @@ def _run_session(
         "proxy",
     ]
     status = 1
-    cleanup_errors = []
+    cleanup_failed = False
     try:
         _run_compose_command(proxy_args, environment, dev=args.dev)
         environment.update(
@@ -313,11 +317,13 @@ def _run_session(
         try:
             for container in _get_running_agents(args.instance, owned=True):
                 run(["docker", "rm", "--force", container])
-        except LauncherError:
-            cleanup_errors.append(
-                "Could not stop the agent; quarantine and fetch were not run while it may still be writing."
+        except LauncherError as error:
+            cleanup_failed = True
+            LOGGER.warning(
+                "Could not stop the agent; quarantine and fetch were not run while it may still be writing.\n%s",
+                format_error(error),
             )
-        if not cleanup_errors:
+        if not cleanup_failed:
             for action, message in (
                 (
                     lambda: sanitize_exchange_folder(outgoing),
@@ -330,11 +336,10 @@ def _run_session(
             ):
                 try:
                     action()
-                except (LauncherError, OSError, ValueError):
-                    cleanup_errors.append(message)
-        for message in cleanup_errors:
-            print("Warning: " + message, file=sys.stderr)
-    return status or (1 if cleanup_errors else 0)
+                except (LauncherError, OSError, ValueError) as error:
+                    cleanup_failed = True
+                    LOGGER.warning("%s\n%s", message, format_error(error))
+    return status or (1 if cleanup_failed else 0)
 
 
 def _fetch_outbox_repo_for_instance(
@@ -484,6 +489,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(format="%(levelname)s: %(message)s")
     if sys.version_info < (3, 10):
         print("Python >= 3.10 is required.", file=sys.stderr)
         return 1
@@ -513,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
                         session_lock(root, f".instance-{args.instance}.lock")
                     )
                     idle = True
-                except LauncherError:
+                except LockBusyError:
                     idle = False
                 _fetch_outbox_repo_for_instance(args.instance, directory, idle=idle)
             print(f"Fetched sandbox branches into sandbox-{args.instance}/*.")
@@ -534,16 +540,8 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("Sandbox interrupted.", file=sys.stderr)
         return 130
-    except (LauncherError, ValueError, OSError, EOFError):
-        error = sys.exc_info()[1]
-        print(
-            (
-                str(error)
-                if isinstance(error, (LauncherError, ValueError))
-                else "Host operation failed; check file permissions and prerequisites."
-            ),
-            file=sys.stderr,
-        )
+    except (LauncherError, ValueError, OSError, EOFError) as error:
+        print("error: " + format_error(error), file=sys.stderr)
         return 1
 
 
