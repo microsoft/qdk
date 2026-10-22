@@ -168,6 +168,9 @@ Relaunch the container to pick up changes.
 
 ## Images
 
+Image definitions live in `.ado/images/sandbox-agent` and `.ado/images/sandbox-proxy`.
+The publishing pipeline is `.ado/images/build-sandbox-images.yml`.
+
 ### Pre-built
 
 The default images are:
