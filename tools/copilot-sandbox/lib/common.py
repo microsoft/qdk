@@ -5,14 +5,88 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import tempfile
 from typing import Mapping, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 
 class LauncherError(Exception):
-    """A user-facing error containing no command output or credentials."""
+    """A user-facing failure; underlying errors use native exception chaining."""
+
+
+_SECRET_VALUES: set[str] = set()
+
+
+def register_secret(value: str) -> None:
+    if value:
+        _SECRET_VALUES.add(value)
+
+
+def sanitize_diagnostic(text: str) -> str:
+    secrets = _SECRET_VALUES | {
+        value
+        for key in ("GH_TOKEN", "COPILOT_GITHUB_TOKEN")
+        if (value := os.environ.get(key))
+    }
+    for value in sorted(secrets, key=len, reverse=True):
+        text = text.replace(value, "[redacted]")
+    text = re.sub(r"(?:github_pat_|gh[pousr]_)[A-Za-z0-9_]+", "[redacted]", text)
+    text = re.sub(
+        r"(?im)\b(?:proxy-)?authorization\s*:[^\r\n]*",
+        "Authorization: [redacted]",
+        text,
+    )
+    text = re.sub(
+        r"(?i)\b(?:[\w-]*token|password|client[_-]?secret)[\"']?\s*[=:]\s*"
+        r"(?:\"[^\"]*\"|'[^']*'|[^\s,}]+)",
+        "credential=[redacted]",
+        text,
+    )
+
+    def redact_url(match: re.Match[str]) -> str:
+        try:
+            parts = urlsplit(match.group())
+            return urlunsplit(
+                (parts.scheme, parts.netloc.rsplit("@", 1)[-1], parts.path, "", "")
+            )
+        except ValueError:
+            return "[redacted URL]"
+
+    text = re.sub(r"https?://[^\s<>\"']+", redact_url, text)
+    text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+    text = "".join(
+        character
+        for character in text
+        if character.isprintable() or character in "\n\t"
+    ).strip()
+    return text if len(text) <= 2000 else text[:2000] + "\n[diagnostic truncated]"
+
+
+def format_error(error: BaseException) -> str:
+    messages = []
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current) or type(current).__name__
+        if isinstance(current, EOFError):
+            message = "Input closed while waiting for a response. Run from an interactive terminal."
+        messages.append(sanitize_diagnostic(message))
+        current = current.__cause__
+    return "\nCaused by: ".join(messages)
+
+
+def command_error(
+    result: subprocess.CompletedProcess[str], *, operation: str | None = None
+) -> LauncherError:
+    program = Path(os.fspath(result.args[0])).stem
+    message = f"{operation or program} failed (exit {result.returncode})."
+    if program in {"docker", "git"} and result.stderr:
+        message += "\n" + sanitize_diagnostic(result.stderr)
+    return LauncherError(message)
 
 
 def is_link(path: Path) -> bool:
@@ -61,14 +135,16 @@ def run(
             stdout=None if interactive else subprocess.PIPE,
             stderr=None if interactive else subprocess.PIPE,
         )
-    except OSError:
+    except OSError as error:
         raise LauncherError(
-            f"Cannot execute {command[0]}; check prerequisites."
-        ) from None
+            f"Cannot execute {Path(command[0]).name}; check that it is installed and available on PATH."
+        ) from error
     if check and result.returncode:
-        raise LauncherError(
-            f"{command[0]} failed (exit {result.returncode}); command output suppressed."
-        )
+        if input_text is not None:
+            raise LauncherError(
+                f"{Path(command[0]).name} failed (exit {result.returncode}); output suppressed for a command with input."
+            )
+        raise command_error(result)
     return result
 
 
@@ -102,8 +178,8 @@ def read_json(path: Path) -> dict:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        raise LauncherError(f"Invalid JSON state: {path.name}") from None
+    except (ValueError, OSError) as error:
+        raise LauncherError(f"Invalid JSON state: {path}") from error
     if not isinstance(data, dict):
         raise LauncherError(f"Expected a JSON object: {path.name}")
     return data

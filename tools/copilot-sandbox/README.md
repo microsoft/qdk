@@ -178,6 +178,7 @@ qdkacr-cfgqhwddajdaebhg.azurecr.io/copilot-sandbox/proxy:<agent-build-id>
 ```
 
 `--tag BUILD_ID` selects another published tag.
+Only builds from `main` publish `latest`; use an explicit build ID for feature-branch images.
 The launcher resolves the architecture-specific agent/proxy pair from registry metadata before downloading image layers.
 It asks once for any required downloads, pulls those images in parallel by immutable digest, and pins the session to the selected local image IDs.
 There is no download prompt when both images are already available locally.

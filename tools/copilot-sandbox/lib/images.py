@@ -5,14 +5,17 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import json
+import logging
 import re
+from subprocess import CompletedProcess
 
-from .common import LauncherError, run
+from .common import LauncherError, command_error, format_error, run
 
 REGISTRY = "qdkacr-cfgqhwddajdaebhg.azurecr.io"
 LOCAL_IMAGE_PREFIX = "copilot-sandbox-"
 LOCAL_IMAGE_TAG = "dev"
 BUILD_ID_LABEL = "qdk.copilot-sandbox.build-id"
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -23,7 +26,41 @@ class _RemoteImage:
 
 
 class _RegistryError(LauncherError):
-    pass
+    def __init__(
+        self, image: str, result: CompletedProcess[str], operation: str
+    ) -> None:
+        diagnostic = result.stderr or ""
+        self.authentication_failed = bool(
+            re.search(
+                r"\b(?:unauthorized|authentication required|authentication failed|"
+                r"authorization failed|access denied)\b|\b(?:HTTP|status(?: code)?)\s*:?\s*(?:401|403)\b",
+                diagnostic,
+                re.IGNORECASE,
+            )
+        )
+        if re.search(
+            r"no such manifest|manifest unknown|manifest_unknown|name_unknown",
+            diagnostic,
+            re.IGNORECASE,
+        ):
+            message = "Registry image was not found."
+            hint = "Verify that the requested image tag was published."
+            if image.endswith(":latest"):
+                hint = (
+                    "Use --tag BUILD_ID; feature-branch builds do not publish latest."
+                )
+        elif self.authentication_failed:
+            message = "Registry authentication or authorization failed."
+            hint = "Check ACR pull permissions and registry login."
+        else:
+            message = "Registry operation failed."
+            hint = "Check Docker registry connectivity and availability."
+            if operation.startswith("buildx"):
+                hint = "Check that Docker Buildx is installed and the registry is reachable."
+        super().__init__(
+            f"{message} {hint}\n"
+            + str(command_error(result, operation=f"docker {operation} {image}"))
+        )
 
 
 def _request_user_confirmation(prompt: str) -> bool:
@@ -39,7 +76,19 @@ def get_image_names_for_tag(tag: str, *, dev: bool = False) -> tuple[str, str]:
 
 def _get_local_image_metadata(image: str) -> dict | None:
     result = run(["docker", "image", "inspect", image], check=False)
-    return json.loads(result.stdout)[0] if result.returncode == 0 else None
+    if result.returncode:
+        if re.search(r"no such image|no such object", result.stderr, re.IGNORECASE):
+            return None
+        raise command_error(result, operation=f"Inspect local image {image}")
+    try:
+        metadata = json.loads(result.stdout)[0]
+        if not isinstance(metadata, dict):
+            raise ValueError("Expected an image metadata object.")
+        return metadata
+    except (ValueError, KeyError, IndexError, TypeError) as error:
+        raise LauncherError(
+            f"Local image metadata has an unexpected shape: {image}"
+        ) from error
 
 
 def _get_build_id(image: dict) -> str:
@@ -55,7 +104,7 @@ def _get_build_id(image: dict) -> str:
 def _get_remote_image_metadata(image: str, architecture: str) -> _RemoteImage:
     result = run(["docker", "manifest", "inspect", "--verbose", image], check=False)
     if result.returncode:
-        raise _RegistryError("Cannot inspect the registry image.")
+        raise _RegistryError(image, result, "manifest inspect")
     try:
         manifest = json.loads(result.stdout)
         entries = manifest if isinstance(manifest, list) else [manifest]
@@ -89,7 +138,9 @@ def _get_remote_image_metadata(image: str, architecture: str) -> _RemoteImage:
                 check=False,
             )
             if configuration.returncode:
-                raise _RegistryError("Cannot inspect the registry image configuration.")
+                raise _RegistryError(
+                    reference, configuration, "buildx imagetools inspect"
+                )
             data = json.loads(configuration.stdout)
             candidates = [data] if "architecture" in data else data.values()
             matches = [
@@ -103,22 +154,24 @@ def _get_remote_image_metadata(image: str, architecture: str) -> _RemoteImage:
                 raise ValueError("Unexpected image platform.")
             build_id = _get_build_id({"Config": matches[0].get("config")})
             return _RemoteImage(reference, image_id, build_id)
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
         raise LauncherError(
-            "Registry image metadata has an unexpected shape."
-        ) from None
-    raise LauncherError(f"Registry image has no linux/{architecture} manifest.")
+            f"Registry image metadata has an unexpected shape: {image}"
+        ) from error
+    raise LauncherError(f"Registry image {image} has no linux/{architecture} manifest.")
 
 
 def _get_cached_image_pair(base: str, *, dev: bool = False) -> tuple[str, str, str]:
     agent = _get_local_image_metadata(base)
     if agent is None:
-        raise LauncherError("A local agent image is required; build or pull it first.")
+        raise LauncherError(f"No local agent image is available as {base}.")
     build_id = _get_build_id(agent)
     _, proxy = get_image_names_for_tag(build_id, dev=dev)
     proxy_image = _get_local_image_metadata(proxy)
     if proxy_image is None:
-        raise LauncherError("The cached agent's matching proxy image is missing.")
+        raise LauncherError(
+            f"Cached agent build {build_id} requires missing proxy image {proxy}."
+        )
     if _get_build_id(proxy_image) != build_id:
         raise LauncherError(
             "Agent and proxy build-id labels differ; refusing a mixed-build session."
@@ -139,17 +192,29 @@ def _get_remote_image_pair(
     return agent, proxy
 
 
-def _pull_images(remote_images: list[_RemoteImage]) -> list[_RemoteImage]:
+def _pull_images(
+    remote_images: list[_RemoteImage],
+) -> list[tuple[_RemoteImage, LauncherError]]:
     with ThreadPoolExecutor(max_workers=2) as executor:
         pending = [
             executor.submit(run, ["docker", "pull", image.reference], check=False)
             for image in remote_images
         ]
-        return [
-            image
-            for image, future in zip(remote_images, pending)
-            if future.result().returncode
-        ]
+        failed: list[tuple[_RemoteImage, LauncherError]] = []
+        for image, future in zip(remote_images, pending):
+            try:
+                result = future.result()
+                if result.returncode:
+                    failed.append(
+                        (image, _RegistryError(image.reference, result, "pull"))
+                    )
+            except LauncherError as error:
+                failed.append((image, error))
+        for image, error in failed:
+            LOGGER.warning(
+                "Pull failed for %s:\n%s", image.reference, format_error(error)
+            )
+        return failed
 
 
 def get_image_pair(
@@ -159,28 +224,29 @@ def get_image_pair(
         return _get_cached_image_pair(base, dev=True)
     try:
         pair = _get_remote_image_pair(base, architecture)
-    except _RegistryError:
+    except _RegistryError as error:
+        LOGGER.warning("%s", format_error(error))
         pair = None
-        if _request_user_confirmation(
-            "Registry inspection failed. Run az acr login --name qdkacr and retry?"
+        if error.authentication_failed and _request_user_confirmation(
+            "Run az acr login --name qdkacr and retry?"
         ):
-            run(["az", "acr", "login", "--name", "qdkacr"])
             try:
+                run(["az", "acr", "login", "--name", "qdkacr"])
                 pair = _get_remote_image_pair(base, architecture)
-            except _RegistryError:
-                pass
+            except LauncherError as retry_error:
+                LOGGER.warning("Registry retry failed:\n%s", format_error(retry_error))
         if pair is None:
             try:
                 cached = _get_cached_image_pair(base)
-            except LauncherError:
+            except LauncherError as cache_error:
                 raise LauncherError(
-                    "Cannot inspect the registry image pair; verify ACR access, Docker Buildx and connectivity."
-                ) from None
+                    "Cannot select sandbox images. Cached fallback failed."
+                ) from cache_error
             if _request_user_confirmation(
                 "Cannot compare registry digests. Continue with the cached image pair?"
             ):
                 return cached
-            raise LauncherError("Use of the cached image pair was declined.")
+            raise LauncherError("Use of the cached image pair was declined.") from None
     required = [
         image for image in pair if _get_local_image_metadata(image.image_id) is None
     ]
@@ -191,19 +257,33 @@ def get_image_pair(
         ):
             try:
                 return _get_cached_image_pair(base)
-            except LauncherError:
+            except LauncherError as error:
                 raise LauncherError(
                     "Downloads declined and no matching cached image pair is available."
-                ) from None
+                ) from error
         failed = _pull_images(required)
         if failed:
-            if not _request_user_confirmation(
-                "Image pulls failed. Run az acr login --name qdkacr and retry failed pulls?"
+            if not any(
+                isinstance(error, _RegistryError) and error.authentication_failed
+                for _, error in failed
             ):
-                raise LauncherError("Image pull failed.")
-            run(["az", "acr", "login", "--name", "qdkacr"])
-            if _pull_images(failed):
-                raise LauncherError("Image pull failed after authentication retry.")
+                raise LauncherError(
+                    "Cannot pull required sandbox images; see diagnostics above."
+                )
+            if not _request_user_confirmation(
+                "Run az acr login --name qdkacr and retry failed pulls?"
+            ):
+                raise LauncherError("Image pull retry declined.")
+            try:
+                run(["az", "acr", "login", "--name", "qdkacr"])
+            except LauncherError as error:
+                raise LauncherError(
+                    "Image pull authentication retry failed."
+                ) from error
+            if _pull_images([image for image, _ in failed]):
+                raise LauncherError(
+                    "Image pull failed after authentication retry; see diagnostics above."
+                )
     for image in pair:
         local = _get_local_image_metadata(image.image_id)
         if (

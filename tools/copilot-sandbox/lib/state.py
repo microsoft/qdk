@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import errno
 import os
 from pathlib import Path
 import re
 from typing import Generator
 
 from .common import LauncherError, make_private_dir, raise_if_link, read_json
+
+
+class LockBusyError(LauncherError):
+    pass
 
 
 def validate_sandbox_instance_name(name: str) -> str:
@@ -74,10 +79,22 @@ def session_lock(
                 import fcntl
 
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise LauncherError(
-                "Another sandbox launcher is active; exit that session first."
-            ) from None
+        except OSError as error:
+            if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                raise LauncherError(
+                    f"Cannot acquire sandbox lock: {lock_path}"
+                ) from error
+            message = "Another sandbox launcher holds the global session lock."
+            if filename.startswith(".instance-"):
+                instance = filename[len(".instance-") : -len(".lock")]
+                message = f"Sandbox instance '{instance}' is busy."
+            elif filename != ".launcher.lock":
+                message = f"Sandbox lock '{filename}' is busy."
+            raise LockBusyError(
+                f"{message}\nLock: {lock_path}\n"
+                "Another launcher may be starting or waiting for input without a running agent. "
+                "Exit that launcher and retry; do not delete the lock file."
+            ) from error
         try:
             yield
         finally:
