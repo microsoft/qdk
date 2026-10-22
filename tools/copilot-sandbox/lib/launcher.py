@@ -317,8 +317,8 @@ def _run_session(
             _get_project_name(args.instance) + "-agent",
             "agent",
         ]
-        if args.copilot_args:
-            arguments = args.copilot_args
+        if args.command:
+            arguments = args.command
             if arguments[0] == "--":
                 arguments = arguments[1:]
             command.extend(arguments)
@@ -531,7 +531,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
         "--from-copilot-dir", help="Relocate the writable output exchange directory"
     )
     launch.add_argument(
-        "copilot_args",
+        "command",
         nargs=argparse.REMAINDER,
         help="Full command after --; defaults to copilot --allow-all",
     )
@@ -545,12 +545,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     parser = make_argument_parser()
     args = parser.parse_args(argv)
-    if args.action == "run" and args.copilot_args:
-        if args.copilot_args[0] != "--":
+    if args.action == "run" and args.command:
+        if args.command[0] != "--":
             parser.error(
                 "Custom commands must follow '--'; put sandbox options before '--'."
             )
-        if len(args.copilot_args) == 1:
+        if len(args.command) == 1:
             parser.error("Expected a command after '--'.")
     try:
         if args.action == "shell":
