@@ -346,9 +346,12 @@ pub fn run_clifford_adaptive<'py>(
 /// `(destabilizers, stabilizers, measurements)` of one stabilizer-simulator shot.
 type StabilizerShotState = (Vec<String>, Vec<String>, Vec<QsResult>);
 
-/// Testing hook: runs one shot on the stabilizer simulator and returns its final
+/// Runs one shot on the stabilizer simulator and returns its final
 /// tableau and measurement record, or `None` if the final state is not a
 /// stabilizer state.
+///
+/// For internal testing only (the differential tests against Stim); it is not part
+/// of the public API and may change without notice.
 #[pyfunction]
 pub fn run_clifford_adaptive_and_get_tableau<'py>(
     py: Python<'py>,
