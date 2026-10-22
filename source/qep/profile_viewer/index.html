@@ -1,0 +1,393 @@
+<!doctype html>
+<!-- Copyright (c) Microsoft Corporation. Licensed under the MIT License. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QEP profile viewer</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font:
+          14px/1.5 system-ui,
+          sans-serif;
+        color: #1f2937;
+        background: #ffffff;
+        --panel: #ffffff;
+        --border: #d4dce8;
+        --muted: #53647a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 28px;
+      }
+      main {
+        max-width: 1800px;
+        margin: auto;
+      }
+      h1 {
+        margin: 0;
+        font-size: 26px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+      p {
+        margin: 8px 0;
+      }
+      button,
+      .file-button {
+        color: inherit;
+        background: #f4f7fb;
+        border: 1px solid #bac8da;
+        border-radius: 6px;
+        padding: 7px 12px;
+        font: inherit;
+      }
+      button,
+      .file-button,
+      input[type="checkbox"] {
+        cursor: pointer;
+      }
+      button:hover,
+      .file-button:hover {
+        background: #e8eef6;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      :focus-visible {
+        outline: 2px solid #176bb0;
+        outline-offset: 3px;
+      }
+      input[type="checkbox"] {
+        accent-color: #176bb0;
+      }
+      .muted,
+      small {
+        color: var(--muted);
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      header,
+      section {
+        margin-bottom: 22px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 18px;
+      }
+      .section-heading {
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .file-button {
+        position: relative;
+        display: inline-block;
+        overflow: hidden;
+      }
+      .file-button input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        width: 100%;
+        cursor: pointer;
+      }
+      .file-button:focus-within {
+        outline: 2px solid #176bb0;
+        outline-offset: 3px;
+      }
+      #status {
+        padding: 10px 0;
+        overflow-wrap: anywhere;
+      }
+      #status[data-error="true"] {
+        color: #b42318;
+      }
+      #summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 12px;
+      }
+      .stat {
+        background: #f5f7fb;
+        border-radius: 7px;
+        padding: 12px 16px;
+      }
+      .stat dt {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .stat dd {
+        margin: 3px 0 0;
+        font-size: 24px;
+        font-variant-numeric: tabular-nums;
+      }
+      dl {
+        margin: 0;
+      }
+      details {
+        margin-top: 14px;
+      }
+      summary {
+        cursor: pointer;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        padding: 5px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      .table-scroll {
+        overflow: auto;
+        max-height: 300px;
+      }
+      #chart-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 300px;
+        gap: 20px;
+      }
+      #chart-wrap {
+        position: relative;
+        min-width: 0;
+        height: 440px;
+      }
+      canvas {
+        display: block;
+      }
+      #rates-canvas {
+        width: 100%;
+        height: 100%;
+      }
+      #series-list {
+        max-height: 390px;
+        overflow: auto;
+        margin-top: 12px;
+      }
+      .series-option {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        padding: 5px 0;
+        cursor: pointer;
+      }
+      .swatch {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        flex: 0 0 11px;
+        border-radius: 3px;
+      }
+      .series-option small {
+        display: block;
+        font-size: 11px;
+      }
+      #series-empty {
+        padding: 16px 0;
+      }
+      #trace-scroll {
+        width: 100%;
+        height: 480px;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        position: relative;
+        background: #ffffff;
+      }
+      #trace-spacer {
+        position: relative;
+      }
+      #trace-canvas {
+        position: sticky;
+        left: 0;
+        top: 0;
+      }
+      #trace-message {
+        margin: 12px 0;
+      }
+      #trace-controls {
+        margin-bottom: 12px;
+      }
+      #trace-help {
+        margin-top: 10px;
+      }
+      #tooltip {
+        position: fixed;
+        z-index: 10;
+        max-width: 360px;
+        max-height: 65vh;
+        overflow: hidden;
+        pointer-events: none;
+        white-space: pre-line;
+        background: #ffffff;
+        color: #1f2937;
+        border: 1px solid #9aa9bd;
+        border-radius: 6px;
+        padding: 9px 12px;
+        font-size: 12px;
+        box-shadow: 0 4px 20px #0002;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 850px) {
+        body {
+          padding: 14px;
+        }
+        #chart-layout {
+          grid-template-columns: 1fr;
+        }
+        #series-list {
+          max-height: 210px;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+        #chart-wrap {
+          height: 350px;
+        }
+      }
+    </style>
+    <script src="viewer.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>QEP profile viewer</h1>
+        <p class="muted">
+          Local execution profiles. Your files stay in this browser.
+        </p>
+      </header>
+
+      <section class="panel" aria-label="Load profile">
+        <div class="toolbar">
+          <label class="file-button">
+            Open JSON file
+            <input
+              id="file-input"
+              type="file"
+              accept=".json,application/json"
+              aria-label="Open JSON file"
+            />
+          </label>
+        </div>
+        <div id="status" role="status" aria-live="polite">
+          Open a ProfilerResult JSON file to begin.
+        </div>
+      </section>
+
+      <div id="profile-content" hidden>
+        <section class="panel" aria-labelledby="totals-heading">
+          <div class="section-heading">
+            <h2 id="totals-heading">Total counts</h2>
+            <span id="profile-name" class="muted"></span>
+          </div>
+          <dl id="summary"></dl>
+          <div id="infos"></div>
+          <details>
+            <summary>Per-operation totals</summary>
+            <div id="operation-totals" class="table-scroll"></div>
+          </details>
+        </section>
+
+        <section class="panel" aria-labelledby="rates-heading">
+          <div class="section-heading">
+            <h2 id="rates-heading">Event rates</h2>
+            <span id="window-note" class="muted"></span>
+          </div>
+          <div id="chart-layout">
+            <div id="chart-wrap">
+              <canvas
+                id="rates-canvas"
+                role="img"
+                aria-label="Selected event rates over time"
+              ></canvas>
+            </div>
+            <aside aria-label="Select time series">
+              <div class="toolbar">
+                <button id="series-all" type="button">Select all</button>
+                <button id="series-none" type="button">Clear</button>
+              </div>
+              <div id="series-list"></div>
+              <p id="series-empty" class="muted" hidden>
+                No time series recorded.
+              </p>
+              <small
+                >Each series uses the units shown here. Different units share
+                one numeric axis.</small
+              >
+            </aside>
+          </div>
+          <small
+            >Values are displayed as exported, without renormalizing the final
+            partial aggregation window. Hover for values.</small
+          >
+        </section>
+
+        <section class="panel" aria-labelledby="trace-heading">
+          <div class="section-heading">
+            <h2 id="trace-heading">Execution trace</h2>
+            <label><input id="show-trace" type="checkbox" /> Show trace</label>
+          </div>
+          <p id="trace-message" class="muted"></p>
+          <div id="trace-content" hidden>
+            <div id="trace-controls" class="toolbar">
+              <button id="zoom-in" type="button" aria-label="Zoom in on trace">
+                Zoom in
+              </button>
+              <button
+                id="zoom-out"
+                type="button"
+                aria-label="Zoom out on trace"
+              >
+                Zoom out
+              </button>
+              <button id="zoom-fit" type="button">Fit trace</button>
+              <span id="trace-scale" class="muted"></span>
+            </div>
+            <div
+              id="trace-scroll"
+              tabindex="0"
+              aria-label="Scrollable qubit and factory timeline"
+            >
+              <div id="trace-spacer">
+                <canvas
+                  id="trace-canvas"
+                  role="img"
+                  aria-label="Visible instruction intervals on logical qubit and factory lanes"
+                ></canvas>
+              </div>
+            </div>
+            <p id="trace-stats" class="muted" aria-live="polite"></p>
+            <small id="trace-help"
+              >Scroll to pan. Zoom centers on the visible interval; Ctrl/Cmd +
+              wheel zooms at the pointer. Hover for instruction details. Short
+              intervals hide their labels. Factory lanes follow qubit
+              lanes.</small
+            >
+          </div>
+        </section>
+      </div>
+    </main>
+    <div id="tooltip" role="tooltip" hidden></div>
+  </body>
+</html>
