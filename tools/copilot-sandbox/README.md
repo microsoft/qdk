@@ -266,7 +266,8 @@ Reusing an instance from another checkout warns and updates the remembered check
 CPU/memory limits apply for one launch unless `--save` is supplied. `0` means unlimited; examples are `--cpus 2.5 --memory 8g`.
 `--save` also remembers the image source and tag. Without explicit image options, later launches use that saved selection.
 Use `--registry` to override a saved local-image preference; switching image sources resets the tag to that source's default unless `--tag` is supplied.
-Exchange relocations are saved when launching successfully far enough to configure the stack.
+Exchange relocations also apply for one launch unless `--save` is supplied.
+The checkout association is always recorded so later fetches use the correct repository.
 
 Different instances can run at the same time, with at most one active session per instance.
 An OS-held per-instance lock prevents duplicate launches, including while the launcher is starting or waiting for input.

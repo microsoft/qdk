@@ -258,12 +258,17 @@ def _run_session(
     outgoing.mkdir(parents=True, exist_ok=True)
     sanitize_exchange_folder(outgoing)
     outbox = configure_outbox_repo(REPO, directory, args.instance)
-    config.update(
-        {"repo": str(REPO), "to_copilot": str(incoming), "from_copilot": str(outgoing)}
-    )
+    config["repo"] = str(REPO)
     if args.save:
         config.update(
-            {"cpus": cpus, "memory": memory, "image_source": image_source, "tag": tag}
+            {
+                "cpus": cpus,
+                "memory": memory,
+                "image_source": image_source,
+                "tag": tag,
+                "to_copilot": str(incoming),
+                "from_copilot": str(outgoing),
+            }
         )
     write_json(directory / "config.json", config)
     environment = _make_base_environment(args.instance)
@@ -517,7 +522,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
     launch.add_argument(
         "--save",
         action="store_true",
-        help="Persist CPU, memory, image source and tag for this instance",
+        help="Persist resource limits, image selection, and exchange paths for this instance",
     )
     launch.add_argument(
         "--to-copilot-dir", help="Relocate the read-only context exchange directory"
