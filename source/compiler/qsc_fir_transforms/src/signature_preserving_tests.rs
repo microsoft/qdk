@@ -29,6 +29,61 @@ use crate::{
 };
 
 #[test]
+fn subpipeline_discards_orphaned_returns_without_removing_live_bodies() {
+    const LIB: &str = r#"
+        namespace Lib {
+            function Pinned() : Int { return 0; }
+            function Unchanged() : Int { return 7; }
+        }
+    "#;
+    const USER: &str = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int { 42 }
+        }
+    "#;
+    for foreign in [false, true] {
+        let (mut store, package) = if foreign {
+            compile_to_fir_with_library(LIB, USER)
+        } else {
+            compile_to_fir(&format!("{LIB}\n{USER}"))
+        };
+        let pinned = find_callable_in_any_package(&store, "Pinned");
+        let unchanged = find_callable_in_any_package(&store, "Unchanged");
+        let result = run_pipeline_to_with_diagnostics(
+            &mut store,
+            package,
+            PipelineStage::Full,
+            &[pinned, unchanged],
+        );
+        assert!(result.is_success(), "{:?}", result.errors);
+        let result = run_signature_preserving_subpipeline(&mut store, package, &[pinned]);
+        assert!(result.is_success(), "{:?}", result.errors);
+
+        assert_eq!(
+            crate::test_utils::try_eval_fir_callable(&store, pinned),
+            Ok(qsc_eval::val::Value::Int(0))
+        );
+        assert_eq!(
+            crate::test_utils::try_eval_fir_callable(&store, unchanged),
+            Ok(qsc_eval::val::Value::Int(7))
+        );
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package),
+            Ok(qsc_eval::val::Value::Int(42))
+        );
+        let packages: Vec<_> = store.iter().map(|(id, _)| id).collect();
+        for id in packages {
+            assert_eq!(
+                crate::gc_unreachable::gc_unreachable(store.get_mut(id)),
+                0,
+                "the subpipeline must not leave orphaned arena nodes in {id:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn pinned_shared_callee_rewrites_preserve_423_across_packages_and_handoff() {
     for foreign in [false, true] {
         for nominal in [false, true] {

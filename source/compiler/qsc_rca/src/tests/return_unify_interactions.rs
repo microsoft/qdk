@@ -14,7 +14,41 @@
 use expect_test::expect;
 use qsc_data_structures::target::Profile;
 
-use super::{PipelineContext, check_callable_compute_properties};
+use super::{PackageStoreSearch, PipelineContext, check_callable_compute_properties};
+use crate::ComputePropertiesLookup;
+
+#[test]
+fn pinned_return_statements_do_not_become_top_level_assignments() {
+    let source = r#"
+        function Pinned() : Int { return 0; }
+    "#;
+    let (mut store, package) =
+        qsc_fir_transforms::test_utils::compile_to_fir_with_entry(source, "42");
+    let pinned = store
+        .find_callable_id_by_name("Pinned")
+        .expect("pinned callable");
+    let result = qsc_fir_transforms::run_pipeline_to_with_diagnostics(
+        &mut store,
+        package,
+        qsc_fir_transforms::PipelineStage::Full,
+        &[pinned],
+    );
+    assert!(result.is_success(), "{:?}", result.errors);
+    let result =
+        qsc_fir_transforms::run_signature_preserving_subpipeline(&mut store, package, &[pinned]);
+    assert!(result.is_success(), "{:?}", result.errors);
+
+    for profile in Profile::all() {
+        let properties = crate::Analyzer::init(&store, profile.into()).analyze_all();
+        assert!(
+            matches!(
+                properties.get_item(pinned, false),
+                crate::ItemComputeProperties::Callable(_)
+            ),
+            "missing callable compute properties for {profile:?}"
+        );
+    }
+}
 
 /// Return-unify regression: after the return-unification pass rewrites a dynamic-scope
 /// `return` into a flag-based fallback, RCA must produce a coherent
