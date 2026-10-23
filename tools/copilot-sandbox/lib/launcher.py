@@ -11,6 +11,7 @@ import re
 import shutil
 import sys
 
+from .boundary import verify_boundary
 from .common import (
     LauncherError,
     format_error,
@@ -317,27 +318,60 @@ def _run_session(
                 "QDK_BRANCH": args.branch or "",
             }
         )
+        container_name = _get_project_name(args.instance) + "-agent"
+        # Keep the container running but idle for boundary verification before starting the workload.
         command = [
             "run",
+            "--detach",
             "--rm",
             "--no-deps",
             "--pull",
             "never",
             "--name",
-            _get_project_name(args.instance) + "-agent",
+            container_name,
+            "--entrypoint",
+            "/usr/bin/sleep",
             "agent",
+            "infinity",
         ]
+        _run_compose_command(command, environment, local=args.local)
+        proxy = _run_compose_command(
+            ["ps", "-q", "proxy"], environment, local=args.local
+        ).stdout.strip()
+        if not proxy or len(proxy.splitlines()) != 1:
+            raise LauncherError("Cannot identify the sandbox proxy for verification.")
+        verified_container = verify_boundary(
+            container_name, proxy, _get_project_name(args.instance), environment
+        )
+        print("Sandbox boundary verified; starting workload.")
+        arguments = ["copilot", "--allow-all"]
         if args.command:
             arguments = args.command
             if arguments[0] == "--":
                 arguments = arguments[1:]
-            command.extend(arguments)
         config.update(
-            {"agent_id": agent_id, "proxy_id": proxy_id, "build_id": build_id}
+            {
+                "agent_id": agent_id,
+                "proxy_id": proxy_id,
+                "build_id": build_id,
+                "verified_container": verified_container,
+            }
         )
         write_json(directory / "config.json", config)
-        status = _run_compose_command(
-            command, environment, local=args.local, interactive=True, check=False
+        execute = ["docker", "exec", "-i"]
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            execute.append("-t")
+        status = run(
+            [
+                *execute,
+                "--user",
+                "1000:1000",
+                container_name,
+                "/opt/sandbox/runtime/entrypoint.sh",
+                *arguments,
+            ],
+            interactive=True,
+            check=False,
         ).returncode
     finally:
         environment.pop("QDK_SANDBOX_TOKEN", None)
@@ -644,6 +678,12 @@ def _open_shell_on_existing_session(instance: str) -> int:
         raise LauncherError(
             "The selected instance has no single active agent; launch sandbox.py run first."
         )
+    actual = run(
+        ["docker", "container", "inspect", "--format", "{{.Id}}", running[0]]
+    ).stdout.strip()
+    config = get_sandbox_instance_config(get_sandbox_instance_dir(instance))
+    if not actual or config.get("verified_container") != actual:
+        raise LauncherError("The agent container has not completed boundary verification.")
     return run(
         [
             "docker",
