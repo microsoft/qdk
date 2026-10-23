@@ -5927,11 +5927,8 @@ fn copy_branch_argument(
     copies: &mut FxHashMap<ExprId, ExprId>,
     assigner: &mut Assigner,
 ) -> ExprId {
-    let source = package.clone();
-    let mut cloner = crate::cloner::FirCloner::from_assigner_for_expr(std::mem::take(assigner));
-    let copy = cloner.clone_expr(&source, id, package);
-    copies.extend(cloner.expr_map());
-    *assigner = cloner.into_assigner();
+    let (copy, mapping) = crate::cloner::clone_expr_within_package_with_map(package, id, assigner);
+    copies.extend(mapping);
     copy
 }
 
