@@ -44,7 +44,7 @@ use crate::fir_builder::{
 };
 use crate::package_assigners::PackageAssigners;
 use crate::walk_utils::{
-    expr_is_side_effect_free, expressions_in_postorder, for_each_expr_in_callable_impl,
+    expr_is_side_effect_free, expressions_in_postorder_from_roots, for_each_expr_in_callable_impl,
 };
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::assigner::Assigner;
@@ -4774,7 +4774,7 @@ fn prepend_captures_to_calls(
     // Packing an outer call may replace its argument root, which can itself be
     // another retargeted call. Finish nested invocations before copying them.
     let pending: FxHashSet<_> = call_ids.iter().copied().collect();
-    let call_ids: Vec<_> = expressions_in_postorder(package)
+    let call_ids: Vec<_> = expressions_in_postorder_from_roots(package, call_ids.iter().copied())
         .into_iter()
         .filter(|id| pending.contains(id))
         .collect();

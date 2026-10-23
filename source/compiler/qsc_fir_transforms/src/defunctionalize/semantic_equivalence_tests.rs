@@ -311,6 +311,21 @@ fn data_only_factory_uses_preserve_functor_wrapped_closure_captures() {
     }
 }
 
+#[test]
+fn nested_calls_preserve_distinct_capture_environments() {
+    check_callable_result(
+        r#"
+        function Make(offset : Int) : Int -> Int { x -> x + offset }
+        @EntryPoint() operation Main() : Int {
+            let f = Make(7);
+            let g = Make(100);
+            f(f(1)) + g(1)
+        }
+        "#,
+        116,
+    );
+}
+
 /// Copying the capture expression must preserve the free `outer` reference and
 /// freshen `inner` without changing its binding: `3 + (1 + (3 + 1) * 2) = 12`.
 #[test]
