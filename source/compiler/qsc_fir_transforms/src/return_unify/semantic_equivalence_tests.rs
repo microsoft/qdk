@@ -20,6 +20,46 @@ use qsc_fir::{
 };
 
 #[test]
+fn guarded_callable_defaults_preserve_functor_effects() {
+    for initializer in ["U", "[V, U][1]"] {
+        for (invocation, expected) in [
+            ("f(q)", true),
+            ("Adjoint f(q)", false),
+            ("Adjoint Adjoint f(q)", true),
+            ("Controlled f([c], q)", true),
+            ("Controlled Adjoint f([c], q)", false),
+        ] {
+            for stop in [false, true] {
+                let source = format!(
+                    r#"
+                    operation U(q : Qubit) : Unit is Adj + Ctl {{ S(q); }}
+                    operation V(q : Qubit) : Unit is Adj + Ctl {{ X(q); }}
+                    @EntryPoint()
+                    operation Main() : Result {{
+                        use q = Qubit();
+                        use c = Qubit();
+                        if {stop} {{ return Zero; }}
+                        H(q);
+                        S(q);
+                        X(c);
+                        let f = {initializer};
+                        {invocation};
+                        Reset(c);
+                        H(q);
+                        MResetZ(q)
+                    }}
+                    "#
+                );
+                check_value(
+                    &source,
+                    Value::Result(qsc_eval::val::Result::Val(!stop && expected)),
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn non_defaultable_tails_preserve_returned_payload_and_run_effects_only_on_fallthrough() {
     for stop in [false, true] {
         for (output, returned, tail, read, tag, expected_tag) in [

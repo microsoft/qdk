@@ -92,6 +92,40 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn functored_local_after_early_return_generates_qir() {
+    for initializer in ["U", "[U, V][1]"] {
+        for invocation in [
+            "f()",
+            "Adjoint f()",
+            "Adjoint Adjoint f()",
+            "Controlled f([], ())",
+            "Controlled Adjoint f([], ())",
+            "Controlled Controlled f([], ([], ()))",
+        ] {
+            let source = format!(
+                r#"
+                operation U() : Unit is Adj + Ctl {{}}
+                operation V() : Unit is Adj + Ctl {{}}
+                operation Main() : Unit {{
+                    if false {{ return (); }}
+                    let f = {initializer};
+                    {invocation};
+                }}
+                "#
+            );
+            for profile in [
+                Profile::Base,
+                Profile::AdaptiveRI,
+                Profile::AdaptiveRIF,
+                Profile::Adaptive,
+            ] {
+                compile_source_to_qir(&source, profile.into());
+            }
+        }
+    }
+}
+
+#[test]
 fn nested_callable_selectors_generate_correct_qir_on_every_profile() {
     let source = r#"
         operation A(q : Qubit[]) : Unit { X(q[0]); }
