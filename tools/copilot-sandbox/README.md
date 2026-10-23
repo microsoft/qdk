@@ -8,6 +8,9 @@ The sandbox provides safeguards intended to make the risk level of using `copilo
 ### Networking
 
 All networking goes through a proxy with a domain allowlist.
+Before starting the workload, the host verifies the actual container and network configuration, checks kernel privilege and seccomp restrictions, and probes that protected mounts reject writes, direct egress fails, and the proxy rejects forbidden destinations.
+Verification failure prevents the workload from starting.
+Shell access is also refused until that container has passed verification.
 (You can locally supplement the allowlist according to your risk tolerance without rebuilding the image.)
 The `web_search` tool is blocked because it actually makes a safe-looking API call and then GitHub performs a Bing search and returns results that aren't subject to the allowlist.
 
