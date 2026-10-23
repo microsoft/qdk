@@ -1441,6 +1441,208 @@ fn constructor_and_factory_return_field_projection_resolve_distinctly() {
 }
 
 #[test]
+fn factory_struct_field_into_hof_resolves_captures() {
+    let source = r#"
+        struct Entry { Value : Int, Subsystem : Int[] }
+        struct System { Count : Int, EntryAt : Int -> Entry }
+        function Make(base : Int, coeffs : Int[], subsystems : Int[][]) : System {
+            new System {
+                Count = 2,
+                EntryAt = i -> new Entry {
+                    Value = base + coeffs[i],
+                    Subsystem = subsystems[i]
+                }
+            }
+        }
+        function UseS(s : System, i : Int) : Int {
+            let entry = s.EntryAt(i);
+            s.Count * 1000 + entry.Value * 10 + entry.Subsystem[0]
+        }
+        @EntryPoint()
+        operation Main() : Int {
+            let first = Make(3, [4, 6], [[1], [2]]);
+            let second = Make(10, [2, 8], [[3], [4]]);
+            (UseS(first, 0) + UseS(first, 1)) * 10000
+                + UseS(second, 0) + UseS(second, 1)
+        }
+        "#;
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let analysis = run_prepass_and_analysis(&mut store, package);
+    let sites: Vec<_> = analysis
+        .call_sites
+        .iter()
+        .filter(|site| resolve_item_name(&store, &site.hof_item_id).starts_with("UseS"))
+        .collect();
+    assert_eq!(sites.len(), 4);
+    for site in sites {
+        assert!(
+            matches!(&site.callable_arg, ConcreteCallable::Closure { captures, .. } if captures.len() == 3),
+            "factory field must resolve with scalar and array captures: {:?}",
+            site.callable_arg
+        );
+    }
+    check_flow_value(source, 41_634_307);
+}
+
+#[test]
+fn factory_struct_field_into_hof_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config, x : Int) : Int { s.Count + s.F(x) }
+        @EntryPoint() operation Main() : Int {
+            let saved = Make(10);
+            UseS(saved, 1)
+        }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Config = (Int, (Int -> Int));
+        function Make(base : Int) : __UDT_Item_1__Package_2_ {
+            new Config {
+                Count = 2,
+                F = / * closure item = 5 captures = [base] * / _lambda_5
+            }
+
+        }
+        function UseS(s : __UDT_Item_1__Package_2_, x : Int) : Int {
+            s::Count + s::F(x)
+        }
+        operation Main() : Int {
+            let saved : __UDT_Item_1__Package_2_ = Make(10);
+            UseS(saved, 1)
+        }
+        function _lambda_5(base : Int, x : Int) : Int {
+            base + x
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Config = (Int, (Int -> Int));
+        function Make(base : Int) : __UDT_Item_1__Package_2_ {
+            new Config {
+                Count = 2,
+                F = __defunc_consumed_closure_7
+            }
+
+        }
+        function UseS(s : __UDT_Item_1__Package_2_, x : Int) : Int {
+            s::Count + s::F(x)
+        }
+        operation Main() : Int {
+            let saved : __UDT_Item_1__Package_2_ = Make(10);
+            UseS_closure_(saved::Count, 1, 10)
+        }
+        function _lambda_5(base : Int, x : Int) : Int {
+            base + x
+        }
+        function UseS_closure_(s : Int, x : Int, __capture_0 : Int) : Int {
+            s + _lambda_5(__capture_0, x)
+        }
+        function __defunc_consumed_closure_7(_ : Int) : Int {
+            fail $"consumed closure stand-in invoked"
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
+fn factory_struct_field_into_hof_preserves_nested_fields_and_argument_forms() {
+    for argument in [
+        "UseS(Make(10))",
+        "{ let saved = Make(10); UseS(saved) }",
+        "{ let pair = (Make(10), 0); let (saved, _) = pair; UseS(saved) }",
+    ] {
+        check_flow_value(
+            &format!(
+                r#"
+                struct Inner {{ Tag : Int, F : Int -> Int }}
+                struct Outer {{ Tag : Int, Inner : Inner }}
+                function Make(base : Int) : Outer {{
+                    new Outer {{
+                        Tag = 100,
+                        Inner = new Inner {{ Tag = 20, F = x -> base + x }}
+                    }}
+                }}
+                function UseS(s : Outer) : Int {{
+                    s.Tag + s.Inner.Tag + s.Inner.F(1)
+                }}
+                @EntryPoint() operation Main() : Int {{ {argument} }}
+                "#
+            ),
+            131,
+        );
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_declines_unsafe_producers() {
+    for prelude in ["fail \"factory failure\";", "let unused = 1 / base;"] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                {prelude}
+                new Config {{ Count = 2, F = x -> base + x }}
+            }}
+            function UseS(s : Config) : Int {{ s.Count + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{
+                let saved = Make(0);
+                UseS(saved)
+            }}
+            "#
+        );
+        let (mut store, package) = compile_to_monomorphized_fir(&source);
+        let analysis = run_prepass_and_analysis(&mut store, package);
+        let site = analysis
+            .call_sites
+            .iter()
+            .find(|site| resolve_item_name(&store, &site.hof_item_id).starts_with("UseS"))
+            .expect("factory aggregate must reach the HOF");
+        assert!(
+            matches!(site.callable_arg, ConcreteCallable::Dynamic),
+            "unsafe producer must remain unresolved: {:?}",
+            site.callable_arg
+        );
+        check_errors(
+            &source,
+            &expect!["callable argument could not be resolved statically"],
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn factory_struct_field_into_hof_preserves_producer_effects() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        operation Make(base : Int, q : Qubit) : Config {
+            X(q);
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            use q = Qubit();
+            let saved = Make(10, q);
+            let value = UseS(saved);
+            if MResetZ(q) == One { value } else { 0 }
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
 fn identity_closure_over_global_callable_collapses() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {

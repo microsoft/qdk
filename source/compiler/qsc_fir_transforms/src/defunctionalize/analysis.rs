@@ -1485,11 +1485,12 @@ fn resolve_callee_at_path(
         );
     }
 
-    resolve_callee(
+    resolve_callee_projection(
         pkg,
         store,
         locals,
         args_expr_id,
+        path,
         depth + 1,
         allow_scoped_capture_exprs,
         scoped_capture_vars,
