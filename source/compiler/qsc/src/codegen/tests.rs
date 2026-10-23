@@ -92,6 +92,45 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn nested_callable_selectors_generate_correct_qir_on_every_profile() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            let f = Choose(1 < 2, Choose(1 < 2, A, B), B);
+            f(q);
+            MResetEachZ(q)
+        }
+    "#;
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let qir = compile_source_to_qir(source, profile.into());
+        if profile == Profile::Adaptive {
+            assert_eq!(qir.matches("call void @X(").count(), 1, "{qir}");
+            assert!(
+                qir.contains("call void @X(ptr inttoptr (i64 0 to ptr))"),
+                "{qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{qir}"
+            );
+        } else {
+            assert_x_targets(&qir, &[0]);
+        }
+    }
+}
+
+#[test]
 fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
     let sources = [
         // Array growth with a captured callable used to reach a closure-layout panic.
