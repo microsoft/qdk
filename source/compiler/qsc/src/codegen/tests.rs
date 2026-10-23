@@ -92,6 +92,24 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn early_return_skips_later_loop_conditional() {
+    let source = r#"
+        operation Main() : Int {
+            if true { return 1; }
+            if true { return 2; } else { for i in [0] { return 3; } }
+            return 4;
+        }
+    "#;
+    for profile in [Profile::Adaptive, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 1,"),
+            "{profile:?}: {qir}"
+        );
+    }
+}
+
+#[test]
 fn functored_local_after_early_return_generates_qir() {
     for initializer in ["U", "[U, V][1]"] {
         for invocation in [

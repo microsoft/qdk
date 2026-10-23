@@ -506,8 +506,8 @@ fn transform_and_push_flag_stmt(
     seen_return_bearing_stmt: bool,
 ) -> bool {
     if has_return_in_while {
-        // A `while` that can early-return is rewritten in place (flag-guarded
-        // loop condition + return replacement in its body) and kept as-is.
+        // Guard the enclosing statement too: its other branches or condition
+        // must not run after an earlier return.
         transform_while_stmt(
             package,
             assigner,
@@ -515,6 +515,17 @@ fn transform_and_push_flag_stmt(
             flag_context,
             arrow_default_cache,
         );
+        let stmt_id = if seen_return_bearing_stmt {
+            guard_stmt_with_flag(
+                package,
+                assigner,
+                flag_context,
+                stmt_id,
+                arrow_default_cache,
+            )
+        } else {
+            stmt_id
+        };
         new_stmts.push(stmt_id);
         true
     } else if has_return && !seen_return_bearing_stmt {

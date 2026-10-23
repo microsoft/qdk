@@ -20,6 +20,45 @@ use qsc_fir::{
 };
 
 #[test]
+fn early_return_skips_later_loop_conditional() {
+    for (early, branch, expected) in [
+        (true, true, 1),
+        (true, false, 1),
+        (false, true, 2),
+        (false, false, 3),
+    ] {
+        let source = format!(
+            r#"
+            @EntryPoint() operation Main() : Int {{
+                if {early} {{ return 1; }}
+                if {branch} {{ return 2; }} else {{ for i in [0] {{ return 3; }} }}
+                return 4;
+            }}
+            "#
+        );
+        check_value(&source, Value::Int(expected));
+    }
+}
+
+#[test]
+fn early_return_skips_condition_effects_before_returning_loop() {
+    check_value(
+        r#"
+        @EntryPoint() operation Main() : Int {
+            if true { return 1; }
+            if { fail "condition must not run"; true } {
+                return 2;
+            } else {
+                while false { return 3; }
+            }
+            return 4;
+        }
+        "#,
+        Value::Int(1),
+    );
+}
+
+#[test]
 fn guarded_callable_defaults_preserve_functor_effects() {
     for initializer in ["U", "[V, U][1]"] {
         for (invocation, expected) in [
