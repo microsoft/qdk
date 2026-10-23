@@ -34,6 +34,28 @@ fn check_flow_value(source: &str, expected: i64) {
     );
 }
 
+fn check_aggregate_hof_specialization(source: &str, expected: i64) {
+    let (mut store, package) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package);
+    let outcome = defunctionalize(&mut store, package, &mut assigners);
+    assert_no_defunctionalization_errors(source, &outcome.diagnostics);
+    let generic = crate::test_utils::callable_id_by_name(store.get(package), "UseS");
+    let reachable = collect_reachable_from_entry(&store, package);
+    assert!(
+        !reachable.contains(&fir::StoreItemId::from((package, generic))),
+        "generic HOF must no longer be reachable:\n{source}"
+    );
+    assert!(
+        reachable.iter().any(|item| {
+            item.package == package
+                && matches!(&store.get(package).get_item(item.item).kind,
+                    ItemKind::Callable(decl) if decl.name.name.starts_with("UseS{"))
+        }),
+        "a specialization must actually be called:\n{source}"
+    );
+    check_flow_value(source, expected);
+}
+
 #[test]
 fn unresolved_factory_captures_defer_whole_dispatch_without_losing_known_candidates() {
     // A mutable capture can be unresolved before factory specialization. The
@@ -1551,6 +1573,286 @@ fn factory_struct_field_into_hof_rewrite() {
         Main()
     "#]],
     );
+}
+
+#[test]
+fn single_aggregate_factory_stored_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            let saved = Make(10);
+            UseS(saved)
+        }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = / * closure item = 5 captures = [base] * / _lambda_5
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                let saved : __UDT_Item_1__Package_2_ = Make(10);
+                UseS(saved)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = __defunc_consumed_closure_7
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                let saved : __UDT_Item_1__Package_2_ = Make(10);
+                UseS_closure_(saved::Count, 10)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            function UseS_closure_(s : Int, __capture_0 : Int) : Int {
+                s + _lambda_5(__capture_0, 1)
+            }
+            function __defunc_consumed_closure_7(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_inline_rewrite() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int) : Config {
+            new Config { Count = 2, F = x -> base + x }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int { UseS(Make(10)) }
+        "#;
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = / * closure item = 5 captures = [base] * / _lambda_5
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                UseS(Make(10))
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Config = (Int, (Int -> Int));
+            function Make(base : Int) : __UDT_Item_1__Package_2_ {
+                new Config {
+                    Count = 2,
+                    F = __defunc_consumed_closure_7
+                }
+
+            }
+            function UseS(s : __UDT_Item_1__Package_2_) : Int {
+                s::Count + s::F(1)
+            }
+            operation Main() : Int {
+                UseS_closure_({
+                    let __aggregate_argument : __UDT_Item_1__Package_2_ = Make(10);
+                    __aggregate_argument::Count
+                }, 10)
+            }
+            function _lambda_5(base : Int, x : Int) : Int {
+                base + x
+            }
+            function UseS_closure_(s : Int, __capture_0 : Int) : Int {
+                s + _lambda_5(__capture_0, 1)
+            }
+            function __defunc_consumed_closure_7(_ : Int) : Int {
+                fail $"consumed closure stand-in invoked"
+            }
+            // entry
+            Main()
+        "#]],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_argument_forms_specialize() {
+    for argument in [
+        "UseS(Make(10))",
+        "{ let saved = Make(10); UseS(saved) }",
+        "{ let saved = Make(10); let alias = saved; UseS(alias) }",
+    ] {
+        let source = format!(
+            r#"
+            struct Inner {{ Tag : Int, F : Int -> Int }}
+            struct Outer {{ Tag : Int, Inner : Inner }}
+            function Make(base : Int) : Outer {{
+                new Outer {{ Tag = 100, Inner = new Inner {{ Tag = 20, F = x -> base + x }} }}
+            }}
+            function UseS(s : Outer) : Int {{ s.Tag + s.Inner.Tag + s.Inner.F(1) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 131);
+    }
+    for argument in [
+        "UseS(new Config { Count = 2, F = x -> 10 + x })",
+        "{ let saved = new Config { Count = 2, F = x -> 10 + x }; UseS(saved) }",
+    ] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function UseS(s : Config) : Int {{ s.Count + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 13);
+    }
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            mutable count = 2;
+            let saved = new Config { Count = count, F = x -> 10 + x };
+            set count = 20;
+            UseS(saved)
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+    check_flow_value(source, 13);
+}
+
+#[test]
+fn single_aggregate_factory_is_evaluated_once() {
+    for (parameters, arguments, expected) in [
+        ("s : Config", "Make(10)", 41),
+        ("s : Config", "saved", 41),
+        ("s : Config, extra : Int", "Make(10), 0", 41),
+        ("s : Config, extra : Int", "saved, 0", 41),
+    ] {
+        let setup = if arguments.starts_with("Make") {
+            ""
+        } else {
+            "let saved = Make(10);"
+        };
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, Tag : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                new Config {{ Count = base, Tag = 2 * base, F = x -> base + x }}
+            }}
+            function UseS({parameters}) : Int {{ s.Count + s.Tag + s.F(1) }}
+            @EntryPoint() operation Main() : Int {{
+                {setup}
+                UseS({arguments})
+            }}
+            "#
+        );
+        let (store, package_id) = compile_and_defunctionalize(&source);
+        let package = store.get(package_id);
+        let main = crate::test_utils::find_callable(package, "Main");
+        let make = crate::test_utils::callable_id_by_name(package, "Make");
+        let mut calls = 0;
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &main.implementation,
+            &mut |_, expr| {
+                if let fir::ExprKind::Call(callee, _) = expr.kind
+                    && let fir::ExprKind::Var(fir::Res::Item(target), _) =
+                        package.get_expr(callee).kind
+                    && target.package == package_id
+                    && target.item == make
+                {
+                    calls += 1;
+                }
+            },
+        );
+        assert_eq!(
+            calls, 1,
+            "retained fields must share one evaluation per factory expression: {parameters}, {arguments}"
+        );
+        check_flow_value(&source, expected);
+    }
+}
+
+#[test]
+fn single_aggregate_factory_captures_remain_distinct() {
+    let source = r#"
+        struct Config { Count : Int, F : Int -> Int }
+        function Make(base : Int, values : Int[]) : Config {
+            new Config { Count = 2, F = x -> base + values[x] }
+        }
+        function UseS(s : Config) : Int { s.Count + s.F(1) }
+        @EntryPoint() operation Main() : Int {
+            mutable base = 10;
+            let firstBase = base;
+            let first = Make(firstBase, [1, 3]);
+            set base = 20;
+            let secondBase = base;
+            let second = Make(secondBase, [2, 5]);
+            UseS(first) * 10000 + UseS(first) * 100 + UseS(second)
+        }
+        "#;
+    check_aggregate_hof_specialization(source, 151_527);
+}
+
+#[test]
+fn single_aggregate_factory_tuple_argument_specializes() {
+    for argument in ["UseS(Pack(10))", "{ let saved = Pack(10); UseS(saved) }"] {
+        let source = format!(
+            r#"
+            struct Config {{ Count : Int, F : Int -> Int }}
+            function Make(base : Int) : Config {{
+                new Config {{ Count = 2, F = x -> base + x }}
+            }}
+            function Pack(base : Int) : (Config, Int) {{ (Make(base), 1) }}
+            function UseS(s : Config, x : Int) : Int {{ s.Count + s.F(x) }}
+            @EntryPoint() operation Main() : Int {{ {argument} }}
+            "#
+        );
+        check_aggregate_hof_specialization(&source, 13);
+    }
 }
 
 #[test]

@@ -386,15 +386,16 @@ pub(super) fn build_specialized_call_args(
             let args = if let ExprKind::Var(Res::Local(local), _) = package.get_expr(args).kind
                 && let CaptureScope::Callable(owner) | CaptureScope::CloneScope(owner) = destination
             {
-                replayable_local_initializer(package, owner, local).unwrap_or(args)
+                projectable_local_initializer(package, owner, local, &package.get_expr(args).ty)
+                    .unwrap_or(args)
             } else {
                 args
             };
             let original = package.get_expr(args).clone();
-            let slots = if uses_tuple_input {
-                tuple_argument_elements(udts, package, &original, assigner)?
+            let (mut prefix, slots) = if uses_tuple_input {
+                materialize_tuple_argument_elements(udts, package, &original, assigner)?
             } else {
-                vec![args]
+                (Vec::new(), vec![args])
             };
             let mut retained = Vec::new();
             for (index, slot) in slots.into_iter().enumerate() {
@@ -425,12 +426,8 @@ pub(super) fn build_specialized_call_args(
             if let Some(value) =
                 pack_declared_input(package, with_empty, input, original.span, assigner)
             {
-                return Some(RewrittenArgs {
-                    value,
-                    prefix: Vec::new(),
-                });
+                return Some(RewrittenArgs { value, prefix });
             }
-            let mut prefix = Vec::new();
             if let Some(last_effect) = retained.iter().rposition(|(value, consumed)| {
                 *consumed && !expr_is_safe_to_discard(package, package.id, *value)
             }) {
@@ -2789,6 +2786,33 @@ fn replayable_local_initializer(
     (!reads_mutable).then_some(init)
 }
 
+/// Requires replay safety, a matching argument type, and a projectable shape.
+/// The type check excludes whole destructuring initializers for a single binding.
+///
+/// Tuple and struct literals expose their children directly. Local reads and
+/// field accesses preserve a stored value that argument reduction can project.
+/// UDT constructor calls are structural wrappers around their argument aggregate,
+/// so reduction can unwrap them. Ordinary factory calls expose no such structure
+/// and stay stored: safe replay alone does not make their result fields available.
+fn projectable_local_initializer(
+    package: &Package,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+    argument_ty: &Ty,
+) -> Option<ExprId> {
+    replayable_local_initializer(package, callable_id, local_var).filter(|&initializer| {
+        let expr = package.get_expr(initializer);
+        &expr.ty == argument_ty
+            && (matches!(
+                expr.kind,
+                ExprKind::Tuple(_)
+                    | ExprKind::Struct(..)
+                    | ExprKind::Var(Res::Local(_), _)
+                    | ExprKind::Field(..)
+            ) || type_constructor_args(package, expr).is_some())
+    })
+}
+
 /// Prunes eligible callable-argument locals and closure-bearing source arrays
 /// after their reads have been consumed by call-site rewrites.
 ///
@@ -4915,7 +4939,8 @@ fn reduce_argument(
     if let Some(inner_args_id) = type_constructor_args(package, &expr) {
         return reduce_argument(udts, package, inner_args_id, removal, assigner);
     }
-    let elements = tuple_argument_elements(udts, package, &expr, assigner)?;
+    let (statements, elements) =
+        materialize_tuple_argument_elements(udts, package, &expr, assigner)?;
     if children.len() != elements.len() {
         return None;
     }
@@ -4929,14 +4954,53 @@ fn reduce_argument(
             remaining.push(alloc_expr(package, assigner, ty, kind, span));
         }
     }
-    if *collapse {
-        return Some(build_expr_data_from_elements(package, remaining));
+    let (kind, ty) = if *collapse {
+        build_expr_data_from_elements(package, remaining)
+    } else {
+        let tys = remaining
+            .iter()
+            .map(|id| package.get_expr(*id).ty.clone())
+            .collect();
+        (ExprKind::Tuple(remaining), Ty::Tuple(tys))
+    };
+    Some(wrap_argument_statements(
+        package, statements, kind, ty, expr.span, assigner,
+    ))
+}
+
+/// Opaque aggregates need one stored result shared by all surviving projections.
+fn materialize_tuple_argument_elements(
+    udts: &UdtMetadata,
+    package: &mut Package,
+    expr: &Expr,
+    assigner: &mut Assigner,
+) -> Option<(Vec<StmtId>, Vec<ExprId>)> {
+    if let Some(elements) = tuple_argument_elements(udts, package, expr, assigner) {
+        return Some((Vec::new(), elements));
     }
-    let tys = remaining
-        .iter()
-        .map(|id| package.get_expr(*id).ty.clone())
-        .collect();
-    Some((ExprKind::Tuple(remaining), Ty::Tuple(tys)))
+    let Ty::Tuple(_) = udts.underlying_ty(&expr.ty) else {
+        return None;
+    };
+    let (local, binding) = crate::fir_builder::alloc_local_var(
+        package,
+        assigner,
+        "_.aggregate_argument",
+        &expr.ty,
+        expr.id,
+        Mutability::Immutable,
+    );
+    let read = crate::fir_builder::alloc_local_var_expr(
+        package,
+        assigner,
+        local,
+        expr.ty.clone(),
+        expr.span,
+    );
+    let stored = package.get_expr(read).clone();
+    Some((
+        vec![binding],
+        tuple_argument_elements(udts, package, &stored, assigner)?,
+    ))
 }
 
 /// Reuses literal aggregate children or projects a stored tuple value. Following
