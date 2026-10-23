@@ -212,7 +212,7 @@ This isn't an offline mode - it's just a way to avoid upgrading your container.
 Local images can be built without using any Microsoft-internal resources.
 
 ```sh
-DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py build --package-source public
+DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py --package-source public
 ```
 
 By default, it will build (and thus, pre-download dependencies) for only the QDK (e.g. not VS Code).
@@ -220,7 +220,7 @@ By default, it will build (and thus, pre-download dependencies) for only the QDK
 If you want to support more or less of the repo, you can pass your own build arguments:
 
 ```sh
-DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py build --package-source public -- --vscode --npm --wasm
+DOCKER_BUILDKIT=1 .venv/bin/python tools/copilot-sandbox/build_images.py --package-source public -- --vscode --npm --wasm
 ```
 
 After the build succeeds, launch Copilot:
@@ -243,7 +243,7 @@ The launcher uses the selected agent/proxy pair directly and does not build per-
 To mimic the pipeline build locally, you need to pass a lot more arguments:
 
 ```sh
-.venv/bin/python tools/copilot-sandbox/build_images.py build \
+.venv/bin/python tools/copilot-sandbox/build_images.py \
   --package-source azure \
   --secret-file npmrc=/secure/sandbox.npmrc \
   --secret-env msrustup_access_token=SYSTEM_ACCESSTOKEN \

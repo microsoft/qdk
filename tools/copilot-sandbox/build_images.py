@@ -265,8 +265,10 @@ def build_images(args: argparse.Namespace) -> None:
         ):
             raise BuildError("Feed arguments require --package-source azure.")
     if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,100}", args.tag) or (
-        args.registry
-        and not re.fullmatch(r"[a-z0-9][a-z0-9.:-]*(?:/[a-z0-9._-]+)*", args.registry)
+        args.registry_name
+        and not re.fullmatch(
+            r"[a-z0-9][a-z0-9.:-]*(?:/[a-z0-9._-]+)*", args.registry_name
+        )
     ):
         raise BuildError("Invalid image tag or registry prefix.")
     architecture = {
@@ -284,7 +286,7 @@ def build_images(args: argparse.Namespace) -> None:
         validate_pinned_base(args.base_image) if args.base_image else get_pinned_base()
     )
     repo = args.repo.resolve(strict=True)
-    build_id = args.tag if args.registry else "local-" + uuid.uuid4().hex
+    build_id = args.tag if args.registry_name else "local-" + uuid.uuid4().hex
     with tempfile.TemporaryDirectory(prefix="qdk-sandbox-") as temporary:
         root = Path(temporary)
         source = root / "qdk"
@@ -301,8 +303,8 @@ def build_images(args: argparse.Namespace) -> None:
             ):
                 raise BuildError("Dockerfile frontend downloads are forbidden.")
             image = (
-                f"{args.registry}/copilot-sandbox/{target}:{args.tag}-{architecture}"
-                if args.registry
+                f"{args.registry_name}/copilot-sandbox/{target}:{args.tag}-{architecture}"
+                if args.registry_name
                 else f"{LOCAL_IMAGE_PREFIX}{target}:{args.tag}"
             )
             arguments = [
@@ -342,7 +344,7 @@ def build_images(args: argparse.Namespace) -> None:
                 for specification in specifications:
                     arguments.extend(["--secret", specification])
             run_command([*arguments, str(context)])
-            if not args.registry:
+            if not args.registry_name:
                 identity = (
                     run_command(
                         ["docker", "image", "inspect", "--format", "{{.Id}}", image],
@@ -366,46 +368,48 @@ def build_images(args: argparse.Namespace) -> None:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    actions = parser.add_subparsers(dest="action", required=True)
-    builder = actions.add_parser(
-        "build", help="Build and verify images; never pushes or logs in."
-    )
-    builder.add_argument(
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser.add_argument(
         "--repo", type=Path, default=Path(__file__).resolve().parents[2]
     )
-    builder.add_argument(
+    parser.add_argument(
         "--package-source",
         choices=("public", "azure"),
         default="public",
         help="Use public package sources (default) or authenticated Azure Artifacts feeds.",
     )
-    builder.add_argument(
-        "--secret-file", action="append", default=[], metavar="ID=PATH"
-    )
-    builder.add_argument(
+    parser.add_argument("--secret-file", action="append", default=[], metavar="ID=PATH")
+    parser.add_argument(
         "--secret-env", action="append", default=[], metavar="ID=VARIABLE"
     )
-    builder.add_argument("--toolchain-feed", default="")
-    builder.add_argument("--crates-feed", "--feed", dest="crates_feed", default="")
-    builder.add_argument(
+    parser.add_argument("--toolchain-feed", default="")
+    parser.add_argument("--crates-feed", "--feed", dest="crates_feed", default="")
+    parser.add_argument(
         "--base-image", help="Approved digest-pinned base; otherwise resolved from MCR."
     )
-    builder.add_argument("--platform", choices=("linux/amd64", "linux/arm64"))
-    builder.add_argument(
+    parser.add_argument("--platform", choices=("linux/amd64", "linux/arm64"))
+    parser.add_argument(
         "--target", choices=("agent", "proxy"), action="append", default=[]
     )
-    builder.add_argument(
-        "--registry",
-        help="Registry prefix for pipeline tags; omitted for local images.",
+    parser.add_argument(
+        "--registry-name",
+        help="Registry prefix for pipeline image names; omitted for local images.",
     )
-    builder.add_argument("--tag", default=LOCAL_IMAGE_TAG)
-    builder.add_argument(
+    parser.add_argument("--tag", default=LOCAL_IMAGE_TAG)
+    parser.add_argument(
         "build_args",
         nargs=argparse.REMAINDER,
         help="build.py arguments after -- (default: --qdk)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.build_args:
+        if args.build_args[0] != "--":
+            parser.error(
+                "build.py arguments must follow '--'; put image build options before '--'."
+            )
+        if len(args.build_args) == 1:
+            parser.error("Expected build.py arguments after '--'.")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:

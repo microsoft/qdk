@@ -82,7 +82,7 @@ extends:
                       workingFile: $(Agent.TempDirectory)/sandbox.npmrc
                   - bash: |
                       set -euo pipefail
-                      python3 tools/copilot-sandbox/build_images.py build \
+                      python3 tools/copilot-sandbox/build_images.py \
                         --package-source azure \
                         --secret-env msrustup_access_token=SYSTEM_ACCESSTOKEN \
                         --secret-file "npmrc=$NPMRC_PATH" \
@@ -90,7 +90,7 @@ extends:
                         --toolchain-feed "$TOOLCHAIN_FEED" \
                         --crates-feed "$CRATES_FEED" \
                         --platform linux/${{ target.arch }} \
-                        --registry "$ACR_SERVER" --tag "$BUILD_BUILDID"
+                        --registry-name "$ACR_SERVER" --tag "$BUILD_BUILDID"
                     displayName: Build offline-verified agent and proxy
                     env:
                       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
