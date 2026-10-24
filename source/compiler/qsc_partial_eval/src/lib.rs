@@ -33,9 +33,9 @@ use qsc_fir::{
     fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
         ExprId, ExprKind, Field, Functor, Global, Ident, LocalVarId, Mutability, PackageId,
-        PackageStore, PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl,
-        Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId,
-        StringComponent, UnOp,
+        PackageLookup, PackageStore, PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res,
+        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId,
+        StorePatId, StoreStmtId, StringComponent, UnOp,
     },
     ty::{FunctorSetValue, Prim, Ty},
 };
@@ -206,6 +206,8 @@ struct PartialEvaluator<'a> {
     /// generated from. Distinct control counts (e.g. `Controlled` with 1 vs 3 controls) collapse to
     /// the same `FunctorSetValue` and therefore share a single emitted callable.
     ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
+    /// Only completed root analyses are cached; recursive descendants are not independently proven.
+    ir_function_resource_safety: FxHashMap<(PackageId, BlockId), bool>,
     /// Every QIR symbol name already assigned to an emitted IR function. Each callable
     /// specialization is resolved exactly once, so the first identity to claim a given bare name
     /// keeps it and any later collider is given a deterministic discriminating suffix. This keeps
@@ -329,6 +331,7 @@ impl<'a> PartialEvaluator<'a> {
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
+            ir_function_resource_safety: FxHashMap::default(),
             emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
             ir_function_emission_depth: 0,
@@ -2207,9 +2210,10 @@ impl<'a> PartialEvaluator<'a> {
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
     /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
+    /// Static qubit allocation and recursive measurement-result reuse force inlining.
     /// The caller additionally checks body resolution and folds fully static calls.
     fn is_ir_function_eligible(
-        &self,
+        &mut self,
         store_item_id: StoreItemId,
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
@@ -2281,7 +2285,24 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        true
+        // RCA summaries can miss resources hidden by recursion, so check reachable calls
+        // independently. The package/block key distinguishes the selected specialization.
+        // Cache only completed root analyses: visiting a descendant during a cycle does not
+        // independently prove it safe. Target capabilities are fixed for this evaluator.
+        let root = (store_item_id.package, spec_decl.block);
+        if let Some(safe) = self.ir_function_resource_safety.get(&root) {
+            return *safe;
+        }
+        let safe = ir_function_resources_are_safe(
+            self.package_store,
+            root,
+            self.program
+                .config
+                .capabilities
+                .contains(TargetCapabilityFlags::DynamicQubitAllocation),
+        );
+        self.ir_function_resource_safety.insert(root, safe);
+        safe
     }
 
     /// Returns the resolved specialization's compute kind with static parameters.
@@ -5354,6 +5375,169 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
         (true, false) => FunctorSetValue::Adj,
         (false, true) => FunctorSetValue::Ctl,
         (true, true) => FunctorSetValue::CtlAdj,
+    }
+}
+
+/// Checks selected reachable bodies rather than RCA summaries, which can be incomplete at cycles.
+/// Static qubits cannot be captured by emitted functions. Static result slots can be used in
+/// acyclic functions, but cannot be shared by overlapping recursive invocations.
+fn ir_function_resources_are_safe(
+    store: &PackageStore,
+    root: (PackageId, BlockId),
+    dynamic_qubits: bool,
+) -> bool {
+    use qsc_fir::visit::Visitor;
+
+    // Build caller-to-callee edges for reachable selected bodies only. Mark bodies that
+    // directly invoke measurement intrinsics; recursive callers are identified below.
+    let mut edges = FxHashMap::<(PackageId, BlockId), Vec<(PackageId, BlockId)>>::default();
+    let mut measuring = FxHashSet::default();
+    let mut pending = vec![root];
+    while let Some(body) = pending.pop() {
+        if edges.contains_key(&body) {
+            continue;
+        }
+        let mut scanner = ResourceCallScanner {
+            package: store.get(body.0),
+            package_id: body.0,
+            calls: Vec::new(),
+            unresolved: false,
+        };
+        scanner.visit_block(body.1);
+        if scanner.unresolved {
+            // An unknown target could allocate or measure, so force the root to inline.
+            return false;
+        }
+        let mut callees = Vec::new();
+        for (item, functors) in scanner.calls {
+            let Some(Global::Callable(callable)) = store.get_global(item) else {
+                return false;
+            };
+            if let CallableImpl::Spec(specs) = &callable.implementation {
+                let callee = (item.package, get_spec_decl(specs, functors).block);
+                callees.push(callee);
+                pending.push(callee);
+            } else {
+                // Allocate/borrow intrinsics return qubits or nested arrays of qubits.
+                // Any such allocation is unsafe in an IR function without runtime allocation.
+                let mut output = &callable.output;
+                while let Ty::Array(element) = output {
+                    output = element;
+                }
+                if !dynamic_qubits && matches!(output, Ty::Prim(Prim::Qubit)) {
+                    return false;
+                }
+                // Both custom and built-in measurements use static result slots, even
+                // when dynamic qubits are enabled. Associate the slot with its calling body.
+                if callable.attrs.contains(&fir::Attr::Measurement)
+                    || matches!(
+                        callable.name.name.as_ref(),
+                        "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
+                    )
+                {
+                    measuring.insert(body);
+                }
+            }
+        }
+        edges.insert(body, callees);
+    }
+    if measuring.is_empty() {
+        return true;
+    }
+
+    // Pruning zero-indegree vertices leaves exactly cycles and their descendants.
+    // This includes measuring helpers called by recursion, not just measuring cycle members.
+    // Conversely, a measuring caller of nonmeasuring recursion is pruned and stays eligible.
+    // Shared callees and repeated edges alone do not imply recursion.
+    let mut incoming: FxHashMap<_, usize> = edges.keys().map(|id| (*id, 0)).collect();
+    for callees in edges.values() {
+        for callee in callees {
+            *incoming.get_mut(callee).expect("reachable body exists") += 1;
+        }
+    }
+    let mut ready: Vec<_> = incoming
+        .iter()
+        .filter_map(|(id, count)| (*count == 0).then_some(*id))
+        .collect();
+    while let Some(body) = ready.pop() {
+        measuring.remove(&body);
+        for callee in &edges[&body] {
+            let count = incoming.get_mut(callee).expect("reachable body exists");
+            *count -= 1;
+            if *count == 0 {
+                ready.push(*callee);
+            }
+        }
+    }
+    // Any remaining measurement is reachable from recursion. Conservatively inline the
+    // root rather than risk a nested invocation overwriting a caller's result slot.
+    measuring.is_empty()
+}
+
+/// Collects call targets within one specialization body for the resource-safety graph.
+/// Callee bodies are traversed separately; any unresolved target forces conservative inlining.
+struct ResourceCallScanner<'a> {
+    package: &'a fir::Package,
+    package_id: PackageId,
+    calls: Vec<(StoreItemId, FunctorApp)>,
+    unresolved: bool,
+}
+
+impl ResourceCallScanner<'_> {
+    /// Resolves global references and lifted closures without evaluating callable expressions.
+    /// Functor wrappers preserve the selected body, adjoint, controlled, or controlled-adjoint
+    /// specialization. Local and computed callable values remain unresolved.
+    fn resolve_callee(&self, mut expr: ExprId) -> Option<(StoreItemId, FunctorApp)> {
+        let mut functors = FunctorApp::default();
+        loop {
+            match self.package.get_expr(expr).kind {
+                ExprKind::Var(Res::Item(item), _) => {
+                    return Some(((item.package, item.item).into(), functors));
+                }
+                ExprKind::Closure(_, item) => {
+                    return Some(((self.package_id, item).into(), functors));
+                }
+                ExprKind::UnOp(UnOp::Functor(functor), operand) => {
+                    // Adjoint applications cancel in pairs; controlled applications accumulate.
+                    match functor {
+                        Functor::Adj => functors.adjoint = !functors.adjoint,
+                        Functor::Ctl => functors.controlled += 1,
+                    }
+                    expr = operand;
+                }
+                _ => return None,
+            }
+        }
+    }
+}
+
+impl<'a> qsc_fir::visit::Visitor<'a> for ResourceCallScanner<'a> {
+    fn visit_expr(&mut self, expr: ExprId) {
+        if let ExprKind::Call(callee, _) = self.get_expr(expr).kind {
+            if let Some(call) = self.resolve_callee(callee) {
+                self.calls.push(call);
+            } else {
+                self.unresolved = true;
+            }
+        }
+        // Callee and argument expressions can themselves contain calls.
+        qsc_fir::visit::walk_expr(self, expr);
+    }
+
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.package.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.package.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.package.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.package.get_stmt(id)
     }
 }
 
