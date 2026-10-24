@@ -9,7 +9,7 @@ use qsc_fir::{
         PackageId, PackageLookup, Pat, PatId, Res, Stmt, StmtId, StoreItemId, UnOp,
     },
     ty::FunctorSetValue,
-    visit::{Visitor, walk_expr, walk_stmt},
+    visit::{Visitor, walk_expr},
 };
 use rustc_hash::FxHashMap;
 use std::{cmp::max, fmt::Debug};
@@ -218,33 +218,43 @@ fn try_resolve_un_op_callee(
     )
 }
 
-pub struct AssignmentStmtCounter<'a> {
+/// Counts the locals assigned in a block or an expression, counting each element of a tuple assignee separately, since a
+/// single tuple assignment can move a value through several locals.
+pub struct AssignedLocalsCounter<'a> {
     package: &'a Package,
-    assignment_expr_count: usize,
-    assignment_stmt_count: usize,
+    assigned_locals_count: usize,
 }
 
-impl<'a> AssignmentStmtCounter<'a> {
+impl<'a> AssignedLocalsCounter<'a> {
     pub fn new(package: &'a Package) -> Self {
         Self {
             package,
-            assignment_expr_count: 0,
-            assignment_stmt_count: 0,
+            assigned_locals_count: 0,
         }
     }
 
     pub fn count_in_expr(mut self, expr_id: ExprId) -> usize {
         self.visit_expr(expr_id);
-        max(self.assignment_stmt_count, 1)
+        max(self.assigned_locals_count, 1)
     }
 
     pub fn count_in_block(mut self, block_id: BlockId) -> usize {
         self.visit_block(block_id);
-        self.assignment_stmt_count
+        self.assigned_locals_count
+    }
+
+    fn count_in_assignee(&self, assignee_expr_id: ExprId) -> usize {
+        match &self.get_expr(assignee_expr_id).kind {
+            ExprKind::Tuple(element_expr_ids) => element_expr_ids
+                .iter()
+                .map(|element_expr_id| self.count_in_assignee(*element_expr_id))
+                .sum(),
+            _ => 1,
+        }
     }
 }
 
-impl<'a> Visitor<'a> for AssignmentStmtCounter<'a> {
+impl<'a> Visitor<'a> for AssignedLocalsCounter<'a> {
     fn get_block(&self, id: BlockId) -> &'a Block {
         self.package.get_block(id)
     }
@@ -263,23 +273,13 @@ impl<'a> Visitor<'a> for AssignmentStmtCounter<'a> {
 
     fn visit_expr(&mut self, expr_id: ExprId) {
         let expr = self.get_expr(expr_id);
-        if matches!(
-            expr.kind,
-            ExprKind::Assign(_, _)
-                | ExprKind::AssignField(_, _, _)
-                | ExprKind::AssignIndex(_, _, _)
-                | ExprKind::AssignOp(_, _, _)
-        ) {
-            self.assignment_expr_count += 1;
+        if let ExprKind::Assign(assignee_expr_id, _)
+        | ExprKind::AssignField(assignee_expr_id, _, _)
+        | ExprKind::AssignIndex(assignee_expr_id, _, _)
+        | ExprKind::AssignOp(_, assignee_expr_id, _) = &expr.kind
+        {
+            self.assigned_locals_count += self.count_in_assignee(*assignee_expr_id);
         }
         walk_expr(self, expr_id);
-    }
-
-    fn visit_stmt(&mut self, stmt_id: StmtId) {
-        let initial_assigment_expr_count = self.assignment_expr_count;
-        walk_stmt(self, stmt_id);
-        if self.assignment_expr_count > initial_assigment_expr_count {
-            self.assignment_stmt_count += 1;
-        }
     }
 }

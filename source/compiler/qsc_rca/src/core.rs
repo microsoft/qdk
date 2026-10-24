@@ -8,7 +8,7 @@ use crate::{
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
-        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup,
+        AssignedLocalsCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup,
         try_resolve_callee,
     },
     errors::get_missing_runtime_features,
@@ -1270,11 +1270,15 @@ impl<'a> Analyzer<'a> {
             // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
             // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
             // condition due to variable assignments.
-            // The number of statements with assignments in the condition expression and the loop block is a good proxy for
-            // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
-            // it as the stabilization limit.
-            let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
-                + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
+            // Each pass propagates properties at least one more level through assignments, and a chain of assignments has at
+            // most one level per assigned local, so the number of locals assigned in the condition expression and the loop
+            // block (counting each element of a tuple assignee) bounds the worst case scenario regarding the propagation of
+            // properties throughout variables. Because of this, we use it as the stabilization limit.
+            // The extra step that makes the condition, and with it the loop's dynamic scope, dynamic is covered by the
+            // `max(_, 1)` in `count_in_expr` and the extra pass of `0..=`; the bound is tight when the condition itself
+            // assigns locals.
+            let stabilization_limit = AssignedLocalsCounter::new(package).count_in_block(block_id)
+                + AssignedLocalsCounter::new(package).count_in_expr(condition_expr_id);
             let mut block_compute_kind = None;
             for _ in 0..=stabilization_limit {
                 let application_instance = self.get_current_application_instance();
