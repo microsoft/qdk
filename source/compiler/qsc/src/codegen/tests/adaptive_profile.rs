@@ -2225,6 +2225,327 @@ fn controlled_specialization_inlines() {
     );
 }
 
+#[test]
+fn recursive_static_allocation_inlines() {
+    let source = r#"
+        operation Rec(n : Int) : Unit {
+            use q = Qubit();
+            H(q);
+            if n > 0 { Rec(n - 1); }
+            Reset(q);
+        }
+        @EntryPoint() operation Main() : Unit { Rec(2); }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "Rec");
+    assert!(qir.contains("\"required_num_qubits\"=\"3\""), "{qir}");
+
+    let dynamic = compile_source_to_qir(source, *CAPABILITIES_DYNAMIC_QUBIT_ALLOC);
+    assert!(
+        dynamic.contains("define internal void @Rec(")
+            && dynamic.contains("call ptr @__quantum__rt__qubit_allocate()"),
+        "{dynamic}"
+    );
+}
+
+#[test]
+fn recursive_static_array_allocation_inlines() {
+    let source = r#"
+        operation Rec(n : Int) : Unit {
+            use qs = Qubit[2];
+            H(qs[0]);
+            if n > 0 { Rec(n - 1); }
+            Reset(qs[0]);
+        }
+        @EntryPoint() operation Main() : Unit { Rec(2); }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "Rec");
+    assert!(qir.contains("\"required_num_qubits\"=\"6\""), "{qir}");
+}
+
+#[test]
+fn mutual_recursion_preserves_live_caller_qubit() {
+    let source = r#"
+        operation A(n : Int) : Unit {
+            use q = Qubit();
+            H(q);
+            Reset(q);
+            if n > 0 { B(n - 1); }
+        }
+        operation B(n : Int) : Unit { A(n); }
+        @EntryPoint() operation Main() : Result {
+            B(0);
+            use r = Qubit();
+            X(r);
+            B(0);
+            MResetZ(r)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "A");
+    assert_inlined(&qir, "B");
+    assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+    assert!(
+        qir.contains("call void @Reset(ptr inttoptr (i64 1 to ptr))"),
+        "{qir}"
+    );
+}
+
+#[test]
+fn curried_allocation_preserves_live_caller_qubit() {
+    let source = r#"
+        operation Inc(x : Int) : Int {
+            use q = Qubit(); H(q); Reset(q); x + 1
+        }
+        function Curried(f : Int => Int) : (Int -> (Int => Int)) {
+            a -> (b => f(a + 2 * b))
+        }
+        @EntryPoint() operation Main() : (Int, Int, Result) {
+            mutable a = 0;
+            mutable b = 0;
+            set a = Curried(Inc)(a)(2);
+            use r = Qubit();
+            X(r);
+            set b = Curried(Inc)(b)(2);
+            (a, b, MResetZ(r))
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+    assert_eq!(
+        qir.matches("call void @__quantum__rt__int_record_output(i64 5,")
+            .count(),
+        2,
+        "{qir}"
+    );
+}
+
+#[test]
+fn runtime_recursive_static_allocation_reports_error() {
+    let source = r#"
+        operation Rec(n : Int) : Unit {
+            use q = Qubit(); H(q); Reset(q);
+            if n > 0 { Rec(n - 1); }
+        }
+        @EntryPoint() operation Main() : Unit {
+            use flag = Qubit();
+            Rec(if MResetZ(flag) == Zero { 2 } else { 0 });
+        }
+    "#;
+    let errors = super::compile_source_to_qir_result(source, *CAPABILITIES)
+        .expect_err("runtime recursion cannot inline static allocation");
+    assert!(
+        super::format_interpret_errors(errors)
+            .contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining")
+    );
+}
+
+#[test]
+fn nonallocating_mutual_recursion_remains_ir_functions() {
+    let source = r#"
+        operation A(n : Int, q : Qubit) : Unit {
+            if n > 0 { X(q); B(n - 1, q); }
+        }
+        operation B(n : Int, q : Qubit) : Unit { A(n, q); }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit(); B(2, q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @A("), "{qir}");
+    assert!(qir.contains("define internal void @B("), "{qir}");
+}
+
+#[test]
+fn uncalled_allocating_body_does_not_block_adjoint_ir_function() {
+    let source = r#"
+        operation Act(q : Qubit) : Unit is Adj {
+            body (...) { use a = Qubit(); let _ = MResetZ(a); }
+            adjoint (...) { X(q); }
+        }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit(); Adjoint Act(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Act__Adj("), "{qir}");
+    assert!(qir.contains("\"required_num_qubits\"=\"1\""), "{qir}");
+}
+
+#[test]
+fn controlled_adjoint_resource_check_uses_selected_specialization() {
+    let source = r#"
+        operation Act(q : Qubit) : Unit is Adj + Ctl {
+            body (...) { use unused = Qubit(); }
+            adjoint (...) { use unused = Qubit(); }
+            controlled (cs, ...) { use unused = Qubit(); }
+            controlled adjoint (cs, ...) { use a = Qubit(); H(a); Reset(a); }
+        }
+        operation Invoke(c : Qubit, q : Qubit) : Unit {
+            Controlled Adjoint Act([c], q);
+        }
+        @EntryPoint() operation Main() : Unit {
+            use (c, q) = (Qubit(), Qubit()); Invoke(c, q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "Invoke");
+    assert!(qir.contains("\"required_num_qubits\"=\"3\""), "{qir}");
+
+    let safe = source.replace("use a = Qubit(); H(a); Reset(a);", "X(q);");
+    let qir = compile_source_to_qir(&safe, *CAPABILITIES);
+    assert!(qir.contains("define internal void @Invoke("), "{qir}");
+    assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
+}
+
+#[test]
+fn recursive_measurement_preserves_caller_result() {
+    let source = r#"
+        operation R(n : Int, q : Qubit, a : Qubit) : Unit {
+            if n > 0 {
+                let r = M(a);
+                X(a);
+                R(n - 1, q, a);
+                if r == One { X(q); }
+            }
+        }
+        @EntryPoint() operation Main() : Result {
+            use (q, a) = (Qubit(), Qubit());
+            R(2, q, a);
+            Reset(a);
+            MResetZ(q)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "R");
+    assert!(qir.contains("\"required_num_results\"=\"3\""), "{qir}");
+}
+
+#[test]
+fn mutual_measurement_recursion_inlines_from_either_member() {
+    let source = r#"
+        operation A(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let r = M(q);
+                B(n - 1, q);
+                if r == One { X(q); }
+            }
+        }
+        operation B(n : Int, q : Qubit) : Unit { A(n, q); }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit();
+            A(2, q);
+            B(2, q);
+            Reset(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "A");
+    assert_inlined(&qir, "B");
+    assert!(qir.contains("\"required_num_results\"=\"4\""), "{qir}");
+}
+
+#[test]
+fn recursive_custom_measurement_helper_and_result_alias_inline() {
+    let source = r#"
+        @Measurement()
+        operation Read(q : Qubit) : Result { body intrinsic; }
+        operation Observe(q : Qubit) : Result { Read(q) }
+        operation R(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let r = Observe(q);
+                let saved = r;
+                R(n - 1, q);
+                if saved == One { X(q); }
+            }
+        }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit(); R(2, q); Reset(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "R");
+    assert!(qir.contains("\"required_num_results\"=\"2\""), "{qir}");
+}
+
+#[test]
+fn recursive_measurement_through_acyclic_bool_helper_inlines() {
+    let source = r#"
+        operation Observe(q : Qubit) : Bool { M(q) == One }
+        operation R(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let r = Observe(q);
+                R(n - 1, q);
+                if r { X(q); }
+            }
+        }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit(); R(2, q); Reset(q);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "R");
+    assert!(
+        qir.contains("define internal zeroext i1 @Observe("),
+        "{qir}"
+    );
+}
+
+#[test]
+fn runtime_recursive_measurement_reports_error_even_with_dynamic_qubits() {
+    let source = r#"
+        operation R(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let r = M(q);
+                R(n - 1, q);
+                if r == One { X(q); }
+            }
+        }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit();
+            R(if M(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+    "#;
+    for capabilities in [*CAPABILITIES, *CAPABILITIES_DYNAMIC_QUBIT_ALLOC] {
+        let errors = super::compile_source_to_qir_result(source, capabilities)
+            .expect_err("runtime recursion cannot reuse static result slots");
+        assert!(
+            super::format_interpret_errors(errors)
+                .contains("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining")
+        );
+    }
+}
+
+#[test]
+fn acyclic_measurement_with_nonmeasuring_recursion_remains_ir_function() {
+    let source = r#"
+        operation Flip(n : Int, q : Qubit) : Unit {
+            if n > 0 { X(q); Flip(n - 1, q); }
+        }
+        operation Observe(q : Qubit) : Bool {
+            let r = M(q);
+            Flip(2, q);
+            X(q);
+            X(q);
+            r == One
+        }
+        @EntryPoint() operation Main() : Bool {
+            use q = Qubit();
+            let r = Observe(q);
+            Reset(q);
+            r
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define internal zeroext i1 @Observe("),
+        "{qir}"
+    );
+    assert!(qir.contains("define internal void @Flip("), "{qir}");
+}
+
 /// A recursive operation can be emitted into an IR function.
 #[test]
 fn recursive_operation_emits_to_ir_function() {
