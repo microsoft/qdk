@@ -159,7 +159,7 @@ pub trait MakeShot<I>: Describe {
 /// shared between shots.
 ///
 /// ```text
-/// PerShot(maker).open(seed, J) ──► SubmissionUnwrapper ──► maker.make(ctx(seed, j)), one per j in J
+/// PerShot(maker).open(seed, J) ──► PerShotSession ──► maker.make(ctx(seed, j)), one per j in J
 /// ```
 ///
 /// It is the simplest strategy, and the one for programs with feedback: a
@@ -179,7 +179,7 @@ impl<F: Describe> Describe for PerShot<F> {
     }
 }
 
-/// Opens a [`SubmissionUnwrapper`] with one shot executor per shot of J,
+/// Opens a [`PerShotSession`] with one shot executor per shot of J,
 /// made from shot `j`'s context.
 ///
 /// Each shot draws only from its own seeds, so the session is replayable
@@ -188,13 +188,13 @@ impl<F: Describe> Describe for PerShot<F> {
 /// what is needed. The session offers `probabilities` when the maker does,
 /// and then reports each shot's [`MakeShot::log_p`] at close.
 impl<I, F: MakeShot<I>> ShotStrategy<I> for PerShot<F> {
-    type Session = SubmissionUnwrapper<F::Shot>;
+    type Session = PerShotSession<F::Shot>;
 
     fn open(&self, seed: u64, shots: &ShotSet, needs: &Needs) -> Result<Self::Session, Rejected> {
         let PerShot(maker) = self;
         let capabilities = maker.capabilities();
         capabilities.admit(std::any::type_name::<F>(), shots, needs)?;
-        Ok(SubmissionUnwrapper {
+        Ok(PerShotSession {
             capabilities,
             ids: shots.to_vec(),
             shots: shots
@@ -209,9 +209,11 @@ impl<I, F: MakeShot<I>> ShotStrategy<I> for PerShot<F> {
     }
 }
 
-/// A per-shot session: the unwrapper from level L2 to level L3, whose shot
-/// `j` lives in its own executor of batches. Opened by [`PerShot`] over a
-/// [`MakeShot`].
+/// The session of the per-shot strategy: opened by [`PerShot`] over a
+/// [`MakeShot`], it holds one executor of batches per shot, in which shot
+/// `j`'s state lives. It is an unwrapper from level L2 to level L3 (one
+/// submission into a batch per shot), the per-shot one: other strategies'
+/// sessions unwrap submissions too, onto other states.
 ///
 /// A submission calls the executor of each of its shots in the order of its
 /// shots. A rejection by the first shot called rejects the submission, since
@@ -219,9 +221,9 @@ impl<I, F: MakeShot<I>> ShotStrategy<I> for PerShot<F> {
 /// session, since the shots before it ran (see [`Lifecycle`]).
 ///
 /// Each shot's executor, and the state it holds, stays reachable between
-/// calls ([`SubmissionUnwrapper::shot`]), so that a query of a shot's state
+/// calls ([`PerShotSession::shot`]), so that a query of a shot's state
 /// in the middle of a session can be added without changing the session.
-pub struct SubmissionUnwrapper<S> {
+pub struct PerShotSession<S> {
     capabilities: Capabilities,
     ids: Vec<ShotId>,
     shots: Vec<S>,
@@ -231,7 +233,7 @@ pub struct SubmissionUnwrapper<S> {
     lifecycle: Lifecycle,
 }
 
-impl<S> SubmissionUnwrapper<S> {
+impl<S> PerShotSession<S> {
     /// The executor of shot `shot`, with the state the submissions so far
     /// left; `None` when the session does not hold the shot, or was closed.
     #[must_use]
@@ -240,14 +242,14 @@ impl<S> SubmissionUnwrapper<S> {
     }
 
     /// The executor of shot `shot`, mutably; `None` as for
-    /// [`SubmissionUnwrapper::shot`].
+    /// [`PerShotSession::shot`].
     #[must_use]
     pub fn shot_mut(&mut self, shot: ShotId) -> Option<&mut S> {
         self.index.get(shot).and_then(|i| self.shots.get_mut(i))
     }
 }
 
-impl<I, S: Executor<Batch<I>>> Executor<Submission<I>> for SubmissionUnwrapper<S> {
+impl<I, S: Executor<Batch<I>>> Executor<Submission<I>> for PerShotSession<S> {
     type Response = Watched<Gather<S::Response>>;
 
     /// Runs the batch on each shot of the submission, in its order.
@@ -293,14 +295,14 @@ impl<I, S: Executor<Batch<I>>> Executor<Submission<I>> for SubmissionUnwrapper<S
     }
 }
 
-impl<S> Describe for SubmissionUnwrapper<S> {
+impl<S> Describe for PerShotSession<S> {
     /// The maker's capabilities.
     fn capabilities(&self) -> Capabilities {
         self.capabilities.clone()
     }
 }
 
-impl<S: Close> Close for SubmissionUnwrapper<S> {
+impl<S: Close> Close for PerShotSession<S> {
     type Report = SessionReport<S::Report>;
 
     /// Closes each shot's executor and folds their reports; adds each shot's
@@ -386,7 +388,7 @@ impl<C: Completion<Item = Outcome>> Completion for Gather<C> {
 /// that does not is refused with [`Rejected::ShotNotInSession`].
 ///
 /// Over a per-shot session it gives the outcomes of the shot's executor
-/// alone: a wrapper over its unwrapper is the identity.
+/// alone: this wrapper over a [`PerShotSession`] is the identity.
 pub struct SubmissionWrapper<S> {
     inner: S,
     shot_1: ShotSet,
