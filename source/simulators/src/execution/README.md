@@ -17,7 +17,7 @@ This README details its contracts.
 | `region.rs`                      | Defines target-neutral quantum evolution regions.                                                            |
 | `unitary.rs`                     | Defines resolved unitary operations and the legacy `Simulator` application bridge.                           |
 | `runtime.rs`                     | Runs the walk as a Runtime adapter (`RuntimeAdapter`) over any executor of the region ISA.                   |
-| `terminal.rs`                    | Runs the region ISA on a legacy `Simulator` (`SimulatorTerminal`), an L3 terminal.                           |
+| `terminal.rs`                    | Runs the region ISA on a legacy `Simulator` (`SimulatorTerminal`), an L3 terminal; makes one per shot.       |
 | `operator_matrix.rs`             | Defines each gate matrix and the basis operators \|r⟩⟨b\| once, for every backend.                           |
 | `pauli_sum.rs`                   | Defines backend-neutral Pauli-sum observables, which each backend evaluates on its own state.                |
 | `tooling/conditioned_circuit.rs` | Builds a program conditioned on given measurement outcomes, as one circuit, to check simulation methods.     |
@@ -181,6 +181,13 @@ opportunity. Region grouping is therefore a structural no-op for CPU and
 Clifford, making parity with the legacy oracle direct. A tensor-network
 terminal instead takes each region whole, which is what regions are for.
 
+`SimulatorShots` makes one shot's `SimulatorTerminal`, seeded from the shot's
+terminal seed (`ShotContext::rng_seed`), so per-shot sessions (level L2) of
+the legacy simulators open over it through `executor_protocol::Open`. The
+legacy `Simulator::new` takes a 32-bit seed, so the 64-bit seed is folded to
+32 bits, and two shots of a session may share one (probability about n²/2³³
+for n shots).
+
 `SimulatorTerminal` is currently a compatibility implementation and parity
 oracle. The legacy `bytecode::runtime::run_shot` remains the production CPU and
 Clifford execution path until migration is explicitly validated.
@@ -305,7 +312,9 @@ again.
   `ICMP` (M1's `icmp`) or `OP_WRITE_RESULT`, is an `UnsupportedInstruction`
   error; the legacy runtime remains the complete oracle.
 - The Runtime adapter runs a whole call before it returns, and serves one shot.
-  Sessions of many shots, asynchronous terminals, and same-prefix replay
-  require explicit designs rather than hidden terminal behavior.
+  Sessions of many shots are per-shot sessions (`SimulatorShots`), whose
+  submissions an L2 driver sends; ensemble terminals, asynchronous terminals,
+  and same-prefix replay require explicit designs rather than hidden terminal
+  behavior.
 - Existing backend entry points and result shapes must remain stable while a
   backend migrates to shared execution.

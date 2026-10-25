@@ -1362,3 +1362,4 @@ fn unitary_operation_names_are_the_variant_names() {
 }
 
 mod protocol;
+mod sessions;

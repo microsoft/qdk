@@ -664,6 +664,9 @@ dependencies = [
 [[package]]
 name = "executor_protocol"
 version = "0.0.0"
+dependencies = [
+ "futures-core",
+]
 
 [[package]]
 name = "expect-test"
