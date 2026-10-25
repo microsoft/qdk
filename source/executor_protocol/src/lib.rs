@@ -15,12 +15,12 @@
 //! kind, and a driver written once runs on every chain.
 //!
 //! A [`Submission`] (level L2) runs a batch on each shot of a set of shots
-//! of a session, which an [`Open`] opens on the shots J with the caller's
-//! [`Needs`]. Every maker of one shot's executor ([`MakeShot`]) opens
-//! per-shot sessions, one L3 executor per shot, whose shot `j` draws from
-//! seeds that depend only on the session's seed, `j` and the component that
-//! draws ([`ShotContext`], [`shot_seed`]), so that a shot's outcomes do not
-//! depend on how J is split or on which adapters are in the stack.
+//! of a session. A [`ShotStrategy`] opens the session on the shots J with
+//! the caller's [`Needs`], and decides how the shots run: [`PerShot`] runs
+//! each on its own L3 executor, made by a [`MakeShot`], whose shot `j` draws
+//! from seeds that depend only on the session's seed, `j` and the component
+//! that draws ([`ShotContext`], [`shot_seed`]), so that a shot's outcomes do
+//! not depend on how J is split or on which adapters are in the stack.
 //!
 //! [`Executor::call`] returns at once with either the reply or a typed
 //! [`Rejected`], which means that no work started; a run that starts and
@@ -56,8 +56,8 @@ pub use lifecycle::{Lifecycle, Watch, Watched};
 pub use message::{Batch, ErrorKind, Message, Outcome, ShotId, SubmissionId, Value};
 pub use rejected::{Need, Rejected, RetryClass, Unmet};
 pub use session::{
-    Gather, LogP, MakeShot, Open, SessionReport, ShotOutcome, Submission, SubmissionRef,
-    SubmissionUnwrapper, SubmissionWrapper, open,
+    Gather, LogP, MakeShot, PerShot, SessionReport, ShotOutcome, ShotStrategy, Submission,
+    SubmissionRef, SubmissionUnwrapper, SubmissionWrapper, open,
 };
 pub use shot::{BuildError, ComponentId, ComponentRngs, ShotContext, ShotSet, shot_seed};
 

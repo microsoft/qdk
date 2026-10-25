@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Level L2, sessions: a batch run on each shot of a set of shots, and the
-//! per-shot sessions that run it with one L3 executor per shot.
+//! Level L2, sessions: a batch run on each shot of a set of shots; the shot
+//! strategies that open sessions ([`ShotStrategy`]); and the first of them,
+//! [`PerShot`], which runs each shot on its own L3 executor.
 
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
@@ -66,14 +67,36 @@ pub struct ShotOutcome {
     pub value: Value,
 }
 
-/// What opens sessions of level L2: `open(seed, shots, needs)`, the same for
-/// per-shot sessions over a maker of shots ([`MakeShot`]) and for an
-/// ensemble terminal that runs the shots of a submission together.
+/// How the shots of a session are run: a strategy that maps the shots J onto
+/// executors and states, and opens level-L2 sessions with
+/// `open(seed, shots, needs)`.
+///
+/// A caller that runs shots (a driver, the Python API, an adapter for
+/// another stack) needs only a session to submit batches to; how the shots
+/// share work is the strategy's choice. So each way of running shots is one
+/// implementation, and a new one is added without changing its callers:
+///
+/// | Strategy                            | How the shots of J run                                       | Replayable              |
+/// | ----------------------------------- | ------------------------------------------------------------ | ----------------------- |
+/// | [`PerShot`]                         | each on its own L3 executor, made by a [`MakeShot`]          | yes                     |
+/// | an ensemble terminal (MPS batch)    | together, from one state and one seed; Base programs only    | no                      |
+/// | grouped (not built yet)             | on shared states, split where their values differ            | yes                     |
+/// | sharded (not built yet)             | J split over several strategies, their replies merged        | as the inner strategies |
+///
+/// An adapter that wraps a strategy (a lowering, a noise source, exclusive
+/// use of a device) is again a strategy, so a stack is built by wrapping.
+///
+/// Every strategy keeps the same contract: the needs are checked at `open`,
+/// before anything is allocated; each shot's state carries over from one
+/// submission to the next; and its session is closed once, with a report
+/// that folds. Whether the shots are replayable (each shot's outcomes
+/// independent of the other shots of J) is the strategy's to offer, through
+/// [`Capabilities`]; a caller that needs it says so in its [`Needs`].
 ///
 /// The shots J are a [`ShotSet`]: a set by type is checked once, where J is
-/// chosen, not by every opener. J is borrowed, as a submission's shots are:
-/// the caller keeps it to name the submissions' shots.
-pub trait Open<I>: Describe {
+/// chosen, not by every strategy. J is borrowed, as a submission's shots
+/// are: the caller keeps it to name the submissions' shots.
+pub trait ShotStrategy<I>: Describe {
     /// An open session: it runs submissions on the shots it was opened on,
     /// describes what it offers, and is closed once.
     type Session: Executor<Submission<I>> + Describe + Close;
@@ -85,23 +108,26 @@ pub trait Open<I>: Describe {
     ///
     /// [`Rejected::Unmet`] when `needs` cannot be honoured, naming the
     /// component that cannot; nothing is allocated then. Other rejections
-    /// as the opener says ([`Rejected::Unavailable`] when it cannot open a
+    /// as the strategy says ([`Rejected::Unavailable`] when it cannot open a
     /// session now).
     fn open(&self, seed: u64, shots: &ShotSet, needs: &Needs) -> Result<Self::Session, Rejected>;
 }
 
-/// Opens a session with the default needs, which every opener accepts.
+/// Opens a session with the default needs, which every strategy accepts.
 ///
 /// # Errors
 ///
-/// As [`Open::open`].
-pub fn open<I, O: Open<I>>(opener: &O, seed: u64, shots: &ShotSet) -> Result<O::Session, Rejected> {
-    opener.open(seed, shots, &Needs::default())
+/// As [`ShotStrategy::open`].
+pub fn open<I, S: ShotStrategy<I>>(
+    strategy: &S,
+    seed: u64,
+    shots: &ShotSet,
+) -> Result<S::Session, Rejected> {
+    strategy.open(seed, shots, &Needs::default())
 }
 
-/// Makes the L3 executor of one shot from the shot's context: what per-shot
-/// sessions are opened over. Every maker of shots opens per-shot sessions
-/// ([`SubmissionUnwrapper`]) through [`Open`].
+/// Makes the L3 executor of one shot from the shot's context. Wrapped in
+/// [`PerShot`], a maker runs each shot of a session on its own executor.
 pub trait MakeShot<I>: Describe {
     /// The executor of one shot.
     type Shot: Executor<Batch<I>> + Close;
@@ -128,26 +154,52 @@ pub trait MakeShot<I>: Describe {
     }
 }
 
-/// Every maker of shots opens per-shot sessions: a [`SubmissionUnwrapper`]
-/// with one shot executor per shot of J, made from shot `j`'s context.
+/// The per-shot strategy: each shot of a session runs on its own L3
+/// executor, made by the maker `F` from the shot's context, and nothing is
+/// shared between shots.
+///
+/// ```text
+/// PerShot(maker).open(seed, J) ──► SubmissionUnwrapper ──► maker.make(ctx(seed, j)), one per j in J
+/// ```
+///
+/// It is the simplest strategy, and the one for programs with feedback: a
+/// shot's measurements steer its own executor only. It is a named type,
+/// not a blanket implementation over every [`MakeShot`], because a blanket
+/// implementation would make per-shot the only strategy a maker can have.
+/// Rust would then refuse, as overlapping (E0119), a terminal that is both
+/// a maker and its own ensemble strategy; an adapter that wraps both a
+/// maker and a strategy; and a strategy shared through `Arc`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PerShot<F>(pub F);
+
+/// What the maker offers, since every shot is one of its executors.
+impl<F: Describe> Describe for PerShot<F> {
+    fn capabilities(&self) -> Capabilities {
+        self.0.capabilities()
+    }
+}
+
+/// Opens a [`SubmissionUnwrapper`] with one shot executor per shot of J,
+/// made from shot `j`'s context.
 ///
 /// Each shot draws only from its own seeds, so the session is replayable
 /// when the maker's shots are. The needs are checked against the maker's
-/// capabilities, and a rejection names the maker. The session offers
-/// `probabilities` when the maker does, and then reports each shot's
-/// [`MakeShot::log_p`] at close.
-impl<I, F: MakeShot<I>> Open<I> for F {
+/// capabilities, and a rejection names the maker, the component that lacks
+/// what is needed. The session offers `probabilities` when the maker does,
+/// and then reports each shot's [`MakeShot::log_p`] at close.
+impl<I, F: MakeShot<I>> ShotStrategy<I> for PerShot<F> {
     type Session = SubmissionUnwrapper<F::Shot>;
 
     fn open(&self, seed: u64, shots: &ShotSet, needs: &Needs) -> Result<Self::Session, Rejected> {
-        let capabilities = self.capabilities();
+        let PerShot(maker) = self;
+        let capabilities = maker.capabilities();
         capabilities.admit(std::any::type_name::<F>(), shots, needs)?;
         Ok(SubmissionUnwrapper {
             capabilities,
             ids: shots.to_vec(),
             shots: shots
                 .iter()
-                .map(|&j| self.make(&ShotContext::new(seed, j)))
+                .map(|&j| maker.make(&ShotContext::new(seed, j)))
                 .collect(),
             log_p: F::log_p,
             index: ShotIndex::new(shots),
@@ -158,7 +210,7 @@ impl<I, F: MakeShot<I>> Open<I> for F {
 }
 
 /// A per-shot session: the unwrapper from level L2 to level L3, whose shot
-/// `j` lives in its own executor of batches. Opened through [`Open`] on a
+/// `j` lives in its own executor of batches. Opened by [`PerShot`] over a
 /// [`MakeShot`].
 ///
 /// A submission calls the executor of each of its shots in the order of its

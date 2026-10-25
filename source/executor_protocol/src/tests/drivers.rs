@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 
 use crate::{
     Batch, Capabilities, Close, Completer, Completion, Describe, Executor, Incremental, MakeShot,
-    Outcome, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Status, SubmissionRef, Value,
-    completer, open, wait, wait_async,
+    Outcome, PerShot, Rejected, ShotContext, ShotId, ShotOutcome, ShotSet, Status, SubmissionRef,
+    Value, completer, open, wait, wait_async,
 };
 
 /// How long a test waits for something that should happen at once before
@@ -203,7 +203,7 @@ impl MakeShot<bool> for Workers {
 fn a_per_shot_session_hands_over_a_shots_events_before_the_submission_ends() {
     let (tx, rx) = mpsc::channel();
     let shots = ShotSet::range(1..=2).expect("shots");
-    let mut session = open(&GatedShots(tx), 0, &shots).expect("opens");
+    let mut session = open(&PerShot(GatedShots(tx)), 0, &shots).expect("opens");
     let mut reply = session
         .call(SubmissionRef {
             shots: &shots,
@@ -288,7 +288,7 @@ fn wait_parks_until_woken_instead_of_spinning() {
     assert!(spun > 100, "{spun} polls when spinning");
 
     let shots = ShotSet::range(1..=4).expect("shots");
-    let mut session = open(&Workers(Duration::from_millis(20)), 0, &shots).expect("opens");
+    let mut session = open(&PerShot(Workers(Duration::from_millis(20))), 0, &shots).expect("opens");
     let (reply, polls) = counted(
         session
             .call(SubmissionRef {
