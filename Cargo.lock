@@ -1909,6 +1909,7 @@ dependencies = [
  "rand 0.10.2",
  "regex-lite",
  "rustc-hash",
+ "serde_json",
  "wgpu",
 ]
 
