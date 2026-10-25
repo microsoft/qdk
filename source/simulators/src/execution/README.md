@@ -309,9 +309,14 @@ again.
 - Region preparation currently recognizes only the supported unitary operation
   subset.
 - Adaptive control handles only the bytecode instructions exercised by the
-  shared execution tests (`adaptive.rs` lists them). Any other opcode, such as
-  `ICMP` (M1's `icmp`) or `OP_WRITE_RESULT`, is an `UnsupportedInstruction`
-  error; the legacy runtime remains the complete oracle.
+  shared execution tests (`adaptive.rs` lists them): `RET`, `JUMP`, `BRANCH`,
+  `READ_RESULT`, `READ_LOSS`, `OR`, `ICMP`, `RECORD_OUTPUT`, and the
+  measurements, resets and gates of the regions. `ICMP` has the legacy runtime's ten
+  predicates on whole 64-bit registers; a predicate beyond them is an
+  `UnsupportedPredicate` error. Any other opcode, such as `OP_WRITE_RESULT`,
+  is an `UnsupportedInstruction` error; the legacy runtime remains the
+  complete oracle. `PreparedAdaptiveProgram::new` refuses both before
+  anything runs.
 - The Runtime adapter runs a whole call before it returns, and serves one shot.
   Sessions of many shots are per-shot sessions (`SimulatorShots`), whose
   submissions an L2 driver sends; ensemble terminals, asynchronous terminals,

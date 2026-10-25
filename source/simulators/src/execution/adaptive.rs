@@ -25,11 +25,73 @@ const OP_READ_RESULT: u8 = 0x13;
 const OP_RECORD_OUTPUT: u8 = 0x14;
 const OP_READ_LOSS: u8 = 0x15;
 const OP_OR: u8 = 0x29;
+const OP_ICMP: u8 = 0x30;
 
 const FLAG_SRC0_IMM: u64 = 1 << 16;
 const FLAG_SRC1_IMM: u64 = 1 << 17;
 const FLAG_AUX1_IMM: u64 = 1 << 20;
 const FLAG_AUX2_IMM: u64 = 1 << 21;
+
+/// The predicate of an `ICMP` instruction, its sub-opcode (bits 15:8),
+/// numbered as the Python emitter (`_adaptive_bytecode.py`) and the legacy
+/// runtime number LLVM's ten integer predicates.
+///
+/// Registers hold 64-bit words, so a predicate compares the two whole words:
+/// as unsigned integers for `U*`, as two's-complement signed integers for
+/// `S*`, the legacy runtime's semantics. That is LLVM's semantics for `i64`;
+/// for a narrower type, a signed predicate agrees with LLVM only if the
+/// emitter wrote negative values sign-extended (an `i1` that `read_result`
+/// set is 1 here, −1 to LLVM). The legacy runtime shares this, and H₂, M1's
+/// workload, compares only with `ne`, for which the width does not matter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IntegerPredicate {
+    Eq,
+    Ne,
+    Slt,
+    Sle,
+    Sgt,
+    Sge,
+    Ult,
+    Ule,
+    Ugt,
+    Uge,
+}
+
+impl IntegerPredicate {
+    /// The predicate numbered `code`, or `None` for a number the bytecode
+    /// does not define.
+    fn from_code(code: u8) -> Option<Self> {
+        Some(match code {
+            0 => Self::Eq,
+            1 => Self::Ne,
+            2 => Self::Slt,
+            3 => Self::Sle,
+            4 => Self::Sgt,
+            5 => Self::Sge,
+            6 => Self::Ult,
+            7 => Self::Ule,
+            8 => Self::Ugt,
+            9 => Self::Uge,
+            _ => return None,
+        })
+    }
+
+    /// Whether `lhs` and `rhs` satisfy the predicate.
+    fn holds(self, lhs: u64, rhs: u64) -> bool {
+        match self {
+            Self::Eq => lhs == rhs,
+            Self::Ne => lhs != rhs,
+            Self::Slt => lhs.cast_signed() < rhs.cast_signed(),
+            Self::Sle => lhs.cast_signed() <= rhs.cast_signed(),
+            Self::Sgt => lhs.cast_signed() > rhs.cast_signed(),
+            Self::Sge => lhs.cast_signed() >= rhs.cast_signed(),
+            Self::Ult => lhs < rhs,
+            Self::Ule => lhs <= rhs,
+            Self::Ugt => lhs > rhs,
+            Self::Uge => lhs >= rhs,
+        }
+    }
+}
 
 fn bytecode_index(value: u64) -> usize {
     usize::try_from(value).expect("adaptive bytecode index should fit in usize")
@@ -218,8 +280,9 @@ where
 }
 
 /// Refuses an instruction of `program`'s blocks that the walk would stop on:
-/// an opcode it does not run, or a measurement or reset whose operation is
-/// missing or not one it supports. These depend on the program alone, so a
+/// an opcode it does not run, an `ICMP` whose predicate the bytecode does
+/// not define, or a measurement or reset whose operation is missing or not
+/// one it supports. These depend on the program alone, so a
 /// program the walk cannot run is refused before anything of it runs (a
 /// rejection means nothing started), wherever the instruction is, even in a
 /// branch no run takes. What depends on the responses stays the walk's.
@@ -240,13 +303,19 @@ where
         let start = bytecode_index(block.instr_offset.into());
         let end = start + bytecode_index(block.instr_count.into());
         for instruction_index in start..end {
-            let opcode = program.instructions[instruction_index]
+            let [opcode, predicate, ..] = program.instructions[instruction_index]
                 .opcode
                 .into()
-                .to_le_bytes()[0];
+                .to_le_bytes();
             let unsupported = match opcode {
                 OP_RET | OP_JUMP | OP_BRANCH | OP_READ_RESULT | OP_READ_LOSS | OP_OR
                 | OP_RECORD_OUTPUT => None,
+                OP_ICMP => IntegerPredicate::from_code(predicate).is_none().then_some(
+                    AdaptiveExecutionError::UnsupportedPredicate {
+                        predicate,
+                        instruction_index,
+                    },
+                ),
                 OP_MEASURE => match operation_of(instruction_index) {
                     Ok(OPID_MZ | OPID_MRESETZ) => None,
                     Ok(operation_id) => Some(AdaptiveExecutionError::UnsupportedMeasurement {
@@ -360,6 +429,12 @@ pub enum AdaptiveExecutionError {
         opcode: u8,
         instruction_index: usize,
     },
+    /// An `ICMP` whose predicate is not one of the ten the bytecode numbers
+    /// 0 to 9.
+    UnsupportedPredicate {
+        predicate: u8,
+        instruction_index: usize,
+    },
     UnsupportedMeasurement {
         operation_id: u64,
         instruction_index: usize,
@@ -389,6 +464,13 @@ impl fmt::Display for AdaptiveExecutionError {
             } => write!(
                 formatter,
                 "unsupported adaptive opcode 0x{opcode:02X} at instruction {instruction_index}"
+            ),
+            Self::UnsupportedPredicate {
+                predicate,
+                instruction_index,
+            } => write!(
+                formatter,
+                "adaptive ICMP at instruction {instruction_index} has predicate {predicate}, which the bytecode does not define (its integer predicates are 0, eq, to 9, uge)"
             ),
             Self::UnsupportedMeasurement {
                 operation_id,
@@ -542,6 +624,20 @@ impl<'program> AdaptiveExecution<'program> {
                     let lhs = self.resolve_u64(instruction.src0, instruction.opcode, 0);
                     let rhs = self.resolve_u64(instruction.src1, instruction.opcode, 1);
                     self.registers[bytecode_index(instruction.dst)] = lhs | rhs;
+                    self.instruction_index += 1;
+                }
+                OP_ICMP => {
+                    let Some(predicate) = IntegerPredicate::from_code(instruction.sub_opcode())
+                    else {
+                        return Err(AdaptiveExecutionError::UnsupportedPredicate {
+                            predicate: instruction.sub_opcode(),
+                            instruction_index: self.instruction_index,
+                        });
+                    };
+                    let lhs = self.resolve_u64(instruction.src0, instruction.opcode, 0);
+                    let rhs = self.resolve_u64(instruction.src1, instruction.opcode, 1);
+                    self.registers[bytecode_index(instruction.dst)] =
+                        u64::from(predicate.holds(lhs, rhs));
                     self.instruction_index += 1;
                 }
                 OP_RECORD_OUTPUT => {

@@ -1283,6 +1283,287 @@ fn read_loss_or_branch_matches_legacy_cpu_and_clifford() {
     assert_parity::<StabilizerSimulator>();
 }
 
+/// An operand of [`icmp_program`]'s `ICMP`.
+#[derive(Clone, Copy, Debug)]
+enum IcmpOperand {
+    /// An immediate word.
+    Immediate(u64),
+    /// A register holding a measured result, 1 for `One`, as `read_result`
+    /// writes it (H₂'s branch conditions compare such registers).
+    Result(bool),
+}
+
+const ICMP_PREDICATES: [&str; 10] = [
+    "eq", "ne", "slt", "sle", "sgt", "sge", "ult", "ule", "ugt", "uge",
+];
+
+const IMMEDIATE_SRC0: u64 = 1 << 16;
+const IMMEDIATE_SRC1: u64 = 1 << 17;
+const IMMEDIATE_AUX1: u64 = 1 << 20;
+const IMMEDIATE_AUX2: u64 = 1 << 21;
+
+fn x_instruction(qubit: u64) -> Instruction<u64> {
+    Instruction {
+        opcode: OP_QUANTUM_GATE | IMMEDIATE_AUX1,
+        aux0: 0,
+        aux1: qubit,
+        ..Instruction::default()
+    }
+}
+
+/// `mz q -> r` with `r` = `q`.
+fn measure_instruction(qubit: u64) -> Instruction<u64> {
+    Instruction {
+        opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+        aux0: 1,
+        aux1: qubit,
+        aux2: qubit,
+        ..Instruction::default()
+    }
+}
+
+/// The `ICMP` and the instructions that load its register operands: a
+/// result operand on side `s` (0 or 1) is `[X qs]; mz qs -> rs; reg(s+1) =
+/// read_result(rs)`. The comparison is written to register 0.
+fn icmp_instructions(predicate: u8, lhs: IcmpOperand, rhs: IcmpOperand) -> Vec<Instruction<u64>> {
+    let mut instructions = Vec::new();
+    let mut flags = 0;
+    let mut sources = [0; 2];
+    for (side, operand) in (0..).zip([lhs, rhs]) {
+        let index = usize::try_from(side).expect("two operands");
+        match operand {
+            IcmpOperand::Immediate(word) => {
+                flags |= [IMMEDIATE_SRC0, IMMEDIATE_SRC1][index];
+                sources[index] = word;
+            }
+            IcmpOperand::Result(one) => {
+                if one {
+                    instructions.push(x_instruction(side));
+                }
+                instructions.push(measure_instruction(side));
+                instructions.push(Instruction {
+                    opcode: 0x13 | IMMEDIATE_SRC0,
+                    dst: side + 1,
+                    src0: side,
+                    ..Instruction::default()
+                });
+                sources[index] = side + 1;
+            }
+        }
+    }
+    instructions.push(Instruction {
+        opcode: 0x30 | (u64::from(predicate) << 8) | flags,
+        dst: 0,
+        src0: sources[0],
+        src1: sources[1],
+        ..Instruction::default()
+    });
+    instructions
+}
+
+/// ```text
+/// block 0: (load the operands, see icmp_instructions)
+///          reg0 = icmp <predicate> lhs, rhs
+///          branch reg0 ? block 1 : block 2
+/// block 1: X q2; jump block 3
+/// block 2: jump block 3
+/// block 3: mz q2 -> r2; record r2; ret
+/// ```
+///
+/// The recorded result is `One` exactly when the predicate holds.
+fn icmp_program(predicate: u8, lhs: IcmpOperand, rhs: IcmpOperand) -> AdaptiveProgram<u64> {
+    let jump = |block| Instruction {
+        opcode: 0x04,
+        dst: block,
+        ..Instruction::default()
+    };
+    let mut instructions = icmp_instructions(predicate, lhs, rhs);
+    instructions.push(Instruction {
+        opcode: 0x05,
+        src0: 0,
+        aux0: 1,
+        aux1: 2,
+        ..Instruction::default()
+    });
+    let entry = u64::try_from(instructions.len()).expect("a short block");
+    instructions.extend([
+        x_instruction(2),
+        jump(3),
+        jump(3),
+        measure_instruction(2),
+        Instruction {
+            opcode: 0x14 | IMMEDIATE_SRC0,
+            src0: 2,
+            aux1: 0,
+            ..Instruction::default()
+        },
+        Instruction {
+            opcode: 0x02,
+            ..Instruction::default()
+        },
+    ]);
+    let blocks = [(0, entry), (entry, 2), (entry + 2, 1), (entry + 3, 3)]
+        .map(|(instr_offset, instr_count)| Block {
+            instr_offset,
+            instr_count,
+        })
+        .to_vec();
+    let mut program = adaptive_program(instructions, blocks, vec![operation(2), operation(21)]);
+    program.num_qubits = 3;
+    program.num_results = 3;
+    program.num_registers = 3;
+    program
+}
+
+/// The truth of LLVM's integer predicate numbered `predicate` on two 64-bit
+/// words, from its definition in the LLVM Language Reference.
+fn icmp_truth(predicate: u8, lhs: u64, rhs: u64) -> bool {
+    let (signed_lhs, signed_rhs) = (lhs.cast_signed(), rhs.cast_signed());
+    match ICMP_PREDICATES[usize::from(predicate)] {
+        "eq" => lhs == rhs,
+        "ne" => lhs != rhs,
+        "slt" => signed_lhs < signed_rhs,
+        "sle" => signed_lhs <= signed_rhs,
+        "sgt" => signed_lhs > signed_rhs,
+        "sge" => signed_lhs >= signed_rhs,
+        "ult" => lhs < rhs,
+        "ule" => lhs <= rhs,
+        "ugt" => lhs > rhs,
+        "uge" => lhs >= rhs,
+        name => unreachable!("no predicate {name}"),
+    }
+}
+
+#[test]
+fn icmp_matches_legacy_cpu_and_clifford_for_every_predicate() {
+    fn assert_parity<S>()
+    where
+        S: Simulator,
+        S::Noise: Default,
+    {
+        // Equal, ordered both ways, and differing in sign: the words where
+        // the signed and unsigned predicates disagree.
+        let words = [
+            0,
+            1,
+            2,
+            u64::MAX,
+            i64::MIN.cast_unsigned(),
+            i64::MAX.cast_unsigned(),
+        ];
+        let immediates = words.iter().flat_map(|&lhs| {
+            words
+                .iter()
+                .map(move |&rhs| (IcmpOperand::Immediate(lhs), IcmpOperand::Immediate(rhs)))
+        });
+        let results = [false, true].into_iter().flat_map(|lhs| {
+            [false, true].into_iter().flat_map(move |rhs| {
+                [
+                    (IcmpOperand::Result(lhs), IcmpOperand::Result(rhs)),
+                    (
+                        IcmpOperand::Result(lhs),
+                        IcmpOperand::Immediate(u64::from(rhs)),
+                    ),
+                    (
+                        IcmpOperand::Immediate(u64::from(lhs)),
+                        IcmpOperand::Result(rhs),
+                    ),
+                ]
+            })
+        });
+        let cases = immediates.chain(results).collect::<Vec<_>>();
+        let word = |operand| match operand {
+            IcmpOperand::Immediate(word) => word,
+            IcmpOperand::Result(one) => u64::from(one),
+        };
+        for predicate in 0..10 {
+            let mut observed = [false; 2];
+            for &(lhs, rhs) in &cases {
+                let case = format!(
+                    "{} {lhs:?} {rhs:?}",
+                    ICMP_PREDICATES[usize::from(predicate)]
+                );
+                let prepared = PreparedAdaptiveProgram::new(icmp_program(predicate, lhs, rhs))
+                    .unwrap_or_else(|error| panic!("{case}: should prepare: {error}"));
+                let mut legacy = S::new(3, 3, 7, Default::default());
+                let expected = run_shot(&icmp_program(predicate, lhs, rhs), &mut legacy);
+                let (actual, simulator) = run_prepared_shot::<S>(&prepared, 3, 3, 7);
+                let actual = actual.unwrap_or_else(|error| panic!("{case}: should run: {error}"));
+
+                assert_eq!(actual, expected, "{case}");
+                assert_eq!(simulator.measurements(), legacy.measurements(), "{case}");
+                let holds = icmp_truth(predicate, word(lhs), word(rhs));
+                let recorded = if holds {
+                    MeasurementResult::One
+                } else {
+                    MeasurementResult::Zero
+                };
+                assert_eq!(actual, [OutputRecord::Result(recorded)], "{case}");
+                observed[usize::from(holds)] = true;
+            }
+            assert_eq!(observed, [true, true], "predicate {predicate}");
+        }
+    }
+
+    assert_parity::<FullStateSimulator>();
+    assert_parity::<StabilizerSimulator>();
+}
+
+#[test]
+fn icmp_with_a_predicate_the_bytecode_does_not_define_does_not_prepare() {
+    for predicate in [10, 0x7F, u8::MAX] {
+        let refused = |program| match PreparedAdaptiveProgram::new(program) {
+            Err(RegionPartitionError::Unsupported(error)) => error,
+            other => panic!("predicate {predicate}: expected a refusal, got {other:?}"),
+        };
+        let reached = icmp_program(
+            predicate,
+            IcmpOperand::Immediate(0),
+            IcmpOperand::Immediate(0),
+        );
+        let error = refused(reached);
+        assert_eq!(
+            error,
+            AdaptiveExecutionError::UnsupportedPredicate {
+                predicate,
+                instruction_index: 0,
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "adaptive ICMP at instruction 0 has predicate {predicate}, which the bytecode does not define (its integer predicates are 0, eq, to 9, uge)"
+            )
+        );
+
+        // Also in a block that no run reaches.
+        let unreached = adaptive_program(
+            vec![
+                instruction(0x02, 0),
+                instruction(0x30 | (u64::from(predicate) << 8), 0),
+            ],
+            vec![
+                Block {
+                    instr_offset: 0,
+                    instr_count: 1,
+                },
+                Block {
+                    instr_offset: 1,
+                    instr_count: 1,
+                },
+            ],
+            Vec::new(),
+        );
+        assert_eq!(
+            refused(unreached),
+            AdaptiveExecutionError::UnsupportedPredicate {
+                predicate,
+                instruction_index: 1,
+            }
+        );
+    }
+}
+
 #[test]
 fn unitary_operation_names_are_the_variant_names() {
     let operations = [
