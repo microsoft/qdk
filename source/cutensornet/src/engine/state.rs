@@ -35,7 +35,10 @@
 //!   costs a recompute from |0…0⟩ (D21). It is not a copy of the parent's
 //!   captured MPS: under truncation the parent, computed in steps, and the
 //!   fork, computed once, may differ within the truncation error (the A100
-//!   qualification's `fork_cost` measures by how much).
+//!   qualification's `fork_cost` measures by how much). Nothing in M1 forks
+//!   (see [`MpsEngine::fork`](tensornet::MpsEngine::fork) on the engine): a
+//!   strategy that branches shots from a shared prefix is the case to
+//!   revisit (DECISIONS G8).
 //! - Operator tensors stay allocated until the state closes, as ④'s did:
 //!   without capture every compute reads them again; with it the library
 //!   no longer reads them after the next capture, but whether it still

@@ -249,7 +249,17 @@ impl MpsEngine for CuTensorNetEngine {
     /// has no state copy, so a fork costs what building the state did. The
     /// fork is computed once from |0…0⟩, not from the parent's captured
     /// MPS, so under truncation its values may differ from the parent's
-    /// within the truncation error.
+    /// within the truncation error: the parent, read along the way, was
+    /// computed and truncated in steps, one per read since capture
+    /// (DECISIONS G8).
+    ///
+    /// Where it matters: nothing in M1 forks. A per-shot run projects its
+    /// shot's own state in place, and this engine's conditional
+    /// probabilities are expectations of projectors on the computed state,
+    /// with no copy. A strategy that branches shots from a shared prefix would
+    /// fork a state read along the way and see the difference; it is the
+    /// case to revisit, with the A100 qualification's `fork_cost` rows
+    /// (`stepped_fork_difference`) as the measure of how large it is.
     fn fork(&self, state: &CuTensorNetState) -> Result<CuTensorNetState, EngineError> {
         let copy = self.execution(state)?.fork()?;
         Ok(CuTensorNetState {
