@@ -197,10 +197,10 @@ fn a_failure_ends_the_session_and_the_calls_in_flight() {
     let mut lifecycle = Lifecycle::default();
     assert_eq!(lifecycle.admit(), Ok(()));
     let (first_completer, first) = completer::<u32>();
-    let mut first = lifecycle.watched(first);
+    let mut first = lifecycle.bind(first);
     assert_eq!(lifecycle.admit(), Ok(()));
     let (second_completer, second) = completer::<u32>();
-    let mut second = lifecycle.watched(second);
+    let mut second = lifecycle.bind(second);
     let mut out = Vec::new();
     assert_eq!(second.poll_events(&mut out, &waker), Status::Pending);
     first_completer.fail("lost".into());
@@ -229,11 +229,15 @@ fn a_failure_ends_the_session_and_the_calls_in_flight() {
 fn the_earliest_failed_call_is_the_sessions_failure() {
     let mut lifecycle = Lifecycle::default();
     assert_eq!(lifecycle.admit(), Ok(()));
-    let first = lifecycle.watch();
+    let first = lifecycle.handle();
     assert_eq!(lifecycle.admit(), Ok(()));
     lifecycle.fail("second");
     first.fail("first");
-    assert_eq!(first.earlier(), None, "a call is not earlier than itself");
+    assert_eq!(
+        first.earlier_failure(),
+        None,
+        "a call is not earlier than itself"
+    );
     assert_eq!(
         lifecycle.admit(),
         Err(Rejected::SessionFailed("first".into()))

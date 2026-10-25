@@ -52,7 +52,7 @@ pub use completion::{
     Completer, Completion, Immediate, Incremental, Map, Status, completer, relay, wait,
 };
 pub use executor::{Capabilities, Close, Describe, Executor, Fold, Needs};
-pub use lifecycle::{Lifecycle, Watch, Watched};
+pub use lifecycle::{Lifecycle, LifecycleHandle, SessionBound};
 pub use message::{Batch, ErrorKind, Message, Outcome, ShotId, SubmissionId, Value};
 pub use rejected::{Need, Rejected, RetryClass, Unmet};
 pub use session::{

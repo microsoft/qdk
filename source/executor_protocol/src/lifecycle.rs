@@ -89,25 +89,26 @@ impl Lifecycle {
     /// Records that the call admitted last failed, for an executor that
     /// learns of it before the call returns.
     pub fn fail(&self, reason: &str) {
-        self.watch().fail(reason);
+        self.handle().fail(reason);
     }
 
-    /// A handle on the call admitted last, for its reply: a reply that learns
-    /// of a failure only when polled records it through the handle.
+    /// The handle of the call admitted last on this lifecycle, for its reply:
+    /// a reply that learns of a failure only when polled records it through
+    /// the handle, and learns there of an earlier call's failure.
     #[must_use]
-    pub fn watch(&self) -> Watch {
-        Watch {
+    pub fn handle(&self) -> LifecycleHandle {
+        LifecycleHandle {
             failure: Arc::clone(&self.failure),
             call: self.calls,
         }
     }
 
-    /// `completion`, the reply of the call admitted last, watched: see
-    /// [`Watched`].
-    pub fn watched<C: Completion>(&self, completion: C) -> Watched<C> {
-        Watched {
+    /// Binds `completion`, the reply of the call admitted last, to this
+    /// lifecycle: see [`SessionBound`].
+    pub fn bind<C: Completion>(&self, completion: C) -> SessionBound<C> {
+        SessionBound {
             inner: completion,
-            watch: self.watch(),
+            lifecycle: self.handle(),
         }
     }
 
@@ -123,16 +124,19 @@ impl Lifecycle {
     }
 }
 
-/// A reply's handle on its session's [`Lifecycle`]. The call's number only
-/// orders the session's calls: it counts every admitted call, also those
-/// refused afterwards for their own faults, so it is not a submission id.
+/// A reply's handle on its session's [`Lifecycle`]: the reply's call, by
+/// number, and the session's first failure, shared. Through it a reply
+/// records its own failure and learns of an earlier one. The call's number
+/// only orders the session's calls: it counts every admitted call, also
+/// those refused afterwards for their own faults, so it is not a submission
+/// id.
 #[derive(Clone, Debug)]
-pub struct Watch {
+pub struct LifecycleHandle {
     failure: Arc<FirstFailure>,
     call: u64,
 }
 
-impl Watch {
+impl LifecycleHandle {
     /// Records that this call failed. The earliest failed call is kept: a
     /// driver that polls several replies may see their failures out of
     /// order.
@@ -145,31 +149,34 @@ impl Watch {
     /// polls, so this call may have been admitted before the failure was
     /// known.
     #[must_use]
-    pub fn earlier(&self) -> Option<String> {
+    pub fn earlier_failure(&self) -> Option<String> {
         self.failure
             .before(self.call)
             .map(|reason| format!("an earlier submission failed: {reason}"))
     }
 }
 
-/// A reply that fails its session when it fails, and ends without more
-/// events when an earlier call of its session failed: what a session that
-/// learns of failures only when its replies are polled wraps them in.
-pub struct Watched<C> {
+/// A reply bound to its session's [`Lifecycle`], which keeps a failure final
+/// for the session: the reply fails its session when it fails, and ends
+/// without more events when an earlier call of its session failed. A
+/// session that learns of failures only when its replies are polled
+/// returns its replies bound ([`Lifecycle::bind`]); one that learns of them
+/// before `call` returns needs no binding ([`Lifecycle::fail`]).
+pub struct SessionBound<C> {
     inner: C,
-    watch: Watch,
+    lifecycle: LifecycleHandle,
 }
 
-impl<C: Completion> Completion for Watched<C> {
+impl<C: Completion> Completion for SessionBound<C> {
     type Item = C::Item;
 
     fn poll_events(&mut self, out: &mut Vec<C::Item>, waker: &Waker) -> Status {
-        if let Some(reason) = self.watch.earlier() {
+        if let Some(reason) = self.lifecycle.earlier_failure() {
             return Status::Failed(reason);
         }
         let status = self.inner.poll_events(out, waker);
         if let Status::Failed(reason) = &status {
-            self.watch.fail(reason);
+            self.lifecycle.fail(reason);
         }
         status
     }
