@@ -60,7 +60,7 @@ use num_complex::Complex64;
 use resources::SessionResources;
 use state::MpsExecution;
 use std::{cell::RefCell, ffi::c_void, ptr::NonNull, rc::Rc, sync::Arc};
-use tensornet::{Mps, MpsEngine, PauliSum, SampleSeed};
+use tensornet::{MpsEngine, MpsShape, PauliSum, SampleSeed};
 
 pub(crate) type OpaqueHandle = NonNull<c_void>;
 pub(crate) type Stream = NonNull<c_void>;
@@ -197,7 +197,7 @@ impl MpsEngine for CuTensorNetEngine {
 
     /// Creates the |0…0⟩ state of `capacity`'s sites, which must be at
     /// least two qubits; nothing is computed until a read.
-    fn prepare(&self, capacity: &Mps) -> Result<CuTensorNetState, EngineError> {
+    fn prepare(&self, capacity: &MpsShape) -> Result<CuTensorNetState, EngineError> {
         self.session.resources.bind_device()?;
         Ok(CuTensorNetState {
             execution: RefCell::new(MpsExecution::new(&self.session, capacity)?),
@@ -272,7 +272,7 @@ impl MpsEngine for CuTensorNetEngine {
         self.execution(state)?.expectation(observable)
     }
 
-    fn shape(&self, state: &CuTensorNetState) -> Result<Mps, EngineError> {
+    fn shape(&self, state: &CuTensorNetState) -> Result<MpsShape, EngineError> {
         self.execution(state)?.shape()
     }
 }

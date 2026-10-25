@@ -1,18 +1,26 @@
-//! [`Mps`]: a matrix product state described by the extents of its sites.
+//! [`MpsShape`]: the shape of a matrix product state, the extents of its
+//! sites.
 //!
 //! It validates the chain's shape (ranks, bonds that agree, no outer bonds)
 //! and compares shapes with `fits_within`; it holds no tensor elements and no
 //! strides, and it does not build or truncate a chain (a method does that).
 
-use crate::MpsError;
+use crate::MpsShapeError;
 
-/// A matrix product state: a chain of site tensors, described by shape alone.
+/// The shape of a matrix product state: a chain of site tensors, described
+/// by the extents of its sites alone.
+///
+/// It is named a shape, not a state, because it holds no amplitudes: a
+/// state lives in an engine ([`MpsEngine::State`](crate::MpsEngine::State)),
+/// and this type says how large it may grow (a capacity, given to
+/// [`MpsEngine::prepare`](crate::MpsEngine::prepare)) or how large it grew
+/// (read back with [`MpsEngine::shape`](crate::MpsEngine::shape)).
 ///
 /// A general tensor network can express the chain's topology, but not what
 /// makes it a matrix product state: that the sites form a line, that each
 /// neighbouring pair agrees on the bond they share, and that the two ends
 /// carry no outer bond. Those are invariants, and a general network has
-/// nowhere to put them; this type holds them. In the other direction an `Mps`
+/// nowhere to put them; this type holds them. In the other direction a chain
 /// cannot express an arbitrary topology, so a general network, when one is
 /// described, is a peer of this type rather than its supertype.
 ///
@@ -20,7 +28,7 @@ use crate::MpsError;
 ///
 /// A site here is a list of *extents*, and that is deliberately all. Strides
 /// — the offsets used to walk a tensor laid out in a flat buffer — are a
-/// property of a particular buffer, not of the state. An `Mps` carries no
+/// property of a particular buffer, not of the state. An `MpsShape` carries no
 /// tensor elements, so it has no buffer, and a layout without a buffer to lay
 /// out is meaningless. Strides therefore travel with the data they describe,
 /// in whatever code owns that data.
@@ -33,16 +41,16 @@ use crate::MpsError;
 ///
 /// # Roles
 ///
-/// The same type describes both a capacity a caller asks for and a shape a
-/// backend produced. They are different values, not different types: after
+/// A capacity a caller asks for and the shape a backend produced are both
+/// shapes. They are different values, not different types: after
 /// truncation the realized shape is bounded by the requested one, which is
-/// exactly what [`Mps::fits_within`] checks.
+/// exactly what [`MpsShape::fits_within`] checks.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Mps {
+pub struct MpsShape {
     sites: Vec<Vec<usize>>,
 }
 
-impl Mps {
+impl MpsShape {
     /// Describes a chain from the extents of each site, in chain order.
     ///
     /// The outer vector contains one inner vector per site. A site's extents
@@ -60,9 +68,9 @@ impl Mps {
     /// Nothing here is specific to qubits. A physical extent is just a number,
     /// so a chain of qutrits or of fermionic modes is describable without
     /// change; a caller that requires two-level sites checks for that itself.
-    pub fn new(sites: Vec<Vec<usize>>) -> Result<Self, MpsError> {
+    pub fn new(sites: Vec<Vec<usize>>) -> Result<Self, MpsShapeError> {
         if sites.is_empty() {
-            return Err(MpsError::Empty);
+            return Err(MpsShapeError::Empty);
         }
         let last = sites.len() - 1;
         for (site, extents) in sites.iter().enumerate() {
@@ -74,20 +82,20 @@ impl Mps {
                 3
             };
             if extents.len() != expected_rank {
-                return Err(MpsError::Rank {
+                return Err(MpsShapeError::Rank {
                     site,
                     expected: expected_rank,
                     actual: extents.len(),
                 });
             }
             if extents.contains(&0) {
-                return Err(MpsError::ZeroExtent { site });
+                return Err(MpsShapeError::ZeroExtent { site });
             }
             // Verify that the site's tensor element count fits in `usize`.
             extents
                 .iter()
                 .try_fold(1_usize, |elements, extent| elements.checked_mul(*extent))
-                .ok_or(MpsError::ElementCountOverflow { site })?;
+                .ok_or(MpsShapeError::ElementCountOverflow { site })?;
         }
         for cut in 0..last {
             // The right-hand extent of one site and the left-hand extent of
@@ -95,7 +103,7 @@ impl Mps {
             let left = sites[cut][sites[cut].len() - 1];
             let right = sites[cut + 1][0];
             if left != right {
-                return Err(MpsError::BondMismatch { cut, left, right });
+                return Err(MpsShapeError::BondMismatch { cut, left, right });
             }
         }
         Ok(Self { sites })
@@ -187,8 +195,8 @@ impl Mps {
 
 #[cfg(test)]
 mod tests {
-    use super::Mps;
-    use crate::MpsError;
+    use super::MpsShape;
+    use crate::MpsShapeError;
 
     fn chain(qubit_count: usize, bond: usize) -> Vec<Vec<usize>> {
         (0..qubit_count)
@@ -206,56 +214,56 @@ mod tests {
 
     #[test]
     fn describes_a_three_site_chain() {
-        let mps = Mps::new(chain(3, 4)).expect("chain should be valid");
+        let shape = MpsShape::new(chain(3, 4)).expect("chain should be valid");
 
-        assert_eq!(mps.site_count(), 3);
-        assert_eq!(mps.site(1), Some([4, 2, 4].as_slice()));
-        assert_eq!(mps.site(3), None);
-        assert_eq!(mps.physical_dim(0), Some(2));
-        assert_eq!(mps.physical_dim(1), Some(2));
-        assert_eq!(mps.physical_dim(2), Some(2));
-        assert_eq!(mps.bond_dim(0), Some(4));
-        assert_eq!(mps.bond_dim(2), None);
-        assert_eq!(mps.max_bond(), 4);
-        assert_eq!(mps.element_counts(), vec![8, 32, 8]);
+        assert_eq!(shape.site_count(), 3);
+        assert_eq!(shape.site(1), Some([4, 2, 4].as_slice()));
+        assert_eq!(shape.site(3), None);
+        assert_eq!(shape.physical_dim(0), Some(2));
+        assert_eq!(shape.physical_dim(1), Some(2));
+        assert_eq!(shape.physical_dim(2), Some(2));
+        assert_eq!(shape.bond_dim(0), Some(4));
+        assert_eq!(shape.bond_dim(2), None);
+        assert_eq!(shape.max_bond(), 4);
+        assert_eq!(shape.element_counts(), vec![8, 32, 8]);
     }
 
     #[test]
     fn accepts_a_lone_site() {
-        let mps = Mps::new(vec![vec![2]]).expect("a single site should be valid");
+        let shape = MpsShape::new(vec![vec![2]]).expect("a single site should be valid");
 
-        assert_eq!(mps.site_count(), 1);
-        assert_eq!(mps.physical_dim(0), Some(2));
-        assert_eq!(mps.bond_dim(0), None);
-        assert_eq!(mps.max_bond(), 1);
+        assert_eq!(shape.site_count(), 1);
+        assert_eq!(shape.physical_dim(0), Some(2));
+        assert_eq!(shape.bond_dim(0), None);
+        assert_eq!(shape.max_bond(), 1);
     }
 
     #[test]
     fn accepts_sites_that_are_not_qubits() {
-        let mps = Mps::new(vec![vec![3, 2], vec![2, 5]]).expect("chain should be valid");
+        let shape = MpsShape::new(vec![vec![3, 2], vec![2, 5]]).expect("chain should be valid");
 
-        assert_eq!(mps.physical_dim(0), Some(3));
-        assert_eq!(mps.physical_dim(1), Some(5));
+        assert_eq!(shape.physical_dim(0), Some(3));
+        assert_eq!(shape.physical_dim(1), Some(5));
     }
 
     #[test]
     fn reports_the_largest_bond() {
-        let mps =
-            Mps::new(vec![vec![2, 2], vec![2, 2, 7], vec![7, 2]]).expect("chain should be valid");
+        let shape = MpsShape::new(vec![vec![2, 2], vec![2, 2, 7], vec![7, 2]])
+            .expect("chain should be valid");
 
-        assert_eq!(mps.max_bond(), 7);
+        assert_eq!(shape.max_bond(), 7);
     }
 
     #[test]
     fn rejects_an_empty_chain() {
-        assert_eq!(Mps::new(Vec::new()), Err(MpsError::Empty));
+        assert_eq!(MpsShape::new(Vec::new()), Err(MpsShapeError::Empty));
     }
 
     #[test]
     fn rejects_a_site_of_the_wrong_rank() {
         assert_eq!(
-            Mps::new(vec![vec![2, 2, 2], vec![2, 2]]),
-            Err(MpsError::Rank {
+            MpsShape::new(vec![vec![2, 2, 2], vec![2, 2]]),
+            Err(MpsShapeError::Rank {
                 site: 0,
                 expected: 2,
                 actual: 3
@@ -266,16 +274,16 @@ mod tests {
     #[test]
     fn rejects_a_zero_extent() {
         assert_eq!(
-            Mps::new(vec![vec![2, 0], vec![0, 2]]),
-            Err(MpsError::ZeroExtent { site: 0 })
+            MpsShape::new(vec![vec![2, 0], vec![0, 2]]),
+            Err(MpsShapeError::ZeroExtent { site: 0 })
         );
     }
 
     #[test]
     fn rejects_neighbours_that_disagree_about_their_bond() {
         assert_eq!(
-            Mps::new(vec![vec![2, 4], vec![5, 2]]),
-            Err(MpsError::BondMismatch {
+            MpsShape::new(vec![vec![2, 4], vec![5, 2]]),
+            Err(MpsShapeError::BondMismatch {
                 cut: 0,
                 left: 4,
                 right: 5
@@ -286,15 +294,15 @@ mod tests {
     #[test]
     fn rejects_a_site_too_large_to_count() {
         assert_eq!(
-            Mps::new(vec![vec![2, usize::MAX], vec![usize::MAX, 2]]),
-            Err(MpsError::ElementCountOverflow { site: 0 })
+            MpsShape::new(vec![vec![2, usize::MAX], vec![usize::MAX, 2]]),
+            Err(MpsShapeError::ElementCountOverflow { site: 0 })
         );
     }
 
     #[test]
     fn a_truncated_chain_fits_the_capacity_it_was_asked_for() {
-        let capacity = Mps::new(chain(3, 8)).expect("chain should be valid");
-        let realized = Mps::new(chain(3, 3)).expect("chain should be valid");
+        let capacity = MpsShape::new(chain(3, 8)).expect("chain should be valid");
+        let realized = MpsShape::new(chain(3, 3)).expect("chain should be valid");
 
         assert!(realized.fits_within(&capacity));
         assert!(capacity.fits_within(&capacity));
@@ -303,10 +311,10 @@ mod tests {
 
     #[test]
     fn a_chain_of_a_different_shape_does_not_fit() {
-        let capacity = Mps::new(chain(3, 8)).expect("chain should be valid");
+        let capacity = MpsShape::new(chain(3, 8)).expect("chain should be valid");
 
         assert!(
-            !Mps::new(chain(2, 4))
+            !MpsShape::new(chain(2, 4))
                 .expect("chain should be valid")
                 .fits_within(&capacity)
         );

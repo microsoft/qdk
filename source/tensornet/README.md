@@ -4,20 +4,20 @@ A backend-agnostic description of tensor networks, by shape alone.
 
 ## What this crate does
 
-It describes one family of tensor network today: the matrix product state
-(MPS), a chain of site tensors, given by the extents (axis lengths) of each
-site. `Mps::new` checks that the extents form a chain, and the accessors answer
+It describes one family of tensor network today: the matrix product state (MPS),
+a chain of site tensors, given by the extents (axis lengths) of each site.
+`MpsShape::new` checks that the extents form a chain, and the accessors answer
 the questions callers ask of a chain's shape: its bond dimensions, its largest
 bond, how many elements each site holds, and whether one chain fits inside
 another.
 
-`Mps` does **not** hold tensor elements, strides or device memory. Because the
-description carries no data, the same `Mps` can be handed to a GPU library, to
-a CPU library, or to a reference implementation written purely for a test.
+`MpsShape` does **not** hold tensor elements, strides or device memory. Because
+the description carries no data, the same shape can be handed to a GPU library,
+to a CPU library, or to a reference implementation written purely for a test.
 
 The crate also states what a backend that runs a chain does, as the trait
-`MpsEngine`: prepare a chain within a capacity (an `Mps`), apply a unitary to
-sites, read the probability of a one at a site (also given earlier values),
+`MpsEngine`: prepare a chain within a capacity (an `MpsShape`), apply a unitary
+to sites, read the probability of a one at a site (also given earlier values),
 project, fork, sample sites for many shots from one seed, take the expectation
 of a Pauli sum, and report the chain as realized. It speaks tensors only: no
 shots, RNG objects or instructions, so a caller that runs shots draws its own
@@ -32,17 +32,17 @@ it, and tests run on it where there is no GPU.
 
 ## Lifecycle at a glance
 
-A method that runs an MPS on a backend uses `Mps` twice per state, once before
-and once after the backend does its work:
+A method that runs an MPS on a backend uses `MpsShape` twice per state, once
+before and once after the backend does its work:
 
 ```text
-method                       tensornet                         backend
-requested extents ──► Mps::new ─► target  ──► element_counts() ──► allocates site buffers
-                                                                    applies gates, truncates
-reported extents  ◄──────────────────────────────────────────────── writes back the extents it used
+method                       tensornet                              backend
+requested extents ──► MpsShape::new ─► target  ──► element_counts() ──► allocates site buffers
+                                                                         applies gates, truncates
+reported extents  ◄───────────────────────────────────────────────────── writes back the extents it used
       │
-      └─────────► Mps::new ─► realized ──► realized.fits_within(&target)   the backend kept its bound
-                                       └─► realized.max_bond()            the bond reached, for Cost
+      └─────────► MpsShape::new ─► realized ──► realized.fits_within(&target)   the backend kept its bound
+                                            └─► realized.max_bond()            the bond reached, for Cost
 ```
 
 - **Before:** the target is the capacity the method asks for. Its element
@@ -55,8 +55,8 @@ reported extents  ◄───────────────────�
 
 | File                 | Defines                                                                                    |
 | -------------------- | ------------------------------------------------------------------------------------------ |
-| `src/mps.rs`         | `Mps`: the chain's shape, its validation and its accessors                                 |
-| `src/error.rs`       | `MpsError`: why a list of extents is not a chain, raised by `Mps::new`                     |
+| `src/mps.rs`         | `MpsShape`: the chain's shape, its validation and its accessors                            |
+| `src/error.rs`       | `MpsShapeError`: why a list of extents is not a chain, raised by `MpsShape::new`           |
 | `src/engine.rs`      | `MpsEngine`: what a backend that runs a chain does; `SampleSeed`                           |
 | `src/pauli.rs`       | `Pauli`, `PauliTerm`, `PauliSum`: the observables of `MpsEngine::expectation`              |
 | `src/reference.rs`   | `ExactReference`: the dense oracle every engine is checked against                         |
@@ -88,11 +88,12 @@ Site $k$ holds $\chi_{k-1}\,p_k\,\chi_k$ elements (an absent bond counts as 1),
 which is what `element_counts` returns; `bond_dim(k)` is $\chi_k$, and
 `max_bond` is $\max_k \chi_k$, or 1 for a lone site, which has no bond.
 
-`Mps::new` rejects anything that is not a chain, each with its own `MpsError`
-variant: no sites, a rank that does not match the site's position, an extent
-of zero, neighbours that disagree about the bond they share, or a site whose
-element count does not fit a machine word. Rejecting the last one up front is
-what lets every later element count be answered without overflow.
+`MpsShape::new` rejects anything that is not a chain, each with its own
+`MpsShapeError` variant: no sites, a rank that does not match the site's
+position, an extent of zero, neighbours that disagree about the bond they share,
+or a site whose element count does not fit a machine word. Rejecting the last
+one up front is what lets every later element count be answered without
+overflow.
 
 Nothing here is specific to qubits. A physical extent is just a number, so a
 chain of qutrits is describable without change; a caller that requires
@@ -100,13 +101,13 @@ two-level sites checks `physical_dim(site) == Some(2)` itself.
 
 ## Why a chain is a description of its own
 
-A general tensor network can express a chain's topology (a line of nodes
-sharing one index each) but not the invariants that make it a matrix product
-state: that the sites form a line at all, that neighbours agree on the bond
-between them, and that the two ends carry no outer bond. A general network has
-nowhere to put those; `Mps` holds them. In the other direction a chain cannot
-express an arbitrary topology, so if a general network is described here, it
-is a peer of `Mps` rather than its supertype, and neither loses its invariants.
+A general tensor network can express a chain's topology (a line of nodes sharing
+one index each) but not the invariants that make it a matrix product state: that
+the sites form a line at all, that neighbours agree on the bond between them,
+and that the two ends carry no outer bond. A general network has nowhere to put
+those; `MpsShape` holds them. In the other direction a chain cannot express an
+arbitrary topology, so if a general network is described here, it is a peer of
+`MpsShape` rather than its supertype, and neither loses its invariants.
 
 The _sweep_ that builds a chain is a strategy and stays with the method that
 performs it. The _chain_ is a shape, and it is the shape callers reason about:
@@ -115,10 +116,10 @@ asked for.
 
 ## Extents, but never strides
 
-A site is a list of extents, and deliberately nothing else. Strides (the
-offsets used to walk a tensor laid out in a flat buffer) are a property of a
-buffer, not of a state. `Mps` carries no elements, so it has no buffer, and a
-layout with nothing to lay out is meaningless.
+A site is a list of extents, and deliberately nothing else. Strides (the offsets
+used to walk a tensor laid out in a flat buffer) are a property of a buffer, not
+of a state. `MpsShape` carries no elements, so it has no buffer, and a layout
+with nothing to lay out is meaningless.
 
 This matters in practice. A backend that truncates writes a tensor smaller than
 the allocation it was handed, and reports the strides it actually used; those
@@ -134,10 +135,10 @@ the same numbers.
   contraction queries or plans. No simulation method in the QDK contracts a
   general network yet; the types arrive with the first one that does.
 
-- **A shared algorithm.** `Mps` is a struct, and `MpsEngine` states what an
-  engine answers, not how it builds or truncates a chain: backends differ too
-  widely there for a shared implementation to be discovered rather than
-  invented. The trait came with the first engine, shaped by the calls
+- **A shared algorithm.** `MpsShape` is a description, and `MpsEngine` states
+  what an engine answers, not how it builds or truncates a chain: backends
+  differ too widely there for a shared implementation to be discovered rather
+  than invented. The trait came with the first engine, shaped by the calls
   cuTensorNet makes, and is checked against `ExactReference`.
 
 - **Truncation settings.** Libraries express approximation in incompatible

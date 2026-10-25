@@ -33,7 +33,7 @@
 //! nothing in a build that does not test an engine.
 
 use crate::{
-    Mps, MpsEngine, Pauli, PauliSum, PauliTerm, SampleSeed,
+    MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm, SampleSeed,
     reference::{ExactReference, ReferenceState},
 };
 use num_complex::Complex64;
@@ -94,8 +94,8 @@ pub fn check<E: MpsEngine>(engine: &E) -> Vec<Failure> {
 /// # Errors
 ///
 /// None for `sites` from 1 to 62; a larger chain overflows its element
-/// counts, which [`Mps::new`] reports.
-pub fn exact_capacity(sites: usize) -> Result<Mps, crate::MpsError> {
+/// counts, which [`MpsShape::new`] reports.
+pub fn exact_capacity(sites: usize) -> Result<MpsShape, crate::MpsShapeError> {
     let bond = |cut: usize| {
         let smaller = (cut + 1).min(sites - cut - 1);
         1usize.checked_shl(u32::try_from(smaller).unwrap_or(u32::MAX))
@@ -107,7 +107,7 @@ pub fn exact_capacity(sites: usize) -> Result<Mps, crate::MpsError> {
             left.into_iter().chain([2]).chain(right).collect()
         })
         .collect();
-    Mps::new(chain)
+    MpsShape::new(chain)
 }
 
 fn c(re: f64, im: f64) -> Complex64 {

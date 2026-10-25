@@ -1,13 +1,13 @@
 //! A backend-agnostic description of tensor networks, by shape alone.
 //!
-//! Today it describes one family: an [`Mps`] is a chain of site tensors (a
-//! matrix product state), given by the extents of its sites. Nothing here
-//! knows how a chain is built, truncated or contracted, and nothing here holds
-//! tensor elements, so the same description can be handed to a GPU library,
-//! to a CPU library, or to a reference implementation written purely for a
-//! test. A method describes its state with it, and a caller compares a
-//! requested capacity with the shape a backend produced, without touching
-//! the data.
+//! Today it describes one family: an [`MpsShape`] is the shape of a chain
+//! of site tensors (a matrix product state), the extents of its sites.
+//! Nothing here knows how a chain is built, truncated or contracted, and
+//! nothing here holds tensor elements, so the same description can be
+//! handed to a GPU library, to a CPU library, or to a reference
+//! implementation written purely for a test. A method describes its state
+//! with it, and a caller compares a requested capacity with the shape a
+//! backend produced, without touching the data.
 //!
 //! Beside the shape, it states what a library that holds matrix product
 //! states does for a simulator ([`MpsEngine`]), with the observable it reads
@@ -29,6 +29,6 @@ mod pauli;
 pub mod reference;
 
 pub use engine::{MpsEngine, SampleSeed, SeedOutOfRange};
-pub use error::MpsError;
-pub use mps::Mps;
+pub use error::MpsShapeError;
+pub use mps::MpsShape;
 pub use pauli::{Pauli, PauliError, PauliSum, PauliTerm};

@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! create_state ─ apply* ─┬─ finalize_mps + configure (first compute only)
-//!                        └─ prepare_state ─ compute_state ─► realized Mps
+//!                        └─ prepare_state ─ compute_state ─► realized MpsShape
 //!                              │
 //!         ┌────────────────────┼─────────────────────┐
 //!   expectation query    sampler on the state   projection: apply a scaled
@@ -44,7 +44,7 @@ use super::{
 };
 use num_complex::Complex64;
 use std::{collections::BTreeMap, mem::size_of, rc::Rc};
-use tensornet::{Mps, PauliSum, SampleSeed};
+use tensornet::{MpsShape, PauliSum, SampleSeed};
 
 /// Hyper-samples of each expectation's contraction path search, ④'s B2
 /// value.
@@ -104,14 +104,14 @@ pub(super) struct MpsExecution {
     finalized: bool,
     /// The chain of the last compute, while no operator has been applied
     /// since.
-    realized: Option<Mps>,
+    realized: Option<MpsShape>,
     poisoned: Option<String>,
     closed: bool,
 }
 
 impl MpsExecution {
     /// Creates the |0…0⟩ state of `capacity`'s qubits.
-    pub(super) fn new(session: &Rc<Session>, capacity: &Mps) -> Result<Self, EngineError> {
+    pub(super) fn new(session: &Rc<Session>, capacity: &MpsShape) -> Result<Self, EngineError> {
         let target = MpsTarget::from_capacity(capacity)?;
         let state_extents = vec![2; target.shape().site_count()].into_boxed_slice();
         let handle = session.resources.handle();
@@ -344,7 +344,7 @@ impl MpsExecution {
         Ok(observable.identity() + normalize_expectation(value, squared_norm)?)
     }
 
-    pub(super) fn shape(&mut self) -> Result<Mps, EngineError> {
+    pub(super) fn shape(&mut self) -> Result<MpsShape, EngineError> {
         self.check_live()?;
         self.ensure_computed()
     }
@@ -427,7 +427,7 @@ impl MpsExecution {
 
     /// The chain of the computed state, computing it first if an operator
     /// was applied since the last compute.
-    fn ensure_computed(&mut self) -> Result<Mps, EngineError> {
+    fn ensure_computed(&mut self) -> Result<MpsShape, EngineError> {
         if let Some(realized) = &self.realized {
             return Ok(realized.clone());
         }
@@ -478,7 +478,7 @@ impl MpsExecution {
 
     /// Computes the state into new output buffers and returns the chain the
     /// library realized, checked against the target.
-    fn materialize(&mut self) -> Result<Mps, EngineError> {
+    fn materialize(&mut self) -> Result<MpsShape, EngineError> {
         let session = Rc::clone(&self.session);
         let (api, handle, stream) = (
             session.resources.api(),
@@ -521,11 +521,12 @@ impl MpsExecution {
         api.synchronize_stream(stream)?;
         // The library reports the shape it produced and, separately, the
         // strides it used to write it. Only the shape is part of the state.
-        let realized = Mps::new(convert_layout("extent", &metadata.extents)?).map_err(|error| {
-            EngineError::InvalidNativeResult {
-                reason: format!("realized MPS is not a valid chain: {error}"),
-            }
-        })?;
+        let realized =
+            MpsShape::new(convert_layout("extent", &metadata.extents)?).map_err(|error| {
+                EngineError::InvalidNativeResult {
+                    reason: format!("realized MPS is not a valid chain: {error}"),
+                }
+            })?;
         validate_realized_chain(&realized, self.target.shape())?;
         // The state now refers to the new buffers, and the stream has
         // finished with the old ones.

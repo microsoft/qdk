@@ -4,24 +4,24 @@
 //! [`MpsExecutionApi`] is the injection seam: `library::engine` implements
 //! it with cuTensorNet, and host tests with the test double in
 //! `engine::test_double`. [`MpsTarget`] turns a state's capacity, a
-//! `tensornet::Mps`, into the extents `cutensornetStateFinalizeMPS` reads.
+//! `tensornet::MpsShape`, into the extents `cutensornetStateFinalizeMPS` reads.
 //! Both are ④'s (`library/simulation/mps_execution.rs` in M0), moved; the
 //! target is now built from a capacity rather than from a qubit count and a
 //! bond cap, and the test-only full-state capture is left out.
 
 use super::{EngineError, OpaqueHandle, Stream};
 use num_complex::Complex64;
-use tensornet::{Mps, MpsError};
+use tensornet::{MpsShape, MpsShapeError};
 
 /// The MPS shape a state asks the library to produce, and the FFI
 /// scaffolding that shape needs.
 ///
-/// The shape itself is a [`Mps`]: extents only, since a target describes a
+/// The shape itself is a [`MpsShape`]: extents only, since a target describes a
 /// capacity rather than a buffer and so has no layout. The `i64` copy and the
 /// pointers into it exist purely because the library takes extents as an array
 /// of pointers, and they must outlive the call that reads them.
 pub(crate) struct MpsTarget {
-    shape: Mps,
+    shape: MpsShape,
     extents: Vec<Box<[i64]>>,
     extent_pointers: Box<[*const i64]>,
 }
@@ -30,12 +30,12 @@ impl MpsTarget {
     /// The target of a state of `capacity`'s qubits, with each bond the
     /// capacity's, lowered to the largest bond the cut can carry
     /// (`min(2^left, 2^right)`), as ④ asked for.
-    pub(super) fn from_capacity(capacity: &Mps) -> Result<Self, EngineError> {
+    pub(super) fn from_capacity(capacity: &MpsShape) -> Result<Self, EngineError> {
         let qubit_count = capacity.site_count();
         // cuTensorNet requires at least two sites for MPS finalization
         // (bindings/v2_13.rs:338). This engine implements only MPS and has
         // one unconditional finalize_mps call, so it cannot represent one
-        // site. `Mps` itself accepts a lone site: the limit is this
+        // site. `MpsShape` itself accepts a lone site: the limit is this
         // engine's, not the abstraction's.
         if qubit_count < 2 {
             return Err(EngineError::InvalidRequest {
@@ -71,11 +71,11 @@ impl MpsTarget {
             };
             extents.push(shape.into_boxed_slice());
         }
-        let shape = Mps::new(convert_layout("target extent", &extents)?).map_err(|error| {
+        let shape = MpsShape::new(convert_layout("target extent", &extents)?).map_err(|error| {
             match error {
                 // A bond cap large enough to overflow is a resource limit,
                 // not a malformed request.
-                MpsError::ElementCountOverflow { .. } => EngineError::ResourceSizeOverflow {
+                MpsShapeError::ElementCountOverflow { .. } => EngineError::ResourceSizeOverflow {
                     resource: "MPS output",
                 },
                 other => EngineError::InvalidRequest {
@@ -96,7 +96,7 @@ impl MpsTarget {
     }
 
     /// The chain this target asks for.
-    pub(crate) fn shape(&self) -> &Mps {
+    pub(crate) fn shape(&self) -> &MpsShape {
         &self.shape
     }
 
@@ -300,12 +300,15 @@ pub(super) fn convert_layout(
 
 /// Checks a realized chain against the shape this engine asked for.
 ///
-/// `Mps` has already established that the chain is well formed, so what is
+/// `MpsShape` has already established that the chain is well formed, so what is
 /// left are two demands this engine makes on its own behalf. The library must
 /// not have exceeded the capacity it was given, and every site must be a
 /// qubit, because the engine's sites are qubits. Neither belongs to matrix
 /// product states in general.
-pub(super) fn validate_realized_chain(realized: &Mps, target: &Mps) -> Result<(), EngineError> {
+pub(super) fn validate_realized_chain(
+    realized: &MpsShape,
+    target: &MpsShape,
+) -> Result<(), EngineError> {
     if !realized.fits_within(target) {
         return Err(invalid_native_extents(
             "realized extent exceeds target capacity",

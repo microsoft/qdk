@@ -24,7 +24,7 @@
 //! so a state whose exact chain outgrows its capacity is reported by
 //! [`shape`](MpsEngine::shape), for the caller to check.
 
-use crate::{Mps, MpsEngine, MpsError, Pauli, PauliSum, SampleSeed};
+use crate::{MpsEngine, MpsShape, MpsShapeError, Pauli, PauliSum, SampleSeed};
 use num_complex::Complex64;
 use std::collections::BTreeMap;
 
@@ -74,10 +74,10 @@ pub enum ReferenceError {
     /// A condition that has probability zero, so no conditional exists.
     #[error("the condition has probability zero")]
     ZeroProbabilityCondition,
-    /// The exact chain is not an [`Mps`]; unreachable for a state of at
+    /// The exact chain is not an [`MpsShape`]; unreachable for a state of at
     /// least one site, kept so that no path panics.
     #[error(transparent)]
-    Shape(#[from] MpsError),
+    Shape(#[from] MpsShapeError),
 }
 
 /// How far past 1 a probability may be: a sum of 2ⁿ squares of a
@@ -265,7 +265,7 @@ impl MpsEngine for ExactReference {
     type State = ReferenceState;
     type Error = ReferenceError;
 
-    fn prepare(&self, capacity: &Mps) -> Result<ReferenceState, ReferenceError> {
+    fn prepare(&self, capacity: &MpsShape) -> Result<ReferenceState, ReferenceError> {
         let sites = capacity.site_count();
         if sites > Self::MAX_SITES {
             return Err(ReferenceError::TooManySites {
@@ -474,7 +474,7 @@ impl MpsEngine for ExactReference {
             })
     }
 
-    fn shape(&self, state: &ReferenceState) -> Result<Mps, ReferenceError> {
+    fn shape(&self, state: &ReferenceState) -> Result<MpsShape, ReferenceError> {
         let n = state.sites;
         let bonds: Vec<usize> = (0..n.saturating_sub(1))
             .map(|cut| state.schmidt_rank(cut))
@@ -486,7 +486,7 @@ impl MpsEngine for ExactReference {
                 left.into_iter().chain([2]).chain(right).collect()
             })
             .collect();
-        Ok(Mps::new(sites)?)
+        Ok(MpsShape::new(sites)?)
     }
 }
 

@@ -19,7 +19,7 @@ fn cx() -> Vec<Complex64> {
     vec![l, o, o, o, o, l, o, o, o, o, o, l, o, o, l, o]
 }
 
-fn chain(sites: usize, bond: usize) -> Mps {
+fn chain(sites: usize, bond: usize) -> MpsShape {
     let sites = (0..sites)
         .map(|s| match (s, sites) {
             (_, 1) => vec![2],
@@ -28,7 +28,7 @@ fn chain(sites: usize, bond: usize) -> Mps {
             _ => vec![bond, 2, bond],
         })
         .collect();
-    Mps::new(sites).unwrap_or_else(|e| panic!("{e}"))
+    MpsShape::new(sites).unwrap_or_else(|e| panic!("{e}"))
 }
 
 fn bell(engine: ExactReference, sites: usize) -> ReferenceState {
@@ -178,7 +178,7 @@ fn what_the_reference_refuses() {
             max: 20
         })
     );
-    let qutrit = Mps::new(vec![vec![2, 1], vec![1, 3]]).unwrap_or_else(|e| panic!("{e}"));
+    let qutrit = MpsShape::new(vec![vec![2, 1], vec![1, 3]]).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(
         engine.prepare(&qutrit).err(),
         Some(ReferenceError::NotQubit { site: 1, extent: 3 })

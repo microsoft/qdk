@@ -1,14 +1,15 @@
-//! [`MpsError`]: why a list of site extents is not a matrix product state.
+//! [`MpsShapeError`]: why a list of site extents is not the shape of a
+//! matrix product state.
 //!
 //! Every error is raised while describing, before any backend is involved, so
 //! its message carries no vendor vocabulary.
 
-/// A chain that is not a matrix product state.
+/// Why a list of site extents is not the shape of a matrix product state.
 ///
 /// Every variant describes a shape that contradicts the chain structure
 /// itself, so none of them mention a backend, a buffer or a memory layout.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum MpsError {
+pub enum MpsShapeError {
     /// A chain with no sites. A matrix product state factorizes something, and
     /// there is nothing to factorize here.
     #[error("a matrix product state needs at least one site")]

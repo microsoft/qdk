@@ -44,7 +44,7 @@ impl MpsEngine for Defective {
     type State = ReferenceState;
     type Error = ReferenceError;
 
-    fn prepare(&self, capacity: &Mps) -> Result<ReferenceState, ReferenceError> {
+    fn prepare(&self, capacity: &MpsShape) -> Result<ReferenceState, ReferenceError> {
         REFERENCE.prepare(capacity)
     }
 
@@ -118,7 +118,7 @@ impl MpsEngine for Defective {
         REFERENCE.expectation(state, observable)
     }
 
-    fn shape(&self, state: &ReferenceState) -> Result<Mps, ReferenceError> {
+    fn shape(&self, state: &ReferenceState) -> Result<MpsShape, ReferenceError> {
         REFERENCE.shape(state)
     }
 }

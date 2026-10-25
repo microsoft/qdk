@@ -39,7 +39,7 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 use tensornet::{
-    Mps, MpsEngine, SampleSeed,
+    MpsEngine, MpsShape, SampleSeed,
     reference::{ExactReference, ReferenceState},
 };
 
@@ -891,7 +891,7 @@ impl SamplerApi for NativeDouble {
 }
 
 /// The capacity of `sites` qubits with every bond `bond`.
-pub(super) fn uniform_capacity(sites: usize, bond: usize) -> Mps {
+pub(super) fn uniform_capacity(sites: usize, bond: usize) -> MpsShape {
     let shape = (0..sites)
         .map(|site| match site {
             0 => vec![2, bond],
@@ -899,5 +899,5 @@ pub(super) fn uniform_capacity(sites: usize, bond: usize) -> Mps {
             _ => vec![bond, 2, bond],
         })
         .collect();
-    Mps::new(shape).unwrap_or_else(|error| panic!("a valid capacity: {error}"))
+    MpsShape::new(shape).unwrap_or_else(|error| panic!("a valid capacity: {error}"))
 }

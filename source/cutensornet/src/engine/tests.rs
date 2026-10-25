@@ -11,7 +11,7 @@ use super::{
 };
 use num_complex::Complex64;
 use std::sync::Arc;
-use tensornet::{Mps, MpsEngine, Pauli, PauliSum, PauliTerm, SampleSeed, conformance};
+use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm, SampleSeed, conformance};
 
 fn engine() -> (CuTensorNetEngine, Arc<NativeDouble>) {
     let native = Arc::new(NativeDouble::new());
@@ -85,9 +85,9 @@ fn operators_beyond_two_sites_and_one_site_capacities_are_refused() {
     )));
     let nan = vec![c(f64::NAN); 4];
     assert!(is_invalid_request(&engine.apply(&mut state, &[0], &nan)));
-    let lone = Mps::new(vec![vec![2]]).unwrap_or_else(|e| panic!("{e}"));
+    let lone = MpsShape::new(vec![vec![2]]).unwrap_or_else(|e| panic!("{e}"));
     assert!(is_invalid_request(&engine.prepare(&lone)));
-    let qutrits = Mps::new(vec![vec![3, 1], vec![1, 3]]).unwrap_or_else(|e| panic!("{e}"));
+    let qutrits = MpsShape::new(vec![vec![3, 1], vec![1, 3]]).unwrap_or_else(|e| panic!("{e}"));
     assert!(is_invalid_request(&engine.prepare(&qutrits)));
     // The refusals left the state usable.
     ok(engine.apply(&mut state, &[0], &hadamard()));

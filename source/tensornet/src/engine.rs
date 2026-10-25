@@ -19,13 +19,13 @@
 //! a group of shots splits ───────────────► fork(state)
 //! terminal measurements, N shots, seed ──► sample(state, sites, N, seed)
 //! state query ⟨O⟩ ───────────────────────► expectation(state, O)
-//! cost, capacity check ──────────────────► shape(state) ─► Mps
+//! cost, capacity check ──────────────────► shape(state) ─► MpsShape
 //! ```
 //!
 //! Sites are qubits: an engine prepares one two-level site per qubit, and
 //! site `k` is qubit `k`.
 
-use crate::{Mps, PauliSum};
+use crate::{MpsShape, PauliSum};
 use num_complex::Complex64;
 
 /// A matrix product state engine.
@@ -52,7 +52,7 @@ pub trait MpsEngine {
     /// [`shape`](Self::shape), a chain that does not fit, for the caller to
     /// check. `Err` when the engine cannot hold such a state, or when a site
     /// of `capacity` is not two-level.
-    fn prepare(&self, capacity: &Mps) -> Result<Self::State, Self::Error>;
+    fn prepare(&self, capacity: &MpsShape) -> Result<Self::State, Self::Error>;
 
     /// Applies the unitary `matrix` to `sites`. The matrix is row-major,
     /// `M[out][in]`, over the sites' joint index with `sites[0]` the most
@@ -138,7 +138,7 @@ pub trait MpsEngine {
     /// The chain as realized now: one site per qubit, in order, with the
     /// bond the engine uses at each cut (D22). The largest bond is the cost
     /// a method reports.
-    fn shape(&self, state: &Self::State) -> Result<Mps, Self::Error>;
+    fn shape(&self, state: &Self::State) -> Result<MpsShape, Self::Error>;
 }
 
 /// The seed of one [`MpsEngine::sample`] call: an integer in 1..=2³¹−1.

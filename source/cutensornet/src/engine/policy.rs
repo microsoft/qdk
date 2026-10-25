@@ -7,7 +7,7 @@
 //! `base_qualification` is the engine's default. Qualifying another
 //! configuration takes an A100 qualification case and a change to `validate`.
 //!
-//! The bond cap χ is not here: each state's capacity, a `tensornet::Mps`
+//! The bond cap χ is not here: each state's capacity, a `tensornet::MpsShape`
 //! given to `prepare`, carries a bond for every cut.
 
 use super::EngineError;
