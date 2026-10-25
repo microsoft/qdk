@@ -57,9 +57,15 @@ const SAMPLER_HYPER_SAMPLES: i32 = 8;
 /// `tensornet::reference::ExactReference` allows.
 const PROBABILITY_ROUNDING: f64 = 1e-9;
 
-/// The weight below which a condition is taken to be impossible: on a GPU
-/// an impossible condition comes back as rounding noise, not zero, and a
-/// ratio of two such values is no probability.
+/// The weight of a condition below which the ratio ⟨Π·P₁⟩/⟨Π⟩ is refused.
+/// It is needed because on a GPU an impossible condition comes back as
+/// rounding noise, not zero, and a ratio of two such values is no
+/// probability. Below it, a rare condition can't be told from an impossible
+/// one: a legitimate condition on t random values weighs about 2⁻ᵗ, so one
+/// on more than about 40 is refused too. The value is a guess, not measured
+/// on a GPU. Only a batch with several measurements conditions on earlier
+/// values; M1–M3's walk ends each batch at its measurement, so they never
+/// do (DECISIONS E16).
 const IMPOSSIBLE_CONDITION: f64 = 1e-12;
 
 /// How far `M†M` may be from the identity, element by element, for `M` to
@@ -215,7 +221,10 @@ impl MpsExecution {
             let condition = normalize_expectation(value, squared_norm)?.re;
             if condition <= IMPOSSIBLE_CONDITION {
                 return Err(EngineError::InvalidRequest {
-                    reason: format!("the condition has probability {condition}, taken as zero"),
+                    reason: format!(
+                        "the condition's probability {condition} is below the ratio's precision \
+                         ({IMPOSSIBLE_CONDITION}): it is impossible, or only rare"
+                    ),
                 });
             }
             let (value, squared_norm) = self.query(&[diagonal_product(&numerator)])?;
