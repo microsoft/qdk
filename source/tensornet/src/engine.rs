@@ -110,6 +110,14 @@ pub trait MpsEngine {
 
     /// An independent copy of `state`, for the shots that drew another
     /// value. Its cost depends on the engine (D21: on cuTensorNet it is open).
+    ///
+    /// A copy up to the engine's truncation: an engine that truncates (an
+    /// MPS of bond χ below the exact Schmidt rank) may build the copy along
+    /// another path than `state` took, and each path truncates differently,
+    /// so their values may differ within the truncation error. Without
+    /// truncation they agree to rounding. A caller that needs the copy to
+    /// equal the state value for value under truncation cannot rely on
+    /// `fork` (`qdk_cutensornet`'s fork is such a case).
     fn fork(&self, state: &Self::State) -> Result<Self::State, Self::Error>;
 
     /// Draws a value for each of `sites` (distinct), for `shots` shots, from

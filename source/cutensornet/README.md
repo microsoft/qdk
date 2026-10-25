@@ -149,7 +149,12 @@ measurements then pays `O(G)` for `G` gates, not `O(M·G)`. The feature
 `qualification` exposes `Availability::mps_engine_without_capture`, only to
 measure that cost on the A100. The engine keeps its own operator log, which a
 fork replays from |0…0⟩ in one compute, so under truncation a fork may differ
-from its parent, computed in steps, within the truncation error. Operator
+from its parent, computed in steps, within the truncation error. Nothing in M1
+forks: a per-shot run projects its shot's own state in place, and conditional
+probabilities are expectations of projectors on the computed state, with no
+copy. A strategy that
+branches shots from a shared prefix would see the difference; it is the case
+to revisit, measured by the qualification's `fork_cost` rows. Operator
 tensors stay allocated until the state closes, as ④'s did: about 49,400 small
 tensors per H₂ shot; freeing them after the capture waits on the
 qualification's `device_mib` rows. A compute's outputs and scratch are freed
