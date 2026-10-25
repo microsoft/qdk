@@ -102,13 +102,7 @@ program example
 end program example
 ```
 
-[examples/ghz.f90](examples/ghz.f90) is equivalent to the C GHZ example: it runs
-five shots of a ten-qubit GHZ state on the sparse simulator, then profiles the
-same circuit with the counting profiler. Each simulated shot prints either
-`result = 0` or `result = 1023`, and profiling writes
-`source/qep/tmp/interop_profile.json`. The output directory must already exist.
-Calling `init` again replaces the previous backend and discards its state.
-
+Example: [examples/ghz.f90](examples/ghz.f90),s equivalent to the C example above. 
 Build and run from the repository root on Linux:
 
 ```sh
@@ -116,3 +110,46 @@ cargo build --release -p qep_interop && \
 gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qep_interop/include source/qep_interop/examples/ghz.f90 target/release/libqep_interop.a -ldl -lpthread -lm -o target/release/ghz_fortran && \
 ./target/release/ghz_fortran
 ```
+
+## More examples
+
+### Shor's algorithm (C and Fortran)
+
+[examples/shor.c](examples/shor.c) and [examples/shor.f90](examples/shor.f90)
+port [the Q# Shor sample](../../samples/algorithms/Shor.qs) to the interop API.
+Both select `sparse_sim` and default to factoring **187 = 11 * 17**.
+
+Build both examples from the repository root on Linux:
+
+```sh
+cargo build --release -p qep_interop
+cc -std=c11 -O2 -Wall -Wextra -Werror \
+    -Isource/qep_interop/include source/qep_interop/examples/shor.c \
+    target/release/libqep_interop.a -ldl -lpthread -lm \
+    -o target/release/shor_c
+gfortran -std=f2008 -O2 -Wall -Wextra -Werror \
+    -Isource/qep_interop/include source/qep_interop/examples/shor.f90 \
+    target/release/libqep_interop.a -ldl -lpthread -lm \
+    -o target/release/shor_fortran
+```
+
+Run with no argument for 187, or supply a smaller composite for a quicker run:
+
+```sh
+./target/release/shor_c
+./target/release/shor_fortran
+./target/release/shor_c 15
+./target/release/shor_fortran 21
+```
+
+Both examples also provide reversible-arithmetic regression tests:
+
+```sh
+./target/release/shor_c --self-test
+./target/release/shor_fortran --self-test
+```
+
+These exhaustively check controlled modular addition and coprime multiplication
+on basis states for moduli 3 through 7, including disabled controls and cleanup
+of all scratch qubits. They also check coherent compute/uncompute with controls
+in superposition, continued fractions, and period-to-factor recovery.
