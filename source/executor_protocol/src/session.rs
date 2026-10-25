@@ -383,23 +383,44 @@ impl<C: Completion<Item = Outcome>> Completion for Gather<C> {
 }
 
 /// The wrapper from level L3 to level L2: puts each batch in a submission
-/// on shot 1 of a session, so that an L3 driver can use an L2 session. The
-/// session must hold shot 1 (opened on [`ShotSet::one`]`(1)`); a call to one
-/// that does not is refused with [`Rejected::ShotNotInSession`].
+/// on one shot `j` of a session, so that an L3 driver can use an L2 session.
+///
+/// An L3 driver, such as the walk of an adaptive program, drives one shot:
+/// each batch it sends depends on the outcomes that shot gave before, and
+/// shots branch differently. So a run of shots `1..=n` opens one session per
+/// shot, with the run's seed, and wraps it on that shot; the sessions run one
+/// after another or side by side, each on its own thread:
+///
+/// ```text
+/// for j in 1..=n:  open(strategy, seed, ShotSet::one(j)) ──► SubmissionWrapper::new(session, j) ──► L3 driver
+/// ```
+///
+/// - One session per shot, because a session holds the state of every shot
+///   it is opened on ([`PerShot`] makes them all when it opens): a session on
+///   the n shots would hold n states at once, n MPSs on one GPU say, while
+///   the driver advances only one of them.
+/// - The run's seed in every session, not a seed per session, because shot
+///   `j` draws from seeds fixed by the session's seed and `j`
+///   ([`ShotContext`]): shot `j` then gives the outcomes it gives in a
+///   session on all n shots, so how the run is split into sessions does not
+///   change its outcomes.
+///
+/// The session must hold shot `j`; a call to one that does not is refused
+/// with [`Rejected::ShotNotInSession`].
 ///
 /// Over a per-shot session it gives the outcomes of the shot's executor
 /// alone: this wrapper over a [`PerShotSession`] is the identity.
 pub struct SubmissionWrapper<S> {
     inner: S,
-    shot_1: ShotSet,
+    shot: ShotSet,
 }
 
 impl<S> SubmissionWrapper<S> {
-    /// Wraps a session opened on shot 1.
-    pub fn new(session_on_shot_1: S) -> Self {
+    /// Wraps `session` on `shot`, one of the shots it was opened on.
+    pub fn new(session: S, shot: ShotId) -> Self {
         Self {
-            inner: session_on_shot_1,
-            shot_1: ShotSet::one(1),
+            inner: session,
+            shot: ShotSet::one(shot),
         }
     }
 
@@ -419,14 +440,14 @@ impl<S> SubmissionWrapper<S> {
 impl<I, S: Executor<Submission<I>>> Executor<Batch<I>> for SubmissionWrapper<S> {
     type Response = Map<S::Response, Outcome>;
 
-    /// Runs `batch` on shot 1 of the session.
+    /// Runs `batch` on the wrapped shot of the session.
     ///
     /// # Errors
     ///
     /// The session's rejection of the submission.
     fn call(&mut self, batch: &[I]) -> Result<Self::Response, Rejected> {
         let inner = self.inner.call(SubmissionRef {
-            shots: &self.shot_1,
+            shots: &self.shot,
             batch,
         })?;
         Ok(Map::new(inner, |event| Outcome {

@@ -357,24 +357,43 @@ fn needs_are_checked_at_open_and_probabilities_reported_at_close() {
     assert_eq!(report.log_p.get(2), Some(-4.0));
 }
 
-/// The L3 wrapper over a per-shot session on shot 1 is the shot's executor
-/// alone.
+/// The L3 wrapper over a per-shot session on shot `j` is shot `j`'s executor
+/// alone, and gives shot `j`'s outcomes in a session on all the shots: a run
+/// split into one session per shot, all with the run's seed, gives the
+/// outcomes of the run in one session.
 #[test]
 fn a_wrapped_session_is_its_shots_executor() {
     let per_shot = PerShot(TestDoubleShots::default());
-    let mut wrapped = SubmissionWrapper::new(open(&per_shot, 3, &ShotSet::one(1)).expect("opens"));
-    let mut alone = per_shot.0.make(&ShotContext::new(3, 1));
-    for batch in [&[true, true][..], &[false, true, true]] {
-        let (mut ours, mut theirs) = (Vec::new(), Vec::new());
-        assert_eq!(wait(wrapped.call(batch).expect("runs"), &mut ours), Ok(()));
-        assert_eq!(wait(alone.call(batch).expect("runs"), &mut theirs), Ok(()));
-        assert_eq!(ours, theirs);
+    let batches = [&[true, true][..], &[false, true, true]];
+    let all = ShotSet::range(1..=3).expect("shots");
+    let mut together = open(&per_shot, 3, &all).expect("opens");
+    let mut in_one_session = BTreeMap::<ShotId, Vec<(u32, Value)>>::new();
+    for batch in batches {
+        let (outcomes, end) = run(&mut together, &all, batch).expect("runs");
+        assert_eq!(end, Ok(()));
+        for (shot, mut rows) in by_shot(&outcomes) {
+            in_one_session.entry(shot).or_default().append(&mut rows);
+        }
     }
-    assert_eq!(wrapped.capabilities(), per_shot.capabilities());
-    assert_eq!(wrapped.inner().shot(1).map(|shot| shot.calls), Some(2));
-    assert_eq!(wrapped.close().shots, alone.close());
+    for j in 1..=3 {
+        let mut wrapped =
+            SubmissionWrapper::new(open(&per_shot, 3, &ShotSet::one(j)).expect("opens"), j);
+        let mut alone = per_shot.0.make(&ShotContext::new(3, j));
+        let mut split = Vec::new();
+        for batch in batches {
+            let (mut ours, mut theirs) = (Vec::new(), Vec::new());
+            assert_eq!(wait(wrapped.call(batch).expect("runs"), &mut ours), Ok(()));
+            assert_eq!(wait(alone.call(batch).expect("runs"), &mut theirs), Ok(()));
+            assert_eq!(ours, theirs, "shot {j}");
+            split.extend(ours.iter().map(|o| (o.tag, o.value)));
+        }
+        assert_eq!(Some(&split), in_one_session.get(&j), "shot {j}");
+        assert_eq!(wrapped.capabilities(), per_shot.capabilities());
+        assert_eq!(wrapped.inner().shot(j).map(|shot| shot.calls), Some(2));
+        assert_eq!(wrapped.close().shots, alone.close());
+    }
     let mut elsewhere =
-        SubmissionWrapper::new(open(&per_shot, 3, &ShotSet::one(2)).expect("opens"));
+        SubmissionWrapper::new(open(&per_shot, 3, &ShotSet::one(2)).expect("opens"), 1);
     assert_eq!(
         elsewhere.call(&[true]).err(),
         Some(Rejected::ShotNotInSession(1))
