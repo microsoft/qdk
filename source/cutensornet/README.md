@@ -121,10 +121,11 @@ qualification and the consumer are not here.
 | `src/engine/sampler.rs`                    | `SamplerApi` and `PreparedSampler`, the sampler's ordered configuration and cleanup.                  |
 | `src/engine/resources.rs`                  | `SessionApi` and `SessionResources`: the device's stream and cuTensorNet handle.                      |
 | `src/engine/memory_workspace.rs`, `ffi.rs` | Device memory and workspace calls; the C-compatible complex element.                                  |
-| `src/engine/policy.rs`                     | `ExecutionPolicy`: device, SVD cutoffs, algorithm and gauge, workspace limit.                         |
+| `src/engine/policy.rs`                     | `ExecutionPolicy`: device, SVD cutoffs, algorithm and gauge, workspace limit, capture.                |
 | `src/engine/error.rs`                      | `EngineError`.                                                                                        |
 | `src/engine/test_double.rs`                | Host tests only: a CPU double of the native API that computes with `ExactReference`.                  |
 | `src/engine/tests.rs`                      | Host tests: conformance, refusals, call order, release of every native object.                        |
+| `tests/qualification/`                     | The A100 qualification (ignored tests; see [A100 qualification](#a100-qualification)).                |
 
 What each operation calls:
 
@@ -133,24 +134,34 @@ What each operation calls:
 | every method, first                                                   | `cudaSetDevice` with the engine's device, so engines on different devices may share a thread                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `prepare`                                                             | `cutensornetCreateState`, `cutensornetCreateWorkspaceDescriptor`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `apply`, `project`                                                    | `cudaMalloc`, `cudaMemcpy`, `cutensornetStateApplyTensorOperator` (a projection is a non-unitary diagonal scaled by 1/√p)                                                                                                                                                                                                                                                                                                                                                                                                            |
-| any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cudaFree` of the previous compute's outputs and scratch                                                                                                                                                                           |
+| any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cutensornetStateCaptureMPS`, `cudaFree` of the previous compute's outputs and scratch                                                                                                                                             |
 | `probability_of_one`, `conditional_probability_of_one`, `expectation` | per query: `cutensornetCreateNetworkOperator`, `cudaMalloc` + `cudaMemcpy` per distinct factor, `cutensornetNetworkOperatorAppendProduct`, `cutensornetCreateExpectation`, `cutensornetExpectationConfigure`, `cutensornetCreateWorkspaceDescriptor`, `cudaMemGetInfo`, `cutensornetExpectationPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc` + `cutensornetWorkspaceSetMemory` if needed, `cutensornetExpectationCompute`, `cudaStreamSynchronize`, then the destroys and `cudaFree`s. A conditional runs two queries. |
 | `sample`                                                              | `cudaMemGetInfo`, `cutensornetCreateSampler`, `cutensornetSamplerConfigure` (hyper-samples, path seed), `cutensornetSamplerPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetSamplerConfigure` (sample seed), `cutensornetSamplerSample`, `cutensornetDestroySampler`, `cudaStreamSynchronize`, `cudaFree` (scratch)                                                                                                                                                         |
 | `fork`                                                                | `prepare`, then every logged operator applied again: cuTensorNet 2.13 offers no state copy among the loaded symbols, so a fork costs a new state and a recompute                                                                                                                                                                                                                                                                                                                                                                     |
 | `shape`                                                               | the compute, if needed; the extents `cutensornetStateCompute` reports                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `close`, `Drop`                                                       | `cudaSetDevice`, `cudaStreamSynchronize`, the destroys, `cudaFree` of every retained buffer                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
-Operator tensors stay allocated until the state closes, as ④'s did, since
-every compute reads them again. A compute's outputs and scratch are freed when
-the next compute succeeds, and a query's or sample's buffers when it returns,
-so a state's device memory does not grow with its reads. A native failure while
-a state is changed or computed leaves it unusable (`EngineError::Poisoned`); a
-failed query or sample frees its buffers and native objects and leaves the
-state usable. A conditional probability whose condition has weight at most
-1e-12 of the state's norm is refused, since on a GPU an impossible condition
-comes back as rounding noise rather than zero. The engine's
-host tests run all of this against the test double; none of it has run on a
-GPU in this crate.
+Each compute is captured (`cutensornetStateCaptureMPS`): the computed MPS
+becomes the state's start and the library forgets the operators applied so
+far, so the next compute applies only the operators applied since, instead of
+every operator from |0…0⟩; a terminal that reads after each of a shot's `M`
+measurements then pays `O(G)` for `G` gates, not `O(M·G)`. The feature
+`qualification` exposes `Availability::mps_engine_without_capture`, only to
+measure that cost on the A100. The engine keeps its own operator log, which a
+fork replays from |0…0⟩ in one compute, so under truncation a fork may differ
+from its parent, computed in steps, within the truncation error. Operator
+tensors stay allocated until the state closes, as ④'s did: about 49,400 small
+tensors per H₂ shot; freeing them after the capture waits on the
+qualification's `device_mib` rows. A compute's outputs and scratch are freed
+when the next compute succeeds and is captured, and a query's or sample's
+buffers when it returns, so a state's device memory does not grow with its
+reads. A native failure while a state is changed or computed leaves it
+unusable (`EngineError::Poisoned`); a failed query or sample frees its buffers
+and native objects and leaves the state usable. A conditional probability
+whose condition has weight at most 1e-12 of the state's norm is refused, since
+on a GPU an impossible condition comes back as rounding noise rather than
+zero. The engine's host tests run all of this against the test double; none
+of it has run on a GPU in this crate.
 
 ## Runtime discovery
 
@@ -434,6 +445,52 @@ cargo test -p qdk_cutensornet --test availability -- --ignored --nocapture
 
 This test is native-environment evidence, not a replacement for CPU-only
 tests.
+
+### A100 qualification
+
+`tests/qualification` is the engine's first check on the real libraries, and
+the measurements its open GPU questions need. Every test there is ignored and
+needs the feature `qualification`:
+
+- `conformance` and `conformance_without_capture` run
+  `tensornet::conformance::check` on the engine with and without MPS capture,
+  and are the only tests that assert;
+- `environment` records the versions and libraries found;
+- `empty_compute`, `read_cost`, `fork_cost`, `free_after_compute`,
+  `shape_and_tolerance`, `impossible_condition` and `rare_condition` print
+  CSV rows (`case,item,value,unit`); an engine error is a row, and the sweep
+  goes on. `read_cost` runs with `capture=on` and `capture=off` on the same
+  circuit and χ, records `P(site 0 = 1)` and the device memory at each
+  checkpoint both ways, and adds rows tagged `extrapolation=h2`: H₂'s 1,404
+  reads over 48,000 gates estimated from a fit, not measured. `fork_cost`
+  also forks a state that was read after every 34 operators, and records how
+  far the fork and the stepped parent are from each other and from the state
+  computed once.
+
+`scripts/qualify-engine-on-a100.sh` runs them on an A100 host. It checks the
+host, the GPU, the libraries and their versions, the commit and the disk; it
+fetches the branch from `origin` (except with `--check`, which changes
+nothing), then builds and runs at the given commit in a detached worktree next
+to the checkout, which it leaves untouched; and it writes the log, the rows, a
+summary (each test's result, `passed` or `failed` per conformance case with
+and without capture, the read cost, values and memory both ways, the forks of
+read states, then every measurement) and a tarball of them, also when a step
+fails:
+
+```bash
+source/cutensornet/scripts/qualify-engine-on-a100.sh --check <commit>  # checks only
+source/cutensornet/scripts/qualify-engine-on-a100.sh --quick <commit>  # smaller sweeps
+source/cutensornet/scripts/qualify-engine-on-a100.sh <commit>          # the qualification
+```
+
+By hand, from a checkout at the commit:
+
+```bash
+cargo test --release -p qdk_cutensornet --features qualification --test qualification -- \
+    --ignored --nocapture --test-threads=1
+```
+
+`QDK_ENGINE_QUALIFICATION_QUICK=1` makes every sweep smaller.
 
 ### Deterministic binding validation
 

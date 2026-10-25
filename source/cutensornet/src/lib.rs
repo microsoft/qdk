@@ -103,6 +103,21 @@ impl Availability {
             engine::ExecutionPolicy::base_qualification(),
         )
     }
+
+    /// The engine of [`Self::mps_engine`], with every compute starting again
+    /// from |0…0⟩ and every operator instead of from the last computed MPS.
+    /// For the A100 qualification's measurement of what capture saves only.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::mps_engine`].
+    #[cfg(all(feature = "qualification", target_os = "linux", target_arch = "x86_64"))]
+    pub fn mps_engine_without_capture(&self) -> Result<CuTensorNetEngine, EngineError> {
+        CuTensorNetEngine::with_api(
+            self.libraries.clone(),
+            engine::ExecutionPolicy::base_qualification().without_capture(),
+        )
+    }
 }
 
 impl fmt::Debug for Availability {

@@ -53,12 +53,13 @@ Unless stated otherwise, paths and shell commands below are relative to
 
 ## What lives here
 
-| File / target             | Role                                                                                                                         |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `cutensornet-symbols.txt` | The symbol manifest. Single source of truth for **which functions** the crate binds.                                         |
-| `generate-bindings.sh`    | Headers and function/type selection &rarr; `src/bindings/v2_13.rs`. Requires the pinned x86-64 tools and headers, not a GPU. |
-| `src/generator.rs`        | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.                                           |
-| `--bin generate-loader`   | Reads the manifest and Rust bindings; writes/formats the loader files. Runs on any supported Rust development host.          |
+| File / target               | Role                                                                                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `cutensornet-symbols.txt`   | The symbol manifest. Single source of truth for **which functions** the crate binds.                                         |
+| `generate-bindings.sh`      | Headers and function/type selection &rarr; `src/bindings/v2_13.rs`. Requires the pinned x86-64 tools and headers, not a GPU. |
+| `src/generator.rs`          | Manifest + bindings &rarr; the loader model &rarr; source text. Pure, unit-tested.                                           |
+| `--bin generate-loader`     | Reads the manifest and Rust bindings; writes/formats the loader files. Runs on any supported Rust development host.          |
+| `qualify-engine-on-a100.sh` | The engine's A100 qualification; see [A100 qualification](../README.md#a100-qualification). Needs an A100, not the headers.  |
 
 Both generators consume the same manifest, so the bindgen allowlist and the
 dynamic loader cannot disagree about which symbols exist.

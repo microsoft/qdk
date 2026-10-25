@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! create_state ─ apply* ─┬─ finalize_mps + configure (first compute only)
-//!                        └─ prepare_state ─ compute_state ─► realized MpsShape
+//!                        └─ prepare_state ─ compute_state ─ capture_mps ─► realized MpsShape
 //!                              │
 //!         ┌────────────────────┼─────────────────────┐
 //!   expectation query    sampler on the state   projection: apply a scaled
@@ -18,17 +18,36 @@
 //!   next read computes the state again, as ④'s branch qualification did
 //!   after its projection; `finalize_mps` is called once, before the first
 //!   compute.
+//! - Each compute is captured (`capture_mps`): the computed MPS becomes the
+//!   state's start, and the library forgets the operators applied so far, so
+//!   the next compute applies only the operators applied since. Without it
+//!   cuTensorNet computes from |0…0⟩ with every operator, and a read after
+//!   each of a shot's `M` measurements costs `O(M·G)` for `G` gates instead
+//!   of `O(G)`. Reads follow the capture, as in ④'s branch qualification
+//!   (capture, then the branch masses). The policy can turn capture off,
+//!   only to measure that cost. The engine keeps its own log of the
+//!   operators, which a fork replays from |0…0⟩; nothing reads the
+//!   library's operator ids.
 //! - A read is one native expectation or sampler whose descriptors and
 //!   buffers are released before it returns, as ④'s Query.
 //! - A fork is a new native state with every logged operator applied again
 //!   (cuTensorNet 2.13 has no state copy in the loader manifest), so it
-//!   costs a recompute from |0…0⟩ (D21).
-//! - Operator tensors stay allocated until the state closes, as ④'s did,
-//!   because every compute reads them again. A compute's output buffers and
-//!   scratch are freed when the next compute has succeeded, and a read's
-//!   scratch when the read returns, so a long-lived state does not grow with
-//!   its reads (④ computed and sampled a bounded number of times, and kept
-//!   them all).
+//!   costs a recompute from |0…0⟩ (D21). It is not a copy of the parent's
+//!   captured MPS: under truncation the parent, computed in steps, and the
+//!   fork, computed once, may differ within the truncation error (the A100
+//!   qualification's `fork_cost` measures by how much).
+//! - Operator tensors stay allocated until the state closes, as ④'s did:
+//!   without capture every compute reads them again; with it the library
+//!   no longer reads them after the next capture, but whether it still
+//!   needs them is not documented, and nothing has measured what they cost.
+//!   At about 49,400 small tensors per H₂ shot (48,000 gates and 1,404
+//!   projections), freeing them after the capture is a follow-up once the
+//!   qualification's `device_mib` rows show it pays. A compute's output buffers and
+//!   scratch are freed when the next compute has succeeded and been
+//!   captured, since the captured MPS may be read from them until then, and
+//!   a read's scratch when the read returns, so a long-lived state does not
+//!   grow with its reads (④ computed and sampled a bounded number of times,
+//!   and kept them all).
 //! - A native failure while the state is changed or computed leaves it
 //!   unusable: every later call reports [`EngineError::Poisoned`].
 
@@ -528,8 +547,12 @@ impl MpsExecution {
                 }
             })?;
         validate_realized_chain(&realized, self.target.shape())?;
-        // The state now refers to the new buffers, and the stream has
-        // finished with the old ones.
+        if session.policy.capture_after_compute {
+            api.capture_mps(handle, state)?;
+        }
+        // The state now refers to the new buffers, as its computed MPS and,
+        // once captured, as its start; the stream has finished with the old
+        // ones.
         let fresh = self.allocations[mark..].to_vec();
         let previous = std::mem::replace(&mut self.computed_buffers, fresh);
         self.allocations

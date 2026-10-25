@@ -14,6 +14,11 @@ num-complex = { workspace = true }
 tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
+[features]
+# Exposes the engine without MPS capture, for the A100 qualification only
+# (scripts/qualify-engine-on-a100.sh); not a supported configuration.
+qualification = []
+
 [dev-dependencies]
 tensornet = { path = "../tensornet", features = ["conformance"] }
 
@@ -28,3 +33,8 @@ name = "generate-loader"
 path = "src/bin/generate-loader.rs"
 bench = false
 test = false
+
+[[test]]
+name = "qualification"
+path = "tests/qualification/main.rs"
+required-features = ["qualification"]

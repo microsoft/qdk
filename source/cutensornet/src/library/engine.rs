@@ -10,8 +10,9 @@
 //! affinity and buffer sizes, and close what they created.
 //! Each unsafe call documents the remaining foreign-API obligations. It
 //! compiles only on Linux x86-64 and host tests reach none of it. It is ④'s
-//! `library/simulation.rs` (M0), moved: the session wrapper and the test-only
-//! MPS capture are left out. A new native call needs its symbol in the
+//! `library/simulation.rs` (M0), moved: the session wrapper is left out, and
+//! the MPS capture, test-only in M0, follows every compute. A new native call
+//! needs its symbol in the
 //! loader manifest (`scripts/cutensornet-symbols.txt`) first.
 
 use super::CuTensorNetApi;
@@ -546,6 +547,17 @@ impl MpsExecutionApi for CuTensorNetApi {
             )
         };
         self.check_cutensornet("cutensornetStateFinalizeMPS", status)
+    }
+
+    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+        // SAFETY: handle and state are live and the state has been computed
+        // into output buffers the caller keeps until the next compute after
+        // this one. The call deletes the state's tensor operators; their
+        // device tensors and modes stay allocated until the state is
+        // destroyed, so no pointer the library may still hold dangles.
+        let status =
+            unsafe { (self.cutensornet_functions.capture_mps)(handle.as_ptr(), state.as_ptr()) };
+        self.check_cutensornet("cutensornetStateCaptureMPS", status)
     }
 
     fn configure_state_f64(
