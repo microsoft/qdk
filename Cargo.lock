@@ -1965,6 +1965,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qep_interop"
+version = "0.0.0"
+dependencies = [
+ "qep",
+ "smallvec",
+]
+
+[[package]]
 name = "qre"
 version = "0.0.0"
 dependencies = [

@@ -1,0 +1,19 @@
+[package]
+name = "qep_interop"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+qep = { path = "../qep" }
+smallvec = { workspace = true }
+
+[lints]
+workspace = true

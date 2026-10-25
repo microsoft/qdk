@@ -77,11 +77,14 @@ pub struct TotalCounts(qep::TotalCounts);
 
 #[pymethods]
 impl TotalCounts {
-    /// Summarizes qubit usage and estimated runtime for Python.
+    /// Summarizes qubit usage, estimated runtime, and operation count for Python.
     fn __repr__(&self) -> String {
         format!(
-            "TotalCounts(logical_qubits={}, physical_qubits={}, total_runtime_sec={:?})",
-            self.0.logical_qubits, self.0.physical_qubits, self.0.total_runtime_sec
+            "TotalCounts(logical_qubits={}, physical_qubits={}, total_runtime_sec={:?}, total_operations_count={})",
+            self.0.logical_qubits,
+            self.0.physical_qubits,
+            self.0.total_runtime_sec,
+            self.0.total_operations_count
         )
     }
 
@@ -101,6 +104,12 @@ impl TotalCounts {
     #[getter]
     fn total_runtime_sec(&self) -> f64 {
         self.0.total_runtime_sec
+    }
+
+    /// Returns the total number of operations recorded by the profiler.
+    #[getter]
+    fn total_operations_count(&self) -> usize {
+        self.0.total_operations_count
     }
 
     /// Returns call counts keyed by QIR instruction name.

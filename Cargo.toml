@@ -31,6 +31,7 @@ members = [
     "source/qdk_openqasm",
     "source/qdk_package",
     "source/qep",
+    "source/qep_interop",
     "source/qre",
     "source/resource_estimator",
     "source/samples_test",
