@@ -32,15 +32,16 @@ use std::{
 use executor_protocol::{PerShot, ShotSet, SubmissionWrapper, open, shot_seed};
 use qdk_simulators::{
     MeasurementResult, OutputRecord, QubitID, ResultID, Simulator, SparseStateSim,
-    bytecode::{
-        AdaptiveProgram, Block, Function, Instruction, Op, PhiNodeEntry, SwitchCase,
-        runtime::run_shot,
-    },
+    bytecode::runtime::run_shot,
     cpu_full_state_simulator::FullStateSimulator,
     execution::{PreparedAdaptiveProgram, RuntimeAdapter, SimulatorShots},
 };
 use rand::{RngExt as _, SeedableRng, rngs::StdRng};
-use serde_json::Value;
+
+#[path = "common/adaptive_program_json.rs"]
+mod adaptive_program_json;
+
+use adaptive_program_json::adaptive_program_from_json;
 
 /// The legacy [`Simulator`] over [`SparseStateSim`], which does not
 /// implement it: qubits `0..n` allocated up front, no noise and no loss.
@@ -335,96 +336,6 @@ fn env_or(name: &str, default: u64) -> u64 {
     })
 }
 
-/// The rows of table `key`, each of `N` words.
-fn rows<const N: usize>(program: &Value, key: &str) -> Vec<[u64; N]> {
-    program[key]
-        .as_array()
-        .unwrap_or_else(|| panic!("the bytecode should have a `{key}` list"))
-        .iter()
-        .map(|row| {
-            let words: Vec<u64> = row
-                .as_array()
-                .unwrap_or_else(|| panic!("each row of `{key}` should be a list"))
-                .iter()
-                .map(|word| word.as_u64().expect("each word should be a u64"))
-                .collect();
-            words
-                .try_into()
-                .unwrap_or_else(|_| panic!("each row of `{key}` should have {N} words"))
-        })
-        .collect()
-}
-
-/// The words of the flat list `key`.
-fn words(program: &Value, key: &str) -> Vec<u64> {
-    program[key]
-        .as_array()
-        .unwrap_or_else(|| panic!("the bytecode should have a `{key}` list"))
-        .iter()
-        .map(|word| word.as_u64().expect("each word should be a u64"))
-        .collect()
-}
-
-fn word(program: &Value, key: &str) -> u64 {
-    program[key]
-        .as_u64()
-        .unwrap_or_else(|| panic!("the bytecode should have a `{key}` number"))
-}
-
-fn non_empty<T: Default>(mut table: Vec<T>) -> Vec<T> {
-    if table.is_empty() {
-        table.push(T::default());
-    }
-    table
-}
-
-/// The program from the JSON of `AdaptiveProgram.as_dict()`, built as
-/// `adaptive_program_from_pydict` in `qdk_package` builds it.
-fn adaptive_program(json: &str) -> AdaptiveProgram<u64> {
-    let program: Value = serde_json::from_str(json).expect("the bytecode should be JSON");
-    let count = |key| u32::try_from(word(&program, key)).expect("a count should fit u32");
-    AdaptiveProgram {
-        num_qubits: count("num_qubits"),
-        num_results: count("num_results"),
-        num_registers: count("num_registers"),
-        entry_block: word(&program, "entry_block"),
-        instructions: rows::<8>(&program, "instructions")
-            .into_iter()
-            .map(|[a, b, c, d, e, f, g, h]| Instruction::from_tuple((a, b, c, d, e, f, g, h)))
-            .collect(),
-        quantum_ops: rows::<5>(&program, "quantum_ops")
-            .into_iter()
-            .map(|[a, b, c, d, e]| Op::from_tuple((a, b, c, d, e)))
-            .collect(),
-        block_table: non_empty(
-            rows::<3>(&program, "blocks")
-                .into_iter()
-                .map(|[_, offset, count]| Block::from_tuple((offset, count)))
-                .collect(),
-        ),
-        function_table: non_empty(
-            rows::<3>(&program, "functions")
-                .into_iter()
-                .map(|[a, b, c]| Function::from_tuple((a, b, c)))
-                .collect(),
-        ),
-        phi_entries: non_empty(
-            rows::<2>(&program, "phi_entries")
-                .into_iter()
-                .map(|[a, b]| PhiNodeEntry::from_tuple((a, b)))
-                .collect(),
-        ),
-        switch_cases: non_empty(
-            rows::<2>(&program, "switch_cases")
-                .into_iter()
-                .map(|[a, b]| SwitchCase::from_tuple((a, b)))
-                .collect(),
-        ),
-        call_args: non_empty(words(&program, "call_args")),
-        constant_data: non_empty(words(&program, "constant_data")),
-    }
-}
-
 fn bits(row: &[OutputRecord]) -> String {
     row.iter()
         .map(|record| match record {
@@ -445,7 +356,7 @@ fn h2_qpe_through_the_protocol_matches_the_legacy_runtime() {
     let shots = u32::try_from(env_or("QDK_H2_SHOTS", 1)).expect("the shots should fit u32");
     let seed = env_or("QDK_H2_SEED", 0);
     let json = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
-    let program = adaptive_program(&json);
+    let program = adaptive_program_from_json(&json);
     let qubits = usize::try_from(program.num_qubits).expect("fits usize");
     let results = usize::try_from(program.num_results).expect("fits usize");
     let prepared = PreparedAdaptiveProgram::new(program).expect("H₂ should prepare");
