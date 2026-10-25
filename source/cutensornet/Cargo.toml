@@ -10,7 +10,12 @@ repository.workspace = true
 
 [dependencies]
 libloading = { workspace = true }
+num-complex = { workspace = true }
+tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tensornet = { path = "../tensornet", features = ["conformance"] }
 
 [lints]
 workspace = true

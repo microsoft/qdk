@@ -1,0 +1,283 @@
+//! The CUDA stream and cuTensorNet handle of one device, independent of the
+//! engine's policy.
+//!
+//! `SessionResources` selects the device, then creates and owns the stream
+//! and handle. A `PhantomData<Rc<()>>` keeps it `!Send` and `!Sync`, so it is
+//! confined to the thread that created it. Child objects must close before
+//! their parent handle. Explicit close reports cleanup errors; Drop provides a
+//! non-panicking fallback, not error reporting. `SessionApi` is the injection
+//! seam its host tests replace with a test double.
+
+use super::{EngineError, OpaqueHandle, Stream, error::combine_execution_and_cleanup};
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
+
+/// Injected CUDA Runtime/cuTensorNet context operations.
+///
+/// The immutable API may be shared; the streams and handles it creates may not.
+/// Callers select the intended device before creation and device-dependent work,
+/// keep parents alive through child cleanup and release each acquired object once.
+pub(crate) trait SessionApi: Send + Sync {
+    fn device_count(&self) -> Result<i32, EngineError>;
+    fn set_device(&self, ordinal: i32) -> Result<(), EngineError>;
+    fn create_stream(&self) -> Result<Stream, EngineError>;
+    fn synchronize_stream(&self, stream: Stream) -> Result<(), EngineError>;
+    fn destroy_stream(&self, stream: Stream) -> Result<(), EngineError>;
+    fn create_handle(&self) -> Result<OpaqueHandle, EngineError>;
+    fn destroy_handle(&self, handle: OpaqueHandle) -> Result<(), EngineError>;
+}
+
+/// Owns a CUDA stream and cuTensorNet handle on one worker thread.
+///
+/// Retains the API/library owner and records the selected device; it does not
+/// own the GPU, a quantum state or numerical buffers. The `Rc` marker forbids
+/// Send/Sync even if the raw-handle representation changes. Child borrows prevent
+/// consuming this owner while they are live.
+pub(crate) struct SessionResources<Api: SessionApi + ?Sized> {
+    api: Arc<Api>,
+    device_ordinal: i32,
+    stream: Option<Stream>,
+    handle: Option<OpaqueHandle>,
+    _thread_marker: PhantomData<Rc<()>>,
+}
+
+impl<Api: SessionApi + ?Sized> SessionResources<Api> {
+    /// Rebinds the device, synchronizes, then releases the handle and stream.
+    ///
+    /// Attempts every release and returns the first failure. Taking the handles
+    /// prevents a second release in Drop, including after a native failure.
+    pub(crate) fn close(mut self) -> Result<(), EngineError> {
+        self.release()
+    }
+
+    pub(crate) fn api(&self) -> &Api {
+        self.api.as_ref()
+    }
+
+    pub(crate) fn bind_device(&self) -> Result<(), EngineError> {
+        self.api.set_device(self.device_ordinal)
+    }
+
+    pub(crate) fn stream(&self) -> Stream {
+        self.stream
+            .expect("a live session always owns its CUDA stream")
+    }
+
+    pub(crate) fn handle(&self) -> OpaqueHandle {
+        self.handle
+            .expect("a live session always owns its cuTensorNet handle")
+    }
+
+    pub(crate) fn new(api: Arc<Api>, device_ordinal: i32) -> Result<Self, EngineError> {
+        let device_count = api.device_count()?;
+        if device_count <= 0 {
+            return Err(EngineError::NoDevice);
+        }
+        if device_ordinal < 0 || device_ordinal >= device_count {
+            return Err(EngineError::InvalidExecutionPolicy {
+                reason: "device ordinal is outside the available CUDA devices",
+            });
+        }
+        api.set_device(device_ordinal)?;
+        let stream = api.create_stream()?;
+        let mut resources = Self {
+            api,
+            device_ordinal,
+            stream: Some(stream),
+            handle: None,
+            _thread_marker: PhantomData,
+        };
+        match resources.api.create_handle() {
+            Ok(handle) => resources.handle = Some(handle),
+            Err(error) => {
+                return combine_execution_and_cleanup(Err(error), resources.release());
+            }
+        }
+        Ok(resources)
+    }
+
+    fn release(&mut self) -> Result<(), EngineError> {
+        if self.stream.is_none() && self.handle.is_none() {
+            return Ok(());
+        }
+        let mut first_error = self.bind_device().err();
+        if let Some(stream) = self.stream
+            && let Err(error) = self.api.synchronize_stream(stream)
+        {
+            first_error.get_or_insert(error);
+        }
+        if let Some(handle) = self.handle.take()
+            && let Err(error) = self.api.destroy_handle(handle)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+        if let Some(stream) = self.stream.take()
+            && let Err(error) = self.api.destroy_stream(stream)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+        first_error.map_or(Ok(()), Err)
+    }
+}
+
+impl<Api: SessionApi + ?Sized> Drop for SessionResources<Api> {
+    fn drop(&mut self) {
+        let _ = self.release();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EngineError, OpaqueHandle, SessionApi, SessionResources, Stream};
+    use std::{ptr::NonNull, sync::Arc, sync::Mutex};
+
+    struct TestDoubleSessionApi {
+        events: Mutex<Vec<&'static str>>,
+        device_count: i32,
+        fail_handle_creation: bool,
+    }
+
+    impl TestDoubleSessionApi {
+        fn new(device_count: i32, fail_handle_creation: bool) -> Self {
+            Self {
+                events: Mutex::new(Vec::new()),
+                device_count,
+                fail_handle_creation,
+            }
+        }
+
+        fn record(&self, event: &'static str) {
+            self.events
+                .lock()
+                .expect("event lock should succeed")
+                .push(event);
+        }
+
+        fn events(&self) -> Vec<&'static str> {
+            self.events
+                .lock()
+                .expect("event lock should succeed")
+                .clone()
+        }
+    }
+
+    impl SessionApi for TestDoubleSessionApi {
+        fn device_count(&self) -> Result<i32, EngineError> {
+            self.record("device_count");
+            Ok(self.device_count)
+        }
+
+        fn set_device(&self, ordinal: i32) -> Result<(), EngineError> {
+            assert_eq!(ordinal, 0);
+            self.record("set_device");
+            Ok(())
+        }
+
+        fn create_stream(&self) -> Result<Stream, EngineError> {
+            self.record("create_stream");
+            Ok(NonNull::dangling())
+        }
+
+        fn synchronize_stream(&self, _stream: Stream) -> Result<(), EngineError> {
+            self.record("synchronize_stream");
+            Ok(())
+        }
+
+        fn destroy_stream(&self, _stream: Stream) -> Result<(), EngineError> {
+            self.record("destroy_stream");
+            Ok(())
+        }
+
+        fn create_handle(&self) -> Result<OpaqueHandle, EngineError> {
+            self.record("create_handle");
+            if self.fail_handle_creation {
+                Err(EngineError::NativeCallFailed {
+                    component: "cuTensorNet",
+                    operation: "cutensornetCreate",
+                    status: 13,
+                    message: "simulated failure".to_string(),
+                })
+            } else {
+                Ok(NonNull::dangling())
+            }
+        }
+
+        fn destroy_handle(&self, _handle: OpaqueHandle) -> Result<(), EngineError> {
+            self.record("destroy_handle");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn session_selects_device_and_drops_in_dependency_order() {
+        let api = Arc::new(TestDoubleSessionApi::new(1, false));
+        let resources =
+            SessionResources::new(api.clone(), 0).expect("session resources should be created");
+        assert_eq!(resources.device_ordinal, 0);
+        drop(resources);
+
+        assert_eq!(
+            api.events(),
+            [
+                "device_count",
+                "set_device",
+                "create_stream",
+                "create_handle",
+                "set_device",
+                "synchronize_stream",
+                "destroy_handle",
+                "destroy_stream",
+            ]
+        );
+    }
+
+    #[test]
+    fn failed_handle_creation_cleans_up_the_stream() {
+        let api = Arc::new(TestDoubleSessionApi::new(1, true));
+        let error = SessionResources::new(api.clone(), 0)
+            .err()
+            .expect("handle creation should fail");
+        assert!(matches!(
+            error,
+            EngineError::NativeCallFailed {
+                operation: "cutensornetCreate",
+                status: 13,
+                ..
+            }
+        ));
+        assert_eq!(
+            api.events(),
+            [
+                "device_count",
+                "set_device",
+                "create_stream",
+                "create_handle",
+                "set_device",
+                "synchronize_stream",
+                "destroy_stream",
+            ]
+        );
+    }
+
+    #[test]
+    fn session_rejects_a_host_without_a_cuda_device() {
+        let api = Arc::new(TestDoubleSessionApi::new(0, false));
+        assert!(matches!(
+            SessionResources::new(api.clone(), 0),
+            Err(EngineError::NoDevice)
+        ));
+        assert_eq!(api.events(), ["device_count"]);
+    }
+
+    #[test]
+    fn session_rejects_an_unavailable_device_ordinal_before_selection() {
+        let api = Arc::new(TestDoubleSessionApi::new(1, false));
+
+        assert!(matches!(
+            SessionResources::new(api.clone(), 1),
+            Err(EngineError::InvalidExecutionPolicy { .. })
+        ));
+        assert_eq!(api.events(), ["device_count"]);
+    }
+}

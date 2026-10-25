@@ -9,7 +9,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+num-complex = { workspace = true }
 thiserror = { workspace = true }
+
+[features]
+# The engine conformance checks, for an engine's tests.
+conformance = []
 
 [lints]
 workspace = true

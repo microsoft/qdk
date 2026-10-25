@@ -1857,6 +1857,8 @@ name = "qdk_cutensornet"
 version = "0.0.0"
 dependencies = [
  "libloading",
+ "num-complex",
+ "tensornet",
  "thiserror",
 ]
 
@@ -2877,6 +2879,7 @@ dependencies = [
 name = "tensornet"
 version = "0.0.0"
 dependencies = [
+ "num-complex",
  "thiserror",
 ]
 

@@ -1,10 +1,19 @@
-//! Experimental runtime discovery for optional cuTensorNet acceleration.
+//! Experimental runtime discovery for optional cuTensorNet acceleration, and
+//! a `tensornet::MpsEngine` on it, [`CuTensorNetEngine`].
 
 #[allow(
     clippy::mod_module_files,
     reason = "the approved versioned FFI layout groups generated bindings under bindings/mod.rs"
 )]
 mod bindings;
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(
+        dead_code,
+        reason = "off Linux x86-64 nothing calls the native API; the engine stays compiled so its host tests run"
+    )
+)]
+mod engine;
 mod error;
 pub mod generator;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -12,6 +21,7 @@ mod library;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 mod version;
 
+pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
 pub use error::AvailabilityError;
 
 use std::{fmt, path::PathBuf};
@@ -69,10 +79,6 @@ pub struct AvailabilityReport {
 pub struct Availability {
     report: AvailabilityReport,
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    #[expect(
-        dead_code,
-        reason = "keeps the loaded libraries alive for the lifetime of the availability; read by the simulation layer"
-    )]
     libraries: std::sync::Arc<library::CuTensorNetApi>,
 }
 
@@ -80,6 +86,22 @@ impl Availability {
     #[must_use]
     pub fn report(&self) -> &AvailabilityReport {
         &self.report
+    }
+
+    /// An MPS engine on CUDA device 0, with ④'s qualified truncation
+    /// cutoffs, SVD algorithm and gauge. It keeps the loaded libraries alive
+    /// for as long as it lives.
+    ///
+    /// # Errors
+    ///
+    /// Fails if no CUDA device is available, or if creating the device's
+    /// stream or cuTensorNet handle fails.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn mps_engine(&self) -> Result<CuTensorNetEngine, EngineError> {
+        CuTensorNetEngine::with_api(
+            self.libraries.clone(),
+            engine::ExecutionPolicy::base_qualification(),
+        )
     }
 }
 

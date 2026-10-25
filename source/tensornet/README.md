@@ -11,11 +11,24 @@ the questions callers ask of a chain's shape: its bond dimensions, its largest
 bond, how many elements each site holds, and whether one chain fits inside
 another.
 
-It does **not** hold tensor elements, strides or device memory, and it does not
-build, truncate, sample or contract a chain. Those belong to a method and the
-backend it runs on. Because the description carries no data, the same `Mps`
-can be handed to a GPU library, to a CPU library, or to a reference
-implementation written purely for a test.
+`Mps` does **not** hold tensor elements, strides or device memory. Because the
+description carries no data, the same `Mps` can be handed to a GPU library, to
+a CPU library, or to a reference implementation written purely for a test.
+
+The crate also states what a backend that runs a chain does, as the trait
+`MpsEngine`: prepare a chain within a capacity (an `Mps`), apply a unitary to
+sites, read the probability of a one at a site (also given earlier values),
+project, fork, sample sites for many shots from one seed, take the expectation
+of a Pauli sum, and report the chain as realized. It speaks tensors only: no
+shots, RNG objects or instructions, so a caller that runs shots draws its own
+values above it. How a chain is built and truncated stays with each engine;
+`qdk_cutensornet` implements the trait over cuTensorNet.
+
+`reference::ExactReference` is the trait's oracle: a dense state vector of at
+most 20 sites whose shape is the exact Schmidt rank at each cut. It is not a
+tensor network and not an engine to simulate with. It is the exact answer
+every engine with enough bond must give, so engines check themselves against
+it, and tests run on it where there is no GPU.
 
 ## Lifecycle at a glance
 
@@ -40,15 +53,24 @@ reported extents  ◄───────────────────�
 
 ## Files
 
-| File           | Defines                                                                |
-| -------------- | ---------------------------------------------------------------------- |
-| `src/mps.rs`   | `Mps`: the chain's shape, its validation and its accessors             |
-| `src/error.rs` | `MpsError`: why a list of extents is not a chain, raised by `Mps::new` |
-| `src/lib.rs`   | the crate's public surface and its role                                |
+| File                 | Defines                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `src/mps.rs`         | `Mps`: the chain's shape, its validation and its accessors                                 |
+| `src/error.rs`       | `MpsError`: why a list of extents is not a chain, raised by `Mps::new`                     |
+| `src/engine.rs`      | `MpsEngine`: what a backend that runs a chain does; `SampleSeed`                           |
+| `src/pauli.rs`       | `Pauli`, `PauliTerm`, `PauliSum`: the observables of `MpsEngine::expectation`              |
+| `src/reference.rs`   | `ExactReference`: the dense oracle every engine is checked against                         |
+| `src/conformance.rs` | `check`: the cases every engine must pass against `ExactReference` (feature `conformance`) |
+| `src/lib.rs`         | the crate's public surface and its role                                                    |
 
 The API reference is the rustdoc (`cargo doc -p tensornet --open`). The crate
-depends only on `thiserror`, so it builds for every target the QDK supports,
-WebAssembly included.
+depends only on `thiserror` and `num-complex`, so it builds for every target
+the QDK supports, WebAssembly included.
+
+An engine's crate tests itself with `conformance::check(&engine)`, which runs
+the same operations on the engine and on `ExactReference` and returns every
+case where they differ. It is behind the `conformance` feature, which such a
+crate enables in its `[dev-dependencies]`, so no ordinary build compiles it.
 
 ## The shape of a chain
 
@@ -112,10 +134,11 @@ the same numbers.
   contraction queries or plans. No simulation method in the QDK contracts a
   general network yet; the types arrive with the first one that does.
 
-- **An MPS trait family.** `Mps` is a struct and nothing more. Backends differ
-  too widely in how they build and truncate a chain for a shared trait to be
-  discovered rather than invented: the shape is shared, the algorithm that
-  builds it is not.
+- **A shared algorithm.** `Mps` is a struct, and `MpsEngine` states what an
+  engine answers, not how it builds or truncates a chain: backends differ too
+  widely there for a shared implementation to be discovered rather than
+  invented. The trait came with the first engine, shaped by the calls
+  cuTensorNet makes, and is checked against `ExactReference`.
 
 - **Truncation settings.** Libraries express approximation in incompatible
   ways (maximum bond dimension and discarded weight; an SVD algorithm with

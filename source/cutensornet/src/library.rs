@@ -18,6 +18,7 @@ use std::{
     sync::Arc,
 };
 
+mod engine;
 mod symbols;
 
 use symbols::{CuTensorNetFunctions, resolve_cutensornet_functions};

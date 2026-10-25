@@ -9,12 +9,26 @@
 //! requested capacity with the shape a backend produced, without touching
 //! the data.
 //!
-//! It depends only on `thiserror`. The crate's `README.md` explains the
-//! model and its choices. When a module or a public type is added, moved or
-//! renamed, update the README's "Files" table with it.
+//! Beside the shape, it states what a library that holds matrix product
+//! states does for a simulator ([`MpsEngine`]), with the observable it reads
+//! ([`PauliSum`]) and an exact engine every other one is checked against
+//! ([`reference::ExactReference`]). None of these knows a simulator's
+//! protocol, a device or a vendor.
+//!
+//! It depends only on `thiserror` and `num-complex`. The crate's
+//! `README.md` explains the model and its choices. When a module or a public
+//! type is added, moved or renamed, update the README's "Files" table with
+//! it.
 
+#[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
+mod engine;
 mod error;
 mod mps;
+mod pauli;
+pub mod reference;
 
+pub use engine::{MpsEngine, SampleSeed, SeedOutOfRange};
 pub use error::MpsError;
 pub use mps::Mps;
+pub use pauli::{Pauli, PauliError, PauliSum, PauliTerm};

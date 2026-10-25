@@ -95,10 +95,62 @@ only their approved version and error probes and performs no GPU work.
 | Loader generator          | `src/generator.rs`, `src/bin/generate-loader.rs` | Maintainer tool that reads the manifest and binding signatures and writes the generated loader tables.                         |
 | Availability API          | `src/lib.rs`                                     | Exposes explicit discovery and reports availability without exposing raw FFI.                                                  |
 | Error and status model    | `src/error.rs`                                   | Defines structured discovery failures and maps native status values without losing unknown codes.                              |
+| MPS engine                | `src/engine.rs`, `src/engine/*.rs`               | `CuTensorNetEngine`, a `tensornet::MpsEngine` on cuTensorNet's State/MPS API, over private seams of the native calls.          |
+| Native engine calls       | `src/library/engine.rs`                          | Implements the engine's seams with the loaded function tables (Linux x86-64).                                                  |
 
 The raw bindings, function tables, library guards, resolver seam, and native
-status mapping are private. The public capability is
-`discover() -> Result<Availability, AvailabilityError>`.
+status mapping are private. The public capabilities are
+`discover() -> Result<Availability, AvailabilityError>` and, on Linux x86-64,
+`Availability::mps_engine() -> Result<CuTensorNetEngine, EngineError>`.
+
+## The MPS engine
+
+`CuTensorNetEngine` implements `tensornet::MpsEngine`: it takes matrices on
+one or two sites and answers probabilities, samples, Pauli expectations and
+the realized chain. It knows no simulator protocol, and
+`tensornet::conformance` checks it against
+`tensornet::reference::ExactReference`. Its code is block ④'s cuTensorNet
+mechanics, moved below the protocol seam; the circuit, the request, the branch
+qualification and the consumer are not here.
+
+| File                                       | Responsibility                                                                                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `src/engine.rs`                            | `CuTensorNetEngine`, `CuTensorNetState`, the `MpsEngine` implementation, the `NativeApi` seam.        |
+| `src/engine/state.rs`                      | `MpsExecution`: one native state, its operator log, compute on demand, queries, sampling and cleanup. |
+| `src/engine/execution.rs`                  | `MpsExecutionApi` (State/MPS calls), `MpsTarget` (the extents asked for), realized-chain checks.      |
+| `src/engine/sampler.rs`                    | `SamplerApi` and `PreparedSampler`, the sampler's ordered configuration and cleanup.                  |
+| `src/engine/resources.rs`                  | `SessionApi` and `SessionResources`: the device's stream and cuTensorNet handle.                      |
+| `src/engine/memory_workspace.rs`, `ffi.rs` | Device memory and workspace calls; the C-compatible complex element.                                  |
+| `src/engine/policy.rs`                     | `ExecutionPolicy`: device, SVD cutoffs, algorithm and gauge, workspace limit.                         |
+| `src/engine/error.rs`                      | `EngineError`.                                                                                        |
+| `src/engine/test_double.rs`                | Host tests only: a CPU double of the native API that computes with `ExactReference`.                  |
+| `src/engine/tests.rs`                      | Host tests: conformance, refusals, call order, release of every native object.                        |
+
+What each operation calls:
+
+| `MpsEngine` method                                                    | cuTensorNet and CUDA calls                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| every method, first                                                   | `cudaSetDevice` with the engine's device, so engines on different devices may share a thread                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `prepare`                                                             | `cutensornetCreateState`, `cutensornetCreateWorkspaceDescriptor`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `apply`, `project`                                                    | `cudaMalloc`, `cudaMemcpy`, `cutensornetStateApplyTensorOperator` (a projection is a non-unitary diagonal scaled by 1/√p)                                                                                                                                                                                                                                                                                                                                                                                                            |
+| any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cudaFree` of the previous compute's outputs and scratch                                                                                                                                                                           |
+| `probability_of_one`, `conditional_probability_of_one`, `expectation` | per query: `cutensornetCreateNetworkOperator`, `cudaMalloc` + `cudaMemcpy` per distinct factor, `cutensornetNetworkOperatorAppendProduct`, `cutensornetCreateExpectation`, `cutensornetExpectationConfigure`, `cutensornetCreateWorkspaceDescriptor`, `cudaMemGetInfo`, `cutensornetExpectationPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc` + `cutensornetWorkspaceSetMemory` if needed, `cutensornetExpectationCompute`, `cudaStreamSynchronize`, then the destroys and `cudaFree`s. A conditional runs two queries. |
+| `sample`                                                              | `cudaMemGetInfo`, `cutensornetCreateSampler`, `cutensornetSamplerConfigure` (hyper-samples, path seed), `cutensornetSamplerPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetSamplerConfigure` (sample seed), `cutensornetSamplerSample`, `cutensornetDestroySampler`, `cudaStreamSynchronize`, `cudaFree` (scratch)                                                                                                                                                         |
+| `fork`                                                                | `prepare`, then every logged operator applied again: cuTensorNet 2.13 offers no state copy among the loaded symbols, so a fork costs a new state and a recompute                                                                                                                                                                                                                                                                                                                                                                     |
+| `shape`                                                               | the compute, if needed; the extents `cutensornetStateCompute` reports                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `close`, `Drop`                                                       | `cudaSetDevice`, `cudaStreamSynchronize`, the destroys, `cudaFree` of every retained buffer                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+Operator tensors stay allocated until the state closes, as ④'s did, since
+every compute reads them again. A compute's outputs and scratch are freed when
+the next compute succeeds, and a query's or sample's buffers when it returns,
+so a state's device memory does not grow with its reads. A native failure while
+a state is changed or computed leaves it unusable (`EngineError::Poisoned`); a
+failed query or sample frees its buffers and native objects and leaves the
+state usable. A conditional probability whose condition has weight at most
+1e-12 of the state's norm is refused, since on a GPU an impossible condition
+comes back as rounding noise rather than zero. The engine's
+host tests run all of this against the test double; none of it has run on a
+GPU in this crate.
 
 ## Runtime discovery
 
@@ -300,6 +352,9 @@ appropriate costs for preserving QDK's existing CPU and cross-platform paths.
   tables, with no CUDA device or cuTensorNet execution handle. It is
   `Send + Sync`, so one discovery can be shared across threads; it shares no
   device context, stream or state.
+- `CuTensorNetEngine` owns one device's stream and cuTensorNet handle; each
+  `CuTensorNetState` owns its native state, workspace and device buffers and
+  keeps the engine's session alive. Both are `!Send`.
 
 Typical use is intentionally small:
 
@@ -355,6 +410,11 @@ x86-64, the focused tests verify:
 - the cuTensorNet bindings and loader match the manifest's required and
   optional symbols, and the CUDA Runtime inventory remains aligned with its
   handwritten function table.
+
+On every host, the engine's tests (`src/engine/tests.rs`) run
+`tensornet::conformance::check` and the engine's own refusals, call order and
+cleanup against the CPU test double of the native API; the per-file tests of
+the sampler, the session resources and the policy run there too.
 
 On every host, `checked_in_loader_matches_freshly_generated_output` checks that
 the checked-in loader matches its generator. Compile-time assertions separately
