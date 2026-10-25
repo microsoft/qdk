@@ -9,7 +9,7 @@ use qdk_simulators::{
     MeasurementResult::{One, Zero},
     bytecode::{AdaptiveProgram, Block, Instruction, Op},
     execution::{
-        AdaptiveExecutionError, PreparedAdaptiveProgram, UnitaryOperation,
+        AdaptiveExecutionError, PreparedAdaptiveProgram, RegionPartitionError, UnitaryOperation,
         tooling::{
             ConditionedCircuit, ConditionedCircuitError, ConditionedOperation, ConditioningError,
         },
@@ -158,6 +158,15 @@ impl ProgramBuilder {
     }
 
     fn prepare(&mut self, num_qubits: u32, num_results: u32) -> PreparedAdaptiveProgram<u64> {
+        self.try_prepare(num_qubits, num_results)
+            .expect("test program should prepare")
+    }
+
+    fn try_prepare(
+        &mut self,
+        num_qubits: u32,
+        num_results: u32,
+    ) -> Result<PreparedAdaptiveProgram<u64>, RegionPartitionError> {
         PreparedAdaptiveProgram::new(AdaptiveProgram {
             num_qubits,
             num_results,
@@ -172,7 +181,6 @@ impl ProgramBuilder {
             constant_data: Vec::new(),
             quantum_ops: std::mem::take(&mut self.quantum_ops),
         })
-        .expect("test program should prepare")
     }
 }
 
@@ -516,21 +524,20 @@ fn out_of_range_operands_are_rejected_without_panicking() {
     );
 }
 
+/// A program the walk cannot run is refused when it is prepared (A6), so
+/// it never reaches a conditioned circuit.
 #[test]
-fn control_errors_are_wrapped() {
-    let prepared = ProgramBuilder::default()
+fn a_reset_with_a_measurement_operation_does_not_prepare() {
+    let error = ProgramBuilder::default()
         .quantum(OP_RESET, OPID_MZ, 0, 0, 0)
         .ret()
-        .prepare(1, 0);
-
-    let error = ConditionedCircuit::from_prepared_program(&prepared, &[])
+        .try_prepare(1, 0)
         .expect_err("reset with a measurement op id");
     assert_eq!(
         error,
-        ConditioningError::Control(AdaptiveExecutionError::UnsupportedReset {
+        RegionPartitionError::Unsupported(AdaptiveExecutionError::UnsupportedReset {
             operation_id: OPID_MZ,
             instruction_index: 0,
         })
     );
-    assert!(std::error::Error::source(&error).is_some());
 }

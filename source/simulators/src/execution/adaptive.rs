@@ -97,6 +97,9 @@ pub enum RegionPartitionError {
     TooManyRegions {
         maximum: u32,
     },
+    /// An instruction the walk would stop on, found before anything of the
+    /// program runs ([`PreparedAdaptiveProgram::new`]).
+    Unsupported(AdaptiveExecutionError),
 }
 
 impl fmt::Display for RegionPartitionError {
@@ -121,6 +124,7 @@ impl fmt::Display for RegionPartitionError {
                 formatter,
                 "adaptive program contains more than {maximum} quantum evolution regions"
             ),
+            Self::Unsupported(error) => error.fmt(formatter),
         }
     }
 }
@@ -213,6 +217,81 @@ where
     })
 }
 
+/// Refuses an instruction of `program`'s blocks that the walk would stop on:
+/// an opcode it does not run, or a measurement or reset whose operation is
+/// missing or not one it supports. These depend on the program alone, so a
+/// program the walk cannot run is refused before anything of it runs (a
+/// rejection means nothing started), wherever the instruction is, even in a
+/// branch no run takes. What depends on the responses stays the walk's.
+/// The block ranges were checked by [`prepare_execution_metadata`].
+fn check_supported<Word>(program: &AdaptiveProgram<Word>) -> Result<(), RegionPartitionError>
+where
+    Word: Unsigned + Copy + Into<u64>,
+{
+    let operation_of = |instruction_index: usize| {
+        let operation_index = bytecode_index(program.instructions[instruction_index].aux0.into());
+        program
+            .quantum_ops
+            .get(operation_index)
+            .map(|operation| operation.op_id.into())
+            .ok_or(operation_index)
+    };
+    for block in &program.block_table {
+        let start = bytecode_index(block.instr_offset.into());
+        let end = start + bytecode_index(block.instr_count.into());
+        for instruction_index in start..end {
+            let opcode = program.instructions[instruction_index]
+                .opcode
+                .into()
+                .to_le_bytes()[0];
+            let unsupported = match opcode {
+                OP_RET | OP_JUMP | OP_BRANCH | OP_READ_RESULT | OP_READ_LOSS | OP_OR
+                | OP_RECORD_OUTPUT => None,
+                OP_MEASURE => match operation_of(instruction_index) {
+                    Ok(OPID_MZ | OPID_MRESETZ) => None,
+                    Ok(operation_id) => Some(AdaptiveExecutionError::UnsupportedMeasurement {
+                        operation_id,
+                        instruction_index,
+                    }),
+                    Err(operation_index) => {
+                        Some(AdaptiveExecutionError::InvalidMeasurementOperationIndex {
+                            operation_index,
+                            instruction_index,
+                        })
+                    }
+                },
+                OP_RESET => match operation_of(instruction_index) {
+                    Ok(OPID_RESETZ) => None,
+                    Ok(operation_id) => Some(AdaptiveExecutionError::UnsupportedReset {
+                        operation_id,
+                        instruction_index,
+                    }),
+                    Err(operation_index) => {
+                        Some(AdaptiveExecutionError::InvalidResetOperationIndex {
+                            operation_index,
+                            instruction_index,
+                        })
+                    }
+                },
+                // A gate the regions hold; any other gate stops the walk.
+                _ if u64::from(opcode) == OP_QUANTUM_GATE
+                    && is_unitary_instruction(program, instruction_index)? =>
+                {
+                    None
+                }
+                opcode => Some(AdaptiveExecutionError::UnsupportedInstruction {
+                    opcode,
+                    instruction_index,
+                }),
+            };
+            if let Some(error) = unsupported {
+                return Err(RegionPartitionError::Unsupported(error));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct PreparedAdaptiveProgram<Word: Unsigned> {
     program: AdaptiveProgram<Word>,
@@ -225,8 +304,16 @@ impl<Word> PreparedAdaptiveProgram<Word>
 where
     Word: Unsigned + Copy + Into<u64>,
 {
+    /// Cuts `program` into regions and checks it once, before any run.
+    ///
+    /// # Errors
+    ///
+    /// A block range or an operation index out of the program, too many
+    /// regions, or an instruction the walk does not support
+    /// ([`RegionPartitionError::Unsupported`]), wherever it is.
     pub fn new(program: AdaptiveProgram<Word>) -> Result<Self, RegionPartitionError> {
         let metadata = prepare_execution_metadata(&program, true)?;
+        check_supported(&program)?;
         let has_output_recording = program
             .instructions
             .iter()
@@ -262,6 +349,9 @@ where
     }
 }
 
+/// Why the walk stops. For a program from [`PreparedAdaptiveProgram::new`],
+/// only `MissingResponse` and `UnexpectedResponse` can occur: `new` refuses
+/// the instructions the others name, and the walk keeps its own check.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdaptiveExecutionError {
     MissingResponse,

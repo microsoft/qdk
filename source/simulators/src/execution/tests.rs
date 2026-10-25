@@ -557,25 +557,6 @@ fn runtime_propagates_terminal_rejection() {
 }
 
 #[test]
-fn runtime_propagates_control_error() {
-    let program = PreparedAdaptiveProgram::new(unsupported_instruction_program())
-        .expect("unsupported classical control should still prepare");
-
-    let (records, terminal) = run_on_test_double(&program, TestDoubleTerminal::new(None));
-
-    assert_eq!(
-        records,
-        Err(RuntimeError::Control(
-            AdaptiveExecutionError::UnsupportedInstruction {
-                opcode: 0x20,
-                instruction_index: 0,
-            }
-        ))
-    );
-    assert_eq!(terminal.calls, 0);
-}
-
-#[test]
 fn runtime_reports_a_measurement_error_it_cannot_branch_on() {
     struct TestDoubleErrorTerminal;
 
@@ -852,34 +833,95 @@ fn adaptive_measurement_result_selects_only_the_reached_region() {
     );
 }
 
+/// A program the walk cannot run is refused when it is prepared, before
+/// anything of it runs, so that no caller sees it fail part way (A6).
 #[test]
-fn adaptive_execution_reports_typed_control_failures() {
-    let unsupported_instruction = PreparedAdaptiveProgram::new(unsupported_instruction_program())
-        .expect("unsupported classical control should still prepare");
-    assert_eq!(
-        AdaptiveExecution::new(&unsupported_instruction).next_command(None),
-        Err(AdaptiveExecutionError::UnsupportedInstruction {
-            opcode: 0x20,
-            instruction_index: 0,
-        })
-    );
+fn a_program_the_walk_cannot_run_does_not_prepare() {
+    let one_instruction = |opcode, operation_id: Option<u64>| {
+        adaptive_program(
+            vec![instruction(opcode, 0)],
+            vec![Block {
+                instr_offset: 0,
+                instr_count: 1,
+            }],
+            operation_id.into_iter().map(operation).collect(),
+        )
+    };
+    let refused = |program| match PreparedAdaptiveProgram::new(program) {
+        Err(RegionPartitionError::Unsupported(error)) => error,
+        other => panic!("expected an unsupported instruction, got {other:?}"),
+    };
+    let cases = [
+        (
+            unsupported_instruction_program(),
+            AdaptiveExecutionError::UnsupportedInstruction {
+                opcode: 0x20,
+                instruction_index: 0,
+            },
+        ),
+        (
+            // A gate the regions do not hold (operation id 1 is a reset).
+            one_instruction(OP_QUANTUM_GATE, Some(1)),
+            AdaptiveExecutionError::UnsupportedInstruction {
+                opcode: 0x10,
+                instruction_index: 0,
+            },
+        ),
+        (
+            one_instruction(0x11, Some(999)),
+            AdaptiveExecutionError::UnsupportedMeasurement {
+                operation_id: 999,
+                instruction_index: 0,
+            },
+        ),
+        (
+            one_instruction(0x11, None),
+            AdaptiveExecutionError::InvalidMeasurementOperationIndex {
+                operation_index: 0,
+                instruction_index: 0,
+            },
+        ),
+        (
+            one_instruction(0x12, Some(21)),
+            AdaptiveExecutionError::UnsupportedReset {
+                operation_id: 21,
+                instruction_index: 0,
+            },
+        ),
+        (
+            one_instruction(0x12, None),
+            AdaptiveExecutionError::InvalidResetOperationIndex {
+                operation_index: 0,
+                instruction_index: 0,
+            },
+        ),
+    ];
+    for (program, expected) in cases {
+        assert_eq!(refused(program), expected);
+    }
 
-    let unsupported_measurement = adaptive_program(
-        vec![instruction(0x11, 0)],
-        vec![Block {
-            instr_offset: 0,
-            instr_count: 1,
-        }],
-        vec![operation(999)],
+    // Also in a block that no run reaches: the walk would never stop there,
+    // and M0 ran such a program.
+    let unreachable = adaptive_program(
+        vec![instruction(0x02, 0), instruction(0x20, 0)],
+        vec![
+            Block {
+                instr_offset: 0,
+                instr_count: 1,
+            },
+            Block {
+                instr_offset: 1,
+                instr_count: 1,
+            },
+        ],
+        Vec::new(),
     );
-    let unsupported_measurement = PreparedAdaptiveProgram::new(unsupported_measurement)
-        .expect("unsupported measurement should still prepare");
     assert_eq!(
-        AdaptiveExecution::new(&unsupported_measurement).next_command(None),
-        Err(AdaptiveExecutionError::UnsupportedMeasurement {
-            operation_id: 999,
-            instruction_index: 0,
-        })
+        refused(unreachable),
+        AdaptiveExecutionError::UnsupportedInstruction {
+            opcode: 0x20,
+            instruction_index: 1,
+        }
     );
 }
 
@@ -1040,39 +1082,6 @@ fn reset_requires_its_own_completion_response() {
     assert_eq!(
         unexpected.next_command(Some(AdaptiveResponse::ResetComplete)),
         Err(AdaptiveExecutionError::UnexpectedResponse)
-    );
-}
-
-#[test]
-fn adaptive_execution_rejects_invalid_reset_operations() {
-    let reset_program = |operations| {
-        PreparedAdaptiveProgram::new(adaptive_program(
-            vec![instruction(0x12, 0)],
-            vec![Block {
-                instr_offset: 0,
-                instr_count: 1,
-            }],
-            operations,
-        ))
-        .expect("reset should prepare")
-    };
-
-    let unsupported = reset_program(vec![operation(21)]);
-    assert_eq!(
-        AdaptiveExecution::new(&unsupported).next_command(None),
-        Err(AdaptiveExecutionError::UnsupportedReset {
-            operation_id: 21,
-            instruction_index: 0,
-        })
-    );
-
-    let missing = reset_program(Vec::new());
-    assert_eq!(
-        AdaptiveExecution::new(&missing).next_command(None),
-        Err(AdaptiveExecutionError::InvalidResetOperationIndex {
-            operation_index: 0,
-            instruction_index: 0,
-        })
     );
 }
 
