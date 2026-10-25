@@ -3,7 +3,9 @@
 
 //! Executors, what they offer, and how they are closed.
 
-use crate::{Completion, Message, Rejected};
+use crate::{
+    BuildError, Completion, ComponentId, ComponentRngs, Message, Need, Rejected, ShotSet, Unmet,
+};
 
 /// An executor of messages of kind `M`: a terminal that runs them, or an
 /// adapter that keeps their meaning and passes the work on to the executor it
@@ -47,6 +49,10 @@ pub trait Describe {
 /// `#[non_exhaustive]`: build one from the default and its `with_` methods.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent capability, matched one to one by a need"
+)]
 pub struct Capabilities {
     /// The most qubits a shot may use; `None` when it does not say.
     pub qubits: Option<u32>,
@@ -58,17 +64,33 @@ pub struct Capabilities {
     /// Whether each shot draws only from its own random numbers, so that a
     /// shot's outcomes do not depend on which shots share its session.
     pub replayable: bool,
+    /// Whether it can prepare a qubit again during a shot (a reset).
+    pub resets: bool,
+    /// Whether the report at close gives each shot's log probability, over
+    /// every draw made for it. Only a simulator knows it; not hardware, and
+    /// not a sampler that returns values only.
+    pub probabilities: bool,
+    /// The ids of the components that draw random numbers at or below it,
+    /// each with its own seed per shot: a component that draws is refused
+    /// when built over one that already draws with its id
+    /// ([`Capabilities::drawing`]).
+    pub rngs: ComponentRngs,
 }
 
 impl Default for Capabilities {
     /// An executor that states no limit: any number of qubits and states,
-    /// feedback, and replayable shots.
+    /// feedback, replayable shots and resets, drawing with the terminal's id
+    /// only. No probabilities, which an executor states only when it
+    /// computes them.
     fn default() -> Self {
         Self {
             qubits: None,
             feedback: true,
             states: None,
             replayable: true,
+            resets: true,
+            probabilities: false,
+            rngs: ComponentRngs::terminal(),
         }
     }
 }
@@ -99,6 +121,143 @@ impl Capabilities {
     #[must_use]
     pub fn with_replayable(mut self, replayable: bool) -> Self {
         self.replayable = replayable;
+        self
+    }
+
+    /// These capabilities, with or without resets.
+    #[must_use]
+    pub fn with_resets(mut self, resets: bool) -> Self {
+        self.resets = resets;
+        self
+    }
+
+    /// These capabilities, with or without each shot's log probability at
+    /// close.
+    #[must_use]
+    pub fn with_probabilities(mut self, probabilities: bool) -> Self {
+        self.probabilities = probabilities;
+        self
+    }
+
+    /// These capabilities, for a component that draws with `id` above the
+    /// components they describe.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::RngInUse`] when a component below already draws with
+    /// `id`.
+    pub fn drawing(mut self, id: ComponentId) -> Result<Self, BuildError> {
+        self.rngs = self.rngs.with(id)?;
+        Ok(self)
+    }
+
+    /// Checks `needs`, for a session of `shots`, against these capabilities.
+    /// For the component that sets the limits; a rejection names
+    /// `component`, so the caller knows which one to change.
+    ///
+    /// # Errors
+    ///
+    /// [`Rejected::Unmet`] for the first need these capabilities do not
+    /// meet, in the order qubits, feedback, resets, replayable,
+    /// probabilities, states (one per shot of `shots`).
+    pub fn admit(&self, component: &str, shots: &ShotSet, needs: &Needs) -> Result<(), Rejected> {
+        if let (Some(needed), Some(offered)) = (needs.qubits, self.qubits) {
+            Unmet::check(component, Need::Qubits, needed.into(), offered.into())?;
+        }
+        Unmet::check(
+            component,
+            Need::Feedback,
+            needs.feedback.into(),
+            self.feedback.into(),
+        )?;
+        Unmet::check(
+            component,
+            Need::Resets,
+            needs.resets.into(),
+            self.resets.into(),
+        )?;
+        Unmet::check(
+            component,
+            Need::Replayable,
+            needs.replayable.into(),
+            self.replayable.into(),
+        )?;
+        Unmet::check(
+            component,
+            Need::Probabilities,
+            needs.probabilities.into(),
+            self.probabilities.into(),
+        )?;
+        if let Some(offered) = self.states {
+            let needed = u64::try_from(shots.len()).unwrap_or(u64::MAX);
+            Unmet::check(component, Need::States, needed, offered)?;
+        }
+        Ok(())
+    }
+}
+
+/// What a caller states when it opens a session, for the whole session, so
+/// that the stack can refuse it before anything runs rather than fail during
+/// the run.
+///
+/// The default states nothing, so every opener accepts it: a caller states a
+/// need only when it wants it checked. New needs are added as fields whose
+/// default states nothing, hence `#[non_exhaustive]`: build one from the
+/// default and its `with_` methods.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent need, checked one to one against a capability"
+)]
+pub struct Needs {
+    /// The qubits each shot uses; `None`: not stated, not checked.
+    pub qubits: Option<u32>,
+    /// An outcome is read before the end and decides what runs next, so the
+    /// opener must keep a state per shot between calls.
+    pub feedback: bool,
+    /// The program prepares qubits again during the run.
+    pub resets: bool,
+    /// Each shot draws only from its own random numbers, so its outcomes do
+    /// not depend on the other shots of its session.
+    pub replayable: bool,
+    /// The report at close gives each shot's log probability.
+    pub probabilities: bool,
+}
+
+impl Needs {
+    /// These needs, with `qubits` qubits per shot.
+    #[must_use]
+    pub fn with_qubits(mut self, qubits: Option<u32>) -> Self {
+        self.qubits = qubits;
+        self
+    }
+
+    /// These needs, with or without feedback.
+    #[must_use]
+    pub fn with_feedback(mut self, feedback: bool) -> Self {
+        self.feedback = feedback;
+        self
+    }
+
+    /// These needs, with or without resets.
+    #[must_use]
+    pub fn with_resets(mut self, resets: bool) -> Self {
+        self.resets = resets;
+        self
+    }
+
+    /// These needs, with or without replayable shots.
+    #[must_use]
+    pub fn with_replayable(mut self, replayable: bool) -> Self {
+        self.replayable = replayable;
+        self
+    }
+
+    /// These needs, with or without each shot's log probability at close.
+    #[must_use]
+    pub fn with_probabilities(mut self, probabilities: bool) -> Self {
+        self.probabilities = probabilities;
         self
     }
 }

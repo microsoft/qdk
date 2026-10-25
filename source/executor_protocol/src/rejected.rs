@@ -164,6 +164,26 @@ pub struct Unmet {
     pub offered: u64,
 }
 
+impl Unmet {
+    /// Checks that `component` offers at least what is `needed`.
+    ///
+    /// # Errors
+    ///
+    /// [`Rejected::Unmet`] when `needed` exceeds `offered`, naming
+    /// `component`.
+    pub fn check(component: &str, need: Need, needed: u64, offered: u64) -> Result<(), Rejected> {
+        if needed <= offered {
+            return Ok(());
+        }
+        Err(Rejected::Unmet(Unmet {
+            component: component.to_owned(),
+            need,
+            needed,
+            offered,
+        }))
+    }
+}
+
 impl fmt::Display for Unmet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

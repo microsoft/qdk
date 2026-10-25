@@ -4,8 +4,8 @@
 //! The legacy [`Simulator`] as an L3 terminal of the region ISA.
 
 use executor_protocol::{
-    Batch, Capabilities, Close, Describe, ErrorKind, Executor, Fold, Immediate, Outcome, Rejected,
-    Value,
+    Batch, Capabilities, Close, ComponentId, Describe, ErrorKind, Executor, Fold, Immediate,
+    MakeShot, Outcome, Rejected, ShotContext, Value,
 };
 
 use crate::{MeasurementResult, QubitID, Simulator};
@@ -210,6 +210,61 @@ impl<S> Close for SimulatorTerminal<S> {
     fn close(&mut self) -> SimulatorReport {
         self.closed = true;
         std::mem::take(&mut self.report)
+    }
+}
+
+/// The maker of one shot's [`SimulatorTerminal`]: what per-shot sessions of
+/// a legacy [`Simulator`] are opened over, through
+/// [`Open`](executor_protocol::Open).
+///
+/// Shot `j` of a session opened with `seed` is a new simulator seeded from
+/// [`ShotContext::rng_seed`] of [`ComponentId::TERMINAL`], so its outcomes
+/// are the same in any session that holds it. [`Simulator::new`] takes a
+/// 32-bit seed, so the shot's 64-bit seed is folded to 32 bits (its halves
+/// XORed): unlike the 64-bit seeds, two shots of a session may then share a
+/// seed, with probability about n²/2³³ for n shots.
+pub struct SimulatorShots<S: Simulator> {
+    qubits: usize,
+    results: usize,
+    noise: S::Noise,
+}
+
+impl<S: Simulator> SimulatorShots<S> {
+    /// Makes shots of `qubits` qubits and `results` results, each with its
+    /// own copy of `noise`.
+    #[must_use]
+    pub fn new(qubits: usize, results: usize, noise: S::Noise) -> Self {
+        Self {
+            qubits,
+            results,
+            noise,
+        }
+    }
+}
+
+impl<S: Simulator> Describe for SimulatorShots<S> {
+    /// The qubits of each shot, as many as fit the protocol's count; any
+    /// number of shots, each its own state, with feedback and resets, and
+    /// replayable, since each shot draws only from its own seed.
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default().with_qubits(Some(u32::try_from(self.qubits).unwrap_or(u32::MAX)))
+    }
+}
+
+impl<S: Simulator> MakeShot<RegionInstruction> for SimulatorShots<S>
+where
+    S::Noise: Clone,
+{
+    type Shot = SimulatorTerminal<S>;
+
+    fn make(&self, ctx: &ShotContext) -> SimulatorTerminal<S> {
+        let seed = ctx.rng_seed(ComponentId::TERMINAL);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "the legacy simulators take a 32-bit seed: both halves are folded in"
+        )]
+        let seed = (seed ^ (seed >> 32)) as u32;
+        SimulatorTerminal::new(self.qubits, self.results, seed, self.noise.clone())
     }
 }
 

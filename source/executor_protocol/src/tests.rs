@@ -299,7 +299,7 @@ fn default_capabilities_state_no_limit() {
 }
 
 /// A report that counts, as a simulator's would.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Count(u64);
 
 impl Fold for Count {
@@ -346,3 +346,7 @@ fn a_closed_executor_rejects_and_reports_once() {
     total.fold(executor.close());
     assert_eq!(total, Count(2));
 }
+
+mod sessions;
+mod shots;
+mod wake;

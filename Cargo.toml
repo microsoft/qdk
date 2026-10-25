@@ -59,6 +59,7 @@ enum-iterator = "2.3"
 env_logger = "0.11"
 expect-test = "1.5"
 futures = "0.3"
+futures-core = { version = "0.3", default-features = false }
 futures-util = "0.3"
 fasteval = "0.2"
 getrandom = "0.4"

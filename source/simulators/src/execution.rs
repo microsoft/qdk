@@ -26,7 +26,7 @@ pub use protocol::{
 };
 pub use region::QuantumEvolutionRegion;
 pub use runtime::{RuntimeAdapter, RuntimeError, RuntimeReport};
-pub use terminal::{SimulatorReport, SimulatorTerminal};
+pub use terminal::{SimulatorReport, SimulatorShots, SimulatorTerminal};
 pub use unitary::UnitaryOperation;
 pub(crate) use unitary::{
     OPID_MRESETZ, OPID_MZ, OPID_RESETZ, apply_unitary_immediately, resolve_unitary_operation,
