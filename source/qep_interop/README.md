@@ -62,3 +62,57 @@ cargo build --release -p qep_interop && \
 cc -std=c11 -Wall -Wextra -Werror -Isource/qep_interop/include source/qep_interop/examples/ghz.c target/release/libqep_interop.a -ldl -lpthread -lm -o target/release/ghz && \
 ./target/release/ghz
 ```
+
+### Fortran
+
+Use [include/qep_interop.fi](include/qep_interop.fi) for Fortran interfaces to
+all functions in the C header. These interfaces use `bind(C)` and
+`iso_c_binding`; no additional Rust library or wrapper is required.
+
+1. Install a Fortran compiler supporting Fortran 2008, such as `gfortran`, plus
+   the Rust and LLVM prerequisites listed in the C/C++ section.
+2. Include `qep_interop.fi` in the specification part of your free-form source,
+   after `implicit none` and before executable statements. Add this package's
+   `include` directory to the compiler's include path.
+3. Use `integer(c_size_t)` for qubit IDs, result IDs, and measurement results,
+   and `real(c_double)` for rotation angles in radians. Pass nonnegative IDs
+   representable by `integer(c_size_t)`. The interfaces use `value` for numeric
+   arguments to match the Rust C ABI; use kind-qualified literals such as
+   `0_c_size_t` and `0.5_c_double`.
+4. Pass NUL-terminated UTF-8 strings to `init` and `save_profile`, for example
+   `c_char_"sparse_sim" // c_null_char`. Fortran does not append the terminator
+   automatically.
+5. Use `call` for instructions without results. Assign the return value of
+   `mz`, `mz_reset`, or `read_result` to an `integer(c_size_t)` variable.
+   The result codes are the same as in C: 0, 1, or 2 for a backend error.
+
+For example:
+
+```fortran
+program example
+    use, intrinsic :: iso_c_binding, only: c_char, c_null_char, c_size_t
+    implicit none
+    include 'qep_interop.fi'
+    integer(c_size_t) :: outcome
+
+    call init(c_char_"sparse_sim" // c_null_char)
+    call x(0_c_size_t)
+    outcome = mz(0_c_size_t)
+    print *, 'Measurement:', outcome
+end program example
+```
+
+[examples/ghz.f90](examples/ghz.f90) is equivalent to the C GHZ example: it runs
+five shots of a ten-qubit GHZ state on the sparse simulator, then profiles the
+same circuit with the counting profiler. Each simulated shot prints either
+`result = 0` or `result = 1023`, and profiling writes
+`source/qep/tmp/interop_profile.json`. The output directory must already exist.
+Calling `init` again replaces the previous backend and discards its state.
+
+Build and run from the repository root on Linux:
+
+```sh
+cargo build --release -p qep_interop && \
+gfortran -std=f2008 -Wall -Wextra -Werror -Isource/qep_interop/include source/qep_interop/examples/ghz.f90 target/release/libqep_interop.a -ldl -lpthread -lm -o target/release/ghz_fortran && \
+./target/release/ghz_fortran
+```

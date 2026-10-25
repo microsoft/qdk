@@ -31,7 +31,7 @@ int main(void) {
 
     init("counting_profiler");
     ghz_example(10);
-    save_profile("source/qep/tmp/interop_profile.json");
+    save_profile("source/qep/tmp/ghz_profile.json");
 
     return 0;
 }

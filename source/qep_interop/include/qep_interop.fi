@@ -1,0 +1,179 @@
+! Include in the specification part of a free-form Fortran program or module.
+interface
+    ! Replaces the backend with fresh state selected by a NUL-terminated name.
+    subroutine init(backend) bind(C, name="init")
+        use, intrinsic :: iso_c_binding, only: c_char
+        character(kind=c_char), intent(in) :: backend(*)
+    end subroutine init
+
+    ! Saves profiling data to a NUL-terminated UTF-8 path.
+    subroutine save_profile(path) bind(C, name="save_profile")
+        use, intrinsic :: iso_c_binding, only: c_char
+        character(kind=c_char), intent(in) :: path(*)
+    end subroutine save_profile
+
+    ! Applies a doubly controlled X gate.
+    subroutine ccx(control0, control1, target) bind(C, name="ccx")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: control0, control1, target
+    end subroutine ccx
+
+    ! Applies a controlled X gate.
+    subroutine cx(control, target) bind(C, name="cx")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: control, target
+    end subroutine cx
+
+    ! Applies a controlled Y gate.
+    subroutine cy(control, target) bind(C, name="cy")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: control, target
+    end subroutine cy
+
+    ! Applies a controlled Z gate.
+    subroutine cz(control, target) bind(C, name="cz")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: control, target
+    end subroutine cz
+
+    ! Rotates a qubit around X by an angle in radians.
+    subroutine rx(qubit_id, angle) bind(C, name="rx")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_double
+        integer(c_size_t), value :: qubit_id
+        real(c_double), value :: angle
+    end subroutine rx
+
+    ! Applies an XX rotation by an angle in radians.
+    subroutine rxx(qubit0, qubit1, angle) bind(C, name="rxx")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_double
+        integer(c_size_t), value :: qubit0, qubit1
+        real(c_double), value :: angle
+    end subroutine rxx
+
+    ! Rotates a qubit around Y by an angle in radians.
+    subroutine ry(qubit_id, angle) bind(C, name="ry")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_double
+        integer(c_size_t), value :: qubit_id
+        real(c_double), value :: angle
+    end subroutine ry
+
+    ! Applies a YY rotation by an angle in radians.
+    subroutine ryy(qubit0, qubit1, angle) bind(C, name="ryy")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_double
+        integer(c_size_t), value :: qubit0, qubit1
+        real(c_double), value :: angle
+    end subroutine ryy
+
+    ! Rotates a qubit around Z by an angle in radians.
+    subroutine rz(qubit_id, angle) bind(C, name="rz")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_double
+        integer(c_size_t), value :: qubit_id
+        real(c_double), value :: angle
+    end subroutine rz
+
+    ! Applies a ZZ rotation by an angle in radians.
+    subroutine rzz(qubit0, qubit1, angle) bind(C, name="rzz")
+        use, intrinsic :: iso_c_binding, only: c_size_t, c_double
+        integer(c_size_t), value :: qubit0, qubit1
+        real(c_double), value :: angle
+    end subroutine rzz
+
+    ! Applies a Hadamard gate.
+    subroutine h(qubit_id) bind(C, name="h")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine h
+
+    ! Applies an S phase gate.
+    subroutine s(qubit_id) bind(C, name="s")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine s
+
+    ! Applies the adjoint of an S phase gate.
+    subroutine sadj(qubit_id) bind(C, name="sadj")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine sadj
+
+    ! Applies a square-root X gate.
+    subroutine sx(qubit_id) bind(C, name="sx")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine sx
+
+    ! Applies a T phase gate.
+    subroutine t(qubit_id) bind(C, name="t")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine t
+
+    ! Applies the adjoint of a T phase gate.
+    subroutine tadj(qubit_id) bind(C, name="tadj")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine tadj
+
+    ! Applies an X gate.
+    subroutine x(qubit_id) bind(C, name="x")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine x
+
+    ! Applies a Y gate.
+    subroutine y(qubit_id) bind(C, name="y")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine y
+
+    ! Applies a Z gate.
+    subroutine z(qubit_id) bind(C, name="z")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine z
+
+    ! Swaps two qubits.
+    subroutine swap(qubit0, qubit1) bind(C, name="swap")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit0, qubit1
+    end subroutine swap
+
+    ! Resets a qubit to zero.
+    subroutine reset(qubit_id) bind(C, name="reset")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+    end subroutine reset
+
+    ! Measures in Z and stores the outcome in a result register.
+    subroutine mz_store(qubit_id, result_id) bind(C, name="mz_store")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id, result_id
+    end subroutine mz_store
+
+    ! Measures in Z, stores the outcome, and resets the qubit.
+    subroutine mz_store_reset(qubit_id, result_id) bind(C, name="mz_store_reset")
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id, result_id
+    end subroutine mz_store_reset
+
+    ! Reads a stored result: 0 = zero, 1 = one, 2 = backend error.
+    function read_result(result_id) bind(C, name="read_result") result(outcome)
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: result_id
+        integer(c_size_t) :: outcome
+    end function read_result
+
+    ! Measures in Z: 0 = zero, 1 = one, 2 = backend error.
+    function mz(qubit_id) bind(C, name="mz") result(outcome)
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+        integer(c_size_t) :: outcome
+    end function mz
+
+    ! Measures in Z and resets: 0 = zero, 1 = one, 2 = backend error.
+    function mz_reset(qubit_id) bind(C, name="mz_reset") result(outcome)
+        use, intrinsic :: iso_c_binding, only: c_size_t
+        integer(c_size_t), value :: qubit_id
+        integer(c_size_t) :: outcome
+    end function mz_reset
+end interface
