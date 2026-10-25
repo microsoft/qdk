@@ -7,11 +7,18 @@ use smallvec::smallvec;
 /// Default number of instructions sent to a backend in one batch.
 pub const DEFAULT_MAX_BATCH_SIZE: usize = 10_000;
 
-/// Buffers QIR instructions and executes batches at capacity or result barriers.
+/// Buffers QIR instructions and flushes at capacity or a `read_result`, `mz`, or `mz_reset` barrier.
 pub(crate) struct Batcher<'a> {
     backend: &'a mut dyn QuantumBackend,
     instructions: Vec<QuantumBackendInstruction>,
     max_batch_size: usize,
+}
+
+fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
+    return matches!(
+        instruction.instruction_name,
+        "read_result" | "mz" | "mz_reset"
+    );
 }
 
 impl<'a> Batcher<'a> {
@@ -32,9 +39,7 @@ impl<'a> Batcher<'a> {
 
     /// Buffers a non-blocking instruction and flushes a full batch.
     pub(crate) fn push(&mut self, instruction: QuantumBackendInstruction) -> Result<(), String> {
-        if instruction.instruction_name == "read_result" {
-            return Err("read_result must be submitted through the result barrier".into());
-        }
+        debug_assert!(!produces_result(&instruction));
         self.instructions.push(instruction);
         if self.instructions.len() == self.max_batch_size {
             self.flush(false)?;
@@ -44,13 +49,22 @@ impl<'a> Batcher<'a> {
 
     /// Flushes pending instructions with a final result read and returns its value.
     pub(crate) fn read_result(&mut self, result_id: usize) -> Result<bool, String> {
-        self.instructions.push(QuantumBackendInstruction {
+        self.push_with_result(QuantumBackendInstruction {
             instruction_name: "read_result",
             parameters: smallvec![Parameter::ResultId(result_id)],
-        });
-        self.flush(true)?.ok_or_else(|| {
-            "QIR backend returned no result for a batch ending in read_result".into()
         })
+    }
+
+    /// Submits a result-producing instruction as an immediate barrier after pending work.
+    pub(crate) fn push_with_result(
+        &mut self,
+        instruction: QuantumBackendInstruction,
+    ) -> Result<bool, String> {
+        debug_assert!(produces_result(&instruction));
+        let name = instruction.instruction_name;
+        self.instructions.push(instruction);
+        self.flush(true)?
+            .ok_or_else(|| format!("QIR backend returned no result for a batch ending in {name}"))
     }
 
     /// Flushes instructions remaining at the end of execution.
