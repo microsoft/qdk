@@ -5,18 +5,25 @@
 # The A100 qualification of tensornet_simulator: M1's stack (MpsStack, the
 # batch strategy and PerShot(TensorNetShots)) over qdk_cutensornet's
 # CuTensorNetEngine, on M0's qualification cases (B1-B4, with M0's pinned
-# values), against ExactReference (B0, B2), and through the walk shot by shot.
+# values), against ExactReference (B0, B2), and through the walk shot by shot;
+# and M1's acceptance test, H2 phase estimation on the MPS through the protocol.
 # The tests are src/tests/qualification.rs, all #[ignore]d; this script checks
 # the machine, then runs them in release mode, one at a time.
 #
 # Usage, on the A100 VM:
-#   ./qualify-simulator-on-a100.sh [--check | --quick] COMMIT [REPO]
+#   ./qualify-simulator-on-a100.sh [--check | --quick] [--h2 FILE [--shots N]] COMMIT [REPO]
 #     COMMIT   the commit to qualify (it must have src/tests/qualification.rs)
 #     REPO     the qdk checkout that has COMMIT (default: the current directory)
 #     --check  only the checks (host, tools, commit, GPU, libraries, disk);
 #              builds and changes nothing
 #     --quick  a smoke run: Bell, B1 and the per-shot cases only
-# Run --check first, then --quick, then with no option.
+#     --h2 FILE  run only H2 (h2_qpe_on_the_a100) on the AdaptiveProgram.as_dict()
+#              JSON in FILE, each shot in its own session; with --check, it
+#              also checks FILE. Without --h2, the full and quick runs skip H2.
+#     --shots N  H2's shots (default 1; at 50 or more it asserts the two peaks).
+#              A shot is expected to take minutes, so 50 shots take hours.
+# Run --check first, then --quick, then with no option; then --h2 with
+# --shots 1, then with more shots.
 #
 # It leaves REPO's checkout untouched: it adds a detached worktree at COMMIT
 # next to it (../qdk-simulator-qualification) and builds there. Results go to
@@ -35,6 +42,9 @@
 #       qdk_cutensornet::discover reads them (else the pinned paths, else
 #       ldconfig's answer)
 #   Q_ALLOW_OTHER_GPU=1  run on a GPU that is not an A100
+#   QDK_H2_SEED (0), QDK_H2_CHI (32)  with --h2: the run's seed (shot j, from
+#       1, runs in its own session opened on shot j with it, as qdk_simulators'
+#       h2_qpe test does) and the bond cap chi
 # Keep the GPU otherwise idle while it runs.
 set -euo pipefail
 
@@ -46,12 +56,16 @@ readonly MIN_FREE_GB=15
 readonly PACKAGE=tensornet_simulator
 readonly QUALIFICATION=source/tensornet_simulator/src/tests/qualification.rs
 readonly FILTER=tests::qualification::
-readonly QUICK_TESTS=(bell_on_the_a100 b1_widths per_shot_bell_pairs_on_the_a100 per_shot_feedback_and_resets_on_the_a100)
+readonly QUICK_TESTS=(bell_on_the_a100 b1_widths per_shot_bell_pairs_on_the_a100
+    per_shot_feedback_and_resets_on_the_a100 per_shot_phase_estimation_on_the_a100)
+readonly H2_TEST=h2_qpe_on_the_a100
 readonly CUTENSORNET_PINNED=/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2
 readonly CUDART_PINNED=/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12
 
-usage() { printf 'usage: %s [--check | --quick] COMMIT [REPO]\n' "$0" >&2; exit 2; }
+usage() { printf 'usage: %s [--check | --quick] [--h2 FILE [--shots N]] COMMIT [REPO]\n' "$0" >&2; exit 2; }
 mode=run
+h2=""
+shots=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --check | --quick)
@@ -59,12 +73,30 @@ while [[ $# -gt 0 ]]; do
             mode="${1#--}"
             shift
             ;;
+        --h2)
+            [[ $# -ge 2 ]] || usage
+            h2="$2"
+            shift 2
+            ;;
+        --shots)
+            [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { printf '%s: --shots needs a positive integer\n' "$0" >&2; exit 2; }
+            shots="$2"
+            shift 2
+            ;;
         -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
         -*) printf 'unknown option %s\n' "$1" >&2; exit 2 ;;
         *) break ;;
     esac
 done
 [[ $# -ge 1 && $# -le 2 ]] || usage
+[[ -z "$shots" || -n "$h2" ]] || { printf '%s: --shots goes with --h2\n' "$0" >&2; exit 2; }
+[[ -z "$h2" || "$mode" != quick ]] || { printf '%s: use one of --quick and --h2\n' "$0" >&2; exit 2; }
+if [[ -n "$h2" ]]; then
+    [[ -f "$h2" ]] || { printf 'FAIL: --h2 %s is not a file\n' "$h2" >&2; exit 1; }
+    # Absolute, because the test runs in the worktree.
+    h2="$(cd "$(dirname "$h2")" && pwd)/$(basename "$h2")"
+    shots="${shots:-1}"
+fi
 ref="$1"
 [[ -d "${2:-.}" ]] || { printf 'FAIL: %s is not a directory\n' "${2:-.}" >&2; exit 1; }
 repo="$(cd "${2:-.}" && pwd)"
@@ -251,6 +283,27 @@ EOF
     fi
 fi
 
+if [[ -n "$h2" ]]; then
+    printf -- '-- H2 bytecode\n'
+    h2_shape=""
+    if ! have python3; then
+        problem "python3 is needed to check $h2"
+    elif h2_shape="$(python3 - "$h2" 2>&1 <<'EOF'
+import json, sys
+program = json.load(open(sys.argv[1]))
+missing = [k for k in ("num_qubits", "num_results", "instructions") if k not in program]
+if missing:
+    sys.exit(f"no {', '.join(missing)}")
+print(f"{program['num_qubits']} qubits, {program['num_results']} results, "
+      f"{len(program['instructions'])} instructions")
+EOF
+    )"; then
+        ok "$h2: $h2_shape; $shots shot(s)"
+    else
+        problem "$h2 is not an AdaptiveProgram.as_dict() JSON: $(tail -1 <<<"$h2_shape")"
+    fi
+fi
+
 printf -- '-- disk and memory\n'
 free_gb="$(df -Pk "$(dirname "$repo")" | awk 'NR == 2 { print int($4 / 1048576) }')"
 if [[ "$free_gb" -ge "$MIN_FREE_GB" ]]; then
@@ -275,10 +328,12 @@ step "2. worktree"
 if [[ ! -e "$work" ]]; then
     git -C "$repo" worktree add --detach "$work" "$sha"
 fi
-out="$HOME/simulator-qualification-$(date +%Y%m%d-%H%M%S)"
+out="$HOME/simulator-qualification-${h2:+h2-}$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out"
 {
     printf 'commit=%s\nmode=%s\nhost=%s\ndate=%s\n' "$sha" "$mode" "$(uname -a)" "$(date -Is)"
+    [[ -z "$h2" ]] || printf 'h2=%s\nh2_sha256=%s\nQDK_H2_SHOTS=%s\nQDK_H2_SEED=%s\nQDK_H2_CHI=%s\n' \
+        "$h2" "$(sha256sum "$h2" | awk '{ print $1 }')" "$shots" "${QDK_H2_SEED:-0}" "${QDK_H2_CHI:-32}"
     printf 'QDK_CUTENSORNET_LIBRARY=%s\nQDK_CUDART_LIBRARY=%s\n' "$QDK_CUTENSORNET_LIBRARY" "$QDK_CUDART_LIBRARY"
     printf '%s\n' "$probe"
     (cd "$work" && rustc --version && cargo --version)
@@ -286,12 +341,16 @@ mkdir -p "$out"
 } >"$out/environment.txt" 2>&1 || true
 
 step "3. build and run"
-filters=("$FILTER")
-if [[ "$mode" == quick ]]; then
+filters=("$FILTER" --skip "$H2_TEST")
+if [[ -n "$h2" ]]; then
+    filters=("$FILTER$H2_TEST" --exact)
+    export QDK_H2_BYTECODE="$h2" QDK_H2_SHOTS="$shots"
+elif [[ "$mode" == quick ]]; then
     filters=("${QUICK_TESTS[@]/#/$FILTER}")
 fi
 command=(cargo test -p "$PACKAGE" --release -- --ignored --nocapture --test-threads=1 "${filters[@]}")
-printf '%s\n' "(cd $work && ${command[*]})" | tee "$out/command.txt"
+printf '%s\n' "(cd $work && ${h2:+QDK_H2_BYTECODE=$h2 QDK_H2_SHOTS=$shots }${command[*]})" \
+    | tee "$out/command.txt"
 set +e
 (cd "$work" && "${command[@]}") 2>&1 | tee "$out/run.log"
 status="${PIPESTATUS[0]}"
@@ -316,6 +375,9 @@ step "4. summary"
     grep -E '^(cutensornet_version|cutensornet_cuda_runtime_version|cudart_version|cuda_driver_version)=' \
         "$out/run.log" | awk '!seen[$0]++' || true
     grep -E '^(trotter|b1) ' "$out/run.log" || true
+    grep -E '^phase estimation' "$out/run.log" || true
+    # H2's results, without its progress lines.
+    grep -E '^h2 ' "$out/run.log" | grep -vE '^h2 shot [0-9]+: [0-9]+ batches' || true
     grep -E '^test result:' "$out/run.log" || true
 } | tee "$out/summary.txt"
 [[ "$status" -eq 0 ]] || fail "cargo test exited with $status (see $out/run.log)"

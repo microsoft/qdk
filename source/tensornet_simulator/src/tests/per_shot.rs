@@ -12,13 +12,22 @@ use std::rc::Rc;
 use executor_protocol::{
     Close as _, Describe as _, Executor as _, PerShot, Rejected, ShotSet, Value, open,
 };
-use qdk_simulators::execution::{RegionInstruction, UnitaryOperation};
+use qdk_simulators::{
+    Simulator as _,
+    bytecode::runtime::run_shot,
+    cpu_full_state_simulator::FullStateSimulator,
+    execution::{RegionInstruction, UnitaryOperation},
+};
 use tensornet::reference::ExactReference;
 
 use super::{
     TestDoubleEngine,
-    cases::{count, per_shot_bell_pairs, per_shot_feedback_and_resets},
-    crossing_pairs, cx, h, measure, measure_reset, region, run_batch, submit, values_of,
+    cases::{
+        IPE_BITS, IPE_PHASE, allowed_distance, count, estimate, peak, per_shot_bell_pairs,
+        per_shot_feedback_and_resets, per_shot_phase_estimation, total_variation,
+    },
+    crossing_pairs, cx, h, iterative_phase_estimation, measure, measure_reset,
+    phase_estimation_distribution, region, run_batch, submit, values_of,
 };
 use crate::{MpsStack, TensorNetReport, TensorNetShots, TensorNetTerminal, mps_capacity};
 
@@ -227,4 +236,40 @@ fn per_shot_draws_follow_the_batch_strategys_distribution() {
     end.expect("ran");
     let ones = f64::from(count(events.iter().filter(|e| e.value == Value::One))) / 4000.0;
     assert!((ones - p1).abs() < 0.03, "{ones} against {p1}");
+}
+
+/// H₂'s kind of program, scaled down to fit `ExactReference`: phase
+/// estimation with `ICMP`-conditioned feedback, mid-circuit measurements and
+/// resets, through the walk over `PerShot(TensorNetShots)`, and through the
+/// legacy runtime on the dense CPU simulator. The samplers differ, so the
+/// rows do not match shot for shot; both follow textbook phase estimation's
+/// distribution and peak at the phase's nearest estimate, and each walked
+/// shot's ln p is its estimate's probability (`per_shot_phase_estimation`).
+#[test]
+fn phase_estimation_with_feedback_follows_the_legacy_runtime_and_peaks_at_the_phase() {
+    const SHOTS: u32 = 2000;
+    let expected = phase_estimation_distribution(IPE_BITS, IPE_PHASE);
+    assert!((expected.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+    assert!((expected[5] - 0.8756).abs() < 1e-4, "{expected:?}");
+    let walked = per_shot_phase_estimation(&MpsStack::new(ExactReference::new()), SHOTS, 1e-9);
+
+    let program = iterative_phase_estimation(IPE_BITS, IPE_PHASE);
+    let mut legacy = vec![0; expected.len()];
+    for seed in 0..SHOTS {
+        let mut sim = FullStateSimulator::new(3, IPE_BITS as usize, seed, Default::default());
+        legacy[estimate(&run_shot(program.program(), &mut sim))] += 1;
+    }
+    let distance = total_variation(&legacy, &expected);
+    assert!(
+        distance < allowed_distance(SHOTS),
+        "the legacy runtime: {legacy:?} against {expected:?}, distance {distance}"
+    );
+    assert_eq!(peak(&legacy), 5, "{legacy:?}");
+    let shots = f64::from(SHOTS);
+    let frequencies: Vec<f64> = legacy.iter().map(|&n| f64::from(n) / shots).collect();
+    let distance = total_variation(&walked, &frequencies);
+    assert!(
+        distance < 2.0 * allowed_distance(SHOTS),
+        "the walk {walked:?} against the legacy runtime {legacy:?}: distance {distance}"
+    );
 }

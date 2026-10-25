@@ -2901,6 +2901,7 @@ dependencies = [
  "qdk_cutensornet",
  "qdk_simulators",
  "rand 0.10.2",
+ "serde_json",
  "tensornet",
  "thiserror",
 ]

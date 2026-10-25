@@ -13,7 +13,10 @@ use qdk_simulators::{
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use tensornet::MpsEngine;
 
-use super::{Bytecode, OPID_CZ, OPID_Y, bell, pauli};
+use super::{
+    Bytecode, OPID_CZ, OPID_Y, bell, iterative_phase_estimation, pauli,
+    phase_estimation_distribution,
+};
 use crate::{Evaluate, MpsStack, StateQuery, StateQueryValue, TensorNetShots};
 
 /// A record's value, for a record of a measurement that was not lost.
@@ -417,4 +420,88 @@ pub(in crate::tests) fn per_shot_feedback_and_resets<E: MpsEngine>(
         assert!((ln_p - 0.5f64.ln()).abs() < 1e-9, "shot {j}: {ln_p}");
     }
     assert_eq!(seen, [true, true]);
+}
+
+/// The bits and the phase of the phase estimation case: 2^4 · 0.3 = 4.8, so
+/// the estimate is 5 with probability 0.876 and 4 with probability 0.055.
+pub(in crate::tests) const IPE_BITS: u32 = 4;
+pub(in crate::tests) const IPE_PHASE: f64 = 0.3;
+
+/// The estimate a row of [`iterative_phase_estimation`] reads, most
+/// significant bit first.
+pub(in crate::tests) fn estimate(records: &[OutputRecord]) -> usize {
+    records
+        .iter()
+        .fold(0, |x, record| 2 * x + usize::from(bit(record)))
+}
+
+/// The total variation distance between the frequencies of `histogram` and
+/// the distribution `expected`.
+pub(in crate::tests) fn total_variation(histogram: &[u32], expected: &[f64]) -> f64 {
+    let shots = f64::from(histogram.iter().sum::<u32>());
+    histogram
+        .iter()
+        .zip(expected)
+        .map(|(&n, p)| (f64::from(n) / shots - p).abs())
+        .sum::<f64>()
+        / 2.0
+}
+
+/// The distance [`total_variation`] allows between `shots` draws and their
+/// distribution: 2/√shots. Its mean is at most Σₓ √(pₓ)/(2√shots), and
+/// Σₓ √pₓ is 2.04 for the phase estimation case's distribution, so this
+/// bound is about twice the mean; the seeds are fixed, so a pass is
+/// reproducible.
+pub(in crate::tests) fn allowed_distance(shots: u32) -> f64 {
+    2.0 / f64::from(shots).sqrt()
+}
+
+/// `shots` shots of [`iterative_phase_estimation`] (the case's bits and
+/// phase), each in its own per-shot session through the walk, as H₂ runs:
+/// each shot's ln p is that of its estimate in textbook phase estimation,
+/// to `tolerance`, since the resets are of measured qubits; the estimates
+/// follow that distribution and peak at round(2^bits·phase). Returns the
+/// histogram of the estimates.
+pub(in crate::tests) fn per_shot_phase_estimation<E: MpsEngine>(
+    stack: &MpsStack<E>,
+    shots: u32,
+    tolerance: f64,
+) -> Vec<u32> {
+    let program = iterative_phase_estimation(IPE_BITS, IPE_PHASE);
+    let expected = phase_estimation_distribution(IPE_BITS, IPE_PHASE);
+    let strategy: PerShot<TensorNetShots<E>> = stack.per_shot(3).expect("a chain");
+    let mut histogram = vec![0; expected.len()];
+    for j in 1..=shots {
+        let session = open(&strategy, RUN_SEED, &ShotSet::one(j)).expect("opens");
+        let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session, j));
+        let mut records = Vec::new();
+        adapter.run(&program, &mut records).expect("runs");
+        assert_eq!(records.len(), IPE_BITS as usize, "shot {j}");
+        let x = estimate(&records);
+        histogram[x] += 1;
+        let report = adapter.close().inner;
+        assert_eq!(report.shots.measurements, u64::from(IPE_BITS), "shot {j}");
+        assert_eq!(report.shots.resets, u64::from(IPE_BITS / 2), "shot {j}");
+        let ln_p = report.log_p.get(j).expect("known");
+        assert!(
+            (ln_p - expected[x].ln()).abs() < tolerance,
+            "shot {j}: estimate {x}, ln p {ln_p} against {}",
+            expected[x].ln()
+        );
+    }
+    let distance = total_variation(&histogram, &expected);
+    println!("phase estimation: {shots} shots, histogram {histogram:?}, distance {distance:.4}");
+    assert!(
+        distance < allowed_distance(shots),
+        "{histogram:?} against {expected:?}: distance {distance}"
+    );
+    assert_eq!(peak(&histogram), 5, "{histogram:?}");
+    histogram
+}
+
+/// The most frequent value of `histogram`.
+pub(in crate::tests) fn peak(histogram: &[u32]) -> usize {
+    (0..histogram.len())
+        .max_by_key(|&x| histogram[x])
+        .expect("a non-empty histogram")
 }

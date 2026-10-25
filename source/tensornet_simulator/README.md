@@ -91,6 +91,8 @@ these cases:
 | `b4_convergence`                           | M0's B4: width 256, 16 steps, χ 32, 64, 128 and 256, M0's values to 1e-9                     |
 | `per_shot_bell_pairs_on_the_a100`          | 200 per-shot Bell shots through the walk, each with ln p = ln ½                              |
 | `per_shot_feedback_and_resets_on_the_a100` | 40 shots with feedback, a reset and `MResetZ`, through the walk                              |
+| `per_shot_phase_estimation_on_the_a100`    | 200 shots of 4-bit iterative phase estimation (feedback, resets), near textbook QPE          |
+| `h2_qpe_on_the_a100`                       | M1's acceptance test: H₂ phase estimation from `QDK_H2_BYTECODE`, a session per shot (below) |
 
 The engine is `Availability::mps_engine`, with M0's base qualification
 policy (absolute cutoff 1e-10). M0 ran B3 and B4 with an absolute cutoff of
@@ -125,8 +127,28 @@ chmod +x /data/domingom/qualify-simulator-on-a100.sh
 The options are:
 
 - `--check` only checks, and builds and changes nothing.
-- `--quick` runs Bell, B1 and the two per-shot cases.
-- With no option, the script runs every case.
+- `--quick` runs Bell, B1 and the three per-shot cases.
+- With no option, the script runs every case but H₂.
+- `--h2 FILE [--shots N]` runs H₂ only (below).
+
+### H₂
+
+`h2_qpe_on_the_a100` runs H₂'s phase estimation (29 qubits, 1,404 results,
+713 `ICMP`s, 10 resets) on the MPS through the protocol, one session per
+shot. It reads the `AdaptiveProgram.as_dict()` JSON that
+`qdk_chemistry` produces (as `qdk_simulators`' `h2_qpe` test does) from
+`QDK_H2_BYTECODE`, and `QDK_H2_SHOTS` (1), `QDK_H2_SEED` (0) and
+`QDK_H2_CHI` (32). It prints each shot's results, its time and the device
+memory, and a progress line every 100 batches. At 50 shots or more it
+asserts that the two most frequent outcomes are `01010` and `10110`, written
+as `qdk_chemistry` writes them (the last result first). Copy the JSON to the
+VM, then run one shot, then more:
+
+```sh
+/data/domingom/qualify-simulator-on-a100.sh --check --h2 /data/domingom/h2.bytecode.json COMMIT /data/domingom/qdk
+/data/domingom/qualify-simulator-on-a100.sh --h2 /data/domingom/h2.bytecode.json --shots 1 COMMIT /data/domingom/qdk
+/data/domingom/qualify-simulator-on-a100.sh --h2 /data/domingom/h2.bytecode.json --shots 50 COMMIT /data/domingom/qdk
+```
 
 The library paths come from `QDK_CUTENSORNET_LIBRARY` and
 `QDK_CUDART_LIBRARY` if they are set. Otherwise the script uses the pinned

@@ -18,6 +18,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 qdk_cutensornet = { path = "../cutensornet" }
+serde_json = { workspace = true }
 tensornet = { path = "../tensornet", features = ["conformance"] }
 
 [lints]

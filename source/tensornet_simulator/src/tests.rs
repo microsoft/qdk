@@ -8,9 +8,10 @@
 //! | `programs`      | M0's ④ preflight and replay, ported (execution and consumer tests)    |
 //! | `batch`         | the batch strategy: needs, seeds, submissions, failures (MPS7–MPS13)  |
 //! | `per_shot`      | `PerShot(TensorNetShots)`: draws, ln p, replayability, bonds (MPS1–4) |
+//! |                 | and phase estimation with feedback against the legacy runtime         |
 //! | `queries`       | state queries (MPS14–MPS17, MPS19) and their preflight                |
 //! | `parity`        | parity with M0: the sampler seed, the samples, the records (L10)      |
-//! | `qualification` | the A100 qualification, `#[ignore]`d (Linux x86-64 only)              |
+//! | `qualification` | the A100 qualification and H₂ QPE, `#[ignore]`d (Linux x86-64 only)   |
 //!
 //! The cases that hold for any engine are generic over [`MpsEngine`] in
 //! `cases`, run here on [`ExactReference`] and on the A100 by
@@ -36,6 +37,11 @@ use tensornet::{
     reference::{ExactReference, ReferenceError, ReferenceState},
 };
 
+// The reader of H₂'s bytecode JSON that `qdk_simulators`'s `h2_qpe` test
+// uses, for `qualification`'s H₂ run; test support, not API.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "../../simulators/tests/common/adaptive_program_json.rs"]
+mod adaptive_program_json;
 mod batch;
 mod cases;
 mod parity;
@@ -47,13 +53,20 @@ mod queries;
 
 // Bytecode, as M0's tests built it.
 const IMMEDIATE_SRC0: u64 = 1 << 16;
+const IMMEDIATE_SRC1: u64 = 1 << 17;
 const IMMEDIATE_AUX1: u64 = 1 << 20;
 const IMMEDIATE_AUX2: u64 = 1 << 21;
 const OP_QUANTUM_GATE: u64 = 0x10;
 const OP_MEASURE: u64 = 0x11;
 const OP_RESET: u64 = 0x12;
+const OP_READ_RESULT: u64 = 0x13;
 const OP_RECORD_OUTPUT: u64 = 0x14;
 const OP_RET: u64 = 0x02;
+const OP_JUMP: u64 = 0x04;
+const OP_BRANCH: u64 = 0x05;
+const OP_OR: u64 = 0x29;
+/// `ICMP` with predicate 1, `ne`, in the sub-opcode (bits 15:8).
+const OP_ICMP_NE: u64 = 0x30 | (1 << 8);
 
 pub(super) const OPID_RESETZ: u64 = 1;
 pub(super) const OPID_X: u64 = 2;
@@ -270,10 +283,6 @@ impl Bytecode {
 /// with an `OR` and jumps back; block 1 measures. HH = I, so every shot
 /// reads Zero, where a region applied once would read One half the time.
 pub(super) fn region_run_twice() -> PreparedAdaptiveProgram<u64> {
-    const OP_JUMP: u64 = 0x04;
-    const OP_BRANCH: u64 = 0x05;
-    const OP_OR: u64 = 0x29;
-    const IMMEDIATE_SRC1: u64 = 1 << 17;
     let mut program = Bytecode::new(1).h(0);
     program.instructions.extend([
         Instruction {
@@ -308,6 +317,115 @@ pub(super) fn region_run_twice() -> PreparedAdaptiveProgram<u64> {
     program
         .prepare(vec![block(0, 2), block(4, 3), block(2, 2)])
         .expect("a loop prepares")
+}
+
+/// The ancilla of [`iterative_phase_estimation`]; its target is qubit 2, so
+/// that the controlled phase acts across an idle qubit, as H₂'s gates act
+/// on qubits far apart in the chain.
+const IPE_ANCILLA: u64 = 0;
+const IPE_TARGET: u64 = 2;
+
+/// Iterative phase estimation of `phase` (in turns) to `bits` bits: H₂'s
+/// kind of program at three qubits. The target holds |1⟩, the eigenstate of
+/// U = P(2π·`phase`); iteration i applies controlled-U^(2^(bits−1−i)) from
+/// the ancilla and measures it into result i, which is bit bits−i of the
+/// estimate. Before that, each earlier result j that read One rotates the
+/// ancilla by −π/2^(i−j): a `READ_RESULT`, an `ICMP ne` and a `BRANCH` to a
+/// block with the `Rz`, as H₂ conditions its gates. Even iterations measure
+/// with `MResetZ`; odd ones with `MZ` and then `RESET` the ancilla. The
+/// results are recorded most significant bit first, so a row read as a
+/// binary number is the estimate x of 2^bits·`phase`. This is Griffiths and
+/// Niu's semiclassical Fourier transform, so x is distributed as in
+/// textbook phase estimation ([`phase_estimation_distribution`]).
+pub(super) fn iterative_phase_estimation(bits: u32, phase: f64) -> PreparedAdaptiveProgram<u64> {
+    let mut program = Bytecode::new(3).x(IPE_TARGET);
+    let mut starts = vec![0];
+    for i in 0..u64::from(bits) {
+        program = program.h(IPE_ANCILLA);
+        for j in 0..i {
+            let apply = starts.len() as u64;
+            // Register 0 holds result j, then whether it is One.
+            program.instructions.extend([
+                Instruction {
+                    opcode: OP_READ_RESULT | IMMEDIATE_SRC0,
+                    dst: 0,
+                    src0: j,
+                    ..Instruction::default()
+                },
+                Instruction {
+                    opcode: OP_ICMP_NE | IMMEDIATE_SRC1,
+                    dst: 0,
+                    src0: 0,
+                    src1: 0,
+                    ..Instruction::default()
+                },
+                Instruction {
+                    opcode: OP_BRANCH,
+                    src0: 0,
+                    aux0: apply,
+                    aux1: apply + 1,
+                    ..Instruction::default()
+                },
+            ]);
+            starts.push(program.instructions.len());
+            let correction = -std::f64::consts::PI / f64::from(1u32 << (i - j));
+            program = program.rz(correction, IPE_ANCILLA);
+            program.instructions.push(Instruction {
+                opcode: OP_JUMP,
+                dst: apply + 1,
+                ..Instruction::default()
+            });
+            starts.push(program.instructions.len());
+        }
+        let power = f64::from(1u32 << (u64::from(bits) - 1 - i));
+        let theta = std::f64::consts::TAU * phase * power;
+        // Controlled-P(θ) = P(θ/2)_a P(θ/2)_t CX P(−θ/2)_t CX, with Rz for P:
+        // the phases Rz adds are global.
+        program = program
+            .rz(theta / 2.0, IPE_ANCILLA)
+            .rz(theta / 2.0, IPE_TARGET)
+            .cx(IPE_ANCILLA, IPE_TARGET)
+            .rz(-theta / 2.0, IPE_TARGET)
+            .cx(IPE_ANCILLA, IPE_TARGET)
+            .h(IPE_ANCILLA);
+        program = if i % 2 == 0 {
+            program.mresetz(IPE_ANCILLA, i)
+        } else {
+            program.mz(IPE_ANCILLA, i).reset(IPE_ANCILLA)
+        };
+    }
+    for i in (0..u64::from(bits)).rev() {
+        program = program.record(i);
+    }
+    program.instructions.push(Instruction {
+        opcode: OP_RET,
+        ..Instruction::default()
+    });
+    starts.push(program.instructions.len());
+    let blocks = starts
+        .windows(2)
+        .map(|pair| Block {
+            instr_offset: pair[0] as u64,
+            instr_count: (pair[1] - pair[0]) as u64,
+        })
+        .collect();
+    program.prepare(blocks).expect("phase estimation prepares")
+}
+
+/// The probability of each estimate x in `0..2^bits` of 2^bits·`phase` in
+/// textbook phase estimation: |2^−bits Σᵧ e^(2πi·y·(phase − x/2^bits))|².
+pub(super) fn phase_estimation_distribution(bits: u32, phase: f64) -> Vec<f64> {
+    let n = 1u32 << bits;
+    (0..n)
+        .map(|x| {
+            let delta = phase - f64::from(x) / f64::from(n);
+            let (re, im) = (0..n).fold((0.0, 0.0), |(re, im), y| {
+                let angle = std::f64::consts::TAU * f64::from(y) * delta;
+                (re + angle.cos(), im + angle.sin())
+            });
+            (re * re + im * im) / f64::from(n * n)
+        })
+        .collect()
 }
 
 /// |Φ⁺⟩ on qubits 0 and 1, both measured and recorded.
