@@ -152,6 +152,16 @@ impl<E: Executor<Batch<RegionInstruction>>> Executor<Batch<PreparedAdaptiveProgr
 
     /// Runs the programs in order, each to its end, before it returns.
     ///
+    /// So `call` blocks: it takes each batch's reply with [`wait`], and the
+    /// caller's thread is held until the terminal ends, however the caller
+    /// then takes this reply. That is M1's assumption, not the protocol's:
+    /// M1's terminals reply [`Immediate`], so `wait` never parks, and its
+    /// programs (an evolution, then the measurements) need no answer from a
+    /// terminal still at work. A milestone with a terminal that replies
+    /// `Pending` (a GPU stream, M4) would make `Response` a completion that
+    /// drives the walk on each poll; callers, which already take a
+    /// [`Completion`](executor_protocol::Completion), would not change.
+    ///
     /// # Errors
     ///
     /// [`Rejected::Closed`] after [`Close::close`]. A rejection by the
