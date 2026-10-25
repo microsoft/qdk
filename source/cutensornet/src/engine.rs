@@ -195,8 +195,10 @@ impl MpsEngine for CuTensorNetEngine {
     type State = CuTensorNetState;
     type Error = EngineError;
 
-    /// Creates the |0…0⟩ state of `capacity`'s sites, which must be at
-    /// least two qubits; nothing is computed until a read.
+    /// Creates the |0…0⟩ state of `capacity`'s sites, which must be
+    /// qubits; nothing is computed until a read. A lone qubit is padded with
+    /// an idle site the library needs and the caller never sees (see
+    /// `MpsTarget::from_capacity`).
     fn prepare(&self, capacity: &MpsShape) -> Result<CuTensorNetState, EngineError> {
         self.session.resources.bind_device()?;
         Ok(CuTensorNetState {

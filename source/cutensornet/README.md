@@ -113,6 +113,13 @@ the realized chain. It knows no simulator protocol, and
 mechanics, moved below the protocol seam; the circuit, the request, the branch
 qualification and the consumer are not here.
 
+cuTensorNet's MPS finalization needs at least two sites, while a lone qubit is
+a valid `MpsShape` and one-qubit programs exist. The engine therefore pads a
+one-qubit capacity with an idle second site. The state refuses that site as out
+of range, so it stays |0⟩ and changes no probability, expectation or norm, and
+`shape` reports the lone site alone. `tensornet::conformance`'s "lone site"
+case checks that the padding never shows.
+
 | File                                       | Responsibility                                                                                        |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
 | `src/engine.rs`                            | `CuTensorNetEngine`, `CuTensorNetState`, the `MpsEngine` implementation, the `NativeApi` seam.        |

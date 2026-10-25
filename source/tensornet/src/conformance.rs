@@ -25,6 +25,9 @@
 //! - samples, by their distribution and by their seed, not bit for bit,
 //!   since an engine samples with its own generator;
 //! - the realized chain, by [`shape`](MpsEngine::shape);
+//! - a lone site, which is a valid capacity (an [`MpsShape`] of one site
+//!   is `[physical]`), so a one-qubit program runs on every engine; an
+//!   engine whose library needs longer chains must hide the difference;
 //! - what both must refuse.
 //!
 //! The answers agree within [`TOLERANCE`]. A failure names its case and
@@ -72,7 +75,7 @@ type Case<E> = fn(&E) -> Result<(), String>;
 /// Runs every case against `engine` and returns the failures, empty when
 /// the engine conforms.
 pub fn check<E: MpsEngine>(engine: &E) -> Vec<Failure> {
-    let cases: [(&'static str, Case<E>); 8] = [
+    let cases: [(&'static str, Case<E>); 9] = [
         ("bell", bell),
         ("layout", layout),
         ("conditional", conditional),
@@ -80,6 +83,7 @@ pub fn check<E: MpsEngine>(engine: &E) -> Vec<Failure> {
         ("fork", fork),
         ("sample", sample),
         ("shape", shape),
+        ("lone site", lone_site),
         ("refusals", refusals),
     ];
     cases
@@ -501,6 +505,94 @@ fn shape<E: MpsEngine>(engine: &E) -> Result<(), String> {
     pair.apply(&[2, 0], &cnot())?;
     pair.apply(&[3, 1], &cnot())?;
     same(&pair, "an entangled chain")
+}
+
+/// Every operation on a state of one site, and the refusal of the site
+/// after it: an engine that pads the chain for its library must neither
+/// report nor accept the padding.
+fn lone_site<E: MpsEngine>(engine: &E) -> Result<(), String> {
+    let mut pair = Pair::new(engine, 1)?;
+    let same_shape = |pair: &Pair<'_, E>, when: &str| -> Result<(), String> {
+        let actual = describe("engine shape", engine.shape(&pair.state))?;
+        let expected = describe("reference shape", REFERENCE.shape(&pair.reference))?;
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(format!("{when}: the chain is {actual:?}, not {expected:?}"))
+        }
+    };
+    pair.compare("the prepared lone site")?;
+    same_shape(&pair, "the prepared lone site")?;
+    pair.apply(&[0], &ry(0.7))?;
+    pair.apply(&[0], &s_h())?;
+    pair.compare("after one-site gates")?;
+    same_shape(&pair, "after one-site gates")?;
+    let mut copy = pair.fork()?;
+    copy.apply(&[0], &pauli_x())?;
+    pair.compare("the original after its fork changed")?;
+    copy.compare("the fork")?;
+    let seed = describe("seed", SampleSeed::try_from(3))?;
+    let values = describe(
+        "engine sample",
+        engine.sample(&pair.state, &[0], SHOTS, seed),
+    )?;
+    if values.len() != SHOTS {
+        return Err(format!(
+            "{SHOTS} shots of one site gave {} values",
+            values.len()
+        ));
+    }
+    let expected = describe(
+        "reference",
+        REFERENCE.probability_of_one(&pair.reference, 0),
+    )?;
+    #[expect(clippy::cast_precision_loss, reason = "shot counts are small")]
+    let actual = values.iter().filter(|&&one| one).count() as f64 / SHOTS as f64;
+    if (actual - expected).abs() > FREQUENCY_TOLERANCE {
+        return Err(format!(
+            "the site was One in {actual} of the shots, not about {expected}"
+        ));
+    }
+    let beyond = PauliSum::new(
+        c(0.0, 0.0),
+        vec![describe(
+            "term",
+            PauliTerm::new(c(1.0, 0.0), vec![(1, Pauli::Z)]),
+        )?],
+    );
+    let beyond = describe("observable", beyond)?;
+    let refused = [
+        (
+            "apply on site 1",
+            engine.apply(&mut pair.state, &[1], &pauli_x()).is_err(),
+        ),
+        (
+            "apply on sites 0 and 1",
+            engine.apply(&mut pair.state, &[0, 1], &cnot()).is_err(),
+        ),
+        (
+            "P(One) of site 1",
+            engine.probability_of_one(&pair.state, 1).is_err(),
+        ),
+        (
+            "a projection of site 1",
+            engine.project(&mut pair.state, 1, false, 1.0).is_err(),
+        ),
+        (
+            "an expectation on site 1",
+            engine.expectation(&pair.state, &beyond).is_err(),
+        ),
+        (
+            "a sample of site 1",
+            engine.sample(&pair.state, &[0, 1], 3, seed).is_err(),
+        ),
+    ];
+    if let Some((what, _)) = refused.iter().find(|(_, refused)| !refused) {
+        return Err(format!("{what} of a lone site was accepted"));
+    }
+    pair.project(0, true)?;
+    pair.compare("after projecting the lone site")?;
+    same_shape(&pair, "after projecting the lone site")
 }
 
 fn refusals<E: MpsEngine>(engine: &E) -> Result<(), String> {
