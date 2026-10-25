@@ -2,32 +2,34 @@
 
 This package provides interop between various programming languages and QDK.
 
-It alows to write code that drives QuantumBackend by calling C-style functions. 
+It allows you to write code that drives QuantumBackend by calling C-style functions.
 
-Typical usage: 
- * Write code for quantum application in some language (e.g. C, C++, Fortran)
-   where for each quantum instruction (gate or measurment) they  call corresponing 
-   function exposed by the library.
- * In the beginning of the code, call `init()` to instantiate a backend (which can
+Typical usage:
+ * Write code for a quantum application in a language (e.g., C, C++, or Fortran)
+   that calls the corresponding function exposed by the library for each quantum
+   instruction (gate or measurement).
+ * At the beginning of the code, call `init()` to instantiate a backend (which can
    be a simulator or profiler).
- * When using profiler, in the end call `save_profile()` to save profile to JSON file
-   (which will contain resource estimate based on profiling).
- * Compile their code.
- * Link it against library provided by this package.
- * Run the code.
+ * When using a profiler, call `save_profile()` at the end to save the profile to a
+   JSON file (which will contain a resource estimate based on profiling).
+ * Compile your code, statically linking it against the library provided by this package.
+ * Execute the resulting binary.
 
-In runtime, function calls will be turned into calls to QuantumBackend interface.
+At runtime, function calls will be turned into calls to the QuantumBackend interface.
 
-See [qep_interop.h](include/qep_interop.h) for full list of exposed functions.
+See [qep_interop.h](include/qep_interop.h) for the full list of exposed functions.
 
 ## Supported backends in init()
 
-For now, we support only 3 backends that are specified by name:
- * "sparse_sim" - sparse simulator.
+For now, we support only three backends, specified by name:
+ * "sparse_sim" - a sparse simulator.
  * "counting_profiler" - CountingProfiler with default parameters.
  * "temporal_profiler" - TemporalProfiler with default parameters.
 
-Coming soon: profilers will load configuration form a file.
+Coming soon: profilers will load configuration from a file. Meanwhile, if you need
+to instantiate backend with custom parameters, define custom backend name (e.g. 
+"custom_profiler") and add implementation for it in `init()` in 
+[src/lib.rs](src/lib.rs).
 
 
 ## Supported languages
@@ -52,10 +54,10 @@ Coming soon: profilers will load configuration form a file.
    On Linux, include the system libraries shown in the command below, after
    the Rust archive in the link command.
 
-For example, [examples/ghz.h](examples/ghz.c) demonstrates preparing and measuring GHZ
-state, run on simulator and then profiled with a profiler. 
+For example, [examples/ghz.c](examples/ghz.c) demonstrates preparing and measuring a GHZ
+state, first using a simulator and then a profiler.
 
-Build andrun it with the following command:
+Build and run it with the following command:
 
 ```
 cargo build --release -p qep_interop && \
@@ -85,6 +87,11 @@ all functions in the C header. These interfaces use `bind(C)` and
 5. Use `call` for instructions without results. Assign the return value of
    `mz`, `mz_reset`, or `read_result` to an `integer(c_size_t)` variable.
    The result codes are the same as in C: 0, 1, or 2 for a backend error.
+6. From the repository root, build the Rust static library with
+   `cargo build --release -p qep_interop`. This produces
+   `target/release/libqep_interop.a`.
+7. Compile and link your Fortran program against that archive using your
+   Fortran compiler as the linker driver.
 
 For example:
 
@@ -102,7 +109,7 @@ program example
 end program example
 ```
 
-Example: [examples/ghz.f90](examples/ghz.f90),s equivalent to the C example above. 
+The example in [examples/ghz.f90](examples/ghz.f90) is equivalent to the C example above.
 Build and run from the repository root on Linux:
 
 ```sh
