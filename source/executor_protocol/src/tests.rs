@@ -347,6 +347,7 @@ fn a_closed_executor_rejects_and_reports_once() {
     assert_eq!(total, Count(2));
 }
 
+mod drivers;
 mod sessions;
 mod shots;
 mod wake;

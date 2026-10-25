@@ -27,6 +27,31 @@ pub enum Status {
 /// The events of one call, however they arrive: all at once when the work
 /// ran inside the call, or piece by piece when it runs elsewhere.
 ///
+/// One trait serves every way of making a reply and every way of taking it,
+/// so the executor and its caller choose independently, and a driver written
+/// once runs on every stack:
+///
+/// - The executor chooses how the events are made: [`Immediate`] when the
+///   work ran inside `call`; [`completer`] when it runs elsewhere (a worker
+///   thread, a device, a remote link), whose [`Completer`] pushes events into
+///   the [`Incremental`] reply as they are ready; [`relay`] passes an inner
+///   reply's events up from a worker; [`Map`] converts them on the way.
+/// - The caller (a driver, or an adapter) chooses how to take them, and
+///   whether a thread waits meanwhile:
+///
+/// | The caller                                  | Takes the reply with                                                             | A thread blocked?  |
+/// | ------------------------------------------- | -------------------------------------------------------------------------------- | ------------------ |
+/// | a synchronous driver                        | [`wait`]: the whole reply, the thread parked between polls                       | yes, by its choice |
+/// | a loop that does other work                 | [`poll_events`](Completion::poll_events) with its own waker, or [`Waker::noop`]  | no                 |
+/// | an async driver, the whole reply            | [`wait_async`](crate::wait_async): a `Future`                                    | no                 |
+/// | an async driver, the events as they come    | [`async_events`](crate::async_events): a `Stream` of event batches (streaming)   | no                 |
+///
+/// The choice stays the caller's only while every executor below returns
+/// from `call` without waiting for an inner reply: an adapter that calls
+/// [`wait`] inside its own `call`, because it needs a result before it can go
+/// on, blocks its caller's thread for that time, whichever way the caller
+/// then takes the reply.
+///
 /// A completion is polled and never blocks. After a poll that returns
 /// [`Status::Pending`], it keeps the waker of that poll (the latest one
 /// replaces the others) and wakes it once a new poll could deliver more
@@ -88,6 +113,14 @@ impl<T> Completion for Immediate<T> {
 /// Blocks until `completion` ends, appending its events to `out`: the way a
 /// synchronous driver, or an adapter that needs a result before it can go
 /// on, takes a whole reply.
+///
+/// It is the one way of taking a reply that blocks a thread, and the caller
+/// chooses it. A caller that must not block takes the reply otherwise (see
+/// [`Completion`]): by polling it with its own waker, as a
+/// [`Future`](std::future::Future) with [`wait_async`](crate::wait_async),
+/// or as a `Stream` with [`async_events`](crate::async_events). An adapter
+/// that calls `wait` inside its own `call` blocks its caller's thread for
+/// that time, whichever way the caller takes the reply.
 ///
 /// Between polls the thread parks, and the completion's waker unparks it, so
 /// waiting for work done elsewhere uses no CPU. A wake that comes before the
