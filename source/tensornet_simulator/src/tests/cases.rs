@@ -343,6 +343,10 @@ pub(in crate::tests) fn expectations_agree<E: MpsEngine, R: MpsEngine>(
     }
 }
 
+/// The seed of the per-shot runs: shot `j` of a run draws from seeds fixed
+/// by it and `j`.
+const RUN_SEED: u64 = 1;
+
 /// The per-shot strategy on Bell pairs, each shot through the walk: the
 /// two records agree, both values occur, and each shot's ln p is ln ½.
 pub(in crate::tests) fn per_shot_bell_pairs<E: MpsEngine>(stack: &MpsStack<E>, shots: u32) {
@@ -350,9 +354,10 @@ pub(in crate::tests) fn per_shot_bell_pairs<E: MpsEngine>(stack: &MpsStack<E>, s
     let program = bell();
     let mut ones = 0;
     for j in 1..=shots {
-        // `SubmissionWrapper` drives shot 1; each shot is a session's seed.
-        let session = open(&strategy, u64::from(j), &ShotSet::one(1)).expect("opens");
-        let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session));
+        // The walk drives one shot: each shot has its own session, opened
+        // on that shot with the run's seed (see `SubmissionWrapper`).
+        let session = open(&strategy, RUN_SEED, &ShotSet::one(j)).expect("opens");
+        let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session, j));
         let mut records = Vec::new();
         adapter.run(&program, &mut records).expect("runs");
         let row: Vec<bool> = records.iter().map(bit).collect();
@@ -360,7 +365,7 @@ pub(in crate::tests) fn per_shot_bell_pairs<E: MpsEngine>(stack: &MpsStack<E>, s
         assert_eq!(row[0], row[1], "shot {j}");
         ones += usize::from(row[0]);
         let report = adapter.close();
-        let ln_p = report.inner.log_p.get(1).expect("the shot's ln p");
+        let ln_p = report.inner.log_p.get(j).expect("the shot's ln p");
         assert!((ln_p - 0.5f64.ln()).abs() < 1e-9, "shot {j}: ln p = {ln_p}");
     }
     assert!(ones > 0 && ones < shots as usize, "{ones} of {shots}");
@@ -392,8 +397,8 @@ pub(in crate::tests) fn per_shot_feedback_and_resets<E: MpsEngine>(
     let strategy: PerShot<TensorNetShots<E>> = stack.per_shot(2).expect("a chain");
     let mut seen = [false; 2];
     for j in 1..=shots {
-        let session = open(&strategy, u64::from(j), &ShotSet::one(1)).expect("opens");
-        let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session));
+        let session = open(&strategy, RUN_SEED, &ShotSet::one(j)).expect("opens");
+        let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session, j));
         let mut records = Vec::new();
         adapter.run(&program, &mut records).expect("runs");
         let row = &bits(&[records])[0];
@@ -406,7 +411,7 @@ pub(in crate::tests) fn per_shot_feedback_and_resets<E: MpsEngine>(
         let report = adapter.close().inner;
         assert_eq!(report.shots.resets, 1);
         assert_eq!(report.shots.measurements, 5);
-        let ln_p = report.log_p.get(1).expect("known");
+        let ln_p = report.log_p.get(j).expect("known");
         // Only the first draw is random; the reset of a known qubit and the
         // others are certain.
         assert!((ln_p - 0.5f64.ln()).abs() < 1e-9, "shot {j}: {ln_p}");
