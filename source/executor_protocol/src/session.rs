@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::task::Waker;
 
-use crate::lifecycle::{Lifecycle, Watched};
+use crate::lifecycle::{Lifecycle, SessionBound};
 use crate::shot::ShotIndex;
 use crate::{
     Batch, Capabilities, Close, Completion, Describe, Executor, Fold, Map, Message, Needs, Outcome,
@@ -250,7 +250,7 @@ impl<S> PerShotSession<S> {
 }
 
 impl<I, S: Executor<Batch<I>>> Executor<Submission<I>> for PerShotSession<S> {
-    type Response = Watched<Gather<S::Response>>;
+    type Response = SessionBound<Gather<S::Response>>;
 
     /// Runs the batch on each shot of the submission, in its order.
     ///
@@ -291,7 +291,7 @@ impl<I, S: Executor<Batch<I>>> Executor<Submission<I>> for PerShotSession<S> {
         }
         self.submissions += 1;
         // The shots' replies show a failure only when polled.
-        Ok(self.lifecycle.watched(Gather::new(parts, failure)))
+        Ok(self.lifecycle.bind(Gather::new(parts, failure)))
     }
 }
 
