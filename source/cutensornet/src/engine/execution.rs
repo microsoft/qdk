@@ -14,6 +14,10 @@ use super::{EngineError, OpaqueHandle, Stream};
 use num_complex::Complex64;
 use tensornet::{MpsShape, MpsShapeError};
 
+/// The fewest sites cuTensorNet's MPS finalization accepts
+/// (`bindings/v2_13.rs:338`).
+const NATIVE_MINIMUM_SITES: usize = 2;
+
 /// The MPS shape a state asks the library to produce, and the FFI
 /// scaffolding that shape needs.
 ///
@@ -22,6 +26,11 @@ use tensornet::{MpsShape, MpsShapeError};
 /// pointers into it exist purely because the library takes extents as an array
 /// of pointers, and they must outlive the call that reads them.
 pub(crate) struct MpsTarget {
+    /// The capacity the state was prepared with: the chain the engine's
+    /// callers see.
+    capacity: MpsShape,
+    /// The chain the library computes: the capacity's, lowered, and padded
+    /// to [`NATIVE_MINIMUM_SITES`].
     shape: MpsShape,
     extents: Vec<Box<[i64]>>,
     extent_pointers: Box<[*const i64]>,
@@ -31,36 +40,42 @@ impl MpsTarget {
     /// The target of a state of `capacity`'s qubits, with each bond the
     /// capacity's, lowered to the largest bond the cut can carry
     /// (`min(2^left, 2^right)`), as ④ asked for.
+    ///
+    /// A capacity of one qubit gets a second, idle site, because
+    /// cuTensorNet's MPS finalization needs at least two sites
+    /// (`bindings/v2_13.rs:338`) while a lone site is a valid `MpsShape` and
+    /// one-qubit programs exist. The padding is the engine's business: the
+    /// state refuses the idle site as out of range, so no operator, read or
+    /// sample reaches it, and it stays |0⟩, a product factor that changes no
+    /// probability, expectation or norm; [`logical`](Self::logical) drops it
+    /// from the realized chain.
     pub(super) fn from_capacity(capacity: &MpsShape) -> Result<Self, EngineError> {
         let qubit_count = capacity.site_count();
-        // cuTensorNet requires at least two sites for MPS finalization
-        // (bindings/v2_13.rs:338). This engine implements only MPS and has
-        // one unconditional finalize_mps call, so it cannot represent one
-        // site. `MpsShape` itself accepts a lone site: the limit is this
-        // engine's, not the abstraction's.
-        if qubit_count < 2 {
-            return Err(EngineError::InvalidRequest {
-                reason: format!(
-                    "the cuTensorNet engine needs a capacity of at least two sites, not {qubit_count}"
-                ),
-            });
-        }
         if let Some(site) = (0..qubit_count).find(|&site| capacity.physical_dim(site) != Some(2)) {
             return Err(EngineError::InvalidRequest {
                 reason: format!("site {site} of the capacity is not a qubit"),
             });
         }
-        let bonds = (0..qubit_count - 1)
+        let native_count = qubit_count.max(NATIVE_MINIMUM_SITES);
+        let bonds = (0..native_count - 1)
             .map(|cut| {
-                let requested = capacity
-                    .bond_dim(cut)
-                    .and_then(|bond| i64::try_from(bond).ok())
-                    .ok_or(EngineError::ResourceSizeOverflow {
-                        resource: "MPS bond",
-                    })?;
-                target_bond_extent(qubit_count, cut, requested)
+                // The padding's bond asks for the full extent, 2, so a
+                // padded target is the shape of any two-qubit chain, which
+                // the library already runs; `logical` drops that bond.
+                let requested = if cut + 1 < qubit_count {
+                    capacity
+                        .bond_dim(cut)
+                        .and_then(|bond| i64::try_from(bond).ok())
+                        .ok_or(EngineError::ResourceSizeOverflow {
+                            resource: "MPS bond",
+                        })?
+                } else {
+                    2
+                };
+                target_bond_extent(native_count, cut, requested)
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let qubit_count = native_count;
         let mut extents = Vec::with_capacity(qubit_count);
         for site in 0..qubit_count {
             let shape = if site == 0 {
@@ -90,15 +105,41 @@ impl MpsTarget {
             .collect::<Vec<_>>()
             .into_boxed_slice();
         Ok(Self {
+            capacity: capacity.clone(),
             shape,
             extents,
             extent_pointers,
         })
     }
 
-    /// The chain this target asks for.
+    /// The capacity the state was prepared with.
+    pub(crate) fn capacity(&self) -> &MpsShape {
+        &self.capacity
+    }
+
+    /// How many sites the engine's callers see; the library's chain may
+    /// have more.
+    pub(crate) fn site_count(&self) -> usize {
+        self.capacity.site_count()
+    }
+
+    /// The chain the library is asked for, padding included.
     pub(crate) fn shape(&self) -> &MpsShape {
         &self.shape
+    }
+
+    /// The chain the callers see, from the one the library `realized`: the
+    /// realized chain itself, or, for a padded lone site, that site alone.
+    pub(crate) fn logical(&self, realized: MpsShape) -> Result<MpsShape, EngineError> {
+        if realized.site_count() == self.site_count() {
+            return Ok(realized);
+        }
+        let physical = realized
+            .physical_dim(0)
+            .ok_or_else(|| invalid_native_extents("realized MPS lacks the lone site"))?;
+        MpsShape::new(vec![vec![physical]]).map_err(|error| EngineError::InvalidNativeResult {
+            reason: format!("realized lone site is not a valid chain: {error}"),
+        })
     }
 
     pub(crate) fn extent_pointers(&self) -> &[*const i64] {

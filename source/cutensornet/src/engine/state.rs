@@ -292,7 +292,7 @@ impl MpsExecution {
     /// in order.
     pub(super) fn fork(&self) -> Result<Self, EngineError> {
         self.check_live()?;
-        let mut copy = Self::new(&self.session, self.target.shape())?;
+        let mut copy = Self::new(&self.session, self.target.capacity())?;
         for operator in &self.operators {
             copy.register(operator.clone())?;
         }
@@ -368,7 +368,8 @@ impl MpsExecution {
 
     pub(super) fn shape(&mut self) -> Result<MpsShape, EngineError> {
         self.check_live()?;
-        self.ensure_computed()
+        let realized = self.ensure_computed()?;
+        self.target.logical(realized)
     }
 
     fn check_live(&self) -> Result<(), EngineError> {
@@ -398,12 +399,15 @@ impl MpsExecution {
         result
     }
 
+    /// The mode of one of the caller's sites. The bound is the capacity's
+    /// site count, not the native state's, so a padding site is out of
+    /// range like any other.
     fn mode(&self, site: usize) -> Result<i32, EngineError> {
-        if site >= self.state_extents.len() {
+        if site >= self.target.site_count() {
             return Err(EngineError::InvalidRequest {
                 reason: format!(
                     "site {site} is outside the {}-site state",
-                    self.state_extents.len()
+                    self.target.site_count()
                 ),
             });
         }

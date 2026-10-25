@@ -195,7 +195,7 @@ fn reads_divide_by_the_norm_the_library_reports() {
 }
 
 #[test]
-fn operators_beyond_two_sites_and_one_site_capacities_are_refused() {
+fn operators_beyond_two_sites_and_capacities_of_qudits_are_refused() {
     let (engine, _native) = engine();
     let mut state = ok(engine.prepare(&uniform_capacity(3, 4)));
     let identity: Vec<Complex64> = (0..64)
@@ -208,8 +208,6 @@ fn operators_beyond_two_sites_and_one_site_capacities_are_refused() {
     )));
     let nan = vec![c(f64::NAN); 4];
     assert!(is_invalid_request(&engine.apply(&mut state, &[0], &nan)));
-    let lone = MpsShape::new(vec![vec![2]]).unwrap_or_else(|e| panic!("{e}"));
-    assert!(is_invalid_request(&engine.prepare(&lone)));
     let qutrits = MpsShape::new(vec![vec![3, 1], vec![1, 3]]).unwrap_or_else(|e| panic!("{e}"));
     assert!(is_invalid_request(&engine.prepare(&qutrits)));
     // The refusals left the state usable.

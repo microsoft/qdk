@@ -500,6 +500,10 @@ impl MpsExecutionApi for NativeDouble {
             return Err(failed("finalize_mps", "the state is already finalized"));
         }
         let shape = target.shape();
+        // As the library: MPS finalization needs at least two sites.
+        if state.sites < 2 {
+            return Err(failed("finalize_mps", "an MPS needs at least two sites"));
+        }
         if shape.site_count() != state.sites {
             return Err(failed("finalize_mps", "the target has another site count"));
         }
