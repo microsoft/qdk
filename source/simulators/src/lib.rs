@@ -3,6 +3,7 @@
 
 pub mod bytecode;
 pub mod cpu_full_state_simulator;
+pub mod execution;
 #[cfg(feature = "gpu")]
 mod gpu_full_state_simulator;
 pub mod noise_config;

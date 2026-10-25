@@ -23,6 +23,7 @@ ndarray = { workspace = true }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 num-traits = { workspace = true }
+executor_protocol = { path = "../executor_protocol" }
 qsc_data_structures = { path = "../compiler/qsc_data_structures" }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }

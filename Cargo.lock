@@ -662,6 +662,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "executor_protocol"
+version = "0.0.0"
+
+[[package]]
 name = "expect-test"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1885,6 +1889,7 @@ dependencies = [
  "binar",
  "bytemuck",
  "criterion",
+ "executor_protocol",
  "expect-test",
  "futures",
  "gungraun",
