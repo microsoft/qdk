@@ -39,8 +39,12 @@ that hold them depend on this one.
   decides how the shots run (see [Shot strategies](#shot-strategies)).
   `PerShot` wraps a maker of one shot's L3 executor (`MakeShot`) and opens
   a `PerShotSession`: one executor per shot, reachable between calls.
-  `SubmissionWrapper` runs an L3 driver on shot 1 of a session. A session that fails part-way through a submission is
-  failed for good (`Lifecycle`).
+  `SubmissionWrapper` runs an L3 driver on one shot `j` of a session. An L3
+  driver drives one shot (its batches depend on that shot's outcomes), so a
+  run of n shots opens one session per shot on `ShotSet::one(j)`, with the
+  run's seed: one shot's state is held at a time, and shot `j` gives the
+  outcomes it gives in a session on all n shots. A session that fails
+  part-way through a submission is failed for good (`Lifecycle`).
 - **Seeds**: shot `j` of a session opened with `seed` draws from seeds fixed
   by `seed`, `j` and the component that draws (`ShotContext`, `shot_seed`,
   `ComponentId`), so a shot's outcomes do not depend on how J is split or on

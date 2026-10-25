@@ -109,7 +109,7 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
             let mut direct =
                 SimulatorTerminal::<S>::new(2, 2, legacy_seed(seed, 1), S::Noise::default());
             let mut wrapped =
-                SubmissionWrapper::new(open(&per_shot, seed, &ShotSet::one(1)).expect("opens"));
+                SubmissionWrapper::new(open(&per_shot, seed, &ShotSet::one(1)).expect("opens"), 1);
             for _ in 0..2 {
                 assert_eq!(
                     run_batch(&mut wrapped, &coins()),
@@ -129,6 +129,7 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
             ));
             let mut wrapped = RuntimeAdapter::new(SubmissionWrapper::new(
                 open(&per_shot, seed, &ShotSet::one(1)).expect("opens"),
+                1,
             ));
             let (mut ours, mut theirs) = (Vec::new(), Vec::new());
             let our_end = wait(wrapped.call(&programs).expect("accepted"), &mut ours);

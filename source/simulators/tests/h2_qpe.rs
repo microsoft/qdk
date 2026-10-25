@@ -13,8 +13,10 @@
 //!   (`DecomposeCcxPass`, then `AdaptiveProfilePass(Bytecode.Bit64)`; see
 //!   `run_qir_cpu` in `qdk/simulation/_simulation.py`).
 //! - `QDK_H2_SHOTS`: the number of shots, 1 by default.
-//! - `QDK_H2_SEED`: the seed, 0 by default: shot `j` is shot 1 of a
-//!   session opened with seed `QDK_H2_SEED + j`.
+//! - `QDK_H2_SEED`: the run's seed, 0 by default. Shot `j` (from 1) runs in
+//!   its own session, opened on shot `j` with this seed (see
+//!   `SubmissionWrapper`), so it gives the outcomes it gives in a session on
+//!   all the shots.
 //!
 //! Each shot's output rows must be the same on both paths. The test prints
 //! the time per shot of each path and the ten most frequent rows. H₂'s rows
@@ -451,15 +453,14 @@ fn h2_qpe_through_the_protocol_matches_the_legacy_runtime() {
 
     let (mut walk_time, mut legacy_time) = (Duration::ZERO, Duration::ZERO);
     let mut histogram = BTreeMap::<String, u64>::new();
-    for shot in 0..shots {
-        // `SubmissionWrapper` runs an L3 driver on shot 1 of a session, so
-        // each shot is shot 1 of its own session, whose seed is `seed + shot`.
-        let session_seed = seed + u64::from(shot);
+    for shot in 1..=shots {
+        // The walk drives one shot, so each shot has its own session, which
+        // holds that shot's state only, opened with the run's seed.
         // The two paths run side by side, each on its own thread.
         let ((walked, walk), (legacy, runtime)) = thread::scope(|scope| {
             let legacy = scope.spawn(|| {
                 let start = Instant::now();
-                let folded = shot_seed(session_seed, 1);
+                let folded = shot_seed(seed, shot);
                 let folded = u32::try_from((folded ^ (folded >> 32)) & u64::from(u32::MAX))
                     .expect("masked to 32 bits");
                 let mut sim = SparseSimulator::new(qubits, results, folded, ());
@@ -467,9 +468,8 @@ fn h2_qpe_through_the_protocol_matches_the_legacy_runtime() {
                 (rows, start.elapsed())
             });
             let start = Instant::now();
-            let session =
-                open(&per_shot, session_seed, &ShotSet::one(1)).expect("the session opens");
-            let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session));
+            let session = open(&per_shot, seed, &ShotSet::one(shot)).expect("the session opens");
+            let mut adapter = RuntimeAdapter::new(SubmissionWrapper::new(session, shot));
             let mut rows = Vec::new();
             adapter
                 .run(&prepared, &mut rows)
