@@ -9,12 +9,15 @@
 #                 without MPS capture; the only tests that assert
 #   environment   the versions and libraries found
 #   empty_compute, read_cost, fork_cost, free_after_compute,
-#   shape_and_tolerance, impossible_condition, rare_condition
+#   shape_and_tolerance, impossible_condition, rare_condition,
+#   projection_memory
 #                 measurements; read_cost runs with capture=on and =off and
-#                 extrapolates both to H2's 1,404 reads over 48,000 gates
+#                 extrapolates both to H2's 1,404 reads over 48,000 gates;
+#                 projection_memory records the device memory along H2's
+#                 pattern, step after step, with variants of the measurement
 #
 # Usage, on the A100 VM:
-#   qualify-engine-on-a100.sh [--check | --quick] COMMIT [REPO]
+#   qualify-engine-on-a100.sh [--check | --quick] [--only TESTS] COMMIT [REPO]
 #     COMMIT   the commit to qualify, on origin's BRANCH: the script fetches
 #              BRANCH from origin first (the remote-tracking ref only)
 #     REPO     a qdk checkout (default: the current directory)
@@ -23,7 +26,12 @@
 #              fetched is checked against origin's BRANCH with ls-remote
 #     --quick  smaller sweeps (QDK_ENGINE_QUALIFICATION_QUICK=1), to check the
 #              setup end to end
-# Run --check first, then --quick, then with no option.
+#     --only TESTS
+#              only these tests, comma-separated names from the list above
+#              (for example --only projection_memory); the summary then has
+#              their sections only
+# Run --check first, then --quick, then with no option (each with the same
+# --only, if any).
 #
 # It leaves REPO's checkout untouched: it adds a detached worktree at COMMIT
 # next to it (../qdk-engine-a100) and builds and runs there. Results go to
@@ -60,11 +68,12 @@ readonly BRANCH="${QDK_ENGINE_BRANCH:-domingom/tensor-network-engine}"
 readonly CUTENSORNET_PINNED=/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2
 readonly CUDART_PINNED=/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12
 readonly TESTS="environment conformance conformance_without_capture empty_compute read_cost fork_cost \
-free_after_compute shape_and_tolerance impossible_condition rare_condition"
+free_after_compute shape_and_tolerance impossible_condition rare_condition projection_memory"
 
-usage() { printf 'usage: %s [--check | --quick] COMMIT [REPO]\n' "$0" >&2; exit 2; }
+usage() { printf 'usage: %s [--check | --quick] [--only TESTS] COMMIT [REPO]\n' "$0" >&2; exit 2; }
 
 mode=run
+only=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --check | --quick)
@@ -72,12 +81,28 @@ while [[ $# -gt 0 ]]; do
             mode="${1#--}"
             shift
             ;;
+        --only)
+            [[ $# -ge 2 && -n "$2" && -z "$only" ]] || { printf '%s: --only takes one list of tests\n' "$0" >&2; exit 2; }
+            only="$2"
+            shift 2
+            ;;
         -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
         -*) printf 'unknown option %s\n' "$1" >&2; exit 2 ;;
         *) break ;;
     esac
 done
 [[ $# -ge 1 && $# -le 2 ]] || usage
+# The tests to run: every one, or --only's, in its order.
+selected="$TESTS"
+if [[ -n "$only" ]]; then
+    selected=""
+    IFS=, read -ra names <<<"$only"
+    for name in "${names[@]}"; do
+        [[ " $TESTS " == *" $name "* ]] || { printf '%s: --only: no test %s; the tests are: %s\n' "$0" "$name" "$TESTS" >&2; exit 2; }
+        [[ " $selected " == *" $name "* ]] || selected="${selected:+$selected }$name"
+    done
+fi
+readonly selected
 ref="$1"
 [[ -d "${2:-.}" ]] || { printf 'FAIL: %s is not a directory\n' "${2:-.}" >&2; exit 1; }
 repo="$(cd "${2:-.}" && pwd)"
@@ -293,7 +318,7 @@ if [[ "${#problems[@]}" -gt 0 ]]; then
     fail "fix the above, then run again (--check checks only)"
 fi
 if [[ "$mode" == check ]]; then
-    printf '\nAll checks passed. Next: %s --quick %s %s\n' "$0" "$ref" "$repo"
+    printf '\nAll checks passed. Next: %s --quick%s %s %s\n' "$0" "${only:+ --only $only}" "$ref" "$repo"
     exit 0
 fi
 
@@ -308,8 +333,8 @@ else
     unset QDK_ENGINE_QUALIFICATION_QUICK
 fi
 {
-    printf 'mode=%s\ndate=%s\nhost=%s\nrepo=%s\ncommit=%s\nworktree=%s\n' \
-        "$mode" "$(date -Is)" "$(hostname)" "$repo" "$sha" "$work"
+    printf 'mode=%s\ntests=%s\ndate=%s\nhost=%s\nrepo=%s\ncommit=%s\nworktree=%s\n' \
+        "$mode" "$selected" "$(date -Is)" "$(hostname)" "$repo" "$sha" "$work"
     printf 'script_sha256=%s\n' "$(sha256sum "$0" | awk '{ print $1 }')"
     printf 'rustc=%s\ncargo=%s\npython=%s\n' "$rustc_version" "$cargo_version" "$(python3 --version 2>&1)"
     printf 'QDK_CUTENSORNET_LIBRARY=%s -> %s\n' "$QDK_CUTENSORNET_LIBRARY" "$(readlink -f "$QDK_CUTENSORNET_LIBRARY")"
@@ -343,9 +368,14 @@ fi
 tail -3 "$out/build.txt"
 
 step "5. run"
-printf '  %s -- --ignored --nocapture --test-threads=1\n' "${cargo_test[*]}" | tee "$out/command.txt"
+harness=(--ignored --nocapture --test-threads=1)
+if [[ -n "$only" ]]; then
+    read -ra names <<<"$selected"
+    harness+=(--exact "${names[@]}")
+fi
+printf '  %s -- %s\n' "${cargo_test[*]}" "${harness[*]}" | tee "$out/command.txt"
 set +e
-(cd "$work" && "${cargo_test[@]}" -- --ignored --nocapture --test-threads=1) 2>&1 | tee "$out/log.txt"
+(cd "$work" && "${cargo_test[@]}" -- "${harness[@]}") 2>&1 | tee "$out/log.txt"
 status="${PIPESTATUS[0]}"
 set -e
 # Every row starts a line (report.rs); the "test <name> ... " prefix has its own.
@@ -354,7 +384,7 @@ grep -E "^($pattern),|^# " "$out/log.txt" >"$out/rows.csv" || true
 
 step "6. summary"
 summarized=1
-python3 - "$out/log.txt" "$out/rows.csv" "$CUTENSORNET_VERSION" "$CUDART_VERSION" $TESTS <<'EOF' \
+python3 - "$out/log.txt" "$out/rows.csv" "$CUTENSORNET_VERSION" "$CUDART_VERSION" $selected <<'EOF' \
     | tee "$out/summary.txt" || summarized=0
 import csv, re, sys
 from collections import defaultdict
@@ -375,8 +405,10 @@ for test in tests:
         bad.append(f"test {test}: {verdict}")
     print(f"  {test:32} {verdict}")
 
-print("\n=== conformance (passed / failed per case)")
-for case in ("conformance", "conformance_without_capture"):
+conformance = [case for case in ("conformance", "conformance_without_capture") if case in tests]
+if conformance:
+    print("\n=== conformance (passed / failed per case)")
+for case in conformance:
     cells = [(r[1][len("case="):-len(";passed")], r[2]) for r in rows
              if r[0] == case and r[1].startswith("case=") and r[1].endswith(";passed")]
     label = "capture=on " if case == "conformance" else "capture=off"
@@ -389,76 +421,119 @@ for case in ("conformance", "conformance_without_capture"):
         if note.startswith(f"# {case} case="):
             print(f"    {note[2:]}")
 
-print("\n=== environment")
-env = {r[1]: r[2] for r in rows if r[0] == "environment"}
-for key, value in env.items():
-    print(f"  {key} = {value}")
-if env.get("cutensornet_version") != tn_version:
-    bad.append(f"cuTensorNet at run time: {env.get('cutensornet_version')}, expected {tn_version}")
-if env.get("cuda_runtime_version") != rt_version:
-    bad.append(f"CUDA runtime at run time: {env.get('cuda_runtime_version')}, expected {rt_version}")
+if "environment" in tests:
+    print("\n=== environment")
+    env = {r[1]: r[2] for r in rows if r[0] == "environment"}
+    for key, value in env.items():
+        print(f"  {key} = {value}")
+    if env.get("cutensornet_version") != tn_version:
+        bad.append(f"cuTensorNet at run time: {env.get('cutensornet_version')}, expected {tn_version}")
+    if env.get("cuda_runtime_version") != rt_version:
+        bad.append(f"CUDA runtime at run time: {env.get('cuda_runtime_version')}, expected {rt_version}")
 
-print("\n=== read_cost: median read after H2's gates per read, in ms, as operators accumulate")
-reads = defaultdict(dict)
-p_one = defaultdict(dict)
-projected = defaultdict(dict)
-mib = defaultdict(dict)
-extrapolated = []
-for r in rows:
-    if r[0] != "read_cost":
-        continue
-    fields = dict(f.split("=", 1) for f in r[1].split(";") if "=" in f)
-    metric = r[1].rsplit(";", 1)[-1]
-    if "extrapolation" in fields:
-        extrapolated.append((fields.get("chi"), fields.get("capture"), metric, r[2], r[3] if len(r) > 3 else ""))
-    elif metric.startswith("read_after_") and metric.endswith("_operators"):
-        reads[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
-    elif metric == "p_one_site_0" and "operators" in fields:
-        p_one[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
-    elif metric == "projected_one" and "operators" in fields:
-        projected[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
-    elif metric == "device_mib" and "operators" in fields:
-        mib[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
-print(f"  {'chi':>4} {'operators':>9} {'capture=on':>11} {'capture=off':>12}")
-for (chi, operators), by in sorted(reads.items()):
-    print(f"  {chi:>4} {operators:>9} {by.get('on', '-'):>11} {by.get('off', '-'):>12}")
-print("\n  P(site 0 = 1) with and without capture, which truncate in different steps, while")
-print("  both projected site 0 on the same values (after that, 'diverged'), and the device")
-print("  memory in use, in MiB, at each checkpoint")
-print(f"  {'chi':>4} {'operators':>9} {'|p_on - p_off|':>15} {'MiB on':>8} {'MiB off':>8}")
-diverged = set()
-for key in sorted(set(p_one) | set(mib)):
-    try:
-        difference = f"{abs(float(p_one[key]['on']) - float(p_one[key]['off'])):.3e}"
-    except (KeyError, ValueError):
-        difference = "-"
-    if key[0] in diverged:
-        difference = "diverged"
-    if projected[key].get("on") != projected[key].get("off"):
-        diverged.add(key[0])
-    print(f"  {key[0]:>4} {key[1]:>9} {difference:>15} {mib[key].get('on', '-'):>8} {mib[key].get('off', '-'):>8}")
-print("\n  EXTRAPOLATION to H2 (1,404 reads, 48,000 gates) from the fit above, not a measurement:")
-for chi, capture, metric, value, unit in extrapolated:
-    print(f"  chi={chi} capture={capture:3} {metric:14} {value} {unit}")
+if "read_cost" in tests:
+    print("\n=== read_cost: median read after H2's gates per read, in ms, as operators accumulate")
+    reads = defaultdict(dict)
+    p_one = defaultdict(dict)
+    projected = defaultdict(dict)
+    mib = defaultdict(dict)
+    extrapolated = []
+    for r in rows:
+        if r[0] != "read_cost":
+            continue
+        fields = dict(f.split("=", 1) for f in r[1].split(";") if "=" in f)
+        metric = r[1].rsplit(";", 1)[-1]
+        if "extrapolation" in fields:
+            extrapolated.append((fields.get("chi"), fields.get("capture"), metric, r[2], r[3] if len(r) > 3 else ""))
+        elif metric.startswith("read_after_") and metric.endswith("_operators"):
+            reads[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
+        elif metric == "p_one_site_0" and "operators" in fields:
+            p_one[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
+        elif metric == "projected_one" and "operators" in fields:
+            projected[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
+        elif metric == "device_mib" and "operators" in fields:
+            mib[(int(fields["chi"]), int(fields["operators"]))][fields["capture"]] = r[2]
+    print(f"  {'chi':>4} {'operators':>9} {'capture=on':>11} {'capture=off':>12}")
+    for (chi, operators), by in sorted(reads.items()):
+        print(f"  {chi:>4} {operators:>9} {by.get('on', '-'):>11} {by.get('off', '-'):>12}")
+    print("\n  P(site 0 = 1) with and without capture, which truncate in different steps, while")
+    print("  both projected site 0 on the same values (after that, 'diverged'), and the device")
+    print("  memory in use, in MiB, at each checkpoint")
+    print(f"  {'chi':>4} {'operators':>9} {'|p_on - p_off|':>15} {'MiB on':>8} {'MiB off':>8}")
+    diverged = set()
+    for key in sorted(set(p_one) | set(mib)):
+        try:
+            difference = f"{abs(float(p_one[key]['on']) - float(p_one[key]['off'])):.3e}"
+        except (KeyError, ValueError):
+            difference = "-"
+        if key[0] in diverged:
+            difference = "diverged"
+        if projected[key].get("on") != projected[key].get("off"):
+            diverged.add(key[0])
+        print(f"  {key[0]:>4} {key[1]:>9} {difference:>15} {mib[key].get('on', '-'):>8} {mib[key].get('off', '-'):>8}")
+    print("\n  EXTRAPOLATION to H2 (1,404 reads, 48,000 gates) from the fit above, not a measurement:")
+    for chi, capture, metric, value, unit in extrapolated:
+        print(f"  chi={chi} capture={capture:3} {metric:14} {value} {unit}")
 
-print("\n=== fork_cost: a parent read every so often (captured with capture=on) against its fork")
-print(f"  {'case':22} {'|p - fork|':>11} {'|stepped - once|':>17} {'bond':>5} {'fork bond':>9}")
-forks = defaultdict(dict)
-for r in rows:
-    if r[0] == "fork_cost" and ";stepped_" in r[1]:
-        case, metric = r[1].rsplit(";", 1)
-        forks[case][metric] = r[2]
-for case, by in forks.items():
-    print(f"  {case:22} {by.get('stepped_fork_difference', '-'):>11} "
-          f"{by.get('stepped_difference_from_plain', '-'):>17} {by.get('stepped_max_bond', '-'):>5} "
-          f"{by.get('stepped_fork_max_bond', '-'):>9}")
+if "fork_cost" in tests:
+    print("\n=== fork_cost: a parent read every so often (captured with capture=on) against its fork")
+    print(f"  {'case':22} {'|p - fork|':>11} {'|stepped - once|':>17} {'bond':>5} {'fork bond':>9}")
+    forks = defaultdict(dict)
+    for r in rows:
+        if r[0] == "fork_cost" and ";stepped_" in r[1]:
+            case, metric = r[1].rsplit(";", 1)
+            forks[case][metric] = r[2]
+    for case, by in forks.items():
+        print(f"  {case:22} {by.get('stepped_fork_difference', '-'):>11} "
+              f"{by.get('stepped_difference_from_plain', '-'):>17} {by.get('stepped_max_bond', '-'):>5} "
+              f"{by.get('stepped_fork_max_bond', '-'):>9}")
 
-print("\n=== measurements (every row; rows.csv has them as CSV)")
+if "projection_memory" in tests:
+    print("\n=== projection_memory: the device memory along H2's pattern (gates, a read, the ending), in MiB")
+    runs = {}
+    for r in rows:
+        if r[0] != "projection_memory":
+            continue
+        fields = dict(f.split("=", 1) for f in r[1].split(";") if "=" in f)
+        metric = r[1].rsplit(";", 1)[-1]
+        if not all(k in fields for k in ("variant", "width", "chi")):
+            continue
+        run = runs.setdefault((fields["variant"], fields["width"], fields["chi"]), {"after": {}, "before": {}})
+        if "extrapolation" in fields:
+            run["h2_" + metric] = r[2]
+        elif "step" in fields and metric == "device_mib":
+            run["after"][int(fields["step"])] = r[2]
+        elif "step" in fields and metric == "device_mib_before_ending":
+            run["before"][int(fields["step"])] = r[2]
+        elif "step" not in fields:
+            run[metric] = r[2]
+    def at_ending(run):
+        # The mean growth across the ending alone (its registration), at the marks.
+        deltas = [float(run["after"][s]) - float(run["before"][s]) for s in run["before"]
+                  if s in run["after"] and run["after"][s].isdigit() and run["before"][s].isdigit()]
+        return f"{sum(deltas) / len(deltas):.1f}" if deltas else "-"
+    print(f"  {'variant':24} {'width':>5} {'chi':>3} {'before':>7} {'step 0':>7} {'last':>7} {'MiB/step':>8} "
+          f"{'ending':>6} {'closed':>7} {'ms/step':>8} {'run':>5}")
+    for (variant, width, chi), run in runs.items():
+        last = run["after"][max(run["after"])] if run["after"] else "-"
+        print(f"  {variant:24} {width:>5} {chi:>3} {run.get('device_mib_before_prepare', '-'):>7} "
+              f"{run['after'].get(0, '-'):>7} {last:>7} {run.get('slope', '-'):>8} {at_ending(run):>6} "
+              f"{run.get('device_mib_after_close', '-'):>7} {run.get('ms_per_step', '-'):>8} {run.get('run', 'ok'):>5}")
+    print("\n  MiB at each mark (step:MiB), after the step's ending")
+    for (variant, width, chi), run in runs.items():
+        marks = " ".join(f"{s}:{v}" for s, v in sorted(run["after"].items()))
+        print(f"  {variant} width={width} chi={chi}: {marks}")
+    print("\n  EXTRAPOLATION to H2's 1,404 measurements from the slope and the mean step, not a measurement:")
+    for (variant, width, chi), run in runs.items():
+        print(f"  {variant:24} width={width:>2} chi={chi:>2} {run.get('h2_mib_per_shot', '-'):>8} MiB/shot "
+              f"{run.get('h2_seconds_per_shot', '-'):>8} s/shot")
+
+print("\n=== measurements (every row but projection_memory's; rows.csv has them as CSV)")
 errors = {}
 for r in rows:
     if r[1] == "errors":
         errors[r[0]] = r[2]
-    elif r[0] not in ("environment", "conformance", "conformance_without_capture", "read_cost"):
+    elif r[0] not in ("environment", "conformance", "conformance_without_capture", "read_cost", "projection_memory"):
         print(f"  {r[0]},{r[1]},{r[2]},{r[3] if len(r) > 3 else ''}")
 for note in notes:
     if not note.startswith("# conformance"):

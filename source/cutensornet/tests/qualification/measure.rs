@@ -101,16 +101,16 @@ fn empty_reads<E: Measured>(
 
 /// H₂'s shape, from `mps-a`'s plan: about 1,404 measurements, each followed
 /// by a read, over about 48,000 gates.
-const H2_READS: usize = 1_404;
+pub const H2_READS: usize = 1_404;
 const H2_GATES: usize = 48_000;
 
 /// The operators applied between two timed reads: H₂'s gates per read,
 /// rounded down.
-const BATCH: usize = H2_GATES / H2_READS;
+pub const BATCH: usize = H2_GATES / H2_READS;
 
 /// Below this probability a value is not projected on: conditioning on it
 /// would divide by a number truncation error dominates.
-const UNLIKELY: f64 = 1.0e-3;
+pub const UNLIKELY: f64 = 1.0e-3;
 
 /// How a read's cost grows with the operators applied, on each of
 /// `engines`, tagged `capture=<name>`, on the same circuit and χ. Without

@@ -469,15 +469,20 @@ needs the feature `qualification`:
   and are the only tests that assert;
 - `environment` records the versions and libraries found;
 - `empty_compute`, `read_cost`, `fork_cost`, `free_after_compute`,
-  `shape_and_tolerance`, `impossible_condition` and `rare_condition` print
-  CSV rows (`case,item,value,unit`); an engine error is a row, and the sweep
+  `shape_and_tolerance`, `impossible_condition`, `rare_condition` and
+  `projection_memory` print CSV rows (`case,item,value,unit`); an engine error is a row, and the sweep
   goes on. `read_cost` runs with `capture=on` and `capture=off` on the same
   circuit and χ, records `P(site 0 = 1)` and the device memory at each
   checkpoint both ways, and adds rows tagged `extrapolation=h2`: H₂'s 1,404
   reads over 48,000 gates estimated from a fit, not measured. `fork_cost`
   also forks a state that was read after every 34 operators, and records how
   far the fork and the stepped parent are from each other and from the state
-  computed once.
+  computed once. `projection_memory` records the device memory along H₂'s
+  pattern (34 gates, a read, then a measurement, 200 times) with variants of
+  the step's last operator (unitary, one or two projections, a full-rank
+  non-unitary, three reads first) and of the width, χ and truncation, to
+  tell what the memory grows with; its slope in MiB per step is also scaled
+  to H₂'s 1,404 measurements, tagged `extrapolation=h2`.
 
 `scripts/qualify-engine-on-a100.sh` runs them on an A100 host. It checks the
 host, the GPU, the libraries and their versions, the commit and the disk; it
@@ -493,7 +498,11 @@ fails:
 source/cutensornet/scripts/qualify-engine-on-a100.sh --check <commit>  # checks only
 source/cutensornet/scripts/qualify-engine-on-a100.sh --quick <commit>  # smaller sweeps
 source/cutensornet/scripts/qualify-engine-on-a100.sh <commit>          # the qualification
+source/cutensornet/scripts/qualify-engine-on-a100.sh --only projection_memory <commit>
 ```
+
+`--only` takes comma-separated test names, runs only those (with
+`--quick` or `--check` too), and summarizes only their sections.
 
 By hand, from a checkout at the commit:
 

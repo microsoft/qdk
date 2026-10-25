@@ -43,6 +43,7 @@
 
 mod circuits;
 mod measure;
+mod memory;
 mod report;
 
 use measure::{Measured, quick};
@@ -244,4 +245,13 @@ fn impossible_condition() {
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn rare_condition() {
     measure("rare_condition", measure::rare_condition);
+}
+
+/// The device memory along H₂'s pattern, step after step, with variants of
+/// the step's measurement: what the 80 MiB per `read_cost` checkpoint grows
+/// with, and how far H₂'s 1,404 measurements would take it.
+#[test]
+#[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
+fn projection_memory() {
+    measure("projection_memory", memory::projection_memory);
 }
