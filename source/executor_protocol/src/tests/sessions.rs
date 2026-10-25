@@ -129,10 +129,10 @@ fn by_shot(outcomes: &[ShotOutcome]) -> BTreeMap<ShotId, Vec<(u32, Value)>> {
 /// it: the outcomes of a split of J are those of one session over J.
 #[test]
 fn a_shots_outcomes_do_not_depend_on_how_the_shots_are_split() {
-    let maker = PerShot(TestDoubleShots::default());
+    let per_shot = PerShot(TestDoubleShots::default());
     let batch = [true, false, true, true];
     let all = ShotSet::range(1..=6).expect("shots");
-    let mut whole = open(&maker, 9, &all).expect("opens");
+    let mut whole = open(&per_shot, 9, &all).expect("opens");
     let first = run(&mut whole, &all, &batch).expect("runs");
     let second = run(&mut whole, &all, &batch).expect("runs");
     assert_eq!(first.1, Ok(()));
@@ -144,7 +144,7 @@ fn a_shots_outcomes_do_not_depend_on_how_the_shots_are_split() {
     let mut split = BTreeMap::new();
     for part in [vec![4, 1], vec![6], vec![2, 5, 3]] {
         let part = ShotSet::new(part).expect("shots");
-        let mut session = open(&maker, 9, &part).expect("opens");
+        let mut session = open(&per_shot, 9, &part).expect("opens");
         let (outcomes, _) = run(&mut session, &part, &batch).expect("runs");
         split.extend(by_shot(&outcomes));
         let (later, _) = run(&mut session, &part, &batch).expect("runs");
@@ -204,12 +204,12 @@ fn a_submission_runs_on_the_shots_it_names() {
 /// session, and a closed session says so first.
 #[test]
 fn a_shots_rejection_refuses_or_fails_the_submission() {
-    let maker = PerShot(TestDoubleShots {
+    let per_shot = PerShot(TestDoubleShots {
         refusing: Some(2),
         ..TestDoubleShots::default()
     });
     let all = ShotSet::range(1..=3).expect("shots");
-    let mut session = open(&maker, 1, &all).expect("opens");
+    let mut session = open(&per_shot, 1, &all).expect("opens");
     assert_eq!(
         run(
             &mut session,
@@ -245,12 +245,12 @@ fn a_shots_rejection_refuses_or_fails_the_submission() {
 /// fails the session when polled.
 #[test]
 fn a_submission_ends_when_its_last_shot_does() {
-    let maker = PerShot(TestDoubleShots {
+    let per_shot = PerShot(TestDoubleShots {
         deferred: vec![2],
         ..TestDoubleShots::default()
     });
     let all = ShotSet::range(1..=2).expect("shots");
-    let mut session = open(&maker, 1, &all).expect("opens");
+    let mut session = open(&per_shot, 1, &all).expect("opens");
     let mut reply = session
         .call(SubmissionRef {
             shots: &all,
@@ -310,8 +310,8 @@ fn gather_reports_a_partial_start_after_its_parts_end() {
 #[test]
 fn needs_are_checked_at_open_and_probabilities_reported_at_close() {
     let shots = ShotSet::range(1..=2).expect("shots");
-    let maker = PerShot(TestDoubleShots::default());
-    let unmet = |needs: &Needs| match maker.open(1, &shots, needs) {
+    let per_shot = PerShot(TestDoubleShots::default());
+    let unmet = |needs: &Needs| match per_shot.open(1, &shots, needs) {
         Err(Rejected::Unmet(Unmet {
             component, need, ..
         })) => Some((component, need)),
@@ -361,19 +361,20 @@ fn needs_are_checked_at_open_and_probabilities_reported_at_close() {
 /// alone.
 #[test]
 fn a_wrapped_session_is_its_shots_executor() {
-    let maker = PerShot(TestDoubleShots::default());
-    let mut wrapped = SubmissionWrapper::new(open(&maker, 3, &ShotSet::one(1)).expect("opens"));
-    let mut alone = maker.0.make(&ShotContext::new(3, 1));
+    let per_shot = PerShot(TestDoubleShots::default());
+    let mut wrapped = SubmissionWrapper::new(open(&per_shot, 3, &ShotSet::one(1)).expect("opens"));
+    let mut alone = per_shot.0.make(&ShotContext::new(3, 1));
     for batch in [&[true, true][..], &[false, true, true]] {
         let (mut ours, mut theirs) = (Vec::new(), Vec::new());
         assert_eq!(wait(wrapped.call(batch).expect("runs"), &mut ours), Ok(()));
         assert_eq!(wait(alone.call(batch).expect("runs"), &mut theirs), Ok(()));
         assert_eq!(ours, theirs);
     }
-    assert_eq!(wrapped.capabilities(), maker.capabilities());
+    assert_eq!(wrapped.capabilities(), per_shot.capabilities());
     assert_eq!(wrapped.inner().shot(1).map(|shot| shot.calls), Some(2));
     assert_eq!(wrapped.close().shots, alone.close());
-    let mut elsewhere = SubmissionWrapper::new(open(&maker, 3, &ShotSet::one(2)).expect("opens"));
+    let mut elsewhere =
+        SubmissionWrapper::new(open(&per_shot, 3, &ShotSet::one(2)).expect("opens"));
     assert_eq!(
         elsewhere.call(&[true]).err(),
         Some(Rejected::ShotNotInSession(1))

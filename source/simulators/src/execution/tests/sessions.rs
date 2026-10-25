@@ -104,12 +104,12 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
     where
         S::Noise: Clone,
     {
-        let maker = PerShot(SimulatorShots::<S>::new(2, 2, S::Noise::default()));
+        let per_shot = PerShot(SimulatorShots::<S>::new(2, 2, S::Noise::default()));
         for seed in 0..200 {
             let mut direct =
                 SimulatorTerminal::<S>::new(2, 2, legacy_seed(seed, 1), S::Noise::default());
             let mut wrapped =
-                SubmissionWrapper::new(open(&maker, seed, &ShotSet::one(1)).expect("opens"));
+                SubmissionWrapper::new(open(&per_shot, seed, &ShotSet::one(1)).expect("opens"));
             for _ in 0..2 {
                 assert_eq!(
                     run_batch(&mut wrapped, &coins()),
@@ -128,7 +128,7 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
                 S::Noise::default(),
             ));
             let mut wrapped = RuntimeAdapter::new(SubmissionWrapper::new(
-                open(&maker, seed, &ShotSet::one(1)).expect("opens"),
+                open(&per_shot, seed, &ShotSet::one(1)).expect("opens"),
             ));
             let (mut ours, mut theirs) = (Vec::new(), Vec::new());
             let our_end = wait(wrapped.call(&programs).expect("accepted"), &mut ours);
@@ -145,18 +145,18 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
 /// alone, whatever the split of J, and the coins are fair.
 #[test]
 fn s2_an_l2_driver_runs_each_shot_as_alone() {
-    let maker = PerShot(SimulatorShots::<FullStateSimulator>::new(
+    let per_shot = PerShot(SimulatorShots::<FullStateSimulator>::new(
         2,
         2,
         Default::default(),
     ));
     let shots = ShotSet::range(1..=300).expect("shots");
-    let mut whole = open(&maker, 42, &shots).expect("opens");
+    let mut whole = open(&per_shot, 42, &shots).expect("opens");
     let outcomes = run_submission(&mut whole, &shots, &coins()).expect("runs");
     let mut split = BTreeMap::new();
     for part in [shots.subset(|j| j % 3 == 0), shots.subset(|j| j % 3 != 0)] {
         let part = part.expect("shots");
-        let mut session = open(&maker, 42, &part).expect("opens");
+        let mut session = open(&per_shot, 42, &part).expect("opens");
         split.extend(run_submission(&mut session, &part, &coins()).expect("runs"));
     }
     assert_eq!(split, outcomes);
@@ -389,13 +389,13 @@ impl MakeShot<RegionInstruction> for TestDoubleShots {
 /// session; a shot's simulator is reachable between calls.
 #[test]
 fn s9_a_session_refuses_or_fails_and_its_shots_stay_reachable() {
-    let maker = PerShot(SimulatorShots::<FullStateSimulator>::new(
+    let per_shot = PerShot(SimulatorShots::<FullStateSimulator>::new(
         2,
         2,
         Default::default(),
     ));
     let all = ShotSet::range(1..=3).expect("shots");
-    let mut session = open(&maker, 1, &all).expect("opens");
+    let mut session = open(&per_shot, 1, &all).expect("opens");
     let flip = [apply(UnitaryOperation::X { target: 0 }), measure(0, 0)];
     assert_eq!(
         run_submission(&mut session, &all, &[flip[0].clone(), measure(2, 0)]).err(),
