@@ -1,0 +1,27 @@
+[package]
+name = "tensornet_simulator"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+executor_protocol = { path = "../executor_protocol" }
+num-complex = { workspace = true }
+qdk_simulators = { path = "../simulators", default-features = false }
+rand = { workspace = true }
+tensornet = { path = "../tensornet" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+qdk_cutensornet = { path = "../cutensornet" }
+tensornet = { path = "../tensornet", features = ["conformance"] }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

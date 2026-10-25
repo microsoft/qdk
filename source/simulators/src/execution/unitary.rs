@@ -116,7 +116,14 @@ pub enum UnitaryOperation {
 impl UnitaryOperation {
     /// The qubits this operation acts on; the second slot is used only by
     /// two-qubit operations.
-    pub(crate) fn qubits(self) -> (QubitID, Option<QubitID>) {
+    ///
+    /// They are in the operand order of [`unitary_matrix`]: a terminal that
+    /// applies matrices to qubits applies `unitary_matrix(op)` to
+    /// `[first]` or `[first, second]`, the first one most significant.
+    ///
+    /// [`unitary_matrix`]: super::unitary_matrix
+    #[must_use]
+    pub fn qubits(self) -> (QubitID, Option<QubitID>) {
         match self {
             Self::I { target }
             | Self::X { target }

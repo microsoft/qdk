@@ -2892,6 +2892,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tensornet_simulator"
+version = "0.0.0"
+dependencies = [
+ "executor_protocol",
+ "num-complex",
+ "qdk_cutensornet",
+ "qdk_simulators",
+ "rand 0.10.2",
+ "tensornet",
+ "thiserror",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
