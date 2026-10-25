@@ -25,6 +25,7 @@ members = [
     "source/compiler/qsc_project",
     "source/compiler/qsc_rir",
     "source/cutensornet",
+    "source/executor_protocol",
     "source/fuzz",
     "source/index_map",
     "source/language_service",
