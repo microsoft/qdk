@@ -56,8 +56,8 @@ pub use lifecycle::{Lifecycle, Watch, Watched};
 pub use message::{Batch, ErrorKind, Message, Outcome, ShotId, SubmissionId, Value};
 pub use rejected::{Need, Rejected, RetryClass, Unmet};
 pub use session::{
-    Gather, LogP, MakeShot, PerShot, SessionReport, ShotOutcome, ShotStrategy, Submission,
-    SubmissionRef, SubmissionUnwrapper, SubmissionWrapper, open,
+    Gather, LogP, MakeShot, PerShot, PerShotSession, SessionReport, ShotOutcome, ShotStrategy,
+    Submission, SubmissionRef, SubmissionWrapper, open,
 };
 pub use shot::{BuildError, ComponentId, ComponentRngs, ShotContext, ShotSet, shot_seed};
 

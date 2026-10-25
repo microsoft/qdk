@@ -38,9 +38,8 @@ that hold them depend on this one.
   against what it offers; an unmet need names the component. The strategy
   decides how the shots run (see [Shot strategies](#shot-strategies)).
   `PerShot` wraps a maker of one shot's L3 executor (`MakeShot`) and opens
-  _per-shot sessions_ (`SubmissionUnwrapper`): one executor per shot,
-  reachable between calls. `SubmissionWrapper` runs an L3 driver on shot 1
-  of a session. A session that fails part-way through a submission is
+  a `PerShotSession`: one executor per shot, reachable between calls.
+  `SubmissionWrapper` runs an L3 driver on shot 1 of a session. A session that fails part-way through a submission is
   failed for good (`Lifecycle`).
 - **Seeds**: shot `j` of a session opened with `seed` draws from seeds fixed
   by `seed`, `j` and the component that draws (`ShotContext`, `shot_seed`,
@@ -123,6 +122,6 @@ Per-shot sessions of a legacy simulator are opened by
 `SimulatorTerminal`:
 
 ```text
-driver ──Submission<RegionInstruction>──► SubmissionUnwrapper ──Batch<RegionInstruction>──► SimulatorTerminal (one per shot)
+driver ──Submission<RegionInstruction>──► PerShotSession ──Batch<RegionInstruction>──► SimulatorTerminal (one per shot)
        ◄── ShotOutcome per measurement ──                      ◄── Outcome per measurement ──
 ```

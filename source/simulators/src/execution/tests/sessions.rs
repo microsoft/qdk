@@ -413,7 +413,7 @@ fn s9_a_session_refuses_or_fails_and_its_shots_stay_reachable() {
         .err(),
         Some(Rejected::ShotNotInSession(4))
     );
-    let result = |session: &executor_protocol::SubmissionUnwrapper<_>, j| {
+    let result = |session: &executor_protocol::PerShotSession<_>, j| {
         session
             .shot(j)
             .map(|shot: &SimulatorTerminal<FullStateSimulator>| shot.simulator().measurements()[0])
