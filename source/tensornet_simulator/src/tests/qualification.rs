@@ -250,7 +250,7 @@ fn row(records: &[OutputRecord]) -> String {
 ///
 /// Per shot it prints its time, the device memory with its state still held
 /// and after its session closes, and its row in record order and as the
-/// chemistry user writes it (qubit 4 first, [`H2_PEAKS`]). Then the ten most
+/// chemistry user writes it (qubit 4 first, [`H2_PEAKS`]). Then the histogram, the ten most
 /// frequent rows, and whether [`H2_PEAKS`] are the two most frequent, which
 /// it asserts from [`H2_SHOTS_TO_ASSERT_PEAKS`] shots. An engine error ends
 /// the run with the shot, its progress and the error.
@@ -318,6 +318,7 @@ fn h2_qpe_on_the_a100() {
         "h2 {shots} shots, seed {seed}, chi {chi}: {:.1} s per shot",
         total.as_secs_f64() / f64::from(shots.max(1))
     );
+    println!("h2 histogram (chemistry order): {histogram:?}");
     let mut ranked: Vec<_> = histogram.into_iter().collect();
     ranked.sort_by(|(a, m), (b, n)| n.cmp(m).then(a.cmp(b)));
     for (chemistry, count) in ranked.iter().take(10) {
