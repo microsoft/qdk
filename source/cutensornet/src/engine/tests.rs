@@ -14,9 +14,17 @@ use std::sync::Arc;
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm, SampleSeed, conformance};
 
 fn engine() -> (CuTensorNetEngine, Arc<NativeDouble>) {
+    engine_with(ExecutionPolicy::base_qualification())
+}
+
+fn engine_without_capture() -> (CuTensorNetEngine, Arc<NativeDouble>) {
+    engine_with(ExecutionPolicy::base_qualification().without_capture())
+}
+
+fn engine_with(policy: ExecutionPolicy) -> (CuTensorNetEngine, Arc<NativeDouble>) {
     let native = Arc::new(NativeDouble::new());
     let api: Arc<dyn NativeApi> = native.clone();
-    let engine = CuTensorNetEngine::with_api(api, ExecutionPolicy::base_qualification())
+    let engine = CuTensorNetEngine::with_api(api, policy)
         .unwrap_or_else(|error| panic!("the test double opens a session: {error}"));
     (engine, native)
 }
@@ -54,6 +62,121 @@ fn the_engine_conforms_to_the_exact_reference() {
     assert_eq!(native.live_objects(), 2, "only the stream and the handle");
     ok(engine.close());
     assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn the_engine_without_capture_conforms_to_the_exact_reference() {
+    let (engine, native) = engine_without_capture();
+    let failures = conformance::check(&engine);
+    assert!(failures.is_empty(), "{failures:#?}");
+    assert!(native.count("compute_state") > 0);
+    assert_eq!(native.count("capture_mps"), 0);
+    ok(engine.close());
+    assert_eq!(native.live_objects(), 0);
+}
+
+/// The calls that compute, capture, apply, and free, in order.
+fn compute_events(native: &NativeDouble) -> Vec<&'static str> {
+    native
+        .events()
+        .into_iter()
+        .filter(|event| {
+            [
+                "apply_tensor_operator",
+                "compute_state",
+                "capture_mps",
+                "free",
+            ]
+            .contains(event)
+        })
+        .collect()
+}
+
+#[test]
+fn each_compute_is_captured_before_the_previous_one_is_freed() {
+    let (engine, native) = engine();
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.probability_of_one(&state, 0));
+    let first = compute_events(&native);
+    assert_eq!(
+        first.iter().rev().find(|event| **event != "free"),
+        Some(&"capture_mps"),
+        "{first:?}"
+    );
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    let p1 = ok(engine.probability_of_one(&state, 1));
+    assert!((p1 - 0.5).abs() < 1e-12, "{p1}");
+    let events = compute_events(&native);
+    let second = &events[first.len()..];
+    let compute = second
+        .iter()
+        .position(|event| *event == "compute_state")
+        .unwrap_or_else(|| panic!("{second:?}"));
+    assert_eq!(second[compute + 1], "capture_mps", "{second:?}");
+    assert!(
+        !second[..compute].contains(&"free"),
+        "the captured start is freed before it is read: {second:?}"
+    );
+    assert!(second[compute + 2..].contains(&"free"), "{second:?}");
+    assert_eq!(native.count("compute_state"), 2);
+    assert_eq!(native.count("capture_mps"), 2);
+}
+
+#[test]
+fn without_capture_every_compute_starts_from_the_first_operator() {
+    let (engine, native) = engine_without_capture();
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.probability_of_one(&state, 0));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    let p1 = ok(engine.probability_of_one(&state, 1));
+    assert!((p1 - 0.5).abs() < 1e-12, "{p1}");
+    assert_eq!(native.count("compute_state"), 2);
+    assert_eq!(native.count("capture_mps"), 0);
+}
+
+#[test]
+fn a_failed_capture_poisons_the_state_and_cleans_up() {
+    let (engine, native) = engine();
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.probability_of_one(&state, 0));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    native.fail("capture_mps", 2);
+    assert!(matches!(
+        engine.probability_of_one(&state, 1),
+        Err(EngineError::NativeCallFailed {
+            operation: "capture_mps",
+            ..
+        })
+    ));
+    assert!(matches!(
+        engine.probability_of_one(&state, 0),
+        Err(EngineError::Poisoned { .. })
+    ));
+    drop(state);
+    assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    ok(engine.close());
+    assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn a_fork_after_a_capture_replays_every_operator() {
+    let (engine, native) = engine();
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.probability_of_one(&state, 0));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    ok(engine.project(&mut state, 0, true, 0.5));
+    ok(engine.probability_of_one(&state, 1));
+    assert_eq!(native.count("capture_mps"), 2);
+    let copy = ok(engine.fork(&state));
+    assert_eq!(native.count("apply_tensor_operator"), 6);
+    assert!((ok(engine.probability_of_one(&copy, 1)) - 1.0).abs() < 1e-12);
+    ok(copy.close());
+    ok(engine.apply(&mut state, &[1], &hadamard()));
+    assert!((ok(engine.probability_of_one(&state, 1)) - 0.5).abs() < 1e-12);
 }
 
 #[test]

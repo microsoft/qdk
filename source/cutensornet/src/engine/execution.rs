@@ -7,7 +7,8 @@
 //! `tensornet::MpsShape`, into the extents `cutensornetStateFinalizeMPS` reads.
 //! Both are ④'s (`library/simulation/mps_execution.rs` in M0), moved; the
 //! target is now built from a capacity rather than from a qubit count and a
-//! bond cap, and the test-only full-state capture is left out.
+//! bond cap; and `capture_mps`, ④'s test-only full-state capture, now
+//! follows every compute.
 
 use super::{EngineError, OpaqueHandle, Stream};
 use num_complex::Complex64;
@@ -169,6 +170,11 @@ pub(crate) trait MpsExecutionApi: super::memory_workspace::MemoryWorkspaceApi {
         state: OpaqueHandle,
         target: &MpsTarget,
     ) -> Result<(), EngineError>;
+    /// `cutensornetStateCaptureMPS`: the last computed MPS becomes the
+    /// state's start, and the operators applied so far are deleted from the
+    /// state (their ids with them); the finalize target and configuration
+    /// stay. The next compute applies only the operators applied after it.
+    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError>;
     fn configure_state_f64(
         &self,
         handle: OpaqueHandle,

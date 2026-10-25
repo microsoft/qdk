@@ -13,7 +13,12 @@
 //! - a compute needs a prepare since the last operator, and scratch
 //!   attached to the workspace;
 //! - an expectation or sampler reads only a state computed since its last
-//!   operator.
+//!   operator, whose output buffers are still allocated;
+//! - `capture_mps` needs a state computed since its last operator; it makes
+//!   the computed state the start of the next compute and deletes the
+//!   operators, as cuTensorNet does, and the next compute reads that start
+//!   from the captured compute's output buffers, which must still be
+//!   allocated.
 //!
 //! An expectation returns the value and the squared norm both scaled by
 //! [`NORM_SCALE`], as a truncated MPS's are, so a read that skips the
@@ -84,14 +89,25 @@ enum Object {
 
 struct StateDouble {
     sites: usize,
+    /// The start of the next compute, once a compute is captured: the
+    /// captured state and the output buffers it is read from.
+    start: Option<Computed>,
+    /// The operators applied since the start.
     operators: Vec<(Vec<usize>, usize)>,
     /// The target's bonds, once finalized.
     bonds: Option<Vec<usize>>,
     configurations: usize,
     /// How many operators the state had at its last prepare.
     prepared_at: Option<usize>,
-    /// The state of the last compute, and how many operators it had.
-    computed: Option<(ReferenceState, usize)>,
+    /// The last compute, and how many operators the state had then.
+    computed: Option<(Computed, usize)>,
+}
+
+/// A computed state and the output buffers the library wrote it to.
+#[derive(Clone)]
+struct Computed {
+    state: ReferenceState,
+    outputs: Vec<usize>,
 }
 
 struct SamplerDouble {
@@ -225,7 +241,7 @@ impl Inner {
     }
 
     /// The state `state` was last computed as, if no operator was applied
-    /// since.
+    /// since and its output buffers are still allocated.
     fn computed(
         &self,
         state: usize,
@@ -236,10 +252,27 @@ impl Inner {
                 operators,
                 computed: Some((computed, at)),
                 ..
-            })) if *at == operators.len() => Ok(computed),
+            })) if *at == operators.len() => {
+                self.outputs_live(computed, operation)?;
+                Ok(&computed.state)
+            }
             Some(Object::State(_)) => Err(failed(operation, "the state is not computed")),
             _ => Err(failed(operation, "no such state")),
         }
+    }
+
+    /// Fails unless every output buffer `computed` is read from is still
+    /// allocated.
+    fn outputs_live(
+        &self,
+        computed: &Computed,
+        operation: &'static str,
+    ) -> Result<(), EngineError> {
+        for &output in &computed.outputs {
+            self.buffer(output, operation)
+                .map_err(|_| failed(operation, "a computed MPS's output buffer was freed"))?;
+        }
+        Ok(())
     }
 
     /// A copy of `state` with the matrix in buffer `tensor` applied to
@@ -417,6 +450,7 @@ impl MpsExecutionApi for NativeDouble {
         }
         Ok(inner.create(Object::State(StateDouble {
             sites: mode_extents.len(),
+            start: None,
             operators: Vec::new(),
             bonds: None,
             configurations: 0,
@@ -550,7 +584,7 @@ impl MpsExecutionApi for NativeDouble {
         for output in outputs.iter() {
             inner.buffer(id(*output), OPERATION)?;
         }
-        let (sites, operators, bonds) = {
+        let (sites, start, operators, bonds) = {
             let state = inner.state(state, OPERATION)?;
             if state.prepared_at != Some(state.operators.len()) {
                 return Err(failed(OPERATION, "not prepared since the last operator"));
@@ -558,16 +592,26 @@ impl MpsExecutionApi for NativeDouble {
             let Some(bonds) = state.bonds.clone() else {
                 return Err(failed(OPERATION, "not finalized"));
             };
-            (state.sites, state.operators.clone(), bonds)
+            (
+                state.sites,
+                state.start.clone(),
+                state.operators.clone(),
+                bonds,
+            )
         };
         if outputs.len() != sites || metadata.extents.len() != sites {
             return Err(failed(OPERATION, "one output per site is needed"));
         }
-        let capacity = tensornet::conformance::exact_capacity(sites)
-            .map_err(|error| failed(OPERATION, &error.to_string()))?;
-        let mut computed = ExactReference
-            .prepare(&capacity)
-            .map_err(|error| failed(OPERATION, &error.to_string()))?;
+        let mut computed = if let Some(start) = start {
+            inner.outputs_live(&start, OPERATION)?;
+            start.state
+        } else {
+            let capacity = tensornet::conformance::exact_capacity(sites)
+                .map_err(|error| failed(OPERATION, &error.to_string()))?;
+            ExactReference
+                .prepare(&capacity)
+                .map_err(|error| failed(OPERATION, &error.to_string()))?
+        };
         for (sites, tensor) in &operators {
             inner.apply(&mut computed, sites, *tensor, OPERATION)?;
         }
@@ -599,7 +643,29 @@ impl MpsExecutionApi for NativeDouble {
             metadata.extents[site].copy_from_slice(&extents);
         }
         let at = operators.len();
-        inner.state(state, OPERATION)?.computed = Some((computed, at));
+        let outputs = outputs.iter().map(|&output| id(output)).collect();
+        inner.state(state, OPERATION)?.computed = Some((
+            Computed {
+                state: computed,
+                outputs,
+            },
+            at,
+        ));
+        Ok(())
+    }
+
+    fn capture_mps(&self, _handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+        const OPERATION: &str = "capture_mps";
+        let mut inner = self.call(OPERATION)?;
+        let target = inner.state(state, OPERATION)?;
+        let computed = match &target.computed {
+            Some((computed, at)) if *at == target.operators.len() => computed.clone(),
+            _ => return Err(failed(OPERATION, "the state is not computed")),
+        };
+        target.start = Some(computed.clone());
+        target.operators.clear();
+        target.prepared_at = None;
+        target.computed = Some((computed, 0));
         Ok(())
     }
 

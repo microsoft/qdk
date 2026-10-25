@@ -246,7 +246,10 @@ impl MpsEngine for CuTensorNetEngine {
     }
 
     /// A new native state with every operator applied again: cuTensorNet
-    /// has no state copy, so a fork costs what building the state did.
+    /// has no state copy, so a fork costs what building the state did. The
+    /// fork is computed once from |0…0⟩, not from the parent's captured
+    /// MPS, so under truncation its values may differ from the parent's
+    /// within the truncation error.
     fn fork(&self, state: &CuTensorNetState) -> Result<CuTensorNetState, EngineError> {
         let copy = self.execution(state)?.fork()?;
         Ok(CuTensorNetState {

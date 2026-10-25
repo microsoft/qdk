@@ -1,9 +1,13 @@
 //! The truncation and resource policy of one engine.
 //!
 //! [`ExecutionPolicy`] fixes the device, precision, SVD cutoffs, SVD
-//! algorithm, gauge and workspace budget. `validate` accepts only the
+//! algorithm, gauge, workspace budget, and whether each compute is captured
+//! as the start of the next one. `validate` accepts only the
 //! qualified configuration, fp64 with GESVD and the SIMPLE gauge, and a budget
-//! of at most 64 GiB; the other variants exist for tests.
+//! of at most 64 GiB; the other variants exist for tests. It does not check
+//! capture: turning it off is not reachable outside tests and the
+//! `qualification` feature (`without_capture`), and gives the same values
+//! without truncation, only more slowly.
 //! `base_qualification` is the engine's default. Qualifying another
 //! configuration takes an A100 qualification case and a change to `validate`.
 //!
@@ -44,6 +48,14 @@ pub(crate) struct ExecutionPolicy {
     pub(super) svd_algorithm: SvdAlgorithm,
     pub(super) gauge: Gauge,
     pub(super) maximum_workspace_bytes: usize,
+    /// Whether each compute is followed by `cutensornetStateCaptureMPS`, so
+    /// that the computed MPS becomes the state's start and the next compute
+    /// applies only the operators applied since. Needed because cuTensorNet
+    /// otherwise computes every time from |0…0⟩ with every operator: a
+    /// terminal that reads after each of `M` measurements of a `G`-gate shot
+    /// would pay `O(M·G)` instead of `O(G)` (H₂: M ≈ 1,404, G ≈ 48,000).
+    /// Off only to measure that cost (DECISIONS G1).
+    pub(super) capture_after_compute: bool,
 }
 
 impl ExecutionPolicy {
@@ -56,6 +68,18 @@ impl ExecutionPolicy {
             svd_algorithm: SvdAlgorithm::Gesvd,
             gauge: Gauge::Simple,
             maximum_workspace_bytes: MAXIMUM_WORKSPACE_BYTES,
+            capture_after_compute: true,
+        }
+    }
+
+    /// The same policy, with every compute starting again from |0…0⟩: the
+    /// path the A100 qualification compares capture with, not a supported
+    /// configuration.
+    #[cfg(any(test, feature = "qualification"))]
+    pub(crate) const fn without_capture(self) -> Self {
+        Self {
+            capture_after_compute: false,
+            ..self
         }
     }
 
@@ -120,6 +144,13 @@ mod tests {
         assert_eq!(policy.svd_algorithm, SvdAlgorithm::Gesvd);
         assert_eq!(policy.gauge, Gauge::Simple);
         assert_eq!(policy.maximum_workspace_bytes, 68_719_476_736);
+        assert!(policy.capture_after_compute);
+        let uncaptured = policy.without_capture();
+        assert!(!uncaptured.capture_after_compute);
+        assert_eq!(
+            uncaptured.validate().expect("policy should be valid"),
+            uncaptured
+        );
     }
 
     #[test]
