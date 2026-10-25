@@ -213,9 +213,9 @@ impl<S> Close for SimulatorTerminal<S> {
     }
 }
 
-/// The maker of one shot's [`SimulatorTerminal`]: what per-shot sessions of
-/// a legacy [`Simulator`] are opened over, through
-/// [`Open`](executor_protocol::Open).
+/// The maker of one shot's [`SimulatorTerminal`]: per-shot sessions of a
+/// legacy [`Simulator`] are opened by
+/// [`PerShot`](executor_protocol::PerShot) over it.
 ///
 /// Shot `j` of a session opened with `seed` is a new simulator seeded from
 /// [`ShotContext::rng_seed`] of [`ComponentId::TERMINAL`], so its outcomes

@@ -19,7 +19,7 @@ use crate::{Rejected, ShotId};
 /// named twice (run it twice, or once?). A set by type is checked once, where
 /// the shots are chosen, and never again by the executors below. That matters
 /// most where J is split into parts, each opened on its own: a check in each
-/// opener sees only its part, while the parts of a `ShotSet` cannot share a
+/// strategy sees only its part, while the parts of a `ShotSet` cannot share a
 /// shot. A per-shot session runs a submission's shots in the set's order.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ShotSet(Box<[ShotId]>);

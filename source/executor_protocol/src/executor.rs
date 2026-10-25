@@ -200,8 +200,8 @@ impl Capabilities {
 /// that the stack can refuse it before anything runs rather than fail during
 /// the run.
 ///
-/// The default states nothing, so every opener accepts it: a caller states a
-/// need only when it wants it checked. New needs are added as fields whose
+/// The default states nothing, so every shot strategy accepts it: a caller
+/// states a need only when it wants it checked. New needs are added as fields whose
 /// default states nothing, hence `#[non_exhaustive]`: build one from the
 /// default and its `with_` methods.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -214,7 +214,7 @@ pub struct Needs {
     /// The qubits each shot uses; `None`: not stated, not checked.
     pub qubits: Option<u32>,
     /// An outcome is read before the end and decides what runs next, so the
-    /// opener must keep a state per shot between calls.
+    /// strategy must keep a state per shot between calls.
     pub feedback: bool,
     /// The program prepares qubits again during the run.
     pub resets: bool,

@@ -3,15 +3,15 @@
 
 //! Sessions (level L2) of the legacy simulators: per-shot sessions over
 //! [`SimulatorShots`], seen by an L3 driver (S1), by an L2 driver (S2), and
-//! through [`Open`] alongside an ensemble opener (S8), and their rejections
-//! (S9).
+//! through [`ShotStrategy`] alongside an ensemble strategy (S8), and their
+//! rejections (S9).
 
 use std::collections::BTreeMap;
 
 use executor_protocol::{
-    Batch, Capabilities, Close, Describe, Executor, Immediate, MakeShot, Need, Needs, Open,
-    Rejected, SessionReport, ShotContext, ShotId, ShotOutcome, ShotSet, Submission, SubmissionRef,
-    SubmissionWrapper, Unmet, Value, open, shot_seed, wait,
+    Batch, Capabilities, Close, Describe, Executor, Immediate, MakeShot, Need, Needs, PerShot,
+    Rejected, SessionReport, ShotContext, ShotId, ShotOutcome, ShotSet, ShotStrategy, Submission,
+    SubmissionRef, SubmissionWrapper, Unmet, Value, open, shot_seed, wait,
 };
 
 use super::{
@@ -104,7 +104,7 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
     where
         S::Noise: Clone,
     {
-        let maker = SimulatorShots::<S>::new(2, 2, S::Noise::default());
+        let maker = PerShot(SimulatorShots::<S>::new(2, 2, S::Noise::default()));
         for seed in 0..200 {
             let mut direct =
                 SimulatorTerminal::<S>::new(2, 2, legacy_seed(seed, 1), S::Noise::default());
@@ -145,7 +145,11 @@ fn s1_an_l3_driver_runs_on_a_per_shot_session() {
 /// alone, whatever the split of J, and the coins are fair.
 #[test]
 fn s2_an_l2_driver_runs_each_shot_as_alone() {
-    let maker = SimulatorShots::<FullStateSimulator>::new(2, 2, Default::default());
+    let maker = PerShot(SimulatorShots::<FullStateSimulator>::new(
+        2,
+        2,
+        Default::default(),
+    ));
     let shots = ShotSet::range(1..=300).expect("shots");
     let mut whole = open(&maker, 42, &shots).expect("opens");
     let outcomes = run_submission(&mut whole, &shots, &coins()).expect("runs");
@@ -189,7 +193,7 @@ fn s2_an_l2_driver_runs_each_shot_as_alone() {
 /// An ensemble terminal, as a test double: opens sessions of at most four
 /// shots, held together, and runs a submission's shots in one pass. Its
 /// shots are the legacy CPU simulator's, seeded as per-shot sessions seed
-/// them, so the two openers must agree.
+/// them, so the two strategies must agree.
 struct TestDoubleEnsemble;
 
 struct TestDoubleEnsembleSession {
@@ -205,7 +209,7 @@ impl Describe for TestDoubleEnsemble {
     }
 }
 
-impl Open<RegionInstruction> for TestDoubleEnsemble {
+impl ShotStrategy<RegionInstruction> for TestDoubleEnsemble {
     type Session = TestDoubleEnsembleSession;
 
     fn open(&self, seed: u64, shots: &ShotSet, needs: &Needs) -> Result<Self::Session, Rejected> {
@@ -280,18 +284,18 @@ impl Close for TestDoubleEnsembleSession {
 /// Outcomes by shot and tag.
 type ByShot = BTreeMap<(ShotId, u32), Value>;
 
-/// One driver over [`Open`]: opens a session with its needs, runs three
-/// submissions, and closes it. Returns each submission's outcomes and the
-/// submissions the session reports.
-fn drive<O: Open<RegionInstruction>>(
-    opener: &O,
+/// One driver over [`ShotStrategy`]: opens a session with its needs, runs
+/// three submissions, and closes it. Returns each submission's outcomes and
+/// the submissions the session reports.
+fn drive<S: ShotStrategy<RegionInstruction>>(
+    strategy: &S,
     shots: &ShotSet,
     needs: &Needs,
 ) -> Result<(Vec<ByShot>, u64), Rejected>
 where
-    O::Session: Close<Report = SessionReport<SimulatorReport>>,
+    S::Session: Close<Report = SessionReport<SimulatorReport>>,
 {
-    let mut session = opener.open(5, shots, needs)?;
+    let mut session = strategy.open(5, shots, needs)?;
     let outcomes = (0..3)
         .map(|_| run_submission(&mut session, shots, &coins()))
         .collect::<Result<Vec<_>, _>>()?;
@@ -300,20 +304,23 @@ where
     Ok((outcomes, report.submissions))
 }
 
-/// S8: one driver over [`Open`] runs on a per-shot opener and on an
-/// ensemble one, which agree; a need an opener cannot meet is refused when
-/// the session opens, naming the opener.
+/// S8: one driver over [`ShotStrategy`] runs on the per-shot strategy and on
+/// an ensemble one, which agree; a need a strategy cannot meet is refused
+/// when the session opens, naming the component.
 #[test]
 fn s8_one_driver_opens_per_shot_and_ensemble_sessions() {
-    let per_shot = SimulatorShots::<FullStateSimulator>::new(2, 2, Default::default());
+    let per_shot = PerShot(SimulatorShots::<FullStateSimulator>::new(
+        2,
+        2,
+        Default::default(),
+    ));
     let shots = ShotSet::range(7..=10).expect("shots");
     let replayable = Needs::default().with_replayable(true);
     let ours = drive(&per_shot, &shots, &replayable).expect("runs");
     let theirs = drive(&TestDoubleEnsemble, &shots, &replayable).expect("runs");
     assert_eq!(ours, theirs);
     assert_eq!(ours.1, 3);
-    let unmet = |opener: &dyn Fn(&Needs) -> Result<(), Rejected>, needs: &Needs| match opener(needs)
-    {
+    let unmet = |opens: &dyn Fn(&Needs) -> Result<(), Rejected>, needs: &Needs| match opens(needs) {
         Err(Rejected::Unmet(Unmet {
             component,
             need,
@@ -382,7 +389,11 @@ impl MakeShot<RegionInstruction> for TestDoubleShots {
 /// session; a shot's simulator is reachable between calls.
 #[test]
 fn s9_a_session_refuses_or_fails_and_its_shots_stay_reachable() {
-    let maker = SimulatorShots::<FullStateSimulator>::new(2, 2, Default::default());
+    let maker = PerShot(SimulatorShots::<FullStateSimulator>::new(
+        2,
+        2,
+        Default::default(),
+    ));
     let all = ShotSet::range(1..=3).expect("shots");
     let mut session = open(&maker, 1, &all).expect("opens");
     let flip = [apply(UnitaryOperation::X { target: 0 }), measure(0, 0)];
@@ -423,7 +434,7 @@ fn s9_a_session_refuses_or_fails_and_its_shots_stay_reachable() {
         Some(Rejected::Closed)
     );
 
-    let mut session = open(&TestDoubleShots { refusing: 2 }, 1, &all).expect("opens");
+    let mut session = open(&PerShot(TestDoubleShots { refusing: 2 }), 1, &all).expect("opens");
     assert_eq!(
         run_submission(
             &mut session,

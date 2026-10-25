@@ -182,8 +182,9 @@ Clifford, making parity with the legacy oracle direct. A tensor-network
 terminal instead takes each region whole, which is what regions are for.
 
 `SimulatorShots` makes one shot's `SimulatorTerminal`, seeded from the shot's
-terminal seed (`ShotContext::rng_seed`), so per-shot sessions (level L2) of
-the legacy simulators open over it through `executor_protocol::Open`. The
+terminal seed (`ShotContext::rng_seed`). Per-shot sessions (level L2) of the
+legacy simulators are opened by the per-shot strategy over it,
+`executor_protocol::PerShot(SimulatorShots::new(…))`. The
 legacy `Simulator::new` takes a 32-bit seed, so the 64-bit seed is folded to
 32 bits, and two shots of a session may share one (probability about n²/2³³
 for n shots).
