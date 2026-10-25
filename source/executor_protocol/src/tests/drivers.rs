@@ -269,7 +269,7 @@ fn a_per_shot_session_hands_over_a_shots_events_before_the_submission_ends() {
 
 /// `wait` parks until it is woken instead of spinning: a call that ends 30 ms
 /// later is polled twice (three times if a stale unpark token wakes the
-/// thread early), against hundreds of polls when it spins; and a per-shot
+/// thread early), against more when it spins; and a per-shot
 /// session whose shots run on threads wakes its caller at most twice per shot
 /// (its events, its end) (prototype w4).
 #[test]
@@ -285,7 +285,12 @@ fn wait_parks_until_woken_instead_of_spinning() {
     let (reply, polls) = counted(worker.call(&[]).expect("accepted"));
     assert_eq!(spin_wait(reply, &mut out), Ok(()));
     let spun = polls.load(Ordering::SeqCst);
-    assert!(spun > 100, "{spun} polls when spinning");
+    // The control only shows that the count tells spinning from parking. A
+    // spinning driver yields between polls, so how often it polls depends on
+    // the machine's load: hundreds of times in 30 ms when idle, 10 to 12 on
+    // two cores shared with the rest of the suite; more than parking's three
+    // in every run measured.
+    assert!(spun > 3, "{spun} polls when spinning");
 
     let shots = ShotSet::range(1..=4).expect("shots");
     let mut session = open(&PerShot(Workers(Duration::from_millis(20))), 0, &shots).expect("opens");
