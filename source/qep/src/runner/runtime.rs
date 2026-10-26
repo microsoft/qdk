@@ -405,7 +405,7 @@ pub(super) fn bind<'ctx>(
     let mut args = vec![state.into()];
     args.extend(original.get_param_iter().map(BasicMetadataValueEnum::from));
     let call = builder.build_call(native, &args, "")?;
-    if let Some(value) = call.try_as_basic_value().left() {
+    if let Some(value) = call.try_as_basic_value().basic() {
         builder.build_return(Some(&value))?;
     } else {
         builder.build_return(None)?;

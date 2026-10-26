@@ -274,11 +274,13 @@ fn resource_count(function: FunctionValue<'_>, name: &str) -> Result<usize, Stri
 /// Rejects module constructs that the runner cannot safely dispatch.
 fn validate_module(module: &Module<'_>) -> Result<(), String> {
     for flag in module.get_global_metadata("llvm.module.flags") {
-        let values = flag.get_node_values();
+        let values = flag
+            .get_node_values()
+            .ok_or("Invalid QIR module flag: expected a metadata node")?;
         if let [_, BasicMetadataValueEnum::MetadataValue(key), value] = values.as_slice()
             && key.get_string_value().is_some_and(|key| {
                 matches!(
-                    key.to_bytes(),
+                    key,
                     b"dynamic_qubit_management" | b"dynamic_result_management"
                 )
             })

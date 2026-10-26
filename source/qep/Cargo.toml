@@ -14,7 +14,7 @@ rustc-hash = { workspace = true }
 smallvec = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-inkwell = { git = "https://github.com/TheDan64/inkwell", rev = "0f8d2d6c9061cfe80d3e83b75ea00f6df94ee562", default-features = false, features = ["llvm20-1-prefer-dynamic"] }
+inkwell = { version = "0.11.0", default-features = false, features = ["llvm20-1-prefer-dynamic"] }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 qdk_simulators = { path = "../simulators", default-features = false }
