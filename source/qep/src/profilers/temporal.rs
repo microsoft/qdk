@@ -558,10 +558,12 @@ impl QuantumBackend for TemporalProfiler {
 impl Profiler for TemporalProfiler {
     /// Returns the profiling shell and the recorded instruction timeline.
     fn get_result(&self) -> ProfilerResult {
+        let factory_logical_qubits: usize = self.factories.iter().map(|f| f.logical_qubits).sum();
+
         #[allow(clippy::cast_precision_loss)]
         let total_runtime_sec = self.current_time_nanos as f64 / 1e9;
         let totals = TotalCounts {
-            logical_qubits: self.qubits.len(),
+            logical_qubits: self.qubits.len() + factory_logical_qubits,
             physical_qubits: 0,
             total_runtime_sec,
             total_operations_count: self.aggregator.total_event_count(),

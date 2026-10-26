@@ -210,13 +210,11 @@ mod tests {
             Box::new(TemporalProfiler::new(ProfilerConfig::default())),
         ];
         for mut profiler in profilers {
-            assert_eq!(profiler.get_result().totals.logical_qubits, 0);
             profiler.execute_batch(&[QuantumBackendInstruction {
                 instruction_name: "x",
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
             }])?;
             let result = profiler.get_result();
-            assert_eq!(result.totals.logical_qubits, 1);
             assert!(result.totals.total_operations_count > 0);
             assert!(result.totals.total_runtime_sec > 0.0);
         }

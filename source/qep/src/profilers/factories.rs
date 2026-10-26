@@ -20,7 +20,7 @@
 /// For the demo, I am using 15-1 factory from fig.15 in https://arxiv.org/pdf/1808.02892
 #[derive(Clone)]
 pub(super) struct TFactory {
-    logical_qubits: usize,
+    pub(super) logical_qubits: usize,
     distance: usize,
     pub(super) probability_success: f64,
     distillation_round_duration_nanos: usize,
