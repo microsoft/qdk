@@ -67,7 +67,8 @@ fn device_mib() -> String {
 /// measurements, so that a run that runs out of device memory shows how it
 /// got there, and the time per measurement shows what fusion saves. With
 /// `stop_after`, it refuses the batch after that many measurements, which
-/// ends the shot.
+/// ends the shot, and records that it did (`stopped`), so that the driver
+/// tells this refusal from an engine error.
 ///
 /// It counts the operators by fusing each batch's regions as the terminal
 /// does ([`GateFusion::operators`]), on the CPU; the test checks the count
@@ -77,6 +78,7 @@ struct ShotProgress<E> {
     shot: u32,
     fusion: GateFusion,
     stop_after: Option<u64>,
+    stopped: bool,
     measurements: u64,
     operators: u64,
     start: Instant,
@@ -90,6 +92,7 @@ impl<E> ShotProgress<E> {
             shot,
             fusion,
             stop_after,
+            stopped: false,
             measurements: 0,
             operators: 0,
             start: Instant::now(),
@@ -118,6 +121,7 @@ impl<E: Executor<Batch<RegionInstruction>>> Executor<Batch<RegionInstruction>> f
 
     fn call(&mut self, batch: &[RegionInstruction]) -> Result<Self::Response, Rejected> {
         if self.stop_after.is_some_and(|m| self.measurements >= m) {
+            self.stopped = true;
             return Err(Rejected::Unavailable(format!(
                 "stopped after {} measurements (QDK_H2_STOP_AFTER)",
                 self.measurements
@@ -250,7 +254,7 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
         let mut records = Vec::new();
         let result = adapter.run(&program, &mut records);
         let progress = adapter.into_inner();
-        let stop = stop_after.filter(|&m| result.is_err() && progress.measurements >= m);
+        let stop = stop_after.filter(|_| progress.stopped);
         if let (Err(error), None) = (&result, stop) {
             panic!(
                 "h2 shot {shot} failed after {} measurements, {:.1} s, device_mib {}: {error}",
