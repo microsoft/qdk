@@ -23,9 +23,9 @@
 #              also checks FILE. Without --h2, the full and quick runs skip H2.
 #     --shots N  H2's shots (default 1; at 50 or more it asserts the two peaks).
 #              A shot is expected to take minutes, so 50 shots take hours.
-#     --fusion F  H2's gate fusion (QDK_H2_FUSION): unfused (the default, one
-#              engine operator per gate) or pairs (each region's gates in
-#              blocks of one or two qubits, GateFusion::Pairs).
+#     --fusion F  H2's gate fusion (QDK_H2_FUSION): pairs (the default, each
+#              region's gates in blocks of one or two qubits, GateFusion::Pairs)
+#              or unfused (one engine operator per gate).
 #     --stop-after M  stop each H2 shot after M measurements
 #              (QDK_H2_STOP_AFTER), to time the first part of a shot: the
 #              shot has no row and the peaks are not checked. Each shot
@@ -121,7 +121,7 @@ if [[ -n "$h2" ]]; then
     # Absolute, because the test runs in the worktree.
     h2="$(cd "$(dirname "$h2")" && pwd)/$(basename "$h2")"
     shots="${shots:-1}"
-    fusion="${fusion:-unfused}"
+    fusion="${fusion:-pairs}"
 fi
 ref="$1"
 [[ -d "${2:-.}" ]] || { printf 'FAIL: %s is not a directory\n' "${2:-.}" >&2; exit 1; }

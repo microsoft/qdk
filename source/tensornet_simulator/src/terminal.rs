@@ -53,8 +53,8 @@ pub struct TensorNetTerminal<E: MpsEngine> {
 
 impl<E: MpsEngine> TensorNetTerminal<E> {
     /// A terminal on |0…0⟩, prepared by `engine` within `capacity` (one site
-    /// per qubit), drawing from `seed`, applying gates unfused
-    /// ([`GateFusion::Unfused`]; see [`with_gate_fusion`](Self::with_gate_fusion)).
+    /// per qubit), drawing from `seed`, grouping gates by the default
+    /// [`GateFusion::Pairs`] (see [`with_gate_fusion`](Self::with_gate_fusion)).
     ///
     /// # Errors
     ///
@@ -87,7 +87,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
             engine,
             state,
             capacity,
-            fusion: GateFusion::Unfused,
+            fusion: GateFusion::default(),
             rng: StdRng::seed_from_u64(seed),
             log_p: 0.0,
             report: TensorNetReport::default(),
@@ -354,12 +354,12 @@ impl<E: MpsEngine> TensorNetShots<E> {
         Ok(Self {
             engine,
             capacity: mps_capacity(qubits, max_bond)?,
-            fusion: GateFusion::Unfused,
+            fusion: GateFusion::default(),
         })
     }
 
     /// Shots whose terminals apply each region's gates as `fusion` groups
-    /// them (by default [`GateFusion::Unfused`]).
+    /// them (by default [`GateFusion::Pairs`]).
     #[must_use]
     pub fn with_gate_fusion(mut self, fusion: GateFusion) -> Self {
         self.fusion = fusion;

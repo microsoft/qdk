@@ -220,7 +220,11 @@ fn unfused_is_one_operator_per_gate_in_operand_order_without_i() {
     let operators = GateFusion::Unfused.operators(&operations);
     let sites: Vec<&[QubitID]> = operators.iter().map(SiteOperator::sites).collect();
     assert_eq!(sites, [&[1, 0][..], &[2]]);
-    assert_eq!(GateFusion::default(), GateFusion::Unfused);
+}
+
+#[test]
+fn pairs_is_the_default() {
+    assert_eq!(GateFusion::default(), GateFusion::Pairs);
 }
 
 /// The sites of each operator `fusion` makes of `operations`.

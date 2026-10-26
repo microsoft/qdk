@@ -35,15 +35,16 @@ Region gates become matrices through `qdk_simulators`'
 terminal then turns each region's gates into the operators the engine
 applies, by its `GateFusion`:
 
-- `Unfused` (the default) gives one operator per gate, as M0 did.
-- `Pairs` multiplies the region's gates into blocks of one or two qubits.
+- `Unfused` gives one operator per gate, as M0 did.
+- `Pairs` (the default) multiplies the region's gates into blocks of one or two qubits.
   A single-qubit gate joins the block of its qubit's next or previous
   two-qubit gate, and consecutive gates on one pair make one 4×4.
 
 Fusion is exact, and no block crosses a measurement or a reset. On H₂ it
-gives 4.5× fewer operators (87,598 for 392,338 gates). Whether it saves
-time on the A100 is not yet measured, so `Unfused` stays the default (see
-`src/fusion.rs`). The batch strategy and the state queries stay unfused.
+gives 4.5× fewer operators (87,598 for 392,338 gates). On the A100, H₂'s
+first 100 measurements take 131 s in pairs and 176 s unfused: the time goes
+to the two-qubit gates, which fusion keeps, so `Pairs` is the default for
+a 1.34× gain (see `src/fusion.rs`). The batch strategy and the state queries stay unfused.
 
 ## Types and their uses
 

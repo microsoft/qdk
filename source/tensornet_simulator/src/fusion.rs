@@ -65,9 +65,7 @@ impl SiteOperator {
 pub enum GateFusion {
     /// One operator per gate, on its qubits in operand order, with the
     /// matrix of `qdk_simulators`' shared table; `I` is dropped. M0's ④
-    /// applied gates so, and it is the default until the A100 shows that
-    /// [`Pairs`](Self::Pairs) costs less.
-    #[default]
+    /// applied gates so.
     Unfused,
     /// Operators on at most two sites: single-qubit gates join the
     /// two-qubit block open on their qubit (after it), or the next one that
@@ -77,6 +75,12 @@ pub enum GateFusion {
     /// order. Two sites is what every engine applies, cuTensorNet's
     /// included, so this is the largest grouping that needs nothing more of
     /// the engine.
+    ///
+    /// The default: on the A100, H₂'s first 100 measurements take 131 s
+    /// instead of 176 s unfused, with 4.5× fewer operators. The gain is
+    /// smaller than the operator count because the time goes to the
+    /// two-qubit gates, which fusion keeps.
+    #[default]
     Pairs,
 }
 

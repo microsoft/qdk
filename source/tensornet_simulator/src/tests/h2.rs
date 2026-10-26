@@ -145,11 +145,11 @@ impl<E: Executor<Batch<RegionInstruction>>> Executor<Batch<RegionInstruction>> f
     }
 }
 
-/// `QDK_H2_FUSION`: `unfused` (the default) or `pairs`.
+/// `QDK_H2_FUSION`: `pairs` (the default) or `unfused`.
 fn h2_fusion() -> GateFusion {
     match env::var("QDK_H2_FUSION").as_deref() {
-        Err(_) | Ok("unfused") => GateFusion::Unfused,
-        Ok("pairs") => GateFusion::Pairs,
+        Ok("unfused") => GateFusion::Unfused,
+        Err(_) | Ok("pairs") => GateFusion::Pairs,
         Ok("3") => panic!(
             "QDK_H2_FUSION=3: blocks of three sites are counted on CPU only \
              (tests::fusion::h2_operators_per_shot); the cuTensorNet engine \
