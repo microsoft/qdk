@@ -2399,6 +2399,10 @@ fn controlled_adjoint_resource_check_uses_selected_specialization() {
     assert!(qir.contains("\"required_num_qubits\"=\"2\""), "{qir}");
 }
 
+/// The outer frame saves `Zero`, then the inner frame saves `One` after the auxiliary
+/// qubit is flipped. Unwinding must read each frame's own result: only the inner
+/// frame flips the target. Reusing its result for the outer read would flip the
+/// target twice and incorrectly return `Zero` instead of `One`.
 #[test]
 fn recursive_measurement_preserves_caller_result() {
     let source = r#"
@@ -2420,6 +2424,155 @@ fn recursive_measurement_preserves_caller_result() {
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert_inlined(&qir, "R");
     assert!(qir.contains("\"required_num_results\"=\"3\""), "{qir}");
+    expect![[r#"
+        block_0:
+        call void @__quantum__rt__initialize(ptr null)
+        call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        br label %block_2
+        block_2:
+        %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_3, label %block_3, label %block_4
+        block_3:
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        br label %block_4
+        block_4:
+        call void @Reset(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
+        ret i64 0
+    "#]].assert_eq(&recursive_entry_dataflow(&qir));
+}
+
+/// The measurement occurs in an acyclic descendant, but its result must survive
+/// the positive-depth `A`/`B` recursion just like a measurement directly in `A`.
+#[test]
+fn mutual_recursion_preserves_measuring_descendant_result() {
+    let source = r#"
+        operation Observe(q : Qubit) : Result { M(q) }
+        operation A(n : Int, target : Qubit, auxiliary : Qubit) : Unit {
+            if n > 0 {
+                let saved = Observe(auxiliary);
+                X(auxiliary);
+                B(n - 1, target, auxiliary);
+                if saved == One { X(target); }
+            }
+        }
+        operation B(n : Int, target : Qubit, auxiliary : Qubit) : Unit {
+            A(n, target, auxiliary);
+        }
+        @EntryPoint() operation Main() : Result {
+            use (target, auxiliary) = (Qubit(), Qubit());
+            B(2, target, auxiliary);
+            Reset(auxiliary);
+            MResetZ(target)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "A");
+    assert_inlined(&qir, "B");
+    expect![[r#"
+        block_0:
+        call void @__quantum__rt__initialize(ptr null)
+        call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+        br i1 %var_1, label %block_1, label %block_2
+        block_1:
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        br label %block_2
+        block_2:
+        %var_3 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_3, label %block_3, label %block_4
+        block_3:
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        br label %block_4
+        block_4:
+        call void @Reset(ptr inttoptr (i64 1 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
+        ret i64 0
+    "#]].assert_eq(&recursive_entry_dataflow(&qir));
+}
+
+/// Each live `A` frame holds a fresh qubit in `One` until its child returns.
+/// Measuring and resetting the deepest frame must not reset either caller's
+/// qubit: all three frames should flip their distinct target, producing
+/// `[One, One, One]`. `B` enters the mutual recursion at positive depth.
+#[test]
+fn mutual_recursion_preserves_positive_depth_live_frames() {
+    let source = r#"
+        operation A(n : Int, targets : Qubit[]) : Unit {
+            use fresh = Qubit();
+            X(fresh);
+            if n > 0 { B(n - 1, targets); }
+            if MResetZ(fresh) == One { X(targets[n]); }
+        }
+        operation B(n : Int, targets : Qubit[]) : Unit { A(n, targets); }
+        @EntryPoint() operation Main() : Result[] {
+            use targets = Qubit[3];
+            B(2, targets);
+            MResetEachZ(targets)
+        }
+    "#;
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "A");
+    assert_inlined(&qir, "B");
+    assert!(qir.contains("\"required_num_qubits\"=\"6\""), "{qir}");
+    expect![[r#"
+        block_0:
+        call void @__quantum__rt__initialize(ptr null)
+        call void @X(ptr inttoptr (i64 3 to ptr))
+        call void @X(ptr inttoptr (i64 4 to ptr))
+        call void @X(ptr inttoptr (i64 5 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 5 to ptr), ptr inttoptr (i64 0 to ptr))
+        %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+        br i1 %var_2, label %block_1, label %block_2
+        block_1:
+        call void @X(ptr inttoptr (i64 0 to ptr))
+        br label %block_2
+        block_2:
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 1 to ptr))
+        %var_4 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+        br i1 %var_4, label %block_3, label %block_4
+        block_3:
+        call void @X(ptr inttoptr (i64 1 to ptr))
+        br label %block_4
+        block_4:
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 2 to ptr))
+        %var_6 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+        br i1 %var_6, label %block_5, label %block_6
+        block_5:
+        call void @X(ptr inttoptr (i64 2 to ptr))
+        br label %block_6
+        block_6:
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 4 to ptr))
+        call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 5 to ptr))
+        call void @__quantum__rt__array_record_output(i64 3, ptr @0)
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 3 to ptr), ptr @1)
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 4 to ptr), ptr @2)
+        call void @__quantum__rt__result_record_output(ptr inttoptr (i64 5 to ptr), ptr @3)
+        ret i64 0
+    "#]].assert_eq(&recursive_entry_dataflow(&qir));
+}
+
+fn recursive_entry_dataflow(qir: &str) -> String {
+    super::qir_entry_body(qir)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n"
 }
 
 #[test]
