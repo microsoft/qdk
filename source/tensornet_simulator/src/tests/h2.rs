@@ -12,7 +12,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use executor_protocol::{Batch, Close as _, Executor, Rejected, ShotSet, SubmissionWrapper, open};
+use executor_protocol::{
+    Batch, Close as _, Executor, PerShot, Rejected, ShotSet, SubmissionWrapper, open,
+};
 use qdk_simulators::{
     OutputRecord,
     execution::{PreparedAdaptiveProgram, RegionInstruction, RuntimeAdapter},
@@ -20,7 +22,10 @@ use qdk_simulators::{
 use tensornet::MpsEngine;
 
 use super::{adaptive_program_json::adaptive_program_from_json, cases::bit};
-use crate::{GateFusion, MeasurementRun, MpsStack, ReadoutDistribution, TensorNetTerminal};
+use crate::{
+    GateFusion, MeasurementRun, MpsStack, QubitOrder, ReadoutDistribution, TensorNetShots,
+    TensorNetTerminal,
+};
 
 /// H₂'s peaks as the chemistry user writes its rows: qubit 4 first, the
 /// reverse of the record order (`qdk_chemistry`'s `_process_raw_results`
@@ -84,32 +89,51 @@ fn device_mib() -> String {
 ///
 /// It counts the operators by fusing each batch's regions as the terminal
 /// does ([`GateFusion::operators`]), on the CPU; the test checks the count
-/// against the terminal's report when the shot closes.
+/// against the terminal's report when the shot closes. It also sums the
+/// span |site(a) − site(b)| of the two-qubit operators, by the terminal's
+/// [`QubitOrder`], which is what an order shortens.
 struct ShotProgress<E> {
     inner: E,
     shot: u32,
     fusion: GateFusion,
+    order: QubitOrder,
     stop_after: Option<u64>,
     stopped: bool,
     measurements: u64,
     operators: u64,
+    pairs: u64,
+    span: u64,
     start: Instant,
     last: Duration,
 }
 
 impl<E> ShotProgress<E> {
-    fn new(inner: E, shot: u32, fusion: GateFusion, stop_after: Option<u64>) -> Self {
+    fn new(
+        inner: E,
+        shot: u32,
+        (fusion, order): (GateFusion, QubitOrder),
+        stop_after: Option<u64>,
+    ) -> Self {
         Self {
             inner,
             shot,
             fusion,
+            order,
             stop_after,
             stopped: false,
             measurements: 0,
             operators: 0,
+            pairs: 0,
+            span: 0,
             start: Instant::now(),
             last: Duration::ZERO,
         }
+    }
+
+    /// The mean span of the two-qubit operators so far.
+    fn mean_span(&self) -> f64 {
+        let count = |n: u64| f64::from(u32::try_from(n).expect("fits u32"));
+        count(self.span) / count(self.pairs.max(1))
     }
 
     fn print(&mut self) {
@@ -143,7 +167,13 @@ impl<E: Executor<Batch<RegionInstruction>>> Executor<Batch<RegionInstruction>> f
         for instruction in batch {
             match instruction {
                 RegionInstruction::ExecuteRegion { region, .. } => {
-                    self.operators += self.fusion.operators(region.operations()).len() as u64;
+                    for operator in self.fusion.operators(region.operations()) {
+                        self.operators += 1;
+                        if let [a, b] = *self.order.sites_of(operator.qubits()) {
+                            self.pairs += 1;
+                            self.span += a.abs_diff(b) as u64;
+                        }
+                    }
                 }
                 RegionInstruction::Measure(_) => self.measurements += 1,
                 RegionInstruction::Reset { .. } => {}
@@ -182,6 +212,31 @@ fn h2_fusion() -> GateFusion {
     }
 }
 
+/// `QDK_H2_ORDER`: `identity` (the default) or a file of the site of each
+/// of the program's `qubits`, qubit 0 first, as whitespace-separated
+/// integers (`#` starts a comment).
+fn h2_order(qubits: usize) -> QubitOrder {
+    let path = match env::var("QDK_H2_ORDER").as_deref() {
+        Err(_) | Ok("identity") => return QubitOrder::identity(qubits),
+        Ok(path) => path.to_string(),
+    };
+    let text = fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {path}: {e}"));
+    let sites: Vec<usize> = text
+        .lines()
+        .flat_map(|line| line.split('#').next().unwrap_or("").split_whitespace())
+        .map(|site| {
+            site.parse()
+                .unwrap_or_else(|e| panic!("{path}: `{site}` is not a site: {e}"))
+        })
+        .collect();
+    assert_eq!(
+        sites.len(),
+        qubits,
+        "{path}: QDK_H2_ORDER should give the site of each of H₂'s {qubits} qubits"
+    );
+    QubitOrder::new(sites).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
 fn env_or(name: &str, default: u64) -> u64 {
     env::var(name).map_or(default, |value| {
         value
@@ -212,6 +267,9 @@ struct H2Options {
     fusion: GateFusion,
     stop_after: Option<u64>,
     readout: ReadoutDistribution,
+    /// `QDK_H2_ORDER` as given ([`h2_order`] reads it once the qubits are
+    /// known).
+    order: String,
 }
 
 impl H2Options {
@@ -225,6 +283,7 @@ impl H2Options {
                 .is_ok()
                 .then(|| env_or("QDK_H2_STOP_AFTER", 0)),
             readout: h2_readout(),
+            order: env::var("QDK_H2_ORDER").unwrap_or_else(|_| "identity".to_string()),
         }
     }
 }
@@ -233,14 +292,15 @@ impl std::fmt::Display for H2Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "shots={} seed={} chi={} fusion={:?} stop_after={} readout={:?}",
+            "shots={} seed={} chi={} fusion={:?} stop_after={} readout={:?} order={}",
             self.shots,
             self.seed,
             self.chi,
             self.fusion,
             self.stop_after
                 .map_or_else(|| "none".to_string(), |m| m.to_string()),
-            self.readout
+            self.readout,
+            self.order
         )
     }
 }
@@ -272,11 +332,14 @@ fn row(records: &[OutputRecord]) -> String {
 /// - `QDK_H2_READOUT_TABLE` ([`H2_READOUT_TABLE`]): the exact readout
 ///   distribution to compare it with.
 /// - `QDK_H2_TRACE` (unset): a file for the trace of each shot's
-///   measurements (shot, index, qubit, P(One), value).
+///   measurements (shot, index, qubit, P(One), value, site).
+/// - `QDK_H2_ORDER` (`identity`): the [`QubitOrder`], `identity` or a file
+///   of the site of each qubit ([`h2_order`]).
 ///
 /// Per shot it prints its progress every [`H2_PROGRESS_EVERY`]
 /// measurements ([`ShotProgress`]); its time, engine operators and gates,
-/// the device memory with its state still held and after its session
+/// the mean span of its two-qubit operators and its largest bond, the
+/// device memory with its state still held and after its session
 /// closes; and its row in record order and as the chemistry user writes it
 /// (qubit 4 first, [`H2_PEAKS`]). Then the histogram, the ten most frequent
 /// rows, and whether [`H2_PEAKS`] are the two most frequent, which it
@@ -296,11 +359,7 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
         "h2 bytecode={path} qubits={qubits} results={} {options}",
         program.program().num_results
     );
-    let per_shot = stack(options.chi)
-        .with_gate_fusion(options.fusion)
-        .with_readout_distribution(options.readout)
-        .per_shot(qubits)
-        .expect("a chain");
+    let (per_shot, order) = h2_per_shot(stack(options.chi), &options, qubits);
     let mut check = (options.readout == ReadoutDistribution::Exact).then(ReadoutCheck::new);
     println!("h2 device_mib before the first shot: {}", device_mib());
 
@@ -314,7 +373,7 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
         let mut adapter = RuntimeAdapter::new(ShotProgress::new(
             SubmissionWrapper::new(session, shot),
             shot,
-            options.fusion,
+            (options.fusion, order.clone()),
             options.stop_after,
         ));
         let mut records = Vec::new();
@@ -332,6 +391,7 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
         let time = start.elapsed();
         total += time;
         let held = device_mib();
+        let mean_span = progress.mean_span();
         let ShotProgress {
             mut inner,
             measurements,
@@ -351,9 +411,11 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
         );
         println!(
             "h2 shot {shot}: {measurements} measurements, {} gates, {operators} operators \
-             ({:?}), time {:.1} s, {:.3} s per measurement",
+             ({:?}), mean span {mean_span:.2}, largest bond {}, time {:.1} s, {:.3} s per \
+             measurement",
             report.operations,
             options.fusion,
+            report.max_bond,
             time.as_secs_f64(),
             time.as_secs_f64() / f64::from(u32::try_from(measurements.max(1)).expect("fits u32"))
         );
@@ -383,6 +445,26 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
     }
 
     summarize(&options, total, stopped, histogram, check, assert_peaks);
+}
+
+/// The shots of `qubits` qubits on `stack` with `options`' fusion, readout
+/// and order ([`h2_order`]), and the order, which it prints.
+fn h2_per_shot<E: MpsEngine>(
+    stack: MpsStack<E>,
+    options: &H2Options,
+    qubits: usize,
+) -> (PerShot<TensorNetShots<E>>, QubitOrder) {
+    let order = h2_order(qubits);
+    println!("h2 order: the site of each qubit {:?}", order.sites());
+    let shots = stack
+        .with_gate_fusion(options.fusion)
+        .with_readout_distribution(options.readout)
+        .per_shot(qubits)
+        .expect("a chain")
+        .0
+        .with_qubit_order(order.clone())
+        .unwrap_or_else(|e| panic!("h2 order: {e}"));
+    (PerShot(shots), order)
 }
 
 /// Prints the time per shot, then, unless the shots stopped early, ranks
@@ -545,7 +627,7 @@ impl ReadoutCheck {
             writeln!(
                 file,
                 "# H₂'s measurements, per shot: shot, index, qubit, P(One) given the shot's \
-                 history, value"
+                 history, value, the qubit's site"
             )
             .expect("writes");
             (path, file)
@@ -620,14 +702,19 @@ impl ReadoutCheck {
         if let Some((path, file)) = &mut self.trace {
             let mut index = 0;
             for run in runs {
-                for ((&qubit, &p), &one) in run
+                for (((&qubit, &p), &one), &site) in run
                     .qubits()
                     .iter()
                     .zip(run.probabilities_of_one())
                     .zip(run.values())
+                    .zip(run.sites())
                 {
-                    writeln!(file, "{shot} {index} {qubit} {p:.17e} {}", u8::from(one))
-                        .unwrap_or_else(|e| panic!("cannot write {path}: {e}"));
+                    writeln!(
+                        file,
+                        "{shot} {index} {qubit} {p:.17e} {} {site}",
+                        u8::from(one)
+                    )
+                    .unwrap_or_else(|e| panic!("cannot write {path}: {e}"));
                     index += 1;
                 }
             }

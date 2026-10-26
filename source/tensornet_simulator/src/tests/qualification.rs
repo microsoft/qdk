@@ -162,12 +162,12 @@ fn per_shot_phase_estimation_in_pairs_on_the_a100() {
 /// acceptance test, by `tests::h2::h2_qpe`, which documents its environment
 /// (`QDK_H2_BYTECODE`, `QDK_H2_SHOTS`, `QDK_H2_SEED`, `QDK_H2_CHI`,
 /// `QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, `QDK_H2_READOUT`,
-/// `QDK_H2_READOUT_TABLE`, `QDK_H2_TRACE`) and its output. With
-/// `QDK_H2_READOUT=distribution`, M1's acceptance, it asserts from one shot
-/// that H₂'s two peaks lead the exact readout distribution, which is within
-/// √(1 − w) of the table in TVD, and every mid-circuit P(One) is within
-/// √(1 − w) of ½; from 50 shots it asserts that the peaks are the two rows
-/// drawn most.
+/// `QDK_H2_READOUT_TABLE`, `QDK_H2_TRACE`, `QDK_H2_ORDER`) and its output.
+/// With `QDK_H2_READOUT=distribution`, M1's acceptance, it asserts from
+/// one shot that H₂'s two peaks lead the exact readout distribution, which
+/// is within √(1 − w) of the table in TVD, and every mid-circuit P(One) is
+/// within √(1 − w) of ½; from 50 shots it asserts that the peaks are the
+/// two rows drawn most.
 #[test]
 #[ignore = "requires the pinned A100 environment and H₂'s bytecode in QDK_H2_BYTECODE"]
 fn h2_qpe_on_the_a100() {
