@@ -7,6 +7,9 @@ executes instructions of a qodec's top ISA by lowering them one layer at a time
 (https://github.com/microsoft/qdk-ec/tree/main/qodec) and returns the top
 layer's results.
 
+qodec releases a rust crate at https://docs.rs/qodec/latest/qodec/ which could
+help with the data model.
+
   ┌──────────────────────────────┐  Backend<Id, P, R>   (top ISA instructions)
   │ QodecLayer 0                 │
   ├──────────────────────────────┤  Backend<Id, P, R>   (layer-1 ISA instructions)
