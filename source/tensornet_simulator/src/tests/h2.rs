@@ -15,6 +15,7 @@ use std::{
 use executor_protocol::{
     Batch, Close as _, Executor, PerShot, Rejected, ShotSet, SubmissionWrapper, open,
 };
+use qdk_cutensornet::{EngineVariant, MpsGauge, SvdAlgorithm};
 use qdk_simulators::{
     OutputRecord,
     execution::{PreparedAdaptiveProgram, RegionInstruction, RuntimeAdapter},
@@ -237,6 +238,30 @@ fn h2_order(qubits: usize) -> QubitOrder {
     QubitOrder::new(sites).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
+/// `QDK_H2_SVD`: the cuTensorNet engine's SVD algorithm, `gesvd` (the
+/// engine's default), `gesvdj`, `gesvdp` or `gesvdr`.
+fn h2_svd_algorithm() -> SvdAlgorithm {
+    match env::var("QDK_H2_SVD").as_deref() {
+        Err(_) => EngineVariant::default().svd_algorithm,
+        Ok("gesvd") => SvdAlgorithm::Gesvd,
+        Ok("gesvdj") => SvdAlgorithm::Gesvdj,
+        Ok("gesvdp") => SvdAlgorithm::Gesvdp,
+        Ok("gesvdr") => SvdAlgorithm::Gesvdr,
+        Ok(other) => panic!("QDK_H2_SVD={other} should be gesvd, gesvdj, gesvdp or gesvdr"),
+    }
+}
+
+/// `QDK_H2_GAUGE`: the cuTensorNet engine's MPS gauge, `simple` (the
+/// engine's default) or `free`.
+fn h2_gauge() -> MpsGauge {
+    match env::var("QDK_H2_GAUGE").as_deref() {
+        Err(_) => EngineVariant::default().gauge,
+        Ok("simple") => MpsGauge::Simple,
+        Ok("free") => MpsGauge::Free,
+        Ok(other) => panic!("QDK_H2_GAUGE={other} should be simple or free"),
+    }
+}
+
 fn env_or(name: &str, default: u64) -> u64 {
     env::var(name).map_or(default, |value| {
         value
@@ -270,6 +295,8 @@ struct H2Options {
     /// `QDK_H2_ORDER` as given ([`h2_order`] reads it once the qubits are
     /// known).
     order: String,
+    /// The cuTensorNet engine's variant: its SVD algorithm and gauge.
+    engine_variant: EngineVariant,
 }
 
 impl H2Options {
@@ -284,6 +311,11 @@ impl H2Options {
                 .then(|| env_or("QDK_H2_STOP_AFTER", 0)),
             readout: h2_readout(),
             order: env::var("QDK_H2_ORDER").unwrap_or_else(|_| "identity".to_string()),
+            engine_variant: EngineVariant {
+                svd_algorithm: h2_svd_algorithm(),
+                gauge: h2_gauge(),
+                ..EngineVariant::default()
+            },
         }
     }
 }
@@ -292,11 +324,13 @@ impl std::fmt::Display for H2Options {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "shots={} seed={} chi={} fusion={:?} stop_after={} readout={:?} order={}",
+            "shots={} seed={} chi={} fusion={:?} svd={:?} gauge={:?} stop_after={} readout={:?} order={}",
             self.shots,
             self.seed,
             self.chi,
             self.fusion,
+            self.engine_variant.svd_algorithm,
+            self.engine_variant.gauge,
             self.stop_after
                 .map_or_else(|| "none".to_string(), |m| m.to_string()),
             self.readout,
@@ -314,7 +348,7 @@ fn row(records: &[OutputRecord]) -> String {
 }
 
 /// H₂ QPE through the walk over `MpsStack::per_shot` on the stack
-/// `stack(χ)` makes (cuTensorNet in M1's acceptance test,
+/// `stack(χ, variant)` makes (cuTensorNet in M1's acceptance test,
 /// `qualification::h2_qpe_on_the_a100`). Shot `j` (from 1) runs in its own
 /// session, opened on shot `j` with the run's seed, as `qdk_simulators`'s
 /// `h2_qpe` runs it on CPU. The environment:
@@ -324,6 +358,10 @@ fn row(records: &[OutputRecord]) -> String {
 /// - `QDK_H2_SHOTS` (1), `QDK_H2_SEED` (0), `QDK_H2_CHI` (32): the shots,
 ///   the run's seed and χ.
 /// - `QDK_H2_FUSION` (`pairs`): the gate fusion, `pairs` or `unfused`.
+/// - `QDK_H2_SVD` (`gesvd`) and `QDK_H2_GAUGE` (`simple`): the cuTensorNet
+///   engine's SVD algorithm (`gesvd`, `gesvdj`, `gesvdp` or `gesvdr`) and
+///   MPS gauge (`simple` or `free`), the `variant` given to `stack`, which
+///   an engine without these choices ignores.
 /// - `QDK_H2_STOP_AFTER` (unset): stop each shot after this many
 ///   measurements, to time the first part of a shot; such a shot has no
 ///   row, and the run asserts nothing about the peaks.
@@ -351,7 +389,10 @@ fn row(records: &[OutputRecord]) -> String {
 /// It asserts the peaks only if `assert_peaks`: `tests::fusion` runs it on an
 /// engine that applies nothing, to check the driver on CPU before a VM
 /// runs it.
-pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, assert_peaks: bool) {
+pub(super) fn h2_qpe<E: MpsEngine>(
+    stack: impl FnOnce(u32, EngineVariant) -> MpsStack<E>,
+    assert_peaks: bool,
+) {
     let (path, program) = h2_program();
     let options = H2Options::from_env();
     let qubits = usize::try_from(program.program().num_qubits).expect("fits usize");
@@ -359,7 +400,8 @@ pub(super) fn h2_qpe<E: MpsEngine>(stack: impl FnOnce(u32) -> MpsStack<E>, asser
         "h2 bytecode={path} qubits={qubits} results={} {options}",
         program.program().num_results
     );
-    let (per_shot, order) = h2_per_shot(stack(options.chi), &options, qubits);
+    let (per_shot, order) =
+        h2_per_shot(stack(options.chi, options.engine_variant), &options, qubits);
     let mut check = (options.readout == ReadoutDistribution::Exact).then(ReadoutCheck::new);
     println!("h2 device_mib before the first shot: {}", device_mib());
 
@@ -479,11 +521,13 @@ fn summarize(
     assert_peaks: bool,
 ) {
     println!(
-        "h2 {} shots, seed {}, chi {}, fusion {:?}: {:.1} s per shot",
+        "h2 {} shots, seed {}, chi {}, fusion {:?}, svd {:?}, gauge {:?}: {:.1} s per shot",
         options.shots,
         options.seed,
         options.chi,
         options.fusion,
+        options.engine_variant.svd_algorithm,
+        options.engine_variant.gauge,
         total.as_secs_f64() / f64::from(options.shots.max(1))
     );
     if stopped > 0 {

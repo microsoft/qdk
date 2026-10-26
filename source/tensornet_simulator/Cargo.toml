@@ -17,7 +17,9 @@ tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-qdk_cutensornet = { path = "../cutensornet" }
+# `qualification` exposes the engine variants the H₂ driver compares
+# (`QDK_H2_SVD`, `QDK_H2_GAUGE`).
+qdk_cutensornet = { path = "../cutensornet", features = ["qualification"] }
 serde_json = { workspace = true }
 tensornet = { path = "../tensornet", features = ["conformance"] }
 

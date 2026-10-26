@@ -612,7 +612,8 @@ impl MpsEngine for TestDoubleCoinEngine {
 }
 
 /// The A100's H₂ driver (`h2::h2_qpe`), with its environment
-/// (`QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, `QDK_H2_READOUT`, …), on
+/// (`QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, `QDK_H2_READOUT`, `QDK_H2_SVD`,
+/// `QDK_H2_GAUGE`, …), on
 /// [`TestDoubleCoinEngine`]: its progress, its stop, its operator count and,
 /// with `QDK_H2_READOUT=distribution`, its readout distribution (uniform:
 /// every P(One) is ½) and trace, checked on CPU before a VM runs it. The
@@ -620,7 +621,7 @@ impl MpsEngine for TestDoubleCoinEngine {
 #[test]
 #[ignore = "needs H₂'s bytecode in QDK_H2_BYTECODE"]
 fn h2_driver_on_a_coin_engine() {
-    super::h2::h2_qpe(|_| MpsStack::new(TestDoubleCoinEngine), false);
+    super::h2::h2_qpe(|_, _| MpsStack::new(TestDoubleCoinEngine), false);
 }
 
 /// `count.py`'s figures for H₂'s bytecode (`scratch/m1-run/perf/fusion/`):

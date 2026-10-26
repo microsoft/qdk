@@ -17,9 +17,10 @@
 //!
 //! The per-shot cases run unfused, as M0 did, and again with
 //! [`GateFusion::Pairs`]; `h2_qpe_on_the_a100` takes its fusion from
-//! `QDK_H2_FUSION`.
+//! `QDK_H2_FUSION`, and its engine's SVD algorithm and gauge from
+//! `QDK_H2_SVD` and `QDK_H2_GAUGE` (`Availability::mps_engine_variant`).
 
-use qdk_cutensornet::CuTensorNetEngine;
+use qdk_cutensornet::{Availability, CuTensorNetEngine, EngineVariant};
 use tensornet::reference::ExactReference;
 
 use super::{
@@ -35,6 +36,20 @@ use crate::{GateFusion, MpsStack};
 /// cuTensorNet on device 0 with χ = `max_bond`, after printing what was
 /// discovered.
 fn stack(max_bond: u32) -> MpsStack<CuTensorNetEngine> {
+    let engine = discover().mps_engine().expect("an engine on device 0");
+    MpsStack::new(engine).with_max_bond_dimension(Some(max_bond))
+}
+
+/// [`stack`] with the engine changed as `variant` says.
+fn variant_stack(max_bond: u32, variant: EngineVariant) -> MpsStack<CuTensorNetEngine> {
+    let engine = discover()
+        .mps_engine_variant(variant)
+        .expect("an engine on device 0");
+    MpsStack::new(engine).with_max_bond_dimension(Some(max_bond))
+}
+
+/// The native libraries, after printing what was discovered.
+fn discover() -> Availability {
     let availability = qdk_cutensornet::discover().expect("the native libraries are available");
     let report = availability.report();
     println!(
@@ -49,8 +64,7 @@ fn stack(max_bond: u32) -> MpsStack<CuTensorNetEngine> {
     );
     println!("cudart_version={}", report.cuda_runtime_version);
     println!("cuda_driver_version={}", report.cuda_driver_version);
-    let engine = availability.mps_engine().expect("an engine on device 0");
-    MpsStack::new(engine).with_max_bond_dimension(Some(max_bond))
+    availability
 }
 
 #[test]
@@ -161,15 +175,15 @@ fn per_shot_phase_estimation_in_pairs_on_the_a100() {
 /// H₂ QPE through the walk over `MpsStack::per_shot` on cuTensorNet, M1's
 /// acceptance test, by `tests::h2::h2_qpe`, which documents its environment
 /// (`QDK_H2_BYTECODE`, `QDK_H2_SHOTS`, `QDK_H2_SEED`, `QDK_H2_CHI`,
-/// `QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, `QDK_H2_READOUT`,
-/// `QDK_H2_READOUT_TABLE`, `QDK_H2_TRACE`, `QDK_H2_ORDER`) and its output.
-/// With `QDK_H2_READOUT=distribution`, M1's acceptance, it asserts from
-/// one shot that H₂'s two peaks lead the exact readout distribution, which
-/// is within √(1 − w) of the table in TVD, and every mid-circuit P(One) is
-/// within √(1 − w) of ½; from 50 shots it asserts that the peaks are the
-/// two rows drawn most.
+/// `QDK_H2_FUSION`, `QDK_H2_SVD`, `QDK_H2_GAUGE`, `QDK_H2_STOP_AFTER`,
+/// `QDK_H2_READOUT`, `QDK_H2_READOUT_TABLE`, `QDK_H2_TRACE`, `QDK_H2_ORDER`)
+/// and its output. With `QDK_H2_READOUT=distribution`, M1's acceptance, it
+/// asserts from one shot that H₂'s two peaks lead the exact readout
+/// distribution, which is within √(1 − w) of the table in TVD, and every
+/// mid-circuit P(One) is within √(1 − w) of ½; from 50 shots it asserts
+/// that the peaks are the two rows drawn most.
 #[test]
 #[ignore = "requires the pinned A100 environment and H₂'s bytecode in QDK_H2_BYTECODE"]
 fn h2_qpe_on_the_a100() {
-    h2_qpe(stack, true);
+    h2_qpe(variant_stack, true);
 }

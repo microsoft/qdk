@@ -11,7 +11,7 @@
 # the machine, then runs them in release mode, one at a time.
 #
 # Usage, on the A100 VM:
-#   ./qualify-simulator-on-a100.sh [--check | --quick] [--h2 FILE [--shots N] [--fusion F] [--stop-after M] [--readout-distribution TABLE] [--order FILE]] COMMIT [REPO]
+#   ./qualify-simulator-on-a100.sh [--check | --quick] [--h2 FILE [--shots N] [--fusion F] [--svd A] [--gauge G] [--stop-after M] [--readout-distribution TABLE] [--order FILE]] COMMIT [REPO]
 #     COMMIT   the commit to qualify (it must have src/tests/qualification.rs)
 #     REPO     the qdk checkout that has COMMIT (default: the current directory)
 #     --check  only the checks (host, tools, commit, GPU, libraries, disk);
@@ -26,6 +26,11 @@
 #     --fusion F  H2's gate fusion (QDK_H2_FUSION): pairs (the default, each
 #              region's gates in blocks of one or two qubits, GateFusion::Pairs)
 #              or unfused (one engine operator per gate).
+#     --svd A  H2's SVD algorithm (QDK_H2_SVD), cuTensorNet's for each bond:
+#              gesvd (the default, M0's), gesvdj (Jacobi), gesvdp (polar) or
+#              gesvdr (randomized: approximate, not yet checked on H2).
+#     --gauge G  H2's MPS gauge (QDK_H2_GAUGE): simple (the default, M0's,
+#              simple update) or free (no gauge).
 #     --stop-after M  stop each H2 shot after M measurements
 #              (QDK_H2_STOP_AFTER), to time the first part of a shot: the
 #              shot has no row and the peaks are not checked. Each shot
@@ -49,12 +54,15 @@
 # Run --check first, then --quick, then with no option; then --h2 with
 # --shots 1 --readout-distribution TABLE (the acceptance). To measure fusion, run --h2 FILE
 # --stop-after 100 with --fusion unfused and with --fusion pairs; to measure an
-# order, run --h2 FILE --stop-after 300 with and without --order ORDER.
+# order, run --h2 FILE --stop-after 300 with and without --order ORDER. To measure
+# the SVD algorithm and the gauge, run --h2 FILE --stop-after 300 with each --svd
+# (and --gauge free with the fastest), then the fastest with --shots 1
+# --readout-distribution TABLE.
 #
 # It leaves REPO's checkout untouched: it adds a detached worktree at COMMIT
 # next to it (../qdk-simulator-qualification) and builds there. Results go to
 # $HOME/simulator-qualification-<date>/ (for H2,
-# simulator-qualification-h2-<fusion>-[order-<ORDER's name>-][readout-][m<M>-]<date>/) and a .tar.gz of it, also when a step
+# simulator-qualification-h2-<fusion>-<svd>-<gauge>-[order-<ORDER's name>-][readout-][m<M>-]<date>/) and a .tar.gz of it, also when a step
 # fails: run.log (the whole cargo output), summary.txt (each test passed or
 # failed, then the measured values), environment.txt. Send back the .tar.gz.
 #
@@ -90,11 +98,13 @@ readonly H2_TEST=h2_qpe_on_the_a100
 readonly CUTENSORNET_PINNED=/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2
 readonly CUDART_PINNED=/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12
 
-usage() { printf 'usage: %s [--check | --quick] [--h2 FILE [--shots N] [--fusion F] [--stop-after M] [--readout-distribution TABLE] [--order FILE]] COMMIT [REPO]\n' "$0" >&2; exit 2; }
+usage() { printf 'usage: %s [--check | --quick] [--h2 FILE [--shots N] [--fusion F] [--svd A] [--gauge G] [--stop-after M] [--readout-distribution TABLE] [--order FILE]] COMMIT [REPO]\n' "$0" >&2; exit 2; }
 mode=run
 h2=""
 shots=""
 fusion=""
+svd=""
+gauge=""
 stop_after=""
 readout_table=""
 order=""
@@ -118,6 +128,16 @@ while [[ $# -gt 0 ]]; do
         --fusion)
             [[ $# -ge 2 && "$2" =~ ^(unfused|pairs)$ ]] || { printf '%s: --fusion is unfused or pairs\n' "$0" >&2; exit 2; }
             fusion="$2"
+            shift 2
+            ;;
+        --svd)
+            [[ $# -ge 2 && "$2" =~ ^(gesvd|gesvdj|gesvdp|gesvdr)$ ]] || { printf '%s: --svd is gesvd, gesvdj, gesvdp or gesvdr\n' "$0" >&2; exit 2; }
+            svd="$2"
+            shift 2
+            ;;
+        --gauge)
+            [[ $# -ge 2 && "$2" =~ ^(simple|free)$ ]] || { printf '%s: --gauge is simple or free\n' "$0" >&2; exit 2; }
+            gauge="$2"
             shift 2
             ;;
         --stop-after)
@@ -145,8 +165,8 @@ done
 # has no cargo.
 command -v cargo >/dev/null 2>&1 \
     || { printf 'FAIL: cargo is not on PATH; load rustup'"'"'s environment first: . "$HOME/.cargo/env"\n' >&2; exit 1; }
-[[ -z "$shots$fusion$stop_after$readout_table$order" || -n "$h2" ]] \
-    || { printf '%s: --shots, --fusion, --stop-after, --readout-distribution and --order go with --h2\n' "$0" >&2; exit 2; }
+[[ -z "$shots$fusion$svd$gauge$stop_after$readout_table$order" || -n "$h2" ]] \
+    || { printf '%s: --shots, --fusion, --svd, --gauge, --stop-after, --readout-distribution and --order go with --h2\n' "$0" >&2; exit 2; }
 [[ -z "$h2" || "$mode" != quick ]] || { printf '%s: use one of --quick and --h2\n' "$0" >&2; exit 2; }
 if [[ -n "$h2" ]]; then
     [[ -f "$h2" ]] || { printf 'FAIL: --h2 %s is not a file\n' "$h2" >&2; exit 1; }
@@ -154,6 +174,8 @@ if [[ -n "$h2" ]]; then
     h2="$(cd "$(dirname "$h2")" && pwd)/$(basename "$h2")"
     shots="${shots:-1}"
     fusion="${fusion:-pairs}"
+    svd="${svd:-gesvd}"
+    gauge="${gauge:-simple}"
 fi
 if [[ -n "$readout_table" ]]; then
     [[ -f "$readout_table" ]] || { printf 'FAIL: --readout-distribution %s is not a file\n' "$readout_table" >&2; exit 1; }
@@ -366,7 +388,7 @@ print(f"{program['num_qubits']} qubits, {program['num_results']} results, "
       f"{len(program['instructions'])} instructions")
 EOF
     )"; then
-        ok "$h2: $h2_shape; $shots shot(s), fusion $fusion${order:+, order $order}${stop_after:+, stopping after $stop_after measurements}${readout_table:+, readout distribution against $readout_table}"
+        ok "$h2: $h2_shape; $shots shot(s), fusion $fusion, svd $svd, gauge $gauge${order:+, order $order}${stop_after:+, stopping after $stop_after measurements}${readout_table:+, readout distribution against $readout_table}"
     else
         problem "$h2 is not an AdaptiveProgram.as_dict() JSON: $(tail -1 <<<"$h2_shape")"
     fi
@@ -396,13 +418,13 @@ step "2. worktree"
 if [[ ! -e "$work" ]]; then
     git -C "$repo" worktree add --detach "$work" "$sha"
 fi
-out="$HOME/simulator-qualification-${h2:+h2-$fusion-}${order:+order-$order_name-}${readout_table:+readout-}${stop_after:+m$stop_after-}$(date +%Y%m%d-%H%M%S)"
+out="$HOME/simulator-qualification-${h2:+h2-$fusion-$svd-$gauge-}${order:+order-$order_name-}${readout_table:+readout-}${stop_after:+m$stop_after-}$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out"
 {
     printf 'commit=%s\nmode=%s\nhost=%s\ndate=%s\n' "$sha" "$mode" "$(uname -a)" "$(date -Is)"
-    [[ -z "$h2" ]] || printf 'h2=%s\nh2_sha256=%s\nQDK_H2_SHOTS=%s\nQDK_H2_SEED=%s\nQDK_H2_CHI=%s\nQDK_H2_FUSION=%s\nQDK_H2_STOP_AFTER=%s\n' \
+    [[ -z "$h2" ]] || printf 'h2=%s\nh2_sha256=%s\nQDK_H2_SHOTS=%s\nQDK_H2_SEED=%s\nQDK_H2_CHI=%s\nQDK_H2_FUSION=%s\nQDK_H2_SVD=%s\nQDK_H2_GAUGE=%s\nQDK_H2_STOP_AFTER=%s\n' \
         "$h2" "$(sha256sum "$h2" | awk '{ print $1 }')" "$shots" "${QDK_H2_SEED:-0}" "${QDK_H2_CHI:-32}" \
-        "$fusion" "$stop_after"
+        "$fusion" "$svd" "$gauge" "$stop_after"
     [[ -z "$readout_table" ]] || printf 'QDK_H2_READOUT=distribution\nQDK_H2_READOUT_TABLE=%s\nreadout_table_sha256=%s\n' \
         "$readout_table" "$(sha256sum "$readout_table" | awk '{ print $1 }')"
     [[ -z "$order" ]] || printf 'QDK_H2_ORDER=%s\norder_sha256=%s\n' \
@@ -417,7 +439,7 @@ step "3. build and run"
 filters=("$FILTER" --skip "$H2_TEST")
 if [[ -n "$h2" ]]; then
     filters=("$FILTER$H2_TEST" --exact)
-    export QDK_H2_BYTECODE="$h2" QDK_H2_SHOTS="$shots" QDK_H2_FUSION="$fusion"
+    export QDK_H2_BYTECODE="$h2" QDK_H2_SHOTS="$shots" QDK_H2_FUSION="$fusion" QDK_H2_SVD="$svd" QDK_H2_GAUGE="$gauge"
     if [[ -n "$stop_after" ]]; then export QDK_H2_STOP_AFTER="$stop_after"; else unset QDK_H2_STOP_AFTER; fi
     if [[ -n "$order" ]]; then export QDK_H2_ORDER="$order"; else unset QDK_H2_ORDER; fi
     if [[ -n "$readout_table" ]]; then
@@ -429,7 +451,7 @@ elif [[ "$mode" == quick ]]; then
     filters=("${QUICK_TESTS[@]/#/$FILTER}")
 fi
 command=(cargo test -p "$PACKAGE" --release -- --ignored --nocapture --test-threads=1 "${filters[@]}")
-printf '%s\n' "(cd $work && ${h2:+QDK_H2_BYTECODE=$h2 QDK_H2_SHOTS=$shots QDK_H2_FUSION=$fusion }${order:+QDK_H2_ORDER=$order }${stop_after:+QDK_H2_STOP_AFTER=$stop_after }${readout_table:+QDK_H2_READOUT=distribution QDK_H2_READOUT_TABLE=$readout_table QDK_H2_TRACE=$out/h2-trace.txt }${command[*]})" \
+printf '%s\n' "(cd $work && ${h2:+QDK_H2_BYTECODE=$h2 QDK_H2_SHOTS=$shots QDK_H2_FUSION=$fusion QDK_H2_SVD=$svd QDK_H2_GAUGE=$gauge }${order:+QDK_H2_ORDER=$order }${stop_after:+QDK_H2_STOP_AFTER=$stop_after }${readout_table:+QDK_H2_READOUT=distribution QDK_H2_READOUT_TABLE=$readout_table QDK_H2_TRACE=$out/h2-trace.txt }${command[*]})" \
     | tee "$out/command.txt"
 set +e
 (cd "$work" && "${command[@]}") 2>&1 | tee "$out/run.log"
