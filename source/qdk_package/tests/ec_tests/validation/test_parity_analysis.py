@@ -95,6 +95,40 @@ def test_feedforward_record_indices_include_preceding_flags() -> None:
     )
 
 
+@pytest.mark.parametrize("shot_count", [0, 1, 4])
+def test_outcome_delta_rows_are_independent_copies(shot_count: int) -> None:
+    frames = _FramePropagator(shot_count)
+    index = frames.measure(Pauli("Z_0"))
+    row = frames.outcome_delta_row(index)
+    row.append(True)
+    assert frames.outcome_delta_row(index) == [False] * shot_count
+
+
+@pytest.mark.parametrize("shot_count", [0, 1, 4])
+def test_outcome_delta_rows_match_matrix_rows(shot_count: int) -> None:
+    frames = _FramePropagator(shot_count)
+    for shot in range(shot_count):
+        frames.apply_pauli_to_shot(shot, Pauli("X_0" if shot % 2 else "Z_0"))
+    frames.measure(Pauli("Z_0"))
+    frames.measure(Pauli("X_0"))
+    matrix = frames.outcome_deltas
+    for index in range(2):
+        assert frames.outcome_delta_row(index) == [
+            bool(matrix[index, shot]) for shot in range(shot_count)
+        ]
+
+
+@pytest.mark.parametrize("shot_count", [0, 1, 4])
+def test_outcome_delta_row_is_unchanged_by_later_measurements(shot_count: int) -> None:
+    frames = _FramePropagator(shot_count)
+    for shot in range(shot_count):
+        frames.apply_pauli_to_shot(shot, Pauli("X_0"))
+    index = frames.measure(Pauli("Z_0"))
+    row = frames.outcome_delta_row(index)
+    frames.measure(Pauli("X_0"))
+    assert row == [True] * shot_count
+
+
 def _c4() -> qc.Qodec:
     return qc.Qodec.load(
         str(Path(__file__).parents[1] / "testing/qodecs/c4.qodec.yaml")
@@ -318,6 +352,73 @@ def _conditional_pauli_gadget() -> qc.Gadget:
         checks=[["out[0].stabilizers[0]"]],
         readouts=[{"reject": ["circuit.readouts[1]"]}],
     )
+
+
+@pytest.mark.parametrize("with_inputs", [False, True])
+def test_parity_extracts_rows_without_constructing_frame_matrices(
+    monkeypatch: pytest.MonkeyPatch, with_inputs: bool
+) -> None:
+    gadget = _conditional_pauli_gadget()
+    encoding = qc.gadgets.Encoding(
+        qc.Code("data", ["Z_1", "Z_2"], ["X_0"], ["Z_0"]),
+        support=["0", "1", "2"],
+    )
+    gadget.inputs = [encoding] if with_inputs else []
+    gadget.outputs = [encoding]
+    gadget.circuit.source = (
+        "" if with_inputs else "- R: [0]\n- R: [1]\n- R: [2]\n"
+    ) + "- M: [0]\n- M: [2]\n- M: [1]"
+    gadget.checks = []
+    gadget.readouts = []
+
+    def unexpected_matrix(self: _FramePropagator) -> None:
+        pytest.fail("parity row extraction must not reconstruct the frame matrix")
+
+    monkeypatch.setattr(_FramePropagator, "outcome_deltas", property(unexpected_matrix))
+    analysis = ParityAnalysis(gadget)
+    values = analysis.values
+    if with_inputs:
+        for path, expected in (
+            ("circuit.readouts[0]", [True, False, False, False, False, False]),
+            ("circuit.readouts[1]", [False, False, False, False, True, False]),
+            ("circuit.readouts[2]", [False, False, True, False, False, False]),
+            ("out[0].stabilizers[0]", [False, False, True, False, False, False]),
+            ("out[0].stabilizers[1]", [False, False, False, False, True, False]),
+        ):
+            assert list(values[path])[-7:-1] == expected
+    else:
+        assert all(value.is_zero for path, value in values.items() if path != "1")
+    for output, readout in ((0, 2), (1, 1)):
+        assert analysis.value(
+            (f"out[0].stabilizers[{output}]", f"circuit.readouts[{readout}]")
+        ).is_zero
+
+
+@pytest.mark.parametrize("incoming_check", [False, True])
+def test_audit_diagnostics_match_matrix_row_extraction(
+    monkeypatch: pytest.MonkeyPatch, incoming_check: bool
+) -> None:
+    from qdk.ec._audit import Auditor
+
+    gadget = _conditional_pauli_gadget()
+    gadget.checks = [
+        ["circuit.readouts[0]"] + (["in[0].stabilizers[0]"] if incoming_check else []),
+        ["out[0].stabilizers[0]"],
+    ]
+    auditor = Auditor(include_informational=True)
+    protocol = _c4()
+    report = auditor.audit_gadget(gadget, qodec=protocol)
+    mismatches = [
+        item for item in report.errors if item.rule == "gadget/check-mismatch"
+    ]
+    assert bool(mismatches) is not incoming_check
+
+    def matrix_row(self: _FramePropagator, index: int) -> list[bool]:
+        matrix = self.outcome_deltas
+        return [bool(matrix[index, column]) for column in range(matrix.column_count)]
+
+    monkeypatch.setattr(_FramePropagator, "outcome_delta_row", matrix_row)
+    assert auditor.audit_gadget(gadget, qodec=protocol) == report
 
 
 def test_conditional_pauli_parities_include_incoming_frames() -> None:

@@ -2765,6 +2765,79 @@ mod given_interpreter {
         }
 
         #[test]
+        fn generated_generic_entry_reports_missing_type_arguments() {
+            let source = "@EntryPoint() operation Main<'T>() : 'T { fail \"unreachable\" }";
+            for profile in [Profile::Base, Profile::Unrestricted] {
+                for package_type in [PackageType::Lib, PackageType::Exe] {
+                    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+                    let errors = Interpreter::new(
+                        SourceMap::new([("test".into(), source.into())], None),
+                        package_type,
+                        profile.into(),
+                        LanguageFeatures::default(),
+                        store,
+                        &[(std_id, None)],
+                        Default::default(),
+                    )
+                    .err()
+                    .expect("generated generic entry must be rejected before evaluation");
+                    assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+                    assert_eq!(
+                        errors[0].code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.EntryPoint.MissingTypeArguments"
+                    );
+                    let labels: Vec<_> = errors[0].labels().expect("entry source").collect();
+                    assert_eq!(labels.len(), 1);
+                    let span = labels[0].inner();
+                    assert_eq!(&source[span.offset()..span.offset() + span.len()], "Main");
+                    assert!(errors[0].source_code().is_some());
+                }
+            }
+        }
+
+        #[test]
+        fn generated_nongeneric_entry_reports_source_located_user_failure() {
+            let source = "@EntryPoint() operation Main() : Result { fail \"unreachable\"; }";
+            for profile in [Profile::Base, Profile::Unrestricted] {
+                for package_type in [PackageType::Lib, PackageType::Exe] {
+                    let (std_id, store) = crate::compile::package_store_with_stdlib(profile.into());
+                    let mut interpreter = Interpreter::new(
+                        SourceMap::new([("test".into(), source.into())], None),
+                        package_type,
+                        profile.into(),
+                        LanguageFeatures::default(),
+                        store,
+                        &[(std_id, None)],
+                        Default::default(),
+                    )
+                    .unwrap_or_else(|errors| panic!("{profile:?}: {errors:?}"));
+                    let (result, _) = entry(&mut interpreter);
+                    let errors = result.expect_err("valid entry must reach its user failure");
+                    assert!(
+                        matches!(errors.as_slice(), [crate::interpret::Error::Eval(_)]),
+                        "{profile:?}: {errors:?}"
+                    );
+                    assert_eq!(
+                        errors[0].code().expect("diagnostic code").to_string(),
+                        "Qdk.Qsc.Eval.UserFail"
+                    );
+                    let labels: Vec<_> = errors[0].labels().expect("failure source").collect();
+                    assert_eq!(labels.len(), 1);
+                    let contents = errors[0]
+                        .source_code()
+                        .expect("source-located failure")
+                        .read_span(labels[0].inner(), 0, 0)
+                        .expect("failure span");
+                    assert!(
+                        std::str::from_utf8(contents.data())
+                            .expect("source text")
+                            .contains("fail \"unreachable\"")
+                    );
+                }
+            }
+        }
+
+        #[test]
         fn invalid_partial_application_should_fail_not_panic() {
             // Found via fuzzing, see #2363
             let source = "operation e(oracle:(w=>)){oracle=i(_)";

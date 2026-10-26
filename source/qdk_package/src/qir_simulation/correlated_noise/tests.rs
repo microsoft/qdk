@@ -263,3 +263,16 @@ XX,0.033";
     "#]]
     .assert_debug_eq(&err);
 }
+
+#[test]
+fn csv_row_with_more_than_21_qubits_errors() {
+    let contents = format!("{},0.1", "X".repeat(22));
+    let err = parse_noise_table(&contents).expect_err("parsing should fail");
+    expect![[r#"
+        TooManyQubits {
+            line: 0,
+            found: 22,
+        }
+    "#]]
+    .assert_debug_eq(&err);
+}

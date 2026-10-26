@@ -1063,12 +1063,41 @@ pub(crate) fn try_eval_fir_entry(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
 ) -> Result<qsc_eval::val::Value, String> {
+    eval_fir_graph(store, pkg_id, store.get(pkg_id).entry_exec_graph.clone())
+}
+
+/// Evaluates a unit-input callable directly, without making it entry-reachable.
+/// This lets pinned-root tests exercise the body retained by the pipeline.
+#[cfg(test)]
+pub(crate) fn try_eval_fir_callable(
+    store: &fir::PackageStore,
+    callable: fir::StoreItemId,
+) -> Result<qsc_eval::val::Value, String> {
+    let package = store.get(callable.package);
+    let fir::ItemKind::Callable(decl) = &package.get_item(callable.item).kind else {
+        panic!("target must be callable");
+    };
+    assert_eq!(
+        package.get_pat(decl.input).ty,
+        qsc_fir::ty::Ty::UNIT,
+        "direct body evaluation requires unit input"
+    );
+    let fir::CallableImpl::Spec(spec) = &decl.implementation else {
+        panic!("target must have a body");
+    };
+    eval_fir_graph(store, callable.package, spec.body.exec_graph.clone())
+}
+
+#[cfg(test)]
+fn eval_fir_graph(
+    store: &fir::PackageStore,
+    pkg_id: fir::PackageId,
+    graph: fir::ExecGraph,
+) -> Result<qsc_eval::val::Value, String> {
     use qsc_eval::backend::{SparseSim, TracingBackend};
     use qsc_eval::output::GenericReceiver;
     use qsc_fir::fir::ExecGraphConfig;
 
-    let package = store.get(pkg_id);
-    let entry_graph = package.entry_exec_graph.clone();
     let mut env = qsc_eval::Env::default();
     let mut sim = SparseSim::new();
     let mut out = Vec::<u8>::new();
@@ -1076,7 +1105,7 @@ pub(crate) fn try_eval_fir_entry(
     qsc_eval::eval(
         pkg_id,
         Some(42),
-        entry_graph,
+        graph,
         ExecGraphConfig::NoDebug,
         store,
         &mut env,

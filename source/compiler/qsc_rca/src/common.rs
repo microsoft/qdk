@@ -30,6 +30,8 @@ pub enum LocalKind {
     SpecInput,
     /// An immutable binding with the expression associated to it and the optional
     /// expression for the containing dynamic scope, if any.
+    /// For destructuring of an opaque tuple, the expression is the enclosing initializer,
+    /// not a projection of this binding's value.
     Immutable(ExprId, Option<ExprId>),
     /// A mutable binding with the optional expression for the containing dynamic scope,
     /// if any.

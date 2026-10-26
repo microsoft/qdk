@@ -44,7 +44,7 @@ mod test_utils;
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode,
-    ExecGraphNode, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, Lit, LocalItemId,
+    ExecGraphNode, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, LocalItemId,
     LocalVarId, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res,
     SpecDecl, Stmt, StmtId, StmtKind, StoreItemId, StringComponent, UnOp,
 };
@@ -387,7 +387,7 @@ fn check_package_udt_erase_invariants_in_reachable_items(
     target_package_id: qsc_fir::fir::PackageId,
 ) {
     let check_node = |pkg: &Package, node: CallableNode| match node {
-        CallableNode::Expr(id) => check_expr_udt_erase_invariants(pkg, id),
+        CallableNode::Expr(id) => check_expr_udt_erase_invariants(store, pkg, id),
         CallableNode::Pat(id) => {
             check_type_udt_erase_invariants(&pkg.get_pat(id).ty, &format!("Pat {id}"));
         }
@@ -489,15 +489,32 @@ fn check_id_references_in_reachable_items(
 }
 
 /// Validates that a single expression satisfies post-UDT-erasure invariants:
-/// no `Ty::Udt` in its type, no `ExprKind::Struct`, no `Field::Path` in
-/// `UpdateField`/`AssignField`, and `Field::Path` only on tuple-typed records.
+/// no UDT type, struct construction, or UDT constructor reference; no
+/// `Field::Path` in updates; and field projections only on tuple-typed records.
 ///
 /// # Panics
 ///
 /// Panics with a descriptive message if any UDT-erasure invariant is violated.
-fn check_expr_udt_erase_invariants(package: &Package, expr_id: ExprId) {
+fn check_expr_udt_erase_invariants(store: &PackageStore, package: &Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id);
     check_type_udt_erase_invariants(&expr.ty, &format!("Expr {expr_id}"));
+
+    let (reference, action) = match expr.kind {
+        ExprKind::Call(callee, _) => (package.get_expr(callee), "calls"),
+        _ => (expr, "references"),
+    };
+    if let ExprKind::Var(Res::Item(item), _) = reference.kind {
+        // Rolled-back incremental declarations retain their name-binding error;
+        // only an existing type item proves a residual constructor.
+        assert!(
+            !store
+                .get(item.package)
+                .items
+                .get(item.item)
+                .is_some_and(|item| matches!(item.kind, ItemKind::Ty(..))),
+            "PostUdtErase invariant violation: Expr {expr_id} {action} a UDT constructor"
+        );
+    }
 
     if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
         panic!(
@@ -565,9 +582,8 @@ fn check_type_udt_erase_invariants(ty: &Ty, context: &str) {
 ///
 /// # Panics
 ///
-/// Panics with a descriptive message if any non-Unit block lacks a matching
-/// trailing `StmtKind::Expr`. A trailing expression whose type differs from the
-/// block type is tolerated only when that expression diverges (`fail`/`return`).
+/// Panics if a non-Unit block lacks a matching trailing `StmtKind::Expr`,
+/// unless evaluating the block necessarily diverges (`fail`/`return`).
 pub(crate) fn check_non_unit_block_tails(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
@@ -679,14 +695,21 @@ fn check_nested_block_expr_tails(package: &Package, expr_id: ExprId, context: &s
 ///
 /// # Panics
 ///
-/// Panics if the block has a non-Unit type but is empty, ends in a non-Expr
-/// statement, or ends in an expression whose type does not match the block
-/// type and does not diverge (`fail`/`return`). A divergent trailing expression
-/// is exempt because it never yields a value, so typeck may leave its type
-/// different from the enclosing block.
+/// Panics if a non-Unit block lacks a matching trailing expression, unless a
+/// necessarily evaluated statement diverges. Lazy or deferred failures do not
+/// exempt a mismatch.
 fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str) {
     let block = package.get_block(block_id);
     if block.ty == Ty::UNIT {
+        return;
+    }
+    if let Some(&stmt_id) = block.stmts.last()
+        && let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind
+        && package.get_expr(expr_id).ty == block.ty
+    {
+        return;
+    }
+    if block_diverges(package, block_id) {
         return;
     }
 
@@ -697,9 +720,14 @@ fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str
         );
     };
 
-    let stmt = package.get_stmt(stmt_id);
-    let expr_id = match &stmt.kind {
-        StmtKind::Expr(expr_id) => *expr_id,
+    match &package.get_stmt(stmt_id).kind {
+        StmtKind::Expr(expr_id) => {
+            let expr_ty = &package.get_expr(*expr_id).ty;
+            panic!(
+                "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but trailing Expr {expr_id} has type {expr_ty:?}",
+                block.ty,
+            );
+        }
         StmtKind::Semi(expr_id) => {
             panic!(
                 "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but ends with Semi Expr {expr_id}",
@@ -718,131 +746,77 @@ fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str
                 block.ty,
             );
         }
-    };
-
-    let expr_ty = &package.get_expr(expr_id).ty;
-    // A divergent trailing expression (`fail`/`return`, or an `if`/block that
-    // always diverges) never yields a value, so typeck may leave it with a
-    // type that differs from the enclosing non-Unit block. Tolerate that
-    // mismatch; any non-divergent type mismatch is still a real violation.
-    assert!(
-        expr_ty == &block.ty || expr_diverges(package, expr_id),
-        "Non-Unit block-tail invariant violation: {context} Block {block_id} has type {:?} but trailing Expr {expr_id} has type {expr_ty:?}",
-        block.ty,
-    );
+    }
 }
 
 /// Returns `true` if evaluating `expr_id` never yields a value because it always
-/// diverges (via `fail`, `return`, or a compound control-flow expression whose
-/// evaluated path always diverges).
+/// diverges (via `fail` or `return`).
 ///
 /// Typeck assigns a divergent expression a fresh divergent type that defaults to
 /// `Unit` when left unconstrained, so a divergent trailing expression can
-/// legitimately carry a type that differs from its enclosing non-Unit block. The
-/// predicate stays conservative: any unrecognized shape is treated as
-/// non-divergent so genuine value-type mismatches still surface. A `while` body
-/// contributes only when the first condition is provably `true`; its condition
-/// always contributes when evaluating it diverges.
+/// legitimately carry a type that differs from its enclosing non-Unit block.
+/// Only necessarily evaluated children establish divergence. Lazy operands,
+/// conditional bodies and deferred closure bodies are handled separately.
 fn expr_diverges(package: &Package, expr_id: ExprId) -> bool {
-    expr_diverges_with_known_bools(package, expr_id, &FxHashMap::default())
-}
-
-fn expr_diverges_with_known_bools(
-    package: &Package,
-    expr_id: ExprId,
-    known_bools: &FxHashMap<LocalVarId, bool>,
-) -> bool {
-    match &package.get_expr(expr_id).kind {
+    let kind = &package.get_expr(expr_id).kind;
+    match kind {
         ExprKind::Fail(_) | ExprKind::Return(_) => true,
-        ExprKind::Block(block_id) => {
-            block_diverges_with_known_bools(package, *block_id, known_bools)
+        ExprKind::Block(block_id) => block_diverges(package, *block_id),
+        ExprKind::If(condition, then, otherwise) => {
+            expr_diverges(package, *condition)
+                || otherwise.is_some_and(|otherwise| {
+                    expr_diverges(package, *then) && expr_diverges(package, otherwise)
+                })
         }
-        ExprKind::If(cond, then, Some(els)) => {
-            let no_known_bools = FxHashMap::default();
-            let branch_known_bools = if known_bool_value(package, *cond, known_bools).is_some() {
-                known_bools
-            } else {
-                &no_known_bools
-            };
-            expr_diverges_with_known_bools(package, *then, branch_known_bools)
-                && expr_diverges_with_known_bools(package, *els, branch_known_bools)
+        ExprKind::While(condition, _)
+        | ExprKind::BinOp(BinOp::AndL | BinOp::OrL, condition, _)
+        | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, condition, _) => {
+            expr_diverges(package, *condition)
         }
-        ExprKind::While(cond, body) => {
-            expr_diverges_with_known_bools(package, *cond, known_bools)
-                || (known_bool_value(package, *cond, known_bools) == Some(true)
-                    && block_diverges_with_known_bools(package, *body, known_bools))
+        ExprKind::Array(_)
+        | ExprKind::ArrayLit(_)
+        | ExprKind::ArrayRepeat(..)
+        | ExprKind::Assign(..)
+        | ExprKind::AssignOp(..)
+        | ExprKind::AssignField(..)
+        | ExprKind::AssignIndex(..)
+        | ExprKind::BinOp(..)
+        | ExprKind::Call(..)
+        | ExprKind::Field(..)
+        | ExprKind::Index(..)
+        | ExprKind::Parallel(..)
+        | ExprKind::Range(..)
+        | ExprKind::Struct(..)
+        | ExprKind::String(_)
+        | ExprKind::UpdateIndex(..)
+        | ExprKind::Tuple(_)
+        | ExprKind::UnOp(..)
+        | ExprKind::UpdateField(..) => {
+            let mut diverges = false;
+            crate::walk_utils::for_each_direct_child(kind, |child| {
+                diverges |= match child {
+                    crate::walk_utils::DirectChild::Expr(child) => expr_diverges(package, child),
+                    crate::walk_utils::DirectChild::Block(block) => block_diverges(package, block),
+                };
+            });
+            diverges
         }
-        _ => false,
+        ExprKind::Closure(..) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(..) => false,
     }
 }
 
-/// Returns `true` if evaluating `block_id` cannot complete normally.
-///
-/// Loop unification lowers `repeat` to a block that initializes a synthetic
-/// Boolean condition to `true` before a `while`. Track that narrow constant
-/// fact so the guaranteed first iteration remains visible in FIR. Any other
-/// evaluated statement clears the facts because it may mutate a tracked local.
-fn block_diverges_with_known_bools(
-    package: &Package,
-    block_id: BlockId,
-    inherited_known_bools: &FxHashMap<LocalVarId, bool>,
-) -> bool {
+/// Returns `true` if evaluating a statement in `block_id` necessarily diverges.
+fn block_diverges(package: &Package, block_id: BlockId) -> bool {
     let block = package.get_block(block_id);
-    let mut known_bools = inherited_known_bools.clone();
-
-    for &stmt_id in &block.stmts {
-        match &package.get_stmt(stmt_id).kind {
-            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => {
-                if expr_diverges_with_known_bools(package, *expr_id, &known_bools) {
-                    return true;
-                }
-                known_bools.clear();
+    block
+        .stmts
+        .iter()
+        .any(|&stmt_id| match &package.get_stmt(stmt_id).kind {
+            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
+                expr_diverges(package, *expr_id)
             }
-            StmtKind::Local(_, pat_id, expr_id) => {
-                if expr_diverges_with_known_bools(package, *expr_id, &known_bools) {
-                    return true;
-                }
-
-                let value = known_bool_value(package, *expr_id, &known_bools);
-                let pat = package.get_pat(*pat_id);
-                if let (PatKind::Bind(ident), Ty::Prim(Prim::Bool), Some(value)) =
-                    (&pat.kind, &pat.ty, value)
-                {
-                    known_bools.insert(ident.id, value);
-                } else {
-                    known_bools.clear();
-                }
-            }
-            StmtKind::Item(_) => {}
-        }
-    }
-
-    false
-}
-
-/// Evaluates the side-effect-free Boolean subset used by synthesized loop
-/// conditions from literals and previously proven local values.
-fn known_bool_value(
-    package: &Package,
-    expr_id: ExprId,
-    known_bools: &FxHashMap<LocalVarId, bool>,
-) -> Option<bool> {
-    match &package.get_expr(expr_id).kind {
-        ExprKind::Lit(Lit::Bool(value)) => Some(*value),
-        ExprKind::Var(Res::Local(id), _) => known_bools.get(id).copied(),
-        ExprKind::UnOp(UnOp::NotL, operand) => {
-            known_bool_value(package, *operand, known_bools).map(|value| !value)
-        }
-        ExprKind::BinOp(BinOp::AndL, lhs, rhs) => Some(
-            known_bool_value(package, *lhs, known_bools)?
-                && known_bool_value(package, *rhs, known_bools)?,
-        ),
-        ExprKind::BinOp(BinOp::OrL, lhs, rhs) => Some(
-            known_bool_value(package, *lhs, known_bools)?
-                || known_bool_value(package, *rhs, known_bools)?,
-        ),
-        _ => None,
-    }
+            StmtKind::Item(_) => false,
+        })
 }
 
 /// Verifies that all IDs referenced inside blocks, stmts, exprs, and pats
@@ -1765,35 +1739,8 @@ fn check_expr_type(
         );
     }
 
-    // After UDT erasure, all Struct expressions must have been lowered.
     if enforces_stage(level, StageCheck::UdtErase) {
-        if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 ExprKind::Struct after UDT erasure"
-            );
-        }
-
-        // Field::Path references UDT field paths that must be lowered by udt_erase.
-        if let ExprKind::UpdateField(_, Field::Path(_), _)
-        | ExprKind::AssignField(_, Field::Path(_), _) = &expr.kind
-        {
-            panic!(
-                "PostUdtErase invariant violation: Expr {expr_id} contains \
-                 Field::Path in UpdateField/AssignField after UDT erasure"
-            );
-        }
-
-        // After UDT erasure, every Field::Path target must be a Tuple.
-        if let ExprKind::Field(record_id, Field::Path(_)) = &expr.kind {
-            let record = package.get_expr(*record_id);
-            assert!(
-                matches!(&record.ty, Ty::Tuple(_)),
-                "PostUdtErase invariant violation: Expr {expr_id} has Field::Path \
-                 on non-tuple record Expr {record_id} (type: {:?})",
-                record.ty,
-            );
-        }
+        check_expr_udt_erase_invariants(store, package, expr_id);
     }
 
     // After tuple comparison lowering, no BinOp(Eq/Neq) on non-empty tuple operands.

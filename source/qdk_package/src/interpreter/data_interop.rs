@@ -4,7 +4,7 @@
 //! This module contains the types and functions used to build the
 //! data-interop layer between Python and Q#.
 
-use crate::interpreter::{Closure, GlobalCallable, QasmError};
+use crate::interpreter::{Closure, GlobalCallable, QSharpError, QasmError};
 
 use super::{Pauli, Result};
 use num_bigint::BigInt;
@@ -214,6 +214,71 @@ where
     }
 }
 
+/// Finds any Q# type recursively that does not support interop with Python, meaning our code cannot convert it back and forth
+/// across the interop boundary.
+pub(super) fn first_unsupported_interop_ty<'ctx, 'ty>(
+    ctx: &'ctx interpret::Interpreter,
+    ty: &'ty Ty,
+    allow_any_primitive: bool,
+) -> Option<String>
+where
+    'ty: 'ctx,
+{
+    match ty {
+        Ty::Prim(prim_ty) => match prim_ty {
+            Prim::Pauli
+            | Prim::BigInt
+            | Prim::Bool
+            | Prim::Double
+            | Prim::Int
+            | Prim::String
+            | Prim::Result => None,
+            Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
+                if allow_any_primitive {
+                    None
+                } else {
+                    Some(ty.to_string())
+                }
+            }
+        },
+        Ty::Tuple(tup) => tup
+            .iter()
+            .find_map(|t| first_unsupported_interop_ty(ctx, t, allow_any_primitive)),
+        Ty::Array(ty) => first_unsupported_interop_ty(ctx, ty, allow_any_primitive),
+        Ty::Udt(_, res) => {
+            let qsc::hir::Res::Item(item_id) = res else {
+                panic!("Udt should be an item");
+            };
+            let (udt, _) = ctx.udt_ty_from_item_id(item_id);
+
+            let Ok(fields) = collect_udt_fields(udt) else {
+                return Some(ty.to_string());
+            };
+
+            for field in fields {
+                if let Some(ty) = first_unsupported_interop_ty(ctx, field.1, allow_any_primitive) {
+                    return Some(ty);
+                }
+            }
+
+            None
+        }
+        Ty::Arrow(arrow) => {
+            // Reject unsupported types in the input and output of the callable, but allow any primitive types as those won't
+            // be coming from Python directly. Primarily this ends up rejecting callables with generic type parameters,
+            // to avoid having to infer concrete types on the fly.
+            if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.input.borrow(), true) {
+                return Some(ty);
+            }
+            if let Some(ty) = first_unsupported_interop_ty(ctx, &arrow.output.borrow(), true) {
+                return Some(ty);
+            }
+            None
+        }
+        Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty.to_string()),
+    }
+}
+
 /// Given a type, convert a Python object into a Q# value of that type. This will recur through tuples and arrays,
 /// and will return an error if the type is not supported or the object cannot be converted.
 pub(super) fn pyobj_to_value(
@@ -273,10 +338,14 @@ pub(super) fn pyobj_to_value(
         Ty::Udt(_, res) => pyobj_to_udt(ctx, py, obj, ty, res),
         Ty::Arrow(..) => {
             if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
-                return Ok(callable.into());
+                let callable_val = callable.into();
+                check_callable_types(ctx, &callable_val)?;
+                return Ok(callable_val);
             }
             if let Ok(callable) = extract_obj::<Closure>(py, obj, ty) {
-                return Ok(callable.into());
+                let callable_val = callable.into();
+                check_callable_types(ctx, &callable_val)?;
+                return Ok(callable_val);
             }
             Err(PyTypeError::new_err(format!(
                 "expected a callable, found {}",
@@ -284,6 +353,23 @@ pub(super) fn pyobj_to_value(
             )))
         }
         _ => unimplemented!("input type: {ty}"),
+    }
+}
+
+fn check_callable_types(ctx: &interpret::Interpreter, callable_val: &Value) -> PyResult<()> {
+    let (input_ty, output_ty) = ctx
+        .global_callable_ty(callable_val)
+        .ok_or(QSharpError::new_err("callable not found"))?;
+    if let Some(ty) = first_unsupported_interop_ty(ctx, &input_ty, true) {
+        Err(QSharpError::new_err(format!(
+            "unsupported input type: `{ty}`"
+        )))
+    } else if let Some(ty) = first_unsupported_interop_ty(ctx, &output_ty, true) {
+        Err(QSharpError::new_err(format!(
+            "unsupported output type: `{ty}`"
+        )))
+    } else {
+        Ok(())
     }
 }
 

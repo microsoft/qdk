@@ -92,6 +92,84 @@ fn compile_source_to_qir_result(
 }
 
 #[test]
+fn controlled_noop_tuple_alias_matches_literal_input_in_base_qir() {
+    let source = |call| {
+        format!(
+            r#"
+            operation Target() : Unit is Ctl {{}}
+            @EntryPoint(Base)
+            operation Main() : Unit {{ {call} }}
+            "#
+        )
+    };
+    let literal =
+        compile_source_to_qir(&source("Controlled Target([], ());"), Profile::Base.into());
+    let qir = compile_source_to_qir(
+        &source("let args : (Qubit[], Unit) = ([], ()); Controlled Target(args);"),
+        Profile::Base.into(),
+    );
+    assert_eq!(qir, literal);
+    assert!(!qir.contains("call void @__quantum__qis__"), "{qir}");
+}
+
+/// RCA must accept literal, aliased, and opaque controlled arguments without changing
+/// code generation. Empty controls leave two X gates on one qubit; the pair also lets
+/// the simulator verify that the allocated qubit is released in the zero state.
+#[test]
+fn controlled_tuple_values_and_aliases_match_literal_inputs_in_base_qir() {
+    let source = |call| {
+        format!(
+            r#"
+            function MakeArgs() : (Qubit[], Unit) {{ ([], ()) }}
+            operation Target() : Unit is Ctl {{
+                body (...) {{
+                    use q = Qubit();
+                    X(q);
+                    X(q);
+                }}
+                controlled (controls, ...) {{
+                    use q = Qubit();
+                    Controlled X(controls, q);
+                    Controlled X(controls, q);
+                }}
+            }}
+            @EntryPoint() operation Main() : Unit {{ {call} }}
+        "#
+        )
+    };
+    let literal =
+        compile_source_to_qir(&source("Controlled Target([], ());"), Profile::Base.into());
+    assert_eq!(
+        literal
+            .matches("call void @__quantum__qis__x__body")
+            .count(),
+        2
+    );
+    assert!(
+        literal.contains(r#""required_num_qubits"="1""#),
+        "{literal}"
+    );
+
+    for call in [
+        "let args : (Qubit[], Unit) = ([], ()); Controlled Target(args);",
+        "let args : (Qubit[], Unit) = ([], ()); let alias = args; Controlled Target(alias);",
+        "mutable args : (Qubit[], Unit) = ([], ()); Controlled Target(args);",
+        "Controlled Target({ let args : (Qubit[], Unit) = ([], ()); args });",
+        "Controlled Target(MakeArgs());",
+        "let packed : (Int, (Qubit[], Unit), Bool) = (1, ([], ()), true); let (_, args, _) = packed; Controlled Target(args);",
+        "let inner : (Qubit[], Unit) = ([], ()); let args : (Qubit[], (Qubit[], Unit)) = ([], inner); Controlled Controlled Target(args);",
+        "mutable args : (Qubit[], (Qubit[], Unit)) = ([], ([], ())); Controlled Controlled Target(args);",
+    ] {
+        let source = source(call);
+        let qir = compile_source_to_qir(&source, Profile::Base.into());
+        assert_eq!(qir, literal, "{call}");
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source.replace("@EntryPoint()", ""));
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::unit());
+    }
+}
+
+#[test]
 fn dump_operation_is_codegen_noop_across_restricted_profiles() {
     let source = r#"
         namespace Test {
@@ -832,6 +910,26 @@ fn unsupported_profile_patterns_return_pass_errors() {
             .contains("cannot use a dynamic integer value")),
         "expected a dynamic integer capability diagnostic, got {errors:?}"
     );
+}
+
+#[test]
+fn struct_copy_preserves_source_before_mutating_replacement_in_base_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct Data { First : Int, Second : Int }
+            @EntryPoint()
+            operation Main() : Unit {
+                mutable original = new Data { First = 7, Second = 2 };
+                let copied = new Data {
+                    ...original,
+                    First = { set original = new Data { First = 13, Second = 5 }; 6 }
+                };
+                if copied.Second != 2 { fail "wrong copy snapshot"; }
+            }
+        }
+    "#};
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(qir.contains("call void @__quantum__rt__tuple_record_output(i64 0"));
 }
 
 #[test]
@@ -7321,4 +7419,529 @@ fn assert_single_integer_output(qir: &str, expected: i64) {
         .collect();
     assert_eq!(records.len(), 1, "{qir}");
     assert!(records[0].contains(&format!("i64 {expected},")), "{qir}");
+}
+
+#[test]
+fn generic_lambda_dependencies_compile_through_executable_entries() {
+    check_generic_lambda_dependency_qir(compile_source_to_qir);
+}
+
+#[test]
+fn generic_lambda_dependencies_compile_through_incremental_entries() {
+    check_generic_lambda_dependency_qir(|source, capabilities| {
+        let mut interpreter = interpreter_with_capabilities(capabilities);
+        eval_fragments(&mut interpreter, source);
+        interpreter
+            .qirgen("Main()")
+            .unwrap_or_else(|errors| panic!("{}", format_interpret_errors(errors)))
+    });
+}
+
+fn check_generic_lambda_dependency_qir(compile: impl Fn(&str, TargetCapabilityFlags) -> String) {
+    let definitions = r#"
+        function Id<'T>(x : 'T) : 'T { x }
+        function Outer<'T>(x : 'T) : 'T {
+            let f = y -> Id(y);
+            f(x)
+        }
+    "#;
+    for (main, profile, expected) in [
+        (
+            "operation Main() : Unit { let _ = Outer(1); }",
+            Profile::Base,
+            None,
+        ),
+        (
+            "operation Main() : Int { Outer(7) }",
+            Profile::AdaptiveRIF,
+            Some(7),
+        ),
+    ] {
+        let source = format!("{definitions}\n{main}");
+        let qir = compile(&source, profile.into());
+        if let Some(expected) = expected {
+            assert_single_integer_output(&qir, expected);
+        } else {
+            assert!(
+                qir.contains("call void @__quantum__rt__tuple_record_output(i64 0,"),
+                "{profile:?}: {qir}"
+            );
+        }
+    }
+}
+
+/// A direct use consumes one library closure while a forwarded, reassigned
+/// aggregate still needs its own closure and data field. The QIR must record
+/// `1 * 10 + (3 + 3)`, preserving both captured values and the deferred field.
+#[test]
+fn foreign_forwarded_closure_aggregates_preserve_captures_and_data_in_qir() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : (Int -> Int, Int) { (x -> x + n, n) }
+            function Forward(n : Int) : (Int -> Int, Int) { Make(n) }
+            function Apply(pair : (Int -> Int, Int)) : Int {
+                let (f, n) = pair;
+                f(0) + n
+            }
+            export Make, Forward, Apply;
+        }
+    "#;
+    let source = r#"
+        @EntryPoint()
+        operation Main() : Int {
+            let (first, _) = Lib.Make(1);
+            mutable deferred = Lib.Forward(0);
+            for index in 0..0 { set deferred = Lib.Forward(3); }
+            first(0) * 10 + Lib.Apply(deferred)
+        }
+    "#;
+    assert_single_integer_output(
+        &compile_source_to_qir_with_library(library, source, Profile::AdaptiveRIF.into()),
+        16,
+    );
+}
+
+/// Base QIR cannot return integer values, so make each computed value control
+/// a gate count on a different qubit. The emitted calls must contain eight Xs
+/// for the direct call and twelve for the higher-order call, in that order.
+#[test]
+fn nested_closure_captures_preserve_values_in_base_qir() {
+    let qir = compile_source_to_qir(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                    value -> inner(value) * scale
+                }
+                function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+                @EntryPoint()
+                operation Main() : Unit {
+                    let first = Wrap(Make(3), 2);
+                    use qubits = Qubit[2];
+                    for _ in 1..first(1) { X(qubits[0]); }
+                    for _ in 1..Invoke(first, 3) { X(qubits[1]); }
+                }
+            }
+        "#},
+        Profile::Base.into(),
+    );
+    let gates: Vec<_> = qir
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("call void @__quantum__qis__"))
+        .collect();
+    let expected: Vec<_> = std::iter::repeat_n(
+        "call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))",
+        8,
+    )
+    .chain(std::iter::repeat_n(
+        "call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))",
+        12,
+    ))
+    .collect();
+    assert_eq!(gates, expected, "{qir}");
+}
+
+#[test]
+fn generated_generic_entry_qir_reports_missing_type_arguments() {
+    check_generated_entry_missing_type_arguments(
+        "@EntryPoint() operation Main<'T>() : 'T { fail \"unreachable\" }",
+    );
+}
+
+#[test]
+fn generated_entry_rejects_unused_type_parameters() {
+    use miette::Diagnostic;
+
+    let source = "@EntryPoint() operation Main<'T : Eq, 'U : Show>() : Int { 42 }";
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let errors = compile_source_to_qir_result(source, profile.into())
+            .expect_err("unused type parameters must be rejected before entry generation");
+        let expected = [
+            ("Qdk.Qsc.TypeCk.UnusedGeneric", "'T"),
+            ("Qdk.Qsc.TypeCk.UnusedGeneric", "'U"),
+            ("Qdk.Qsc.LowerAst.UnusedGeneric", "'T"),
+            ("Qdk.Qsc.LowerAst.UnusedGeneric", "'U"),
+        ];
+        assert_eq!(errors.len(), expected.len(), "{profile:?}: {errors:?}");
+        for (error, (code, parameter)) in errors.iter().zip(expected) {
+            assert_eq!(error.code().expect("diagnostic code").to_string(), code);
+            let labels: Vec<_> = error.labels().expect("parameter source").collect();
+            assert_eq!(labels.len(), 1);
+            let span = labels[0].inner();
+            assert_eq!(
+                &source[span.offset()..span.offset() + span.len()],
+                parameter
+            );
+            assert!(error.source_code().is_some());
+        }
+    }
+}
+
+fn check_generated_entry_missing_type_arguments(source: &str) {
+    use miette::Diagnostic;
+
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let errors = compile_source_to_qir_result(source, profile.into())
+            .expect_err("generated entry requires concrete type arguments");
+        assert_eq!(errors.len(), 1, "{profile:?}: {errors:?}");
+        assert_eq!(
+            errors[0].code().expect("diagnostic code").to_string(),
+            "Qdk.Qsc.EntryPoint.MissingTypeArguments"
+        );
+        let labels: Vec<_> = errors[0].labels().expect("entry source").collect();
+        assert_eq!(labels.len(), 1);
+        let span = labels[0].inner();
+        assert_eq!(&source[span.offset()..span.offset() + span.len()], "Main");
+        assert!(errors[0].source_code().is_some());
+    }
+}
+
+#[test]
+fn explicit_generic_entry_call_requires_type_evidence() {
+    use miette::Diagnostic;
+
+    let mut interpreter = interpreter_with_capabilities(Profile::AdaptiveRIF.into());
+    eval_fragments(
+        &mut interpreter,
+        "operation Generic<'T>() : 'T { fail \"unreachable\" }",
+    );
+    let errors = interpreter
+        .qirgen("Generic()")
+        .expect_err("ordinary explicit calls still need type evidence");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(
+        errors[0].code().expect("diagnostic code").to_string(),
+        "Qdk.Qsc.TypeCk.AmbiguousTy"
+    );
+}
+
+#[test]
+fn generated_nongeneric_entry_qir_reports_source_located_user_failure() {
+    use miette::Diagnostic;
+
+    let source = "@EntryPoint() operation Main() : Result { fail \"unreachable\"; }";
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let errors = compile_source_to_qir_result(source, profile.into())
+            .expect_err("valid nongeneric entry must reach its user failure");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("{profile:?}: {errors:?}");
+        };
+        assert_eq!(
+            error.code().expect("diagnostic code").to_string(),
+            "Qdk.Qsc.PartialEval.EvaluationFailed"
+        );
+        assert_eq!(
+            error.to_string(),
+            "partial evaluation failed with error: program failed: unreachable"
+        );
+        let labels: Vec<_> = error.labels().expect("failure source").collect();
+        assert_eq!(labels.len(), 1);
+        let (location, span) = error.resolve_span(labels[0].inner());
+        assert_eq!(
+            &location.contents[span.offset()..span.offset() + span.len()],
+            "fail \"unreachable\""
+        );
+    }
+}
+
+/// Check the computed value as an `AdaptiveRIF` integer output and as a Base
+/// rotation operand. This verifies emitted data, not merely successful compilation.
+/// These fixtures also protect existing tuple-alias behavior; the isolated
+/// prepass tests assert that environment normalization itself runs.
+fn assert_classical_result_in_qir(source: &str, expected: i32) {
+    let adaptive = format!(
+        "{source}\nnamespace Entry {{
+            @EntryPoint() operation Main() : Int {{ Test.Compute() }}
+        }}"
+    );
+    assert_single_integer_output(
+        &compile_source_to_qir(&adaptive, Profile::AdaptiveRIF.into()),
+        i64::from(expected),
+    );
+    let base = format!(
+        "{source}\nnamespace Entry {{
+            @EntryPoint() operation Main() : Unit {{
+                use q = Qubit();
+                Rz(Std.Convert.IntAsDouble(Test.Compute()), q);
+            }}
+        }}"
+    );
+    let qir = compile_source_to_qir(&base, Profile::Base.into());
+    let gates: Vec<_> = qir
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("call void @__quantum__qis__"))
+        .collect();
+    assert_eq!(gates.len(), 1, "{qir}");
+    let angle = gates[0]
+        .strip_prefix("call void @__quantum__qis__rz__body(double ")
+        .expect("expected a rotation with a constant angle")
+        .split(',')
+        .next()
+        .expect("rotation angle")
+        .parse::<f64>()
+        .expect("constant double");
+    // Every i32 is exactly representable as f64; no tolerance is needed here.
+    assert_eq!(angle.to_bits(), f64::from(expected).to_bits(), "{qir}");
+}
+
+#[test]
+fn nonadjacent_callable_tuple_snapshot_preserves_original_values_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            function Compute() : Int {
+                mutable (value, callable) = (14, Add11);
+                let pair = (value, callable);
+                set value = 9;
+                set callable = Times3;
+                set (value, callable) = pair;
+                value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_result_in_qir(source, 1413);
+}
+
+#[test]
+fn nested_callable_tuple_snapshot_preserves_scalar_and_callable_values_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            function Compute() : Int {
+                mutable (value, callable) = (14, Add11);
+                let (tag, saved) = (3, (value, callable));
+                set (value, callable) = (9, Times3);
+                set (value, callable) = saved;
+                tag * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_result_in_qir(source, 31_413);
+}
+
+#[test]
+fn captured_callable_tuple_snapshot_survives_reassignment_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Add11(value : Int) : Int { value + 11 }
+            function Times3(value : Int) : Int { value * 3 }
+            function Compute() : Int {
+                mutable (value, callable) = (14, Add11);
+                let saved = (value, callable);
+                let observe = input -> {
+                    let (stored, action) = saved;
+                    stored * 100 + action(input)
+                };
+                set (value, callable) = (9, Times3);
+                let before = observe(2);
+                set (value, callable) = saved;
+                before * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_result_in_qir(source, 14_131_413);
+}
+
+#[test]
+fn forwarded_callable_tuple_preserves_original_capture_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Forward(pair : (Int, Int -> Int)) : (Int, Int -> Int) { pair }
+            function Compute() : Int {
+                mutable offset = 3;
+                mutable (value, callable) = (14, {
+                    let captured = offset;
+                    input -> input + captured
+                });
+                let saved = Forward((value, callable));
+                set offset = 17;
+                set (value, callable) = (9, {
+                    let captured = offset;
+                    input -> input + captured
+                });
+                let forwarded = Forward(saved);
+                set (value, callable) = forwarded;
+                offset * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#;
+    assert_classical_result_in_qir(source, 171_405);
+}
+
+#[test]
+fn nested_wrapper_array_preserves_distinct_capture_values_in_qir() {
+    let source = r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                value -> inner(value) * scale
+            }
+            function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+            function Compute() : Int {
+                let wrappers = [Wrap(Wrap(Make(3), 2), 3), Wrap(Wrap(Make(17), 5), 7)];
+                mutable answer = 0;
+                for index in 0..0 {
+                    set answer = 1000 * Invoke(wrappers[index], 1) + wrappers[1 - index](1);
+                }
+                answer
+            }
+        }
+    "#;
+    assert_classical_result_in_qir(source, 24_630);
+}
+
+#[test]
+fn controlled_struct_factory_preserves_control_and_target_qubits_in_qir() {
+    let source = r#"
+        struct PauliSelectParams {
+            paulis : Pauli[][],
+            qubitIndices : Int[],
+            signs : Int[]
+        }
+
+        operation ApplySelect(params : PauliSelectParams, systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+            if Length(params.signs) != 0 {
+                X(systems[0]);
+            }
+        }
+
+        operation ApplyPrepare(systems : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            let params = new PauliSelectParams {
+                paulis = [[PauliX]],
+                qubitIndices = [0],
+                signs = [1]
+            };
+            let sel = ApplySelect(params, _, _);
+            MakeControlledPrepSelPrepCircuit(ApplyPrepare, sel, 1, 1);
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    let gates: Vec<_> = qir
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("call void @__quantum__qis__"))
+        .collect();
+    assert_eq!(
+        gates,
+        [
+            "call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))"
+        ],
+        "{qir}"
+    );
+}
+
+#[test]
+fn unselected_non_unit_helper_with_semicolon_failure_records_forty_two() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                function Deferred() : Int {
+                    fail "expected";
+                }
+                if false { Deferred() } else { 42 }
+            }
+        }
+    "#;
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRIF.into());
+    assert_single_integer_output(&qir, 42);
+}
+
+#[test]
+fn non_unit_entry_with_eager_failure_reports_original_user_error() {
+    use miette::Diagnostic;
+
+    for body in [
+        "fail \"expected\";",
+        "[fail \"expected\"];",
+        "{ let value = { fail \"expected\"; 0 }; while false {} }",
+    ] {
+        let source =
+            format!("namespace Test {{ @EntryPoint() operation Main() : Int {{ {body} }} }}");
+        let errors = compile_source_to_qir_result(&source, Profile::AdaptiveRIF.into())
+            .expect_err("executed fail should return an evaluation error");
+        let [crate::interpret::Error::PartialEvaluation(error)] = errors.as_slice() else {
+            panic!("expected a partial-evaluation failure, got: {errors:?}")
+        };
+        assert_eq!(
+            error.code().expect("diagnostic code").to_string(),
+            "Qdk.Qsc.PartialEval.EvaluationFailed"
+        );
+        assert_eq!(
+            error.to_string(),
+            "partial evaluation failed with error: program failed: expected"
+        );
+        let labels: Vec<_> = error.labels().expect("failure source").collect();
+        assert_eq!(labels.len(), 1);
+        let (location, span) = error.resolve_span(labels[0].inner());
+        assert_eq!(
+            &location.contents[span.offset()..span.offset() + span.len()],
+            "fail \"expected\""
+        );
+    }
+}
+
+#[test]
+fn return_in_while_condition_emits_forty_two_in_base_and_adaptive_qir() {
+    assert_classical_result_in_qir(
+        indoc::indoc! {r#"
+            namespace Test {
+                function Compute() : Int {
+                    while ({ return 42; 0 }) < 1 {}
+                    0
+                }
+            }
+        "#},
+        42,
+    );
 }
