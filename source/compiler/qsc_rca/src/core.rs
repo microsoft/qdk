@@ -8,7 +8,7 @@ use crate::{
     ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
-        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
+        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, LocalsLookup,
         try_resolve_callee,
     },
     errors::get_missing_runtime_features,
@@ -150,14 +150,34 @@ impl<'a> Analyzer<'a> {
         &mut self,
         assignee_expr_id: ExprId,
         value_expr_id: ExprId,
+        short_circuit: bool,
     ) -> ComputeKind {
         // Visit the assignee and value expressions to determine their compute kind.
         self.visit_expr(assignee_expr_id);
+        let within_dynamic_scope = short_circuit
+            && self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+                .is_variable_value_kind();
+        if within_dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(assignee_expr_id);
+        }
         self.visit_expr(value_expr_id);
         let value_expr_compute_kind = self
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
+        if within_dynamic_scope {
+            let dynamic_scope_expr = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("at least one dynamic scope should exist");
+            assert_eq!(dynamic_scope_expr, assignee_expr_id);
+        }
 
         // Since this is an assignment, update the local variables on the assignee expression with the compute kind of
         // the value expression.
@@ -268,6 +288,16 @@ impl<'a> Analyzer<'a> {
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
+
+        // If the LHS expression is dynamic and this is a short-circuit binary operator, we push a new dynamic scope.
+        let within_dynamic_scope = (bin_op == BinOp::AndL || bin_op == BinOp::OrL)
+            && lhs_compute_kind.is_variable_value_kind();
+        if within_dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(lhs_expr_id);
+        }
+
         self.visit_expr(rhs_expr_id);
         let rhs_compute_kind = self
             .last_analyzed_compute_kind
@@ -325,6 +355,15 @@ impl<'a> Analyzer<'a> {
                 // this runtime feature.
                 *runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
             }
+        }
+
+        if within_dynamic_scope {
+            let dynamic_scope_expr = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("at least one dynamic scope should exist");
+            assert_eq!(dynamic_scope_expr, lhs_expr_id);
         }
 
         compute_kind
@@ -484,8 +523,12 @@ impl<'a> Analyzer<'a> {
         // application.
         let package_id = self.get_current_package_id();
         let args_package = self.package_store.get(package_id);
-        let (args_controls, args_input_id) =
-            split_controls_and_input(args_expr_id, callee.functor_app, args_package);
+        let (args_controls, args_input_id) = split_controls_and_input(
+            args_expr_id,
+            callee.functor_app,
+            args_package,
+            &self.get_current_application_instance().locals_map,
+        );
 
         // To map the input pattern to input expressions we need to provide global (store-level) pattern and expression
         // identifiers since the callable can be in a different package than the input expressions.
@@ -2164,10 +2207,13 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::ArrayRepeat(value_expr_id, size_expr_id) => {
                 self.analyze_expr_array_repeat(*value_expr_id, *size_expr_id)
             }
+            ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, assignee_expr_id, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, true)
+            }
             ExprKind::Assign(assignee_expr_id, value_expr_id)
             | ExprKind::AssignField(assignee_expr_id, _, value_expr_id)
             | ExprKind::AssignOp(_, assignee_expr_id, value_expr_id) => {
-                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id)
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, false)
             }
             ExprKind::AssignIndex(array_expr_id, index_expr_id, replacement_value_expr_id) => self
                 .analyze_expr_assign_index(
@@ -2897,7 +2943,9 @@ fn derive_specialization_controls(
     })
 }
 
-/// Maps an input pattern to a list of expressions that correspond to identifiers or discards.
+/// Maps each identifier or discard in an input pattern to an argument expression.
+/// Opaque tuples reuse the whole expression for every leaf, conservatively losing
+/// per-element compute properties without changing the flattened argument count.
 fn map_input_pattern_to_input_expressions(
     pat_id: StorePatId,
     expr_id: StoreExprId,
@@ -2938,46 +2986,95 @@ fn map_input_pattern_to_input_expressions(
                 }
                 input_param_exprs
             } else {
-                // All elements in the pattern map to the same expression.
-                // This is one of the boundaries where we can lose specific information since we are "unpacking" the
-                // tuple represented by a single expression.
-                let pats_len = if skip_ahead.is_some() {
-                    // When skip_ahead is not None we know we are processing a lambda, so check if pattern is itself a tuple.
-                    // If it is, that is the length we need to use rather than the original one.
-                    if let PatKind::Tuple(pats) =
-                        &package_store.get_pat((pat_id.package, pats[0]).into()).kind
-                    {
-                        pats.len()
-                    } else {
-                        pats.len()
-                    }
-                } else {
-                    pats.len()
-                };
-
-                vec![expr_id.expr; pats_len]
+                pats.iter()
+                    .flat_map(|pat| {
+                        map_input_pattern_to_input_expressions(
+                            (pat_id.package, *pat).into(),
+                            expr_id,
+                            package_store,
+                            None,
+                        )
+                    })
+                    .collect()
             }
         }
     }
 }
 
+/// Peels one `(controls, input)` layer per controlled application.
+/// When a tuple cannot be resolved, its expression supplies conservative properties
+/// for both projections while its type tracks the remaining nesting.
 fn split_controls_and_input(
     args_expr_id: ExprId,
     functor_app: FunctorApp,
     package: &impl PackageLookup,
+    locals: &impl LocalsLookup,
 ) -> (Vec<ExprId>, ExprId) {
     let mut controls = Vec::new();
     let mut remainder_expr_id = args_expr_id;
+    let mut remainder_ty = &package.get_expr(args_expr_id).ty;
     for _ in 0..functor_app.controlled {
+        remainder_expr_id = resolve_immutable_argument(remainder_expr_id, package, locals);
         let expr = package.get_expr(remainder_expr_id);
-        let ExprKind::Tuple(pats) = &expr.kind else {
-            panic!("expected tuple expression");
+        let Ty::Tuple(types) = remainder_ty else {
+            panic!("controlled argument must have a tuple type");
         };
-        assert!(pats.len() == 2);
-        controls.push(pats[0]);
-        remainder_expr_id = pats[1];
+        assert_eq!(types.len(), 2);
+        remainder_ty = &types[1];
+        if let ExprKind::Tuple(elements) = &expr.kind {
+            assert_eq!(elements.len(), 2);
+            controls.push(elements[0]);
+            remainder_expr_id = elements[1];
+        } else {
+            // An opaque tuple value supplies conservative compute properties
+            // for both projections; no synthetic expression or local is needed.
+            controls.push(remainder_expr_id);
+        }
     }
     (controls, remainder_expr_id)
+}
+
+/// Resolves whole-value immutable aliases and block tails, not tuple projections.
+/// The original argument expression still contributes runtime features at the call site.
+fn resolve_immutable_argument(
+    mut expression: ExprId,
+    package: &impl PackageLookup,
+    locals: &impl LocalsLookup,
+) -> ExprId {
+    let mut visited = rustc_hash::FxHashSet::default();
+    while visited.insert(expression) {
+        let expr = package.get_expr(expression);
+        let next = match &expr.kind {
+            ExprKind::Var(Res::Local(local), _) => {
+                if let Some(Local {
+                    kind: LocalKind::Immutable(initializer, _),
+                    ..
+                }) = locals.find(*local)
+                {
+                    *initializer
+                } else {
+                    break;
+                }
+            }
+            ExprKind::Block(block) => {
+                if let Some(statement) = package.get_block(*block).stmts.last()
+                    && let StmtKind::Expr(tail) = package.get_stmt(*statement).kind
+                {
+                    tail
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        };
+        // Destructuring an opaque tuple associates each binding with the enclosing
+        // initializer. Its type is not the selected field's type, so keep it opaque.
+        if package.get_expr(next).ty != expr.ty {
+            break;
+        }
+        expression = next;
+    }
+    expression
 }
 
 fn is_any_result(t: &Ty) -> bool {

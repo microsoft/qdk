@@ -4,7 +4,8 @@
 //! Pre-pass rewrites before collecting call sites for defunctionalization.
 //! These rewrites preserve capture-creation timing and callable-selection
 //! decisions, and simplify indirection before call-site collection and lattice
-//! analysis.
+//! analysis. Changes to a lifted target's input are paired with changes to all
+//! of its closure occurrences.
 //!
 //! # Responsibilities
 //!
@@ -13,6 +14,9 @@
 //! - Expose capture bindings and saved selection guards from callable-initializer
 //!   blocks at their original evaluation point, rather than replaying them
 //!   when the callable is invoked.
+//! - Normalize callable-bearing tuple and local UDT capture environments into
+//!   leaf capture slots, reconstructing aggregates at reads in the target body
+//!   (via [`normalize_closure_environments`]). Arrays and foreign UDTs remain opaque.
 //! - Inline statically known callable captures into lifted target bodies,
 //!   retaining all remaining capture slots (via
 //!   [`inline_static_closure_captures`]).
@@ -31,6 +35,9 @@
 //!   [`identity_closure_peephole`]).
 //!
 
+#[cfg(test)]
+mod tests;
+
 use crate::fir_builder::alloc_local_var_expr;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
@@ -44,13 +51,15 @@ use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Runs pre-pass rewrites before collecting call sites for defunctionalization. See
+/// [`normalize_closure_environments`], [`inline_static_closure_captures`],
 /// [`promote_single_use_callable_locals`], [`promote_adjacent_aggregate_callable_aliases`],
 /// and [`identity_closure_peephole`] for details.
 ///
-/// The supplied expression IDs filter capture-operand candidates, static capture
-/// inlining, single-use callable promotion, and identity reduction. Guard and
-/// aggregate/tuple normalization inspect all callable and entry scopes. Newly
-/// allocated operand initializers are included before capture-binding exposure.
+/// The supplied IDs filter capture operands, static capture inlining, promotion,
+/// and identity reduction. Newly allocated operand initializers are included
+/// before capture-binding exposure. Guard and aggregate rewrites inspect all
+/// callable and entry scopes; environment normalization also checks direct item
+/// references store-wide before changing a shared target's signature.
 ///
 /// Returns a map from collapsed identity-closure expression IDs to their former
 /// body-call spans, for re-stamping the rewritten invocation sites.
@@ -61,6 +70,7 @@ pub(super) fn run(
     assigner: &mut Assigner,
 ) -> FxHashMap<ExprId, Span> {
     crate::cond_normalize::normalize_callable_selections(store.get_mut(package_id), assigner);
+    normalize_closure_environments(store, package_id, assigner);
     let reachable_expr_ids =
         normalize_capture_operands(store.get_mut(package_id), reachable_expr_ids, assigner);
     let reachable_expr_ids = reachable_expr_ids.as_slice();
@@ -204,6 +214,506 @@ fn bind_struct_argument_operands(
             initializers.push(init);
             pkg.exprs.get_mut(id).expect("operand exists").kind =
                 ExprKind::Var(Res::Local(local), Vec::new());
+        }
+    }
+}
+
+/// The decomposable shape of one capture, preserving enough type information to
+/// reconstruct its original value inside the lifted target.
+///
+/// Tuples and resolvable UDTs owned by this package are traversed recursively.
+/// Arrays, foreign UDTs, and other types remain leaves, even if their types contain
+/// callables. All leaf consumers use depth-first, left-to-right field order.
+#[derive(Clone)]
+enum CaptureEnvironment {
+    /// An opaque value retained as one capture slot, including a direct callable.
+    Leaf(Ty),
+    Tuple(Vec<Self>),
+    /// The original constructor identity and its decomposable payload shape.
+    Udt(qsc_fir::fir::ItemId, Box<Self>),
+}
+
+impl CaptureEnvironment {
+    fn from_ty(pkg: &Package, package_id: PackageId, ty: &Ty) -> Self {
+        match ty {
+            Ty::Tuple(items) => Self::Tuple(
+                items
+                    .iter()
+                    .map(|ty| Self::from_ty(pkg, package_id, ty))
+                    .collect(),
+            ),
+            Ty::Udt(Res::Item(item_id)) if item_id.package == package_id => {
+                if let Some(item) = pkg.items.get(item_id.item)
+                    && let ItemKind::Ty(_, udt) = &item.kind
+                {
+                    Self::Udt(
+                        *item_id,
+                        Box::new(Self::from_ty(pkg, package_id, &udt.get_pure_ty())),
+                    )
+                } else {
+                    Self::Leaf(ty.clone())
+                }
+            }
+            _ => Self::Leaf(ty.clone()),
+        }
+    }
+
+    fn ty(&self) -> Ty {
+        match self {
+            Self::Leaf(ty) => ty.clone(),
+            Self::Tuple(items) => Ty::Tuple(items.iter().map(Self::ty).collect()),
+            Self::Udt(item, _) => Ty::Udt(Res::Item(*item)),
+        }
+    }
+
+    /// Finds a callable exposed by decomposition, without looking inside opaque leaves.
+    fn has_arrow(&self) -> bool {
+        match self {
+            Self::Leaf(ty) => matches!(ty, Ty::Arrow(_)),
+            Self::Tuple(items) => items.iter().any(Self::has_arrow),
+            Self::Udt(_, inner) => inner.has_arrow(),
+        }
+    }
+
+    /// Appends types in the same order as projection and aggregate reconstruction.
+    fn leaf_types(&self, types: &mut Vec<Ty>) {
+        match self {
+            Self::Leaf(ty) => types.push(ty.clone()),
+            Self::Tuple(items) => {
+                for item in items {
+                    item.leaf_types(types);
+                }
+            }
+            Self::Udt(_, inner) => inner.leaf_types(types),
+        }
+    }
+}
+
+/// A target-wide plan collected before any input or expression is rewritten.
+struct EnvironmentNormalization {
+    /// The existing tuple input whose identity is retained during expansion.
+    input: PatId,
+    /// Original capture-prefix patterns followed by ordinary argument patterns.
+    patterns: Vec<PatId>,
+    /// One entry per original capture; `None` leaves that capture slot unchanged.
+    slots: Vec<Option<(LocalVarId, CaptureEnvironment)>>,
+    /// Every scanned closure expression referring to this target.
+    occurrences: Vec<ExprId>,
+    body_exprs: Vec<ExprId>,
+}
+
+/// Nested closure occurrence -> enclosing capture binding -> replacement leaf locals.
+/// Closure captures store local IDs rather than expressions, so nested recaptures
+/// cannot use the aggregate reconstruction applied to ordinary local reads.
+type RecapturedLeaves = FxHashMap<ExprId, FxHashMap<LocalVarId, Vec<LocalVarId>>>;
+
+/// Exposes callable-bearing aggregate captures as explicit leaves for Defunc analysis.
+///
+/// For example, one `(Int, (Int -> Int, Int))` capture becomes three capture slots.
+/// The lifted input, every closure occurrence, and reads of the original capture
+/// must agree on this layout. Ordinary arguments and ineligible captures retain
+/// their positions relative to the expanded capture slots.
+/// Direct item references anywhere in the store prevent changing a target's signature.
+fn normalize_closure_environments(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) {
+    let direct = directly_referenced_items(store, package_id);
+    let pkg = store.get_mut(package_id);
+    let mut plans = collect_environment_normalizations(pkg, package_id, &direct);
+    // An outer capture can expand only if every nested recapture expands the
+    // corresponding inner slot. Removing an inner plan can invalidate another
+    // outer plan, so prune to a fixed point before mutating the package.
+    loop {
+        let incompatible: Vec<_> = plans
+            .iter()
+            .filter_map(|(target, plan)| {
+                let compatible = plan.body_exprs.iter().all(|expr_id| {
+                    let ExprKind::Closure(captures, inner_target) = &pkg.get_expr(*expr_id).kind
+                    else {
+                        return true;
+                    };
+                    captures.iter().enumerate().all(|(index, capture)| {
+                        !plan
+                            .slots
+                            .iter()
+                            .flatten()
+                            .any(|(local, _)| local == capture)
+                            || plans.get(inner_target).is_some_and(|inner| {
+                                inner.slots.get(index).is_some_and(Option::is_some)
+                            })
+                    })
+                });
+                (!compatible).then_some(*target)
+            })
+            .collect();
+        if incompatible.is_empty() {
+            break;
+        }
+        for target in incompatible {
+            plans.remove(&target);
+        }
+    }
+    let mut ordered: Vec<_> = plans.into_iter().collect();
+    // Stable target order keeps allocation deterministic despite hash-map iteration.
+    ordered.sort_unstable_by_key(|(target, _)| *target);
+    let mut recaptures = RecapturedLeaves::default();
+    // Allocate all replacement bindings before rewriting occurrences: an inner
+    // target may sort before the enclosing target that supplies its new captures.
+    for (_, plan) in &ordered {
+        normalize_closure_input(pkg, assigner, plan, &mut recaptures);
+    }
+    for (target, plan) in ordered {
+        normalize_closure_occurrences(pkg, assigner, target, &plan, &recaptures);
+    }
+}
+
+/// Collects eligible capture-prefix slots and all occurrences sharing each target.
+///
+/// Scans entry and callable bodies, not just the current reachable set, so every
+/// occurrence of a shared target is updated. `direct` protects item references
+/// that require the target's existing input layout, including in other packages.
+/// Only bound aggregate captures exposing a direct arrow leaf are expanded; a
+/// direct arrow capture already has the desired shape and needs no plan entry.
+fn collect_environment_normalizations(
+    pkg: &Package,
+    package_id: PackageId,
+    direct: &FxHashSet<LocalItemId>,
+) -> FxHashMap<LocalItemId, EnvironmentNormalization> {
+    let exprs: FxHashSet<_> = collect_promotion_scopes(pkg)
+        .into_iter()
+        .flat_map(|scope| scope.exprs)
+        .collect();
+    let mut references: FxHashMap<LocalItemId, Vec<ExprId>> = FxHashMap::default();
+    for &expr_id in &exprs {
+        if let ExprKind::Closure(_, target) = pkg.get_expr(expr_id).kind {
+            references.entry(target).or_default().push(expr_id);
+        }
+    }
+    let mut plans = FxHashMap::default();
+    for (target, mut occurrences) in references {
+        if direct.contains(&target) {
+            // Direct item references do not carry a closure capture list that
+            // this rewrite can expand alongside the target input.
+            continue;
+        }
+        let Some(item) = pkg.items.get(target) else {
+            continue;
+        };
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        if !matches!(decl.implementation, CallableImpl::Spec(_)) {
+            continue;
+        }
+        let PatKind::Tuple(patterns) = &pkg.get_pat(decl.input).kind else {
+            continue;
+        };
+        occurrences.sort_unstable();
+        let ExprKind::Closure(captures, _) = &pkg.get_expr(occurrences[0]).kind else {
+            unreachable!()
+        };
+        let count = captures.len();
+        // The leading input patterns represent captures. A shared target needs
+        // one consistent capture-prefix length across all of its occurrences.
+        if patterns.len() < count
+            || occurrences.iter().any(|expr_id| {
+                !matches!(&pkg.get_expr(*expr_id).kind, ExprKind::Closure(captures, _) if captures.len() == count)
+            })
+        {
+            continue;
+        }
+        let slots: Vec<_> = patterns[..count]
+            .iter()
+            .map(|pat_id| {
+                let pat = pkg.get_pat(*pat_id);
+                let PatKind::Bind(ident) = &pat.kind else {
+                    return None;
+                };
+                let environment = CaptureEnvironment::from_ty(pkg, package_id, &pat.ty);
+                (!matches!(environment, CaptureEnvironment::Leaf(_)) && environment.has_arrow())
+                    .then_some((ident.id, environment))
+            })
+            .collect();
+        if slots.iter().all(Option::is_none) {
+            continue;
+        }
+        let mut scope = PromotionScope::new(pkg);
+        scope.visit_callable_impl(&decl.implementation);
+        plans.insert(
+            target,
+            EnvironmentNormalization {
+                input: decl.input,
+                patterns: patterns.clone(),
+                slots,
+                occurrences,
+                body_exprs: scope.exprs,
+            },
+        );
+    }
+    plans
+}
+
+/// Replaces planned input bindings with leaf bindings and reconstructs their reads.
+///
+/// The original input pattern ID and body expression IDs remain valid. Nested
+/// closure capture lists are deferred through `recaptures` until all target inputs
+/// have been expanded; ordinary arguments and unplanned capture bindings are reused.
+fn normalize_closure_input(
+    pkg: &mut Package,
+    assigner: &mut Assigner,
+    plan: &EnvironmentNormalization,
+    recaptures: &mut RecapturedLeaves,
+) {
+    let mut input = Vec::new();
+    let mut replacements = FxHashMap::default();
+    for (index, &pat_id) in plan.patterns.iter().enumerate() {
+        if let Some(Some((local, environment))) = plan.slots.get(index) {
+            let mut types = Vec::new();
+            environment.leaf_types(&mut types);
+            let mut locals = Vec::new();
+            for ty in types {
+                let (leaf, pattern) = crate::fir_builder::alloc_bind_pat(
+                    pkg,
+                    assigner,
+                    "capture_leaf",
+                    ty,
+                    pkg.get_pat(pat_id).span,
+                );
+                locals.push(leaf);
+                input.push(pattern);
+            }
+            replacements.insert(*local, (environment, locals));
+        } else {
+            input.push(pat_id);
+        }
+    }
+    let ty = Ty::Tuple(
+        input
+            .iter()
+            .map(|pat_id| pkg.get_pat(*pat_id).ty.clone())
+            .collect(),
+    );
+    let pat = pkg.pats.get_mut(plan.input).expect("closure input exists");
+    pat.kind = PatKind::Tuple(input);
+    pat.ty = ty;
+    for &expr_id in &plan.body_exprs {
+        let expr = pkg.get_expr(expr_id).clone();
+        match expr.kind {
+            ExprKind::Var(Res::Local(local), _) => {
+                if let Some((environment, locals)) = replacements.get(&local) {
+                    let replacement = environment_value(
+                        pkg,
+                        assigner,
+                        environment,
+                        &mut locals.iter().copied(),
+                        expr.span,
+                    );
+                    // The reconstructed value has the original capture type;
+                    // replacing only the kind preserves this read's ID and metadata.
+                    pkg.exprs
+                        .get_mut(expr_id)
+                        .expect("capture read exists")
+                        .kind = pkg.get_expr(replacement).kind.clone();
+                }
+            }
+            ExprKind::Closure(_, _) => {
+                recaptures.insert(
+                    expr_id,
+                    replacements
+                        .iter()
+                        .map(|(local, (_, leaves))| (*local, leaves.clone()))
+                        .collect(),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Expands capture operands to match the target's new input layout.
+///
+/// Existing leaf locals are forwarded for nested recaptures. Other aggregates
+/// are projected into immutable locals at the original closure-creation site,
+/// preserving the captured values even if the source local is later reassigned.
+/// The closure expression keeps its original callable type and expression ID.
+fn normalize_closure_occurrences(
+    pkg: &mut Package,
+    assigner: &mut Assigner,
+    target: LocalItemId,
+    plan: &EnvironmentNormalization,
+    recaptures: &RecapturedLeaves,
+) {
+    for &expr_id in &plan.occurrences {
+        let expr = pkg.get_expr(expr_id).clone();
+        let ExprKind::Closure(captures, _) = expr.kind else {
+            unreachable!()
+        };
+        let mut expanded = Vec::new();
+        let mut statements = Vec::new();
+        for (capture, slot) in captures.into_iter().zip(&plan.slots) {
+            let Some((_, environment)) = slot else {
+                expanded.push(capture);
+                continue;
+            };
+            if let Some(leaves) = recaptures
+                .get(&expr_id)
+                .and_then(|locals| locals.get(&capture))
+            {
+                // This enclosing aggregate binding was replaced by leaf inputs;
+                // forward them instead of reading a local that no longer exists.
+                expanded.extend(leaves);
+                continue;
+            }
+            let value = crate::fir_builder::alloc_local_var_expr(
+                pkg,
+                assigner,
+                capture,
+                environment.ty(),
+                expr.span,
+            );
+            let mut projections = Vec::new();
+            project_environment(
+                pkg,
+                assigner,
+                environment,
+                value,
+                expr.span,
+                &mut projections,
+            );
+            for projection in projections {
+                let ty = pkg.get_expr(projection).ty.clone();
+                let (local, statement) = crate::fir_builder::alloc_local_var(
+                    pkg,
+                    assigner,
+                    "capture_leaf",
+                    &ty,
+                    projection,
+                    Mutability::Immutable,
+                );
+                expanded.push(local);
+                statements.push(statement);
+            }
+        }
+        let kind = if statements.is_empty() {
+            ExprKind::Closure(expanded, target)
+        } else {
+            // Keep projection evaluation at closure creation, before producing
+            // the closure value, rather than moving reads into its eventual call.
+            let closure = crate::fir_builder::alloc_expr(
+                pkg,
+                assigner,
+                expr.ty.clone(),
+                ExprKind::Closure(expanded, target),
+                expr.span,
+            );
+            statements.push(crate::fir_builder::alloc_expr_stmt(
+                pkg, assigner, closure, expr.span,
+            ));
+            ExprKind::Block(crate::fir_builder::alloc_block(
+                pkg, assigner, statements, expr.ty, expr.span,
+            ))
+        };
+        pkg.exprs
+            .get_mut(expr_id)
+            .expect("closure occurrence exists")
+            .kind = kind;
+    }
+}
+
+/// Appends leaf projections in the order used for the normalized target input.
+///
+/// `value` is a captured-local read or a projection derived from one, not an
+/// effectful producer. This builds expressions only; the caller binds the leaves
+/// at the closure occurrence to retain capture-time evaluation.
+fn project_environment(
+    pkg: &mut Package,
+    assigner: &mut Assigner,
+    environment: &CaptureEnvironment,
+    value: ExprId,
+    span: qsc_fir::fir::PackageSpan,
+    leaves: &mut Vec<ExprId>,
+) {
+    match environment {
+        CaptureEnvironment::Leaf(_) => leaves.push(value),
+        CaptureEnvironment::Tuple(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let field = crate::fir_builder::alloc_field_expr(
+                    pkg,
+                    assigner,
+                    value,
+                    index,
+                    item.ty(),
+                    span,
+                );
+                project_environment(pkg, assigner, item, field, span, leaves);
+            }
+        }
+        CaptureEnvironment::Udt(_, inner) => {
+            // Tuple-backed UDTs support field projection directly. A non-tuple
+            // payload needs an explicit unwrap before further decomposition.
+            if matches!(inner.as_ref(), CaptureEnvironment::Tuple(_)) {
+                project_environment(pkg, assigner, inner, value, span, leaves);
+            } else {
+                let unwrapped = crate::fir_builder::alloc_expr(
+                    pkg,
+                    assigner,
+                    inner.ty(),
+                    ExprKind::UnOp(UnOp::Unwrap, value),
+                    span,
+                );
+                project_environment(pkg, assigner, inner, unwrapped, span, leaves);
+            }
+        }
+    }
+}
+
+/// Reconstructs an original aggregate from its ordered replacement leaf bindings.
+///
+/// Consumes exactly one local per leaf, in the order established by `leaf_types`
+/// and `project_environment`. UDT reconstruction uses the original type item's
+/// constructor, preserving nominal type identity rather than leaving a bare payload.
+fn environment_value(
+    pkg: &mut Package,
+    assigner: &mut Assigner,
+    environment: &CaptureEnvironment,
+    locals: &mut impl Iterator<Item = LocalVarId>,
+    span: qsc_fir::fir::PackageSpan,
+) -> ExprId {
+    match environment {
+        CaptureEnvironment::Leaf(ty) => crate::fir_builder::alloc_local_var_expr(
+            pkg,
+            assigner,
+            locals.next().expect("environment leaf exists"),
+            ty.clone(),
+            span,
+        ),
+        CaptureEnvironment::Tuple(items) => {
+            let values = items
+                .iter()
+                .map(|item| environment_value(pkg, assigner, item, locals, span))
+                .collect();
+            crate::fir_builder::alloc_tuple_expr(pkg, assigner, values, environment.ty(), span)
+        }
+        CaptureEnvironment::Udt(item, inner) => {
+            let value = environment_value(pkg, assigner, inner, locals, span);
+            let constructor_ty = Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
+                kind: qsc_fir::fir::CallableKind::Function,
+                input: Box::new(inner.ty()),
+                output: Box::new(environment.ty()),
+                functors: qsc_fir::ty::FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty),
+            }));
+            let constructor =
+                crate::fir_builder::alloc_item_var_expr(pkg, assigner, *item, constructor_ty, span);
+            crate::fir_builder::alloc_call_expr(
+                pkg,
+                assigner,
+                constructor,
+                value,
+                environment.ty(),
+                span,
+            )
         }
     }
 }
@@ -581,6 +1091,22 @@ fn callable_initializer_prefix(
     .then_some((prefix, expr))
 }
 
+/// Direct references cannot be updated by rewrites of closure capture lists.
+/// Include foreign packages and detached arena nodes conservatively.
+fn directly_referenced_items(
+    store: &PackageStore,
+    package_id: PackageId,
+) -> FxHashSet<LocalItemId> {
+    store
+        .iter()
+        .flat_map(|(_, package)| package.exprs.values())
+        .filter_map(|expr| match expr.kind {
+            ExprKind::Var(Res::Item(item), _) if item.package == package_id => Some(item.item),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Removes statically known callable captures from a partial application by
 /// inlining them into the lifted target body, while retaining the other captures.
 /// A partial application such as `Repeat(H, 1, _)` lowers to a closure that
@@ -636,16 +1162,7 @@ fn inline_static_closure_captures(
     // rewrite is identical within each group, so apply it once before updating
     // each closure occurrence independently.
     if !inlinings.is_empty() {
-        // Item references can live in other packages. Include detached arena
-        // nodes conservatively; this optimization does not rewrite direct uses.
-        let referenced_targets: FxHashSet<_> = store
-            .iter()
-            .flat_map(|(_, package)| package.exprs.iter())
-            .filter_map(|(_, expr)| match expr.kind {
-                ExprKind::Var(Res::Item(item), _) if item.package == package_id => Some(item.item),
-                _ => None,
-            })
-            .collect();
+        let referenced_targets = directly_referenced_items(store, package_id);
         let pkg = store.get_mut(package_id);
         for mut group in inlinings {
             let target_rewrite = group.pop().expect("inlining group should not be empty");

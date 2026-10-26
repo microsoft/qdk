@@ -1013,6 +1013,75 @@ fn lower_fields_path_with_expr() {
 }
 
 #[test]
+fn qubit_init_with_discard_path_should_fail() {
+    check_errors(
+        indoc! {"
+        operation Main() : Unit {
+            use (q, _) = (Qubit(), Qubit());
+        }
+    "},
+        &expect![[r#"
+            [
+                InvalidQubitDiscard(
+                    Span {
+                        lo: 38,
+                        hi: 39,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn qubit_init_with_nested_discard_path_should_fail() {
+    check_errors(
+        indoc! {"
+        operation Main() : Unit {
+            use (q, (_, qs)) = (Qubit(), (Qubit(), Qubit[1]));
+        }
+    "},
+        &expect![[r#"
+            [
+                InvalidQubitDiscard(
+                    Span {
+                        lo: 39,
+                        hi: 40,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn qubit_init_with_multiple_discard_path_should_fail_each() {
+    check_errors(
+        indoc! {"
+        operation Main() : Unit {
+            use (q, (_, _)) = (Qubit(), (Qubit(), Qubit[1]));
+        }
+    "},
+        &expect![[r#"
+            [
+                InvalidQubitDiscard(
+                    Span {
+                        lo: 39,
+                        hi: 40,
+                    },
+                ),
+                InvalidQubitDiscard(
+                    Span {
+                        lo: 42,
+                        hi: 43,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn lambda_function_empty_closure() {
     check_hir(
         indoc! {"

@@ -22,8 +22,96 @@ use crate::test_utils::{
     compile_and_run_pipeline_to_with_library, find_callable_body_block,
 };
 
-use qsc_fir::fir::{CallableKind, LocalVarId};
+use qsc_fir::fir::{CallableKind, ExprKind, LocalVarId};
 use qsc_fir::ty::{Arrow, FunctorSetValue, Prim};
+
+#[test]
+fn post_udt_erasure_rejects_restored_source_constructor_call() {
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() function Main() : Int { Data(23)::Value }
+    "#;
+    let (mut store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let package = store.get(package_id);
+    let (id, constructor) = package
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| {
+            let ExprKind::Call(callee, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+                return None;
+            };
+            matches!(
+                store.get(item.package).get_item(item.item).kind,
+                ItemKind::Ty(..)
+            )
+            .then(|| (id, expr.kind.clone()))
+        })
+        .expect("Q# input contains a scalar constructor call");
+    // Restore the call at its live projection; the original call node can become orphaned.
+    let projection = package
+        .exprs
+        .iter()
+        .find_map(|(field_id, expr)| {
+            matches!(expr.kind, ExprKind::Field(record, _) if record == id).then_some(field_id)
+        })
+        .expect("source projects the constructor result");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, package_id);
+    crate::udt_erase::erase_udts(&mut store, package_id, &mut assigners);
+    check(&store, package_id, InvariantLevel::PostUdtErase);
+    store
+        .get_mut(package_id)
+        .exprs
+        .get_mut(projection)
+        .expect("source expression remains")
+        .kind = constructor;
+    assert_panics_with("calls a UDT constructor", || {
+        check(&store, package_id, InvariantLevel::PostUdtErase);
+    });
+}
+
+#[test]
+fn post_udt_erasure_rejects_restored_constructor_values() {
+    let source = r#"
+        newtype Data = (Value : Int);
+        @EntryPoint() operation Main() : Int {
+            mutable choice = 0;
+            let factories = [Data, Data];
+            let data = factories[choice]({ choice = 1; 23 });
+            data::Value
+        }
+    "#;
+    let (mut store, package_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let (id, reference) = store
+        .get(package_id)
+        .exprs
+        .iter()
+        .find_map(|(id, expr)| {
+            let ExprKind::Var(Res::Item(item), _) = expr.kind else {
+                return None;
+            };
+            matches!(
+                store.get(item.package).get_item(item.item).kind,
+                ItemKind::Ty(..)
+            )
+            .then(|| (id, expr.kind.clone()))
+        })
+        .expect("Q# input contains a constructor value");
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, package_id);
+    crate::udt_erase::erase_udts(&mut store, package_id, &mut assigners);
+    check(&store, package_id, InvariantLevel::PostUdtErase);
+    store
+        .get_mut(package_id)
+        .exprs
+        .get_mut(id)
+        .expect("reference remains")
+        .kind = reference;
+    assert_panics_with("references a UDT constructor", || {
+        check(&store, package_id, InvariantLevel::PostUdtErase);
+    });
+}
 
 /// Simple Q# source with a local variable binding.
 const SIMPLE_LOCAL_VAR: &str = r#"
@@ -259,9 +347,8 @@ fn divergent_while_true_fail_body_passes_block_tail() {
 
 #[test]
 fn divergent_repeat_fail_body_passes_block_tail() {
-    // Repeat lowering appends a synthetic condition update after the original
-    // body and wraps it in a while loop. The divergence check must still see
-    // the earlier fail when validating the enclosing non-Unit callable body.
+    // Compatibility coverage: the Int tail remains well-typed even though the
+    // lowered repeat body fails before reaching it.
     let source = r#"
         namespace Test {
             @EntryPoint(Adaptive)
@@ -1126,4 +1213,102 @@ fn structural_check_admits_every_stage() {
             "every structural stage is in scope"
         );
     }
+}
+
+#[test]
+fn earlier_eager_failure_allows_non_unit_block_without_value_tail() {
+    for body in [
+        "fail \"expected\";",
+        "{ fail \"expected\"; 0 };",
+        "let value = { fail \"expected\"; 0 };",
+        "if true { fail \"expected\"; } else { fail \"other\"; }",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ {body} (); 42 }}");
+        let (mut store, pkg_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+        let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+        // Remove the value tail before simplification can discard unreachable
+        // statements. The preceding failure, not the Unit tail, justifies this block.
+        store
+            .get_mut(pkg_id)
+            .blocks
+            .get_mut(body_id)
+            .expect("body block")
+            .stmts
+            .pop()
+            .expect("value tail");
+        let package = store.get(pkg_id);
+        let last = *package.get_block(body_id).stmts.last().expect("Unit tail");
+        let StmtKind::Semi(tail) = package.get_stmt(last).kind else {
+            panic!("expected a semicolon-terminated Unit tail");
+        };
+        assert_eq!(package.get_expr(tail).ty, Ty::UNIT);
+        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+    }
+}
+
+#[test]
+fn unexecuted_failures_do_not_exempt_mismatched_block_tails() {
+    for body in [
+        "if false { fail \"unreachable\"; } ()",
+        "let unused = false and (fail \"unreachable\"); ()",
+        "let unused = true or (fail \"unreachable\"); ()",
+        "mutable unused = false; set unused and= (fail \"unreachable\"); ()",
+        "mutable unused = true; set unused or= (fail \"unreachable\"); ()",
+        "let unused = if false { fail \"unreachable\" } else { true }; ()",
+        "let unused : Int -> Int = x -> { fail \"unreachable\"; x }; ()",
+    ] {
+        let source = format!("@EntryPoint() operation Main() : Int {{ {{ {body} }} 0 }}");
+        assert_eq!(
+            crate::test_utils::eval_qsharp_original(&source),
+            Ok(qsc_eval::val::Value::Int(0)),
+            "{body}"
+        );
+        let (mut store, pkg_id) = compile_and_run_pipeline_to(&source, PipelineStage::Mono);
+        let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+        let removed = store
+            .get_mut(pkg_id)
+            .blocks
+            .get_mut(body_id)
+            .expect("body block should exist")
+            .stmts
+            .pop();
+        assert!(removed.is_some(), "body should have a value tail to remove");
+
+        assert_panics_with("Non-Unit block-tail invariant violation", || {
+            check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+        });
+    }
+}
+
+#[test]
+fn removing_the_value_tail_from_a_non_unit_block_is_rejected() {
+    // Compile valid source, then remove its `42` tail from FIR while retaining
+    // the block's Int type. Unlike a guaranteed failure, `();` cannot justify
+    // the missing value, so this negative control must still be rejected.
+    let source = r#"
+        @EntryPoint()
+        operation Main() : Int {
+            ();
+            42
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
+    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+    store
+        .get_mut(pkg_id)
+        .blocks
+        .get_mut(body_id)
+        .expect("body should exist")
+        .stmts
+        .pop()
+        .expect("body should have a value tail to remove");
+    let package = store.get(pkg_id);
+    let tail_id = *package.get_block(body_id).stmts.last().expect("Unit tail");
+    let StmtKind::Semi(expr_id) = package.get_stmt(tail_id).kind else {
+        panic!("tail should be a semicolon-terminated expression");
+    };
+    assert_eq!(package.get_expr(expr_id).ty, Ty::UNIT);
+    assert_panics_with("ends with Semi Expr", || {
+        check(&store, pkg_id, InvariantLevel::PostReturnUnify);
+    });
 }

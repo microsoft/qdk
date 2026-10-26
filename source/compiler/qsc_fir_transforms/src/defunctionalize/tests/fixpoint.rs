@@ -1268,11 +1268,8 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
 
 /// A closure callable-array forwarded across two higher-order levels and fully
 /// consumed by the innermost indexed dispatch leaves the source-array local
-/// dead in the reachable caller. Because closure cleanup blanks each element to
-/// unit, retaining the array would leave its element blocks arrow-typed with unit
-/// tails that trip the `PostDefunc` non-unit block-tail invariant. The dead
-/// binding must be removed; this runs the invariant walk and full pipeline over
-/// the same shape as
+/// dead in the reachable caller. The dead binding must be removed; this runs
+/// the invariant walk and full pipeline over the same shape as
 /// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
 #[test]
 fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
@@ -1316,13 +1313,11 @@ fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
     check_pipeline(source);
 }
 
-/// Regression test for producer-body closure cleanup: a producer function
-/// that returns a partial-application closure causes convergence failure
-/// when the closure node survives in the producer body after HOF
-/// specialization. The closure cleanup pass must replace consumed closures
-/// with Unit so that `remaining_callable_value_info` no longer counts them.
+/// Specialization removes `MakeOp`'s only call. Its remaining closure must neither
+/// block convergence nor be rewritten unnecessarily; item DCE can remove the
+/// unreachable producer later.
 #[test]
-fn producer_body_closure_cleanup_converges() {
+fn orphaned_closure_producer_is_preserved_without_blocking_convergence() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
@@ -1381,7 +1376,7 @@ fn producer_body_closure_cleanup_converges() {
             function MakeOp(extra : Bool) : (Qubit => Unit) {
                 return {
                     let arg : Bool = extra;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -3284,4 +3279,209 @@ fn hof_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() 
         "#;
 
     crate::test_utils::check_semantic_equivalence(source);
+}
+
+/// Compatibility coverage: specializing Outer must preserve the captured angle
+/// and the H/Rz/reset trace, even when no aggregate environment needs expansion.
+#[test]
+fn specialized_clone_preserves_captured_rotation_effects() {
+    let source = r#"
+        operation ApplyPair(pair : (Qubit => Unit, Int), q : Qubit) : Unit {
+            let (op, _) = pair;
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, q : Qubit) : Unit {
+            seed(q);
+            let angle = 0.25;
+            ApplyPair((target => Rz(angle, target), 42), q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, q);
+            Reset(q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        source,
+        qsc_eval::val::Value::unit(),
+    );
+}
+
+#[test]
+fn specialized_clone_preserves_both_aggregate_callables_rotation_order() {
+    let sources = [
+        r#"
+            operation RunOps(ops : (Qubit => Unit, Qubit => Unit)) : Unit {
+                use q = Qubit();
+                let (first, second) = ops;
+                first(q);
+                second(q);
+                Reset(q);
+            }
+
+            operation Outer(seed : Unit => Unit) : Unit {
+                seed();
+                let firstAngle = 0.1;
+                let secondAngle = 0.2;
+                let ops = (
+                    target => Rx(firstAngle, target),
+                    target => Ry(secondAngle, target)
+                );
+                RunOps(ops);
+            }
+
+            operation Seed() : Unit {}
+
+            operation Main() : Unit {
+                Outer(Seed);
+            }
+        "#,
+        r#"
+            struct Ops {
+                First : Qubit => Unit,
+                Second : Qubit => Unit
+            }
+
+            operation RunOps(ops : Ops) : Unit {
+                use q = Qubit();
+                ops.First(q);
+                ops.Second(q);
+                Reset(q);
+            }
+
+            operation Outer(seed : Unit => Unit) : Unit {
+                seed();
+                let firstAngle = 0.1;
+                let secondAngle = 0.2;
+                RunOps(new Ops {
+                    First = target => Rx(firstAngle, target),
+                    Second = target => Ry(secondAngle, target)
+                });
+            }
+
+            operation Seed() : Unit {}
+
+            operation Main() : Unit {
+                Outer(Seed);
+            }
+        "#,
+    ];
+
+    for source in sources {
+        crate::test_utils::check_semantic_equivalence_with_expected(
+            source,
+            qsc_eval::val::Value::unit(),
+        );
+    }
+}
+
+#[test]
+fn returned_controlled_wrapper_preserves_struct_capture_and_measurement_result() {
+    let captured_wrapper_source = r#"
+        struct OpParams {
+            enabled : Bool,
+        }
+
+        operation ApplyCaptured(params : OpParams, target : Qubit) : Unit is Adj + Ctl {
+            if params.enabled {
+                X(target);
+            }
+        }
+
+        operation ApplyOne(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(target);
+            }
+            adjoint auto;
+            controlled (controls, ...) {
+                Controlled op(controls, target);
+            }
+            controlled adjoint auto;
+        }
+
+        function MakeControlledOp(op : Qubit => Unit is Adj + Ctl) : (Qubit, Qubit[]) => Unit is Adj + Ctl {
+            (control, targets) => {
+                Controlled ApplyOne([control], (op, targets[0]));
+            }
+        }
+
+        operation Run(op : Qubit => Unit is Adj + Ctl) : Result {
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            let controlledOp = MakeControlledOp(op);
+            controlledOp(control, [target]);
+            Reset(control);
+            MResetZ(target)
+        }
+
+        operation Main() : Result {
+            Run(ApplyCaptured(new OpParams { enabled = true }, _))
+        }
+        "#;
+    let (mut store, package_id) = compile_to_monomorphized_fir(captured_wrapper_source);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "captured returned wrapper should defunctionalize cleanly: {:?}",
+        outcome.diagnostics
+    );
+    assert!(
+        outcome.residue_items.is_empty() && !outcome.entry_has_residue,
+        "captured returned wrapper should not require authorized residue: {:?}",
+        outcome.residue_items
+    );
+    check_pipeline(captured_wrapper_source);
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        captured_wrapper_source,
+        qsc_eval::val::Value::Result(qsc_eval::val::Result::Val(true)),
+    );
+}
+
+/// A recursive call changing the callable argument must target the X-specialized
+/// sibling, not loop back into the H-specialized version.
+#[test]
+fn recursive_callable_change_targets_the_sibling_specialization() {
+    let sibling_source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_pipeline(sibling_source);
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(sibling_source);
+    let package = fir_store.get(fir_pkg_id);
+    let h_specialization = package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl)
+                if decl.name.name.starts_with("Repeat") && decl.name.name.contains("{H}") =>
+            {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .expect("expected an H-specialized Repeat callable");
+    let h_targets = callable_call_targets_after_defunc(sibling_source, &h_specialization);
+    assert!(
+        h_targets.iter().any(|target| target.contains("{X}")),
+        "H specialization {h_specialization} should call an X sibling specialization, got {h_targets:?}"
+    );
+    assert!(
+        !h_targets.contains(&h_specialization),
+        "H specialization {h_specialization} must not self-loop, got {h_targets:?}"
+    );
 }

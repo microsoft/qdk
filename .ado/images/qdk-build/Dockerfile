@@ -4,7 +4,8 @@ ARG BASE_TAG=latest
 ARG LLVM_INSTALL_PREFIX=/opt/llvm-20
 ARG RUST_TOOLCHAIN=ms-prod-1.95
 ARG LLVM_ARCHIVE=llvm-project-llvmorg-20.1.8.tar.gz
-ARG PY315_ARCHIVE=Python-3.15.0.tar.xz
+ARG PY315_ARCHIVE=Python-3.15.1.tar.xz
+ARG PY315_ARCHIVE_SHA256=673ae7232d84c894729882c8257d300ef2d26523911bfd3917ec8ce7f526f99b
 
 # Build tools into a separate image then copy the installation into the final image
 FROM ${BASE_REGISTRY}/qdk-base:${BASE_TAG} AS builder
@@ -62,10 +63,11 @@ RUN mkdir /tmp/llvm-project \
 
 # Build Python 3.15t into this image
 ARG PY315_ARCHIVE
+ARG PY315_ARCHIVE_SHA256
 COPY ${PY315_ARCHIVE} /tmp/${PY315_ARCHIVE}
 
 RUN cd /tmp \
-    && echo "ba4bed1ba346b916890b76d9e320451420aa69f6408997d33c66482eeae3d575  ${PY315_ARCHIVE}" | sha256sum -c - \
+    && echo "${PY315_ARCHIVE_SHA256}  ${PY315_ARCHIVE}" | sha256sum -c - \
     && mkdir /tmp/python315 \
     && tar -xJf /tmp/${PY315_ARCHIVE} -C /tmp/python315 --strip-components=1 \
     && cd /tmp/python315 \

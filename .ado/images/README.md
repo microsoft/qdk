@@ -25,6 +25,11 @@ AZ_SUBSCRIPTION_ID="677f..."
 ACR_NAME=qdkacr
 ACR_LOGIN_SERVER="qdkacr-cfgqhwddajdaebhg.azurecr.io"
 
+# ADO details
+ADO_FEED="az..."
+ADO_ORG="ms..."
+ADO_PROJECT="Az..."
+
 # Upstream UBI8 details
 # See https://catalog.redhat.com/en/software/containers/ubi8/5c647760bed8bd28d0e38f9f for the latest UBI8 image tag
 UBI_REGISTRY="registry.access.redhat.com"
@@ -64,3 +69,29 @@ az acr run --registry "$ACR_NAME" \
 Use the `build-images.yml` ADO pipeline to create the `qdk-build` image. This requires that
 a "Docker Registry" service connection has been set up in ADO that has Pull and Push permissions
 to the Azure Container Registry.
+
+## Updating artifacts
+
+Now and again the artifacts used within the `qdk-build` image will need updating. For example, let says you want to update
+Python in the image to 3.15.1. Follow these steps:
+
+- Locate the artifact(s) to be uploaded. For example, visit <https://www.python.org/downloads/release/python-3151/> and
+  download the "XZ compressed source tarball" and make note of the SHA-256 checksum.
+- Verify the downloaded package and checksum match, e.g. `sha256sum ~/Downloads/Python-3.15.1.tar.xz`
+- Upload the artifact to the feed with the correct name and version, e.g.
+
+```bash
+az artifacts universal publish \
+  --organization https://dev.azure.com/${ADO_ORG} \
+  --project "${ADO_PROJECT}" --scope project \
+  --feed "${ADO_FEED}" \
+  --name python-source \
+  --version "3.15.1" \
+  --path ~/Downloads/Python-3.15.1.tar.xz \
+  --description "Python source tarball"
+```
+
+- Update the pipeline and Dockerfile as needed, e.g. for the above:
+  - In `build-images.yml` the task to "Download Python 3.15 source" had the "packageVersion" updated to "3.15.1"
+  - In `qdk-build/Dockerfile` the filename in `ARG PY315_ARCHIVE=Python-3.15.0.tar.xz` was updated to `Python-3.15.1.tar.xz` and
+    the sha256 value piped into the command `| sha256sum -c -` was updated to match that verified above.

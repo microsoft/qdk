@@ -556,7 +556,7 @@ fn composite_while_return_survives_full_pipeline() {
 }
 
 #[test]
-fn mixed_full_pipeline_semantic_regression_preserves_result() {
+fn generics_struct_updates_tuple_comparison_and_hof_calls_preserve_result() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         namespace Test {
@@ -735,6 +735,35 @@ fn run_pipeline_to_missing_pinned_item_reports_diagnostic_before_exec_rebuild() 
 }
 
 #[test]
+fn missing_pin_is_rejected_before_udt_erasure() {
+    let (mut store, pkg_id, pinned) = store_with_removed_pinned_callable();
+    let result =
+        run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::UdtErase, &[pinned]);
+    assert!(
+        matches!(result.errors.as_slice(), [PipelineError::MissingPinnedItem(item)] if *item == pinned),
+        "expected MissingPinnedItem before erasure, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+}
+
+#[test]
+fn missing_pin_package_is_rejected_before_seed_traversal() {
+    let (mut store, pkg_id) = compile_to_fir("@EntryPoint() operation Main() : Int { 42 }");
+    let pinned = StoreItemId::from((
+        qsc_fir::fir::PackageId::from(99_usize),
+        qsc_fir::fir::LocalItemId::from(0_usize),
+    ));
+    let result =
+        run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::UdtErase, &[pinned]);
+    assert!(
+        matches!(result.errors.as_slice(), [PipelineError::MissingPinnedItem(item)] if *item == pinned),
+        "expected MissingPinnedItem rather than a traversal panic, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+    assert_eq!(result.errors[0].owner(), pinned.package);
+}
+
+#[test]
 fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
     let (mut store, pkg_id) = compile_to_fir(
         r#"
@@ -779,6 +808,49 @@ fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
         format_pipeline_errors(&result.errors)
     );
     assert_eq!(result.errors[0].owner(), pinned_store_id.package);
+}
+
+#[test]
+fn foreign_pinned_udt_is_erased_before_dce_and_exec_graph_rebuild() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Payload { Value : Int }
+
+            operation Pinned() : Int {
+                let payload = new Payload { Value = 42 };
+                payload.Value
+            }
+        }
+    "#;
+    let user_source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {}
+        }
+    "#;
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let pinned_store_id = store
+        .iter()
+        .find_map(|(package_id, package)| {
+            if package_id == pkg_id {
+                return None;
+            }
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Pinned")
+                    .then_some(StoreItemId::from((package_id, item_id)))
+            })
+        })
+        .expect("foreign Pinned callable should exist");
+
+    let result = run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::Full,
+        &[pinned_store_id],
+    );
+
+    assert_no_pipeline_errors("foreign pinned UDT pipeline", &result.errors);
+    validate(store.get(pinned_store_id.package), &store);
 }
 
 #[test]
@@ -1897,4 +1969,141 @@ fn factory_returned_partial_application_passes_full_pipeline() {
     run_pipeline_successfully(&mut store, pkg_id);
     validate(store.get(pkg_id), &store);
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+}
+
+/// Both measurement-selected factory results share a lifted target but capture
+/// different bits. Pin the branch arguments to 0 and 1, then execute both
+/// deterministic measurement outcomes before and after transformation.
+#[test]
+fn branch_dispatched_factories_keep_direct_lambda_calls_with_capture_arguments() {
+    for initial_one in [false, true] {
+        let source = format!(
+            r#"
+            namespace Test {{
+                operation ApplyBit(bit : Int, q : Qubit) : Unit {{
+                    if bit == 1 {{
+                        X(q);
+                    }}
+                }}
+
+                function MakeBit(bit : Int) : Qubit => Unit {{
+                    ApplyBit(bit, _)
+                }}
+
+                @EntryPoint()
+                operation Main() : Result {{
+                    use qubits = Qubit[2];
+                    if {initial_one} {{ X(qubits[0]); }}
+                    let flag = M(qubits[0]);
+                    let op = if flag == One {{ MakeBit(1) }} else {{ MakeBit(0) }};
+                    op(qubits[1]);
+                    let result = MResetZ(qubits[1]);
+                    Reset(qubits[0]);
+                    result
+                }}
+            }}
+        "#
+        );
+
+        let expected = Value::Result(qsc_eval::val::Result::Val(initial_one));
+        let (mut store, pkg_id, _) = compile_and_lower(&source);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected.clone()));
+        run_pipeline_successfully(&mut store, pkg_id);
+        validate(store.get(pkg_id), &store);
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected));
+
+        let package = store.get(pkg_id);
+        // Defunctionalization replaces each selected closure with a direct call
+        // to its lifted lambda, passing the captured bit before the original qubit.
+        // Inspect both branches here; a single execution above takes only one.
+        let mut captured_bits: Vec<_> = package
+            .exprs
+            .values()
+            .filter_map(|expr| {
+                let ExprKind::Call(callee_id, args_id) = expr.kind else {
+                    return None;
+                };
+                if !expr_targets_callable(package, pkg_id, callee_id, ".lambda") {
+                    return None;
+                }
+                let args = package.get_expr(args_id);
+                assert_eq!(args.ty.to_string(), "(Int, Qubit)");
+                let ExprKind::Tuple(elements) = &args.kind else {
+                    panic!("lambda arguments must be an explicit capture/qubit tuple");
+                };
+                assert_eq!(elements.len(), 2);
+                let ExprKind::Lit(qsc_fir::fir::Lit::Int(bit)) = package.get_expr(elements[0]).kind
+                else {
+                    panic!("each branch must pass its literal captured bit");
+                };
+                Some(bit)
+            })
+            .collect();
+        // Arena order is irrelevant. Require exactly one call with each capture,
+        // catching a dropped branch, duplicate call, or reused capture value.
+        captured_bits.sort_unstable();
+        assert_eq!(
+            captured_bits,
+            [0, 1],
+            "both branch arms must call the shared lambda with their own captured bit"
+        );
+    }
+}
+
+/// Keep promoted call signatures valid and execute combinations that distinguish
+/// both the captured preparation flag and rotation angle.
+#[test]
+fn captured_struct_callables_preserve_promoted_signatures_and_results() {
+    for (enabled, rotation, expected) in [
+        (true, "0.0", true),
+        (false, "3.141592653589793", true),
+        (true, "3.141592653589793", false),
+    ] {
+        let source = format!(
+            r#"
+        namespace Test {{
+            struct CallableFields {{
+                StatePrep : Qubit[] => Unit,
+                ControlledOp : (Qubit, Qubit[]) => Unit,
+            }}
+
+            operation Run(params : CallableFields) : Result {{
+                use qubits = Qubit[2];
+                let phase = qubits[0];
+                let systems = qubits[1..1];
+                X(phase);
+                params.StatePrep(systems);
+                params.ControlledOp(phase, systems);
+                let result = MResetZ(systems[0]);
+                Reset(phase);
+                result
+            }}
+
+            @EntryPoint()
+            operation Main() : Result {{
+                let enabled = {enabled};
+                let rotation = {rotation};
+                let prep = register => {{ if enabled {{ X(register[0]); }} }};
+                let controlled_op = (control, register) => {{
+                    Controlled Rx([control], (rotation, register[0]));
+                }};
+                Run(new CallableFields {{ StatePrep = prep, ControlledOp = controlled_op }})
+            }}
+        }}
+    "#
+        );
+
+        let expected = Value::Result(qsc_eval::val::Result::Val(expected));
+        let (mut store, pkg_id, _) = compile_and_lower(&source);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected.clone()));
+        run_pipeline_to_successfully(&mut store, pkg_id, PipelineStage::ArgPromote);
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostArgPromote);
+
+        let (mut store, pkg_id, _) = compile_and_lower(&source);
+        run_pipeline_successfully(&mut store, pkg_id);
+        validate(store.get(pkg_id), &store);
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+        assert_eq!(eval_entry_value(&store, pkg_id), Ok(expected));
+    }
 }
