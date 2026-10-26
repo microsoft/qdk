@@ -13,7 +13,7 @@
 //!
 //! What the terminal needs of a fusion is [`GateFusion::operators`]: the
 //! region's gates in, the operators to apply in order out, each a
-//! [`SiteOperator`] in the layout `apply` takes. How the gates are grouped
+//! [`QubitOperator`] in the layout `apply` takes. How the gates are grouped
 //! stays behind it.
 
 use std::collections::BTreeMap;
@@ -24,22 +24,25 @@ use qdk_simulators::{
     execution::{UnitaryOperation, unitary_matrix},
 };
 
-/// One operator for [`MpsEngine::apply`](tensornet::MpsEngine::apply): a
-/// unitary matrix on distinct sites, row-major `M[out][in]` over the sites'
-/// joint index with `sites()[0]` the most significant bit, so `4^k`
-/// elements on `k` sites.
+/// One operator a [`GateFusion`] makes of a region's gates: a unitary
+/// matrix on distinct qubits, row-major `M[out][in]` over the qubits' joint
+/// index with `qubits()[0]` the most significant bit, so `4^k` elements on
+/// `k` qubits. It is the layout of
+/// [`MpsEngine::apply`](tensornet::MpsEngine::apply): the terminal applies
+/// it to the sites its [`QubitOrder`](crate::QubitOrder) places the qubits
+/// on, in the same order, so the matrix holds on them unchanged.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SiteOperator {
-    sites: Vec<QubitID>,
+pub struct QubitOperator {
+    qubits: Vec<QubitID>,
     matrix: Vec<Complex64>,
 }
 
-impl SiteOperator {
-    /// The sites it acts on, distinct; the first is the matrix's most
+impl QubitOperator {
+    /// The qubits it acts on, distinct; the first is the matrix's most
     /// significant bit.
     #[must_use]
-    pub fn sites(&self) -> &[QubitID] {
-        &self.sites
+    pub fn qubits(&self) -> &[QubitID] {
+        &self.qubits
     }
 
     /// The matrix, row-major `M[out][in]`.
@@ -67,11 +70,11 @@ pub enum GateFusion {
     /// matrix of `qdk_simulators`' shared table; `I` is dropped. M0's ④
     /// applied gates so.
     Unfused,
-    /// Operators on at most two sites: single-qubit gates join the
+    /// Operators on at most two qubits: single-qubit gates join the
     /// two-qubit block open on their qubit (after it), or the next one that
     /// opens on it (before it); consecutive gates on the same pair multiply
     /// into one 4×4; a run of single-qubit gates on a qubit that no pair
-    /// claims multiplies into one 2×2. A block's sites are in ascending
+    /// claims multiplies into one 2×2. A block's qubits are in ascending
     /// order. Two sites is what every engine applies, cuTensorNet's
     /// included, so this is the largest grouping that needs nothing more of
     /// the engine.
@@ -91,7 +94,7 @@ impl GateFusion {
     /// The operations must be the ones a terminal checked
     /// (`lowering::check_operation`): qubits distinct within each.
     #[must_use]
-    pub fn operators(self, operations: &[UnitaryOperation]) -> Vec<SiteOperator> {
+    pub fn operators(self, operations: &[UnitaryOperation]) -> Vec<QubitOperator> {
         match self {
             Self::Unfused => operations.iter().filter_map(|&op| unfused(op)).collect(),
             Self::Pairs => blocks(operations, 2),
@@ -100,48 +103,48 @@ impl GateFusion {
 }
 
 /// `operation` alone, in operand order, or `None` for `I`.
-fn unfused(operation: UnitaryOperation) -> Option<SiteOperator> {
+fn unfused(operation: UnitaryOperation) -> Option<QubitOperator> {
     let matrix = unitary_matrix(operation)?;
-    let sites = match operation.qubits() {
+    let qubits = match operation.qubits() {
         (first, None) => vec![first],
         (first, Some(second)) => vec![first, second],
     };
-    Some(SiteOperator {
-        sites,
+    Some(QubitOperator {
+        qubits,
         matrix: matrix.row_major().to_vec(),
     })
 }
 
-/// A block of gates being multiplied: its sites, ascending, and the product
+/// A block of gates being multiplied: its qubits, ascending, and the product
 /// so far, row-major on them.
 struct Block {
-    sites: Vec<QubitID>,
+    qubits: Vec<QubitID>,
     matrix: Vec<Complex64>,
 }
 
 impl Block {
-    /// The identity on `sites` (ascending).
-    fn identity(sites: Vec<QubitID>) -> Self {
-        let dimension = 1 << sites.len();
+    /// The identity on `qubits` (ascending).
+    fn identity(qubits: Vec<QubitID>) -> Self {
+        let dimension = 1 << qubits.len();
         let mut matrix = vec![Complex64::new(0.0, 0.0); dimension * dimension];
         for i in 0..dimension {
             matrix[i * dimension + i] = Complex64::new(1.0, 0.0);
         }
-        Self { sites, matrix }
+        Self { qubits, matrix }
     }
 
-    /// Multiplies `gate`, on `on` (a subset of the block's sites, in the
+    /// Multiplies `gate`, on `on` (a subset of the block's qubits, in the
     /// gate's own order, the first its most significant bit), after the
-    /// product so far: M ← G·M, with G embedded on the block's sites.
+    /// product so far: M ← G·M, with G embedded on the block's qubits.
     fn multiply(&mut self, on: &[QubitID], gate: &[Complex64]) {
-        let n = self.sites.len();
+        let n = self.qubits.len();
         let dimension = 1usize << n;
-        // The bit of each of the gate's sites in the block's index, whose
-        // first site is the most significant.
+        // The bit of each of the gate's qubits in the block's index, whose
+        // first qubit is the most significant.
         let bits: Vec<usize> = on
             .iter()
-            .map(|site| {
-                let position = self.sites.iter().position(|s| s == site).unwrap_or(0);
+            .map(|qubit| {
+                let position = self.qubits.iter().position(|s| s == qubit).unwrap_or(0);
                 1 << (n - 1 - position)
             })
             .collect();
@@ -157,7 +160,7 @@ impl Block {
             .collect();
         let mask = bits.iter().fold(0, |mask, &bit| mask | bit);
         let mut column = vec![Complex64::new(0.0, 0.0); gate_dimension];
-        // Each column of M is a vector on the block's sites; G acts on the
+        // Each column of M is a vector on the block's qubits; G acts on the
         // rows that differ in the gate's bits only.
         for input in 0..dimension {
             for base in (0..dimension).filter(|row| row & mask == 0) {
@@ -172,20 +175,20 @@ impl Block {
         }
     }
 
-    fn into_operator(self) -> SiteOperator {
-        SiteOperator {
-            sites: self.sites,
+    fn into_operator(self) -> QubitOperator {
+        QubitOperator {
+            qubits: self.qubits,
             matrix: self.matrix,
         }
     }
 }
 
-/// Fuses `operations` into blocks of at most `max_sites` sites (at least
+/// Fuses `operations` into blocks of at most `max_qubits` qubits (at least
 /// two, the widest gate's).
 ///
 /// Each qubit belongs to at most one open block. A gate joins the open
 /// blocks on its qubits, smallest first, while their union fits
-/// `max_sites`; the blocks that do not fit are closed and emitted, and the
+/// `max_qubits`; the blocks that do not fit are closed and emitted, and the
 /// gate opens a new block with those that fit. At the end the open blocks
 /// are emitted, oldest first.
 ///
@@ -194,7 +197,7 @@ impl Block {
 /// blocks apply in the order of their gates; blocks emitted out of the
 /// gates' order (an old block left open while newer ones close) share no
 /// qubit with the blocks between, so they commute with them.
-pub(crate) fn blocks(operations: &[UnitaryOperation], max_sites: usize) -> Vec<SiteOperator> {
+pub(crate) fn blocks(operations: &[UnitaryOperation], max_qubits: usize) -> Vec<QubitOperator> {
     let mut emitted = Vec::new();
     // Open blocks by age; a closed or merged block's slot is `None`.
     let mut open: Vec<Option<Block>> = Vec::new();
@@ -214,26 +217,26 @@ pub(crate) fn blocks(operations: &[UnitaryOperation], max_sites: usize) -> Vec<S
         // place.
         if let [id] = candidates.as_slice()
             && let Some(block) = open[*id].as_mut()
-            && on.iter().all(|q| block.sites.contains(q))
+            && on.iter().all(|q| block.qubits.contains(q))
         {
             block.multiply(&on, gate.row_major());
             continue;
         }
-        candidates.sort_by_key(|&id| (open[id].as_ref().map_or(0, |b| b.sites.len()), id));
+        candidates.sort_by_key(|&id| (open[id].as_ref().map_or(0, |b| b.qubits.len()), id));
         let mut union: Vec<QubitID> = on.clone();
         let mut kept = Vec::new();
         for id in candidates {
             let Some(block) = open[id].take() else {
                 continue;
             };
-            let extra = block.sites.iter().filter(|q| !union.contains(q)).count();
-            if union.len() + extra <= max_sites {
-                union.extend(block.sites.iter().filter(|q| !on.contains(q)));
+            let extra = block.qubits.iter().filter(|q| !union.contains(q)).count();
+            if union.len() + extra <= max_qubits {
+                union.extend(block.qubits.iter().filter(|q| !on.contains(q)));
                 union.sort_unstable();
                 union.dedup();
                 kept.push(block);
             } else {
-                for q in &block.sites {
+                for q in &block.qubits {
                     owner.remove(q);
                 }
                 emitted.push(block.into_operator());
@@ -244,11 +247,11 @@ pub(crate) fn blocks(operations: &[UnitaryOperation], max_sites: usize) -> Vec<S
         // The kept blocks are on disjoint qubits, so their order does not
         // matter; all of them precede the gate.
         for kept in kept {
-            block.multiply(&kept.sites, &kept.matrix);
+            block.multiply(&kept.qubits, &kept.matrix);
         }
         block.multiply(&on, gate.row_major());
         let id = open.len();
-        for &q in &block.sites {
+        for &q in &block.qubits {
             owner.insert(q, id);
         }
         open.push(Some(block));

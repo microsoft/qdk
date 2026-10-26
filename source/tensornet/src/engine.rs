@@ -23,8 +23,10 @@
 //! weight lost to truncation ─────────────► retained_weight(state) ─► ⟨ψ|ψ⟩
 //! ```
 //!
-//! Sites are qubits: an engine prepares one two-level site per qubit, and
-//! site `k` is qubit `k`.
+//! Sites hold qubits: an engine prepares one two-level site per qubit.
+//! Which qubit sits on which site is its caller's choice (the per-shot
+//! terminal places them by a qubit order, qubit `k` on site `k` by
+//! default); the engine knows only sites.
 
 use crate::{MpsShape, PauliSum};
 use num_complex::Complex64;

@@ -58,21 +58,43 @@ pub(crate) fn check_region(region: &QuantumEvolutionRegion, qubits: usize) -> Op
         .find_map(|&operation| check_operation(operation, qubits))
 }
 
-/// Applies `operation`, checked by [`check_operation`], to `state`. `I` is
-/// dropped, as M0 dropped it.
+/// Applies `operation`, checked by [`check_operation`], to `state`, each
+/// qubit on the site of the same number (the identity
+/// [`QubitOrder`](crate::QubitOrder)). `I` is dropped, as M0 dropped it.
 pub(crate) fn apply_operation<E: MpsEngine>(
     engine: &E,
     state: &mut E::State,
     operation: UnitaryOperation,
 ) -> Result<(), E::Error> {
+    apply_placed(engine, state, operation, |qubit| qubit)
+}
+
+/// Applies `operation`, checked by [`check_operation`], to `state`, each
+/// qubit on the site `site_of` gives it, in operand order, so the gate
+/// table's matrix holds on those sites. `I` is dropped, as M0 dropped it.
+pub(crate) fn apply_placed<E: MpsEngine>(
+    engine: &E,
+    state: &mut E::State,
+    operation: UnitaryOperation,
+    site_of: impl Fn(QubitID) -> usize,
+) -> Result<(), E::Error> {
     let Some(matrix) = unitary_matrix(operation) else {
         return Ok(());
     };
-    let sites: &[QubitID] = match operation.qubits() {
-        (first, None) => &[first],
-        (first, Some(second)) => &[first, second],
+    let sites: &[usize] = match operation.qubits() {
+        (first, None) => &[site_of(first)],
+        (first, Some(second)) => &[site_of(first), site_of(second)],
     };
     engine.apply(state, sites, matrix.row_major())
+}
+
+/// Flips the qubit on `site` (X), as a reset does to a qubit measured One.
+pub(crate) fn flip<E: MpsEngine>(
+    engine: &E,
+    state: &mut E::State,
+    site: usize,
+) -> Result<(), E::Error> {
+    apply_operation(engine, state, UnitaryOperation::X { target: site })
 }
 
 /// Whether `operation` is applied, rather than dropped (`I`).

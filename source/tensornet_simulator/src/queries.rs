@@ -12,6 +12,7 @@ use qdk_simulators::{
 use tensornet::{MpsEngine, MpsShape, MpsShapeError, Pauli, PauliTerm};
 
 use crate::{
+    QubitOrder,
     capacity::mps_capacity,
     lowering,
     program::{ProgramError, plan},
@@ -144,15 +145,18 @@ pub(crate) enum Within<'a> {
     MaxBond(usize),
 }
 
-/// [`Evaluate::evaluate`] on `engine`, with ψ prepared `within`. A ψ beyond
+/// [`Evaluate::evaluate`] on `engine`, with ψ prepared `within`, each qubit
+/// on its site by `order` (qubit `q` on site `q` without one). A ψ beyond
 /// the capacity is [`QueryError::Failed`], since a value read from it may
 /// not be the method's.
 pub(crate) fn evaluate_on<E: MpsEngine>(
     engine: &E,
     within: Within<'_>,
+    order: Option<&QubitOrder>,
     program: &PreparedAdaptiveProgram<u64>,
     queries: &[StateQuery],
 ) -> Result<Vec<StateQueryValue>, QueryError> {
+    let site_of = |qubit: QubitID| order.map_or(qubit, |order| order.site(qubit));
     if queries.is_empty() {
         return Err(QueryError::NoQueries);
     }
@@ -171,7 +175,7 @@ pub(crate) fn evaluate_on<E: MpsEngine>(
                     qubits: plan.qubits,
                 });
             }
-            to_engine(observable).map_err(|reason| QueryError::Observable { at, reason })
+            to_engine(observable, site_of).map_err(|reason| QueryError::Observable { at, reason })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let sized;
@@ -197,7 +201,7 @@ pub(crate) fn evaluate_on<E: MpsEngine>(
         .prepare(capacity)
         .map_err(|error| QueryError::Unavailable(error.to_string()))?;
     for operation in plan.operations() {
-        lowering::apply_operation(engine, &mut psi, operation).map_err(failed)?;
+        lowering::apply_placed(engine, &mut psi, operation, site_of).map_err(failed)?;
     }
     outgrown(engine, &psi, capacity).map_err(QueryError::Failed)?;
     let shape = engine.shape(&psi).map_err(failed)?;
@@ -227,9 +231,12 @@ pub(crate) fn evaluate_on<E: MpsEngine>(
         .collect()
 }
 
-/// `observable` as the engine takes it: the same terms, with the identity's
-/// coefficient apart.
-fn to_engine(observable: &PauliSum) -> Result<tensornet::PauliSum, String> {
+/// `observable` as the engine takes it: the same terms, each factor on its
+/// qubit's site by `site_of`, with the identity's coefficient apart.
+fn to_engine(
+    observable: &PauliSum,
+    site_of: impl Fn(QubitID) -> usize,
+) -> Result<tensornet::PauliSum, String> {
     let terms = observable
         .terms()
         .iter()
@@ -243,7 +250,7 @@ fn to_engine(observable: &PauliSum) -> Result<tensornet::PauliSum, String> {
                         ProgramPauli::Y => Pauli::Y,
                         ProgramPauli::Z => Pauli::Z,
                     };
-                    (qubit, pauli)
+                    (site_of(qubit), pauli)
                 })
                 .collect();
             PauliTerm::new(term.coefficient(), factors)

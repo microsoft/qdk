@@ -24,7 +24,7 @@
 //! which on cuTensorNet contracts projected sites without copying the
 //! state), and projects when the run ends.
 
-use qdk_simulators::{QubitID, execution::UnitaryOperation};
+use qdk_simulators::QubitID;
 use rand::{RngExt as _, rngs::StdRng};
 use tensornet::MpsEngine;
 
@@ -96,6 +96,7 @@ pub const SMALLEST_CONDITION: f64 = 1e-10;
 pub struct MeasurementRun {
     tags: Vec<u32>,
     qubits: Vec<QubitID>,
+    sites: Vec<usize>,
     values: Vec<bool>,
     probabilities_of_one: Vec<f64>,
     resets: Vec<bool>,
@@ -121,6 +122,14 @@ impl MeasurementRun {
     #[must_use]
     pub fn qubits(&self) -> &[QubitID] {
         &self.qubits
+    }
+
+    /// The site of each measurement's qubit, where the terminal read and
+    /// projected the state: the qubit's site by the terminal's
+    /// [`QubitOrder`](crate::QubitOrder), the qubit itself by default.
+    #[must_use]
+    pub fn sites(&self) -> &[usize] {
+        &self.sites
     }
 
     /// The value drawn for each measurement.
@@ -172,23 +181,24 @@ impl MeasurementRun {
             && self.distribution[self.row()] >= SMALLEST_CONDITION
     }
 
-    /// The run's distribution extended by a measurement of `qubit` (the
-    /// last bit of each row), read on `state`, the state before the run; and
-    /// P(One) given the row drawn so far, the one to draw it with.
+    /// The run's distribution extended by a measurement of the qubit on
+    /// `site` (the last bit of each row), read on `state`, the state before
+    /// the run; and P(One) given the row drawn so far, the one to draw it
+    /// with.
     fn extended<E: MpsEngine>(
         &self,
         engine: &E,
         state: &E::State,
-        qubit: QubitID,
+        site: usize,
     ) -> Result<(Vec<f64>, f64), E::Error> {
         let drawn = self.row();
         let mut drawn_p1 = 0.0;
         let mut distribution = Vec::with_capacity(2 * self.distribution.len());
         for (row, &p) in self.distribution.iter().enumerate() {
             let p1 = if self.is_empty() {
-                engine.probability_of_one(state, qubit)?
+                engine.probability_of_one(state, site)?
             } else if p >= SMALLEST_CONDITION {
-                engine.conditional_probability_of_one(state, qubit, &self.given(row))?
+                engine.conditional_probability_of_one(state, site, &self.given(row))?
             } else {
                 0.5
             }
@@ -201,13 +211,14 @@ impl MeasurementRun {
         Ok((distribution, drawn_p1))
     }
 
-    /// The values of row `row` of the run so far, as conditions.
-    fn given(&self, row: usize) -> Vec<(QubitID, bool)> {
+    /// The values of row `row` of the run so far, as conditions on their
+    /// sites.
+    fn given(&self, row: usize) -> Vec<(usize, bool)> {
         let k = self.len();
-        self.qubits
+        self.sites
             .iter()
             .enumerate()
-            .map(|(i, &qubit)| (qubit, row >> (k - 1 - i) & 1 == 1))
+            .map(|(i, &site)| (site, row >> (k - 1 - i) & 1 == 1))
             .collect()
     }
 }
@@ -254,20 +265,20 @@ impl MeasurementRuns {
         self.open && self.runs.last().is_some_and(|run| run.admits(qubit))
     }
 
-    /// Draws the value of a measurement of `qubit` into `tag`, in the open
-    /// run if it continues it, or in a new one after closing it, and
-    /// extends the run's distribution by it. The value and ln p of it. With
-    /// [`ReadoutDistribution::Off`], it draws and projects at once.
+    /// Draws the value of a measurement of `qubit`, on `site`, into `tag`,
+    /// in the open run if it continues it, or in a new one after closing
+    /// it, and extends the run's distribution by it. The value and ln p of
+    /// it. With [`ReadoutDistribution::Off`], it draws and projects at once.
     pub(crate) fn measure<E: MpsEngine>(
         &mut self,
         engine: &E,
         state: &mut E::State,
         rng: &mut StdRng,
-        (qubit, tag): (QubitID, u32),
+        (qubit, site, tag): (QubitID, usize, u32),
         reset: bool,
     ) -> Result<(bool, f64), E::Error> {
         if self.distribution == ReadoutDistribution::Off {
-            return draw(engine, state, rng, qubit, reset);
+            return draw(engine, state, rng, site, reset);
         }
         let continues = self.continued_by(qubit);
         let mut run = match self.runs.pop() {
@@ -278,7 +289,7 @@ impl MeasurementRuns {
                 MeasurementRun::new()
             }
         };
-        match run.extended(engine, state, qubit) {
+        match run.extended(engine, state, site) {
             Ok((distribution, p1)) => {
                 // `random` is in [0, 1): One only when p1 > 0, Zero only when p1 < 1.
                 let one = rng.random::<f64>() < p1;
@@ -286,6 +297,7 @@ impl MeasurementRuns {
                 run.distribution = distribution;
                 run.tags.push(tag);
                 run.qubits.push(qubit);
+                run.sites.push(site);
                 run.values.push(one);
                 run.probabilities_of_one.push(p1);
                 run.resets.push(reset);
@@ -318,38 +330,38 @@ impl MeasurementRuns {
             return Ok(false);
         };
         let measurements = run
-            .qubits
+            .sites
             .iter()
             .zip(&run.values)
             .zip(&run.probabilities_of_one)
             .zip(&run.resets);
-        for (((&qubit, &one), &p1), &reset) in measurements {
-            engine.project(state, qubit, one, if one { p1 } else { 1.0 - p1 })?;
+        for (((&site, &one), &p1), &reset) in measurements {
+            engine.project(state, site, one, if one { p1 } else { 1.0 - p1 })?;
             if reset && one {
-                lowering::apply_operation(engine, state, UnitaryOperation::X { target: qubit })?;
+                lowering::flip(engine, state, site)?;
             }
         }
         Ok(true)
     }
 }
 
-/// Draws the value of `qubit` from P(One) on `state`, projects on it, and
-/// flips it back to |0⟩ when `reset` and it was One. The value, and ln p of
-/// the value drawn.
+/// Draws the value of the qubit on `site` from P(One) on `state`, projects
+/// on it, and flips it back to |0⟩ when `reset` and it was One. The value,
+/// and ln p of the value drawn.
 pub(crate) fn draw<E: MpsEngine>(
     engine: &E,
     state: &mut E::State,
     rng: &mut StdRng,
-    qubit: QubitID,
+    site: usize,
     reset: bool,
 ) -> Result<(bool, f64), E::Error> {
-    let p1 = engine.probability_of_one(state, qubit)?.clamp(0.0, 1.0);
+    let p1 = engine.probability_of_one(state, site)?.clamp(0.0, 1.0);
     // `random` is in [0, 1): One only when p1 > 0, Zero only when p1 < 1.
     let one = rng.random::<f64>() < p1;
     let p = if one { p1 } else { 1.0 - p1 };
-    engine.project(state, qubit, one, p)?;
+    engine.project(state, site, one, p)?;
     if reset && one {
-        lowering::apply_operation(engine, state, UnitaryOperation::X { target: qubit })?;
+        lowering::flip(engine, state, site)?;
     }
     Ok((one, p.ln()))
 }

@@ -225,6 +225,7 @@ impl<E: MpsEngine> Evaluate for MpsStack<E> {
         evaluate_on(
             &*self.engine,
             Within::MaxBond(self.max_bond),
+            None,
             program,
             queries,
         )
@@ -242,13 +243,16 @@ impl<E: MpsEngine> Evaluate for MpsBatchSimulator<E> {
         evaluate_on(
             &**self.engine(),
             Within::Capacity(self.capacity()),
+            None,
             program,
             queries,
         )
     }
 }
 
-/// ψ within a shot's capacity: the same as the batch strategy's.
+/// ψ within a shot's capacity, its qubits placed by the shots'
+/// [`QubitOrder`](crate::QubitOrder): the same values as the batch
+/// strategy's.
 impl<E: MpsEngine> Evaluate for TensorNetShots<E> {
     fn evaluate(
         &self,
@@ -258,6 +262,7 @@ impl<E: MpsEngine> Evaluate for TensorNetShots<E> {
         evaluate_on(
             &**self.engine(),
             Within::Capacity(self.capacity()),
+            Some(self.qubit_order()),
             program,
             queries,
         )

@@ -15,6 +15,9 @@
 //! |                 | cases; H₂'s operator counts and its driver on CPU (`#[ignore]`d)      |
 //! | `h2`            | the H₂ QPE driver, over any engine (`qualification` runs it on GPU)   |
 //! | `readout`       | the readout distribution: each run's exact joint distribution         |
+//! | `order`         | `QubitOrder`: a permutation; any order draws and reads the same       |
+//! |                 | values; the engine is handed each qubit's site; H₂'s RCM order        |
+//! |                 | against `order.py` (`#[ignore]`d)                                     |
 //! | `qualification` | the A100 qualification and H₂ QPE, `#[ignore]`d (Linux x86-64 only)   |
 //!
 //! The cases that hold for any engine are generic over [`MpsEngine`] in
@@ -50,6 +53,7 @@ mod batch;
 mod cases;
 mod fusion;
 mod h2;
+mod order;
 mod parity;
 mod per_shot;
 mod programs;

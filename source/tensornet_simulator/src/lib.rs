@@ -21,6 +21,8 @@
 //!                                        shot, an L3 executor of the region ISA
 //! fusion.rs                              GateFusion: a region's gates as the
 //!                                        engine's operators (unfused, or pairs)
+//! order.rs                               QubitOrder: the site of each qubit on the
+//!                                        per-shot terminal's chain
 //! readout.rs                             ReadoutDistribution: the exact distribution
 //!                                        of each run of consecutive measurements
 //! lowering.rs                            region gates to matrices (③'s tables)
@@ -36,6 +38,7 @@ mod batch;
 mod capacity;
 mod fusion;
 mod lowering;
+mod order;
 mod program;
 mod queries;
 mod readout;
@@ -47,7 +50,8 @@ mod tests;
 
 pub use batch::{MpsBatchReport, MpsBatchSession, MpsBatchSimulator, sampler_seed};
 pub use capacity::mps_capacity;
-pub use fusion::{GateFusion, SiteOperator};
+pub use fusion::{GateFusion, QubitOperator};
+pub use order::{QubitOrder, QubitOrderError};
 pub use program::ProgramError;
 pub use queries::{Evaluate, MpsCost, QueryError, StateQuery, StateQueryValue};
 pub use readout::{MAX_RUN, MeasurementRun, ReadoutDistribution, SMALLEST_CONDITION};

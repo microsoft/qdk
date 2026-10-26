@@ -42,6 +42,20 @@ applies, by its `GateFusion`:
 
 Fusion is exact, and no block crosses a measurement or a reset.
 
+## The qubit order
+
+An MPS is a chain of sites, one per qubit, and its cost depends on which
+qubit sits where: a two-qubit operator on distant sites is applied through
+swaps, and each bond is the Schmidt rank across its cut. By default qubit
+`q` is on site `q`. `TensorNetShots::with_qubit_order` (or
+`TensorNetTerminal::with_qubit_order`) takes a `QubitOrder`, a
+permutation, and the terminal then hands the engine each qubit's site for
+every operator, P(One), projection and reset, and for the state queries on
+those shots. Every value it draws or reports stays keyed by qubit and tag,
+so an order changes the bonds and the time, not the values (to rounding,
+and to the truncation error of an engine that truncates). The H₂ driver
+reads it from `QDK_H2_ORDER`, and the A100 script from `--order FILE`.
+
 ## The readout distribution
 
 `with_readout_distribution(ReadoutDistribution::Exact)` (on `MpsStack` or
@@ -77,7 +91,8 @@ Each use below is backed by the test named next to it (the paths are under
 | `MpsStack::batch`, `MpsBatchSimulator`                               | A `ShotStrategy` that samples every shot from one MPS. It refuses `feedback`, `resets`, `replayable` and `probabilities` with `Unmet`.                                      | `batch.rs`: `mps7_mps12_mps20_…`, `mps8_…`, `mps9_…`                                                               |
 | `sampler_seed`                                                       | The engine's sample seed for a session seed, as M0's `derive_sampler_seed`.                                                                                                 | `parity.rs`: `the_sampler_seed_is_m0s`                                                                             |
 | `MpsStack::per_shot`, `TensorNetShots`, `TensorNetTerminal`          | One state per shot, through `PerShot`, with feedback, resets, replayable shots and each shot's ln p.                                                                        | `per_shot.rs`: `mps1_…`, `feedback_and_resets_run_shot_by_shot`, `a_shot_draws_the_same_alone_or_with_others`      |
-| `GateFusion`, `SiteOperator`, `with_gate_fusion`                     | How the per-shot terminal turns a region's gates into engine operators: `Unfused` (one per gate) or `Pairs` (blocks of ≤ 2 qubits).                                         | `fusion.rs`: `every_fusion_applies_the_product_of_the_regions_gates`, `fused_and_unfused_shots_draw_the_same_…`    |
+| `GateFusion`, `QubitOperator`, `with_gate_fusion`                    | How the per-shot terminal turns a region's gates into engine operators: `Unfused` (one per gate) or `Pairs` (blocks of ≤ 2 qubits).                                         | `fusion.rs`: `every_fusion_applies_the_product_of_the_regions_gates`, `fused_and_unfused_shots_draw_the_same_…`    |
+| `QubitOrder`, `QubitOrderError`, `with_qubit_order`                  | Which site of the chain holds each qubit on the per-shot terminal: a permutation, the identity by default. The same values, other bonds.                                    | `order.rs`: `any_order_draws_the_same_values_with_the_same_probabilities`, `the_engine_is_handed_each_qubits_site` |
 | `ReadoutDistribution`, `MeasurementRun`, `with_readout_distribution` | Opt-in (`Off` by default): the per-shot terminal reads the exact joint distribution of each run of consecutive measurements (`measurement_runs`), given the shot's history. | `readout.rs`: `a_readout_is_one_run_with_the_exact_distribution`, `off_draws_what_the_terminal_drew_before`        |
 | `TensorNetReport`, `MpsBatchReport`                                  | What a session ran: its batches, its instructions, its engine operators and its largest bond.                                                                               | `per_shot.rs`: `mps2_the_report_keeps_the_largest_bond`; `batch.rs`: `mps9_…`                                      |
 | `mps_capacity`                                                       | The capacity for a qubit count and χ: each bond capped by the smaller side and by χ.                                                                                        | `tests.rs`: `the_capacity_caps_each_bond_at_the_smaller_side_and_at_chi`                                           |
@@ -93,7 +108,8 @@ Each use below is backed by the test named next to it (the paths are under
 | `src/terminal.rs`              | `TensorNetTerminal`, `TensorNetShots`, `TensorNetReport`                                 |
 | `src/queries.rs`               | `Evaluate`, `StateQuery`, `StateQueryValue`, `MpsCost`, `QueryError`                     |
 | `src/lowering.rs`              | region gates to matrices, by ③'s gate tables                                             |
-| `src/fusion.rs`                | `GateFusion`, `SiteOperator`: a region's gates to engine operators                       |
+| `src/fusion.rs`                | `GateFusion`, `QubitOperator`: a region's gates to engine operators                      |
+| `src/order.rs`                 | `QubitOrder`, `QubitOrderError`: the site of each qubit                                  |
 | `src/readout.rs`               | `ReadoutDistribution`, `MeasurementRun`: the exact distribution of a run of measurements |
 | `src/capacity.rs`              | `mps_capacity`                                                                           |
 | `src/tests.rs`, `src/tests/`   | the tests (the module table is in `src/tests.rs`)                                        |

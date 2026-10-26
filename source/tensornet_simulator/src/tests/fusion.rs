@@ -5,7 +5,7 @@
 //! region's gates, so fused and unfused shots draw the same values with the
 //! same probabilities; no operator crosses a measurement; and the edge
 //! cases of the grouping (operand order, distant pairs, idle qubits,
-//! single-qubit regions, empty regions). The blocks of up to three sites
+//! single-qubit regions, empty regions). The blocks of up to three qubits
 //! that `fusion::blocks` also makes, which `GateFusion` does not offer (no
 //! engine of M1 applies them on the A100), are checked here too, for the
 //! counts.
@@ -30,11 +30,11 @@ use super::{
     measure_reset, region, run_batch,
 };
 use crate::{
-    GateFusion, MpsStack, SiteOperator, TensorNetReport, TensorNetShots, TensorNetTerminal,
+    GateFusion, MpsStack, QubitOperator, TensorNetReport, TensorNetShots, TensorNetTerminal,
     fusion::blocks, mps_capacity,
 };
 
-/// A fusion's operators: the public ones, or blocks of up to three sites.
+/// A fusion's operators: the public ones, or blocks of up to three qubits.
 #[derive(Clone, Copy, Debug)]
 enum Grouping {
     Public(GateFusion),
@@ -48,14 +48,14 @@ const GROUPINGS: [Grouping; 3] = [
 ];
 
 impl Grouping {
-    fn operators(self, operations: &[UnitaryOperation]) -> Vec<SiteOperator> {
+    fn operators(self, operations: &[UnitaryOperation]) -> Vec<QubitOperator> {
         match self {
             Self::Public(fusion) => fusion.operators(operations),
             Self::UpToThree => blocks(operations, 3),
         }
     }
 
-    fn max_sites(self) -> usize {
+    fn max_qubits(self) -> usize {
         match self {
             Self::Public(_) => 2,
             Self::UpToThree => 3,
@@ -119,7 +119,7 @@ pub(super) fn random_operation(rng: &mut StdRng, qubits: usize) -> UnitaryOperat
 fn amplitudes(
     qubits: usize,
     prefix: &[UnitaryOperation],
-    operators: &[SiteOperator],
+    operators: &[QubitOperator],
 ) -> Vec<Complex64> {
     let engine = ExactReference::new();
     let mut state = engine
@@ -131,7 +131,7 @@ fn amplitudes(
         .chain(operators)
     {
         engine
-            .apply(&mut state, operator.sites(), operator.matrix())
+            .apply(&mut state, operator.qubits(), operator.matrix())
             .expect("applies");
     }
     (0..1 << qubits).map(|i| state.amplitude(i)).collect()
@@ -145,8 +145,8 @@ fn distance(a: &[Complex64], b: &[Complex64]) -> f64 {
 }
 
 /// The largest |(M†M − 1)ᵢⱼ| of an operator's matrix.
-fn unitarity_defect(operator: &SiteOperator) -> f64 {
-    let dimension = 1 << operator.sites().len();
+fn unitarity_defect(operator: &QubitOperator) -> f64 {
+    let dimension = 1 << operator.qubits().len();
     let m = operator.matrix();
     let mut defect: f64 = 0.0;
     for i in 0..dimension {
@@ -161,16 +161,19 @@ fn unitarity_defect(operator: &SiteOperator) -> f64 {
     defect
 }
 
-/// Checks the shape of `operators`: distinct sites, at most `max_sites`,
+/// Checks the shape of `operators`: distinct qubits, at most `max_qubits`,
 /// ascending when fused, `4^k` elements, unitary.
-fn check_shape(operators: &[SiteOperator], max_sites: usize, fused: bool) {
+fn check_shape(operators: &[QubitOperator], max_qubits: usize, fused: bool) {
     for operator in operators {
-        let sites = operator.sites();
-        assert!(!sites.is_empty() && sites.len() <= max_sites, "{sites:?}");
+        let qubits = operator.qubits();
+        assert!(
+            !qubits.is_empty() && qubits.len() <= max_qubits,
+            "{qubits:?}"
+        );
         if fused {
-            assert!(sites.windows(2).all(|w| w[0] < w[1]), "{sites:?}");
+            assert!(qubits.windows(2).all(|w| w[0] < w[1]), "{qubits:?}");
         }
-        assert_eq!(operator.matrix().len(), 1 << (2 * sites.len()));
+        assert_eq!(operator.matrix().len(), 1 << (2 * qubits.len()));
         assert!(unitarity_defect(operator) < 1e-12, "{operator:?}");
     }
 }
@@ -196,7 +199,7 @@ fn every_fusion_applies_the_product_of_the_regions_gates() {
             let operators = grouping.operators(&operations);
             check_shape(
                 &operators,
-                grouping.max_sites(),
+                grouping.max_qubits(),
                 !matches!(grouping, Grouping::Public(GateFusion::Unfused)),
             );
             assert!(operators.len() <= applied, "case {case}, {grouping:?}");
@@ -218,8 +221,8 @@ fn unfused_is_one_operator_per_gate_in_operand_order_without_i() {
         UnitaryOperation::T { target: 2 },
     ];
     let operators = GateFusion::Unfused.operators(&operations);
-    let sites: Vec<&[QubitID]> = operators.iter().map(SiteOperator::sites).collect();
-    assert_eq!(sites, [&[1, 0][..], &[2]]);
+    let qubits: Vec<&[QubitID]> = operators.iter().map(QubitOperator::qubits).collect();
+    assert_eq!(qubits, [&[1, 0][..], &[2]]);
 }
 
 #[test]
@@ -227,12 +230,12 @@ fn pairs_is_the_default() {
     assert_eq!(GateFusion::default(), GateFusion::Pairs);
 }
 
-/// The sites of each operator `fusion` makes of `operations`.
-fn sites_of(grouping: Grouping, operations: &[UnitaryOperation]) -> Vec<Vec<QubitID>> {
+/// The qubits of each operator `fusion` makes of `operations`.
+fn qubits_of(grouping: Grouping, operations: &[UnitaryOperation]) -> Vec<Vec<QubitID>> {
     grouping
         .operators(operations)
         .iter()
-        .map(|operator| operator.sites().to_vec())
+        .map(|operator| operator.qubits().to_vec())
         .collect()
 }
 
@@ -244,24 +247,24 @@ fn pairs_absorb_single_qubit_gates_before_and_after_and_repeat_pairs() {
     let cz = |control, target| UnitaryOperation::Cz { control, target };
     // Before (H 0, H 1) and after (T 0) the pair, and the pair again.
     assert_eq!(
-        sites_of(PAIRS, &[h(0), h(1), cx(0, 1), t(0), cz(0, 1), t(1)]),
+        qubits_of(PAIRS, &[h(0), h(1), cx(0, 1), t(0), cz(0, 1), t(1)]),
         [vec![0, 1]]
     );
     // A pair closed by another on one of its qubits; the gate after on the
     // freed qubit is a run of its own.
     assert_eq!(
-        sites_of(PAIRS, &[cx(0, 1), cx(1, 2), h(0), t(0)]),
+        qubits_of(PAIRS, &[cx(0, 1), cx(1, 2), h(0), t(0)]),
         [vec![0, 1], vec![1, 2], vec![0]]
     );
     // Only single-qubit gates: one 2×2 per qubit, in the order the runs
     // began.
     assert_eq!(
-        sites_of(PAIRS, &[h(2), t(0), h(0), t(2), h(1)]),
+        qubits_of(PAIRS, &[h(2), t(0), h(0), t(2), h(1)]),
         [vec![2], vec![0], vec![1]]
     );
     // A gate on a qubit no other gate touches.
     assert_eq!(
-        sites_of(PAIRS, &[cx(0, 1), h(3), cz(1, 0)]),
+        qubits_of(PAIRS, &[cx(0, 1), h(3), cz(1, 0)]),
         [vec![0, 1], vec![3]]
     );
     // An empty region, or one of `I` only: nothing to apply.
@@ -273,20 +276,20 @@ fn pairs_absorb_single_qubit_gates_before_and_after_and_repeat_pairs() {
                 .is_empty()
         );
     }
-    // Up to three sites, a pair and the next gate on a third qubit join.
+    // Up to three qubits, a pair and the next gate on a third qubit join.
     assert_eq!(
-        sites_of(Grouping::UpToThree, &[cx(0, 1), cx(1, 2), h(0), cx(2, 3)]),
+        qubits_of(Grouping::UpToThree, &[cx(0, 1), cx(1, 2), h(0), cx(2, 3)]),
         [vec![0, 1, 2], vec![2, 3]]
     );
 }
 
 #[test]
 fn a_reversed_pair_is_the_same_block_with_its_matrix_reordered() {
-    // CX(1, 0) alone: on sites [0, 1] (ascending), qubit 0 the most
+    // CX(1, 0) alone: on qubits [0, 1] (ascending), qubit 0 the most
     // significant bit, so |a b⟩ ↦ |a⊕b, b⟩: the permutation 00, 11, 10, 01.
     let operators = GateFusion::Pairs.operators(&[cx(1, 0)]);
     assert_eq!(operators.len(), 1);
-    assert_eq!(operators[0].sites(), [0, 1]);
+    assert_eq!(operators[0].qubits(), [0, 1]);
     let mut expected = vec![z(0.0); 16];
     for (output, input) in [(0, 0), (3, 1), (2, 2), (1, 3)] {
         expected[output * 4 + input] = z(1.0);
@@ -303,7 +306,7 @@ fn a_reversed_pair_is_the_same_block_with_its_matrix_reordered() {
 }
 
 #[test]
-fn a_distant_pair_is_one_block_on_its_two_sites() {
+fn a_distant_pair_is_one_block_on_its_two_qubits() {
     let operations = [
         h(0),
         cx(0, 3),
@@ -311,7 +314,7 @@ fn a_distant_pair_is_one_block_on_its_two_sites() {
         cx(3, 0),
         h(2),
     ];
-    assert_eq!(sites_of(PAIRS, &operations), [vec![0, 3], vec![2]]);
+    assert_eq!(qubits_of(PAIRS, &operations), [vec![0, 3], vec![2]]);
     let prefix = [h(1), cx(1, 2), h(3)];
     let expected = amplitudes(4, &prefix, &GateFusion::Unfused.operators(&operations));
     let fused = amplitudes(4, &prefix, &GateFusion::Pairs.operators(&operations));
@@ -626,13 +629,13 @@ fn h2_driver_on_a_coin_engine() {
 /// conditional block counted.
 const COUNT_PY_GATES: u64 = 392_338;
 const COUNT_PY_PAIRS: u64 = 87_598;
-/// `count.py`'s greedy blocks of up to three sites, an upper bound.
+/// `count.py`'s greedy blocks of up to three qubits, an upper bound.
 const COUNT_PY_GREEDY_THREE: u64 = 26_369;
 
 /// The regions of `program` cut as `count.py` cuts them: at each
 /// measurement, reset, branch and switch, over the instructions in order,
 /// with each gate's qubits and angle from its operation table entry.
-fn static_regions(program: &AdaptiveProgram<u64>) -> Vec<Vec<UnitaryOperation>> {
+pub(super) fn static_regions(program: &AdaptiveProgram<u64>) -> Vec<Vec<UnitaryOperation>> {
     const GATE: u64 = 0x10;
     const CUTS: [u64; 4] = [0x11, 0x12, 0x05, 0x06];
     let mut regions = vec![Vec::new()];

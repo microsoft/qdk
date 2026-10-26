@@ -18,7 +18,7 @@ use rand::{SeedableRng as _, rngs::StdRng};
 use tensornet::{MpsEngine, MpsShape, MpsShapeError};
 
 use crate::{
-    GateFusion, MeasurementRun, ReadoutDistribution,
+    GateFusion, MeasurementRun, QubitOrder, QubitOrderError, ReadoutDistribution,
     capacity::mps_capacity,
     lowering,
     readout::{MeasurementRuns, draw},
@@ -31,7 +31,10 @@ use crate::{
 /// value from the shot's own random numbers, with P(One) read from the
 /// state, then projects the state on it. With a [`ReadoutDistribution`],
 /// it also reads the exact distribution of each run of consecutive
-/// measurements ([`measurement_runs`](Self::measurement_runs)).
+/// measurements ([`measurement_runs`](Self::measurement_runs)). Its
+/// [`QubitOrder`] places each qubit on a site of the chain (qubit `q` on
+/// site `q` by default, see [`with_qubit_order`](Self::with_qubit_order)):
+/// what it draws and reports is keyed by qubit and tag, whatever the order.
 ///
 /// It is the terminal `mps-a` runs Adaptive programs with, a shot at a time:
 /// a shot's measurements steer its own state only, so it offers feedback and
@@ -52,6 +55,10 @@ pub struct TensorNetTerminal<E: MpsEngine> {
     state: Result<E::State, String>,
     capacity: MpsShape,
     fusion: GateFusion,
+    order: QubitOrder,
+    /// Whether a batch has run on the state, which is then on the sites of
+    /// `order`; unlike `report.batches`, closing does not clear it.
+    started: bool,
     rng: StdRng,
     log_p: f64,
     runs: MeasurementRuns,
@@ -85,6 +92,36 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
         self.fusion
     }
 
+    /// The terminal placing qubit `q` on site `order.site(q)` of its
+    /// chain: each operator, P(One), projection and reset of the qubit
+    /// goes to that site. The order changes the bonds the state needs, not
+    /// the values drawn (see [`QubitOrder`]).
+    ///
+    /// # Errors
+    ///
+    /// [`QubitOrderError::Qubits`] when `order` places another number of
+    /// qubits than the terminal's, and [`QubitOrderError::Started`] after
+    /// its first batch, whose state is on the sites of the order it had.
+    pub fn with_qubit_order(mut self, order: QubitOrder) -> Result<Self, QubitOrderError> {
+        if order.len() != self.qubits() {
+            return Err(QubitOrderError::Qubits {
+                order: order.len(),
+                qubits: self.qubits(),
+            });
+        }
+        if self.started {
+            return Err(QubitOrderError::Started);
+        }
+        self.order = order;
+        Ok(self)
+    }
+
+    /// The site of each qubit on its chain.
+    #[must_use]
+    pub fn qubit_order(&self) -> &QubitOrder {
+        &self.order
+    }
+
     /// The terminal reading the readout distribution as `distribution`
     /// says (by default [`ReadoutDistribution::Off`]). Set it before the
     /// first batch: it drops the runs read so far.
@@ -109,6 +146,12 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
         self.runs.runs()
     }
 
+    /// The terminal with `order`, of its qubits (checked by the maker).
+    fn with_order(mut self, order: QubitOrder) -> Self {
+        self.order = order;
+        self
+    }
+
     fn with_state(
         engine: Rc<E>,
         state: Result<E::State, String>,
@@ -118,8 +161,10 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
         Self {
             engine,
             state,
+            order: QubitOrder::identity(capacity.site_count()),
             capacity,
             fusion: GateFusion::default(),
+            started: false,
             rng: StdRng::seed_from_u64(seed),
             log_p: 0.0,
             runs: MeasurementRuns::default(),
@@ -136,7 +181,9 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
 
     /// The shot's state, as the batches so far left it (Q9: a query of a
     /// shot's state mid-session reads it here); `None` when the engine
-    /// could not prepare it, or a batch failed.
+    /// could not prepare it, or a batch failed. Its sites are placed by the
+    /// terminal's [`QubitOrder`]: qubit `q` is on site
+    /// [`qubit_order().site(q)`](QubitOrder::site).
     ///
     /// While a run of measurements is open
     /// ([`ReadoutDistribution::Exact`]), its projections are still to apply:
@@ -193,6 +240,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
         let engine = &*self.engine;
         let report = &mut self.report;
         let capacity = &self.capacity;
+        let order = &self.order;
         // The capacity is checked on the states a terminal that projects at
         // once checks at the end of a batch: an open run's, once projected.
         let mut checked = |state: &E::State, report: &mut TensorNetReport| {
@@ -220,7 +268,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
                         operators.iter().try_for_each(|operator| {
                             report.operators += 1;
                             engine
-                                .apply(state, operator.sites(), operator.matrix())
+                                .apply(state, &order.sites_of(operator.qubits()), operator.matrix())
                                 .map_err(|error| error.to_string())
                         })
                     })
@@ -236,7 +284,13 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
                     }
                     .and_then(|()| {
                         self.runs
-                            .measure(engine, state, &mut self.rng, (request.qubit, tag), reset)
+                            .measure(
+                                engine,
+                                state,
+                                &mut self.rng,
+                                (request.qubit, order.site(request.qubit), tag),
+                                reset,
+                            )
                             .map_err(|error| error.to_string())
                     })
                     .map(|(one, ln_p)| {
@@ -251,7 +305,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
                 RegionInstruction::Reset { qubit } => {
                     close_run(&mut self.runs, engine, state, report, &mut checked)
                         .and_then(|()| {
-                            draw(engine, state, &mut self.rng, *qubit, true)
+                            draw(engine, state, &mut self.rng, order.site(*qubit), true)
                                 .map_err(|error| error.to_string())
                         })
                         .map(|(_, ln_p)| {
@@ -351,6 +405,7 @@ impl<E: MpsEngine> Executor<Batch<RegionInstruction>> for TensorNetTerminal<E> {
             return Err(Rejected::Unavailable(reason.clone()));
         }
         self.report.batches += 1;
+        self.started = true;
         let run = self.run(batch);
         match run {
             Ok(outcomes) => Ok(Immediate::done(outcomes)),
@@ -414,6 +469,7 @@ pub struct TensorNetShots<E: MpsEngine> {
     capacity: MpsShape,
     fusion: GateFusion,
     readout: ReadoutDistribution,
+    order: QubitOrder,
 }
 
 impl<E: MpsEngine> TensorNetShots<E> {
@@ -429,6 +485,7 @@ impl<E: MpsEngine> TensorNetShots<E> {
             capacity: mps_capacity(qubits, max_bond)?,
             fusion: GateFusion::default(),
             readout: ReadoutDistribution::default(),
+            order: QubitOrder::identity(qubits),
         })
     }
 
@@ -458,6 +515,32 @@ impl<E: MpsEngine> TensorNetShots<E> {
     #[must_use]
     pub fn readout_distribution(&self) -> ReadoutDistribution {
         self.readout
+    }
+
+    /// Shots whose terminals place qubit `q` on site `order.site(q)` (by
+    /// default the identity; see [`TensorNetTerminal::with_qubit_order`]).
+    /// The state queries of [`Evaluate`](crate::Evaluate) on these shots
+    /// place them so too.
+    ///
+    /// # Errors
+    ///
+    /// [`QubitOrderError::Qubits`] when `order` places another number of
+    /// qubits than the shots have.
+    pub fn with_qubit_order(mut self, order: QubitOrder) -> Result<Self, QubitOrderError> {
+        if order.len() != self.capacity.site_count() {
+            return Err(QubitOrderError::Qubits {
+                order: order.len(),
+                qubits: self.capacity.site_count(),
+            });
+        }
+        self.order = order;
+        Ok(self)
+    }
+
+    /// The site of each qubit on each shot's chain.
+    #[must_use]
+    pub fn qubit_order(&self) -> &QubitOrder {
+        &self.order
     }
 
     /// The capacity each shot's state is prepared within.
@@ -503,6 +586,7 @@ impl<E: MpsEngine> MakeShot<RegionInstruction> for TensorNetShots<E> {
         )
         .with_gate_fusion(self.fusion)
         .with_readout_distribution(self.readout)
+        .with_order(self.order.clone())
     }
 
     fn log_p(shot: &TensorNetTerminal<E>) -> Option<f64> {
