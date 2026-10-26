@@ -5,22 +5,28 @@
 //! for, whether each compute is captured as the start of the next one, and
 //! how often the native state is restarted from its computed MPS, and on
 //! which cuTensorNet handle.
-//! `validate` accepts only the qualified configuration, fp64 with GESVD and
-//! the SIMPLE gauge, and a budget of at most 64 GiB; the other variants exist
-//! for tests. It refuses a restart without capture, whose computes would
-//! not leave the MPS a restart starts from, and a fresh handle at restart
-//! without a restart period, which would never take effect. It does not
-//! check capture itself: turning it off is not reachable outside tests and
-//! the `qualification` feature (`without_capture`), and gives the same
-//! values without truncation, only more slowly.
+//! `validate` accepts only fp64, whose other variant exists for tests, and a
+//! budget of at most 64 GiB. It accepts every [`SvdAlgorithm`] and
+//! [`MpsGauge`]: cuTensorNet 2.13 accepts each with the cutoffs set here
+//! (see [`SvdAlgorithm`]); the defaults, GESVD and SIMPLE, are M0's, and
+//! the others are there for the A100 to compare time and accuracy with
+//! them (`EngineVariant`). It refuses a restart without capture, whose
+//! computes would not leave the MPS a restart starts from, and a fresh
+//! handle at restart without a restart period, which would never take
+//! effect. It does not check capture itself: turning it off is not
+//! reachable outside tests and the `qualification` feature
+//! (`without_capture`), and gives the same values without truncation, only
+//! more slowly.
 //! `base_qualification` is the engine's default: it restarts each state
 //! every [`RESTART_PERIOD`] computes on a fresh handle. Tests and the
 //! `qualification` feature may change the workspace preference, the
-//! restart period and the fresh handle, to measure what each changes on
-//! the A100; a policy that does not restart says so
-//! (`with_restart_period(None)`, `with_fresh_handle_at_restart(false)`).
-//! Qualifying another configuration takes an A100 qualification case and a
-//! change to `validate`.
+//! restart period, the fresh handle, the SVD algorithm and the gauge, to
+//! measure what each changes on the A100; a policy that does not restart
+//! says so (`with_restart_period(None)`,
+//! `with_fresh_handle_at_restart(false)`). Qualifying another precision or
+//! budget takes an A100 qualification case and a change to `validate`;
+//! adopting another SVD algorithm or gauge as the default takes the A100
+//! A/B and a change to `base_qualification`.
 //!
 //! The bond cap χ is not here: each state's capacity, a `tensornet::MpsShape`
 //! given to `prepare`, carries a bond for every cut.
@@ -57,17 +63,59 @@ pub(super) enum Precision {
     F64,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SvdAlgorithm {
+/// The cuSOLVER routine with which cuTensorNet factorizes each truncated
+/// bond (`CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO`). Each is configured with
+/// the library's default parameters (`..._SVD_ALGO_PARAMS` is not set).
+///
+/// The engine sets an absolute and a relative cutoff and no
+/// discarded-weight cutoff, so cuTensorNet 2.13 accepts all four: its
+/// header forbids only a discarded-weight cutoff with GESVDR. A policy that
+/// adds one must refuse it with [`SvdAlgorithm::Gesvdr`] in `validate`.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(
+    not(any(test, feature = "qualification")),
+    allow(dead_code, reason = "only the qualification picks another algorithm")
+)]
+pub enum SvdAlgorithm {
+    /// `cusolverDnGesvd`, the QR-based SVD. The default because it is M0's
+    /// choice and cuTensorNet's default, not because it was measured
+    /// against the others: on the A100, H₂ costs about 38 ms per operator
+    /// once its bonds reach χ = 32, and GESVD is expected to be slow on
+    /// matrices that small. The A100 A/B of the algorithm and the gauge on
+    /// H₂ decides whether another one replaces it.
+    #[default]
     Gesvd,
-    #[cfg(test)]
+    /// `cusolverDnGesvdj`, Jacobi sweeps, with the library's default
+    /// tolerance and sweep limit. Expected to be faster than GESVD on small
+    /// matrices; not yet measured here.
     Gesvdj,
+    /// `cusolverDnXgesvdp`, through a polar decomposition. It may lose
+    /// accuracy on a rank-deficient matrix, as a two-site update's often
+    /// is; the A/B's readout check tells.
+    Gesvdp,
+    /// `cusolverDnXgesvdr`, a randomized SVD of the rank the bond allows,
+    /// with the library's default oversampling and iterations. Its singular
+    /// values are approximate, and it pays off when that rank is far below
+    /// the matrix's; a two-site update at χ keeps χ of 2χ.
+    Gesvdr,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Gauge {
+/// How cuTensorNet keeps the MPS gauge between its two-site updates
+/// (`CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION`).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(
+    not(any(test, feature = "qualification")),
+    allow(dead_code, reason = "only the qualification picks another gauge")
+)]
+pub enum MpsGauge {
+    /// The simple-update gauge, which cuTensorNet documents as improving
+    /// accuracy, for some work per gate. The default because it is M0's
+    /// choice, not because its cost or gain was measured; the A100 A/B of
+    /// the algorithm and the gauge on H₂ decides whether
+    /// [`MpsGauge::Free`] replaces it.
+    #[default]
     Simple,
-    #[cfg(test)]
+    /// No gauge, cuTensorNet's own default.
     Free,
 }
 
@@ -78,7 +126,7 @@ pub(crate) struct ExecutionPolicy {
     pub(super) absolute_cutoff: f64,
     pub(super) relative_cutoff: f64,
     pub(super) svd_algorithm: SvdAlgorithm,
-    pub(super) gauge: Gauge,
+    pub(super) gauge: MpsGauge,
     pub(super) maximum_workspace_bytes: usize,
     /// Whether each compute is followed by `cutensornetStateCaptureMPS`, so
     /// that the computed MPS becomes the state's start and the next compute
@@ -114,7 +162,7 @@ impl ExecutionPolicy {
             absolute_cutoff: 1.0e-10,
             relative_cutoff: 1.0e-16,
             svd_algorithm: SvdAlgorithm::Gesvd,
-            gauge: Gauge::Simple,
+            gauge: MpsGauge::Simple,
             maximum_workspace_bytes: MAXIMUM_WORKSPACE_BYTES,
             capture_after_compute: true,
             compute_workspace: WorkspacePreference::Recommended,
@@ -166,11 +214,30 @@ impl ExecutionPolicy {
         }
     }
 
+    /// The same policy, with each bond factorized by `algorithm`. The
+    /// qualification sets it through `with_variant`.
+    #[cfg(test)]
+    pub(crate) const fn with_svd_algorithm(self, algorithm: SvdAlgorithm) -> Self {
+        Self {
+            svd_algorithm: algorithm,
+            ..self
+        }
+    }
+
+    /// The same policy, with the MPS kept in `gauge`. The qualification
+    /// sets it through `with_variant`.
+    #[cfg(test)]
+    pub(crate) const fn with_gauge(self, gauge: MpsGauge) -> Self {
+        Self { gauge, ..self }
+    }
+
     /// The same policy, changed as the qualification's `variant` says:
     /// `EngineVariant::default()` leaves the engine's policy as it is.
     #[cfg(any(test, feature = "qualification"))]
     pub(crate) const fn with_variant(self, variant: EngineVariant) -> Self {
         Self {
+            svd_algorithm: variant.svd_algorithm,
+            gauge: variant.gauge,
             compute_workspace: if variant.minimum_workspace {
                 WorkspacePreference::Min
             } else {
@@ -191,12 +258,6 @@ impl ExecutionPolicy {
         }
         validate_cutoff("absolute cutoff", self.absolute_cutoff)?;
         validate_cutoff("relative cutoff", self.relative_cutoff)?;
-        if self.svd_algorithm != SvdAlgorithm::Gesvd {
-            return Err(invalid("only GESVD is qualified"));
-        }
-        if self.gauge != Gauge::Simple {
-            return Err(invalid("only SIMPLE gauge is qualified"));
-        }
         if !(1..=MAXIMUM_WORKSPACE_BYTES).contains(&self.maximum_workspace_bytes) {
             return Err(invalid("workspace budget is outside the approved range"));
         }
@@ -225,7 +286,7 @@ fn invalid(reason: &'static str) -> EngineError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExecutionPolicy, Gauge, NonZeroUsize, Precision, RESTART_PERIOD, SvdAlgorithm,
+        ExecutionPolicy, MpsGauge, NonZeroUsize, Precision, RESTART_PERIOD, SvdAlgorithm,
         WorkspacePreference,
     };
     use crate::engine::EngineError;
@@ -250,7 +311,9 @@ mod tests {
         assert_relative_close(policy.absolute_cutoff, 1.0e-10);
         assert_relative_close(policy.relative_cutoff, 1.0e-16);
         assert_eq!(policy.svd_algorithm, SvdAlgorithm::Gesvd);
-        assert_eq!(policy.gauge, Gauge::Simple);
+        assert_eq!(policy.gauge, MpsGauge::Simple);
+        assert_eq!(policy.svd_algorithm, SvdAlgorithm::default());
+        assert_eq!(policy.gauge, MpsGauge::default());
         assert_eq!(policy.maximum_workspace_bytes, 68_719_476_736);
         assert!(policy.capture_after_compute);
         assert_eq!(policy.compute_workspace, WorkspacePreference::Recommended);
@@ -298,14 +361,6 @@ mod tests {
                 ..valid
             },
             ExecutionPolicy {
-                svd_algorithm: SvdAlgorithm::Gesvdj,
-                ..valid
-            },
-            ExecutionPolicy {
-                gauge: Gauge::Free,
-                ..valid
-            },
-            ExecutionPolicy {
                 maximum_workspace_bytes: 0,
                 ..valid
             },
@@ -323,6 +378,23 @@ mod tests {
                 policy.validate(),
                 Err(EngineError::InvalidExecutionPolicy { .. })
             ));
+        }
+    }
+
+    #[test]
+    fn accepts_every_svd_algorithm_with_every_gauge() {
+        let valid = ExecutionPolicy::base_qualification();
+        for algorithm in [
+            SvdAlgorithm::Gesvd,
+            SvdAlgorithm::Gesvdj,
+            SvdAlgorithm::Gesvdp,
+            SvdAlgorithm::Gesvdr,
+        ] {
+            for gauge in [MpsGauge::Simple, MpsGauge::Free] {
+                let policy = valid.with_svd_algorithm(algorithm).with_gauge(gauge);
+                assert_eq!((policy.svd_algorithm, policy.gauge), (algorithm, gauge));
+                assert_eq!(policy.validate().expect("policy should be valid"), policy);
+            }
         }
     }
 }

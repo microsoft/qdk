@@ -6,8 +6,8 @@
 
 use super::{
     CuTensorNetEngine, CuTensorNetState, EngineError, NativeApi,
-    execution::MpsExecutionApi,
-    policy::{ExecutionPolicy, RESTART_PERIOD},
+    execution::{MpsExecutionApi, StateU32Configuration},
+    policy::{ExecutionPolicy, MpsGauge, RESTART_PERIOD, SvdAlgorithm},
     profile::{EngineVariant, NativeHandle},
     resources::SessionApi,
     test_double::{NativeDouble, uniform_capacity},
@@ -1134,6 +1134,99 @@ fn the_default_engine_variant_is_the_engine() {
     let profile = ok(engine.profile(&state));
     assert_eq!((profile.restarts, profile.fresh_handles), (1, 1));
     assert_eq!(native.computes().last(), Some(&(1, 1024)), "recommended");
+    ok(state.close());
+    ok(engine.close());
+}
+
+/// The 32-bit configurations each native state of `engine` gets, over
+/// enough computes for one restart: the first state's and its successor's.
+fn configurations_across_a_restart(
+    engine: &CuTensorNetEngine,
+    native: &NativeDouble,
+) -> Vec<Vec<StateU32Configuration>> {
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    for step in 0..=RESTART_PERIOD {
+        gate_and_read(engine, &mut state, step);
+    }
+    assert_eq!(ok(engine.profile(&state)).restarts, 1);
+    ok(state.close());
+    native.u32_configurations()
+}
+
+#[test]
+fn the_default_svd_algorithm_and_gauge_are_gesvd_and_simple() {
+    let (engine, native) = engine();
+    let expected = [
+        StateU32Configuration::SvdNormalizationNone,
+        StateU32Configuration::SvdAlgorithm(SvdAlgorithm::Gesvd),
+        StateU32Configuration::MpsGauge(MpsGauge::Simple),
+    ];
+    assert_eq!(
+        configurations_across_a_restart(&engine, &native),
+        [expected, expected],
+        "the state and the state its restart builds"
+    );
+    ok(engine.close());
+}
+
+#[test]
+fn the_policys_svd_algorithm_and_gauge_configure_each_state_and_each_restart() {
+    let algorithms = [
+        SvdAlgorithm::Gesvd,
+        SvdAlgorithm::Gesvdj,
+        SvdAlgorithm::Gesvdp,
+        SvdAlgorithm::Gesvdr,
+    ];
+    for algorithm in algorithms {
+        for gauge in [MpsGauge::Simple, MpsGauge::Free] {
+            for fresh in [true, false] {
+                let policy = ExecutionPolicy::base_qualification()
+                    .with_svd_algorithm(algorithm)
+                    .with_gauge(gauge)
+                    .with_fresh_handle_at_restart(fresh);
+                let (engine, native) = engine_with(policy);
+                let expected = [
+                    StateU32Configuration::SvdNormalizationNone,
+                    StateU32Configuration::SvdAlgorithm(algorithm),
+                    StateU32Configuration::MpsGauge(gauge),
+                ];
+                assert_eq!(
+                    configurations_across_a_restart(&engine, &native),
+                    [expected, expected],
+                    "{algorithm:?}, {gauge:?}, fresh handle {fresh}"
+                );
+                ok(engine.close());
+                assert_eq!(native.live_objects(), 0);
+            }
+        }
+    }
+}
+
+#[test]
+fn an_engine_variants_svd_algorithm_and_gauge_reach_the_state() {
+    let variant = EngineVariant {
+        svd_algorithm: SvdAlgorithm::Gesvdj,
+        gauge: MpsGauge::Free,
+        ..EngineVariant::default()
+    };
+    let policy = ExecutionPolicy::base_qualification();
+    assert_eq!(
+        policy.with_variant(variant),
+        policy
+            .with_svd_algorithm(SvdAlgorithm::Gesvdj)
+            .with_gauge(MpsGauge::Free)
+    );
+    let (engine, native) = engine_with(policy.with_variant(variant));
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    gate_and_read(&engine, &mut state, 0);
+    assert_eq!(
+        native.u32_configurations(),
+        [[
+            StateU32Configuration::SvdNormalizationNone,
+            StateU32Configuration::SvdAlgorithm(SvdAlgorithm::Gesvdj),
+            StateU32Configuration::MpsGauge(MpsGauge::Free),
+        ]]
+    );
     ok(state.close());
     ok(engine.close());
 }

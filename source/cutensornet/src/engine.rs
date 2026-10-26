@@ -51,6 +51,8 @@ mod tests;
 
 pub use error::EngineError;
 #[cfg(feature = "qualification")]
+pub use policy::{MpsGauge, SvdAlgorithm};
+#[cfg(feature = "qualification")]
 pub use profile::{EngineVariant, NativeHandle, StateProfile, WorkspaceSizes};
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -64,6 +66,14 @@ pub(crate) use self::{
     resources::SessionApi,
     sampler::SamplerApi,
 };
+// `library::engine` maps them to cuTensorNet's values; the `qualification`
+// feature exports them above.
+#[cfg(all(
+    target_os = "linux",
+    target_arch = "x86_64",
+    not(feature = "qualification")
+))]
+pub(crate) use policy::{MpsGauge, SvdAlgorithm};
 
 use num_complex::Complex64;
 use resources::SessionResources;
@@ -107,7 +117,9 @@ struct Session {
 ///
 /// Get one from `Availability::mps_engine` (Linux x86-64). Each state's bond
 /// dimensions come from the capacity `prepare` is given; the truncation
-/// cutoffs, SVD algorithm and gauge are the engine's, ④'s qualified values.
+/// cutoffs, SVD algorithm and gauge are the engine's: ④'s qualified
+/// cutoffs, and M0's GESVD and SIMPLE gauge unless the qualification picks
+/// others.
 /// Each state restarts every 10 computes on a cuTensorNet handle of its own
 /// (`policy.rs`'s `RESTART_PERIOD`, from the A100's `history_growth`).
 pub struct CuTensorNetEngine {

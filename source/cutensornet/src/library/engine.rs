@@ -18,9 +18,9 @@
 use super::CuTensorNetApi;
 use crate::bindings::{cudart_12, v2_13};
 use crate::engine::{
-    Complex64Abi, EngineError, MemorySpace, MemoryWorkspaceApi, MpsExecutionApi, MpsTarget,
-    OpaqueHandle, OutputMetadata, SamplerApi, SessionApi, StateF64Attribute, StateU32Configuration,
-    Stream, WorkspaceKind, WorkspacePreference,
+    Complex64Abi, EngineError, MemorySpace, MemoryWorkspaceApi, MpsExecutionApi, MpsGauge,
+    MpsTarget, OpaqueHandle, OutputMetadata, SamplerApi, SessionApi, StateF64Attribute,
+    StateU32Configuration, Stream, SvdAlgorithm, WorkspaceKind, WorkspacePreference,
 };
 use std::{
     ffi::{CStr, c_void},
@@ -647,13 +647,33 @@ impl MpsExecutionApi for CuTensorNetApi {
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_S_NORMALIZATION,
                 SVD_NORMALIZATION_NONE,
             ),
-            StateU32Configuration::SvdAlgorithmGesvd => (
+            StateU32Configuration::SvdAlgorithm(algorithm) => (
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
-                v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD,
+                match algorithm {
+                    SvdAlgorithm::Gesvd => {
+                        v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD
+                    }
+                    SvdAlgorithm::Gesvdj => {
+                        v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDJ
+                    }
+                    SvdAlgorithm::Gesvdp => {
+                        v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDP
+                    }
+                    SvdAlgorithm::Gesvdr => {
+                        v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVDR
+                    }
+                },
             ),
-            StateU32Configuration::MpsGaugeSimple => (
+            StateU32Configuration::MpsGauge(gauge) => (
                 v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION,
-                v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_SIMPLE,
+                match gauge {
+                    MpsGauge::Simple => {
+                        v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_SIMPLE
+                    }
+                    MpsGauge::Free => {
+                        v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_FREE
+                    }
+                },
             ),
         };
         // SAFETY: the attribute is paired with its audited 32-bit enum

@@ -97,6 +97,8 @@ struct Inner {
     free_memory: Option<usize>,
     /// The limit each state prepare was given.
     prepare_limits: Vec<usize>,
+    /// Each 32-bit configuration, in order, and the state it was set on.
+    u32_configurations: Vec<(usize, StateU32Configuration)>,
     /// The handle each live object that takes one was created with.
     owners: BTreeMap<usize, usize>,
 }
@@ -226,6 +228,24 @@ impl NativeDouble {
     /// The limit each state prepare was given, in order.
     pub(super) fn prepare_limits(&self) -> Vec<usize> {
         self.lock().prepare_limits.clone()
+    }
+
+    /// The 32-bit configurations of each native state, in the order the
+    /// states were first configured: a restarted state's come after its
+    /// predecessor's.
+    pub(super) fn u32_configurations(&self) -> Vec<Vec<StateU32Configuration>> {
+        let inner = self.lock();
+        let mut states: Vec<(usize, Vec<StateU32Configuration>)> = Vec::new();
+        for &(state, configuration) in &inner.u32_configurations {
+            match states.iter_mut().find(|(id, _)| *id == state) {
+                Some((_, configurations)) => configurations.push(configuration),
+                None => states.push((state, vec![configuration])),
+            }
+        }
+        states
+            .into_iter()
+            .map(|(_, configurations)| configurations)
+            .collect()
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -759,15 +779,16 @@ impl MpsExecutionApi for NativeDouble {
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
-        _configuration: StateU32Configuration,
+        configuration: StateU32Configuration,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("configure_state_u32")?;
         inner.owned(handle, state, "configure_state_u32")?;
-        let state = inner.state(state, "configure_state_u32")?;
-        if state.bonds.is_none() {
+        let native = inner.state(state, "configure_state_u32")?;
+        if native.bonds.is_none() {
             return Err(failed("configure_state_u32", "configured before finalize"));
         }
-        state.configurations += 1;
+        native.configurations += 1;
+        inner.u32_configurations.push((id(state), configuration));
         Ok(())
     }
 

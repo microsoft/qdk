@@ -10,7 +10,10 @@
 //! `CuTensorNetEngine::fresh_state_workspace`, which asks what a state with
 //! no history needs.
 
-use super::{memory_workspace::WorkspacePreference, policy::ExecutionPolicy};
+use super::{
+    memory_workspace::WorkspacePreference,
+    policy::{ExecutionPolicy, MpsGauge, SvdAlgorithm},
+};
 use std::{num::NonZeroUsize, time::Duration};
 
 /// The totals of one state's native calls since it was prepared, and the
@@ -65,15 +68,19 @@ pub struct StateProfile {
 
 /// A variant of the engine `Availability::mps_engine` creates, for the A100
 /// qualification to compare: not a supported configuration. Its default is
-/// that engine: the recommended scratch, and a restart every 10 computes on
-/// a fresh handle; a variant that does not restart says so
-/// (`restart_period: None, fresh_handle_at_restart: false`).
+/// that engine: GESVD with the SIMPLE gauge, the recommended scratch, and a
+/// restart every 10 computes on a fresh handle; a variant that does not
+/// restart says so (`restart_period: None, fresh_handle_at_restart: false`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(
     not(feature = "qualification"),
     allow(dead_code, reason = "built by the qualification only")
 )]
 pub struct EngineVariant {
+    /// The routine that factorizes each truncated bond.
+    pub svd_algorithm: SvdAlgorithm,
+    /// How the MPS is gauged between two-site updates.
+    pub gauge: MpsGauge,
     /// Each compute gets cuTensorNet's minimum scratch instead of its
     /// recommended one.
     pub minimum_workspace: bool,
@@ -90,6 +97,8 @@ impl Default for EngineVariant {
     fn default() -> Self {
         let policy = ExecutionPolicy::base_qualification();
         Self {
+            svd_algorithm: policy.svd_algorithm,
+            gauge: policy.gauge,
             minimum_workspace: policy.compute_workspace == WorkspacePreference::Min,
             restart_period: policy.restart_period,
             fresh_handle_at_restart: policy.fresh_handle_at_restart,

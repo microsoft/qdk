@@ -10,7 +10,11 @@
 //! bond cap; and `capture_mps`, ④'s test-only full-state capture, now
 //! follows every compute.
 
-use super::{EngineError, OpaqueHandle, Stream, memory_workspace::WorkspacePreference};
+use super::{
+    EngineError, OpaqueHandle, Stream,
+    memory_workspace::WorkspacePreference,
+    policy::{MpsGauge, SvdAlgorithm},
+};
 use num_complex::Complex64;
 use tensornet::{MpsShape, MpsShapeError};
 
@@ -179,8 +183,10 @@ pub(crate) enum StateU32Configuration {
     /// Kept singular values are not rescaled after truncation, so the norm
     /// is the weight actually retained; every read divides by it.
     SvdNormalizationNone,
-    SvdAlgorithmGesvd,
-    MpsGaugeSimple,
+    /// The policy's SVD algorithm.
+    SvdAlgorithm(SvdAlgorithm),
+    /// The policy's MPS gauge.
+    MpsGauge(MpsGauge),
 }
 
 /// Injected cuTensorNet State/MPS operations, not a backend-neutral execution API.

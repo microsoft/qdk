@@ -15,8 +15,10 @@ tensornet = { path = "../tensornet" }
 thiserror = { workspace = true }
 
 [features]
-# Exposes the engine without MPS capture, for the A100 qualification only
-# (scripts/qualify-engine-on-a100.sh); not a supported configuration.
+# Exposes the engine without MPS capture and its variants (`EngineVariant`:
+# workspace preference, restart period, fresh handle, SVD algorithm, gauge),
+# for the A100 qualification only (scripts/qualify-engine-on-a100.sh and
+# tensornet_simulator's qualification tests); not a supported configuration.
 qualification = []
 
 [dev-dependencies]

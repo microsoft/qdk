@@ -811,8 +811,12 @@ impl MpsExecution {
         // No normalization is the library default, pinned so the norm stays
         // the retained weight whichever default a future release picks.
         api.configure_state_u32(handle, state, StateU32Configuration::SvdNormalizationNone)?;
-        api.configure_state_u32(handle, state, StateU32Configuration::SvdAlgorithmGesvd)?;
-        api.configure_state_u32(handle, state, StateU32Configuration::MpsGaugeSimple)
+        api.configure_state_u32(
+            handle,
+            state,
+            StateU32Configuration::SvdAlgorithm(policy.svd_algorithm),
+        )?;
+        api.configure_state_u32(handle, state, StateU32Configuration::MpsGauge(policy.gauge))
     }
 
     /// Computes the state into new output buffers and returns the chain the

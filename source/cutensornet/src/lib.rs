@@ -23,7 +23,9 @@ mod version;
 
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
 #[cfg(feature = "qualification")]
-pub use engine::{EngineVariant, NativeHandle, StateProfile, WorkspaceSizes};
+pub use engine::{
+    EngineVariant, MpsGauge, NativeHandle, StateProfile, SvdAlgorithm, WorkspaceSizes,
+};
 pub use error::AvailabilityError;
 
 use std::{fmt, path::PathBuf};
@@ -91,7 +93,7 @@ impl Availability {
     }
 
     /// An MPS engine on CUDA device 0, with ④'s qualified truncation
-    /// cutoffs, SVD algorithm and gauge. Each of its states restarts from
+    /// cutoffs, and M0's SVD algorithm and gauge (GESVD, SIMPLE). Each of its states restarts from
     /// its computed MPS every 10 computes, on a cuTensorNet handle of its
     /// own, which keeps the workspace a compute asks for bounded over a
     /// long shot. It keeps the loaded libraries alive for as long as it
@@ -134,10 +136,11 @@ impl Availability {
         )
     }
 
-    /// The engine of [`Self::mps_engine`], changed as `variant` says: each
-    /// compute given cuTensorNet's minimum scratch, or the native state
-    /// restarted from its computed MPS every so many computes or never, on
-    /// the same cuTensorNet handle or on a new one at each restart.
+    /// The engine of [`Self::mps_engine`], changed as `variant` says:
+    /// another SVD algorithm or MPS gauge, each compute given cuTensorNet's
+    /// minimum scratch, or the native state restarted from its computed MPS
+    /// every so many computes or never, on the same cuTensorNet handle or on
+    /// a new one at each restart.
     /// `EngineVariant::default()` is the engine of [`Self::mps_engine`]. For
     /// the A100 qualification only.
     ///
