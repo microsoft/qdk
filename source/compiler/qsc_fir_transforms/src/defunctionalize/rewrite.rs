@@ -659,6 +659,7 @@ pub(super) fn rewrite(
         &rewritten_callable_arg_locals,
         &hof_consumed_source_arrays,
         total_foreign,
+        assigner,
     );
 }
 
@@ -2826,6 +2827,7 @@ fn prune_dead_callable_arg_locals(
     rewritten_callable_arg_locals: &FxHashSet<(LocalItemId, LocalVarId)>,
     hof_consumed_source_arrays: &FxHashSet<(LocalItemId, LocalVarId)>,
     total_foreign: &FxHashSet<ItemId>,
+    assigner: &mut Assigner,
 ) {
     // Consumed closures can leave immutable snapshot aliases that still appear
     // to read a mutable callable. Remove those aliases before testing stores.
@@ -2868,15 +2870,15 @@ fn prune_dead_callable_arg_locals(
                 || find_local_init_expr_in_callable(package, callable_id, local_var)
                     .is_some_and(|init| is_replayed_callable_selection(package, init)))
         {
-            // All reads became direct dispatch. Remove discard-safe stores even
-            // for plain callable references: conditional write-only arrows must
-            // not require runtime callable storage after defunctionalization.
+            // All reads became direct dispatch. Remove the write-only storage,
+            // but keep observable RHS evaluation in its original lazy scope.
             remove_write_only_callable_local_from_callable(
                 package,
                 package_id,
                 callable_id,
                 local_var,
                 total_foreign,
+                assigner,
             );
         }
     }
@@ -2895,6 +2897,7 @@ fn prune_dead_callable_arg_locals(
                 callable_id,
                 src_var,
                 total_foreign,
+                assigner,
             );
         }
     }
@@ -3219,14 +3222,16 @@ fn local_index_source_array_local(
 /// bindings and assignment statements, which arise when a callable local is
 /// initialized (and possibly reassigned) from partial applications but is only
 /// ever consumed through a call site that direct-dispatch rewriting has already
-/// replaced. Removal requires a discard-safe initializer and only discard-safe
-/// whole-local assignments; partial updates or observable writes remain intact.
+/// replaced. Removal requires a discard-safe initializer and whole-local
+/// assignments. Observable right-hand sides remain at their original evaluation
+/// sites; partial updates and locals with surviving reads are not eligible.
 fn remove_write_only_callable_local_from_callable(
     package: &mut Package,
     package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
     total_foreign: &FxHashSet<ItemId>,
+    assigner: &mut Assigner,
 ) {
     let Some(ItemKind::Callable(decl)) = package.items.get(callable_id).map(|item| &item.kind)
     else {
@@ -3241,31 +3246,46 @@ fn remove_write_only_callable_local_from_callable(
     {
         return;
     }
-    let mut writes_are_discardable = true;
+    let mut whole_local_writes = true;
+    let mut observable_writes = Vec::new();
     crate::walk_utils::for_each_expr_in_callable_impl(
         package,
         &decl.implementation,
         &mut |id, expr| {
             if super::analysis::assignment_written_locals(package, expr).contains(&local_var) {
-                writes_are_discardable &= match expr.kind {
+                match expr.kind {
                     ExprKind::Assign(_, rhs) if expr_is_assign_to_local(package, id, local_var) => {
-                        expr_is_safe_to_discard_with_total_foreign(
+                        if !expr_is_safe_to_discard_with_total_foreign(
                             package,
                             package_id,
                             rhs,
                             total_foreign,
-                        )
+                        ) {
+                            observable_writes.push((id, rhs));
+                        }
                     }
-                    _ => false,
-                };
+                    _ => whole_local_writes = false,
+                }
             }
         },
     );
-    if !writes_are_discardable {
+    if !whole_local_writes {
         return;
     }
 
     let implementation = decl.implementation.clone();
+    for (assignment, rhs) in observable_writes {
+        // Keep the RHS intact: a returned callable may still contain effects,
+        // failures or capture bindings. Only the now-unobserved store is gone.
+        let span = package.get_expr(assignment).span;
+        let effect = alloc_semi_stmt(package, assigner, rhs, span);
+        let block = alloc_block(package, assigner, vec![effect], Ty::UNIT, span);
+        package
+            .exprs
+            .get_mut(assignment)
+            .expect("assignment should exist")
+            .kind = ExprKind::Block(block);
+    }
     match implementation {
         qsc_fir::fir::CallableImpl::Intrinsic
         | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
@@ -3285,9 +3305,9 @@ fn remove_write_only_callable_local_from_callable(
 /// within a block, recursing into nested blocks.
 ///
 /// Drops `Local` bindings (of any mutability) whose pattern is a simple bind
-/// of `local_var`, and drops `local_var = ...` assignment statements. Other
-/// statements are retained and their nested blocks are walked so assignments in
-/// conditional branches or loop bodies are removed as well.
+/// of `local_var`, and drops remaining discard-safe assignment statements.
+/// Observable assignments have already become RHS-evaluation blocks. Those and
+/// other statements stay in place while nested blocks are walked.
 fn remove_write_only_callable_local_from_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -6211,6 +6231,59 @@ fn build_branch_tree<E: Copy>(
 mod tests {
     use super::*;
 
+    /// Call cleanup directly so eligibility checks cannot bypass the guard.
+    /// The indexed write must reject the entire attempt before the earlier
+    /// effectful whole-array store is rewritten or its binding is removed.
+    #[test]
+    fn partial_callable_array_write_prevents_any_dead_store_cleanup() {
+        let source = r#"
+            namespace Test {
+                function A(value : Int) : Int { value + 1 }
+                function B(value : Int) : Int { value + 2 }
+                operation Main() : Int {
+                    mutable marker = 0;
+                    mutable fs = [A, A];
+                    set fs = { set marker += 7; [A, B] };
+                    set fs w/= 0 <- { set marker += 11; B };
+                    marker
+                }
+            }
+        "#;
+        let (mut store, package_id) =
+            crate::test_utils::compile_to_monomorphized_fir_with_entry(source, "Test.Main()");
+        let package = store.get(package_id);
+        let callable_id = crate::test_utils::callable_id_by_name(package, "Main");
+        let local_var = package
+            .pats
+            .values()
+            .find_map(|pat| match &pat.kind {
+                PatKind::Bind(ident) if ident.name.as_ref() == "fs" => Some(ident.id),
+                _ => None,
+            })
+            .expect("the callable array binding should exist");
+        let before = format!("{package:?}");
+        let mut assigner = Assigner::from_package(package);
+
+        remove_write_only_callable_local_from_callable(
+            store.get_mut(package_id),
+            package_id,
+            callable_id,
+            local_var,
+            &FxHashSet::default(),
+            &mut assigner,
+        );
+        assert_eq!(
+            format!("{:?}", store.get(package_id)),
+            before,
+            "partial-write rejection must leave the binding, both writes and all FIR nodes unchanged"
+        );
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package_id),
+            Ok(qsc_eval::val::Value::Int(18))
+        );
+    }
+
     #[test]
     fn callable_local_used_only_by_live_closure_capture_is_retained() {
         let source = r#"
@@ -6268,6 +6341,7 @@ mod tests {
         );
 
         let udts = UdtMetadata::new(&store);
+        let mut assigner = Assigner::from_package(store.get(package_id));
         // Model a cleanup candidate whose earlier direct-call read was consumed.
         prune_dead_callable_arg_locals(
             &udts,
@@ -6276,6 +6350,7 @@ mod tests {
             &FxHashSet::from_iter([(callable_id, local_var)]),
             &FxHashSet::default(),
             &FxHashSet::default(),
+            &mut assigner,
         );
         let package = store.get(package_id);
         assert_eq!(

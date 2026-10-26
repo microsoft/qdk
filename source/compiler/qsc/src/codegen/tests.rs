@@ -634,7 +634,17 @@ fn check_array_operand_snapshot(expression: &str, ssa: &Expect, adaptive: &Expec
     }
 }
 
-fn check_evaluation_order_callable_residue(body: &str, expected: [i64; 2]) {
+/// The source interpreter supplies one oracle; the complete QIR entry snapshot
+/// separately connects measurement branches, saved values and effects to output.
+/// Lower profiles inline preparation without changing SSA IDs. Full Adaptive
+/// emits a separate call and needs its own prepared-entry snapshot.
+fn check_evaluation_order_callable_residue(
+    body: &str,
+    expected: [i64; 2],
+    prepared_adaptive: &Expect,
+    ssa: &Expect,
+    adaptive: &Expect,
+) {
     for (prepare, expected) in ["", "X(q);"].into_iter().zip(expected) {
         let source = format!(
             "function F(x : Int) : Int {{ x + 1 }}
@@ -653,9 +663,614 @@ fn check_evaluation_order_callable_residue(body: &str, expected: [i64; 2]) {
             Value::Int(expected)
         );
         for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
-            compile_source_to_qir(&source, profile.into());
+            let qir = compile_source_to_qir(&source, profile.into());
+            let mut entry = qir_entry_body(&qir).to_string();
+            if !prepare.is_empty() && profile != Profile::Adaptive {
+                let gate =
+                    "  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))\n";
+                assert_eq!(entry.matches(gate).count(), 1, "{profile:?}:\n{entry}");
+                assert!(
+                    entry.contains(&format!("{gate}  call void @__quantum__qis__mresetz__body")),
+                    "preparation must immediately precede measurement, {profile:?}:\n{entry}"
+                );
+                entry = entry.replacen(gate, "", 1);
+            }
+            let snapshot = if profile == Profile::Adaptive {
+                if prepare.is_empty() {
+                    adaptive
+                } else {
+                    prepared_adaptive
+                }
+            } else {
+                ssa
+            };
+            snapshot.assert_eq(&entry);
         }
     }
+}
+
+/// The hundreds encode F(10) or G(10), and the low digits count the reached RHS
+/// effect. Nesting that effect inside the replacement must match a separate
+/// statement, without requiring runtime storage for the consumed callable.
+#[test]
+fn evaluation_order_effectful_callable_and_replacement() {
+    for replacement in [
+        "set f = { set marker += 7; G };",
+        "set marker += 7; set f = G;",
+    ] {
+        check_evaluation_order_callable_residue(
+            &format!(
+                "mutable marker = 0;
+         mutable f = {{ F }};
+         let _ = b and {{ {replacement} false }};
+         f(10) * 100 + marker"
+            ),
+            [1100, 1207],
+            &expect![[r#"
+            block_0:
+              %var_3 = alloca i1
+              %var_4 = alloca i64
+              %var_5 = alloca i1
+              %var_7 = alloca i64
+              %var_8 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_1, ptr %var_3
+              store i64 0, ptr %var_4
+              %var_14 = load i1, ptr %var_3
+              store i1 %var_14, ptr %var_5
+              %var_16 = load i1, ptr %var_5
+              br i1 %var_16, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_4
+              br label %block_2
+            block_2:
+              %var_17 = load i1, ptr %var_3
+              br i1 %var_17, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_7
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_7
+              br label %block_5
+            block_5:
+              %var_19 = load i64, ptr %var_7
+              store i64 %var_19, ptr %var_8
+              %var_21 = load i64, ptr %var_8
+              %var_9 = mul i64 %var_21, 100
+              %var_22 = load i64, ptr %var_4
+              %var_11 = add i64 %var_9, %var_22
+              call void @__quantum__rt__int_record_output(i64 %var_11, ptr @0)
+              ret i64 0"#]],
+            &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_0, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_12 = phi i64 [0, %block_0], [7, %block_1]
+              br i1 %var_0, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_13 = phi i64 [12, %block_3], [11, %block_4]
+              %var_8 = mul i64 %var_13, 100
+              %var_10 = add i64 %var_8, %var_12
+              call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+            &expect![[r#"
+            block_0:
+              %var_2 = alloca i1
+              %var_3 = alloca i64
+              %var_4 = alloca i1
+              %var_6 = alloca i64
+              %var_7 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_0, ptr %var_2
+              store i64 0, ptr %var_3
+              %var_13 = load i1, ptr %var_2
+              store i1 %var_13, ptr %var_4
+              %var_15 = load i1, ptr %var_4
+              br i1 %var_15, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_3
+              br label %block_2
+            block_2:
+              %var_16 = load i1, ptr %var_2
+              br i1 %var_16, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_6
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_6
+              br label %block_5
+            block_5:
+              %var_18 = load i64, ptr %var_6
+              store i64 %var_18, ptr %var_7
+              %var_20 = load i64, ptr %var_7
+              %var_8 = mul i64 %var_20, 100
+              %var_21 = load i64, ptr %var_3
+              %var_10 = add i64 %var_8, %var_21
+              call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+              ret i64 0"#]],
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_effectful_callable_or_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         let _ = b or { set f = { set marker += 7; G }; false };
+         f(10) * 100 + marker",
+        [1207, 1100],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i1
+              %var_4 = alloca i64
+              %var_5 = alloca i1
+              %var_7 = alloca i64
+              %var_8 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_1, ptr %var_3
+              store i64 0, ptr %var_4
+              %var_14 = load i1, ptr %var_3
+              store i1 %var_14, ptr %var_5
+              %var_16 = load i1, ptr %var_5
+              br i1 %var_16, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_4
+              br label %block_2
+            block_2:
+              %var_18 = load i1, ptr %var_3
+              br i1 %var_18, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_7
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_7
+              br label %block_5
+            block_5:
+              %var_20 = load i64, ptr %var_7
+              store i64 %var_20, ptr %var_8
+              %var_22 = load i64, ptr %var_8
+              %var_9 = mul i64 %var_22, 100
+              %var_23 = load i64, ptr %var_4
+              %var_11 = add i64 %var_9, %var_23
+              call void @__quantum__rt__int_record_output(i64 %var_11, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_0, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_13 = phi i64 [0, %block_0], [7, %block_1]
+              %var_12 = phi i1 [true, %block_0], [false, %block_1]
+              br i1 %var_0, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_14 = phi i64 [11, %block_3], [12, %block_4]
+              %var_8 = mul i64 %var_14, 100
+              %var_10 = add i64 %var_8, %var_13
+              call void @__quantum__rt__int_record_output(i64 %var_10, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i1
+              %var_3 = alloca i64
+              %var_4 = alloca i1
+              %var_6 = alloca i64
+              %var_7 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_0, ptr %var_2
+              store i64 0, ptr %var_3
+              %var_13 = load i1, ptr %var_2
+              store i1 %var_13, ptr %var_4
+              %var_15 = load i1, ptr %var_4
+              br i1 %var_15, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_3
+              br label %block_2
+            block_2:
+              %var_17 = load i1, ptr %var_2
+              br i1 %var_17, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_6
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_6
+              br label %block_5
+            block_5:
+              %var_19 = load i64, ptr %var_6
+              store i64 %var_19, ptr %var_7
+              %var_21 = load i64, ptr %var_7
+              %var_8 = mul i64 %var_21, 100
+              %var_22 = load i64, ptr %var_3
+              %var_10 = add i64 %var_8, %var_22
+              call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_effectful_callable_and_assign_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         mutable flag = b;
+         set flag and= { set f = { set marker += 7; G }; false };
+         f(10) * 100 + marker",
+        [1100, 1207],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_5 = alloca i64
+              %var_6 = alloca i1
+              %var_7 = alloca i1
+              %var_8 = alloca i1
+              %var_9 = alloca i64
+              %var_10 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_5
+              store i1 %var_2, ptr %var_0
+              %var_17 = load i1, ptr %var_0
+              store i1 %var_17, ptr %var_7
+              store i1 false, ptr %var_8
+              %var_20 = load i1, ptr %var_7
+              br i1 %var_20, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_5
+              store i1 false, ptr %var_8
+              br label %block_2
+            block_2:
+              %var_21 = load i1, ptr %var_8
+              store i1 %var_21, ptr %var_6
+              %var_23 = load i1, ptr %var_0
+              br i1 %var_23, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_9
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_9
+              br label %block_5
+            block_5:
+              %var_25 = load i64, ptr %var_9
+              store i64 %var_25, ptr %var_10
+              %var_27 = load i64, ptr %var_10
+              %var_11 = mul i64 %var_27, 100
+              %var_28 = load i64, ptr %var_5
+              %var_13 = add i64 %var_11, %var_28
+              call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_14 = phi i64 [0, %block_0], [7, %block_1]
+              br i1 %var_1, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_15 = phi i64 [12, %block_3], [11, %block_4]
+              %var_10 = mul i64 %var_15, 100
+              %var_12 = add i64 %var_10, %var_14
+              call void @__quantum__rt__int_record_output(i64 %var_12, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_4 = alloca i64
+              %var_5 = alloca i1
+              %var_6 = alloca i1
+              %var_7 = alloca i1
+              %var_8 = alloca i64
+              %var_9 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_4
+              store i1 %var_1, ptr %var_0
+              %var_16 = load i1, ptr %var_0
+              store i1 %var_16, ptr %var_6
+              store i1 false, ptr %var_7
+              %var_19 = load i1, ptr %var_6
+              br i1 %var_19, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_4
+              store i1 false, ptr %var_7
+              br label %block_2
+            block_2:
+              %var_20 = load i1, ptr %var_7
+              store i1 %var_20, ptr %var_5
+              %var_22 = load i1, ptr %var_0
+              br i1 %var_22, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_8
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_8
+              br label %block_5
+            block_5:
+              %var_24 = load i64, ptr %var_8
+              store i64 %var_24, ptr %var_9
+              %var_26 = load i64, ptr %var_9
+              %var_10 = mul i64 %var_26, 100
+              %var_27 = load i64, ptr %var_4
+              %var_12 = add i64 %var_10, %var_27
+              call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_effectful_callable_or_assign_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         mutable flag = b;
+         set flag or= { set f = { set marker += 7; G }; false };
+         f(10) * 100 + marker",
+        [1207, 1100],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_5 = alloca i64
+              %var_6 = alloca i1
+              %var_7 = alloca i1
+              %var_8 = alloca i1
+              %var_9 = alloca i64
+              %var_10 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_2 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_5
+              store i1 %var_2, ptr %var_0
+              %var_17 = load i1, ptr %var_0
+              store i1 %var_17, ptr %var_7
+              store i1 true, ptr %var_8
+              %var_20 = load i1, ptr %var_7
+              br i1 %var_20, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_5
+              store i1 false, ptr %var_8
+              br label %block_2
+            block_2:
+              %var_23 = load i1, ptr %var_8
+              store i1 %var_23, ptr %var_6
+              %var_25 = load i1, ptr %var_0
+              br i1 %var_25, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_9
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_9
+              br label %block_5
+            block_5:
+              %var_27 = load i64, ptr %var_9
+              store i64 %var_27, ptr %var_10
+              %var_29 = load i64, ptr %var_10
+              %var_11 = mul i64 %var_29, 100
+              %var_30 = load i64, ptr %var_5
+              %var_13 = add i64 %var_11, %var_30
+              call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_15 = phi i64 [0, %block_0], [7, %block_1]
+              %var_14 = phi i1 [true, %block_0], [false, %block_1]
+              br i1 %var_1, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_16 = phi i64 [11, %block_3], [12, %block_4]
+              %var_10 = mul i64 %var_16, 100
+              %var_12 = add i64 %var_10, %var_15
+              call void @__quantum__rt__int_record_output(i64 %var_12, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i1
+              %var_4 = alloca i64
+              %var_5 = alloca i1
+              %var_6 = alloca i1
+              %var_7 = alloca i1
+              %var_8 = alloca i64
+              %var_9 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i1 false, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i64 0, ptr %var_4
+              store i1 %var_1, ptr %var_0
+              %var_16 = load i1, ptr %var_0
+              store i1 %var_16, ptr %var_6
+              store i1 true, ptr %var_7
+              %var_19 = load i1, ptr %var_6
+              br i1 %var_19, label %block_2, label %block_1
+            block_1:
+              store i64 7, ptr %var_4
+              store i1 false, ptr %var_7
+              br label %block_2
+            block_2:
+              %var_22 = load i1, ptr %var_7
+              store i1 %var_22, ptr %var_5
+              %var_24 = load i1, ptr %var_0
+              br i1 %var_24, label %block_3, label %block_4
+            block_3:
+              store i64 11, ptr %var_8
+              br label %block_5
+            block_4:
+              store i64 12, ptr %var_8
+              br label %block_5
+            block_5:
+              %var_26 = load i64, ptr %var_8
+              store i64 %var_26, ptr %var_9
+              %var_28 = load i64, ptr %var_9
+              %var_10 = mul i64 %var_28, 100
+              %var_29 = load i64, ptr %var_4
+              %var_12 = add i64 %var_10, %var_29
+              call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+/// Calling `f` must see the replacement, but `saved` must still call the
+/// original function. The low digits expose skipped or duplicated RHS effects.
+#[test]
+fn evaluation_order_effectful_callable_saved_snapshot_replacement() {
+    check_evaluation_order_callable_residue(
+        "mutable marker = 0;
+         mutable f = { F };
+         let current = f;
+         let saved = (x -> current(x));
+         let _ = b and { set f = { set marker += 7; G }; false };
+         f(10) * 10000 + saved(10) * 100 + marker",
+        [111_100, 121_107],
+        &expect![[r#"
+            block_0:
+              %var_3 = alloca i1
+              %var_4 = alloca i64
+              %var_5 = alloca i1
+              %var_7 = alloca i64
+              %var_8 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @X(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_1, ptr %var_3
+              store i64 0, ptr %var_4
+              %var_16 = load i1, ptr %var_3
+              store i1 %var_16, ptr %var_5
+              %var_18 = load i1, ptr %var_5
+              br i1 %var_18, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_4
+              br label %block_2
+            block_2:
+              %var_19 = load i1, ptr %var_3
+              br i1 %var_19, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_7
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_7
+              br label %block_5
+            block_5:
+              %var_21 = load i64, ptr %var_7
+              store i64 %var_21, ptr %var_8
+              %var_23 = load i64, ptr %var_8
+              %var_9 = mul i64 %var_23, 10000
+              %var_11 = add i64 %var_9, 1100
+              %var_24 = load i64, ptr %var_4
+              %var_13 = add i64 %var_11, %var_24
+              call void @__quantum__rt__int_record_output(i64 %var_13, ptr @0)
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_0, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_14 = phi i64 [0, %block_0], [7, %block_1]
+              br i1 %var_0, label %block_3, label %block_4
+            block_3:
+              br label %block_5
+            block_4:
+              br label %block_5
+            block_5:
+              %var_15 = phi i64 [12, %block_3], [11, %block_4]
+              %var_8 = mul i64 %var_15, 10000
+              %var_10 = add i64 %var_8, 1100
+              %var_12 = add i64 %var_10, %var_14
+              call void @__quantum__rt__int_record_output(i64 %var_12, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i1
+              %var_3 = alloca i64
+              %var_4 = alloca i1
+              %var_6 = alloca i64
+              %var_7 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 %var_0, ptr %var_2
+              store i64 0, ptr %var_3
+              %var_15 = load i1, ptr %var_2
+              store i1 %var_15, ptr %var_4
+              %var_17 = load i1, ptr %var_4
+              br i1 %var_17, label %block_1, label %block_2
+            block_1:
+              store i64 7, ptr %var_3
+              br label %block_2
+            block_2:
+              %var_18 = load i1, ptr %var_2
+              br i1 %var_18, label %block_3, label %block_4
+            block_3:
+              store i64 12, ptr %var_6
+              br label %block_5
+            block_4:
+              store i64 11, ptr %var_6
+              br label %block_5
+            block_5:
+              %var_20 = load i64, ptr %var_6
+              store i64 %var_20, ptr %var_7
+              %var_22 = load i64, ptr %var_7
+              %var_8 = mul i64 %var_22, 10000
+              %var_10 = add i64 %var_8, 1100
+              %var_23 = load i64, ptr %var_3
+              %var_12 = add i64 %var_10, %var_23
+              call void @__quantum__rt__int_record_output(i64 %var_12, ptr @0)
+              ret i64 0"#]],
+    );
 }
 
 #[test]
@@ -664,6 +1279,87 @@ fn evaluation_order_callable_transparent_initializers_reach_qir() {
         check_evaluation_order_callable_residue(
             &format!("mutable f = {initializer}; let _ = b and {{ set f = G; false }}; f(10)"),
             [11, 12],
+            &expect![[r#"
+                block_0:
+                  %var_3 = alloca i1
+                  %var_4 = alloca i1
+                  %var_6 = alloca i64
+                  %var_7 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @X(ptr inttoptr (i64 0 to ptr))
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_1, ptr %var_3
+                  %var_9 = load i1, ptr %var_3
+                  store i1 %var_9, ptr %var_4
+                  %var_11 = load i1, ptr %var_4
+                  br i1 %var_11, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_12 = load i1, ptr %var_3
+                  br i1 %var_12, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_6
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_6
+                  br label %block_5
+                block_5:
+                  %var_14 = load i64, ptr %var_6
+                  store i64 %var_14, ptr %var_7
+                  %var_16 = load i64, ptr %var_7
+                  call void @__quantum__rt__int_record_output(i64 %var_16, ptr @0)
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_0, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  br i1 %var_0, label %block_3, label %block_4
+                block_3:
+                  br label %block_5
+                block_4:
+                  br label %block_5
+                block_5:
+                  %var_7 = phi i64 [12, %block_3], [11, %block_4]
+                  call void @__quantum__rt__int_record_output(i64 %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  %var_2 = alloca i1
+                  %var_3 = alloca i1
+                  %var_5 = alloca i64
+                  %var_6 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_0, ptr %var_2
+                  %var_8 = load i1, ptr %var_2
+                  store i1 %var_8, ptr %var_3
+                  %var_10 = load i1, ptr %var_3
+                  br i1 %var_10, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_11 = load i1, ptr %var_2
+                  br i1 %var_11, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_5
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_5
+                  br label %block_5
+                block_5:
+                  %var_13 = load i64, ptr %var_5
+                  store i64 %var_13, ptr %var_6
+                  %var_15 = load i64, ptr %var_6
+                  call void @__quantum__rt__int_record_output(i64 %var_15, ptr @0)
+                  ret i64 0"#]],
         );
     }
 }
@@ -683,6 +1379,93 @@ fn evaluation_order_callable_captured_snapshot_reaches_qir() {
                  f(10) * 100 + saved(10)"
             ),
             [1111, 1211],
+            &expect![[r#"
+                block_0:
+                  %var_3 = alloca i1
+                  %var_4 = alloca i1
+                  %var_6 = alloca i64
+                  %var_7 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @X(ptr inttoptr (i64 0 to ptr))
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_1, ptr %var_3
+                  %var_12 = load i1, ptr %var_3
+                  store i1 %var_12, ptr %var_4
+                  %var_14 = load i1, ptr %var_4
+                  br i1 %var_14, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_15 = load i1, ptr %var_3
+                  br i1 %var_15, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_6
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_6
+                  br label %block_5
+                block_5:
+                  %var_17 = load i64, ptr %var_6
+                  store i64 %var_17, ptr %var_7
+                  %var_19 = load i64, ptr %var_7
+                  %var_8 = mul i64 %var_19, 100
+                  %var_10 = add i64 %var_8, 11
+                  call void @__quantum__rt__int_record_output(i64 %var_10, ptr @0)
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_0, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  br i1 %var_0, label %block_3, label %block_4
+                block_3:
+                  br label %block_5
+                block_4:
+                  br label %block_5
+                block_5:
+                  %var_11 = phi i64 [12, %block_3], [11, %block_4]
+                  %var_7 = mul i64 %var_11, 100
+                  %var_9 = add i64 %var_7, 11
+                  call void @__quantum__rt__int_record_output(i64 %var_9, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]],
+            &expect![[r#"
+                block_0:
+                  %var_2 = alloca i1
+                  %var_3 = alloca i1
+                  %var_5 = alloca i64
+                  %var_6 = alloca i64
+                  call void @__quantum__rt__initialize(ptr null)
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  store i1 %var_0, ptr %var_2
+                  %var_11 = load i1, ptr %var_2
+                  store i1 %var_11, ptr %var_3
+                  %var_13 = load i1, ptr %var_3
+                  br i1 %var_13, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_14 = load i1, ptr %var_2
+                  br i1 %var_14, label %block_3, label %block_4
+                block_3:
+                  store i64 12, ptr %var_5
+                  br label %block_5
+                block_4:
+                  store i64 11, ptr %var_5
+                  br label %block_5
+                block_5:
+                  %var_16 = load i64, ptr %var_5
+                  store i64 %var_16, ptr %var_6
+                  %var_18 = load i64, ptr %var_6
+                  %var_7 = mul i64 %var_18, 100
+                  %var_9 = add i64 %var_7, 11
+                  call void @__quantum__rt__int_record_output(i64 %var_9, ptr @0)
+                  ret i64 0"#]],
         );
     }
 }
