@@ -578,6 +578,8 @@ pub mod qir {
         nominal: bool,
         /// Substitutions for this pass's fresh, declaration-scoped type parameters.
         bindings: FxHashMap<ParamId, Ty>,
+        /// Opaque values to revisit after declared callbacks constrain their types.
+        deferred_values: Vec<(Ty, Value)>,
         /// Next private parameter ID, also used for aggregate element placeholders.
         /// These IDs never enter the compiler's package store.
         next_param: usize,
@@ -679,9 +681,15 @@ pub mod qir {
         fn check_value(&mut self, expected: &Ty, value: &Value) -> Result<(), Vec<Error>> {
             let nominal_expected = if self.nominal {
                 let ty = self.resolve(expected);
-                if matches!(ty, Ty::Param(_) | Ty::Infer(_) | Ty::Err) {
+                if matches!(ty, Ty::Infer(_) | Ty::Err) {
+                    return Ok(());
+                }
+                if matches!(ty, Ty::Param(_))
+                    && !matches!(value, Value::Global(_, _) | Value::Closure(_))
+                {
                     // Runtime values do not prove a nominal type: even tuple tags
                     // survive `Unwrap`. Only declared signatures bind these parameters.
+                    self.deferred_values.push((ty, value.clone()));
                     return Ok(());
                 }
                 Some(self.udt_payload_ty(ty))
@@ -739,6 +747,38 @@ pub mod qir {
                     if let Some(actual) = value_ty_for_inference(value, None, self.callables) {
                         self.check_types(expected, &actual)?;
                     }
+                }
+            }
+            Ok(())
+        }
+
+        /// Rechecks values whose expected nominal type was unknown when first visited.
+        ///
+        /// For example, Forward<'T>(value : 'T, read : 'T -> Int) might receive
+        /// [IdA] followed by ReadArrayB, where IdA is A -> A and ReadArrayB expects
+        /// an array of B -> B callbacks. The array is initially deferred: its runtime
+        /// representation cannot establish 'T's nominal type. ReadArrayB's declared
+        /// signature then binds 'T to (B -> B)[], allowing this recheck to inspect
+        /// the array and reject IdA even if A and B have identical payload layouts.
+        ///
+        /// Each round takes the current queue so check_value can enqueue unresolved
+        /// values or nested children separately. Inspecting a newly resolved aggregate
+        /// can reveal callbacks that add bindings needed by other deferred values,
+        /// so another round may be necessary.
+        ///
+        /// Bindings only grow. If a complete round adds none, the remaining values
+        /// still lack nominal evidence; stop rather than loop forever or infer named
+        /// types from runtime payloads. The separate structural pass remains responsible
+        /// for checking their runtime representation.
+        fn check_deferred_values(&mut self) -> Result<(), Vec<Error>> {
+            while !self.deferred_values.is_empty() {
+                let previous_bindings = self.bindings.len();
+                for (expected, value) in std::mem::take(&mut self.deferred_values) {
+                    self.check_value(&expected, &value)?;
+                }
+                // Unconstrained payloads remain unknown; bindings only grow.
+                if self.bindings.len() == previous_bindings {
+                    break;
                 }
             }
             Ok(())
@@ -808,6 +848,7 @@ pub mod qir {
                 callables,
                 nominal,
                 bindings: FxHashMap::default(),
+                deferred_values: Vec::new(),
                 next_param: 0,
             };
             let input = if nominal {
@@ -817,6 +858,9 @@ pub mod qir {
             };
             let expected = checker.fresh_type(&input);
             checker.check_value(&expected, args)?;
+            if nominal {
+                checker.check_deferred_values()?;
+            }
         }
         Ok(())
     }
