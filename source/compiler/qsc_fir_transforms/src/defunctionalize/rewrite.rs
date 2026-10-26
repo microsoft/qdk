@@ -2816,9 +2816,9 @@ fn projectable_local_initializer(
 /// Prunes eligible callable-argument locals and closure-bearing source arrays
 /// after their reads have been consumed by call-site rewrites.
 ///
-/// Removes dead immutable bindings and selected write-only bindings and
-/// assignments, then runs general dead-callable-local cleanup. This does not
-/// eliminate every arrow-typed residue.
+/// Removes dead immutable aliases before selected write-only bindings and
+/// assignments, then runs general dead-callable-local cleanup again. This does
+/// not eliminate every arrow-typed residue.
 fn prune_dead_callable_arg_locals(
     udts: &UdtMetadata,
     package: &mut Package,
@@ -2827,6 +2827,10 @@ fn prune_dead_callable_arg_locals(
     hof_consumed_source_arrays: &FxHashSet<(LocalItemId, LocalVarId)>,
     total_foreign: &FxHashSet<ItemId>,
 ) {
+    // Consumed closures can leave immutable snapshot aliases that still appear
+    // to read a mutable callable. Remove those aliases before testing stores.
+    prune_dead_top_level_callable_locals(udts, package, package_id);
+
     let mut source_arrays: FxHashSet<(LocalItemId, LocalVarId)> = FxHashSet::default();
 
     // Closure callable-arrays forwarded and fully consumed by a higher-order
@@ -2860,18 +2864,13 @@ fn prune_dead_callable_arg_locals(
             }
             remove_dead_callable_local_from_callable(udts, package, callable_id, local_var);
         } else if !local_var_is_read_in_callable(package, callable_id, local_var)
-            && local_var_has_closure_valued_binding(package, callable_id, local_var)
+            && (local_var_has_closure_valued_binding(package, callable_id, local_var)
+                || find_local_init_expr_in_callable(package, callable_id, local_var)
+                    .is_some_and(|init| is_replayed_callable_selection(package, init)))
         {
-            // The local is still mentioned, but only as an assignment target:
-            // every read was consumed when the call site was rewritten into a
-            // direct dispatch. When such a write-only local is initialized from
-            // a partial application (`mutable op = Rx(0.0, _)`), its binding
-            // holds a closure-tailed block. Left in place, closure cleanup
-            // neutralizes that tail into a reference no one produces a value
-            // for. Removing the dead binding and its assignments avoids that.
-            // Locals bound only to plain callable references
-            // (`op = H`) carry no closure tail, so they are left untouched to
-            // preserve existing dead-code behavior.
+            // All reads became direct dispatch. Remove discard-safe stores even
+            // for plain callable references: conditional write-only arrows must
+            // not require runtime callable storage after defunctionalization.
             remove_write_only_callable_local_from_callable(
                 package,
                 package_id,
@@ -3067,7 +3066,7 @@ pub(crate) fn hoist_expr_into_let(
     Some((local_var, var_expr))
 }
 
-/// Reports whether `local_var` is referenced anywhere in the callable's body.
+/// Reports whether `local_var` is referenced or captured in the callable's body.
 fn local_var_is_used_in_callable(
     package: &Package,
     callable_id: LocalItemId,
@@ -3083,7 +3082,9 @@ fn local_var_is_used_in_callable(
         package,
         &decl.implementation,
         &mut |_expr_id, expr| {
-            if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var) {
+            if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var)
+                || matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.contains(&local_var))
+            {
                 used = true;
             }
         },
@@ -3093,10 +3094,10 @@ fn local_var_is_used_in_callable(
 
 /// Returns `true` when `local_var` is read anywhere in the callable body.
 ///
-/// A read is any `Var(Res::Local(local_var))` reference other than the direct
-/// left-hand side of an assignment (`local_var = ...`). This distinguishes a
-/// still-referenced-but-write-only local, whose only remaining mentions are
-/// assignment targets, from one that is genuinely observed.
+/// A read is a closure capture or any `Var(Res::Local(local_var))` reference
+/// other than the direct left-hand side of an assignment (`local_var = ...`).
+/// This distinguishes a still-referenced-but-write-only local, whose only
+/// remaining mentions are assignment targets, from one genuinely observed.
 fn local_var_is_read_in_callable(
     package: &Package,
     callable_id: LocalItemId,
@@ -3127,6 +3128,7 @@ fn local_var_is_read_in_callable(
         &mut |expr_id, expr| {
             if matches!(expr.kind, ExprKind::Var(Res::Local(var), _) if var == local_var)
                 && !assign_lhs.contains(&expr_id)
+                || matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.contains(&local_var))
             {
                 read = true;
             }
@@ -3140,8 +3142,8 @@ fn local_var_is_read_in_callable(
 ///
 /// Partial applications lower to a block whose tail is a `Closure`, so this
 /// distinguishes a callable local initialized from a partial application from
-/// one bound only to plain callable references (`op = H`), which carry no
-/// closure and need no dead-binding removal.
+/// one bound only to plain callable references (`op = H`). Plain reference
+/// selections have a separate eligibility check for dead-store removal.
 fn local_var_has_closure_valued_binding(
     package: &Package,
     callable_id: LocalItemId,
@@ -6203,4 +6205,92 @@ fn build_branch_tree<E: Copy>(
     Some(alloc_if_expr(
         package, span, result_ty, g, then_id, else_id, assigner,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callable_local_used_only_by_live_closure_capture_is_retained() {
+        let source = r#"
+            namespace Test {
+                function AddOne(value : Int) : Int { value + 1 }
+                function Make() : Int -> Int {
+                    let selected = AddOne;
+                    value -> selected(value)
+                }
+            }
+        "#;
+        let (mut store, package_id) =
+            crate::test_utils::compile_to_monomorphized_fir_with_entry(source, "Test.Make()(10)");
+        let package = store.get(package_id);
+        let callable_id = crate::test_utils::callable_id_by_name(package, "Make");
+        let ItemKind::Callable(decl) = &package.get_item(callable_id).kind else {
+            panic!("Make should be a callable");
+        };
+        let mut closures = Vec::new();
+        let mut local_reads = FxHashSet::default();
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |expr_id, expr| match &expr.kind {
+                ExprKind::Closure(captures, _) => closures.push((expr_id, captures.clone())),
+                ExprKind::Var(Res::Local(local), _) => {
+                    local_reads.insert(*local);
+                }
+                _ => {}
+            },
+        );
+        assert_eq!(closures.len(), 1, "Make should return one live closure");
+        let (closure_id, captures) = &closures[0];
+        let [local_var] = captures.as_slice() else {
+            panic!("the closure should capture exactly the callable local");
+        };
+        let local_var = *local_var;
+        assert!(
+            !local_reads.contains(&local_var),
+            "the capture must be the local's only remaining use"
+        );
+        let initializer = find_local_init_expr_in_callable(package, callable_id, local_var)
+            .expect("the captured callable binding should exist");
+        assert!(
+            is_replayed_callable_selection(package, initializer),
+            "the initializer must otherwise qualify for dead-store cleanup"
+        );
+        assert!(
+            local_var_is_used_in_callable(package, callable_id, local_var),
+            "a live closure capture must count as a use"
+        );
+        assert!(
+            local_var_is_read_in_callable(package, callable_id, local_var),
+            "a live closure capture must count as a read"
+        );
+
+        let udts = UdtMetadata::new(&store);
+        // Model a cleanup candidate whose earlier direct-call read was consumed.
+        prune_dead_callable_arg_locals(
+            &udts,
+            store.get_mut(package_id),
+            package_id,
+            &FxHashSet::from_iter([(callable_id, local_var)]),
+            &FxHashSet::default(),
+            &FxHashSet::default(),
+        );
+        let package = store.get(package_id);
+        assert_eq!(
+            find_local_init_expr_in_callable(package, callable_id, local_var),
+            Some(initializer),
+            "cleanup must retain the binding needed by the live capture"
+        );
+        assert!(
+            matches!(&package.get_expr(*closure_id).kind, ExprKind::Closure(retained, _) if retained == captures),
+            "cleanup must retain the live closure's capture"
+        );
+        crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, package_id, &[]);
+        assert_eq!(
+            crate::test_utils::try_eval_fir_entry(&store, package_id),
+            Ok(qsc_eval::val::Value::Int(11))
+        );
+    }
 }

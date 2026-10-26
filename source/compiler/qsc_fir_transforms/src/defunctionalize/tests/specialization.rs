@@ -3373,10 +3373,7 @@ fn branch_split_mutable_conditional() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -4907,14 +4904,7 @@ fn three_branch_conditional_callable_generates_branch_split() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if n == 0 {
-                    op = X;
-                } else if n == 1 {
-                    op = Y;
-                } else {
-                    op = Z;
-                }
+                if n == 0 {} else if n == 1 {} else {}
 
                 if n == 0 {
                     Apply_AdjCtl__X_(q)
