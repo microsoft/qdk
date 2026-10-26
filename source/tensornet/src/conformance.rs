@@ -25,6 +25,12 @@
 //! - samples, by their distribution and by their seed, not bit for bit,
 //!   since an engine samples with its own generator;
 //! - the realized chain, by [`shape`](MpsEngine::shape);
+//! - the [`retained_weight`](MpsEngine::retained_weight): 1 without
+//!   truncation and after a projection; under a bond cap of one between two
+//!   entangled sites, either the weight of the larger Schmidt value, which
+//!   the reference computes, or 1 with a chain that outgrows the cap (an
+//!   engine that does not truncate); and it never increases. This is the
+//!   one case with a capacity that truncates;
 //! - a lone site, which is a valid capacity (an [`MpsShape`] of one site
 //!   is `[physical]`), so a one-qubit program runs on every engine; an
 //!   engine whose library needs longer chains must hide the difference;
@@ -75,7 +81,7 @@ type Case<E> = fn(&E) -> Result<(), String>;
 /// Runs every case against `engine` and returns the failures, empty when
 /// the engine conforms.
 pub fn check<E: MpsEngine>(engine: &E) -> Vec<Failure> {
-    let cases: [(&'static str, Case<E>); 9] = [
+    let cases: [(&'static str, Case<E>); 10] = [
         ("bell", bell),
         ("layout", layout),
         ("conditional", conditional),
@@ -83,6 +89,7 @@ pub fn check<E: MpsEngine>(engine: &E) -> Vec<Failure> {
         ("fork", fork),
         ("sample", sample),
         ("shape", shape),
+        ("retained weight", retained_weight),
         ("lone site", lone_site),
         ("refusals", refusals),
     ];
@@ -167,11 +174,14 @@ fn describe<T>(what: &str, result: Result<T, impl fmt::Display>) -> Result<T, St
 
 impl<'e, E: MpsEngine> Pair<'e, E> {
     fn new(engine: &'e E, sites: usize) -> Result<Self, String> {
-        let capacity = describe("capacity", exact_capacity(sites))?;
+        Self::with_capacity(engine, &describe("capacity", exact_capacity(sites))?)
+    }
+
+    fn with_capacity(engine: &'e E, capacity: &MpsShape) -> Result<Self, String> {
         Ok(Self {
             engine,
-            state: describe("engine prepare", engine.prepare(&capacity))?,
-            reference: describe("reference prepare", REFERENCE.prepare(&capacity))?,
+            state: describe("engine prepare", engine.prepare(capacity))?,
+            reference: describe("reference prepare", REFERENCE.prepare(capacity))?,
         })
     }
 
@@ -505,6 +515,118 @@ fn shape<E: MpsEngine>(engine: &E) -> Result<(), String> {
     pair.apply(&[2, 0], &cnot())?;
     pair.apply(&[3, 1], &cnot())?;
     same(&pair, "an entangled chain")
+}
+
+/// The engine's retained weight, read and checked to be 1 to [`TOLERANCE`].
+fn unit_weight<E: MpsEngine>(engine: &E, state: &E::State, when: &str) -> Result<f64, String> {
+    let weight = describe("engine retained weight", engine.retained_weight(state))?;
+    close(&format!("{when}: the retained weight"), weight, 1.0)?;
+    Ok(weight)
+}
+
+/// The weight a bond of one keeps between the two sites of `state`: the
+/// larger eigenvalue of site 0's reduced density matrix, the square of the
+/// larger Schmidt value. Basis state `i` has site 0 as bit 0, so
+/// `ρ[a][b] = Σ_c ψ(a + 2c)·conj(ψ(b + 2c))`.
+fn kept_by_a_bond_of_one(state: &ReferenceState) -> f64 {
+    let (a0, a1, a2, a3) = (
+        state.amplitude(0),
+        state.amplitude(1),
+        state.amplitude(2),
+        state.amplitude(3),
+    );
+    let zero = a0.norm_sqr() + a2.norm_sqr();
+    let one = a1.norm_sqr() + a3.norm_sqr();
+    let coherence = a0 * a1.conj() + a2 * a3.conj();
+    f64::midpoint(zero, one) + (((zero - one) / 2.0).powi(2) + coherence.norm_sqr()).sqrt()
+}
+
+/// The retained weight: 1 while nothing truncates, whatever the gates and
+/// projections; then, under a cap of one between two sites, the weight the
+/// cap keeps, unchanged by a projection, and never more than before.
+///
+/// Under the cap the engine projects with its own P(One), not the
+/// reference's: a truncated state is not the reference's, and only the
+/// engine's own probability preserves its norm.
+fn retained_weight<E: MpsEngine>(engine: &E) -> Result<(), String> {
+    let mut pair = scrambled(engine)?;
+    unit_weight(engine, &pair.state, "an entangled state that fits")?;
+    pair.project(1, true)?;
+    pair.apply(&[1, 2], &controlled_y())?;
+    pair.project(2, false)?;
+    unit_weight(engine, &pair.state, "after projections and gates")?;
+    let lone = Pair::new(engine, 1)?;
+    unit_weight(engine, &lone.state, "a lone site")?;
+
+    let cap = describe("capacity", MpsShape::new(vec![vec![2, 1], vec![1, 2]]))?;
+    let mut capped = Pair::with_capacity(engine, &cap)?;
+    capped.apply(&[0], &ry(0.7))?;
+    capped.apply(&[1], &ry(-0.4))?;
+    let mut previous = unit_weight(engine, &capped.state, "a product state under a cap of one")?;
+    let mut never_increases = |weight: f64, when: &str| {
+        if weight > previous + TOLERANCE {
+            return Err(format!(
+                "{when}: the retained weight rose from {previous} to {weight}"
+            ));
+        }
+        previous = weight;
+        Ok(())
+    };
+    capped.apply(&[0, 1], &cnot())?;
+    let kept = kept_by_a_bond_of_one(&capped.reference);
+    let weight = describe(
+        "engine retained weight",
+        engine.retained_weight(&capped.state),
+    )?;
+    let realized = describe("engine shape", engine.shape(&capped.state))?;
+    if realized.fits_within(&cap) {
+        close(
+            "an entangling gate under a cap of one: the retained weight",
+            weight,
+            kept,
+        )?;
+    } else {
+        close(
+            "an entangling gate on an engine that does not truncate: the retained weight",
+            weight,
+            1.0,
+        )?;
+    }
+    never_increases(weight, "an entangling gate under a cap of one")?;
+    // A product state again on a truncating engine; then a projection with
+    // a probability that is neither 0 nor 1 on any engine.
+    capped.apply(&[1], &ry(1.1))?;
+    let p1 = describe("engine P(One)", engine.probability_of_one(&capped.state, 1))?;
+    let (one, p) = if p1 >= 0.5 {
+        (true, p1)
+    } else {
+        (false, 1.0 - p1)
+    };
+    describe(
+        "engine project",
+        engine.project(&mut capped.state, 1, one, p),
+    )?;
+    let projected = describe(
+        "engine retained weight",
+        engine.retained_weight(&capped.state),
+    )?;
+    if (projected - weight).abs() > TOLERANCE * weight.max(1.0) {
+        return Err(format!(
+            "a projection changed the retained weight from {weight} to {projected}"
+        ));
+    }
+    never_increases(projected, "a projection under a cap of one")?;
+    capped.apply(&[0], &ry(0.9))?;
+    capped.apply(&[0, 1], &cnot())?;
+    let again = describe(
+        "engine retained weight",
+        engine.retained_weight(&capped.state),
+    )?;
+    never_increases(again, "a second entangling gate under a cap of one")?;
+    if again.is_nan() || again <= 0.0 {
+        return Err(format!("the retained weight fell to {again}"));
+    }
+    Ok(())
 }
 
 /// Every operation on a state of one site, and the refusal of the site

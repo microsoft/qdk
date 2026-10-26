@@ -290,4 +290,26 @@ impl MpsEngine for CuTensorNetEngine {
     fn shape(&self, state: &CuTensorNetState) -> Result<MpsShape, EngineError> {
         self.execution(state)?.shape()
     }
+
+    /// The squared norm cuTensorNet reports for the computed state, one
+    /// expectation Query like any read. It is the retained weight because
+    /// the engine pins `SvdNormalizationNone`, so the kept singular values
+    /// are never rescaled. Computing the state truncates it, so when the
+    /// reads come changes the weight (DECISIONS G8). The real part is
+    /// returned as the library computed it, zero or a rounding-sized
+    /// negative included; a non-finite or materially complex norm is an
+    /// error.
+    ///
+    /// A hypothesis, not yet measured: the SVD's absolute cutoff (1e-10)
+    /// applies to this unnormalized state. If the singular values at a cut
+    /// scale as `√w` once the weight is `w` (the MPS in canonical form
+    /// about that cut), a Schmidt value of the normalized state below
+    /// `1e-10/√w` is discarded, so the cutoff cuts deeper as the weight
+    /// falls, and drops every value once `w` is near 1e-20. That would
+    /// explain the A100's "nonpositive squared norm" at χ = 8; the
+    /// qualification's `projection_memory` records this weight to check
+    /// it.
+    fn retained_weight(&self, state: &CuTensorNetState) -> Result<f64, EngineError> {
+        self.execution(state)?.retained_weight()
+    }
 }

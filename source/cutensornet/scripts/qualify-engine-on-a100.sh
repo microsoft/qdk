@@ -14,7 +14,8 @@
 #                 measurements; read_cost runs with capture=on and =off and
 #                 extrapolates both to H2's 1,404 reads over 48,000 gates;
 #                 projection_memory records the device memory along H2's
-#                 pattern, step after step, with variants of the measurement
+#                 pattern, step after step, with variants of the measurement,
+#                 and the retained weight <psi|psi> the truncations left
 #
 # Usage, on the A100 VM:
 #   qualify-engine-on-a100.sh [--check | --quick] [--only TESTS] COMMIT [REPO]
@@ -416,7 +417,13 @@ for case in conformance:
         bad.append(f"{case}: no case rows")
         print(f"  {label}  no rows")
         continue
-    print(f"  {label}  " + "  ".join(f"{name}={'passed' if value == 'true' else 'FAILED'}" for name, value in cells))
+    # Without capture, every compute truncates the whole history again, so
+    # the retained weight is reported but not held (main.rs).
+    def verdict(name, value):
+        if value == "true":
+            return "passed"
+        return "not-held" if case == "conformance_without_capture" and name == "retained weight" else "FAILED"
+    print(f"  {label}  " + "  ".join(f"{name}={verdict(name, value)}" for name, value in cells))
     for note in notes:
         if note.startswith(f"# {case} case="):
             print(f"    {note[2:]}")
@@ -498,13 +505,16 @@ if "projection_memory" in tests:
         metric = r[1].rsplit(";", 1)[-1]
         if not all(k in fields for k in ("variant", "width", "chi")):
             continue
-        run = runs.setdefault((fields["variant"], fields["width"], fields["chi"]), {"after": {}, "before": {}})
+        run = runs.setdefault((fields["variant"], fields["width"], fields["chi"]),
+                              {"after": {}, "before": {}, "weight": {}})
         if "extrapolation" in fields:
             run["h2_" + metric] = r[2]
         elif "step" in fields and metric == "device_mib":
             run["after"][int(fields["step"])] = r[2]
         elif "step" in fields and metric == "device_mib_before_ending":
             run["before"][int(fields["step"])] = r[2]
+        elif "step" in fields and metric == "retained_weight":
+            run["weight"][int(fields["step"])] = r[2]
         elif "step" not in fields:
             run[metric] = r[2]
     def at_ending(run):
@@ -523,10 +533,19 @@ if "projection_memory" in tests:
     for (variant, width, chi), run in runs.items():
         marks = " ".join(f"{s}:{v}" for s, v in sorted(run["after"].items()))
         print(f"  {variant} width={width} chi={chi}: {marks}")
-    print("\n  EXTRAPOLATION to H2's 1,404 measurements from the slope and the mean step, not a measurement:")
+    print("\n  retained weight <psi|psi> at each mark (step:weight), after the step's reads, and the")
+    print("  least-squares slope of its log10 per step (1 = nothing truncated; it never increases)")
+    for (variant, width, chi), run in runs.items():
+        marks = " ".join(f"{s}:{v}" for s, v in sorted(run["weight"].items()))
+        print(f"  {variant} width={width} chi={chi}: log10/step={run.get('log10_retained_weight_per_step', '-')} "
+              f"{marks}")
+    print("\n  EXTRAPOLATION to H2's 1,404 measurements from the slopes and the mean step, an estimate,")
+    print("  not a measurement (log10 w: log10 of the weight left after 1,404 steps at the measured rate,")
+    print("  for this random brickwork of H2's size: likely pessimistic, not H2's own circuit):")
     for (variant, width, chi), run in runs.items():
         print(f"  {variant:24} width={width:>2} chi={chi:>2} {run.get('h2_mib_per_shot', '-'):>8} MiB/shot "
-              f"{run.get('h2_seconds_per_shot', '-'):>8} s/shot")
+              f"{run.get('h2_seconds_per_shot', '-'):>8} s/shot "
+              f"{run.get('h2_log10_retained_weight', '-'):>8} log10 w")
 
 print("\n=== measurements (every row but projection_memory's; rows.csv has them as CSV)")
 errors = {}

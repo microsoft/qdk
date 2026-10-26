@@ -20,7 +20,8 @@ The crate also states what a backend that runs a chain does, as the trait
 to sites, read the probability of a one at a site (also given earlier values),
 project, fork (a copy up to the engine's truncation), sample sites for many
 shots from one seed, take the expectation
-of a Pauli sum, and report the chain as realized. It speaks tensors only: no
+of a Pauli sum, and report the chain as realized and the weight its
+truncations kept. It speaks tensors only: no
 shots, RNG objects or instructions, so a caller that runs shots draws its own
 values above it. How a chain is built and truncated stays with each engine;
 `qdk_cutensornet` implements the trait over cuTensorNet.

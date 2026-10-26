@@ -372,6 +372,20 @@ impl MpsExecution {
         self.target.logical(realized)
     }
 
+    /// ⟨ψ|ψ⟩ of the computed state, as the library reports it beside an
+    /// expectation: one Query of the identity on the first site, whose
+    /// squared norm is the answer. The norm is the retained weight because
+    /// `configure` pins `SvdNormalizationNone`; the padding of a lone site
+    /// stays |0⟩ and changes nothing.
+    pub(super) fn retained_weight(&mut self) -> Result<f64, EngineError> {
+        self.check_live()?;
+        let first = self.mode(0)?;
+        self.ensure_computed()?;
+        let (_, squared_norm) =
+            self.query(&[diagonal_product(&BTreeMap::from([(first, [1.0, 1.0])]))])?;
+        real_squared_norm(squared_norm)
+    }
+
     fn check_live(&self) -> Result<(), EngineError> {
         if let Some(reason) = &self.poisoned {
             return Err(EngineError::Poisoned {
@@ -896,6 +910,23 @@ fn diagonal_product(diagonals: &BTreeMap<i32, [f64; 2]>) -> Product {
     }
 }
 
+/// The squared norm the library reported, which must be finite and real
+/// to rounding. It may be zero: a state whose truncations discarded all of
+/// its weight reports that, rather than an error.
+fn real_squared_norm(squared_norm: Complex64) -> Result<f64, EngineError> {
+    if !(squared_norm.re.is_finite() && squared_norm.im.is_finite()) {
+        return Err(EngineError::InvalidNativeResult {
+            reason: "Query returned a non-finite squared norm".to_string(),
+        });
+    }
+    if squared_norm.im.abs() > 1.0e-12 * squared_norm.re.abs().max(1.0) {
+        return Err(EngineError::InvalidNativeResult {
+            reason: "Query squared norm has a material imaginary component".to_string(),
+        });
+    }
+    Ok(squared_norm.re)
+}
+
 /// `⟨ψ|O|ψ⟩ / ⟨ψ|ψ⟩`, as ④'s `normalize_expectation`: a truncated MPS is
 /// not normalized, so every read divides by the norm the library reports
 /// beside it, and rejects a non-finite value or a nonpositive or complex
@@ -960,4 +991,38 @@ fn validate_workspace_size(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Complex64, EngineError, real_squared_norm};
+
+    #[test]
+    fn a_squared_norm_of_zero_or_rounding_below_it_is_returned_as_reported() {
+        for norm in [1.0, 0.25, 0.0, -1.0e-18] {
+            assert_eq!(
+                real_squared_norm(Complex64::new(norm, 1.0e-14)).ok(),
+                Some(norm)
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_finite_or_complex_squared_norm_is_an_error() {
+        for norm in [
+            Complex64::new(f64::NAN, 0.0),
+            Complex64::new(f64::INFINITY, 0.0),
+            Complex64::new(1.0, f64::NAN),
+            Complex64::new(1.0, 1.0e-6),
+            Complex64::new(0.0, 1.0e-9),
+        ] {
+            assert!(
+                matches!(
+                    real_squared_norm(norm),
+                    Err(EngineError::InvalidNativeResult { .. })
+                ),
+                "{norm}"
+            );
+        }
+    }
 }

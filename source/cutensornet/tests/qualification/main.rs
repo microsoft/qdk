@@ -8,7 +8,8 @@
 //! - `conformance` runs [`tensornet::conformance::check`] on the engine
 //!   [`Availability::mps_engine`](qdk_cutensornet::Availability::mps_engine)
 //!   creates, and fails listing every [`Failure`](tensornet::conformance::Failure);
-//!   `conformance_without_capture` does the same without capture. They are
+//!   `conformance_without_capture` does the same without capture, except
+//!   for the retained weight, which it reports but is not held to. They are
 //!   the only tests that assert.
 //! - The others measure, and print what they measured as CSV rows (see
 //!   `report`): an engine error is a row, and the sweep goes on. They fail
@@ -53,7 +54,7 @@ use tensornet::conformance::check;
 
 /// The cases of [`check`], in its order: it reports failures, not the cases
 /// it ran, so this list is what a passing case is printed from.
-const CONFORMANCE_CASES: [&str; 8] = [
+const CONFORMANCE_CASES: [&str; 10] = [
     "bell",
     "layout",
     "conditional",
@@ -61,8 +62,16 @@ const CONFORMANCE_CASES: [&str; 8] = [
     "fork",
     "sample",
     "shape",
+    "retained weight",
+    "lone site",
     "refusals",
 ];
+
+/// The case the engine without capture is not held to: each of its
+/// computes truncates the whole history again, so a projection may change
+/// its retained weight (`Availability::mps_engine_without_capture`). Its
+/// row is printed; it does not fail the test.
+const NOT_HELD_WITHOUT_CAPTURE: &[&str] = &["retained weight"];
 
 impl Measured for CuTensorNetEngine {
     fn refusal(error: &EngineError) -> Option<String> {
@@ -134,7 +143,7 @@ fn environment() {
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn conformance() {
-    conform("conformance", engine());
+    conform("conformance", engine(), &[]);
 }
 
 /// Conformance of the engine without capture, the path `read_cost`
@@ -146,12 +155,16 @@ fn conformance_without_capture() {
     let engine = availability
         .mps_engine_without_capture()
         .unwrap_or_else(|error| panic!("no engine on CUDA device 0: {error}"));
-    conform("conformance_without_capture", engine);
+    conform(
+        "conformance_without_capture",
+        engine,
+        NOT_HELD_WITHOUT_CAPTURE,
+    );
 }
 
 /// Runs [`check`] on `engine`, prints a `case=<name>;passed` row for each
-/// case, and fails listing every failure.
-fn conform(name: &'static str, engine: CuTensorNetEngine) {
+/// case, and fails listing every failure outside `not_held`.
+fn conform(name: &'static str, engine: CuTensorNetEngine, not_held: &[&str]) {
     let mut report = Report::new(name);
     let (failures, duration) =
         timed(|| Ok::<_, EngineError>(check(&engine))).unwrap_or_else(|error| panic!("{error}"));
@@ -171,6 +184,10 @@ fn conform(name: &'static str, engine: CuTensorNetEngine) {
     }
     close(&mut report, engine);
     report.finish();
+    let failures: Vec<_> = failures
+        .iter()
+        .filter(|failure| !not_held.contains(&failure.case))
+        .collect();
     let list: Vec<_> = failures.iter().map(ToString::to_string).collect();
     assert!(
         failures.is_empty(),
