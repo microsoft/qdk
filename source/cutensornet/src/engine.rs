@@ -13,7 +13,7 @@
 //!   └─ CuTensorNetState    MpsExecution: one native state (state.rs)
 //!        ├─ execution.rs   MpsExecutionApi, MpsTarget, output metadata
 //!        ├─ sampler.rs     SamplerApi, PreparedSampler
-//!        └─ memory_workspace.rs, ffi.rs, error.rs, policy.rs
+//!        └─ memory_workspace.rs, ffi.rs, error.rs, policy.rs, profile.rs
 //! library::engine          the four traits on the loaded libraries (Linux x86-64)
 //! ```
 //!
@@ -34,6 +34,7 @@ mod execution;
 mod ffi;
 mod memory_workspace;
 mod policy;
+mod profile;
 mod resources;
 mod sampler;
 mod state;
@@ -43,6 +44,8 @@ mod test_double;
 mod tests;
 
 pub use error::EngineError;
+#[cfg(feature = "qualification")]
+pub use profile::{EngineVariant, StateProfile};
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use self::{
@@ -137,6 +140,17 @@ impl CuTensorNetEngine {
                 reason: format!("{open} states of the engine are still open"),
             }),
         }
+    }
+
+    /// What `state`'s native calls have cost so far, and the device buffers
+    /// it holds, for the A100 qualification's `history_growth`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `state` belongs to another engine or is in use.
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn profile(&self, state: &CuTensorNetState) -> Result<profile::StateProfile, EngineError> {
+        Ok(self.execution(state)?.profile())
     }
 
     /// The state's execution, if `state` was created by this engine, with

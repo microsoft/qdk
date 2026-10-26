@@ -30,6 +30,7 @@ pub(crate) struct CuTensorNetFunctions {
     pub(crate) create_state: state::CreateStateFn,
     pub(crate) destroy_state: state::DestroyStateFn,
     pub(crate) finalize_mps: state::FinalizeMpsFn,
+    pub(crate) initialize_mps: state::InitializeMpsFn,
     pub(crate) state_compute: state::StateComputeFn,
     pub(crate) state_configure: state::StateConfigureFn,
     pub(crate) state_prepare: state::StatePrepareFn,
@@ -152,6 +153,13 @@ pub(crate) fn resolve_cutensornet_functions<R: SymbolResolver>(
             path,
             "cutensornetStateFinalizeMPS",
             b"cutensornetStateFinalizeMPS\0",
+        )?,
+        initialize_mps: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetStateInitializeMPS",
+            b"cutensornetStateInitializeMPS\0",
         )?,
         state_compute: resolve_required(
             resolver,

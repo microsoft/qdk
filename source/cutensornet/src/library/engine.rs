@@ -403,6 +403,9 @@ impl MemoryWorkspaceApi for CuTensorNetApi {
         kind: WorkspaceKind,
     ) -> Result<i64, EngineError> {
         let preference = match preference {
+            WorkspacePreference::Min => {
+                v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_MIN
+            }
             WorkspacePreference::Recommended => {
                 v2_13::cutensornetWorksizePref_t_CUTENSORNET_WORKSIZE_PREF_RECOMMENDED
             }
@@ -547,6 +550,50 @@ impl MpsExecutionApi for CuTensorNetApi {
             )
         };
         self.check_cutensornet("cutensornetStateFinalizeMPS", status)
+    }
+
+    fn initialize_mps(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        layout: &OutputMetadata,
+        tensors: &[OpaqueHandle],
+    ) -> Result<(), EngineError> {
+        if layout.extents.len() != tensors.len() || layout.strides.len() != tensors.len() {
+            return Err(EngineError::InvalidRequest {
+                reason: "an initial MPS needs one extent, stride and tensor per site".to_string(),
+            });
+        }
+        let extent_pointers = layout
+            .extents
+            .iter()
+            .map(|extents| extents.as_ptr())
+            .collect::<Vec<_>>();
+        let stride_pointers = layout
+            .strides
+            .iter()
+            .map(|strides| strides.as_ptr())
+            .collect::<Vec<_>>();
+        let mut tensor_pointers = tensors
+            .iter()
+            .map(|tensor| tensor.as_ptr())
+            .collect::<Vec<_>>();
+        // SAFETY: handle and state are live; each table has one entry per
+        // state mode and outlives the call. The tensors are device
+        // allocations the caller keeps until the state has been computed and
+        // captured again (or destroyed), since the library may read them at
+        // the next compute; whether it copies them is not documented.
+        let status = unsafe {
+            (self.cutensornet_functions.initialize_mps)(
+                handle.as_ptr(),
+                state.as_ptr(),
+                v2_13::cutensornetBoundaryCondition_t_CUTENSORNET_BOUNDARY_CONDITION_OPEN,
+                extent_pointers.as_ptr(),
+                stride_pointers.as_ptr(),
+                tensor_pointers.as_mut_ptr(),
+            )
+        };
+        self.check_cutensornet("cutensornetStateInitializeMPS", status)
     }
 
     fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {

@@ -10,7 +10,7 @@
 //! bond cap; and `capture_mps`, ④'s test-only full-state capture, now
 //! follows every compute.
 
-use super::{EngineError, OpaqueHandle, Stream};
+use super::{EngineError, OpaqueHandle, Stream, memory_workspace::WorkspacePreference};
 use num_complex::Complex64;
 use tensornet::{MpsShape, MpsShapeError};
 
@@ -211,6 +211,17 @@ pub(crate) trait MpsExecutionApi: super::memory_workspace::MemoryWorkspaceApi {
         state: OpaqueHandle,
         target: &MpsTarget,
     ) -> Result<(), EngineError>;
+    /// `cutensornetStateInitializeMPS`: the MPS in `tensors`, laid out as
+    /// `layout` says (a compute's realized extents and strides), becomes the
+    /// state's start. The tensors must stay allocated until the state has
+    /// been computed and captured again, or destroyed.
+    fn initialize_mps(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        layout: &OutputMetadata,
+        tensors: &[OpaqueHandle],
+    ) -> Result<(), EngineError>;
     /// `cutensornetStateCaptureMPS`: the last computed MPS becomes the
     /// state's start, and the operators applied so far are deleted from the
     /// state (their ids with them); the finalize target and configuration
@@ -241,12 +252,13 @@ pub(crate) trait MpsExecutionApi: super::memory_workspace::MemoryWorkspaceApi {
         &self,
         handle: OpaqueHandle,
         workspace: OpaqueHandle,
+        preference: WorkspacePreference,
     ) -> Result<i64, EngineError> {
-        use super::memory_workspace::{MemorySpace, WorkspaceKind, WorkspacePreference};
+        use super::memory_workspace::{MemorySpace, WorkspaceKind};
         self.workspace_memory_size(
             handle,
             workspace,
-            WorkspacePreference::Recommended,
+            preference,
             MemorySpace::Device,
             WorkspaceKind::Scratch,
         )

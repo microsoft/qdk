@@ -10,7 +10,7 @@ use super::{
     test_double::{NativeDouble, uniform_capacity},
 };
 use num_complex::Complex64;
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm, SampleSeed, conformance};
 
 fn engine() -> (CuTensorNetEngine, Arc<NativeDouble>) {
@@ -122,12 +122,18 @@ fn each_compute_is_captured_before_the_previous_one_is_freed() {
         .iter()
         .position(|event| *event == "compute_state")
         .unwrap_or_else(|| panic!("{second:?}"));
-    assert_eq!(second[compute + 1], "capture_mps", "{second:?}");
+    // The compute's own scratch is freed first, then the compute is
+    // captured, and only then are the previous outputs freed.
+    assert_eq!(
+        second[compute + 1..compute + 3],
+        ["free", "capture_mps"],
+        "{second:?}"
+    );
     assert!(
         !second[..compute].contains(&"free"),
         "the captured start is freed before it is read: {second:?}"
     );
-    assert!(second[compute + 2..].contains(&"free"), "{second:?}");
+    assert!(second[compute + 3..].contains(&"free"), "{second:?}");
     assert_eq!(native.count("compute_state"), 2);
     assert_eq!(native.count("capture_mps"), 2);
 }
@@ -513,4 +519,260 @@ fn repeated_reads_and_computes_do_not_grow_device_memory() {
     // Each operator keeps its tensor; the last compute's buffers replace the
     // previous ones.
     assert_eq!(native.live_objects(), recomputed + 3);
+}
+
+#[test]
+fn a_compute_frees_its_scratch_once_the_stream_has_finished_it() {
+    let (engine, native) = engine();
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    for site in 0..3 {
+        ok(engine.apply(&mut state, &[site], &hadamard()));
+        ok(engine.probability_of_one(&state, site));
+        assert_eq!(native.live_scratch(), 0, "no scratch outlives its call");
+    }
+    let computes = native.computes();
+    assert_eq!(computes.len(), 3);
+    assert!(
+        computes.iter().all(|&(live, _)| live == 1),
+        "a compute holds only its own scratch: {computes:?}"
+    );
+}
+
+#[test]
+fn a_compute_prepares_within_the_budget_and_the_free_memory() {
+    let (engine, native) = engine();
+    let budget = ExecutionPolicy::base_qualification().maximum_workspace_bytes;
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.probability_of_one(&state, 0));
+    native.set_free_memory(1 << 20);
+    ok(engine.apply(&mut state, &[1], &hadamard()));
+    ok(engine.probability_of_one(&state, 1));
+    assert_eq!(native.prepare_limits(), [budget, 1 << 20]);
+}
+
+/// Ported from ④'s `workspace_recommendation_above_policy_fails_before_scratch_allocation`
+/// and `workspace_recommendation_above_free_memory_fails_before_scratch_allocation`.
+#[test]
+fn a_workspace_above_the_budget_or_the_free_memory_fails_before_any_scratch() {
+    let mut tight = ExecutionPolicy::base_qualification();
+    tight.maximum_workspace_bytes = 1000;
+    for (policy, free) in [
+        (tight, None),
+        (ExecutionPolicy::base_qualification(), Some(1000)),
+    ] {
+        let (engine, native) = engine_with(policy);
+        if let Some(bytes) = free {
+            native.set_free_memory(bytes);
+        }
+        let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+        ok(engine.apply(&mut state, &[0], &hadamard()));
+        let error = engine.probability_of_one(&state, 0).err();
+        assert!(
+            matches!(
+                error,
+                Some(EngineError::WorkspaceLimitExceeded {
+                    required: 1024,
+                    maximum: 1000
+                })
+            ),
+            "{error:?}"
+        );
+        assert_eq!(native.count("set_workspace"), 0);
+        assert_eq!(native.live_scratch(), 0);
+    }
+}
+
+#[test]
+fn the_minimum_workspace_policy_gives_each_compute_the_minimum() {
+    for (policy, bytes) in [
+        (ExecutionPolicy::base_qualification(), 1024),
+        (
+            ExecutionPolicy::base_qualification().with_minimum_compute_workspace(),
+            512,
+        ),
+    ] {
+        let (engine, native) = engine_with(policy);
+        let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+        ok(engine.apply(&mut state, &[0], &hadamard()));
+        ok(engine.probability_of_one(&state, 0));
+        assert_eq!(native.computes(), [(1, bytes)]);
+        let profile = ok(engine.profile(&state));
+        assert_eq!(
+            (
+                profile.minimum_workspace_bytes,
+                profile.recommended_workspace_bytes
+            ),
+            (512, 1024)
+        );
+        assert_eq!(profile.computes, 1);
+    }
+}
+
+fn restarting(period: usize) -> (CuTensorNetEngine, Arc<NativeDouble>) {
+    engine_with(
+        ExecutionPolicy::base_qualification().with_restart_period(NonZeroUsize::new(period)),
+    )
+}
+
+#[test]
+fn the_engine_restarting_its_state_conforms_to_the_exact_reference() {
+    for period in [1, 2, 3] {
+        let (engine, native) = restarting(period);
+        let failures = conformance::check(&engine);
+        assert!(failures.is_empty(), "every {period}: {failures:#?}");
+        assert!(native.count("initialize_mps") > 0, "every {period}");
+        assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+        ok(engine.close());
+        assert_eq!(native.live_objects(), 0);
+    }
+}
+
+/// Everything a long truncated walk reads, step by step: probabilities, the
+/// retained weight, the shape, samples and a fork's probability.
+fn walk(engine: &CuTensorNetEngine) -> Vec<f64> {
+    let sites = 5;
+    let mut state = ok(engine.prepare(&uniform_capacity(sites, 2)));
+    let seed = SampleSeed::try_from(11).unwrap_or_else(|e| panic!("{e}"));
+    let mut read = Vec::new();
+    for layer in 0..10 {
+        for site in 0..sites {
+            let angle = 0.9 + 0.41 * f64::from(u8::try_from(site + 2 * layer).unwrap_or(0));
+            ok(engine.apply(&mut state, &[site], &ry(angle)));
+        }
+        for site in (layer % 2..sites - 1).step_by(2) {
+            ok(engine.apply(&mut state, &[site, site + 1], &cnot()));
+        }
+        let edge = if layer % 2 == 0 { 0 } else { sites - 1 };
+        let p1 = ok(engine.probability_of_one(&state, edge));
+        read.push(p1);
+        read.push(ok(engine.retained_weight(&state)));
+        read.push(ok(engine.conditional_probability_of_one(
+            &state,
+            2,
+            &[(edge, p1 >= 0.5)],
+        )));
+        let shape = ok(engine.shape(&state));
+        read.extend(
+            (0..sites - 1)
+                .map(|cut| f64::from(u32::try_from(shape.bond_dim(cut).unwrap_or(0)).unwrap_or(0))),
+        );
+        let samples = ok(engine.sample(&state, &[0, 2, 4], 3, seed));
+        read.extend(samples.into_iter().map(f64::from));
+        let (one, p) = if p1 >= 0.5 {
+            (true, p1)
+        } else {
+            (false, 1.0 - p1)
+        };
+        ok(engine.project(&mut state, edge, one, p));
+    }
+    let copy = ok(engine.fork(&state));
+    read.push(ok(engine.probability_of_one(&copy, 2)));
+    ok(copy.close());
+    ok(state.close());
+    read
+}
+
+#[test]
+fn a_restart_changes_no_value_through_truncations_and_projections() {
+    let (captured, _native) = engine();
+    let expected = walk(&captured);
+    for period in [1, 2, 3, 50] {
+        let (engine, native) = restarting(period);
+        let read = walk(&engine);
+        assert_eq!(read.len(), expected.len());
+        for (at, (value, wanted)) in read.iter().zip(&expected).enumerate() {
+            assert!(
+                (value - wanted).abs() < 1e-12,
+                "every {period}, read {at}: {value}, not {wanted}"
+            );
+        }
+        let restarts = native.count("initialize_mps");
+        assert_eq!(restarts > 0, period < 50, "every {period}: {restarts}");
+        assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    }
+}
+
+#[test]
+fn a_restart_releases_the_old_state_and_its_operator_tensors() {
+    let (engine, native) = restarting(1);
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    ok(engine.probability_of_one(&state, 1));
+    // Two operator tensors, then one after each restart.
+    let live = native.live_objects() - 1;
+    for step in 0..5 {
+        ok(engine.apply(&mut state, &[step % 3], &hadamard()));
+        ok(engine.probability_of_one(&state, step % 3));
+        assert_eq!(native.live_objects(), live, "step {step}");
+        let profile = ok(engine.profile(&state));
+        assert_eq!(profile.operator_tensors, 1, "only the new state's");
+        assert_eq!(profile.restarts, step + 1);
+    }
+    assert_eq!(native.count("create_state"), 6);
+    assert_eq!(native.count("destroy_state"), 5);
+    assert_eq!(native.count("finalize_mps"), 6);
+    // Each restart reads the last compute, and only after it is the
+    // previous MPS freed: the new state's first compute reads it.
+    let events: Vec<_> = native
+        .events()
+        .into_iter()
+        .filter(|event| ["initialize_mps", "destroy_state", "compute_state"].contains(event))
+        .collect();
+    assert_eq!(
+        events[..4],
+        [
+            "compute_state",
+            "initialize_mps",
+            "destroy_state",
+            "compute_state"
+        ],
+        "{events:?}"
+    );
+    ok(state.close());
+    assert_eq!(native.live_objects(), 2);
+}
+
+#[test]
+fn a_failed_restart_poisons_the_state_and_cleans_up() {
+    let (engine, native) = restarting(1);
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.probability_of_one(&state, 0));
+    native.fail("initialize_mps", 1);
+    assert!(matches!(
+        engine.apply(&mut state, &[0, 1], &cnot()),
+        Err(EngineError::NativeCallFailed {
+            operation: "initialize_mps",
+            ..
+        })
+    ));
+    assert!(matches!(
+        engine.probability_of_one(&state, 0),
+        Err(EngineError::Poisoned { .. })
+    ));
+    assert_eq!(
+        native.count("destroy_state"),
+        1,
+        "the new state is released"
+    );
+    drop(state);
+    assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    ok(engine.close());
+    assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn a_restart_without_capture_is_refused() {
+    let native = Arc::new(NativeDouble::new());
+    let api: Arc<dyn NativeApi> = native.clone();
+    let policy = ExecutionPolicy::base_qualification()
+        .without_capture()
+        .with_restart_period(NonZeroUsize::new(1));
+    assert!(matches!(
+        CuTensorNetEngine::with_api(api, policy),
+        Err(EngineError::InvalidExecutionPolicy { .. })
+    ));
+    assert_eq!(native.live_objects(), 0);
 }

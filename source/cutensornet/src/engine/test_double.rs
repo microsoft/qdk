@@ -18,7 +18,16 @@
 //!   the computed state the start of the next compute and deletes the
 //!   operators, as cuTensorNet does, and the next compute reads that start
 //!   from the captured compute's output buffers, which must still be
-//!   allocated.
+//!   allocated;
+//! - `initialize_mps` takes the output buffers of a computed state, while
+//!   they are allocated, and makes that state the start, as a restart uses
+//!   it: on a state no operator has been applied to, with one extent and
+//!   stride table per site. The next compute reads the start from those
+//!   buffers, which must still be allocated.
+//!
+//! It records the scratch buffers attached to workspaces, so a test can see
+//! how many are allocated during a compute and after it, and returns half
+//! the recommended workspace size for the minimum.
 //!
 //! A compute truncates as an MPS of the target's bonds must: at each cut,
 //! left to right, whose Schmidt rank exceeds the target's bond, it projects
@@ -55,7 +64,8 @@ use tensornet::{
     reference::{ExactReference, ReferenceState},
 };
 
-/// The bytes `workspace_memory_size` asks for.
+/// The bytes `workspace_memory_size` asks for, at the recommended size; the
+/// minimum is half of it.
 const WORKSPACE_BYTES: i64 = 1024;
 
 #[derive(Default)]
@@ -72,6 +82,15 @@ struct Inner {
     failure: Option<(&'static str, usize)>,
     /// Every operator applied, on any state: its modes and unitary flag.
     applied: Vec<(Vec<i32>, bool)>,
+    /// Every buffer ever attached to a workspace as scratch.
+    scratch: Vec<usize>,
+    /// For each state compute, how many scratch buffers were allocated and
+    /// the size of the one attached.
+    computes: Vec<(usize, usize)>,
+    /// The free device memory `memory_info` reports, if not 1 TiB.
+    free_memory: Option<usize>,
+    /// The limit each state prepare was given.
+    prepare_limits: Vec<usize>,
 }
 
 enum Object {
@@ -171,6 +190,27 @@ impl NativeDouble {
         self.lock().applied.clone()
     }
 
+    /// How many scratch buffers are allocated now.
+    pub(super) fn live_scratch(&self) -> usize {
+        self.lock().live_scratch()
+    }
+
+    /// For each state compute, how many scratch buffers were allocated
+    /// during it, and the bytes of the one attached.
+    pub(super) fn computes(&self) -> Vec<(usize, usize)> {
+        self.lock().computes.clone()
+    }
+
+    /// Makes `memory_info` report `bytes` free.
+    pub(super) fn set_free_memory(&self, bytes: usize) {
+        self.lock().free_memory = Some(bytes);
+    }
+
+    /// The limit each state prepare was given, in order.
+    pub(super) fn prepare_limits(&self) -> Vec<usize> {
+        self.lock().prepare_limits.clone()
+    }
+
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner
             .lock()
@@ -192,6 +232,13 @@ impl NativeDouble {
 }
 
 impl Inner {
+    fn live_scratch(&self) -> usize {
+        self.scratch
+            .iter()
+            .filter(|scratch| self.objects.contains_key(scratch))
+            .count()
+    }
+
     fn create(&mut self, object: Object) -> OpaqueHandle {
         self.next_id += 1;
         let id = self.next_id * 256;
@@ -454,8 +501,8 @@ impl SessionApi for NativeDouble {
 
 impl MemoryWorkspaceApi for NativeDouble {
     fn memory_info(&self) -> Result<(usize, usize), EngineError> {
-        drop(self.call("memory_info")?);
-        Ok((1 << 40, 1 << 40))
+        let inner = self.call("memory_info")?;
+        Ok((inner.free_memory.unwrap_or(1 << 40), 1 << 40))
     }
 
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, EngineError> {
@@ -502,7 +549,7 @@ impl MemoryWorkspaceApi for NativeDouble {
         &self,
         _handle: OpaqueHandle,
         workspace: OpaqueHandle,
-        _preference: WorkspacePreference,
+        preference: WorkspacePreference,
         _space: MemorySpace,
         _kind: WorkspaceKind,
     ) -> Result<i64, EngineError> {
@@ -510,7 +557,10 @@ impl MemoryWorkspaceApi for NativeDouble {
             .require(workspace, "workspace_size", |o| {
                 matches!(o, Object::Workspace { .. })
             })?;
-        Ok(WORKSPACE_BYTES)
+        Ok(match preference {
+            WorkspacePreference::Min => WORKSPACE_BYTES / 2,
+            WorkspacePreference::Recommended => WORKSPACE_BYTES,
+        })
     }
 
     fn set_workspace_memory(
@@ -537,10 +587,15 @@ impl MemoryWorkspaceApi for NativeDouble {
         match inner.objects.get_mut(&id(workspace)) {
             Some(Object::Workspace { scratch }) => {
                 *scratch = allocation;
-                Ok(())
             }
-            _ => Err(failed("set_workspace", "no such workspace")),
+            _ => return Err(failed("set_workspace", "no such workspace")),
         }
+        if let Some(allocation) = allocation
+            && !inner.scratch.contains(&allocation)
+        {
+            inner.scratch.push(allocation);
+        }
+        Ok(())
     }
 }
 
@@ -656,11 +711,12 @@ impl MpsExecutionApi for NativeDouble {
         &self,
         _handle: OpaqueHandle,
         state: OpaqueHandle,
-        _maximum_workspace_bytes: usize,
+        maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         _stream: Stream,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("prepare_state")?;
+        inner.prepare_limits.push(maximum_workspace_bytes);
         inner.require(workspace, "prepare_state", |o| {
             matches!(o, Object::Workspace { .. })
         })?;
@@ -683,14 +739,14 @@ impl MpsExecutionApi for NativeDouble {
     ) -> Result<(), EngineError> {
         const OPERATION: &str = "compute_state";
         let mut inner = self.call(OPERATION)?;
-        match inner.objects.get(&id(workspace)) {
+        let scratch_bytes = match inner.objects.get(&id(workspace)) {
             Some(Object::Workspace {
                 scratch: Some(scratch),
-            }) => {
-                inner.buffer(*scratch, OPERATION)?;
-            }
+            }) => size_of_val(inner.buffer(*scratch, OPERATION)?),
             _ => return Err(failed(OPERATION, "no scratch attached")),
-        }
+        };
+        let live_scratch = inner.live_scratch();
+        inner.computes.push((live_scratch, scratch_bytes));
         for output in outputs.iter() {
             inner.buffer(id(*output), OPERATION)?;
         }
@@ -770,6 +826,50 @@ impl MpsExecutionApi for NativeDouble {
             },
             at,
         ));
+        Ok(())
+    }
+
+    fn initialize_mps(
+        &self,
+        _handle: OpaqueHandle,
+        state: OpaqueHandle,
+        layout: &OutputMetadata,
+        tensors: &[OpaqueHandle],
+    ) -> Result<(), EngineError> {
+        const OPERATION: &str = "initialize_mps";
+        let mut inner = self.call(OPERATION)?;
+        let tensors: Vec<usize> = tensors.iter().map(|&tensor| id(tensor)).collect();
+        let start = inner
+            .objects
+            .values()
+            .find_map(|object| match object {
+                Object::State(StateDouble {
+                    computed: Some((computed, _)),
+                    ..
+                }) if computed.outputs == tensors => Some(computed.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| failed(OPERATION, "the tensors are not a computed MPS"))?;
+        inner.outputs_live(&start, OPERATION)?;
+        let sites = tensors.len();
+        let ranks_fit = |tables: &[Box<[i64]>]| {
+            tables.len() == sites
+                && tables.iter().enumerate().all(|(site, table)| {
+                    let rank = if site == 0 || site + 1 == sites { 2 } else { 3 };
+                    table.len() == rank && table.iter().all(|&value| value > 0)
+                })
+        };
+        if !ranks_fit(&layout.extents) || !ranks_fit(&layout.strides) {
+            return Err(failed(OPERATION, "an extent or stride table does not fit"));
+        }
+        let target = inner.state(state, OPERATION)?;
+        if target.sites != sites {
+            return Err(failed(OPERATION, "the MPS has another site count"));
+        }
+        if !target.operators.is_empty() || target.computed.is_some() {
+            return Err(failed(OPERATION, "the state already has operators"));
+        }
+        target.start = Some(start);
         Ok(())
     }
 

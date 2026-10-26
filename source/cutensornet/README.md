@@ -22,7 +22,7 @@ The crate maintains two approved function surfaces:
   This surface currently contains 12 required functions. The `_12` suffix
   identifies CUDA Runtime major version 12; it is not the function count.
 - The cuTensorNet functions listed in `scripts/cutensornet-symbols.txt`. This
-  surface currently contains 54 required functions and the optional
+  surface currently contains 55 required functions and the optional
   `cutensornetGetLastError`; its typed loader tables are generated from the
   audited declarations in `src/bindings/v2_13.rs`.
 
@@ -120,19 +120,20 @@ of range, so it stays |0⟩ and changes no probability, expectation or norm, and
 `shape` reports the lone site alone. `tensornet::conformance`'s "lone site"
 case checks that the padding never shows.
 
-| File                                       | Responsibility                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `src/engine.rs`                            | `CuTensorNetEngine`, `CuTensorNetState`, the `MpsEngine` implementation, the `NativeApi` seam.        |
-| `src/engine/state.rs`                      | `MpsExecution`: one native state, its operator log, compute on demand, queries, sampling and cleanup. |
-| `src/engine/execution.rs`                  | `MpsExecutionApi` (State/MPS calls), `MpsTarget` (the extents asked for), realized-chain checks.      |
-| `src/engine/sampler.rs`                    | `SamplerApi` and `PreparedSampler`, the sampler's ordered configuration and cleanup.                  |
-| `src/engine/resources.rs`                  | `SessionApi` and `SessionResources`: the device's stream and cuTensorNet handle.                      |
-| `src/engine/memory_workspace.rs`, `ffi.rs` | Device memory and workspace calls; the C-compatible complex element.                                  |
-| `src/engine/policy.rs`                     | `ExecutionPolicy`: device, SVD cutoffs, algorithm and gauge, workspace limit, capture.                |
-| `src/engine/error.rs`                      | `EngineError`.                                                                                        |
-| `src/engine/test_double.rs`                | Host tests only: a CPU double of the native API: `ExactReference`, truncated to the bonds.            |
-| `src/engine/tests.rs`                      | Host tests: conformance, refusals, call order, release of every native object.                        |
-| `tests/qualification/`                     | The A100 qualification (ignored tests; see [A100 qualification](#a100-qualification)).                |
+| File                                       | Responsibility                                                                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `src/engine.rs`                            | `CuTensorNetEngine`, `CuTensorNetState`, the `MpsEngine` implementation, the `NativeApi` seam.                        |
+| `src/engine/state.rs`                      | `MpsExecution`: one native state, its operator log, compute on demand, queries, sampling and cleanup.                 |
+| `src/engine/execution.rs`                  | `MpsExecutionApi` (State/MPS calls), `MpsTarget` (the extents asked for), realized-chain checks.                      |
+| `src/engine/sampler.rs`                    | `SamplerApi` and `PreparedSampler`, the sampler's ordered configuration and cleanup.                                  |
+| `src/engine/resources.rs`                  | `SessionApi` and `SessionResources`: the device's stream and cuTensorNet handle.                                      |
+| `src/engine/memory_workspace.rs`, `ffi.rs` | Device memory and workspace calls; the C-compatible complex element.                                                  |
+| `src/engine/policy.rs`                     | `ExecutionPolicy`: device, SVD cutoffs, algorithm and gauge, workspace limit and preference, capture, restart period. |
+| `src/engine/profile.rs`                    | `StateProfile` and `EngineVariant`: a state's time per kind of native call, for the qualification.                    |
+| `src/engine/error.rs`                      | `EngineError`.                                                                                                        |
+| `src/engine/test_double.rs`                | Host tests only: a CPU double of the native API: `ExactReference`, truncated to the bonds.                            |
+| `src/engine/tests.rs`                      | Host tests: conformance, refusals, call order, release of every native object.                                        |
+| `tests/qualification/`                     | The A100 qualification (ignored tests; see [A100 qualification](#a100-qualification)).                                |
 
 What each operation calls:
 
@@ -141,7 +142,8 @@ What each operation calls:
 | every method, first                                                   | `cudaSetDevice` with the engine's device, so engines on different devices may share a thread                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `prepare`                                                             | `cutensornetCreateState`, `cutensornetCreateWorkspaceDescriptor`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `apply`, `project`                                                    | `cudaMalloc`, `cudaMemcpy`, `cutensornetStateApplyTensorOperator` (a projection is a non-unitary diagonal scaled by 1/√p)                                                                                                                                                                                                                                                                                                                                                                                                            |
-| any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cutensornetStateCaptureMPS`, `cudaFree` of the previous compute's outputs and scratch                                                                                                                                             |
+| any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare` (limit: the policy's or the free memory, the smaller), `cutensornetWorkspaceGetMemorySize` (minimum and recommended), `cudaMalloc` (scratch), `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cudaFree` (scratch), `cutensornetStateCaptureMPS`, `cudaFree` of the previous compute's outputs                                         |
+| `apply`, `project`, with a restart period `K`, after `K` computes     | first: `cutensornetCreateState`, `cutensornetStateInitializeMPS` (the last computed MPS), `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5, `cutensornetDestroyState` (the old state), `cudaFree` of its operator tensors                                                                                                                                                                                                                                                                                               |
 | `probability_of_one`, `conditional_probability_of_one`, `expectation` | per query: `cutensornetCreateNetworkOperator`, `cudaMalloc` + `cudaMemcpy` per distinct factor, `cutensornetNetworkOperatorAppendProduct`, `cutensornetCreateExpectation`, `cutensornetExpectationConfigure`, `cutensornetCreateWorkspaceDescriptor`, `cudaMemGetInfo`, `cutensornetExpectationPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc` + `cutensornetWorkspaceSetMemory` if needed, `cutensornetExpectationCompute`, `cudaStreamSynchronize`, then the destroys and `cudaFree`s. A conditional runs two queries. |
 | `sample`                                                              | `cudaMemGetInfo`, `cutensornetCreateSampler`, `cutensornetSamplerConfigure` (hyper-samples, path seed), `cutensornetSamplerPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetSamplerConfigure` (sample seed), `cutensornetSamplerSample`, `cutensornetDestroySampler`, `cudaStreamSynchronize`, `cudaFree` (scratch)                                                                                                                                                         |
 | `fork`                                                                | `prepare`, then every logged operator applied again: cuTensorNet 2.13 offers no state copy among the loaded symbols, so a fork costs a new state and a recompute                                                                                                                                                                                                                                                                                                                                                                     |
@@ -163,12 +165,21 @@ probabilities are expectations of projectors on the computed state, with no
 copy. A strategy that
 branches shots from a shared prefix would see the difference; it is the case
 to revisit, measured by the qualification's `fork_cost` rows. Operator
-tensors stay allocated until the state closes, as ④'s did: about 49,400 small
-tensors per H₂ shot; freeing them after the capture waits on the
-qualification's `device_mib` rows. A compute's outputs and scratch are freed
-when the next compute succeeds and is captured, and a query's or sample's
-buffers when it returns, so a state's device memory does not grow with its
-reads. A native failure while a state is changed or computed leaves it
+tensors stay allocated as long as the native state they were applied to, as
+`cutensornetStateApplyTensorOperator` requires: about 49,400 small tensors per
+H₂ shot without a restart. A compute's scratch is freed as soon as the stream
+has finished the compute, its outputs when the next compute succeeds and is
+captured, and a query's or sample's buffers when it returns, so a state's
+device memory does not grow with its reads, and a compute's peak is its own
+scratch, not two. On the A100, the recommended scratch nevertheless grew by
+about 32 MiB per measurement of H₂'s shot, until it failed at the 1,252nd. A
+policy's `restart_period` (none by default; the qualification's
+`history_growth` measures what it changes) replaces the native state every
+so many computes by a new one that starts from the last computed MPS
+(`cutensornetStateInitializeMPS`), and releases the old one and its operator
+tensors: capture is documented as equivalent to that, so a restart changes no
+value; it drops whatever the library keeps of the state's history. Its host
+tests check that it changes no value, through truncations and projections. A native failure while a state is changed or computed leaves it
 unusable (`EngineError::Poisoned`); a failed query or sample frees its buffers
 and native objects and leaves the state usable. A conditional probability
 whose condition has weight at most 1e-12 of the state's norm is refused, since
@@ -472,11 +483,11 @@ tests.
 the measurements its open GPU questions need. Every test there is ignored and
 needs the feature `qualification`:
 
-- `conformance` and `conformance_without_capture` run
-  `tensornet::conformance::check` on the engine with and without MPS capture,
-  and are the only tests that assert; without capture, the retained weight is
-  reported but not held, since each compute truncates the whole history
-  again;
+- `conformance`, `conformance_without_capture` and `conformance_with_restart`
+  run `tensornet::conformance::check` on the engine with and without MPS
+  capture, and restarting its native state at every compute, and are the
+  only tests that assert; without capture, the retained weight is reported
+  but not held, since each compute truncates the whole history again;
 - `environment` records the versions and libraries found;
 - `empty_compute`, `read_cost`, `fork_cost`, `free_after_compute`,
   `shape_and_tolerance`, `impossible_condition`, `rare_condition` and
@@ -495,7 +506,12 @@ needs the feature `qualification`:
   to H₂'s 1,404 measurements, tagged `extrapolation=h2`. It also records the
   retained weight at every mark, and the slope of its `log10` per step,
   scaled to H₂ the same way: an estimate for a random circuit of H₂'s size,
-  likely pessimistic, not of H₂'s own circuit.
+  likely pessimistic, not of H₂'s own circuit. `history_growth` runs H₂'s
+  pattern 300 times on four engine variants (the engine, the minimum
+  workspace, a restart every 10 and every 50 computes), and records every 10
+  steps the minimum and recommended workspace, the device memory, the live
+  allocations and the time per kind of native call, then their slopes per
+  step.
 
 `scripts/qualify-engine-on-a100.sh` runs them on an A100 host. It checks the
 host, the GPU, the libraries and their versions, the commit and the disk; it
@@ -545,6 +561,12 @@ The checked-in cuTensorNet declarations are generated from NVIDIA cuQuantum
 - full reference output SHA-256: `8921d1acf0ff6d384a793893e92e10cadc850dfb29a0312726c31c4d692c3d7a`
 - reduced output SHA-256: `2252b5ea29af1bf8ed5eb2d8268530ed289647791b9fa04bdc53c8599ee956da`
 - reduced output line count: 882
+
+One declaration was then added by hand, matching the generated ones, because
+bindgen was not available: `cutensornetStateInitializeMPS`, with its header
+comment. The checked-in file (893 lines) is therefore not the generated output
+until `generate-bindings.sh` is run again with the pinned tools, which should
+reproduce it up to formatting and give the new reduced hash.
 
 Changing the selected functions or types changes the reduced output without
 changing the SDK inputs. The full-reference hash depends on the headers and

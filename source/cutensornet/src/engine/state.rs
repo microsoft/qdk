@@ -39,18 +39,39 @@
 //!   (see [`MpsEngine::fork`](tensornet::MpsEngine::fork) on the engine): a
 //!   strategy that branches shots from a shared prefix is the case to
 //!   revisit (DECISIONS G8).
-//! - Operator tensors stay allocated until the state closes, as ④'s did:
-//!   without capture every compute reads them again; with it the library
-//!   no longer reads them after the next capture, but whether it still
-//!   needs them is not documented, and nothing has measured what they cost.
-//!   At about 49,400 small tensors per H₂ shot (48,000 gates and 1,404
-//!   projections), freeing them after the capture is a follow-up once the
-//!   qualification's `device_mib` rows show it pays. A compute's output buffers and
-//!   scratch are freed when the next compute has succeeded and been
-//!   captured, since the captured MPS may be read from them until then, and
-//!   a read's scratch when the read returns, so a long-lived state does not
-//!   grow with its reads (④ computed and sampled a bounded number of times,
-//!   and kept them all).
+//! - Operator tensors stay allocated as long as the native state they were
+//!   applied to, as ④'s did: `cutensornetStateApplyTensorOperator` says the
+//!   tensor "must stay valid for the whole lifetime of the tensor network
+//!   state", and `cutensornetStateCaptureMPS` deletes the operators but says
+//!   nothing of their tensors. They are kept apart from the other buffers, so
+//!   the per-compute bookkeeping does not scan them. A restart ends the
+//!   state, and frees them.
+//! - A compute's scratch is freed as soon as the stream has finished the
+//!   compute: scratch is only "drawn … and released back once done" by the
+//!   call that uses it (`cutensornet.h`, on scratch workspaces), so holding
+//!   it until the next compute, as the engine did, doubled the peak to the
+//!   last two computes' scratch. It stays attached to the state's workspace
+//!   descriptor, as the sampler's does; the next compute or sample attaches
+//!   its own before using it. A compute's output buffers are freed when the
+//!   next compute has succeeded and been captured, since the captured MPS
+//!   may be read from them until then, and a read's scratch when the read
+//!   returns, so a long-lived state does not grow with its reads (④ computed
+//!   and sampled a bounded number of times, and kept them all).
+//! - The prepare is told the workspace it may use is the policy's budget or
+//!   the device's free memory, whichever is less, as CUDA-Q tells it the size
+//!   of its scratch pad, and each compute asks for the policy's
+//!   `compute_workspace` size, recommended or minimum.
+//! - With a `restart_period` of `K`, the native state is replaced every `K`
+//!   computes, before the next operator, by a new one whose start is the
+//!   last computed MPS (`cutensornetStateInitializeMPS`, with the extents and
+//!   strides that compute reported), finalized and configured as the first
+//!   one was. Capture is documented as "equivalent to creating a
+//!   `cutensornetState_t` with the previous output MPS state as the initial
+//!   MPS state", so a restart changes no value; what it sheds is whatever the
+//!   library keeps of the state's history, which the A100 measured growing
+//!   by about 32 MiB of workspace per measurement (`history_growth`). The
+//!   new state reads the MPS from the last compute's outputs, which are
+//!   freed, as before, after its first compute and capture.
 //! - A native failure while the state is changed or computed leaves it
 //!   unusable: every later call reports [`EngineError::Poisoned`].
 
@@ -62,10 +83,12 @@ use super::{
         validate_realized_chain,
     },
     ffi::Complex64Abi,
+    memory_workspace::WorkspacePreference,
+    profile::StateProfile,
     sampler::{PreparedSampler, SamplerContext, SamplingRequest},
 };
 use num_complex::Complex64;
-use std::{collections::BTreeMap, mem::size_of, rc::Rc};
+use std::{collections::BTreeMap, mem::size_of, rc::Rc, time::Instant};
 use tensornet::{MpsShape, PauliSum, SampleSeed};
 
 /// Hyper-samples of each expectation's contraction path search, ④'s B2
@@ -117,9 +140,18 @@ pub(super) struct MpsExecution {
     query_workspace: Option<OpaqueHandle>,
     network_operator: Option<OpaqueHandle>,
     expectation: Option<OpaqueHandle>,
+    /// Every device buffer of the state but its operator tensors.
     allocations: Vec<OpaqueHandle>,
-    /// The outputs and scratch of the last compute, also in `allocations`.
+    /// The device tensors of the operators applied to the native state,
+    /// released with it.
+    operator_tensors: Vec<OpaqueHandle>,
+    /// The outputs of the last compute, one per site, also in `allocations`.
     computed_buffers: Vec<OpaqueHandle>,
+    /// The extents and strides the last compute wrote its outputs with,
+    /// which a restart initializes the new state from.
+    computed_layout: Option<OutputMetadata>,
+    computes_since_restart: usize,
+    profile: StateProfile,
     state_extents: Box<[i64]>,
     operators: Vec<Operator>,
     target: MpsTarget,
@@ -149,7 +181,11 @@ impl MpsExecution {
             network_operator: None,
             expectation: None,
             allocations: Vec::new(),
+            operator_tensors: Vec::new(),
             computed_buffers: Vec::new(),
+            computed_layout: None,
+            computes_since_restart: 0,
+            profile: StateProfile::default(),
             state_extents,
             operators: Vec::new(),
             target,
@@ -169,6 +205,19 @@ impl MpsExecution {
 
     pub(super) fn session(&self) -> &Rc<Session> {
         &self.session
+    }
+
+    /// What the state's native calls have cost so far, and what it holds.
+    #[cfg_attr(
+        not(any(test, feature = "qualification")),
+        allow(dead_code, reason = "read by the qualification only")
+    )]
+    pub(super) fn profile(&self) -> StateProfile {
+        StateProfile {
+            live_allocations: self.allocations.len() + self.operator_tensors.len(),
+            operator_tensors: self.operator_tensors.len(),
+            ..self.profile.clone()
+        }
     }
 
     pub(super) fn apply(
@@ -448,10 +497,28 @@ impl MpsExecution {
     /// verbatim: cuTensorNet reads the row-major `M[out][in]` layout with
     /// default strides on the modes in order, first most significant, which
     /// is `MpsEngine::apply`'s convention (④'s `fixture_operator`).
+    ///
+    /// If the policy's restart period has passed since the last restart,
+    /// the native state is restarted first.
     fn register(&mut self, operator: Operator) -> Result<(), EngineError> {
+        if let Some(period) = self.session.policy.restart_period
+            && self.realized.is_some()
+            && self.computes_since_restart >= period.get()
+        {
+            self.restart()?;
+        }
+        let started = Instant::now();
         let session = Rc::clone(&self.session);
         let api = session.resources.api();
-        let tensor = self.allocate_complex(operator.matrix.len(), "operator tensor")?;
+        let bytes = operator
+            .matrix
+            .len()
+            .checked_mul(size_of::<Complex64Abi>())
+            .ok_or(EngineError::ResourceSizeOverflow {
+                resource: "operator tensor",
+            })?;
+        let tensor = api.allocate(bytes)?;
+        self.operator_tensors.push(tensor);
         api.copy_to_device(tensor, &operator.matrix)?;
         self.realized = None;
         api.apply_tensor_operator(
@@ -462,7 +529,46 @@ impl MpsExecution {
             operator.unitary,
         )?;
         self.operators.push(operator);
+        self.profile.apply += started.elapsed();
         Ok(())
+    }
+
+    /// Replaces the native state, which must have been computed and
+    /// captured since its last operator, by a new one whose start is that
+    /// computed MPS, finalized and configured as the first one, then
+    /// releases the old state and its operator tensors. The new state reads
+    /// the MPS from `computed_buffers`, which the next compute frees once it
+    /// has captured its own.
+    fn restart(&mut self) -> Result<(), EngineError> {
+        let started = Instant::now();
+        let session = Rc::clone(&self.session);
+        let (api, handle) = (session.resources.api(), session.resources.handle());
+        let Some(layout) = &self.computed_layout else {
+            return Err(EngineError::InvalidRequest {
+                reason: "a restart needs a computed MPS".to_string(),
+            });
+        };
+        let fresh = api.create_state(handle, self.state_extents.as_ref())?;
+        let initialized = api
+            .initialize_mps(handle, fresh, layout, &self.computed_buffers)
+            .and_then(|()| api.finalize_mps(handle, fresh, &self.target))
+            .and_then(|()| self.configure(fresh));
+        if let Err(error) = initialized {
+            return combine_execution_and_cleanup(Err(error), api.destroy_state(fresh));
+        }
+        let previous = self.state.replace(fresh);
+        let mut first_error = previous.and_then(|state| api.destroy_state(state).err());
+        for tensor in std::mem::take(&mut self.operator_tensors) {
+            if let Err(error) = api.free(tensor)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        self.computes_since_restart = 0;
+        self.profile.restarts += 1;
+        self.profile.restart += started.elapsed();
+        first_error.map_or(Ok(()), Err)
     }
 
     /// The chain of the computed state, computing it first if an operator
@@ -528,18 +634,38 @@ impl MpsExecution {
         let maximum_workspace_bytes = session.policy.maximum_workspace_bytes;
         let state = self.state()?;
         let mark = self.allocations.len();
+        let started = Instant::now();
         let output_elements = self.target.shape().element_counts();
         let mut outputs = Vec::with_capacity(output_elements.len());
         for elements in &output_elements {
             outputs.push(self.allocate_complex(*elements, "MPS output")?);
         }
         let (free_before_bytes, _) = api.memory_info()?;
+        self.profile.allocate += started.elapsed();
         let workspace = self.workspace()?;
-        api.prepare_state(handle, state, maximum_workspace_bytes, workspace, stream)?;
-        let workspace_bytes = api.workspace_size(handle, workspace)?;
+        let started = Instant::now();
+        api.prepare_state(
+            handle,
+            state,
+            maximum_workspace_bytes.min(free_before_bytes),
+            workspace,
+            stream,
+        )?;
+        self.profile.prepare += started.elapsed();
+        let started = Instant::now();
+        let minimum_bytes = api.workspace_size(handle, workspace, WorkspacePreference::Min)?;
+        let recommended_bytes =
+            api.workspace_size(handle, workspace, WorkspacePreference::Recommended)?;
+        self.profile.workspace_query += started.elapsed();
+        self.profile.minimum_workspace_bytes = minimum_bytes;
+        self.profile.recommended_workspace_bytes = recommended_bytes;
+        let workspace_bytes = match session.policy.compute_workspace {
+            WorkspacePreference::Min => minimum_bytes,
+            WorkspacePreference::Recommended => recommended_bytes,
+        };
         if workspace_bytes <= 0 {
             return Err(EngineError::InvalidNativeResult {
-                reason: format!("recommended workspace size is {workspace_bytes}"),
+                reason: format!("the compute's workspace size is {workspace_bytes}"),
             });
         }
         let workspace_size =
@@ -547,9 +673,13 @@ impl MpsExecution {
                 resource: "device workspace",
             })?;
         validate_workspace_size(workspace_size, maximum_workspace_bytes, free_before_bytes)?;
+        let started = Instant::now();
+        let scratch_mark = self.allocations.len();
         let scratch = self.allocate_scratch(workspace_size, "device workspace")?;
+        self.profile.allocate += started.elapsed();
         api.set_workspace(handle, workspace, scratch, workspace_bytes)?;
         let mut metadata = OutputMetadata::new(&self.target);
+        let started = Instant::now();
         api.compute_state(
             handle,
             state,
@@ -559,6 +689,13 @@ impl MpsExecution {
             stream,
         )?;
         api.synchronize_stream(stream)?;
+        self.profile.compute += started.elapsed();
+        // The stream has finished with the scratch; it stays attached to the
+        // workspace descriptor, which the next compute or sample attaches
+        // its own scratch to before using.
+        let started = Instant::now();
+        self.free_since(scratch_mark)?;
+        self.profile.free += started.elapsed();
         // The library reports the shape it produced and, separately, the
         // strides it used to write it. Only the shape is part of the state.
         let realized =
@@ -569,13 +706,20 @@ impl MpsExecution {
             })?;
         validate_realized_chain(&realized, self.target.shape())?;
         if session.policy.capture_after_compute {
+            let started = Instant::now();
             api.capture_mps(handle, state)?;
+            self.profile.capture += started.elapsed();
         }
+        self.profile.computes += 1;
+        self.computes_since_restart += 1;
         // The state now refers to the new buffers, as its computed MPS and,
         // once captured, as its start; the stream has finished with the old
-        // ones.
+        // ones, and a restart, whose state may have read them, has computed
+        // and captured since.
+        let started = Instant::now();
         let fresh = self.allocations[mark..].to_vec();
         let previous = std::mem::replace(&mut self.computed_buffers, fresh);
+        self.computed_layout = Some(metadata);
         self.allocations
             .retain(|allocation| !previous.contains(allocation));
         let mut first_error = None;
@@ -586,6 +730,7 @@ impl MpsExecution {
                 first_error = Some(error);
             }
         }
+        self.profile.free += started.elapsed();
         first_error.map_or(Ok(realized), Err)
     }
 
@@ -606,9 +751,11 @@ impl MpsExecution {
                 reason: "this state already owns a Query lifecycle".to_string(),
             });
         }
+        let started = Instant::now();
         let mark = self.allocations.len();
         let query = self.open_query(products);
         let release = self.release_query(mark);
+        self.profile.reads += started.elapsed();
         combine_execution_and_cleanup(query, release)
     }
 
@@ -661,7 +808,8 @@ impl MpsExecution {
             query_workspace,
             stream,
         )?;
-        let workspace_bytes = api.workspace_size(handle, query_workspace)?;
+        let workspace_bytes =
+            api.workspace_size(handle, query_workspace, WorkspacePreference::Recommended)?;
         if workspace_bytes < 0 {
             return Err(EngineError::InvalidNativeResult {
                 reason: format!("recommended Query workspace size is {workspace_bytes}"),
@@ -694,6 +842,7 @@ impl MpsExecution {
             session.resources.stream(),
         );
         let maximum_workspace_bytes = session.policy.maximum_workspace_bytes;
+        let started = Instant::now();
         let (free_before_bytes, _) = api.memory_info()?;
         let workspace = self.workspace()?;
         let mark = self.allocations.len();
@@ -710,7 +859,8 @@ impl MpsExecution {
             &request,
         )?;
         let execution = (|| {
-            let workspace_bytes = api.workspace_size(handle, workspace)?;
+            let workspace_bytes =
+                api.workspace_size(handle, workspace, WorkspacePreference::Recommended)?;
             if workspace_bytes <= 0 {
                 return Err(EngineError::InvalidNativeResult {
                     reason: format!("recommended sampler workspace size is {workspace_bytes}"),
@@ -729,7 +879,9 @@ impl MpsExecution {
         let execution = combine_execution_and_cleanup(execution, sampler.close());
         // The scratch is still attached to the state's workspace; the next
         // compute or sample attaches its own before using it.
-        combine_execution_and_cleanup(execution, self.free_since(mark))
+        let result = combine_execution_and_cleanup(execution, self.free_since(mark));
+        self.profile.reads += started.elapsed();
+        result
     }
 
     /// Closes the Query lifecycle, then frees the allocations made since
@@ -871,6 +1023,7 @@ impl MpsExecution {
             first_error = Some(error);
         }
         self.computed_buffers.clear();
+        self.allocations.append(&mut self.operator_tensors);
         while let Some(allocation) = self.allocations.pop() {
             if let Err(error) = api.free(allocation)
                 && first_error.is_none()
