@@ -199,7 +199,7 @@ fn row(records: &[OutputRecord]) -> String {
 ///   `AdaptiveProgram.as_dict()` (see `qdk_simulators`'s `h2_qpe`).
 /// - `QDK_H2_SHOTS` (1), `QDK_H2_SEED` (0), `QDK_H2_CHI` (32): the shots,
 ///   the run's seed and χ.
-/// - `QDK_H2_FUSION` (`unfused`): the gate fusion, `unfused` or `pairs`.
+/// - `QDK_H2_FUSION` (`pairs`): the gate fusion, `pairs` or `unfused`.
 /// - `QDK_H2_STOP_AFTER` (unset): stop each shot after this many
 ///   measurements, to time the first part of a shot; such a shot has no
 ///   row, and the run asserts nothing about the peaks.
