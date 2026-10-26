@@ -11,14 +11,14 @@
 #include <string.h>
 #include <time.h>
 
+#include "arithmetic.h"
 #include "qep_interop.h"
 
 enum { MAX_BITS = 15, MAX_ATTEMPTS = 100 };
-static const size_t NO_CONTROL = SIZE_MAX;
 
 typedef struct {
     int bits;
-    size_t phase, enable, carry, compare, scratch;
+    size_t phase, enable, carry, scratch;
 } Circuit;
 
 /* Stops on an invalid input or a failed simulator invariant. */
@@ -69,66 +69,22 @@ static int64_t inverse_mod(int64_t value, int64_t modulus) {
 static Circuit make_circuit(int bits) {
     Circuit circuit = {
         bits, (size_t)(2 * bits), (size_t)(2 * bits + 1),
-        (size_t)(2 * bits + 2), (size_t)(2 * bits + 3), (size_t)(2 * bits + 4)
+        (size_t)(2 * bits + 2), (size_t)(2 * bits + 3)
     };
     return circuit;
 }
 
-/* Decomposes a multi-controlled X into a clean, uncomputed Toffoli ladder. */
-static void controlled_x(const Circuit *circuit, const size_t *controls, int count, size_t target) {
-    if (count == 0) {
-        x(target);
-    } else if (count == 1) {
-        cx(controls[0], target);
-    } else if (count == 2) {
-        ccx(controls[0], controls[1], target);
-    } else {
-        ccx(controls[0], controls[1], circuit->scratch);
-        for (int i = 2; i < count - 1; ++i) {
-            ccx(circuit->scratch + (size_t)i - 2, controls[i], circuit->scratch + (size_t)i - 1);
-        }
-        ccx(circuit->scratch + (size_t)count - 3, controls[count - 1], target);
-        for (int i = count - 2; i >= 2; --i) {
-            ccx(circuit->scratch + (size_t)i - 2, controls[i], circuit->scratch + (size_t)i - 1);
-        }
-        ccx(controls[0], controls[1], circuit->scratch);
-    }
-}
-
-/* Adds a signed constant modulo 2^width using controlled binary increments. */
-static void add_constant(
-    const Circuit *circuit, int64_t constant, const size_t *targets, int width, size_t control
-) {
-    uint64_t encoded = (uint64_t)constant & ((UINT64_C(1) << width) - 1);
-    for (int bit = 0; bit < width; ++bit) {
-        if (((encoded >> bit) & 1) == 0) continue;
-        for (int target = width - 1; target >= bit; --target) {
-            size_t controls[MAX_BITS + 1];
-            int count = 0;
-            if (control != NO_CONTROL) controls[count++] = control;
-            for (int i = bit; i < target; ++i) controls[count++] = targets[i];
-            controlled_x(circuit, controls, count, targets[target]);
-        }
-    }
-}
-
-/* Implements the sample's controlled modular addition, restoring both borrow ancillas. */
+/* Follows the sample's controlled modular addition using the Q# arithmetic ports. */
 static void modular_add(const Circuit *circuit, int64_t modulus, int64_t constant) {
-    if (constant == 0) return;
     size_t work[MAX_BITS + 1];
     for (int i = 0; i < circuit->bits; ++i) work[i] = (size_t)(circuit->bits + i);
     work[circuit->bits] = circuit->carry;
-    add_constant(circuit, constant, work, circuit->bits + 1, circuit->enable);
-    add_constant(circuit, -modulus, work, circuit->bits + 1, circuit->enable);
-    add_constant(circuit, modulus, work, circuit->bits, circuit->carry);
-
-    // Toggle the carry iff the reduced work register is at least the added constant.
-    work[circuit->bits] = circuit->compare;
-    add_constant(circuit, -constant, work, circuit->bits + 1, NO_CONTROL);
-    x(circuit->compare);
-    ccx(circuit->enable, circuit->compare, circuit->carry);
-    x(circuit->compare);
-    add_constant(circuit, constant, work, circuit->bits + 1, NO_CONTROL);
+    inc_by_i(constant, work, (size_t)circuit->bits + 1, circuit->enable, false, circuit->scratch);
+    inc_by_i(modulus, work, (size_t)circuit->bits + 1, circuit->enable, true, circuit->scratch);
+    inc_by_i(modulus, work, (size_t)circuit->bits, circuit->carry, false, circuit->scratch);
+    apply_if_less_or_equal_l(
+        constant, work, (size_t)circuit->bits, circuit->carry, circuit->enable, circuit->scratch
+    );
 }
 
 /* Multiplies the eigenstate register modulo N, controlled by the phase qubit. */
@@ -149,7 +105,7 @@ static void modular_multiply(const Circuit *circuit, int64_t modulus, int64_t co
     for (int i = 0; i < circuit->bits; ++i) {
         int64_t shifted = (inverse << i) % modulus;
         ccx(circuit->phase, (size_t)i, circuit->enable);
-        modular_add(circuit, modulus, (modulus - shifted) % modulus);
+        modular_add(circuit, modulus, modulus - shifted);
         ccx(circuit->phase, (size_t)i, circuit->enable);
     }
 }

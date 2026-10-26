@@ -132,6 +132,7 @@ Build both examples from the repository root on Linux:
 cargo build --release -p qep_interop
 cc -std=c11 -O2 -Wall -Wextra -Werror \
     -Isource/qep_interop/include source/qep_interop/examples/shor.c \
+    source/qep_interop/examples/arithmetic.c \
     target/release/libqep_interop.a -ldl -lpthread -lm \
     -o target/release/shor_c
 gfortran -std=f2008 -O2 -Wall -Wextra -Werror \
