@@ -31,6 +31,213 @@ fn correlated_error_yields_expected_qir() {
 }
 
 #[test]
+fn correlated_error_repeated_pauli_on_same_qubit_cancels() {
+    let source = "E(0.1) X0 X0";
+    check(
+        source,
+        &expect![[r#"
+        [metadata]
+          required_num_qubits = 0
+          required_num_results = 0"#]],
+    );
+}
+
+#[test]
+fn correlated_error_composes_paulis_on_same_qubit() {
+    let source = "E(0.1) X0 Z1 Z0 X0";
+    check(
+        source,
+        &expect![[r#"
+        [entry_point]
+            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+
+        [declarations]
+          declare void @noise_intrinsic_0(ptr, ptr) #2
+
+        [metadata]
+          required_num_qubits = 2
+          required_num_results = 0
+          uses_noise = true
+
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 2
+                ZZ: 0.1"#]],
+    );
+}
+
+#[test]
+fn correlated_error_loss_absorbs_paulis_on_same_qubit() {
+    let source = "E(0.1) X0 L0 Z0";
+    check(
+        source,
+        &expect![[r#"
+        [entry_point]
+            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+        [declarations]
+          declare void @noise_intrinsic_0(ptr) #2
+
+        [metadata]
+          required_num_qubits = 1
+          required_num_results = 0
+          uses_noise = true
+
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                L: 0.1"#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_cancelled_row_still_consumes_probability() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.5) X0 X0
+        ELSE_CORRELATED_ERROR(0.5) Z0
+    "};
+    check(
+        source,
+        &expect![[r#"
+        [entry_point]
+            call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+        [declarations]
+          declare void @noise_intrinsic_0(ptr) #2
+
+        [metadata]
+          required_num_qubits = 1
+          required_num_results = 0
+          uses_noise = true
+
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                Z: 0.25"#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_merges_duplicate_outcome_probabilities() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.5) X0
+        ELSE_CORRELATED_ERROR(0.5) X0
+        ELSE_CORRELATED_ERROR(1) Z0
+    "};
+    check(
+        source,
+        &expect![[r#"
+            [entry_point]
+                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+            [declarations]
+              declare void @noise_intrinsic_0(ptr) #2
+
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
+
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 1
+                    X: 0.75
+                    Z: 0.25"#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_merges_nonconsecutive_duplicate_outcomes() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.5) X0
+        ELSE_CORRELATED_ERROR(0.5) Y0
+        ELSE_CORRELATED_ERROR(0.5) X0
+        ELSE_CORRELATED_ERROR(0.5) X0
+    "};
+    check(
+        source,
+        &expect![[r#"
+            [entry_point]
+                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+            [declarations]
+              declare void @noise_intrinsic_0(ptr) #2
+
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
+
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 1
+                    X: 0.6875
+                    Y: 0.25"#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_merges_reordered_pauli_and_loss_outcomes() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.5) Z9 X2 L5
+        ELSE_CORRELATED_ERROR(0.5) L5 Z9 X2
+    "};
+    check(
+        source,
+        &expect![[r#"
+            [entry_point]
+                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+
+            [declarations]
+              declare void @noise_intrinsic_0(ptr, ptr, ptr) #2
+
+            [metadata]
+              required_num_qubits = 3
+              required_num_results = 0
+              uses_noise = true
+
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 3
+                    XLZ: 0.75"#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_unreachable_duplicate_preserves_probability() {
+    let source = indoc! {"
+        CORRELATED_ERROR(1) X0
+        ELSE_CORRELATED_ERROR(1) X0
+    "};
+    check(
+        source,
+        &expect![[r#"
+            [entry_point]
+                call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+
+            [declarations]
+              declare void @noise_intrinsic_0(ptr) #2
+
+            [metadata]
+              required_num_qubits = 1
+              required_num_results = 0
+              uses_noise = true
+
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 1
+                    X: 1"#]],
+    );
+}
+
+#[test]
 fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() {
     // The resulting mutually exclusive probabilities sum to at most 1
     // when each input probability is in [0, 1].
@@ -218,6 +425,27 @@ fn else_correlated_error_without_preceding_else_correlated_error_yields_error() 
                : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                `----
         "#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_on_too_many_qubits_yields_error() {
+    let targets: Vec<String> = (0..22).map(|qubit| format!("Z{qubit}")).collect();
+    let source = format!(
+        "CORRELATED_ERROR(0.01) X0\nELSE_CORRELATED_ERROR(0.02) {}",
+        targets.join(" ")
+    );
+    check(
+        &source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.CorrelatedErrorTooManyQubits
+
+          x correlated error chain acts on 22 qubits, but at most 21 are supported
+           ,-[1:1]
+         1 | ,-> CORRELATED_ERROR(0.01) X0
+         2 | `-> ELSE_CORRELATED_ERROR(0.02) Z0 Z1 Z2 Z3 Z4 Z5 Z6 Z7 Z8 Z9 Z10 Z11 Z12 Z13 Z14 Z15 Z16 Z17 Z18 Z19 Z20 Z21
+           `----
+    "#]],
     );
 }
 
