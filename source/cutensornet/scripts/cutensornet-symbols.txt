@@ -26,6 +26,7 @@ cutensornetStateCaptureMPS                         capture_mps                  
 cutensornetCreateState                             create_state                         state        required
 cutensornetDestroyState                            destroy_state                        state        required
 cutensornetStateFinalizeMPS                        finalize_mps                         state        required
+cutensornetStateInitializeMPS                      initialize_mps                       state        required
 cutensornetStateCompute                            state_compute                        state        required
 cutensornetStateConfigure                          state_configure                      state        required
 cutensornetStatePrepare                            state_prepare                        state        required

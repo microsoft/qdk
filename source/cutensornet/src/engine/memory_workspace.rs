@@ -3,8 +3,9 @@
 //!
 //! [`MemoryWorkspaceApi`] is a private injection seam: `library::engine`
 //! implements it with cuTensorNet and CUDA, and host tests with test doubles.
-//! Only device scratch at the recommended size is modeled, because that is all
-//! the MPS uses. Callers own every allocation, validate copy lengths and keep
+//! Only device scratch is modeled, because that is all the MPS uses, at the
+//! recommended size or, for the state's compute only, the minimum
+//! (`ExecutionPolicy::compute_workspace`). Callers own every allocation, validate copy lengths and keep
 //! attached memory alive until native use and descriptor destruction end.
 
 use super::{EngineError, OpaqueHandle, ffi::Complex64Abi};
@@ -21,6 +22,11 @@ pub(crate) enum WorkspaceKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WorkspacePreference {
+    /// `CUTENSORNET_WORKSIZE_PREF_MIN`: "At least one algorithm will be
+    /// available for each contraction" (`cutensornet/types.h`).
+    Min,
+    /// `CUTENSORNET_WORKSIZE_PREF_RECOMMENDED`: "The most suitable
+    /// algorithm will be available for each contraction".
     Recommended,
 }
 

@@ -22,6 +22,8 @@ mod library;
 mod version;
 
 pub use engine::{CuTensorNetEngine, CuTensorNetState, EngineError};
+#[cfg(feature = "qualification")]
+pub use engine::{EngineVariant, StateProfile};
 pub use error::AvailabilityError;
 
 use std::{fmt, path::PathBuf};
@@ -123,6 +125,29 @@ impl Availability {
             self.libraries.clone(),
             engine::ExecutionPolicy::base_qualification().without_capture(),
         )
+    }
+
+    /// The engine of [`Self::mps_engine`], changed as `variant` says: each
+    /// compute given cuTensorNet's minimum scratch, or the native state
+    /// restarted from its computed MPS every so many computes. For the A100
+    /// qualification's `history_growth` only.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::mps_engine`].
+    #[cfg(all(feature = "qualification", target_os = "linux", target_arch = "x86_64"))]
+    pub fn mps_engine_variant(
+        &self,
+        variant: EngineVariant,
+    ) -> Result<CuTensorNetEngine, EngineError> {
+        let policy = engine::ExecutionPolicy::base_qualification()
+            .with_restart_period(variant.restart_period);
+        let policy = if variant.minimum_workspace {
+            policy.with_minimum_compute_workspace()
+        } else {
+            policy
+        };
+        CuTensorNetEngine::with_api(self.libraries.clone(), policy)
     }
 }
 

@@ -1,20 +1,25 @@
 //! The truncation and resource policy of one engine.
 //!
 //! [`ExecutionPolicy`] fixes the device, precision, SVD cutoffs, SVD
-//! algorithm, gauge, workspace budget, and whether each compute is captured
-//! as the start of the next one. `validate` accepts only the
-//! qualified configuration, fp64 with GESVD and the SIMPLE gauge, and a budget
-//! of at most 64 GiB; the other variants exist for tests. It does not check
-//! capture: turning it off is not reachable outside tests and the
-//! `qualification` feature (`without_capture`), and gives the same values
-//! without truncation, only more slowly.
+//! algorithm, gauge, workspace budget, the workspace size each compute asks
+//! for, whether each compute is captured as the start of the next one, and
+//! how often the native state is restarted from its computed MPS.
+//! `validate` accepts only the qualified configuration, fp64 with GESVD and
+//! the SIMPLE gauge, and a budget of at most 64 GiB; the other variants exist
+//! for tests. It refuses a restart without capture, whose computes would
+//! not leave the MPS a restart starts from. It does not check capture itself:
+//! turning it off is not reachable outside tests and the `qualification`
+//! feature (`without_capture`), and gives the same values without
+//! truncation, only more slowly. The minimum workspace and the restart are
+//! reachable there too, until the A100's `history_growth` shows which pays.
 //! `base_qualification` is the engine's default. Qualifying another
 //! configuration takes an A100 qualification case and a change to `validate`.
 //!
 //! The bond cap χ is not here: each state's capacity, a `tensornet::MpsShape`
 //! given to `prepare`, carries a bond for every cut.
 
-use super::EngineError;
+use super::{EngineError, memory_workspace::WorkspacePreference};
+use std::num::NonZeroUsize;
 
 pub(super) const MAXIMUM_WORKSPACE_BYTES: usize = 68_719_476_736;
 
@@ -56,6 +61,15 @@ pub(crate) struct ExecutionPolicy {
     /// would pay `O(M·G)` instead of `O(G)` (H₂: M ≈ 1,404, G ≈ 48,000).
     /// Off only to measure that cost (DECISIONS G1).
     pub(super) capture_after_compute: bool,
+    /// The scratch size each state compute asks for: cuTensorNet's
+    /// recommended size, or its minimum (`CUTENSORNET_WORKSIZE_PREF_MIN`).
+    /// Queries and the sampler always ask for the recommended size.
+    pub(super) compute_workspace: WorkspacePreference,
+    /// Every this many computes, the native state is replaced, before the
+    /// next operator, by a new one initialized from the last computed MPS
+    /// (`cutensornetStateInitializeMPS`), and the old state and its operator
+    /// tensors are released. `None` never restarts. Needs capture.
+    pub(super) restart_period: Option<NonZeroUsize>,
 }
 
 impl ExecutionPolicy {
@@ -69,6 +83,8 @@ impl ExecutionPolicy {
             gauge: Gauge::Simple,
             maximum_workspace_bytes: MAXIMUM_WORKSPACE_BYTES,
             capture_after_compute: true,
+            compute_workspace: WorkspacePreference::Recommended,
+            restart_period: None,
         }
     }
 
@@ -79,6 +95,26 @@ impl ExecutionPolicy {
     pub(crate) const fn without_capture(self) -> Self {
         Self {
             capture_after_compute: false,
+            ..self
+        }
+    }
+
+    /// The same policy, with each state compute given the minimum scratch
+    /// cuTensorNet accepts instead of the recommended one.
+    #[cfg(any(test, feature = "qualification"))]
+    pub(crate) const fn with_minimum_compute_workspace(self) -> Self {
+        Self {
+            compute_workspace: WorkspacePreference::Min,
+            ..self
+        }
+    }
+
+    /// The same policy, with the native state restarted from its computed
+    /// MPS every `period` computes.
+    #[cfg(any(test, feature = "qualification"))]
+    pub(crate) const fn with_restart_period(self, period: Option<NonZeroUsize>) -> Self {
+        Self {
+            restart_period: period,
             ..self
         }
     }
@@ -101,6 +137,9 @@ impl ExecutionPolicy {
         if !(1..=MAXIMUM_WORKSPACE_BYTES).contains(&self.maximum_workspace_bytes) {
             return Err(invalid("workspace budget is outside the approved range"));
         }
+        if self.restart_period.is_some() && !self.capture_after_compute {
+            return Err(invalid("a restart needs capture"));
+        }
         Ok(self)
     }
 }
@@ -119,7 +158,9 @@ fn invalid(reason: &'static str) -> EngineError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ExecutionPolicy, Gauge, Precision, SvdAlgorithm};
+    use super::{
+        ExecutionPolicy, Gauge, NonZeroUsize, Precision, SvdAlgorithm, WorkspacePreference,
+    };
     use crate::engine::EngineError;
 
     fn assert_relative_close(actual: f64, expected: f64) {
@@ -145,6 +186,12 @@ mod tests {
         assert_eq!(policy.gauge, Gauge::Simple);
         assert_eq!(policy.maximum_workspace_bytes, 68_719_476_736);
         assert!(policy.capture_after_compute);
+        assert_eq!(policy.compute_workspace, WorkspacePreference::Recommended);
+        assert_eq!(policy.restart_period, None);
+        let variant = policy
+            .with_minimum_compute_workspace()
+            .with_restart_period(NonZeroUsize::new(10));
+        assert_eq!(variant.validate().expect("policy should be valid"), variant);
         let uncaptured = policy.without_capture();
         assert!(!uncaptured.capture_after_compute);
         assert_eq!(
@@ -189,6 +236,9 @@ mod tests {
                 maximum_workspace_bytes: super::MAXIMUM_WORKSPACE_BYTES + 1,
                 ..valid
             },
+            valid
+                .without_capture()
+                .with_restart_period(NonZeroUsize::new(1)),
         ];
 
         for policy in invalid {

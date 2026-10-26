@@ -47,6 +47,16 @@ pub(crate) type FinalizeMpsFn = unsafe extern "C" fn(
     *const *const i64,
 ) -> v2_13::cutensornetStatus_t;
 
+/// Function pointer for `cutensornetStateInitializeMPS`.
+pub(crate) type InitializeMpsFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetState_t,
+    v2_13::cutensornetBoundaryCondition_t,
+    *const *const i64,
+    *const *const i64,
+    *mut *mut ::std::os::raw::c_void,
+) -> v2_13::cutensornetStatus_t;
+
 /// Function pointer for `cutensornetStateCompute`.
 pub(crate) type StateComputeFn = unsafe extern "C" fn(
     v2_13::cutensornetHandle_t,
