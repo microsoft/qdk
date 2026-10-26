@@ -678,14 +678,20 @@ impl ReadoutCheck {
 
     /// Prints the mean readout distribution next to the table, and asserts
     /// the peaks and the TVD if `assert_peaks`.
-    fn finish(self, assert_peaks: bool) {
-        if let Some((path, mut file)) = self.trace {
+    fn finish(mut self, assert_peaks: bool) {
+        if let Some((path, mut file)) = self.trace.take() {
             file.flush()
                 .unwrap_or_else(|e| panic!("cannot write {path}: {e}"));
             println!("h2 trace written to {path}");
         }
-        let k = self.mean.len().trailing_zeros() as usize;
         let (path, table) = readout_table();
+        self.compare(&path, table.as_deref(), assert_peaks);
+    }
+
+    /// Prints the mean readout distribution next to `table` (read from
+    /// `path`), and asserts the peaks and the TVD if `assert_peaks`.
+    fn compare(&self, path: &str, table: Option<&[f64]>, assert_peaks: bool) {
+        let k = self.mean.len().trailing_zeros() as usize;
         println!(
             "h2 readout distribution over {} shots (record order, chemistry order, P): retained \
              weight {:.12} (smallest), largest bond {}",
@@ -695,7 +701,6 @@ impl ReadoutCheck {
             let record = bits(row, k);
             let chemistry: String = record.chars().rev().collect();
             let exact = table
-                .as_ref()
                 .and_then(|t| t.get(row))
                 .map_or_else(String::new, |e| {
                     format!(" exact {e:.17} diff {:+.3e}", p - e)
@@ -715,7 +720,7 @@ impl ReadoutCheck {
             if peaks { "yes" } else { "no" }
         );
         let bound = (1.0 - self.weight).max(0.0).sqrt() + H2_ROUNDING;
-        let tvd = table.as_ref().map(|table| {
+        let tvd = table.map(|table| {
             assert_eq!(
                 table.len(),
                 self.mean.len(),
@@ -761,4 +766,65 @@ impl ReadoutCheck {
         );
         println!("h2 readout distribution accepted: TVD {tvd:.3e} <= {bound:.3e}");
     }
+}
+
+/// A check of one shot whose readout distribution is `mean`, at the
+/// retained weight `weight`.
+fn one_shot(mean: Vec<f64>, weight: f64) -> ReadoutCheck {
+    ReadoutCheck {
+        shots: 1,
+        mean,
+        weight,
+        max_bond: 1,
+        trace: None,
+    }
+}
+
+/// A table made up for the checks: H₂'s peaks (record rows 01010 and
+/// 01101) at 0.4 each, the other 30 rows sharing 0.2.
+fn made_up_table() -> Vec<f64> {
+    let mut table = vec![0.2 / 30.0; 32];
+    table[0b01010] = 0.4;
+    table[0b01101] = 0.4;
+    table
+}
+
+#[test]
+fn the_acceptance_takes_a_distribution_within_its_bound() {
+    let table = made_up_table();
+    one_shot(table.clone(), 1.0).compare("made up", Some(&table), true);
+    // w = 1 − 1e-4 allows a TVD of 1e-2.
+    let mut moved = table.clone();
+    moved[0] += 5e-3;
+    moved[1] -= 5e-3;
+    one_shot(moved, 1.0 - 1e-4).compare("made up", Some(&table), true);
+}
+
+#[test]
+#[should_panic(expected = "in TVD")]
+fn the_acceptance_refuses_a_distribution_beyond_its_bound() {
+    let table = made_up_table();
+    let mut moved = table.clone();
+    moved[0] += 1e-6;
+    moved[1] -= 1e-6;
+    one_shot(moved, 1.0).compare("made up", Some(&table), true);
+}
+
+#[test]
+#[should_panic(expected = "two largest readout rows")]
+fn the_acceptance_refuses_other_peaks() {
+    let table = made_up_table();
+    let mut other = table.clone();
+    other.swap(0b01101, 0b10110);
+    one_shot(other, 0.0).compare("made up", Some(&table), true);
+}
+
+#[test]
+fn a_readout_row_goes_to_record_order_by_qubit() {
+    // The run measured qubits 2, 0, 1 in that order; the records are
+    // qubit 0's, 1's, 2's.
+    assert_eq!(record_row(&[2, 0, 1], 0b100), 0b001);
+    assert_eq!(record_row(&[2, 0, 1], 0b010), 0b100);
+    assert_eq!(record_row(&[2, 0, 1], 0b001), 0b010);
+    assert_eq!(record_row(&[0, 1, 2, 3, 4], 0b01101), 0b01101);
 }
