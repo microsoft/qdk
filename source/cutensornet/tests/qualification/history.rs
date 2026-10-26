@@ -11,24 +11,25 @@
 //! Each variant runs on an engine of its own
 //! ([`Availability::mps_engine_variant`](qdk_cutensornet::Availability::mps_engine_variant)):
 //!
-//! - `current`: the engine `mps_engine` creates;
-//! - `minimum_workspace`: each compute given cuTensorNet's minimum scratch
-//!   instead of its recommended one;
-//! - `restart_10`, `restart_50`: the native state restarted from its
-//!   computed MPS every 10 or 50 computes (one per step here), which drops
-//!   the operators the native state has accumulated;
-//! - `restart_10_fresh_handle`: `restart_10`, each restart also moving the
-//!   state to a new cuTensorNet handle and destroying the old one. The full
-//!   run of 2026-10-26 saw the recommended workspace grow by 16.06 MiB per
-//!   step, one compute each, in every variant, restarts included: if what
-//!   grows is kept by the handle, this variant's falls back at each
-//!   restart;
-//! - `two_computes`: the engine of `current`, with a second compute in each
+//! - `no_restart`: the baseline, which never restarts its native state and
+//!   keeps the engine's cuTensorNet handle; the run of 2026-10-26 saw its
+//!   recommended workspace grow by 16.06 MiB per step, one compute each;
+//! - `default`: the engine `mps_engine` creates, which restarts the native
+//!   state from its computed MPS every 10 computes on a new cuTensorNet
+//!   handle and destroys the old one. Its recommended workspace should stay
+//!   flat (193 MiB in that run);
+//! - `no_restart_minimum_workspace`: the baseline, each compute given
+//!   cuTensorNet's minimum scratch instead of its recommended one;
+//! - `restart_10_same_handle`, `restart_50_same_handle`: the native state
+//!   restarted from its computed MPS every 10 or 50 computes (one per step
+//!   here) on the handle it is on, the engine's, which drops the operators
+//!   the native state has accumulated but not what the handle keeps;
+//! - `no_restart_two_computes`: the baseline, with a second compute in each
 //!   step: after the read, an identity on the read site and a second read
-//!   (H₂ computed twice per measurement, and grew 32.26 MiB per
+//!   (H₂ computes twice per measurement, and grew 32.26 MiB per
 //!   measurement). If the growth is per compute, its slope is twice
-//!   `current`'s;
-//! - `probes`: the engine of `current`, and at each mark, outside the
+//!   `no_restart`'s;
+//! - `no_restart_probes`: the baseline, and at each mark, outside the
 //!   timing, four probes of what a new state started at the last computed
 //!   MPS asks for after one prepare
 //!   ([`CuTensorNetEngine::fresh_state_workspace`]): on the engine's handle
@@ -36,7 +37,7 @@
 //!   A new state on the engine's handle that asks for what the state does,
 //!   where one on a new handle asks for what the first steps did, puts the
 //!   growth in the handle. The probes on the engine's handle prepare on
-//!   it, so this variant's own rows may differ from `current`'s; that
+//!   it, so this variant's own rows may differ from `no_restart`'s; that
 //!   difference is a result too.
 //!
 //! Every [`MARK`] steps it records, from the state's
@@ -96,7 +97,8 @@ pub struct Variant {
     pub probes: bool,
 }
 
-/// The variants the qualification runs, in order.
+/// The variants the qualification runs, in order; the first is the
+/// baseline the script compares P(One) with.
 pub fn variants() -> Vec<Variant> {
     let variant = |name, engine| Variant {
         name,
@@ -104,40 +106,39 @@ pub fn variants() -> Vec<Variant> {
         computes_per_step: 1,
         probes: false,
     };
-    let restart = |period| EngineVariant {
-        restart_period: NonZeroUsize::new(period),
+    let no_restart = EngineVariant {
+        restart_period: None,
+        fresh_handle_at_restart: false,
         ..EngineVariant::default()
     };
+    let restart_on_the_same_handle = |period| EngineVariant {
+        restart_period: NonZeroUsize::new(period),
+        ..no_restart
+    };
     vec![
-        variant("current", EngineVariant::default()),
+        variant("no_restart", no_restart),
+        variant("default", EngineVariant::default()),
         variant(
-            "minimum_workspace",
+            "no_restart_minimum_workspace",
             EngineVariant {
                 minimum_workspace: true,
-                ..EngineVariant::default()
+                ..no_restart
             },
         ),
-        variant("restart_10", restart(10)),
-        variant("restart_50", restart(50)),
-        variant(
-            "restart_10_fresh_handle",
-            EngineVariant {
-                fresh_handle_at_restart: true,
-                ..restart(10)
-            },
-        ),
+        variant("restart_10_same_handle", restart_on_the_same_handle(10)),
+        variant("restart_50_same_handle", restart_on_the_same_handle(50)),
         Variant {
             computes_per_step: 2,
-            ..variant("two_computes", EngineVariant::default())
+            ..variant("no_restart_two_computes", no_restart)
         },
         Variant {
             probes: true,
-            ..variant("probes", EngineVariant::default())
+            ..variant("no_restart_probes", no_restart)
         },
     ]
 }
 
-/// The probes of a `probes` variant at each mark: the handle, its label,
+/// The probes of a variant with `probes` at each mark: the handle, its label,
 /// whether the step's gates are applied, and the series of its
 /// recommended workspace.
 const PROBES: [(NativeHandle, &str, bool, &str); 4] = [

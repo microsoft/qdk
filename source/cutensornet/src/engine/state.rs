@@ -61,17 +61,25 @@
 //!   the device's free memory, whichever is less, as CUDA-Q tells it the size
 //!   of its scratch pad, and each compute asks for the policy's
 //!   `compute_workspace` size, recommended or minimum.
-//! - With a `restart_period` of `K`, the native state is replaced every `K`
-//!   computes, before the next operator, by a new one whose start is the
-//!   last computed MPS (`cutensornetStateInitializeMPS`, with the extents and
-//!   strides that compute reported), finalized and configured as the first
-//!   one was. Capture is documented as "equivalent to creating a
-//!   `cutensornetState_t` with the previous output MPS state as the initial
-//!   MPS state", so a restart changes no value; what it sheds is whatever the
-//!   library keeps of the state's history, which the A100 measured growing
-//!   by about 32 MiB of workspace per measurement (`history_growth`). The
-//!   new state reads the MPS from the last compute's outputs, which are
-//!   freed, as before, after its first compute and capture.
+//! - With a `restart_period` of `K` (the engine's policy has one), the
+//!   native state is replaced every `K` computes, before the next operator,
+//!   by a new one whose start is the last computed MPS
+//!   (`cutensornetStateInitializeMPS`, with the extents and strides that
+//!   compute reported), finalized and configured as the first one was.
+//!   Capture is documented as "equivalent to creating a `cutensornetState_t`
+//!   with the previous output MPS state as the initial MPS state", so a
+//!   restart changes no value. The new state reads the MPS from the last
+//!   compute's outputs, which are freed, as before, after its first compute
+//!   and capture. With `fresh_handle_at_restart`, as in the engine's policy,
+//!   the new state is created on a cuTensorNet handle of its own, with its
+//!   own workspace descriptor, and the previous own handle is destroyed
+//!   after the old state; the session's handle never is. The A100 measured
+//!   the recommended workspace growing by about 16 MiB per compute on a
+//!   long-lived handle, restarts on it included, and flat with a fresh
+//!   handle every 10 computes (`history_growth`; the policy's
+//!   `RESTART_PERIOD`). A fork starts on the session's handle, as any new
+//!   state, and moves at its own restarts, so its parent's restarts never
+//!   destroy a handle it is on.
 //! - A native failure while the state is changed or computed leaves it
 //!   unusable: every later call reports [`EngineError::Poisoned`].
 

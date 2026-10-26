@@ -24,6 +24,11 @@
 //! - `projection` again at width 16 (`read_cost`'s), and at χ = 8: whether the
 //!   growth depends on the width or χ.
 //!
+//! The engine is the one `mps_engine` creates, which restarts each state
+//! every 10 computes on a new cuTensorNet handle: these rows measure the
+//! engine as it ships, not the growth of a state that never restarts, which
+//! `history_growth`'s `no_restart` measures.
+//!
 //! Each variant runs on a new state of the same engine, and records the
 //! process's device memory before the state, every [`MARK`] steps (also just
 //! before the step's last operator, so that growth at registration and at
