@@ -19,6 +19,8 @@
 //!   ├─ Evaluate (queries.rs)             state queries on ψ, outside the shot protocol
 //!   └─ per_shot: PerShot(TensorNetShots) one TensorNetTerminal (terminal.rs) per
 //!                                        shot, an L3 executor of the region ISA
+//! fusion.rs                              GateFusion: a region's gates as the
+//!                                        engine's operators (unfused, or pairs)
 //! lowering.rs                            region gates to matrices (③'s tables)
 //! capacity.rs                            the capacity for a qubit count and a bond cap
 //! ```
@@ -30,6 +32,7 @@
 
 mod batch;
 mod capacity;
+mod fusion;
 mod lowering;
 mod program;
 mod queries;
@@ -41,6 +44,7 @@ mod tests;
 
 pub use batch::{MpsBatchReport, MpsBatchSession, MpsBatchSimulator, sampler_seed};
 pub use capacity::mps_capacity;
+pub use fusion::{GateFusion, SiteOperator};
 pub use program::ProgramError;
 pub use queries::{Evaluate, MpsCost, QueryError, StateQuery, StateQueryValue};
 pub use stack::{DEFAULT_MAX_BOND, MpsStack, StackError};

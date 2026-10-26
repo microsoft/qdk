@@ -17,11 +17,12 @@ use qdk_simulators::{
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use tensornet::{MpsEngine, MpsShape, MpsShapeError};
 
-use crate::{capacity::mps_capacity, lowering};
+use crate::{GateFusion, capacity::mps_capacity, lowering};
 
 /// One shot's matrix product state on an [`MpsEngine`], as an L3 executor of
-/// the region ISA ([`RegionInstruction`]): regions are applied gate by gate
-/// (by `qdk_simulators`' gate tables), and each measurement or reset draws its
+/// the region ISA ([`RegionInstruction`]): each region's gates are applied as
+/// the operators its [`GateFusion`] makes of them (one per gate by default,
+/// by `qdk_simulators`' gate tables), and each measurement or reset draws its
 /// value from the shot's own random numbers, with P(One) read from the
 /// state, then projects the state on it.
 ///
@@ -43,6 +44,7 @@ pub struct TensorNetTerminal<E: MpsEngine> {
     /// until the engine can, and reports it until then.
     state: Result<E::State, String>,
     capacity: MpsShape,
+    fusion: GateFusion,
     rng: StdRng,
     log_p: f64,
     report: TensorNetReport,
@@ -51,7 +53,8 @@ pub struct TensorNetTerminal<E: MpsEngine> {
 
 impl<E: MpsEngine> TensorNetTerminal<E> {
     /// A terminal on |0…0⟩, prepared by `engine` within `capacity` (one site
-    /// per qubit), drawing from `seed`.
+    /// per qubit), drawing from `seed`, applying gates unfused
+    /// ([`GateFusion::Unfused`]; see [`with_gate_fusion`](Self::with_gate_fusion)).
     ///
     /// # Errors
     ///
@@ -59,6 +62,19 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
     pub fn new(engine: Rc<E>, capacity: MpsShape, seed: u64) -> Result<Self, E::Error> {
         let state = engine.prepare(&capacity)?;
         Ok(Self::with_state(engine, Ok(state), capacity, seed))
+    }
+
+    /// The terminal applying each region's gates as `fusion` groups them.
+    #[must_use]
+    pub fn with_gate_fusion(mut self, fusion: GateFusion) -> Self {
+        self.fusion = fusion;
+        self
+    }
+
+    /// How it groups each region's gates into the engine's operators.
+    #[must_use]
+    pub fn gate_fusion(&self) -> GateFusion {
+        self.fusion
     }
 
     fn with_state(
@@ -71,6 +87,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
             engine,
             state,
             capacity,
+            fusion: GateFusion::Unfused,
             rng: StdRng::seed_from_u64(seed),
             log_p: 0.0,
             report: TensorNetReport::default(),
@@ -129,6 +146,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
     /// failed.
     fn run(
         engine: &E,
+        fusion: GateFusion,
         state: &mut E::State,
         rng: &mut StdRng,
         log_p: &mut f64,
@@ -140,10 +158,18 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
             let step = match instruction {
                 RegionInstruction::ExecuteRegion { region, .. } => {
                     report.regions += 1;
-                    region.operations().iter().try_for_each(|&operation| {
-                        report.operations += u64::from(lowering::is_applied(operation));
-                        lowering::apply_operation(engine, state, operation)
-                    })
+                    report.operations += region
+                        .operations()
+                        .iter()
+                        .map(|&operation| u64::from(lowering::is_applied(operation)))
+                        .sum::<u64>();
+                    fusion
+                        .operators(region.operations())
+                        .iter()
+                        .try_for_each(|operator| {
+                            report.operators += 1;
+                            engine.apply(state, operator.sites(), operator.matrix())
+                        })
                 }
                 RegionInstruction::Measure(request) => {
                     let reset = request.kind == MeasurementKind::MeasureResetZ;
@@ -256,6 +282,7 @@ impl<E: MpsEngine> Executor<Batch<RegionInstruction>> for TensorNetTerminal<E> {
         self.report.batches += 1;
         let run = Self::run(
             &self.engine,
+            self.fusion,
             state,
             &mut self.rng,
             &mut self.log_p,
@@ -313,6 +340,7 @@ impl<E: MpsEngine> Close for TensorNetTerminal<E> {
 pub struct TensorNetShots<E: MpsEngine> {
     engine: Rc<E>,
     capacity: MpsShape,
+    fusion: GateFusion,
 }
 
 impl<E: MpsEngine> TensorNetShots<E> {
@@ -326,7 +354,22 @@ impl<E: MpsEngine> TensorNetShots<E> {
         Ok(Self {
             engine,
             capacity: mps_capacity(qubits, max_bond)?,
+            fusion: GateFusion::Unfused,
         })
+    }
+
+    /// Shots whose terminals apply each region's gates as `fusion` groups
+    /// them (by default [`GateFusion::Unfused`]).
+    #[must_use]
+    pub fn with_gate_fusion(mut self, fusion: GateFusion) -> Self {
+        self.fusion = fusion;
+        self
+    }
+
+    /// How each shot's terminal groups a region's gates.
+    #[must_use]
+    pub fn gate_fusion(&self) -> GateFusion {
+        self.fusion
     }
 
     /// The capacity each shot's state is prepared within.
@@ -370,6 +413,7 @@ impl<E: MpsEngine> MakeShot<RegionInstruction> for TensorNetShots<E> {
             self.capacity.clone(),
             ctx.rng_seed(ComponentId::TERMINAL),
         )
+        .with_gate_fusion(self.fusion)
     }
 
     fn log_p(shot: &TensorNetTerminal<E>) -> Option<f64> {
@@ -390,6 +434,11 @@ pub struct TensorNetReport {
     pub regions: u64,
     /// The operations of those regions it applied (`I` is not applied).
     pub operations: u64,
+    /// The operators it gave the engine for them
+    /// ([`MpsEngine::apply`](tensornet::MpsEngine::apply) calls): as many as
+    /// the operations unfused, fewer when its [`GateFusion`] groups them.
+    /// A reset's flip is not counted.
+    pub operators: u64,
     /// The measurements it made.
     pub measurements: u64,
     /// The resets it made.
@@ -403,6 +452,7 @@ impl Fold for TensorNetReport {
         self.batches += other.batches;
         self.regions += other.regions;
         self.operations += other.operations;
+        self.operators += other.operators;
         self.measurements += other.measurements;
         self.resets += other.resets;
         self.max_bond = self.max_bond.max(other.max_bond);

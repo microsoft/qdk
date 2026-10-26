@@ -11,6 +11,9 @@
 //! |                 | and phase estimation with feedback against the legacy runtime         |
 //! | `queries`       | state queries (MPS14–MPS17, MPS19) and their preflight                |
 //! | `parity`        | parity with M0: the sampler seed, the samples, the records (L10)      |
+//! | `fusion`        | `GateFusion`: exact products, no block across a measurement, edge     |
+//! |                 | cases; H₂'s operator counts and its driver on CPU (`#[ignore]`d)      |
+//! | `h2`            | the H₂ QPE driver, over any engine (`qualification` runs it on GPU)   |
 //! | `qualification` | the A100 qualification and H₂ QPE, `#[ignore]`d (Linux x86-64 only)   |
 //!
 //! The cases that hold for any engine are generic over [`MpsEngine`] in
@@ -38,12 +41,14 @@ use tensornet::{
 };
 
 // The reader of H₂'s bytecode JSON that `qdk_simulators`'s `h2_qpe` test
-// uses, for `qualification`'s H₂ run; test support, not API.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+// uses, for the H₂ driver (`h2`) and `fusion`'s operator counts; test
+// support, not API.
 #[path = "../../simulators/tests/common/adaptive_program_json.rs"]
 mod adaptive_program_json;
 mod batch;
 mod cases;
+mod fusion;
+mod h2;
 mod parity;
 mod per_shot;
 mod programs;

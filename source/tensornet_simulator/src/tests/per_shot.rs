@@ -208,6 +208,7 @@ fn the_terminal_rejects_a_batch_before_running_any_of_it() {
             batches: 1,
             regions: 1,
             operations: 1,
+            operators: 1,
             measurements: 3,
             resets: 0,
             max_bond: 1,

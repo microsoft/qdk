@@ -10,7 +10,10 @@
 //! M0's ④ did the same through its own `Circuit` of `Gate`s: it listed the
 //! gates, checked their qubits and angles, dropped `I`, and applied one
 //! operator per gate; it did not fuse gates. So one matrix per operation,
-//! unfused, keeps ④'s numbers.
+//! unfused, keeps ④'s numbers: the batch strategy and the state queries
+//! apply gates so. The per-shot terminal applies a region as its
+//! [`GateFusion`](crate::GateFusion) groups it (`fusion.rs`), unfused by
+//! default.
 
 use qdk_simulators::{
     QubitID,

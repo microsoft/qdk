@@ -11,23 +11,34 @@
 # the machine, then runs them in release mode, one at a time.
 #
 # Usage, on the A100 VM:
-#   ./qualify-simulator-on-a100.sh [--check | --quick] [--h2 FILE [--shots N]] COMMIT [REPO]
+#   ./qualify-simulator-on-a100.sh [--check | --quick] [--h2 FILE [--shots N] [--fusion F] [--stop-after M]] COMMIT [REPO]
 #     COMMIT   the commit to qualify (it must have src/tests/qualification.rs)
 #     REPO     the qdk checkout that has COMMIT (default: the current directory)
 #     --check  only the checks (host, tools, commit, GPU, libraries, disk);
 #              builds and changes nothing
-#     --quick  a smoke run: Bell, B1 and the per-shot cases only
+#     --quick  a smoke run: Bell, B1 and the per-shot cases only (unfused and
+#              in pairs)
 #     --h2 FILE  run only H2 (h2_qpe_on_the_a100) on the AdaptiveProgram.as_dict()
 #              JSON in FILE, each shot in its own session; with --check, it
 #              also checks FILE. Without --h2, the full and quick runs skip H2.
 #     --shots N  H2's shots (default 1; at 50 or more it asserts the two peaks).
 #              A shot is expected to take minutes, so 50 shots take hours.
+#     --fusion F  H2's gate fusion (QDK_H2_FUSION): unfused (the default, one
+#              engine operator per gate) or pairs (each region's gates in
+#              blocks of one or two qubits, GateFusion::Pairs).
+#     --stop-after M  stop each H2 shot after M measurements
+#              (QDK_H2_STOP_AFTER), to time the first part of a shot: the
+#              shot has no row and the peaks are not checked. Each shot
+#              prints its time, operators and device memory every 10
+#              measurements; with --stop-after, the summary keeps those lines.
 # Run --check first, then --quick, then with no option; then --h2 with
-# --shots 1, then with more shots.
+# --shots 1, then with more shots. To measure fusion, run --h2 FILE
+# --stop-after 100 with --fusion unfused and with --fusion pairs.
 #
 # It leaves REPO's checkout untouched: it adds a detached worktree at COMMIT
 # next to it (../qdk-simulator-qualification) and builds there. Results go to
-# $HOME/simulator-qualification-<date>/ and a .tar.gz of it, also when a step
+# $HOME/simulator-qualification-<date>/ (for H2,
+# simulator-qualification-h2-<fusion>-[m<M>-]<date>/) and a .tar.gz of it, also when a step
 # fails: run.log (the whole cargo output), summary.txt (each test passed or
 # failed, then the measured values), environment.txt. Send back the .tar.gz.
 #
@@ -57,15 +68,18 @@ readonly PACKAGE=tensornet_simulator
 readonly QUALIFICATION=source/tensornet_simulator/src/tests/qualification.rs
 readonly FILTER=tests::qualification::
 readonly QUICK_TESTS=(bell_on_the_a100 b1_widths per_shot_bell_pairs_on_the_a100
-    per_shot_feedback_and_resets_on_the_a100 per_shot_phase_estimation_on_the_a100)
+    per_shot_feedback_and_resets_on_the_a100 per_shot_phase_estimation_on_the_a100
+    per_shot_feedback_and_resets_in_pairs_on_the_a100 per_shot_phase_estimation_in_pairs_on_the_a100)
 readonly H2_TEST=h2_qpe_on_the_a100
 readonly CUTENSORNET_PINNED=/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2
 readonly CUDART_PINNED=/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12
 
-usage() { printf 'usage: %s [--check | --quick] [--h2 FILE [--shots N]] COMMIT [REPO]\n' "$0" >&2; exit 2; }
+usage() { printf 'usage: %s [--check | --quick] [--h2 FILE [--shots N] [--fusion F] [--stop-after M]] COMMIT [REPO]\n' "$0" >&2; exit 2; }
 mode=run
 h2=""
 shots=""
+fusion=""
+stop_after=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --check | --quick)
@@ -83,19 +97,31 @@ while [[ $# -gt 0 ]]; do
             shots="$2"
             shift 2
             ;;
+        --fusion)
+            [[ $# -ge 2 && "$2" =~ ^(unfused|pairs)$ ]] || { printf '%s: --fusion is unfused or pairs\n' "$0" >&2; exit 2; }
+            fusion="$2"
+            shift 2
+            ;;
+        --stop-after)
+            [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || { printf '%s: --stop-after needs a positive integer\n' "$0" >&2; exit 2; }
+            stop_after="$2"
+            shift 2
+            ;;
         -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d'; exit 0 ;;
         -*) printf 'unknown option %s\n' "$1" >&2; exit 2 ;;
         *) break ;;
     esac
 done
 [[ $# -ge 1 && $# -le 2 ]] || usage
-[[ -z "$shots" || -n "$h2" ]] || { printf '%s: --shots goes with --h2\n' "$0" >&2; exit 2; }
+[[ -z "$shots$fusion$stop_after" || -n "$h2" ]] \
+    || { printf '%s: --shots, --fusion and --stop-after go with --h2\n' "$0" >&2; exit 2; }
 [[ -z "$h2" || "$mode" != quick ]] || { printf '%s: use one of --quick and --h2\n' "$0" >&2; exit 2; }
 if [[ -n "$h2" ]]; then
     [[ -f "$h2" ]] || { printf 'FAIL: --h2 %s is not a file\n' "$h2" >&2; exit 1; }
     # Absolute, because the test runs in the worktree.
     h2="$(cd "$(dirname "$h2")" && pwd)/$(basename "$h2")"
     shots="${shots:-1}"
+    fusion="${fusion:-unfused}"
 fi
 ref="$1"
 [[ -d "${2:-.}" ]] || { printf 'FAIL: %s is not a directory\n' "${2:-.}" >&2; exit 1; }
@@ -298,7 +324,7 @@ print(f"{program['num_qubits']} qubits, {program['num_results']} results, "
       f"{len(program['instructions'])} instructions")
 EOF
     )"; then
-        ok "$h2: $h2_shape; $shots shot(s)"
+        ok "$h2: $h2_shape; $shots shot(s), fusion $fusion${stop_after:+, stopping after $stop_after measurements}"
     else
         problem "$h2 is not an AdaptiveProgram.as_dict() JSON: $(tail -1 <<<"$h2_shape")"
     fi
@@ -328,12 +354,13 @@ step "2. worktree"
 if [[ ! -e "$work" ]]; then
     git -C "$repo" worktree add --detach "$work" "$sha"
 fi
-out="$HOME/simulator-qualification-${h2:+h2-}$(date +%Y%m%d-%H%M%S)"
+out="$HOME/simulator-qualification-${h2:+h2-$fusion-}${stop_after:+m$stop_after-}$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$out"
 {
     printf 'commit=%s\nmode=%s\nhost=%s\ndate=%s\n' "$sha" "$mode" "$(uname -a)" "$(date -Is)"
-    [[ -z "$h2" ]] || printf 'h2=%s\nh2_sha256=%s\nQDK_H2_SHOTS=%s\nQDK_H2_SEED=%s\nQDK_H2_CHI=%s\n' \
-        "$h2" "$(sha256sum "$h2" | awk '{ print $1 }')" "$shots" "${QDK_H2_SEED:-0}" "${QDK_H2_CHI:-32}"
+    [[ -z "$h2" ]] || printf 'h2=%s\nh2_sha256=%s\nQDK_H2_SHOTS=%s\nQDK_H2_SEED=%s\nQDK_H2_CHI=%s\nQDK_H2_FUSION=%s\nQDK_H2_STOP_AFTER=%s\n' \
+        "$h2" "$(sha256sum "$h2" | awk '{ print $1 }')" "$shots" "${QDK_H2_SEED:-0}" "${QDK_H2_CHI:-32}" \
+        "$fusion" "$stop_after"
     printf 'QDK_CUTENSORNET_LIBRARY=%s\nQDK_CUDART_LIBRARY=%s\n' "$QDK_CUTENSORNET_LIBRARY" "$QDK_CUDART_LIBRARY"
     printf '%s\n' "$probe"
     (cd "$work" && rustc --version && cargo --version)
@@ -344,12 +371,13 @@ step "3. build and run"
 filters=("$FILTER" --skip "$H2_TEST")
 if [[ -n "$h2" ]]; then
     filters=("$FILTER$H2_TEST" --exact)
-    export QDK_H2_BYTECODE="$h2" QDK_H2_SHOTS="$shots"
+    export QDK_H2_BYTECODE="$h2" QDK_H2_SHOTS="$shots" QDK_H2_FUSION="$fusion"
+    if [[ -n "$stop_after" ]]; then export QDK_H2_STOP_AFTER="$stop_after"; else unset QDK_H2_STOP_AFTER; fi
 elif [[ "$mode" == quick ]]; then
     filters=("${QUICK_TESTS[@]/#/$FILTER}")
 fi
 command=(cargo test -p "$PACKAGE" --release -- --ignored --nocapture --test-threads=1 "${filters[@]}")
-printf '%s\n' "(cd $work && ${h2:+QDK_H2_BYTECODE=$h2 QDK_H2_SHOTS=$shots }${command[*]})" \
+printf '%s\n' "(cd $work && ${h2:+QDK_H2_BYTECODE=$h2 QDK_H2_SHOTS=$shots QDK_H2_FUSION=$fusion }${stop_after:+QDK_H2_STOP_AFTER=$stop_after }${command[*]})" \
     | tee "$out/command.txt"
 set +e
 (cd "$work" && "${command[@]}") 2>&1 | tee "$out/run.log"
@@ -376,8 +404,13 @@ step "4. summary"
         "$out/run.log" | awk '!seen[$0]++' || true
     grep -E '^(trotter|b1) ' "$out/run.log" || true
     grep -E '^phase estimation' "$out/run.log" || true
-    # H2's results, without its progress lines.
-    grep -E '^h2 ' "$out/run.log" | grep -vE '^h2 shot [0-9]+: [0-9]+ batches' || true
+    # H2's results; its progress lines only when the shots stop early, where
+    # they are the measurement.
+    if [[ -n "$stop_after" ]]; then
+        grep -E '^h2 ' "$out/run.log" || true
+    else
+        grep -E '^h2 ' "$out/run.log" | grep -vE '^h2 shot [0-9]+: [0-9]+ measurements, [0-9.]+ s \(' || true
+    fi
     grep -E '^test result:' "$out/run.log" || true
 } | tee "$out/summary.txt"
 [[ "$status" -eq 0 ]] || fail "cargo test exited with $status (see $out/run.log)"
