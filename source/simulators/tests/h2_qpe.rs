@@ -25,7 +25,9 @@
 //!
 //! `h2_qpe_measurement_trace` runs the walk alone on the same sessions and
 //! writes each shot's measurements to `QDK_H2_TRACE`, for the analysis of
-//! shot branching.
+//! shot branching. The tests of [`shot_state`] read a shot's state at chosen
+//! measurements, to check whether every shot reaches the readout in the same
+//! state.
 
 use std::{
     collections::BTreeMap,
@@ -54,6 +56,9 @@ use rand::{RngExt as _, SeedableRng, rngs::StdRng};
 mod adaptive_program_json;
 
 use adaptive_program_json::adaptive_program_from_json;
+
+#[path = "h2_qpe/shot_state.rs"]
+mod shot_state;
 
 /// The legacy [`Simulator`] over [`SparseStateSim`], which does not
 /// implement it: qubits `0..n` allocated up front, no noise and no loss.
@@ -392,6 +397,14 @@ fn h2_program() -> (PreparedAdaptiveProgram<u64>, usize, usize) {
     (prepared, qubits, results)
 }
 
+/// The seed of the simulator of shot `shot` of a run seeded `seed`, as
+/// [`SimulatorShots`] gives it: the exclusive or of the halves of
+/// [`shot_seed`], since [`Simulator::new`] takes 32 bits.
+fn simulator_seed(seed: u64, shot: ShotId) -> u32 {
+    let folded = shot_seed(seed, shot);
+    u32::try_from((folded ^ (folded >> 32)) & u64::from(u32::MAX)).expect("masked to 32 bits")
+}
+
 /// `QDK_H2_SHOTS` and `QDK_H2_SEED`.
 fn h2_shots_and_seed() -> (u32, u64) {
     let shots = u32::try_from(env_or("QDK_H2_SHOTS", 1)).expect("the shots should fit u32");
@@ -414,10 +427,8 @@ fn h2_qpe_through_the_protocol_matches_the_legacy_runtime() {
         let ((walked, walk), (legacy, runtime)) = thread::scope(|scope| {
             let legacy = scope.spawn(|| {
                 let start = Instant::now();
-                let folded = shot_seed(seed, shot);
-                let folded = u32::try_from((folded ^ (folded >> 32)) & u64::from(u32::MAX))
-                    .expect("masked to 32 bits");
-                let mut sim: SparseSimulator = SparseSimulator::new(qubits, results, folded, ());
+                let mut sim: SparseSimulator =
+                    SparseSimulator::new(qubits, results, simulator_seed(seed, shot), ());
                 let rows = run_shot(prepared.program(), &mut sim);
                 (rows, start.elapsed())
             });
