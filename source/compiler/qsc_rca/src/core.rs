@@ -1883,6 +1883,7 @@ impl<'a> Analyzer<'a> {
         let assignee_expr = self.get_expr(assignee_expr_id);
         let value_expr = self.get_expr(value_expr_id);
         match &assignee_expr.kind {
+            ExprKind::Hole => ComputeKind::Static,
             ExprKind::Var(res, _) => {
                 let Res::Local(local_var_id) = res else {
                     panic!("expected a local variable");
@@ -1988,7 +1989,7 @@ impl<'a> Analyzer<'a> {
                     updated_compute_kind
                 }
             }
-            _ => panic!("expected a local variable or a tuple"),
+            _ => panic!("expected a local variable, a tuple, or a discard"),
         }
     }
 
