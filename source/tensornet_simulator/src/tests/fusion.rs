@@ -593,6 +593,11 @@ impl MpsEngine for TestDoubleCoinEngine {
     fn shape(&self, state: &usize) -> Result<MpsShape, Self::Error> {
         Ok(mps_capacity(*state, 1).expect("a chain of bond 1"))
     }
+
+    // The coin engine holds no amplitudes, so it never truncates.
+    fn retained_weight(&self, _: &usize) -> Result<f64, Self::Error> {
+        Ok(1.0)
+    }
 }
 
 /// The A100's H₂ driver (`h2::h2_qpe`), with its environment

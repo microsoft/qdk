@@ -622,6 +622,10 @@ impl MpsEngine for TestDoubleEngine {
     fn shape(&self, state: &ReferenceState) -> Result<MpsShape, TestDoubleError> {
         Ok(ExactReference.shape(state)?)
     }
+
+    fn retained_weight(&self, state: &ReferenceState) -> Result<f64, TestDoubleError> {
+        Ok(ExactReference.retained_weight(state)?)
+    }
 }
 
 #[test]
