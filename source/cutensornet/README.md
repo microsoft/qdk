@@ -143,7 +143,7 @@ What each operation calls:
 | `prepare`                                                             | `cutensornetCreateState`, `cutensornetCreateWorkspaceDescriptor`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `apply`, `project`                                                    | `cudaMalloc`, `cudaMemcpy`, `cutensornetStateApplyTensorOperator` (a projection is a non-unitary diagonal scaled by 1/√p)                                                                                                                                                                                                                                                                                                                                                                                                            |
 | any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare` (limit: the policy's or the free memory, the smaller), `cutensornetWorkspaceGetMemorySize` (minimum and recommended), `cudaMalloc` (scratch), `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cudaFree` (scratch), `cutensornetStateCaptureMPS`, `cudaFree` of the previous compute's outputs                                         |
-| `apply`, `project`, with a restart period `K`, after `K` computes     | first: `cutensornetCreateState`, `cutensornetStateInitializeMPS` (the last computed MPS), `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5, `cutensornetDestroyState` (the old state), `cudaFree` of its operator tensors                                                                                                                                                                                                                                                                                               |
+| `apply`, `project`, with a restart period `K`, after `K` computes     | first: `cutensornetCreateState`, `cutensornetStateInitializeMPS` (the last computed MPS), `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5, `cutensornetDestroyState` (the old state), `cudaFree` of its operator tensors; with a fresh handle at restart, also `cutensornetCreate` before, `cutensornetCreateWorkspaceDescriptor` on the new handle, `cutensornetDestroyWorkspaceDescriptor` of the old one and `cutensornetDestroy` of the previous own handle (never the engine's)                                   |
 | `probability_of_one`, `conditional_probability_of_one`, `expectation` | per query: `cutensornetCreateNetworkOperator`, `cudaMalloc` + `cudaMemcpy` per distinct factor, `cutensornetNetworkOperatorAppendProduct`, `cutensornetCreateExpectation`, `cutensornetExpectationConfigure`, `cutensornetCreateWorkspaceDescriptor`, `cudaMemGetInfo`, `cutensornetExpectationPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc` + `cutensornetWorkspaceSetMemory` if needed, `cutensornetExpectationCompute`, `cudaStreamSynchronize`, then the destroys and `cudaFree`s. A conditional runs two queries. |
 | `sample`                                                              | `cudaMemGetInfo`, `cutensornetCreateSampler`, `cutensornetSamplerConfigure` (hyper-samples, path seed), `cutensornetSamplerPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetSamplerConfigure` (sample seed), `cutensornetSamplerSample`, `cutensornetDestroySampler`, `cudaStreamSynchronize`, `cudaFree` (scratch)                                                                                                                                                         |
 | `fork`                                                                | `prepare`, then every logged operator applied again: cuTensorNet 2.13 offers no state copy among the loaded symbols, so a fork costs a new state and a recompute                                                                                                                                                                                                                                                                                                                                                                     |
@@ -178,8 +178,15 @@ policy's `restart_period` (none by default; the qualification's
 so many computes by a new one that starts from the last computed MPS
 (`cutensornetStateInitializeMPS`), and releases the old one and its operator
 tensors: capture is documented as equivalent to that, so a restart changes no
-value; it drops whatever the library keeps of the state's history. Its host
-tests check that it changes no value, through truncations and projections. A native failure while a state is changed or computed leaves it
+value; it drops whatever the library keeps of the state's history. With the
+policy's `fresh_handle_at_restart` (off by default; qualification only), a
+restart also moves the state to a new cuTensorNet handle of its own, with its
+own workspace descriptor, and destroys the previous one: the full A100 run
+showed the recommended scratch growing by about 16 MiB per compute with or
+without restarts, and this tells whether the growth belongs to the shared
+handle. Its host tests check that a restart changes no value, through
+truncations and projections, on the same handle and on a fresh one, and that
+the test double refuses an object used with a handle other than its own. A native failure while a state is changed or computed leaves it
 unusable (`EngineError::Poisoned`); a failed query or sample frees its buffers
 and native objects and leaves the state usable. A conditional probability
 whose condition has weight at most 1e-12 of the state's norm is refused, since
@@ -485,7 +492,8 @@ needs the feature `qualification`:
 
 - `conformance`, `conformance_without_capture` and `conformance_with_restart`
   run `tensornet::conformance::check` on the engine with and without MPS
-  capture, and restarting its native state at every compute, and are the
+  capture, and restarting its native state at every compute (on the same
+  cuTensorNet handle, then on a fresh one, rows `handle=fresh;`), and are the
   only tests that assert; without capture, the retained weight is reported
   but not held, since each compute truncates the whole history again;
 - `environment` records the versions and libraries found;
@@ -507,11 +515,16 @@ needs the feature `qualification`:
   retained weight at every mark, and the slope of its `log10` per step,
   scaled to H₂ the same way: an estimate for a random circuit of H₂'s size,
   likely pessimistic, not of H₂'s own circuit. `history_growth` runs H₂'s
-  pattern 300 times on four engine variants (the engine, the minimum
-  workspace, a restart every 10 and every 50 computes), and records every 10
-  steps the minimum and recommended workspace, the device memory, the live
-  allocations and the time per kind of native call, then their slopes per
-  step.
+  pattern 300 times on seven engine variants (the engine, the minimum
+  workspace, a restart every 10 and every 50 computes, a restart every 10 on
+  a fresh handle, two computes per step, and the engine with probes), and
+  records every 10 steps the minimum and recommended workspace, the device
+  memory, the live allocations, the restarts, fresh handles and computes of
+  the state's handle, and the time per kind of native call, then their slopes
+  per step. The probes prepare a new state started at the computed MPS, with
+  no operator or with the step's gates, on the engine's handle and on a new
+  one, and record the workspace it asks for and the computes its handle had
+  done.
 
 `scripts/qualify-engine-on-a100.sh` runs them on an A100 host. It checks the
 host, the GPU, the libraries and their versions, the commit and the disk; it

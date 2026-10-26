@@ -3,15 +3,18 @@
 //! [`ExecutionPolicy`] fixes the device, precision, SVD cutoffs, SVD
 //! algorithm, gauge, workspace budget, the workspace size each compute asks
 //! for, whether each compute is captured as the start of the next one, and
-//! how often the native state is restarted from its computed MPS.
+//! how often the native state is restarted from its computed MPS, and on
+//! which cuTensorNet handle.
 //! `validate` accepts only the qualified configuration, fp64 with GESVD and
 //! the SIMPLE gauge, and a budget of at most 64 GiB; the other variants exist
 //! for tests. It refuses a restart without capture, whose computes would
-//! not leave the MPS a restart starts from. It does not check capture itself:
-//! turning it off is not reachable outside tests and the `qualification`
-//! feature (`without_capture`), and gives the same values without
-//! truncation, only more slowly. The minimum workspace and the restart are
-//! reachable there too, until the A100's `history_growth` shows which pays.
+//! not leave the MPS a restart starts from, and a fresh handle at restart
+//! without a restart period, which would never take effect. It does not
+//! check capture itself: turning it off is not reachable outside tests and
+//! the `qualification` feature (`without_capture`), and gives the same
+//! values without truncation, only more slowly. The minimum workspace, the
+//! restart and its fresh handle are reachable there too, until the A100's
+//! `history_growth` shows which pays.
 //! `base_qualification` is the engine's default. Qualifying another
 //! configuration takes an A100 qualification case and a change to `validate`.
 //!
@@ -70,6 +73,13 @@ pub(crate) struct ExecutionPolicy {
     /// (`cutensornetStateInitializeMPS`), and the old state and its operator
     /// tensors are released. `None` never restarts. Needs capture.
     pub(super) restart_period: Option<NonZeroUsize>,
+    /// Whether each restart also moves the state to a cuTensorNet handle of
+    /// its own, created for the new state, and destroys the handle the old
+    /// state was on once nothing uses it (never the session's). For the
+    /// A100's `history_growth` only: it tests whether what grows with a
+    /// shot's history is kept by the handle rather than by the state.
+    /// Needs a restart period.
+    pub(super) fresh_handle_at_restart: bool,
 }
 
 impl ExecutionPolicy {
@@ -85,6 +95,7 @@ impl ExecutionPolicy {
             capture_after_compute: true,
             compute_workspace: WorkspacePreference::Recommended,
             restart_period: None,
+            fresh_handle_at_restart: false,
         }
     }
 
@@ -119,6 +130,16 @@ impl ExecutionPolicy {
         }
     }
 
+    /// The same policy, with each restart moving the state to a new
+    /// cuTensorNet handle.
+    #[cfg(any(test, feature = "qualification"))]
+    pub(crate) const fn with_fresh_handle_at_restart(self, fresh: bool) -> Self {
+        Self {
+            fresh_handle_at_restart: fresh,
+            ..self
+        }
+    }
+
     pub(crate) fn validate(self) -> Result<Self, EngineError> {
         if self.device_ordinal < 0 {
             return Err(invalid("device ordinal must be nonnegative"));
@@ -139,6 +160,9 @@ impl ExecutionPolicy {
         }
         if self.restart_period.is_some() && !self.capture_after_compute {
             return Err(invalid("a restart needs capture"));
+        }
+        if self.fresh_handle_at_restart && self.restart_period.is_none() {
+            return Err(invalid("a fresh handle at restart needs a restart period"));
         }
         Ok(self)
     }
@@ -188,9 +212,11 @@ mod tests {
         assert!(policy.capture_after_compute);
         assert_eq!(policy.compute_workspace, WorkspacePreference::Recommended);
         assert_eq!(policy.restart_period, None);
+        assert!(!policy.fresh_handle_at_restart);
         let variant = policy
             .with_minimum_compute_workspace()
-            .with_restart_period(NonZeroUsize::new(10));
+            .with_restart_period(NonZeroUsize::new(10))
+            .with_fresh_handle_at_restart(true);
         assert_eq!(variant.validate().expect("policy should be valid"), variant);
         let uncaptured = policy.without_capture();
         assert!(!uncaptured.capture_after_compute);
@@ -239,6 +265,7 @@ mod tests {
             valid
                 .without_capture()
                 .with_restart_period(NonZeroUsize::new(1)),
+            valid.with_fresh_handle_at_restart(true),
         ];
 
         for policy in invalid {

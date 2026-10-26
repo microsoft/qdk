@@ -16,7 +16,28 @@
 //!   instead of its recommended one;
 //! - `restart_10`, `restart_50`: the native state restarted from its
 //!   computed MPS every 10 or 50 computes (one per step here), which drops
-//!   the operators the native state has accumulated.
+//!   the operators the native state has accumulated;
+//! - `restart_10_fresh_handle`: `restart_10`, each restart also moving the
+//!   state to a new cuTensorNet handle and destroying the old one. The full
+//!   run of 2026-10-26 saw the recommended workspace grow by 16.06 MiB per
+//!   step, one compute each, in every variant, restarts included: if what
+//!   grows is kept by the handle, this variant's falls back at each
+//!   restart;
+//! - `two_computes`: the engine of `current`, with a second compute in each
+//!   step: after the read, an identity on the read site and a second read
+//!   (H₂ computed twice per measurement, and grew 32.26 MiB per
+//!   measurement). If the growth is per compute, its slope is twice
+//!   `current`'s;
+//! - `probes`: the engine of `current`, and at each mark, outside the
+//!   timing, four probes of what a new state started at the last computed
+//!   MPS asks for after one prepare
+//!   ([`CuTensorNetEngine::fresh_state_workspace`]): on the engine's handle
+//!   or on a new one, with no operator or with the step's gates again.
+//!   A new state on the engine's handle that asks for what the state does,
+//!   where one on a new handle asks for what the first steps did, puts the
+//!   growth in the handle. The probes on the engine's handle prepare on
+//!   it, so this variant's own rows may differ from `current`'s; that
+//!   difference is a result too.
 //!
 //! Every [`MARK`] steps it records, from the state's
 //! [`StateProfile`](qdk_cutensornet::StateProfile):
@@ -29,8 +50,9 @@
 //!   time outside them: the engine's own checks and bookkeeping, and the
 //!   test's;
 //! - the process's device memory, after the step's projection;
-//! - the state's live device allocations and operator tensors, and its
-//!   computes and restarts so far;
+//! - the state's live device allocations and operator tensors, its
+//!   computes, restarts and restarts on a fresh handle so far, and the
+//!   computes done on the handle it is on, by any state;
 //! - the step's P(One), which every variant should agree on, up to
 //!   rounding.
 //!
@@ -43,7 +65,10 @@ use crate::circuits;
 use crate::measure::{BATCH, H2_READS, quick};
 use crate::memory::{Ending, MARK, end, float};
 use crate::report::{Report, device_mib, or_unavailable};
-use qdk_cutensornet::{CuTensorNetEngine, EngineVariant, StateProfile, discover};
+use num_complex::Complex64;
+use qdk_cutensornet::{
+    CuTensorNetEngine, CuTensorNetState, EngineVariant, NativeHandle, StateProfile, discover,
+};
 use std::{
     error::Error,
     num::NonZeroUsize,
@@ -59,25 +84,68 @@ pub fn steps() -> usize {
     if quick() { 30 } else { 300 }
 }
 
+/// One run of the pattern: its engine, and what the run adds to it.
+#[derive(Clone, Copy, Debug)]
+pub struct Variant {
+    pub name: &'static str,
+    pub engine: EngineVariant,
+    /// The computes of each step: 1, or 2 with an identity and a second
+    /// read after the first.
+    pub computes_per_step: usize,
+    /// Whether each mark probes what a state with no history asks for.
+    pub probes: bool,
+}
+
 /// The variants the qualification runs, in order.
-pub fn variants() -> Vec<(&'static str, EngineVariant)> {
+pub fn variants() -> Vec<Variant> {
+    let variant = |name, engine| Variant {
+        name,
+        engine,
+        computes_per_step: 1,
+        probes: false,
+    };
     let restart = |period| EngineVariant {
         restart_period: NonZeroUsize::new(period),
         ..EngineVariant::default()
     };
     vec![
-        ("current", EngineVariant::default()),
-        (
+        variant("current", EngineVariant::default()),
+        variant(
             "minimum_workspace",
             EngineVariant {
                 minimum_workspace: true,
                 ..EngineVariant::default()
             },
         ),
-        ("restart_10", restart(10)),
-        ("restart_50", restart(50)),
+        variant("restart_10", restart(10)),
+        variant("restart_50", restart(50)),
+        variant(
+            "restart_10_fresh_handle",
+            EngineVariant {
+                fresh_handle_at_restart: true,
+                ..restart(10)
+            },
+        ),
+        Variant {
+            computes_per_step: 2,
+            ..variant("two_computes", EngineVariant::default())
+        },
+        Variant {
+            probes: true,
+            ..variant("probes", EngineVariant::default())
+        },
     ]
 }
+
+/// The probes of a `probes` variant at each mark: the handle, its label,
+/// whether the step's gates are applied, and the series of its
+/// recommended workspace.
+const PROBES: [(NativeHandle, &str, bool, &str); 4] = [
+    (NativeHandle::Engine, "engine", false, "probe_engine_none"),
+    (NativeHandle::Engine, "engine", true, "probe_engine_batch"),
+    (NativeHandle::Fresh, "fresh", false, "probe_fresh_none"),
+    (NativeHandle::Fresh, "fresh", true, "probe_fresh_batch"),
+];
 
 /// The profile's times, by kind of call.
 fn kinds(profile: &StateProfile) -> [(&'static str, Duration); 9] {
@@ -122,14 +190,15 @@ impl Series {
 pub fn history_growth(report: &mut Report) {
     let availability = discover().unwrap_or_else(|error| panic!("no cuTensorNet: {error}"));
     report.row("steps", steps(), "");
-    for (name, variant) in variants() {
+    for variant in variants() {
+        let name = variant.name;
         let item = |metric: &str| format!("variant={name};{metric}");
         report.row(
             &item("device_mib_before_engine"),
             or_unavailable(device_mib()),
             "MiB",
         );
-        let engine = match availability.mps_engine_variant(variant) {
+        let engine = match availability.mps_engine_variant(variant.engine) {
             Ok(engine) => engine,
             Err(error) => {
                 report.error(&item("engine"), error);
@@ -137,7 +206,7 @@ pub fn history_growth(report: &mut Report) {
             }
         };
         let mut series = Series::default();
-        if let Err(error) = run(report, &engine, steps(), &item, &mut series) {
+        if let Err(error) = run(report, &engine, variant, &item, &mut series) {
             report.error(&item("run"), error);
         }
         // Also after an error: the trend before it may explain it.
@@ -156,11 +225,16 @@ pub fn history_growth(report: &mut Report) {
 fn run(
     report: &mut Report,
     engine: &CuTensorNetEngine,
-    steps: usize,
+    variant: Variant,
     item: &dyn Fn(&str) -> String,
     series: &mut Series,
 ) -> Result<(), Box<dyn Error>> {
+    let steps = steps();
     let site = WIDTH / 2;
+    let one = Complex64::new(1.0, 0.0);
+    let zero = Complex64::new(0.0, 0.0);
+    let identity = [one, zero, zero, one];
+    let mut batch = Vec::with_capacity(BATCH);
     // A brickwork layer has at least one gate per site.
     let layers = steps * BATCH / WIDTH + 2;
     let mut gates = circuits::brickwork(WIDTH, layers, false, 41).into_iter();
@@ -174,11 +248,17 @@ fn run(
     let (mut since_mark, mut total, mut previous) = (Duration::ZERO, Duration::ZERO, 0);
     for step in 1..=steps {
         let start = Instant::now();
+        batch.clear();
         for _ in 0..BATCH {
             let gate = gates.next().ok_or("brickwork too short")?;
             engine.apply(&mut state, &gate.sites, &gate.matrix)?;
+            batch.push(gate);
         }
         let p_one = engine.probability_of_one(&state, site)?;
+        for _ in 1..variant.computes_per_step {
+            engine.apply(&mut state, &[site], &identity)?;
+            engine.probability_of_one(&state, site)?;
+        }
         end(engine, &mut state, Ending::Projection, site, step, p_one)?;
         let elapsed = start.elapsed();
         since_mark += elapsed;
@@ -223,6 +303,11 @@ fn run(
         report.row(&at("operator_tensors"), profile.operator_tensors, "count");
         report.row(&at("computes"), profile.computes, "count");
         report.row(&at("restarts"), profile.restarts, "count");
+        report.row(&at("fresh_handles"), profile.fresh_handles, "count");
+        report.row(&at("handle_computes"), profile.handle_computes, "count");
+        if variant.probes {
+            probe(report, engine, &state, &batch, &at, step, series);
+        }
         last = profile;
         since_mark = Duration::ZERO;
         previous = step;
@@ -231,6 +316,52 @@ fn run(
     report.row(&item("ms_per_step"), format!("{mean:.3}"), "ms");
     drop(state);
     Ok(())
+}
+
+/// The [`PROBES`] of `state` at `step`: an error is a row, and the next
+/// probe runs.
+fn probe(
+    report: &mut Report,
+    engine: &CuTensorNetEngine,
+    state: &CuTensorNetState,
+    batch: &[circuits::Operator],
+    at: &dyn Fn(&str) -> String,
+    step: usize,
+    series: &mut Series,
+) {
+    let gates: Vec<(&[usize], &[Complex64])> = batch
+        .iter()
+        .map(|gate| (gate.sites.as_slice(), gate.matrix.as_slice()))
+        .collect();
+    for (handle, label, with_gates, metric) in PROBES {
+        let operators = if with_gates { gates.as_slice() } else { &[] };
+        let operators_label = if with_gates { "batch" } else { "none" };
+        let probe_item =
+            |name: &str| at(&format!("probe={label};operators={operators_label};{name}"));
+        let Some(sizes) = report.record(
+            &probe_item("workspace"),
+            engine.fresh_state_workspace(state, handle, operators),
+        ) else {
+            continue;
+        };
+        report.row(
+            &probe_item("minimum_workspace_bytes"),
+            sizes.minimum_bytes,
+            "B",
+        );
+        report.row(
+            &probe_item("recommended_workspace_bytes"),
+            sizes.recommended_bytes,
+            "B",
+        );
+        report.row(
+            &probe_item("handle_computes"),
+            sizes.handle_computes,
+            "count",
+        );
+        let kib = u32::try_from(sizes.recommended_bytes >> 10).unwrap_or(u32::MAX);
+        series.push(metric, step, f64::from(kib) / 1024.0);
+    }
 }
 
 /// The least-squares slope per step of each metric, the largest
@@ -245,6 +376,12 @@ fn trends(report: &mut Report, item: &dyn Fn(&str) -> String, series: &Series) {
     ];
     metrics.extend(kinds(&StateProfile::default()).map(|(kind, _)| (kind, "ms/step")));
     metrics.push(("unprofiled", "ms/step"));
+    metrics.extend(
+        PROBES
+            .iter()
+            .map(|probe| (probe.3, "MiB/step"))
+            .filter(|(metric, _)| !series.get(metric).is_empty()),
+    );
     for (metric, unit) in metrics {
         let name = format!("slope;{metric}");
         match fit(series.get(metric)) {

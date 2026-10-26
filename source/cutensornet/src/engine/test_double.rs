@@ -25,6 +25,12 @@
 //!   stride table per site. The next compute reads the start from those
 //!   buffers, which must still be allocated.
 //!
+//! - every object a call takes a handle for (a workspace, state, network
+//!   operator, expectation or sampler) belongs to the handle it was created
+//!   with, and is used only with that handle, which must be live; a handle
+//!   is destroyed only once nothing of it is, so a state moved to a fresh
+//!   handle is caught using the old one, and a handle released too early.
+//!
 //! It records the scratch buffers attached to workspaces, so a test can see
 //! how many are allocated during a compute and after it, and returns half
 //! the recommended workspace size for the minimum.
@@ -91,6 +97,8 @@ struct Inner {
     free_memory: Option<usize>,
     /// The limit each state prepare was given.
     prepare_limits: Vec<usize>,
+    /// The handle each live object that takes one was created with.
+    owners: BTreeMap<usize, usize>,
 }
 
 enum Object {
@@ -185,6 +193,15 @@ impl NativeDouble {
         self.lock().objects.len()
     }
 
+    /// How many cuTensorNet handles are live.
+    pub(super) fn live_handles(&self) -> usize {
+        self.lock()
+            .objects
+            .values()
+            .filter(|object| matches!(object, Object::Handle))
+            .count()
+    }
+
     /// The modes and unitary flag of every operator applied.
     pub(super) fn applied(&self) -> Vec<(Vec<i32>, bool)> {
         self.lock().applied.clone()
@@ -246,6 +263,34 @@ impl Inner {
         pointer(id)
     }
 
+    /// Creates `object` on the live `handle`, which it belongs to.
+    fn create_on(
+        &mut self,
+        handle: OpaqueHandle,
+        operation: &'static str,
+        object: Object,
+    ) -> Result<OpaqueHandle, EngineError> {
+        self.require(handle, operation, |o| matches!(o, Object::Handle))?;
+        let created = self.create(object);
+        self.owners.insert(id(created), id(handle));
+        Ok(created)
+    }
+
+    /// Fails unless `handle` is live and `object` was created with it.
+    fn owned(
+        &self,
+        handle: OpaqueHandle,
+        object: OpaqueHandle,
+        operation: &'static str,
+    ) -> Result<(), EngineError> {
+        self.require(handle, operation, |o| matches!(o, Object::Handle))?;
+        match self.owners.get(&id(object)) {
+            Some(&owner) if owner == id(handle) => Ok(()),
+            Some(_) => Err(failed(operation, "the object belongs to another handle")),
+            None => Err(failed(operation, "no such object")),
+        }
+    }
+
     fn destroy(
         &mut self,
         handle: OpaqueHandle,
@@ -255,6 +300,7 @@ impl Inner {
         match self.objects.get(&id(handle)) {
             Some(object) if is_kind(object) => {
                 self.objects.remove(&id(handle));
+                self.owners.remove(&id(handle));
                 Ok(())
             }
             _ => Err(failed(operation, "no such object")),
@@ -494,8 +540,14 @@ impl SessionApi for NativeDouble {
     }
 
     fn destroy_handle(&self, handle: OpaqueHandle) -> Result<(), EngineError> {
-        self.call("destroy_handle")?
-            .destroy(handle, "destroy_handle", |o| matches!(o, Object::Handle))
+        let mut inner = self.call("destroy_handle")?;
+        if inner.owners.values().any(|&owner| owner == id(handle)) {
+            return Err(failed(
+                "destroy_handle",
+                "an object of the handle is still live",
+            ));
+        }
+        inner.destroy(handle, "destroy_handle", |o| matches!(o, Object::Handle))
     }
 }
 
@@ -532,10 +584,12 @@ impl MemoryWorkspaceApi for NativeDouble {
         }
     }
 
-    fn create_workspace(&self, _handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError> {
-        Ok(self
-            .call("create_workspace")?
-            .create(Object::Workspace { scratch: None }))
+    fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError> {
+        self.call("create_workspace")?.create_on(
+            handle,
+            "create_workspace",
+            Object::Workspace { scratch: None },
+        )
     }
 
     fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), EngineError> {
@@ -547,16 +601,17 @@ impl MemoryWorkspaceApi for NativeDouble {
 
     fn workspace_memory_size(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         workspace: OpaqueHandle,
         preference: WorkspacePreference,
         _space: MemorySpace,
         _kind: WorkspaceKind,
     ) -> Result<i64, EngineError> {
-        self.call("workspace_size")?
-            .require(workspace, "workspace_size", |o| {
-                matches!(o, Object::Workspace { .. })
-            })?;
+        let inner = self.call("workspace_size")?;
+        inner.require(workspace, "workspace_size", |o| {
+            matches!(o, Object::Workspace { .. })
+        })?;
+        inner.owned(handle, workspace, "workspace_size")?;
         Ok(match preference {
             WorkspacePreference::Min => WORKSPACE_BYTES / 2,
             WorkspacePreference::Recommended => WORKSPACE_BYTES,
@@ -565,7 +620,7 @@ impl MemoryWorkspaceApi for NativeDouble {
 
     fn set_workspace_memory(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         workspace: OpaqueHandle,
         _space: MemorySpace,
         _kind: WorkspaceKind,
@@ -573,6 +628,7 @@ impl MemoryWorkspaceApi for NativeDouble {
         bytes: i64,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("set_workspace")?;
+        inner.owned(handle, workspace, "set_workspace")?;
         let allocation = allocation.map(id);
         let size = match allocation.map(|allocation| inner.buffer(allocation, "set_workspace")) {
             Some(buffer) => size_of_val(buffer?),
@@ -602,22 +658,26 @@ impl MemoryWorkspaceApi for NativeDouble {
 impl MpsExecutionApi for NativeDouble {
     fn create_state(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         mode_extents: &[i64],
     ) -> Result<OpaqueHandle, EngineError> {
         let mut inner = self.call("create_state")?;
         if mode_extents.iter().any(|&extent| extent != 2) {
             return Err(failed("create_state", "a mode is not a qubit"));
         }
-        Ok(inner.create(Object::State(StateDouble {
-            sites: mode_extents.len(),
-            start: None,
-            operators: Vec::new(),
-            bonds: None,
-            configurations: 0,
-            prepared_at: None,
-            computed: None,
-        })))
+        inner.create_on(
+            handle,
+            "create_state",
+            Object::State(StateDouble {
+                sites: mode_extents.len(),
+                start: None,
+                operators: Vec::new(),
+                bonds: None,
+                configurations: 0,
+                prepared_at: None,
+                computed: None,
+            }),
+        )
     }
 
     fn destroy_state(&self, state: OpaqueHandle) -> Result<(), EngineError> {
@@ -627,7 +687,7 @@ impl MpsExecutionApi for NativeDouble {
 
     fn apply_tensor_operator(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         modes: &[i32],
         tensor: OpaqueHandle,
@@ -635,6 +695,7 @@ impl MpsExecutionApi for NativeDouble {
     ) -> Result<(), EngineError> {
         const OPERATION: &str = "apply_tensor_operator";
         let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, state, OPERATION)?;
         inner.buffer(id(tensor), OPERATION)?;
         let sites = modes
             .iter()
@@ -651,11 +712,12 @@ impl MpsExecutionApi for NativeDouble {
 
     fn finalize_mps(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         target: &MpsTarget,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("finalize_mps")?;
+        inner.owned(handle, state, "finalize_mps")?;
         let state = inner.state(state, "finalize_mps")?;
         if state.bonds.is_some() {
             return Err(failed("finalize_mps", "the state is already finalized"));
@@ -678,12 +740,13 @@ impl MpsExecutionApi for NativeDouble {
 
     fn configure_state_f64(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         _attribute: StateF64Attribute,
         value: f64,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("configure_state_f64")?;
+        inner.owned(handle, state, "configure_state_f64")?;
         let state = inner.state(state, "configure_state_f64")?;
         if state.bonds.is_none() || !value.is_finite() {
             return Err(failed("configure_state_f64", "configured before finalize"));
@@ -694,11 +757,12 @@ impl MpsExecutionApi for NativeDouble {
 
     fn configure_state_u32(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         _configuration: StateU32Configuration,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("configure_state_u32")?;
+        inner.owned(handle, state, "configure_state_u32")?;
         let state = inner.state(state, "configure_state_u32")?;
         if state.bonds.is_none() {
             return Err(failed("configure_state_u32", "configured before finalize"));
@@ -709,13 +773,15 @@ impl MpsExecutionApi for NativeDouble {
 
     fn prepare_state(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         _stream: Stream,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("prepare_state")?;
+        inner.owned(handle, state, "prepare_state")?;
+        inner.owned(handle, workspace, "prepare_state")?;
         inner.prepare_limits.push(maximum_workspace_bytes);
         inner.require(workspace, "prepare_state", |o| {
             matches!(o, Object::Workspace { .. })
@@ -730,7 +796,7 @@ impl MpsExecutionApi for NativeDouble {
 
     fn compute_state(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         workspace: OpaqueHandle,
         metadata: &mut OutputMetadata,
@@ -739,6 +805,8 @@ impl MpsExecutionApi for NativeDouble {
     ) -> Result<(), EngineError> {
         const OPERATION: &str = "compute_state";
         let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, state, OPERATION)?;
+        inner.owned(handle, workspace, OPERATION)?;
         let scratch_bytes = match inner.objects.get(&id(workspace)) {
             Some(Object::Workspace {
                 scratch: Some(scratch),
@@ -831,13 +899,14 @@ impl MpsExecutionApi for NativeDouble {
 
     fn initialize_mps(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         layout: &OutputMetadata,
         tensors: &[OpaqueHandle],
     ) -> Result<(), EngineError> {
         const OPERATION: &str = "initialize_mps";
         let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, state, OPERATION)?;
         let tensors: Vec<usize> = tensors.iter().map(|&tensor| id(tensor)).collect();
         let start = inner
             .objects
@@ -873,9 +942,10 @@ impl MpsExecutionApi for NativeDouble {
         Ok(())
     }
 
-    fn capture_mps(&self, _handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+    fn capture_mps(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
         const OPERATION: &str = "capture_mps";
         let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, state, OPERATION)?;
         let target = inner.state(state, OPERATION)?;
         let computed = match &target.computed {
             Some((computed, at)) if *at == target.operators.len() => computed.clone(),
@@ -890,12 +960,14 @@ impl MpsExecutionApi for NativeDouble {
 
     fn create_network_operator(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         _mode_extents: &[i64],
     ) -> Result<OpaqueHandle, EngineError> {
-        Ok(self
-            .call("create_network_operator")?
-            .create(Object::Operator(Vec::new())))
+        self.call("create_network_operator")?.create_on(
+            handle,
+            "create_network_operator",
+            Object::Operator(Vec::new()),
+        )
     }
 
     fn destroy_network_operator(&self, operator: OpaqueHandle) -> Result<(), EngineError> {
@@ -907,7 +979,7 @@ impl MpsExecutionApi for NativeDouble {
 
     fn append_product(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         operator: OpaqueHandle,
         coefficient: Complex64,
         factor_modes: &[Box<[i32]>],
@@ -915,6 +987,7 @@ impl MpsExecutionApi for NativeDouble {
     ) -> Result<(), EngineError> {
         const OPERATION: &str = "append_product";
         let mut inner = self.call(OPERATION)?;
+        inner.owned(handle, operator, OPERATION)?;
         if factor_modes.len() != factor_tensors.len() {
             return Err(failed(OPERATION, "modes and tensors differ in number"));
         }
@@ -938,22 +1011,28 @@ impl MpsExecutionApi for NativeDouble {
 
     fn create_expectation(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         operator: OpaqueHandle,
     ) -> Result<OpaqueHandle, EngineError> {
         let mut inner = self.call("create_expectation")?;
+        inner.owned(handle, state, "create_expectation")?;
+        inner.owned(handle, operator, "create_expectation")?;
         inner.require(state, "create_expectation", |o| {
             matches!(o, Object::State(_))
         })?;
         inner.require(operator, "create_expectation", |o| {
             matches!(o, Object::Operator(_))
         })?;
-        Ok(inner.create(Object::Expectation {
-            state: id(state),
-            operator: id(operator),
-            prepared: false,
-        }))
+        inner.create_on(
+            handle,
+            "create_expectation",
+            Object::Expectation {
+                state: id(state),
+                operator: id(operator),
+                prepared: false,
+            },
+        )
     }
 
     fn destroy_expectation(&self, expectation: OpaqueHandle) -> Result<(), EngineError> {
@@ -965,11 +1044,12 @@ impl MpsExecutionApi for NativeDouble {
 
     fn configure_expectation_hyper_samples(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         expectation: OpaqueHandle,
         hyper_samples: i32,
     ) -> Result<(), EngineError> {
         let inner = self.call("configure_expectation_hyper_samples")?;
+        inner.owned(handle, expectation, "configure_expectation_hyper_samples")?;
         inner.require(expectation, "configure_expectation_hyper_samples", |o| {
             matches!(o, Object::Expectation { .. })
         })?;
@@ -985,13 +1065,15 @@ impl MpsExecutionApi for NativeDouble {
 
     fn prepare_expectation(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         expectation: OpaqueHandle,
         _maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         _stream: Stream,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("prepare_expectation")?;
+        inner.owned(handle, expectation, "prepare_expectation")?;
+        inner.owned(handle, workspace, "prepare_expectation")?;
         inner.require(workspace, "prepare_expectation", |o| {
             matches!(o, Object::Workspace { .. })
         })?;
@@ -1006,13 +1088,15 @@ impl MpsExecutionApi for NativeDouble {
 
     fn compute_expectation(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         expectation: OpaqueHandle,
-        _workspace: OpaqueHandle,
+        workspace: OpaqueHandle,
         _stream: Stream,
     ) -> Result<(Complex64, Complex64), EngineError> {
         const OPERATION: &str = "compute_expectation";
         let inner = self.call(OPERATION)?;
+        inner.owned(handle, expectation, OPERATION)?;
+        inner.owned(handle, workspace, OPERATION)?;
         let Some(Object::Expectation {
             state,
             operator,
@@ -1040,11 +1124,12 @@ impl MpsExecutionApi for NativeDouble {
 impl SamplerApi for NativeDouble {
     fn create_sampler(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         state: OpaqueHandle,
         modes_to_sample: &[i32],
     ) -> Result<OpaqueHandle, EngineError> {
         let mut inner = self.call("create_sampler")?;
+        inner.owned(handle, state, "create_sampler")?;
         inner.require(state, "create_sampler", |o| matches!(o, Object::State(_)))?;
         let modes = modes_to_sample
             .iter()
@@ -1052,13 +1137,17 @@ impl SamplerApi for NativeDouble {
                 usize::try_from(mode).map_err(|_| failed("create_sampler", "negative mode"))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(inner.create(Object::Sampler(SamplerDouble {
-            state: id(state),
-            modes,
-            hyper_samples: None,
-            sample_seed: None,
-            prepared: false,
-        })))
+        inner.create_on(
+            handle,
+            "create_sampler",
+            Object::Sampler(SamplerDouble {
+                state: id(state),
+                modes,
+                hyper_samples: None,
+                sample_seed: None,
+                prepared: false,
+            }),
+        )
     }
 
     fn destroy_sampler(&self, sampler: OpaqueHandle) -> Result<(), EngineError> {
@@ -1070,11 +1159,12 @@ impl SamplerApi for NativeDouble {
 
     fn configure_sampler_hyper_samples(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         sampler: OpaqueHandle,
         hyper_samples: i32,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("configure_sampler_hyper_samples")?;
+        inner.owned(handle, sampler, "configure_sampler_hyper_samples")?;
         match inner.objects.get_mut(&id(sampler)) {
             Some(Object::Sampler(sampler)) => {
                 sampler.hyper_samples = Some(hyper_samples);
@@ -1086,26 +1176,28 @@ impl SamplerApi for NativeDouble {
 
     fn configure_sampler_path_seed(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         sampler: OpaqueHandle,
         _seed: i32,
     ) -> Result<(), EngineError> {
-        self.call("configure_sampler_path_seed")?.require(
-            sampler,
-            "configure_sampler_path_seed",
-            |o| matches!(o, Object::Sampler(_)),
-        )
+        let inner = self.call("configure_sampler_path_seed")?;
+        inner.owned(handle, sampler, "configure_sampler_path_seed")?;
+        inner.require(sampler, "configure_sampler_path_seed", |o| {
+            matches!(o, Object::Sampler(_))
+        })
     }
 
     fn prepare_sampler(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         sampler: OpaqueHandle,
         _maximum_workspace_bytes: usize,
         workspace: OpaqueHandle,
         _stream: Stream,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("prepare_sampler")?;
+        inner.owned(handle, sampler, "prepare_sampler")?;
+        inner.owned(handle, workspace, "prepare_sampler")?;
         inner.require(workspace, "prepare_sampler", |o| {
             matches!(o, Object::Workspace { .. })
         })?;
@@ -1120,11 +1212,12 @@ impl SamplerApi for NativeDouble {
 
     fn configure_sampler_sample_seed(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         sampler: OpaqueHandle,
         seed: i32,
     ) -> Result<(), EngineError> {
         let mut inner = self.call("configure_sampler_sample_seed")?;
+        inner.owned(handle, sampler, "configure_sampler_sample_seed")?;
         match inner.objects.get_mut(&id(sampler)) {
             Some(Object::Sampler(sampler)) => {
                 sampler.sample_seed = Some(seed);
@@ -1136,15 +1229,17 @@ impl SamplerApi for NativeDouble {
 
     fn sample(
         &self,
-        _handle: OpaqueHandle,
+        handle: OpaqueHandle,
         sampler: OpaqueHandle,
         shots: i64,
-        _workspace: OpaqueHandle,
+        workspace: OpaqueHandle,
         output: &mut [i64],
         _stream: Stream,
     ) -> Result<(), EngineError> {
         const OPERATION: &str = "sample";
         let inner = self.call(OPERATION)?;
+        inner.owned(handle, sampler, OPERATION)?;
+        inner.owned(handle, workspace, OPERATION)?;
         let Some(Object::Sampler(SamplerDouble {
             state,
             modes,

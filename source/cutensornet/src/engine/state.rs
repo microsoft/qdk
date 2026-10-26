@@ -75,6 +75,8 @@
 //! - A native failure while the state is changed or computed leaves it
 //!   unusable: every later call reports [`EngineError::Poisoned`].
 
+#[cfg(any(test, feature = "qualification"))]
+use super::profile::{NativeHandle, WorkspaceSizes};
 use super::{
     EngineError, OpaqueHandle, Session,
     error::combine_execution_and_cleanup,
@@ -151,6 +153,13 @@ pub(super) struct MpsExecution {
     /// which a restart initializes the new state from.
     computed_layout: Option<OutputMetadata>,
     computes_since_restart: usize,
+    /// The cuTensorNet handle the state moved to at its last restart, if
+    /// the policy gives each restart a fresh one: the state, its workspace
+    /// and its reads use it instead of the session's, and it is destroyed
+    /// after them.
+    own_handle: Option<OpaqueHandle>,
+    /// The computes done on `own_handle`.
+    own_handle_computes: usize,
     profile: StateProfile,
     state_extents: Box<[i64]>,
     operators: Vec<Operator>,
@@ -185,6 +194,8 @@ impl MpsExecution {
             computed_buffers: Vec::new(),
             computed_layout: None,
             computes_since_restart: 0,
+            own_handle: None,
+            own_handle_computes: 0,
             profile: StateProfile::default(),
             state_extents,
             operators: Vec::new(),
@@ -216,6 +227,11 @@ impl MpsExecution {
         StateProfile {
             live_allocations: self.allocations.len() + self.operator_tensors.len(),
             operator_tensors: self.operator_tensors.len(),
+            handle_computes: if self.own_handle.is_some() {
+                self.own_handle_computes
+            } else {
+                self.session.handle_computes.get()
+            },
             ..self.profile.clone()
         }
     }
@@ -226,6 +242,12 @@ impl MpsExecution {
         matrix: &[Complex64],
     ) -> Result<(), EngineError> {
         self.check_live()?;
+        let operator = self.operator(sites, matrix)?;
+        self.poison_on_error(|execution| execution.register(operator))
+    }
+
+    /// The operator `apply` would apply, if it takes it.
+    fn operator(&self, sites: &[usize], matrix: &[Complex64]) -> Result<Operator, EngineError> {
         if !(1..=2).contains(&sites.len()) {
             return Err(EngineError::InvalidRequest {
                 reason: format!(
@@ -253,12 +275,11 @@ impl MpsExecution {
                 reason: "an operator has a non-finite element".to_string(),
             });
         }
-        let operator = Operator {
+        Ok(Operator {
             modes: modes.into_boxed_slice(),
             matrix: matrix.iter().copied().map(Complex64Abi::from).collect(),
             unitary: is_unitary(matrix, 1 << sites.len()),
-        };
-        self.poison_on_error(|execution| execution.register(operator))
+        })
     }
 
     pub(super) fn probability_of_one(&mut self, site: usize) -> Result<f64, EngineError> {
@@ -522,7 +543,7 @@ impl MpsExecution {
         api.copy_to_device(tensor, &operator.matrix)?;
         self.realized = None;
         api.apply_tensor_operator(
-            session.resources.handle(),
+            self.handle(),
             self.state()?,
             &operator.modes,
             tensor,
@@ -539,27 +560,58 @@ impl MpsExecution {
     /// releases the old state and its operator tensors. The new state reads
     /// the MPS from `computed_buffers`, which the next compute frees once it
     /// has captured its own.
+    ///
+    /// If the policy asks for a fresh handle at restart, the new state, and
+    /// a new workspace descriptor for it, are created on a new handle; the
+    /// old workspace, then the old handle, are destroyed after the old
+    /// state, unless the old handle is the session's.
     fn restart(&mut self) -> Result<(), EngineError> {
         let started = Instant::now();
         let session = Rc::clone(&self.session);
-        let (api, handle) = (session.resources.api(), session.resources.handle());
-        let Some(layout) = &self.computed_layout else {
-            return Err(EngineError::InvalidRequest {
-                reason: "a restart needs a computed MPS".to_string(),
-            });
+        let api = session.resources.api();
+        let fresh_handle = if session.policy.fresh_handle_at_restart {
+            Some(api.create_handle()?)
+        } else {
+            None
         };
-        let fresh = api.create_state(handle, self.state_extents.as_ref())?;
-        let initialized = api
-            .initialize_mps(handle, fresh, layout, &self.computed_buffers)
-            .and_then(|()| api.finalize_mps(handle, fresh, &self.target))
-            .and_then(|()| self.configure(fresh));
-        if let Err(error) = initialized {
-            return combine_execution_and_cleanup(Err(error), api.destroy_state(fresh));
-        }
+        let handle = fresh_handle.unwrap_or_else(|| self.handle());
+        let started_state = self.start_from_computed(handle).and_then(|fresh| {
+            if fresh_handle.is_none() {
+                return Ok((fresh, None));
+            }
+            match api.create_workspace(handle) {
+                Ok(workspace) => Ok((fresh, Some(workspace))),
+                Err(error) => combine_execution_and_cleanup(Err(error), api.destroy_state(fresh)),
+            }
+        });
+        let (fresh, fresh_workspace) = match started_state {
+            Ok(started_state) => started_state,
+            Err(error) => {
+                let cleanup = fresh_handle.map_or(Ok(()), |handle| api.destroy_handle(handle));
+                return combine_execution_and_cleanup(Err(error), cleanup);
+            }
+        };
         let previous = self.state.replace(fresh);
         let mut first_error = previous.and_then(|state| api.destroy_state(state).err());
+        if let Some(workspace) = fresh_workspace
+            && let Some(previous) = self.workspace.replace(workspace)
+            && let Err(error) = api.destroy_workspace(previous)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
         for tensor in std::mem::take(&mut self.operator_tensors) {
             if let Err(error) = api.free(tensor)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        }
+        if let Some(handle) = fresh_handle {
+            self.own_handle_computes = 0;
+            self.profile.fresh_handles += 1;
+            if let Some(previous) = self.own_handle.replace(handle)
+                && let Err(error) = api.destroy_handle(previous)
                 && first_error.is_none()
             {
                 first_error = Some(error);
@@ -569,6 +621,139 @@ impl MpsExecution {
         self.profile.restarts += 1;
         self.profile.restart += started.elapsed();
         first_error.map_or(Ok(()), Err)
+    }
+
+    /// A new native state on `handle` whose start is the last computed MPS,
+    /// finalized and configured as the first one; on failure it is
+    /// destroyed.
+    fn start_from_computed(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, EngineError> {
+        let api = self.session.resources.api();
+        let Some(layout) = &self.computed_layout else {
+            return Err(EngineError::InvalidRequest {
+                reason: "a restart needs a computed MPS".to_string(),
+            });
+        };
+        let fresh = api.create_state(handle, self.state_extents.as_ref())?;
+        let initialized = api
+            .initialize_mps(handle, fresh, layout, &self.computed_buffers)
+            .and_then(|()| api.finalize_mps(handle, fresh, &self.target))
+            .and_then(|()| self.configure(handle, fresh));
+        match initialized {
+            Ok(()) => Ok(fresh),
+            Err(error) => combine_execution_and_cleanup(Err(error), api.destroy_state(fresh)),
+        }
+    }
+
+    /// The scratch cuTensorNet asks for to compute a new state on `handle`
+    /// whose start is the last computed MPS and whose only operators are
+    /// `operators`, after one prepare; everything the probe creates is
+    /// released before it returns, and the state is not changed.
+    #[cfg(any(test, feature = "qualification"))]
+    pub(super) fn fresh_state_workspace(
+        &self,
+        handle: NativeHandle,
+        operators: &[(&[usize], &[Complex64])],
+    ) -> Result<WorkspaceSizes, EngineError> {
+        self.check_live()?;
+        if self.computed_layout.is_none() {
+            return Err(EngineError::InvalidRequest {
+                reason: "the workspace probe needs a computed state".to_string(),
+            });
+        }
+        let operators = operators
+            .iter()
+            .map(|(sites, matrix)| self.operator(sites, matrix))
+            .collect::<Result<Vec<_>, _>>()?;
+        let session = Rc::clone(&self.session);
+        let (api, stream) = (session.resources.api(), session.resources.stream());
+        let (probe_handle, created_handle, handle_computes) = match handle {
+            NativeHandle::Engine => (
+                session.resources.handle(),
+                None,
+                session.handle_computes.get(),
+            ),
+            NativeHandle::Fresh => {
+                let created = api.create_handle()?;
+                (created, Some(created), 0)
+            }
+        };
+        let mut state = None;
+        let mut workspace = None;
+        let mut tensors = Vec::new();
+        let measured = (|| {
+            let probe = self.start_from_computed(probe_handle)?;
+            state = Some(probe);
+            for operator in &operators {
+                let bytes = operator
+                    .matrix
+                    .len()
+                    .checked_mul(size_of::<Complex64Abi>())
+                    .ok_or(EngineError::ResourceSizeOverflow {
+                        resource: "operator tensor",
+                    })?;
+                let tensor = api.allocate(bytes)?;
+                tensors.push(tensor);
+                api.copy_to_device(tensor, &operator.matrix)?;
+                api.apply_tensor_operator(
+                    probe_handle,
+                    probe,
+                    &operator.modes,
+                    tensor,
+                    operator.unitary,
+                )?;
+            }
+            let probe_workspace = api.create_workspace(probe_handle)?;
+            workspace = Some(probe_workspace);
+            let (free_bytes, _) = api.memory_info()?;
+            api.prepare_state(
+                probe_handle,
+                probe,
+                session.policy.maximum_workspace_bytes.min(free_bytes),
+                probe_workspace,
+                stream,
+            )?;
+            Ok(WorkspaceSizes {
+                minimum_bytes: api.workspace_size(
+                    probe_handle,
+                    probe_workspace,
+                    WorkspacePreference::Min,
+                )?,
+                recommended_bytes: api.workspace_size(
+                    probe_handle,
+                    probe_workspace,
+                    WorkspacePreference::Recommended,
+                )?,
+                handle_computes,
+            })
+        })();
+        let mut first_error = api.synchronize_stream(stream).err();
+        let mut keep = |result: Result<(), EngineError>| {
+            if let Err(error) = result
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
+        };
+        if let Some(workspace) = workspace {
+            keep(api.destroy_workspace(workspace));
+        }
+        if let Some(state) = state {
+            keep(api.destroy_state(state));
+        }
+        for tensor in tensors {
+            keep(api.free(tensor));
+        }
+        if let Some(handle) = created_handle {
+            keep(api.destroy_handle(handle));
+        }
+        combine_execution_and_cleanup(measured, first_error.map_or(Ok(()), Err))
+    }
+
+    /// The handle the state is on: its own since a restart with a fresh
+    /// handle, the session's otherwise.
+    fn handle(&self) -> OpaqueHandle {
+        self.own_handle
+            .unwrap_or_else(|| self.session.resources.handle())
     }
 
     /// The chain of the computed state, computing it first if an operator
@@ -592,16 +777,16 @@ impl MpsExecution {
     /// configuration.
     fn finalize(&self) -> Result<(), EngineError> {
         let state = self.state()?;
-        let resources = &self.session.resources;
-        resources
+        let handle = self.handle();
+        self.session
+            .resources
             .api()
-            .finalize_mps(resources.handle(), state, &self.target)?;
-        self.configure(state)
+            .finalize_mps(handle, state, &self.target)?;
+        self.configure(handle, state)
     }
 
-    fn configure(&self, state: OpaqueHandle) -> Result<(), EngineError> {
-        let resources = &self.session.resources;
-        let (api, handle) = (resources.api(), resources.handle());
+    fn configure(&self, handle: OpaqueHandle, state: OpaqueHandle) -> Result<(), EngineError> {
+        let api = self.session.resources.api();
         let policy = self.session.policy;
         api.configure_state_f64(
             handle,
@@ -628,7 +813,7 @@ impl MpsExecution {
         let session = Rc::clone(&self.session);
         let (api, handle, stream) = (
             session.resources.api(),
-            session.resources.handle(),
+            self.handle(),
             session.resources.stream(),
         );
         let maximum_workspace_bytes = session.policy.maximum_workspace_bytes;
@@ -710,8 +895,7 @@ impl MpsExecution {
             api.capture_mps(handle, state)?;
             self.profile.capture += started.elapsed();
         }
-        self.profile.computes += 1;
-        self.computes_since_restart += 1;
+        self.count_compute();
         // The state now refers to the new buffers, as its computed MPS and,
         // once captured, as its start; the stream has finished with the old
         // ones, and a restart, whose state may have read them, has computed
@@ -732,6 +916,18 @@ impl MpsExecution {
         }
         self.profile.free += started.elapsed();
         first_error.map_or(Ok(realized), Err)
+    }
+
+    /// Counts a compute: the state's, since its restart, and its handle's.
+    fn count_compute(&mut self) {
+        self.profile.computes += 1;
+        self.computes_since_restart += 1;
+        if self.own_handle.is_some() {
+            self.own_handle_computes += 1;
+        } else {
+            let computes = &self.session.handle_computes;
+            computes.set(computes.get() + 1);
+        }
     }
 
     /// Evaluates `Σₖ cₖ⟨ψ|Pₖ|ψ⟩` and `⟨ψ|ψ⟩` on the computed state in one
@@ -763,7 +959,7 @@ impl MpsExecution {
         let session = Rc::clone(&self.session);
         let (api, handle, stream) = (
             session.resources.api(),
-            session.resources.handle(),
+            self.handle(),
             session.resources.stream(),
         );
         let maximum_workspace_bytes = session.policy.maximum_workspace_bytes;
@@ -838,7 +1034,7 @@ impl MpsExecution {
         let session = Rc::clone(&self.session);
         let (api, handle, stream) = (
             session.resources.api(),
-            session.resources.handle(),
+            self.handle(),
             session.resources.stream(),
         );
         let maximum_workspace_bytes = session.policy.maximum_workspace_bytes;
@@ -1030,6 +1226,12 @@ impl MpsExecution {
             {
                 first_error = Some(error);
             }
+        }
+        if let Some(handle) = self.own_handle.take()
+            && let Err(error) = api.destroy_handle(handle)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
         }
         first_error.map_or(Ok(()), Err)
     }
