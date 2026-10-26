@@ -4539,8 +4539,7 @@ fn runtime_mixed_callable_captures_lambda_preserves_operations() {
     check_runtime_mixed_callable_captures("lambda", "qs => Flip(i, qs)");
 }
 
-#[test]
-fn runtime_callable_arrays_preserve_declared_functors() {
+fn check_runtime_callable_arrays(case: &str) {
     for functors in ["is Ctl", "is Adj + Ctl"] {
         for factory in ["ApplyAll(ops, _)", "q => ApplyAll(ops, q)"] {
             let source = format!(
@@ -4564,20 +4563,35 @@ fn runtime_callable_arrays_preserve_declared_functors() {
                 }}
                 "#
             );
-            for profile in [
-                Profile::Base,
-                Profile::AdaptiveRI,
-                Profile::AdaptiveRIF,
-                Profile::Adaptive,
-            ] {
-                let mut interpreter = interpreter_with_capabilities(profile.into());
-                eval_fragments(&mut interpreter, &source);
+            for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+                let context =
+                    format!("shape={case}, {profile:?}, functors={functors:?}, factory={factory}");
+                let capabilities = profile.into();
+                let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+                let mut interpreter = crate::interpret::Interpreter::new(
+                    SourceMap::default(),
+                    PackageType::Lib,
+                    capabilities,
+                    LanguageFeatures::default(),
+                    store,
+                    &[(std_id, None)],
+                    Default::default(),
+                )
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                });
+                let mut output = Cursor::new(Vec::new());
+                interpreter
+                    .eval_fragments(&mut CursorReceiver::new(&mut output), &source)
+                    .unwrap_or_else(|errors| {
+                        panic!("{context}: {}", format_interpret_errors(errors));
+                    });
                 let globals = interpreter.user_globals();
                 let global = |name: &str| {
                     globals
                         .iter()
                         .find(|g| g.name.as_ref() == name)
-                        .unwrap_or_else(|| panic!("{name} should exist"))
+                        .unwrap_or_else(|| panic!("{context}: {name} should exist"))
                         .value
                         .clone()
                 };
@@ -4585,74 +4599,102 @@ fn runtime_callable_arrays_preserve_declared_functors() {
                     let mut output = Cursor::new(Vec::new());
                     interpreter
                         .invoke(&mut CursorReceiver::new(&mut output), global(name), args)
-                        .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)))
+                        .unwrap_or_else(|errors| {
+                            panic!("{context}: {name}: {}", format_interpret_errors(errors));
+                        })
                 };
-                for case in ["globals", "partial", "empty", "nested"] {
-                    let values = match case {
-                        "globals" => vec![global("A"), global("B")],
-                        "partial" => vec![
-                            invoke(&mut interpreter, "MakeFlip", Value::Int(0)),
-                            global("B"),
-                        ],
-                        "empty" => Vec::new(),
-                        "nested" => ["A", "B"]
-                            .map(|name| {
-                                invoke(
-                                    &mut interpreter,
-                                    "MakeAll",
-                                    Value::Array(vec![global(name)].into()),
-                                )
-                            })
-                            .to_vec(),
-                        _ => unreachable!(),
-                    };
-                    let composed = invoke(&mut interpreter, "MakeAll", Value::Array(values.into()));
-                    assert_eq!(
-                        invoke(&mut interpreter, "Run", composed.clone()),
-                        Value::Array(
-                            vec![Value::Result(qsc_eval::val::Result::Val(case != "empty")); 2]
-                                .into()
-                        ),
-                    );
-                    let qir = interpreter
-                        .qirgen_from_callable(&global("Run"), composed.clone())
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "{profile:?}, {functors}, {factory}, {case}: {}",
-                                format_interpret_errors(e)
+                let values = match case {
+                    "globals" => vec![global("A"), global("B")],
+                    "partial" => vec![
+                        invoke(&mut interpreter, "MakeFlip", Value::Int(0)),
+                        global("B"),
+                    ],
+                    "empty" => Vec::new(),
+                    "nested" => ["A", "B"]
+                        .map(|name| {
+                            invoke(
+                                &mut interpreter,
+                                "MakeAll",
+                                Value::Array(vec![global(name)].into()),
                             )
+                        })
+                        .to_vec(),
+                    _ => panic!("{context}: unsupported capture-array shape"),
+                };
+                let composed = invoke(&mut interpreter, "MakeAll", Value::Array(values.into()));
+                assert_eq!(
+                    invoke(&mut interpreter, "Run", composed.clone()),
+                    Value::Array(
+                        vec![Value::Result(qsc_eval::val::Result::Val(case != "empty")); 2].into()
+                    ),
+                    "{context}: unexpected simulator results"
+                );
+                let qir = interpreter
+                    .qirgen_from_callable(&global("Run"), composed.clone())
+                    .unwrap_or_else(|errors| {
+                        panic!(
+                            "{context}: QIR generation: {}",
+                            format_interpret_errors(errors)
+                        );
+                    });
+                let calls = qir
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| line.starts_with("call void @__quantum__qis__cx__body("))
+                    .map(|line| line.replace("%Qubit*", "ptr"))
+                    .collect::<Vec<_>>();
+                if case == "empty" {
+                    assert!(
+                        calls.is_empty(),
+                        "{context}: empty captures must apply no controlled gates"
+                    );
+                } else {
+                    assert_eq!(
+                        calls,
+                        [
+                            "call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))",
+                            "call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))",
+                        ],
+                        "{context}: unexpected controlled X operands"
+                    );
+                }
+                if case == "partial" {
+                    let repeated = interpreter
+                        .qirgen_from_callable(&global("Run"), composed)
+                        .unwrap_or_else(|errors| {
+                            panic!(
+                                "{context}: repeated QIR generation: {}",
+                                format_interpret_errors(errors)
+                            );
                         });
-                    let calls = qir
-                        .lines()
-                        .map(str::trim)
-                        .filter(|line| line.starts_with("call void @__quantum__qis__cx__body("))
-                        .map(|line| line.replace("%Qubit*", "ptr"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    if case == "empty" {
-                        assert!(
-                            calls.is_empty(),
-                            "empty captures must apply no controlled gates"
-                        );
-                    } else {
-                        expect![[r#"
-                            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-                            call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))"#]]
-                        .assert_eq(&calls);
-                    }
-                    if case == "partial" {
-                        let repeated = interpreter
-                            .qirgen_from_callable(&global("Run"), composed)
-                            .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)));
-                        assert_eq!(
-                            qir, repeated,
-                            "compilation must preserve reusable runtime values"
-                        );
-                    }
+                    assert_eq!(
+                        qir, repeated,
+                        "{context}: compilation must preserve reusable runtime values"
+                    );
                 }
             }
         }
     }
+}
+
+#[test]
+fn runtime_callable_arrays_global_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("globals");
+}
+
+#[test]
+fn runtime_callable_arrays_partial_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("partial");
+}
+
+#[test]
+fn runtime_callable_arrays_empty_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("empty");
+}
+
+#[test]
+fn runtime_callable_arrays_nested_captures_preserve_declared_functors() {
+    check_runtime_callable_arrays("nested");
 }
 
 #[test]
