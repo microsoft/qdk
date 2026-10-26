@@ -4416,12 +4416,10 @@ fn runtime_callable_captures_array_entry() {
     );
 }
 
-#[test]
-fn runtime_mixed_callable_captures_preserve_operations() {
+fn check_runtime_mixed_callable_captures(scenario: &str, make_flip: &str) {
     for functors in ["", "is Adj", "is Ctl", "is Adj + Ctl"] {
-        for make_flip in ["Flip(i, _)", "qs => Flip(i, qs)"] {
-            let source = format!(
-                r#"
+        let source = format!(
+            r#"
                 operation A(qs : Qubit[]) : Unit {functors} {{ X(qs[0]); }}
                 operation Flip(i : Int, qs : Qubit[]) : Unit {functors} {{ X(qs[i]); }}
                 operation Both(a : (Qubit[] => Unit {functors}), b : (Qubit[] => Unit {functors}), qs : Qubit[]) : Unit {functors} {{
@@ -4437,72 +4435,108 @@ fn runtime_mixed_callable_captures_preserve_operations() {
                     MResetEachZ(qs)
                 }}
                 "#
+        );
+        for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+            let context =
+                format!("{scenario}, {profile:?}, functors={functors:?}, factory={make_flip}");
+            let capabilities = profile.into();
+            let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+            let mut interpreter = crate::interpret::Interpreter::new(
+                SourceMap::default(),
+                PackageType::Lib,
+                capabilities,
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                Default::default(),
+            )
+            .unwrap_or_else(|errors| {
+                panic!("{context}: {}", format_interpret_errors(errors));
+            });
+            let mut output = Cursor::new(Vec::new());
+            let mut receiver = CursorReceiver::new(&mut output);
+            interpreter
+                .eval_fragments(&mut receiver, &source)
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: {}", format_interpret_errors(errors));
+                });
+            let globals = interpreter.user_globals();
+            let global = |name: &str| {
+                globals
+                    .iter()
+                    .find(|g| g.name.as_ref() == name)
+                    .unwrap_or_else(|| panic!("{context}: {name} should exist"))
+                    .value
+                    .clone()
+            };
+            let flip = interpreter
+                .invoke(&mut receiver, global("MakeFlip"), Value::Int(1))
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: MakeFlip: {}", format_interpret_errors(errors));
+                });
+            let composed = interpreter
+                .invoke(
+                    &mut receiver,
+                    global("MakeBoth"),
+                    Value::Tuple(vec![global("A"), flip].into(), None),
+                )
+                .unwrap_or_else(|errors| {
+                    panic!("{context}: MakeBoth: {}", format_interpret_errors(errors));
+                });
+            let expected =
+                Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into());
+            assert_eq!(
+                interpreter
+                    .invoke(&mut receiver, global("Run"), composed.clone())
+                    .unwrap_or_else(|errors| {
+                        panic!("{context}: Run: {}", format_interpret_errors(errors));
+                    }),
+                expected,
+                "{context}: simulator must flip both qubits"
             );
-            for profile in [
-                Profile::Base,
-                Profile::AdaptiveRI,
-                Profile::AdaptiveRIF,
-                Profile::Adaptive,
-            ] {
-                let mut interpreter = interpreter_with_capabilities(profile.into());
-                eval_fragments(&mut interpreter, &source);
-                let globals = interpreter.user_globals();
-                let global = |name: &str| {
-                    globals
-                        .iter()
-                        .find(|g| g.name.as_ref() == name)
-                        .unwrap_or_else(|| panic!("{name} should exist"))
-                        .value
-                        .clone()
-                };
-                let mut output = Cursor::new(Vec::new());
-                let mut receiver = CursorReceiver::new(&mut output);
-                let flip = interpreter
-                    .invoke(&mut receiver, global("MakeFlip"), Value::Int(1))
-                    .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)));
-                let composed = interpreter
-                    .invoke(
-                        &mut receiver,
-                        global("MakeBoth"),
-                        Value::Tuple(vec![global("A"), flip].into(), None),
-                    )
-                    .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e)));
-                let expected =
-                    Value::Array(vec![Value::Result(qsc_eval::val::Result::Val(true)); 2].into());
+            // Preserve runtime construction: compiling the inline expression
+            // would bypass the closure-value reconstruction that failed.
+            let qir = interpreter
+                .qirgen_from_callable(&global("Run"), composed)
+                .unwrap_or_else(|errors| {
+                    panic!(
+                        "{context}: QIR generation: {}",
+                        format_interpret_errors(errors)
+                    );
+                });
+            if profile == Profile::Adaptive {
+                let calls = qir
+                    .lines()
+                    .filter(|line| line.contains("call void @X("))
+                    .map(str::trim)
+                    .collect::<Vec<_>>();
                 assert_eq!(
-                    interpreter
-                        .invoke(&mut receiver, global("Run"), composed.clone())
-                        .unwrap_or_else(|e| panic!("{}", format_interpret_errors(e))),
-                    expected,
+                    calls,
+                    [
+                        "call void @X(ptr inttoptr (i64 0 to ptr))",
+                        "call void @X(ptr inttoptr (i64 1 to ptr))",
+                    ],
+                    "{context}: unexpected Adaptive X targets"
                 );
-                // Preserve runtime construction: compiling the inline expression
-                // would bypass the closure-value reconstruction that failed.
-                let qir = interpreter
-                    .qirgen_from_callable(&global("Run"), composed)
-                    .unwrap_or_else(|e| {
-                        panic!(
-                            "{profile:?}, {functors}, {make_flip}: {}",
-                            format_interpret_errors(e)
-                        )
-                    });
-                if profile == Profile::Adaptive {
-                    let calls = qir
-                        .lines()
-                        .filter(|line| line.contains("call void @X("))
-                        .map(str::trim)
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    expect![[r#"
-                        call void @X(ptr inttoptr (i64 0 to ptr))
-                        call void @X(ptr inttoptr (i64 1 to ptr))"#]]
-                    .assert_eq(&calls);
-                    assert!(qir.contains("call void @__quantum__qis__x__body("));
-                } else {
-                    assert_x_targets(&qir, &[0, 1]);
-                }
+                assert!(
+                    qir.contains("call void @__quantum__qis__x__body("),
+                    "{context}: X wrapper must call the X intrinsic"
+                );
+            } else {
+                assert_x_targets_with_context(&qir, &[0, 1], &context);
             }
         }
     }
+}
+
+#[test]
+fn runtime_mixed_callable_captures_partial_application_preserves_operations() {
+    check_runtime_mixed_callable_captures("partial application", "Flip(i, _)");
+}
+
+#[test]
+fn runtime_mixed_callable_captures_lambda_preserves_operations() {
+    check_runtime_mixed_callable_captures("lambda", "qs => Flip(i, qs)");
 }
 
 #[test]
