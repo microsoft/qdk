@@ -737,8 +737,6 @@ fn analysis_dynamic_callable_detected() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                op = X;
                 ApplyOp_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
@@ -2531,10 +2529,7 @@ fn reaching_def_mutable_multi_assign() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -2603,12 +2598,7 @@ fn reaching_def_mutable_both_branches() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                } else {
-                    op = S;
-                }
+                if true {} else {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -5249,8 +5239,6 @@ fn mutable_local_not_promoted() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                op = X;
                 ApplyOp_AdjCtl__X_(q);
                 __quantum__rt__qubit_release(q);
             }
@@ -5620,17 +5608,10 @@ fn reaching_def_mutable_nested_branches() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
-                    if false {
-                        op = X;
-                    } else {
-                        op = T;
-                    }
+                    if false {} else {}
 
-                } else {
-                    op = S;
-                }
+                } else {}
 
                 if true {
                     if false {
@@ -5713,15 +5694,12 @@ fn callable_in_mutable_with_side_effects_in_if_expr() {
             operation Main() : Unit {
                 mutable __branch_guard : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 {
                     __branch_guard = {
                         Y(q);
                         true
                     };
-                    if __branch_guard {
-                        op = X;
-                    }
+                    if __branch_guard {}
 
                 }
 
@@ -5832,12 +5810,7 @@ fn reaching_def_mutable_hof_param_substituted_condition() {
                 };
             }
             operation ApplyChoice_AdjCtl__H_(flag : Bool, q : Qubit) : Unit {
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if flag {
-                    op = X;
-                } else {
-                    op = Y;
-                }
+                if flag {} else {}
 
                 if flag {
                     X(q)
@@ -6008,8 +5981,6 @@ fn operand_block_set_specializes_to_reaching_definition() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
-                f = Bar;
                 let z : Int = 1;
                 Bar(5)
             }
@@ -6056,9 +6027,7 @@ fn operand_block_set_specializes_to_reaching_definition() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let z : Int = {
-                    f = Bar;
                     0
                 } + 1;
                 Bar(5)
@@ -6199,9 +6168,7 @@ fn straight_line_reassignment_is_position_sensitive() {
             operation Foo(x : Int) : Unit {}
             operation Bar(x : Int) : Unit {}
             operation Main() : Unit {
-                mutable f : (Int => Unit) = Foo;
                 Foo(1);
-                f = Bar;
                 Bar(2);
             }
             // entry
@@ -6260,8 +6227,6 @@ fn hof_operand_block_set_specializes_reaching_definition() {
                 g(x)
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
-                f = Bar;
                 let z : Int = 1;
                 Apply_Bar_(5)
             }
@@ -6318,9 +6283,7 @@ fn hof_operand_block_set_specializes_reaching_definition() {
                 g(x)
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let z : Int = {
-                    f = Bar;
                     0
                 } + 1;
                 Apply_Bar_(5)
@@ -6384,10 +6347,7 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -6452,9 +6412,7 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 let z : Int = if true {
-                    op = X;
                     0
                 } else {
                     0
@@ -6531,11 +6489,7 @@ fn operand_block_set_in_branch_uses_correct_arm() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if true {
-                    op = Y;
-                    op = X;
-                }
+                if true {}
 
                 if true {
                     ApplyOp_AdjCtl__X_(q)
@@ -6605,11 +6559,8 @@ fn operand_block_set_in_branch_uses_correct_arm() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
-                    op = Y;
                     let z : Int = {
-                        op = X;
                         0
                     } + 0;
                 }
@@ -7037,9 +6988,7 @@ fn binop_andl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let b : Bool = false and {
-                    f = Bar;
                     true
                 };
                 if false {
@@ -7096,9 +7045,7 @@ fn binop_orl_short_circuit_rhs_set_does_not_reach_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let b : Bool = true or {
-                    f = Bar;
                     false
                 };
                 if true {
@@ -7158,12 +7105,10 @@ fn assignop_andl_short_circuit_rhs_set_does_not_reach_call() {
             }
             operation Main() : Int {
                 mutable __branch_guard : Bool = false;
-                mutable f : (Int -> Int) = Foo;
                 mutable b : Bool = false;
                 {
                     __branch_guard = b;
                     b = __branch_guard and {
-                        f = Bar;
                         false
                     }
 
@@ -7230,13 +7175,11 @@ fn update_field_replace_then_record_order_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let r : __UDT_Item_1__Package_2_ = new Rec {
                     A = Bar(5),
                     B = 0
                 }
                     w/::B <- {
-                    f = Bar;
                     0
                 };
                 r::A
@@ -7290,9 +7233,7 @@ fn update_index_container_last_order_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 let arr : Int[] = [Bar(5), 0] w/ 1 <- {
-                    f = Bar;
                     0
                 };
                 arr[0]
@@ -7349,10 +7290,8 @@ fn assignop_non_logical_rhs_set_reaches_call() {
                 x + 100
             }
             operation Main() : Int {
-                mutable f : (Int -> Int) = Foo;
                 mutable acc : Int = 0;
                 acc += {
-                    f = Bar;
                     1
                 };
                 Bar(5)
@@ -7417,10 +7356,8 @@ fn orl_runtime_dynamic_condition_branch_split_dispatch() {
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                mutable f : (Int -> Int) = Foo;
                 let cond : Bool = MResetZ(q) == One;
                 let b : Bool = cond or {
-                    f = Bar;
                     false
                 };
                 let _generated_ident_67 : Int = if cond {
@@ -8417,6 +8354,54 @@ fn flow_tuple_declarations_observe_ordered_initializer_values() {
                 expected,
             );
         }
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_preserves_effects_and_snapshots() {
+    for initializer in ["{ A }", "{{ A }}", "if true { A } else { B }"] {
+        for reached in [false, true] {
+            check_flow_value(
+                &format!(
+                    r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable marker = 0;
+                        mutable f = {initializer};
+                        let initial = f;
+                        let saved = (x -> initial(x));
+                        let _ = {reached} and {{
+                            set f = {{ Message("assignment"); set marker = 7; B }};
+                            false
+                        }};
+                        f(10) * 10000 + saved(10) * 100 + marker
+                    }}
+                    "#
+                ),
+                if reached { 121_107 } else { 111_100 },
+            );
+        }
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_preserves_failures() {
+    for initializer in ["{ A }", "if true { A } else { B }"] {
+        let source = format!(
+            r#"
+            function A(x : Int) : Int {{ x + 1 }}
+            function B(x : Int) : Int {{ x + 2 }}
+            @EntryPoint() operation Main() : Int {{
+                mutable f = {initializer};
+                let _ = true and {{ set f = {{ fail "assignment failed"; B }}; false }};
+                f(10)
+            }}
+            "#
+        );
+        let (store, package) = crate::test_utils::compile_to_fir(&source);
+        assert!(crate::test_utils::try_eval_fir_entry(&store, package).is_err());
+        crate::test_utils::check_semantic_equivalence(&source);
     }
 }
 

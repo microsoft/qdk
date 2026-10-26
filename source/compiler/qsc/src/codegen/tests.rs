@@ -10,7 +10,7 @@ mod base_profile;
 
 use std::{io::Cursor, rc::Rc, sync::Arc};
 
-use expect_test::expect;
+use expect_test::{Expect, expect};
 use miette::Report;
 use qsc_data_structures::{
     functors::FunctorApp,
@@ -89,6 +89,676 @@ fn compile_source_to_qir_result(
         store,
         &[(std_id, None)],
     )
+}
+
+fn qir_entry_body(qir: &str) -> &str {
+    qir.split_once("define i64 @ENTRYPOINT__main()")
+        .expect("entry point should exist")
+        .1
+        .split_once("{\n")
+        .expect("entry body should exist")
+        .1
+        .split_once("\n}")
+        .expect("entry body should terminate")
+        .0
+}
+
+#[test]
+fn evaluation_order_logical_and_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "let _ = (MResetZ(q) == One) and { set v = 0; false };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_8 = phi i64 [4, %block_0], [0, %block_1]
+              %var_6 = icmp eq i64 %var_8, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              %var_5 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 0, ptr %var_0
+              br label %block_2
+            block_2:
+              %var_8 = load i64, ptr %var_0
+              store i64 %var_8, ptr %var_5
+              %var_10 = load i64, ptr %var_5
+              %var_6 = icmp eq i64 %var_10, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_logical_or_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "let _ = (MResetZ(q) == Zero) or { set v = 0; true };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_8 = phi i64 [4, %block_0], [0, %block_1]
+              %var_6 = icmp eq i64 %var_8, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              %var_5 = alloca i64
+              %var_7 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              store i64 0, ptr %var_0
+              br label %block_2
+            block_2:
+              %var_10 = load i64, ptr %var_0
+              store i64 %var_10, ptr %var_5
+              %var_12 = load i64, ptr %var_5
+              %var_6 = icmp eq i64 %var_12, 4
+              store i1 %var_6, ptr %var_7
+              %var_14 = load i1, ptr %var_7
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_14, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_compound_and_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "mutable b = MResetZ(q) == One; set b and= { set v = 0; false };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_2
+            block_2:
+              %var_9 = phi i64 [4, %block_0], [0, %block_1]
+              %var_7 = icmp eq i64 %var_9, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              %var_3 = alloca i1
+              %var_5 = alloca i1
+              %var_6 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              store i1 false, ptr %var_5
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 0, ptr %var_0
+              store i1 false, ptr %var_5
+              br label %block_2
+            block_2:
+              %var_10 = load i1, ptr %var_5
+              store i1 %var_10, ptr %var_3
+              %var_12 = load i64, ptr %var_0
+              store i64 %var_12, ptr %var_6
+              %var_14 = load i64, ptr %var_6
+              %var_7 = icmp eq i64 %var_14, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_compound_or_rhs_assignment_remains_conditional() {
+    check_conditional_rhs_assignment(
+        "mutable b = MResetZ(q) == Zero; set b or= { set v = 0; true };",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_2 = icmp eq i1 %var_1, false
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              br label %block_2
+            block_2:
+              %var_9 = phi i64 [4, %block_0], [0, %block_1]
+              %var_7 = icmp eq i64 %var_9, 4
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_7, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_0 = alloca i64
+              %var_3 = alloca i1
+              %var_5 = alloca i1
+              %var_6 = alloca i64
+              %var_8 = alloca i1
+              call void @__quantum__rt__initialize(ptr null)
+              store i64 4, ptr %var_0
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_2 = icmp eq i1 %var_1, false
+              store i1 true, ptr %var_5
+              br i1 %var_2, label %block_2, label %block_1
+            block_1:
+              store i64 0, ptr %var_0
+              store i1 true, ptr %var_5
+              br label %block_2
+            block_2:
+              %var_13 = load i1, ptr %var_5
+              store i1 %var_13, ptr %var_3
+              %var_15 = load i64, ptr %var_0
+              store i64 %var_15, ptr %var_6
+              %var_17 = load i64, ptr %var_6
+              %var_7 = icmp eq i64 %var_17, 4
+              store i1 %var_7, ptr %var_8
+              %var_19 = load i1, ptr %var_8
+              call void @__quantum__rt__bool_record_output(i1 zeroext %var_19, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+fn check_conditional_rhs_assignment(statement: &str, ssa: &Expect, adaptive: &Expect) {
+    for prepare in ["", "X(q);"] {
+        let source = format!(
+            "operation Main() : Bool {{
+                use q = Qubit();
+                {prepare}
+                mutable v = 4;
+                {statement}
+                v == 4
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Bool(prepare.is_empty())
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            if prepare.is_empty() {
+                let expected = if profile == Profile::Adaptive {
+                    adaptive
+                } else {
+                    ssa
+                };
+                expected.assert_eq(qir_entry_body(&qir));
+            }
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_static_short_circuit_and_eager_equality_are_preserved() {
+    for (statement, expected) in [
+        ("let _ = false and { set v = 0; true };", 4),
+        ("let _ = true or { set v = 0; false };", 4),
+        ("let _ = true and { set v = 0; true };", 0),
+        ("let _ = false or { set v = 0; false };", 0),
+        ("let _ = (MResetZ(q) == One) == { set v = 0; false };", 0),
+        ("let _ = (MResetZ(q) == One) != { set v = 0; false };", 0),
+    ] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                mutable v = 4;
+                {statement}
+                v
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(expected)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?}, {statement}: {qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_short_circuit_double_assignment_then_arithmetic() {
+    let template = r#"
+        operation Main() : Double {
+            use q = Qubit();
+            mutable v = 4.0;
+            let _ = (MResetZ(q) == One) and { set v = 0.0; false };
+            v / 2.0
+        }
+    "#;
+    for (prepare, result) in [("", 2.0), ("X(q);", 0.0)] {
+        let source = template.replace("use q = Qubit();", &format!("use q = Qubit(); {prepare}"));
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Double(result)
+        );
+        for profile in [Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            if prepare.is_empty() {
+                let expected = if profile == Profile::Adaptive {
+                    expect![[r#"
+                block_0:
+                  %var_0 = alloca double
+                  %var_5 = alloca double
+                  call void @__quantum__rt__initialize(ptr null)
+                  store double 4.0, ptr %var_0
+                  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+                  br i1 %var_1, label %block_1, label %block_2
+                block_1:
+                  store double 0.0, ptr %var_0
+                  br label %block_2
+                block_2:
+                  %var_8 = load double, ptr %var_0
+                  store double %var_8, ptr %var_5
+                  %var_10 = load double, ptr %var_5
+                  %var_6 = fdiv double %var_10, 2.0
+                  call void @__quantum__rt__double_record_output(double %var_6, ptr @0)
+                  ret i64 0"#]]
+                } else {
+                    expect![[r#"
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  %var_1 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  br i1 %var_1, label %block_1, label %block_2
+                block_1:
+                  br label %block_2
+                block_2:
+                  %var_8 = phi double [4.0, %block_0], [0.0, %block_1]
+                  %var_6 = fdiv double %var_8, 2.0
+                  call void @__quantum__rt__double_record_output(double %var_6, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0"#]]
+                };
+                expected.assert_eq(qir_entry_body(&qir));
+            }
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_array_append_reads_target_after_rhs() {
+    let source = r#"
+        operation Main() : Int {
+            use q = Qubit();
+            mutable values = [4];
+            set values += { set values = [7]; [if MResetZ(q) == Zero { 1 } else { 2 }] };
+            values[0]
+        }
+    "#;
+    let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(&mut interpreter, source);
+    assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(7));
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            qir.contains("call void @__quantum__rt__int_record_output(i64 7,"),
+            "{profile:?}: append must read the reassigned target:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_array_concatenation_snapshots_left_operand_before_rhs_mutation() {
+    check_array_operand_snapshot(
+        "(values + { set values w/= 0 <- 0; [] })[0]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_5 = load i64, ptr %var_2
+              store i64 %var_5, ptr %var_3
+              %var_7 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_array_indexing_snapshots_array_before_index_mutation() {
+    check_array_operand_snapshot(
+        "values[{ set values w/= 0 <- 0; 0 }]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_5 = load i64, ptr %var_2
+              store i64 %var_5, ptr %var_3
+              %var_7 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_array_repetition_snapshots_value_before_size_mutation() {
+    check_array_operand_snapshot(
+        "[values, size = { set values w/= 0 <- 0; 2 }][0][0]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_5 = load i64, ptr %var_2
+              store i64 %var_5, ptr %var_3
+              %var_7 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+#[test]
+fn evaluation_order_array_literal_snapshots_element_before_later_element_mutation() {
+    check_array_operand_snapshot(
+        "[values, { set values w/= 0 <- 0; [] }][0][0]",
+        &expect![[r#"
+            block_0:
+              call void @__quantum__rt__initialize(i8* null)
+              call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              br label %block_3
+            block_2:
+              br label %block_3
+            block_3:
+              %var_5 = phi i64 [4, %block_1], [5, %block_2]
+              call void @__quantum__rt__int_record_output(i64 %var_5, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+              ret i64 0"#]],
+        &expect![[r#"
+            block_0:
+              %var_2 = alloca i64
+              %var_3 = alloca i64
+              call void @__quantum__rt__initialize(ptr null)
+              call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %var_0 = call zeroext i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %var_1 = icmp eq i1 %var_0, false
+              br i1 %var_1, label %block_1, label %block_2
+            block_1:
+              store i64 4, ptr %var_2
+              br label %block_3
+            block_2:
+              store i64 5, ptr %var_2
+              br label %block_3
+            block_3:
+              %var_5 = load i64, ptr %var_2
+              store i64 %var_5, ptr %var_3
+              %var_7 = load i64, ptr %var_3
+              call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
+              ret i64 0"#]],
+    );
+}
+
+fn check_array_operand_snapshot(expression: &str, ssa: &Expect, adaptive: &Expect) {
+    for (prepare, result) in [("", 4), ("X(q);", 5)] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                {prepare}
+                mutable values = [if MResetZ(q) == Zero {{ 4 }} else {{ 5 }}];
+                {expression}
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(result)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            if prepare.is_empty() {
+                let expected = if profile == Profile::Adaptive {
+                    adaptive
+                } else {
+                    ssa
+                };
+                expected.assert_eq(qir_entry_body(&qir));
+            }
+        }
+    }
+}
+
+fn check_evaluation_order_callable_residue(body: &str, expected: [i64; 2]) {
+    for (prepare, expected) in ["", "X(q);"].into_iter().zip(expected) {
+        let source = format!(
+            "function F(x : Int) : Int {{ x + 1 }}
+             function G(x : Int) : Int {{ x + 2 }}
+             operation Main() : Int {{
+                 use q = Qubit();
+                 {prepare}
+                 let b = MResetZ(q) == One;
+                 {body}
+             }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(expected)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            compile_source_to_qir(&source, profile.into());
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_callable_transparent_initializers_reach_qir() {
+    for initializer in ["{ F }", "{{ F }}", "if true { F } else { G }"] {
+        check_evaluation_order_callable_residue(
+            &format!("mutable f = {initializer}; let _ = b and {{ set f = G; false }}; f(10)"),
+            [11, 12],
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_callable_captured_snapshot_reaches_qir() {
+    for snapshot in [
+        "let current = f; let saved = (x -> current(x));",
+        "let first = f; let current = first; let saved = (x -> current(x));",
+        "let current = f; let saved = { let next = current; (x -> next(x)) };",
+    ] {
+        check_evaluation_order_callable_residue(
+            &format!(
+                "mutable f = F;
+                 {snapshot}
+                 let _ = b and {{ set f = G; false }};
+                 f(10) * 100 + saved(10)"
+            ),
+            [1111, 1211],
+        );
+    }
+}
+
+#[test]
+fn evaluation_order_array_updates_evaluate_index_then_value_then_target() {
+    for update in [
+        "let updated = values w/ { set values = [6, 7]; 0 } <- replacement;",
+        "mutable updated = values; set updated w/= { set updated = [6, 7]; 0 } <- replacement;",
+    ] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                mutable values = [4, 5];
+                let replacement = if MResetZ(q) == Zero {{ 1 }} else {{ 2 }};
+                {update}
+                updated[1]
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(eval_fragments(&mut interpreter, "Main()"), Value::Int(7));
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains("call void @__quantum__rt__int_record_output(i64 7,"),
+                "{profile:?}, {update}: array update read its target too early:\n{qir}"
+            );
+        }
+    }
+}
+
+#[test]
+fn evaluation_order_array_construction_and_update_operands_follow_source_order() {
+    for (expression, expected) in [
+        (
+            "[{ set trace = 10 * trace + 1; MResetZ(q) }, { set trace = 10 * trace + 2; MResetZ(q) }]",
+            12,
+        ),
+        (
+            "[{ set trace = 10 * trace + 1; MResetZ(q) }, size = { set trace = 10 * trace + 2; 2 }]",
+            12,
+        ),
+        (
+            "{ set trace = 10 * trace + 1; [MResetZ(q)] } + { set trace = 10 * trace + 2; [MResetZ(q)] }",
+            12,
+        ),
+        (
+            "{ set trace = 10 * trace + 3; [MResetZ(q)] } w/ { set trace = 10 * trace + 1; 0 } <- { set trace = 10 * trace + 2; Zero }",
+            123,
+        ),
+    ] {
+        let source = format!(
+            "operation Main() : Int {{
+                use q = Qubit();
+                mutable trace = 0;
+                let _ = {expression};
+                trace
+            }}"
+        );
+        let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+        eval_fragments(&mut interpreter, &source);
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            Value::Int(expected)
+        );
+        for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+            let qir = compile_source_to_qir(&source, profile.into());
+            assert!(
+                qir.contains(&format!(
+                    "call void @__quantum__rt__int_record_output(i64 {expected},"
+                )),
+                "{profile:?}, {expression}: operands executed out of order:\n{qir}"
+            );
+        }
+    }
 }
 
 #[test]

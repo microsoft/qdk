@@ -10,6 +10,45 @@ use indoc::indoc;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
+fn evaluation_order_short_circuit_assignment_then_arithmetic() {
+    let program = get_rir_program(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                mutable v = 4;
+                let _ = (MResetZ(q) == One) and { set v = 0; false };
+                v + 1
+            }
+        }
+    "#});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = Store Variable(2, Boolean)
+                Variable(4, Boolean) = Store Bool(false)
+                Branch Variable(3, Boolean), 2, 1
+            Block 1:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Variable(6, Integer) = Add Variable(5, Integer), Integer(1)
+                Variable(7, Integer) = Store Variable(6, Integer)
+                Call id(4), args( Variable(7, Integer), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(0)
+                Variable(4, Boolean) = Store Bool(false)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
 fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction() {
     let program = get_rir_program(indoc! {r#"
         namespace Test {
