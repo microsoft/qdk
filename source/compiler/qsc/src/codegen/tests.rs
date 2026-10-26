@@ -3971,6 +3971,193 @@ fn runtime_callable_argument_preserves_nominal_udt_identity() {
     }
 }
 
+fn generic_nominal_callback_interpreter(
+    profile: Profile,
+) -> (crate::interpret::Interpreter, String, String) {
+    let mut interpreter = interpreter_with_capabilities(profile.into());
+    eval_fragments(
+        &mut interpreter,
+        r#"
+        namespace Test {
+            struct A { Data : Int }
+            struct B { Data : Int }
+            struct HolderB { Callback : B -> B }
+            newtype CallbackPair = (Int, (B -> B));
+            function IdA(value : A) : A { value }
+            function IdB(value : B) : B { value }
+            function MakeA(offset : Int) : (A -> A) {
+                value -> new A { Data = value.Data + offset }
+            }
+            function MakeB(offset : Int) : (B -> B) {
+                value -> new B { Data = value.Data + offset }
+            }
+            function ReadB(callback : B -> B) : Int {
+                callback(new B { Data = 4 }).Data
+            }
+            function ReadArrayB(callbacks : (B -> B)[]) : Int {
+                callbacks[0](new B { Data = 4 }).Data
+            }
+            function ReadHolderB(holder : HolderB) : Int {
+                holder.Callback(new B { Data = 4 }).Data
+            }
+            function ReadPairB(pair : (Int, (B -> B))) : Int {
+                let (offset, callback) = pair;
+                callback(new B { Data = 4 }).Data + offset
+            }
+            operation Forward<'T>(value : 'T, read : 'T -> Int) : Unit {
+                let _ = read(value);
+            }
+            operation Reverse<'T>(read : 'T -> Int, value : 'T) : Unit {
+                let _ = read(value);
+            }
+        }
+        "#,
+    );
+    let nominal_type = |value| {
+        let Value::Tuple(_, Some(id)) = value else {
+            panic!("{profile:?}: expected a tagged nominal value");
+        };
+        qsc_fir::ty::Ty::Udt(FirRes::Item(qsc_fir::fir::ItemId {
+            package: id.package,
+            item: id.item,
+        }))
+        .to_string()
+    };
+    let a = nominal_type(eval_fragments(&mut interpreter, "new Test.A { Data = 0 }"));
+    let b = nominal_type(eval_fragments(&mut interpreter, "new Test.B { Data = 0 }"));
+    (interpreter, a, b)
+}
+
+/// A and B both contain one Int, but they are distinct named types. IdA and
+/// MakeA(0) have type A -> A, whereas ReadB requires a callback of type B -> B.
+///
+/// Forward<'T>(value : 'T, read : 'T -> Int) requires both arguments to agree on
+/// 'T. Forward(IdA, ReadB) therefore requires 'T to be both A -> A and B -> B,
+/// which is invalid. Reverse(ReadB, IdA) has the same conflict in the other order.
+///
+/// Previously, runtime validation skipped IdA while 'T was still unknown, then
+/// let ReadB constrain 'T without revisiting IdA. Structural validation missed
+/// the conflict because A and B have identical erased layouts; Forward generated
+/// QIR even though the source type checker rejected it.
+///
+/// Require both orders to reject globals and closures on all four profiles.
+/// The first argument establishes the expected type, so the diagnostic reports
+/// expected A / actual B for Forward, and expected B / actual A for Reverse.
+#[test]
+fn runtime_callable_argument_generic_nominal_callbacks_reject_both_orders() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let (mut interpreter, a, b) = generic_nominal_callback_interpreter(profile);
+        for callback in ["Test.IdA", "Test.MakeA(0)"] {
+            let value = eval_fragments(&mut interpreter, callback);
+            let read = runtime_argument_global(&interpreter, "ReadB");
+            for (target, args, expression, expected, actual) in [
+                (
+                    "Forward",
+                    vec![value.clone(), read.clone()],
+                    format!("Test.Forward({callback}, Test.ReadB)"),
+                    &a,
+                    &b,
+                ),
+                (
+                    "Reverse",
+                    vec![read.clone(), value.clone()],
+                    format!("Test.Reverse(Test.ReadB, {callback})"),
+                    &b,
+                    &a,
+                ),
+            ] {
+                let context = format!("{profile:?}: {expression}");
+                let source_errors = interpreter
+                    .qirgen(&expression)
+                    .expect_err("source must reject the nominal mismatch");
+                assert!(
+                    format!("{source_errors:?}").contains("TyMismatch"),
+                    "{context}: expected a source type mismatch"
+                );
+                let result = interpreter.qirgen_from_callable(
+                    &runtime_argument_global(&interpreter, target),
+                    Value::Tuple(args.into(), None),
+                );
+                let Err(errors) = result else {
+                    panic!("{context}: mismatched nominal callback must not generate QIR");
+                };
+                assert_runtime_argument_type_error(&errors, expected, actual);
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_generic_nominal_callbacks_accept_matching_values() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let (mut interpreter, _, _) = generic_nominal_callback_interpreter(profile);
+        for callback in ["Test.IdB", "Test.MakeB(0)"] {
+            let value = eval_fragments(&mut interpreter, callback);
+            let read = runtime_argument_global(&interpreter, "ReadB");
+            for (target, args) in [
+                ("Forward", vec![value.clone(), read.clone()]),
+                ("Reverse", vec![read.clone(), value.clone()]),
+            ] {
+                interpreter
+                    .qirgen_from_callable(
+                        &runtime_argument_global(&interpreter, target),
+                        Value::Tuple(args.into(), None),
+                    )
+                    .unwrap_or_else(|errors| {
+                        panic!("{profile:?}: {target}, {callback}: {errors:?}");
+                    });
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_callable_argument_generic_nominal_callbacks_check_deferred_aggregates() {
+    for profile in RUNTIME_CALLABLE_CAPTURE_PROFILES {
+        let (mut interpreter, a, b) = generic_nominal_callback_interpreter(profile);
+        for (reader, expression, index) in [
+            ("ReadArrayB", "[Test.IdB]", 0),
+            ("ReadHolderB", "new Test.HolderB { Callback = Test.IdB }", 0),
+            ("ReadPairB", "Test.CallbackPair(0, Test.IdB)!", 1),
+        ] {
+            let matching = eval_fragments(&mut interpreter, expression);
+            let mut mismatching = matching.clone();
+            match &mut mismatching {
+                Value::Array(values) => {
+                    Rc::make_mut(values)[index] = runtime_argument_global(&interpreter, "IdA");
+                }
+                Value::Tuple(values, _) => {
+                    Rc::make_mut(values)[index] = runtime_argument_global(&interpreter, "IdA");
+                }
+                _ => panic!("{profile:?}: {expression}: expected a captured aggregate"),
+            }
+            let read = runtime_argument_global(&interpreter, reader);
+            for (target, reverse) in [("Forward", false), ("Reverse", true)] {
+                for (value, valid) in [(mismatching.clone(), false), (matching.clone(), true)] {
+                    let args = if reverse {
+                        vec![read.clone(), value]
+                    } else {
+                        vec![value, read.clone()]
+                    };
+                    let context = format!("{profile:?}: {target}, {reader}, valid={valid}");
+                    let result = interpreter.qirgen_from_callable(
+                        &runtime_argument_global(&interpreter, target),
+                        Value::Tuple(args.into(), None),
+                    );
+                    if valid {
+                        result.unwrap_or_else(|errors| panic!("{context}: {errors:?}"));
+                    } else {
+                        let Err(errors) = result else {
+                            panic!("{context}: mismatched aggregate callback must be rejected");
+                        };
+                        assert_runtime_argument_type_error(&errors, &b, &a);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn assert_x_targets(qir: &str, expected: &[usize]) {
     assert_x_targets_with_context(qir, expected, "");
 }
