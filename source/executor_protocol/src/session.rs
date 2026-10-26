@@ -113,7 +113,8 @@ pub trait ShotStrategy<I>: Describe {
     fn open(&self, seed: u64, shots: &ShotSet, needs: &Needs) -> Result<Self::Session, Rejected>;
 }
 
-/// Opens a session with the default needs, which every strategy accepts.
+/// Opens a session with the default needs, which every strategy accepts
+/// that can hold one state per shot of `shots`.
 ///
 /// # Errors
 ///

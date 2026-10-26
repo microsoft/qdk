@@ -250,7 +250,11 @@ impl fmt::Display for ComponentId {
 /// names both.
 ///
 /// It gives seeds, not generators, so that this crate depends on no random
-/// number library: each component seeds the generator it uses.
+/// number library, and a shot's seeds do not change with one's version
+/// (`rand` does not promise to keep `StdRng`'s algorithm): each component
+/// seeds the generator it uses, for example
+/// `StdRng::seed_from_u64(ctx.rng_seed(id))`, which is what a method
+/// returning a generator would do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ShotContext {
     seed: u64,

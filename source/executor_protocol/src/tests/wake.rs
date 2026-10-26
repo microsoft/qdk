@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,8 +11,8 @@ use std::thread;
 use futures_core::Stream;
 
 use crate::{
-    Completion, Immediate, Lifecycle, Map, Rejected, Status, async_events, completer, relay, wait,
-    wait_async,
+    Batch, Completion, Executor, Immediate, Incremental, Lifecycle, Map, Outcome, Rejected, Status,
+    async_events, completer, relay, wait, wait_async,
 };
 
 /// A waker that counts its wakes.
@@ -179,6 +179,82 @@ fn async_events_is_a_stream_of_event_batches() {
         Poll::Ready(None),
         "no empty batch"
     );
+}
+
+/// An L3 executor whose work runs on a thread of its own: `call` returns at
+/// once, and the thread pushes one outcome per instruction (`true` reads
+/// One), then ends the reply.
+struct OnAThread;
+
+impl Executor<Batch<bool>> for OnAThread {
+    type Response = Incremental<Outcome>;
+
+    fn call(&mut self, batch: &[bool]) -> Result<Self::Response, Rejected> {
+        let (completer, reply) = completer();
+        let batch = batch.to_vec();
+        thread::spawn(move || {
+            for (tag, one) in (0..).zip(batch) {
+                completer.push(Outcome {
+                    tag,
+                    value: one.into(),
+                });
+            }
+            completer.done();
+        });
+        Ok(reply)
+    }
+}
+
+/// One executor and one reply type, four callers: each takes the same
+/// events its own way, and the executor does not know which.
+#[test]
+fn one_reply_is_taken_four_ways() {
+    let batch = [true, false, true];
+    let expected: Vec<Outcome> = (0..)
+        .zip(batch)
+        .map(|(tag, one)| Outcome {
+            tag,
+            value: one.into(),
+        })
+        .collect();
+    let call = || OnAThread.call(&batch).expect("accepted");
+
+    // Blocking: `wait` parks the thread until the reply ends.
+    let mut blocked = Vec::new();
+    assert_eq!(wait(call(), &mut blocked), Ok(()));
+
+    // Polling: the caller does its own work between polls.
+    let (mut reply, mut polled) = (call(), Vec::new());
+    let end = loop {
+        match reply.poll_events(&mut polled, Waker::noop()) {
+            Status::Pending => thread::yield_now(), // the caller's own work
+            end => break end,
+        }
+    };
+    assert_eq!(end, Status::Done);
+
+    // Async, the whole reply: a `Future`.
+    let (awaited, end) = block_on(wait_async(call()));
+    assert_eq!(end, Ok(()));
+
+    // Async, the events as they come: a `Stream` of event batches.
+    let mut events = async_events(call());
+    let mut streamed = Vec::new();
+    let end = block_on(poll_fn(|context| {
+        loop {
+            match Pin::new(&mut events).poll_next(context) {
+                Poll::Ready(Some(Ok(mut batch))) => streamed.append(&mut batch),
+                Poll::Ready(Some(Err(reason))) => return Poll::Ready(Err(reason)),
+                Poll::Ready(None) => return Poll::Ready(Ok(())),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }));
+    assert_eq!(end, Ok(()));
+
+    for events in [blocked, polled, awaited, streamed] {
+        assert_eq!(events, expected);
+    }
 }
 
 #[test]

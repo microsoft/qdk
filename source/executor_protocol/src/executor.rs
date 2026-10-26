@@ -47,6 +47,15 @@ pub trait Describe {
 /// New capabilities are added as fields whose value in
 /// [`Capabilities::default`] keeps existing executors' meaning, hence
 /// `#[non_exhaustive]`: build one from the default and its `with_` methods.
+///
+/// There is no instruction-set field: the instructions an executor accepts
+/// are its message's instruction type ([`Describe`]), checked by the
+/// compiler. An instruction set chosen at run time (one that crosses a
+/// link) would be added as a field `isa: Option<Arc<Isa>>`, `None` for the
+/// executors of today. For the same reason
+/// [`resets`](Capabilities::resets) is a field here, where the protocol's
+/// prototype derives it from the instruction set. The crate's README has
+/// the details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 #[expect(
@@ -200,9 +209,10 @@ impl Capabilities {
 /// that the stack can refuse it before anything runs rather than fail during
 /// the run.
 ///
-/// The default states nothing, so every shot strategy accepts it: a caller
-/// states a need only when it wants it checked. New needs are added as fields whose
-/// default states nothing, hence `#[non_exhaustive]`: build one from the
+/// The default states nothing but the one state per shot that every session
+/// implies, so every shot strategy accepts it that can hold the session's
+/// shots: a caller states a need only when it wants it checked. New needs
+/// are added as fields whose default states nothing, hence `#[non_exhaustive]`: build one from the
 /// default and its `with_` methods.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
