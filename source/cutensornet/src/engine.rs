@@ -24,7 +24,13 @@
 //! a test double of the native API (`test_double.rs`); only
 //! `library::engine` calls the loaded libraries.
 //!
-//! An engine and its states are `!Send`: the stream, the handle and the
+//! A state starts on the engine's handle, and the engine's policy restarts
+//! it from its computed MPS every few computes on a cuTensorNet handle of
+//! its own (`state.rs`, `policy.rs`), which bounds the workspace a compute
+//! asks for over a long shot. The engine's handle lives as long as the
+//! engine; a state's own handle as long as the state, or its next restart.
+//!
+//! An engine and its states are `!Send`: the stream, the handles and the
 //! states created on them stay on the thread that created them. Each call
 //! selects the engine's device first, so engines on different devices may
 //! share a thread.
@@ -102,6 +108,8 @@ struct Session {
 /// Get one from `Availability::mps_engine` (Linux x86-64). Each state's bond
 /// dimensions come from the capacity `prepare` is given; the truncation
 /// cutoffs, SVD algorithm and gauge are the engine's, ④'s qualified values.
+/// Each state restarts every 10 computes on a cuTensorNet handle of its own
+/// (`policy.rs`'s `RESTART_PERIOD`, from the A100's `history_growth`).
 pub struct CuTensorNetEngine {
     session: Rc<Session>,
 }

@@ -7,16 +7,21 @@
 //!
 //! - `conformance` runs [`tensornet::conformance::check`] on the engine
 //!   [`Availability::mps_engine`](qdk_cutensornet::Availability::mps_engine)
-//!   creates, and fails listing every [`Failure`](tensornet::conformance::Failure);
-//!   `conformance_without_capture` does the same without capture, except
-//!   for the retained weight, which it reports but is not held to;
-//!   `conformance_with_restart` does it on two engines that restart their
-//!   native state from the computed MPS at every opportunity, the second on
-//!   a new cuTensorNet handle each time (its rows prefixed `handle=fresh;`).
-//!   They are the only tests that assert.
+//!   creates, which restarts each state every 10 computes on a new
+//!   cuTensorNet handle, and fails listing every
+//!   [`Failure`](tensornet::conformance::Failure);
+//!   `conformance_without_capture` does the same without capture, and so
+//!   without restarts, except for the retained weight, which it reports but
+//!   is not held to; `conformance_with_restart` does it on two engines that
+//!   restart their native state from the computed MPS at every opportunity,
+//!   the first on the handle it is on, the second on a new cuTensorNet
+//!   handle each time, as the engine does every 10 computes (its rows
+//!   prefixed `handle=fresh;`). They are the only tests that assert.
 //! - The others measure, and print what they measured as CSV rows (see
 //!   `report`): an engine error is a row, and the sweep goes on. They fail
-//!   only when no engine can be created. `environment` records the versions
+//!   only when no engine can be created. All but `read_cost`'s rows
+//!   without capture and `history_growth`'s variants measure the engine
+//!   `mps_engine` creates, restarts included. `environment` records the versions
 //!   found; `empty_compute` reads states no operator was applied to;
 //!   `read_cost` times reads as operators accumulate, with and without
 //!   capture, and extrapolates them to H₂; `fork_cost` times a
@@ -26,10 +31,10 @@
 //!   values with the reference's; `impossible_condition` and
 //!   `rare_condition` place the threshold under which a conditional is
 //!   refused (E16); `history_growth` profiles what grows with a shot's
-//!   history, on engine variants with the minimum workspace, a restart, a
-//!   restart on a fresh handle or two computes per step, and probes what a
-//!   state with no history asks for, on the engine's handle and on a new
-//!   one.
+//!   history, on the engine and on variants that never restart (the
+//!   baseline, with the minimum workspace, with two computes per step) or
+//!   restart on the same handle, and probes what a state with no history
+//!   asks for, on the engine's handle and on a new one.
 //!
 //! Every test needs CUDA runtime 12.9 and cuTensorNet 2.13, found as
 //! [`discover`] finds them, and an NVIDIA GPU, so every test is ignored. Run
@@ -153,15 +158,16 @@ fn environment() {
     report.finish();
 }
 
-/// Conformance of the engine, which captures each compute.
+/// Conformance of the engine, which captures each compute and restarts
+/// each state every 10 computes on a new cuTensorNet handle.
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn conformance() {
     conform("conformance", engine(), &[]);
 }
 
-/// Conformance of the engine without capture, the path `read_cost`
-/// compares with.
+/// Conformance of the engine without capture, and so without restarts,
+/// the path `read_cost` compares with.
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn conformance_without_capture() {
@@ -177,11 +183,12 @@ fn conformance_without_capture() {
 }
 
 /// Conformance of the engine restarting its native state from the computed
-/// MPS before every operator after a compute: the restart's
-/// `cutensornetStateInitializeMPS`, on the real library. Then the same on
-/// an engine that moves the state to a new cuTensorNet handle at each
-/// restart (`history_growth`'s `restart_10_fresh_handle`), its rows
-/// prefixed `handle=fresh;`.
+/// MPS before every operator after a compute, on the handle it is on: the
+/// restart's `cutensornetStateInitializeMPS`, on the real library. Then the
+/// same on an engine that moves the state to a new cuTensorNet handle at
+/// each restart, as the engine does every 10 computes (`history_growth`'s
+/// `default`), its rows prefixed `handle=fresh;`. A period of 1 makes the
+/// conformance cases, whose states compute a few times each, restart.
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn conformance_with_restart() {
@@ -264,9 +271,9 @@ fn empty_compute() {
 }
 
 /// How a read's cost grows with the operators applied, on the engine, which
-/// captures each compute, and on the same engine without capture, whose
-/// reads compute from |0…0⟩ with every operator; both extrapolated to H₂'s
-/// 1,404 reads over 48,000 gates.
+/// captures each compute (and restarts every 10), and on the same engine
+/// without capture or restart, whose reads compute from |0…0⟩ with every
+/// operator; both extrapolated to H₂'s 1,404 reads over 48,000 gates.
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn read_cost() {
@@ -331,11 +338,11 @@ fn projection_memory() {
     measure("projection_memory", memory::projection_memory);
 }
 
-/// What grows with a shot's history along H₂'s pattern, call by call, and
-/// whether the minimum workspace or a restart of the native state from its
-/// computed MPS every 10 or 50 steps stops it, on the engine's handle or a
-/// new one; whether it grows per compute; and what a state with no history
-/// asks for (`history`).
+/// What grows with a shot's history along H₂'s pattern, call by call, on
+/// the engine, which restarts every 10 computes on a new handle, and on a
+/// baseline that never restarts: whether the minimum workspace or a restart
+/// every 10 or 50 steps on the same handle stops it; whether it grows per
+/// compute; and what a state with no history asks for (`history`).
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn history_growth() {

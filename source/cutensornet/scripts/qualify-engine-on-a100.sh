@@ -5,10 +5,12 @@
 #
 # What it runs (tests/qualification/main.rs has the details):
 #   conformance, conformance_without_capture, conformance_with_restart
-#                 tensornet::conformance::check on the engine, with and
-#                 without MPS capture, and restarting its native state from
-#                 the computed MPS, on the same cuTensorNet handle and on a
-#                 new one at each restart; the only tests that assert
+#                 tensornet::conformance::check on the engine (which
+#                 restarts every 10 computes on a new cuTensorNet handle),
+#                 without MPS capture (and so without restarts), and
+#                 restarting its native state from the computed MPS at every
+#                 opportunity, on the same cuTensorNet handle and on a new
+#                 one at each restart; the only tests that assert
 #   environment   the versions and libraries found
 #   empty_compute, read_cost, fork_cost, free_after_compute,
 #   shape_and_tolerance, impossible_condition, rare_condition,
@@ -19,10 +21,12 @@
 #                 pattern, step after step, with variants of the measurement,
 #                 and the retained weight <psi|psi> the truncations left
 #   history_growth
-#                 H2's pattern for 300 steps on seven engine variants (current,
-#                 minimum workspace, restart every 10 and every 50 computes,
-#                 restart every 10 on a new cuTensorNet handle, two computes
-#                 per step, and current with probes): the workspace sizes,
+#                 H2's pattern for 300 steps on seven engine variants
+#                 (no_restart, the baseline; default, the engine, which
+#                 restarts every 10 computes on a new cuTensorNet handle; the
+#                 baseline with the minimum workspace; restart every 10 and
+#                 every 50 computes on the same handle; the baseline with two
+#                 computes per step, and with probes): the workspace sizes,
 #                 device memory, allocations, computes per handle and the time
 #                 per kind of call, every 10 steps, and their slopes; the
 #                 probes, what a new state started at the computed MPS asks
@@ -650,11 +654,11 @@ if "history_growth" in tests:
         if probed:
             print(f"  {variant} probes, recommended workspace MiB/step: "
                   + "  ".join(f"{k[len('probe_'):]}={v}" for k, v in probed.items()))
-    base = hist.get("current", {}).get("marks", {})
-    print("\n  P(One) at the marks: the largest difference from variant=current (a restart, a second compute or a")
+    base = hist.get("no_restart", {}).get("marks", {})
+    print("\n  P(One) at the marks: the largest difference from variant=no_restart (a restart, a second compute or a")
     print("  probe should change none)")
     for variant, run in hist.items():
-        if variant == "current":
+        if variant == "no_restart":
             continue
         diffs = [abs(float(m["p_one"]) - float(base[s]["p_one"])) for s, m in run["marks"].items()
                  if "p_one" in m and "p_one" in base.get(s, {})]

@@ -143,7 +143,7 @@ What each operation calls:
 | `prepare`                                                             | `cutensornetCreateState`, `cutensornetCreateWorkspaceDescriptor`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `apply`, `project`                                                    | `cudaMalloc`, `cudaMemcpy`, `cutensornetStateApplyTensorOperator` (a projection is a non-unitary diagonal scaled by 1/√p)                                                                                                                                                                                                                                                                                                                                                                                                            |
 | any read after a change (compute)                                     | first time only: `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5; then `cudaMalloc` (outputs), `cudaMemGetInfo`, `cutensornetStatePrepare` (limit: the policy's or the free memory, the smaller), `cutensornetWorkspaceGetMemorySize` (minimum and recommended), `cudaMalloc` (scratch), `cutensornetWorkspaceSetMemory`, `cutensornetStateCompute`, `cudaStreamSynchronize`, `cudaFree` (scratch), `cutensornetStateCaptureMPS`, `cudaFree` of the previous compute's outputs                                         |
-| `apply`, `project`, with a restart period `K`, after `K` computes     | first: `cutensornetCreateState`, `cutensornetStateInitializeMPS` (the last computed MPS), `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5, `cutensornetDestroyState` (the old state), `cudaFree` of its operator tensors; with a fresh handle at restart, also `cutensornetCreate` before, `cutensornetCreateWorkspaceDescriptor` on the new handle, `cutensornetDestroyWorkspaceDescriptor` of the old one and `cutensornetDestroy` of the previous own handle (never the engine's)                                   |
+| `apply`, `project`, after every 10 computes (the restart period)      | first, on a new handle: `cutensornetCreate`, `cutensornetCreateState`, `cutensornetStateInitializeMPS` (the last computed MPS), `cutensornetStateFinalizeMPS`, `cutensornetStateConfigure` ×5, `cutensornetCreateWorkspaceDescriptor`; then `cutensornetDestroyState` (the old state), `cutensornetDestroyWorkspaceDescriptor` of the old one, `cudaFree` of its operator tensors and `cutensornetDestroy` of the previous own handle (never the engine's)                                                                           |
 | `probability_of_one`, `conditional_probability_of_one`, `expectation` | per query: `cutensornetCreateNetworkOperator`, `cudaMalloc` + `cudaMemcpy` per distinct factor, `cutensornetNetworkOperatorAppendProduct`, `cutensornetCreateExpectation`, `cutensornetExpectationConfigure`, `cutensornetCreateWorkspaceDescriptor`, `cudaMemGetInfo`, `cutensornetExpectationPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc` + `cutensornetWorkspaceSetMemory` if needed, `cutensornetExpectationCompute`, `cudaStreamSynchronize`, then the destroys and `cudaFree`s. A conditional runs two queries. |
 | `sample`                                                              | `cudaMemGetInfo`, `cutensornetCreateSampler`, `cutensornetSamplerConfigure` (hyper-samples, path seed), `cutensornetSamplerPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetSamplerConfigure` (sample seed), `cutensornetSamplerSample`, `cutensornetDestroySampler`, `cudaStreamSynchronize`, `cudaFree` (scratch)                                                                                                                                                         |
 | `fork`                                                                | `prepare`, then every logged operator applied again: cuTensorNet 2.13 offers no state copy among the loaded symbols, so a fork costs a new state and a recompute                                                                                                                                                                                                                                                                                                                                                                     |
@@ -171,22 +171,31 @@ H₂ shot without a restart. A compute's scratch is freed as soon as the stream
 has finished the compute, its outputs when the next compute succeeds and is
 captured, and a query's or sample's buffers when it returns, so a state's
 device memory does not grow with its reads, and a compute's peak is its own
-scratch, not two. On the A100, the recommended scratch nevertheless grew by
-about 32 MiB per measurement of H₂'s shot, until it failed at the 1,252nd. A
-policy's `restart_period` (none by default; the qualification's
-`history_growth` measures what it changes) replaces the native state every
-so many computes by a new one that starts from the last computed MPS
-(`cutensornetStateInitializeMPS`), and releases the old one and its operator
-tensors: capture is documented as equivalent to that, so a restart changes no
-value; it drops whatever the library keeps of the state's history. With the
-policy's `fresh_handle_at_restart` (off by default; qualification only), a
-restart also moves the state to a new cuTensorNet handle of its own, with its
-own workspace descriptor, and destroys the previous one: the full A100 run
-showed the recommended scratch growing by about 16 MiB per compute with or
-without restarts, and this tells whether the growth belongs to the shared
-handle. Its host tests check that a restart changes no value, through
-truncations and projections, on the same handle and on a fresh one, and that
-the test double refuses an object used with a handle other than its own. A native failure while a state is changed or computed leaves it
+scratch, not two.
+
+Every 10 computes (the policy's `restart_period`, `RESTART_PERIOD` in
+`policy.rs`), the engine replaces a state's native state, before its next
+operator, by a new one that starts from the last computed MPS
+(`cutensornetStateInitializeMPS`), on a new cuTensorNet handle of its own with
+its own workspace descriptor (`fresh_handle_at_restart`), and releases the old
+state, its operator tensors and its previous own handle; the engine's handle
+is never destroyed before the engine. Capture is documented as equivalent to
+starting from the computed MPS, so a restart changes no value. It is needed
+because the scratch cuTensorNet recommends grows by about 16 MiB with each
+compute on a long-lived handle, restarts on that handle included: on the A100
+H₂'s first shot asked for 42 GB at its 1,252nd measurement and failed. With a
+restart every 10 computes on a fresh handle, the qualification's
+`history_growth` measured it flat at 193 MiB over 300 steps of H₂'s pattern,
+for about 1% of the time. Why the handle grows is not known: a new state on a
+long-lived handle asks for what a new handle's does. A fork starts on the
+engine's handle, as any new state, and moves at its own restarts. The host
+tests check that a restart changes no value, through truncations and
+projections, on the same handle and on a fresh one; that the engine's policy
+restarts on a fresh handle every 10 computes and destroys the handles it
+leaves; that forks stay usable across their parent's restarts; and that the
+test double refuses an object used with a handle other than its own. Tests
+and the feature `qualification` may change the period, or turn the restart
+off. A native failure while a state is changed or computed leaves it
 unusable (`EngineError::Poisoned`); a failed query or sample frees its buffers
 and native objects and leaves the state usable. A conditional probability
 whose condition has weight at most 1e-12 of the state's norm is refused, since
@@ -491,11 +500,12 @@ the measurements its open GPU questions need. Every test there is ignored and
 needs the feature `qualification`:
 
 - `conformance`, `conformance_without_capture` and `conformance_with_restart`
-  run `tensornet::conformance::check` on the engine with and without MPS
-  capture, and restarting its native state at every compute (on the same
-  cuTensorNet handle, then on a fresh one, rows `handle=fresh;`), and are the
-  only tests that assert; without capture, the retained weight is reported
-  but not held, since each compute truncates the whole history again;
+  run `tensornet::conformance::check` on the engine, on the engine without
+  MPS capture (and so without restarts), and restarting its native state at
+  every compute (on the same cuTensorNet handle, then on a fresh one, as the
+  engine does every 10 computes, rows `handle=fresh;`), and are the only tests
+  that assert; without capture, the retained weight is reported but not held,
+  since each compute truncates the whole history again;
 - `environment` records the versions and libraries found;
 - `empty_compute`, `read_cost`, `fork_cost`, `free_after_compute`,
   `shape_and_tolerance`, `impossible_condition`, `rare_condition` and
@@ -515,10 +525,11 @@ needs the feature `qualification`:
   retained weight at every mark, and the slope of its `log10` per step,
   scaled to H₂ the same way: an estimate for a random circuit of H₂'s size,
   likely pessimistic, not of H₂'s own circuit. `history_growth` runs H₂'s
-  pattern 300 times on seven engine variants (the engine, the minimum
-  workspace, a restart every 10 and every 50 computes, a restart every 10 on
-  a fresh handle, two computes per step, and the engine with probes), and
-  records every 10 steps the minimum and recommended workspace, the device
+  pattern 300 times on seven engine variants (a baseline that never
+  restarts; the engine, which restarts every 10 computes on a fresh handle;
+  the baseline with the minimum workspace, with two computes per step and with
+  probes; a restart every 10 and every 50 computes on the engine's handle),
+  and records every 10 steps the minimum and recommended workspace, the device
   memory, the live allocations, the restarts, fresh handles and computes of
   the state's handle, and the time per kind of native call, then their slopes
   per step. The probes prepare a new state started at the computed MPS, with

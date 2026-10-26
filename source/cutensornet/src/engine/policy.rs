@@ -12,19 +12,43 @@
 //! without a restart period, which would never take effect. It does not
 //! check capture itself: turning it off is not reachable outside tests and
 //! the `qualification` feature (`without_capture`), and gives the same
-//! values without truncation, only more slowly. The minimum workspace, the
-//! restart and its fresh handle are reachable there too, until the A100's
-//! `history_growth` shows which pays.
-//! `base_qualification` is the engine's default. Qualifying another
-//! configuration takes an A100 qualification case and a change to `validate`.
+//! values without truncation, only more slowly.
+//! `base_qualification` is the engine's default: it restarts each state
+//! every [`RESTART_PERIOD`] computes on a fresh handle. Tests and the
+//! `qualification` feature may change the workspace preference, the
+//! restart period and the fresh handle, to measure what each changes on
+//! the A100; a policy that does not restart says so
+//! (`with_restart_period(None)`, `with_fresh_handle_at_restart(false)`).
+//! Qualifying another configuration takes an A100 qualification case and a
+//! change to `validate`.
 //!
 //! The bond cap χ is not here: each state's capacity, a `tensornet::MpsShape`
 //! given to `prepare`, carries a bond for every cut.
 
+#[cfg(any(test, feature = "qualification"))]
+use super::profile::EngineVariant;
 use super::{EngineError, memory_workspace::WorkspacePreference};
 use std::num::NonZeroUsize;
 
 pub(super) const MAXIMUM_WORKSPACE_BYTES: usize = 68_719_476_736;
+
+/// The computes after which the engine's policy restarts a state from its
+/// computed MPS, on a cuTensorNet handle of its own. Needed because the
+/// workspace cuTensorNet recommends for a compute grows by about 16.06 MiB
+/// with each compute done on a long-lived handle, restarts on the same
+/// handle included: about 44 GiB at the end of an H₂ shot (two computes per
+/// measurement, 1,404 measurements), more than the A100 could give: the
+/// first H₂ shot failed at its 1,252nd measurement, asking for 42 GB. On
+/// the A100 (`history_growth`, 300 steps of H₂'s pattern, one compute
+/// each), a restart every 10 computes on a fresh handle kept the
+/// recommended workspace flat at 193 MiB, where every variant on the
+/// engine's handle reached 4,831 MiB after 300 computes, for about 15 ms
+/// per restart, 1% of the time, with P(One) identical. A larger period
+/// raises that bound by about 16 MiB per compute; a smaller one pays more
+/// restarts. Why the handle grows is not known: a new state on the old
+/// handle asks for 48 MiB, so the growth needs computes on a long-lived
+/// handle.
+pub(super) const RESTART_PERIOD: usize = 10;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Precision {
@@ -71,14 +95,14 @@ pub(crate) struct ExecutionPolicy {
     /// Every this many computes, the native state is replaced, before the
     /// next operator, by a new one initialized from the last computed MPS
     /// (`cutensornetStateInitializeMPS`), and the old state and its operator
-    /// tensors are released. `None` never restarts. Needs capture.
+    /// tensors are released. [`RESTART_PERIOD`] by default; `None` never
+    /// restarts. Needs capture.
     pub(super) restart_period: Option<NonZeroUsize>,
     /// Whether each restart also moves the state to a cuTensorNet handle of
     /// its own, created for the new state, and destroys the handle the old
-    /// state was on once nothing uses it (never the session's). For the
-    /// A100's `history_growth` only: it tests whether what grows with a
-    /// shot's history is kept by the handle rather than by the state.
-    /// Needs a restart period.
+    /// state was on once nothing uses it (never the session's). On by
+    /// default: what grows with a shot's history is kept by the handle,
+    /// not by the state ([`RESTART_PERIOD`]). Needs a restart period.
     pub(super) fresh_handle_at_restart: bool,
 }
 
@@ -94,14 +118,16 @@ impl ExecutionPolicy {
             maximum_workspace_bytes: MAXIMUM_WORKSPACE_BYTES,
             capture_after_compute: true,
             compute_workspace: WorkspacePreference::Recommended,
-            restart_period: None,
-            fresh_handle_at_restart: false,
+            restart_period: NonZeroUsize::new(RESTART_PERIOD),
+            fresh_handle_at_restart: true,
         }
     }
 
     /// The same policy, with every compute starting again from |0…0⟩: the
     /// path the A100 qualification compares capture with, not a supported
-    /// configuration.
+    /// configuration. A restart needs capture, so the policy must also not
+    /// restart (`with_restart_period(None)` and
+    /// `with_fresh_handle_at_restart(false)`).
     #[cfg(any(test, feature = "qualification"))]
     pub(crate) const fn without_capture(self) -> Self {
         Self {
@@ -112,7 +138,7 @@ impl ExecutionPolicy {
 
     /// The same policy, with each state compute given the minimum scratch
     /// cuTensorNet accepts instead of the recommended one.
-    #[cfg(any(test, feature = "qualification"))]
+    #[cfg(test)]
     pub(crate) const fn with_minimum_compute_workspace(self) -> Self {
         Self {
             compute_workspace: WorkspacePreference::Min,
@@ -121,7 +147,7 @@ impl ExecutionPolicy {
     }
 
     /// The same policy, with the native state restarted from its computed
-    /// MPS every `period` computes.
+    /// MPS every `period` computes, or never with `None`.
     #[cfg(any(test, feature = "qualification"))]
     pub(crate) const fn with_restart_period(self, period: Option<NonZeroUsize>) -> Self {
         Self {
@@ -131,11 +157,27 @@ impl ExecutionPolicy {
     }
 
     /// The same policy, with each restart moving the state to a new
-    /// cuTensorNet handle.
+    /// cuTensorNet handle, or keeping it on its handle with `false`.
     #[cfg(any(test, feature = "qualification"))]
     pub(crate) const fn with_fresh_handle_at_restart(self, fresh: bool) -> Self {
         Self {
             fresh_handle_at_restart: fresh,
+            ..self
+        }
+    }
+
+    /// The same policy, changed as the qualification's `variant` says:
+    /// `EngineVariant::default()` leaves the engine's policy as it is.
+    #[cfg(any(test, feature = "qualification"))]
+    pub(crate) const fn with_variant(self, variant: EngineVariant) -> Self {
+        Self {
+            compute_workspace: if variant.minimum_workspace {
+                WorkspacePreference::Min
+            } else {
+                WorkspacePreference::Recommended
+            },
+            restart_period: variant.restart_period,
+            fresh_handle_at_restart: variant.fresh_handle_at_restart,
             ..self
         }
     }
@@ -183,7 +225,8 @@ fn invalid(reason: &'static str) -> EngineError {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExecutionPolicy, Gauge, NonZeroUsize, Precision, SvdAlgorithm, WorkspacePreference,
+        ExecutionPolicy, Gauge, NonZeroUsize, Precision, RESTART_PERIOD, SvdAlgorithm,
+        WorkspacePreference,
     };
     use crate::engine::EngineError;
 
@@ -211,14 +254,22 @@ mod tests {
         assert_eq!(policy.maximum_workspace_bytes, 68_719_476_736);
         assert!(policy.capture_after_compute);
         assert_eq!(policy.compute_workspace, WorkspacePreference::Recommended);
-        assert_eq!(policy.restart_period, None);
-        assert!(!policy.fresh_handle_at_restart);
+        assert_eq!(policy.restart_period, NonZeroUsize::new(10));
+        assert_eq!(policy.restart_period, NonZeroUsize::new(RESTART_PERIOD));
+        assert!(policy.fresh_handle_at_restart);
         let variant = policy
             .with_minimum_compute_workspace()
-            .with_restart_period(NonZeroUsize::new(10))
-            .with_fresh_handle_at_restart(true);
+            .with_restart_period(NonZeroUsize::new(50))
+            .with_fresh_handle_at_restart(false);
         assert_eq!(variant.validate().expect("policy should be valid"), variant);
-        let uncaptured = policy.without_capture();
+        let without_restart = policy
+            .with_restart_period(None)
+            .with_fresh_handle_at_restart(false);
+        assert_eq!(
+            without_restart.validate().expect("policy should be valid"),
+            without_restart
+        );
+        let uncaptured = without_restart.without_capture();
         assert!(!uncaptured.capture_after_compute);
         assert_eq!(
             uncaptured.validate().expect("policy should be valid"),
@@ -262,10 +313,9 @@ mod tests {
                 maximum_workspace_bytes: super::MAXIMUM_WORKSPACE_BYTES + 1,
                 ..valid
             },
-            valid
-                .without_capture()
-                .with_restart_period(NonZeroUsize::new(1)),
-            valid.with_fresh_handle_at_restart(true),
+            valid.without_capture(),
+            valid.with_fresh_handle_at_restart(false).without_capture(),
+            valid.with_restart_period(None),
         ];
 
         for policy in invalid {

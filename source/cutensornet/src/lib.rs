@@ -91,8 +91,11 @@ impl Availability {
     }
 
     /// An MPS engine on CUDA device 0, with ④'s qualified truncation
-    /// cutoffs, SVD algorithm and gauge. It keeps the loaded libraries alive
-    /// for as long as it lives.
+    /// cutoffs, SVD algorithm and gauge. Each of its states restarts from
+    /// its computed MPS every 10 computes, on a cuTensorNet handle of its
+    /// own, which keeps the workspace a compute asks for bounded over a
+    /// long shot. It keeps the loaded libraries alive for as long as it
+    /// lives.
     ///
     /// # Errors
     ///
@@ -107,8 +110,9 @@ impl Availability {
     }
 
     /// The engine of [`Self::mps_engine`], with every compute starting again
-    /// from |0…0⟩ and every operator instead of from the last computed MPS.
-    /// For the A100 qualification's measurement of what capture saves only.
+    /// from |0…0⟩ and every operator instead of from the last computed MPS,
+    /// and so no restart, which starts from that MPS. For the A100
+    /// qualification's measurement of what capture saves only.
     ///
     /// Its retained weight is not the product of the steps' kept fractions:
     /// each compute truncates the whole history again, after projections
@@ -123,15 +127,19 @@ impl Availability {
     pub fn mps_engine_without_capture(&self) -> Result<CuTensorNetEngine, EngineError> {
         CuTensorNetEngine::with_api(
             self.libraries.clone(),
-            engine::ExecutionPolicy::base_qualification().without_capture(),
+            engine::ExecutionPolicy::base_qualification()
+                .with_restart_period(None)
+                .with_fresh_handle_at_restart(false)
+                .without_capture(),
         )
     }
 
     /// The engine of [`Self::mps_engine`], changed as `variant` says: each
     /// compute given cuTensorNet's minimum scratch, or the native state
-    /// restarted from its computed MPS every so many computes, on the same
-    /// cuTensorNet handle or on a new one at each restart. For the A100
-    /// qualification's `history_growth` only.
+    /// restarted from its computed MPS every so many computes or never, on
+    /// the same cuTensorNet handle or on a new one at each restart.
+    /// `EngineVariant::default()` is the engine of [`Self::mps_engine`]. For
+    /// the A100 qualification only.
     ///
     /// # Errors
     ///
@@ -142,15 +150,10 @@ impl Availability {
         &self,
         variant: EngineVariant,
     ) -> Result<CuTensorNetEngine, EngineError> {
-        let policy = engine::ExecutionPolicy::base_qualification()
-            .with_restart_period(variant.restart_period)
-            .with_fresh_handle_at_restart(variant.fresh_handle_at_restart);
-        let policy = if variant.minimum_workspace {
-            policy.with_minimum_compute_workspace()
-        } else {
-            policy
-        };
-        CuTensorNetEngine::with_api(self.libraries.clone(), policy)
+        CuTensorNetEngine::with_api(
+            self.libraries.clone(),
+            engine::ExecutionPolicy::base_qualification().with_variant(variant),
+        )
     }
 }
 

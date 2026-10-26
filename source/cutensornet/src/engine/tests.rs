@@ -5,10 +5,10 @@
 //! tested here.
 
 use super::{
-    CuTensorNetEngine, EngineError, NativeApi,
+    CuTensorNetEngine, CuTensorNetState, EngineError, NativeApi,
     execution::MpsExecutionApi,
-    policy::ExecutionPolicy,
-    profile::NativeHandle,
+    policy::{ExecutionPolicy, RESTART_PERIOD},
+    profile::{EngineVariant, NativeHandle},
     resources::SessionApi,
     test_double::{NativeDouble, uniform_capacity},
 };
@@ -16,12 +16,25 @@ use num_complex::Complex64;
 use std::{num::NonZeroUsize, sync::Arc};
 use tensornet::{MpsEngine, MpsShape, Pauli, PauliSum, PauliTerm, SampleSeed, conformance};
 
+/// The engine as it ships: it restarts each state every [`RESTART_PERIOD`]
+/// computes on a new handle.
 fn engine() -> (CuTensorNetEngine, Arc<NativeDouble>) {
     engine_with(ExecutionPolicy::base_qualification())
 }
 
+fn policy_without_restart() -> ExecutionPolicy {
+    ExecutionPolicy::base_qualification()
+        .with_restart_period(None)
+        .with_fresh_handle_at_restart(false)
+}
+
+/// The engine with no restart: every state stays on the engine's handle.
+fn engine_without_restart() -> (CuTensorNetEngine, Arc<NativeDouble>) {
+    engine_with(policy_without_restart())
+}
+
 fn engine_without_capture() -> (CuTensorNetEngine, Arc<NativeDouble>) {
-    engine_with(ExecutionPolicy::base_qualification().without_capture())
+    engine_with(policy_without_restart().without_capture())
 }
 
 fn engine_with(policy: ExecutionPolicy) -> (CuTensorNetEngine, Arc<NativeDouble>) {
@@ -612,9 +625,12 @@ fn the_minimum_workspace_policy_gives_each_compute_the_minimum() {
     }
 }
 
+/// Restarting every `period` computes on the handle the state is on.
 fn restarting(period: usize) -> (CuTensorNetEngine, Arc<NativeDouble>) {
     engine_with(
-        ExecutionPolicy::base_qualification().with_restart_period(NonZeroUsize::new(period)),
+        ExecutionPolicy::base_qualification()
+            .with_restart_period(NonZeroUsize::new(period))
+            .with_fresh_handle_at_restart(false),
     )
 }
 
@@ -697,7 +713,7 @@ fn walk(engine: &CuTensorNetEngine) -> Vec<f64> {
 
 #[test]
 fn a_restart_changes_no_value_through_truncations_and_projections() {
-    let (captured, _native) = engine();
+    let (captured, _native) = engine_without_restart();
     let expected = walk(&captured);
     for (period, fresh) in [1, 2, 3, 50]
         .into_iter()
@@ -801,9 +817,7 @@ fn a_failed_restart_poisons_the_state_and_cleans_up() {
 fn a_restart_without_capture_is_refused() {
     let native = Arc::new(NativeDouble::new());
     let api: Arc<dyn NativeApi> = native.clone();
-    let policy = ExecutionPolicy::base_qualification()
-        .without_capture()
-        .with_restart_period(NonZeroUsize::new(1));
+    let policy = ExecutionPolicy::base_qualification().without_capture();
     assert!(matches!(
         CuTensorNetEngine::with_api(api, policy),
         Err(EngineError::InvalidExecutionPolicy { .. })
@@ -933,7 +947,7 @@ fn forks_made_before_and_after_a_fresh_handle_restart_stay_usable() {
         }
         read
     };
-    let (plain, _plain_native) = engine();
+    let (plain, _plain_native) = engine_without_restart();
     let expected = reads(&plain);
     let (engine, native) = restarting_on_fresh_handles(1);
     let read = reads(&engine);
@@ -986,11 +1000,149 @@ fn a_failed_fresh_handle_restart_poisons_the_state_and_releases_what_it_created(
     }
 }
 
+/// One step of a long shot: a gate, then a read, which computes.
+fn gate_and_read(engine: &CuTensorNetEngine, state: &mut CuTensorNetState, step: usize) -> f64 {
+    let site = step % 3;
+    let angle = 0.3 + 0.17 * f64::from(u8::try_from(step % 23).unwrap_or(0));
+    ok(engine.apply(state, &[site], &ry(angle)));
+    if step % 2 == 1 {
+        ok(engine.apply(state, &[site.min(1), site.min(1) + 1], &cnot()));
+    }
+    ok(engine.probability_of_one(state, site))
+}
+
+#[test]
+fn the_engine_restarts_each_state_on_a_fresh_handle_every_ten_computes() {
+    assert_eq!(RESTART_PERIOD, 10);
+    let (engine, native) = engine();
+    let (reference, _reference_native) = engine_without_restart();
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    let mut expected = ok(reference.prepare(&uniform_capacity(3, 2)));
+    let mut step = 0;
+    let mut advance = |state: &mut CuTensorNetState, expected: &mut CuTensorNetState| {
+        let read = gate_and_read(&engine, state, step);
+        let wanted = gate_and_read(&reference, expected, step);
+        assert!(
+            (read - wanted).abs() < 1e-12,
+            "step {step}: {read}, not {wanted}"
+        );
+        step += 1;
+    };
+    for _ in 0..RESTART_PERIOD {
+        advance(&mut state, &mut expected);
+    }
+    let profile = ok(engine.profile(&state));
+    assert_eq!(
+        (profile.computes, profile.restarts, profile.fresh_handles),
+        (RESTART_PERIOD, 0, 0),
+        "no restart before the period is reached"
+    );
+    assert_eq!(
+        profile.handle_computes, RESTART_PERIOD,
+        "the engine's handle"
+    );
+    assert_eq!(native.live_handles(), 1, "the engine's");
+    for period in 1..=3 {
+        for _ in 0..RESTART_PERIOD {
+            advance(&mut state, &mut expected);
+        }
+        let profile = ok(engine.profile(&state));
+        assert_eq!(
+            (
+                profile.restarts,
+                profile.fresh_handles,
+                profile.handle_computes
+            ),
+            (period, period, RESTART_PERIOD),
+            "the state restarts before the first operator after every period"
+        );
+        assert_eq!(native.live_handles(), 2, "the engine's and the state's");
+        assert_eq!(
+            native.count("destroy_handle"),
+            period - 1,
+            "each previous own handle"
+        );
+    }
+    ok(state.close());
+    ok(expected.close());
+    assert_eq!(native.live_handles(), 1, "the state's handle is destroyed");
+    assert_eq!(native.count("destroy_handle"), 3);
+    assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    ok(engine.close());
+    assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn forks_stay_usable_across_their_parent_restarts() {
+    let run = |engine: &CuTensorNetEngine| -> Vec<f64> {
+        let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+        let mut forks = Vec::new();
+        let mut read = Vec::new();
+        for step in 0..3 * RESTART_PERIOD + 2 {
+            read.push(gate_and_read(engine, &mut state, step));
+            if step % 7 == 3 {
+                forks.push(ok(engine.fork(&state)));
+            }
+        }
+        for (at, fork) in forks.iter_mut().enumerate() {
+            for step in 0..=RESTART_PERIOD {
+                read.push(gate_and_read(engine, fork, step + at));
+            }
+        }
+        read.push(gate_and_read(engine, &mut state, 0));
+        for fork in forks {
+            ok(fork.close());
+        }
+        ok(state.close());
+        read
+    };
+    let (reference, _reference_native) = engine_without_restart();
+    let expected = run(&reference);
+    let (engine, native) = engine();
+    let read = run(&engine);
+    assert!(
+        native.count("create_handle") > 4,
+        "the parent restarted three times, and the forks"
+    );
+    assert_eq!(read.len(), expected.len());
+    for (at, (value, wanted)) in read.iter().zip(&expected).enumerate() {
+        assert!(
+            (value - wanted).abs() < 1e-12,
+            "read {at}: {value}, not {wanted}"
+        );
+    }
+    assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    ok(engine.close());
+    assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn the_default_engine_variant_is_the_engine() {
+    let policy = ExecutionPolicy::base_qualification();
+    assert_eq!(policy.with_variant(EngineVariant::default()), policy);
+    let no_restart = EngineVariant {
+        restart_period: None,
+        fresh_handle_at_restart: false,
+        ..EngineVariant::default()
+    };
+    assert_eq!(policy.with_variant(no_restart), policy_without_restart());
+    let (engine, native) = engine_with(policy.with_variant(EngineVariant::default()));
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    for step in 0..=RESTART_PERIOD {
+        gate_and_read(&engine, &mut state, step);
+    }
+    let profile = ok(engine.profile(&state));
+    assert_eq!((profile.restarts, profile.fresh_handles), (1, 1));
+    assert_eq!(native.computes().last(), Some(&(1, 1024)), "recommended");
+    ok(state.close());
+    ok(engine.close());
+}
+
 #[test]
 fn a_fresh_handle_without_a_restart_is_refused() {
     let native = Arc::new(NativeDouble::new());
     let api: Arc<dyn NativeApi> = native.clone();
-    let policy = ExecutionPolicy::base_qualification().with_fresh_handle_at_restart(true);
+    let policy = ExecutionPolicy::base_qualification().with_restart_period(None);
     assert!(matches!(
         CuTensorNetEngine::with_api(api, policy),
         Err(EngineError::InvalidExecutionPolicy { .. })
