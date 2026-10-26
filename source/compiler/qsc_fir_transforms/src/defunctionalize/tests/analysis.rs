@@ -8357,13 +8357,21 @@ fn flow_tuple_declarations_observe_ordered_initializer_values() {
     }
 }
 
-#[test]
-fn callable_wrapper_store_cleanup_preserves_effects_and_snapshots() {
-    for initializer in ["{ A }", "{{ A }}", "if true { A } else { B }"] {
-        for reached in [false, true] {
-            check_flow_value(
-                &format!(
-                    r#"
+/// The saved closure always uses A, while the current callable may become B.
+/// Ordered messages and an increment expose dropped, duplicated or moved RHS
+/// evaluation, including the skipped side of each short-circuit operator.
+fn check_callable_wrapper_effects_and_snapshots(
+    initializer: &str,
+    update: impl Fn(bool) -> String,
+) {
+    for reached in [false, true] {
+        let update = update(reached).replace(
+            "rhs",
+            r#"{ set f = { Message("assignment"); set marker += 7; B }; false }"#,
+        );
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &format!(
+                r#"
                     function A(x : Int) : Int {{ x + 1 }}
                     function B(x : Int) : Int {{ x + 2 }}
                     @EntryPoint() operation Main() : Int {{
@@ -8371,37 +8379,257 @@ fn callable_wrapper_store_cleanup_preserves_effects_and_snapshots() {
                         mutable f = {initializer};
                         let initial = f;
                         let saved = (x -> initial(x));
-                        let _ = {reached} and {{
-                            set f = {{ Message("assignment"); set marker = 7; B }};
-                            false
-                        }};
+                        Message("before");
+                        {update}
+                        Message("after");
                         f(10) * 10000 + saved(10) * 100 + marker
                     }}
                     "#
-                ),
-                if reached { 121_107 } else { 111_100 },
+            ),
+            qsc_eval::val::Value::Int(if reached { 121_107 } else { 111_100 }),
+            if reached {
+                "before\nassignment\nafter\n"
+            } else {
+                "before\nafter\n"
+            },
+        );
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{ A }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_nested_blocks_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("{{ A }}", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_assign_preserves_effects_and_snapshots() {
+    check_callable_wrapper_effects_and_snapshots("if true { A } else { B }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+/// The first failure must still win when the replacement is reached, and
+/// neither its message nor its failure may run on a short-circuited path.
+fn check_callable_wrapper_failures(initializer: &str, update: impl Fn(bool) -> String) {
+    for reached in [false, true] {
+        let update = update(reached).replace(
+            "rhs",
+            r#"{ set f = { Message("replacement"); fail "assignment failed"; B }; false }"#,
+        );
+        let source = format!(
+            r#"
+                    function A(x : Int) : Int {{ x + 1 }}
+                    function B(x : Int) : Int {{ x + 2 }}
+                    @EntryPoint() operation Main() : Int {{
+                        mutable f = {initializer};
+                        {update}
+                        let value = f(10);
+                        Message("after");
+                        fail "later failure";
+                        value
+                    }}
+                    "#
+        );
+        let error = crate::test_utils::eval_qsharp_original(&source)
+            .expect_err("the reached failure must execute");
+        assert!(
+            error.contains(if reached {
+                "assignment failed"
+            } else {
+                "later failure"
+            }),
+            "unexpected original failure: {error}"
+        );
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| format!("let _ = {reached} and rhs;"));
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| format!("let _ = {} or rhs;", !reached));
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_and_assign_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_single_block_or_assign_preserves_failures() {
+    check_callable_wrapper_failures("{ A }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("let _ = {reached} and rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("let _ = {} or rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_and_assign_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("mutable flag = {reached}; set flag and= rhs;")
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_constant_if_or_assign_preserves_failures() {
+    check_callable_wrapper_failures("if true { A } else { B }", |reached| {
+        format!("mutable flag = {}; set flag or= rhs;", !reached)
+    });
+}
+
+#[test]
+fn callable_wrapper_store_cleanup_preserves_nested_writes_and_selected_effects() {
+    for reached in [false, true] {
+        for choose in [false, true] {
+            let source = format!(
+                r#"
+                function A(x : Int) : Int {{ x + 1 }}
+                function B(x : Int) : Int {{ x + 2 }}
+                @EntryPoint() operation Main() : Int {{
+                    mutable marker = 0;
+                    mutable f = {{ A }};
+                    let _ = {reached} and {{
+                        set f = {{
+                            set f = {{ Message("inner"); set marker += 1; B }};
+                            Message("outer");
+                            set marker += 10;
+                            if {choose} {{ B }} else {{ A }}
+                        }};
+                        false
+                    }};
+                    f(10) * 100 + marker
+                }}
+                "#
+            );
+            crate::test_utils::check_semantic_equivalence_with_expected_output(
+                &source,
+                qsc_eval::val::Value::Int(if reached {
+                    if choose { 1211 } else { 1111 }
+                } else {
+                    1100
+                }),
+                if reached { "inner\nouter\n" } else { "" },
             );
         }
     }
 }
 
+/// An indexed write is not a whole-local store. Removing its base or replaying
+/// the alias would lose the array's original first callable.
 #[test]
-fn callable_wrapper_store_cleanup_preserves_failures() {
-    for initializer in ["{ A }", "if true { A } else { B }"] {
+fn callable_wrapper_store_cleanup_preserves_partial_updates_and_aliases() {
+    for reached in [false, true] {
         let source = format!(
             r#"
             function A(x : Int) : Int {{ x + 1 }}
             function B(x : Int) : Int {{ x + 2 }}
             @EntryPoint() operation Main() : Int {{
-                mutable f = {initializer};
-                let _ = true and {{ set f = {{ fail "assignment failed"; B }}; false }};
-                f(10)
+                mutable fs = [A, B];
+                let saved = fs;
+                let _ = {reached} and {{
+                    set fs w/= 0 <- {{ Message("replacement"); B }};
+                    false
+                }};
+                fs[0](10) * 100 + saved[0](10)
             }}
             "#
         );
-        let (store, package) = crate::test_utils::compile_to_fir(&source);
-        assert!(crate::test_utils::try_eval_fir_entry(&store, package).is_err());
-        crate::test_utils::check_semantic_equivalence(&source);
+        crate::test_utils::check_semantic_equivalence_with_expected_output(
+            &source,
+            qsc_eval::val::Value::Int(if reached { 1211 } else { 1111 }),
+            if reached { "replacement\n" } else { "" },
+        );
     }
 }
 
