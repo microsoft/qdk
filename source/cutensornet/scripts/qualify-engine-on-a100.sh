@@ -7,7 +7,8 @@
 #   conformance, conformance_without_capture, conformance_with_restart
 #                 tensornet::conformance::check on the engine, with and
 #                 without MPS capture, and restarting its native state from
-#                 the computed MPS; the only tests that assert
+#                 the computed MPS, on the same cuTensorNet handle and on a
+#                 new one at each restart; the only tests that assert
 #   environment   the versions and libraries found
 #   empty_compute, read_cost, fork_cost, free_after_compute,
 #   shape_and_tolerance, impossible_condition, rare_condition,
@@ -18,10 +19,14 @@
 #                 pattern, step after step, with variants of the measurement,
 #                 and the retained weight <psi|psi> the truncations left
 #   history_growth
-#                 H2's pattern for 300 steps on four engine variants (current,
-#                 minimum workspace, restart every 10 and every 50 computes):
-#                 the workspace sizes, device memory, allocations and the time
-#                 per kind of call, every 10 steps, and their slopes
+#                 H2's pattern for 300 steps on seven engine variants (current,
+#                 minimum workspace, restart every 10 and every 50 computes,
+#                 restart every 10 on a new cuTensorNet handle, two computes
+#                 per step, and current with probes): the workspace sizes,
+#                 device memory, allocations, computes per handle and the time
+#                 per kind of call, every 10 steps, and their slopes; the
+#                 probes, what a new state started at the computed MPS asks
+#                 for on the engine's handle and on a new one
 #
 # Usage, on the A100 VM:
 #   qualify-engine-on-a100.sh [--check | --quick] [--only TESTS] COMMIT [REPO]
@@ -417,13 +422,18 @@ conformance = [case for case in ("conformance", "conformance_without_capture", "
                if case in tests]
 if conformance:
     print("\n=== conformance (passed / failed per case)")
-for case in conformance:
-    cells = [(r[1][len("case="):-len(";passed")], r[2]) for r in rows
-             if r[0] == case and r[1].startswith("case=") and r[1].endswith(";passed")]
-    label = {"conformance": "capture=on ", "conformance_without_capture": "capture=off",
-             "conformance_with_restart": "restart=1  "}[case]
+# conformance_with_restart runs a second engine, which moves the state to a
+# new cuTensorNet handle at each restart; its items are prefixed handle=fresh;.
+engines = [(case, prefix, label) for case in conformance
+           for prefix, label in ([("", "restart=1  "), ("handle=fresh;", "restart=1 fresh")]
+                                 if case == "conformance_with_restart" else
+                                 [("", {"conformance": "capture=on ", "conformance_without_capture": "capture=off"}[case])])]
+for case, prefix, label in engines:
+    head = prefix + "case="
+    cells = [(r[1][len(head):-len(";passed")], r[2]) for r in rows
+             if r[0] == case and r[1].startswith(head) and r[1].endswith(";passed")]
     if not cells:
-        bad.append(f"{case}: no case rows")
+        bad.append(f"{case}: no {prefix}case rows")
         print(f"  {label}  no rows")
         continue
     # Without capture, every compute truncates the whole history again, so
@@ -434,7 +444,7 @@ for case in conformance:
         return "not-held" if case == "conformance_without_capture" and name == "retained weight" else "FAILED"
     print(f"  {label}  " + "  ".join(f"{name}={verdict(name, value)}" for name, value in cells))
     for note in notes:
-        if note.startswith(f"# {case} case="):
+        if note.startswith(f"# {case} {head}"):
             print(f"    {note[2:]}")
 
 if "environment" in tests:
@@ -566,11 +576,14 @@ if "history_growth" in tests:
         metric = r[1].rsplit(";", 1)[-1]
         if "variant" not in fields:
             continue
-        run = hist.setdefault(fields["variant"], {"marks": defaultdict(dict), "slopes": {}, "other": {}})
+        run = hist.setdefault(fields["variant"], {"marks": defaultdict(dict), "slopes": {}, "other": {},
+                                                  "probes": defaultdict(dict)})
         if r[1].split(";")[1:2] == ["slope"]:
             run["slopes"][metric] = r[2]
         elif "extrapolation" in fields:
             run["other"]["h2_" + metric] = r[2]
+        elif "probe" in fields:
+            run["probes"][int(fields["step"])][(fields["probe"], fields["operators"], metric)] = r[2]
         elif "step" in fields:
             run["marks"][int(fields["step"])][metric] = r[2]
         else:
@@ -586,7 +599,8 @@ if "history_growth" in tests:
     for variant, run in hist.items():
         print(f"\n  variant={variant}  (ms per step by kind of call; workspace in MiB)")
         print(f"  {'step':>5} {'ms':>8} " + " ".join(f"{s:>7}" for s in short)
-              + f" {'min_ws':>7} {'rec_ws':>7} {'dev_MiB':>7} {'live':>6} {'ops':>5} {'rst':>4}")
+              + f" {'min_ws':>7} {'rec_ws':>7} {'dev_MiB':>7} {'live':>6} {'ops':>5} {'rst':>4} {'fh':>4}"
+              + f" {'comp':>5} {'hcomp':>6}")
         for step, m in sorted(run["marks"].items()):
             if step == 0:
                 continue
@@ -594,29 +608,61 @@ if "history_growth" in tests:
                   + " ".join(f"{m.get(k + '_ms', '-'):>7}" for k in kinds)
                   + f" {mib(m.get('minimum_workspace_bytes', '-')):>7} {mib(m.get('recommended_workspace_bytes', '-')):>7}"
                   + f" {m.get('device_mib', '-'):>7} {m.get('live_allocations', '-'):>6}"
-                  + f" {m.get('operator_tensors', '-'):>5} {m.get('restarts', '-'):>4}")
-    print("\n  slopes per step (least squares over the marks) and peaks")
-    print(f"  {'variant':18} {'dev MiB':>8} {'rec MiB':>8} {'min MiB':>8} {'ms':>8} {'comp ms':>8} "
-          f"{'prep ms':>8} {'other ms':>8} {'peak rec':>9} {'ms/step':>8} {'closed':>7} {'run':>5}")
+                  + f" {m.get('operator_tensors', '-'):>5} {m.get('restarts', '-'):>4}"
+                  + f" {m.get('fresh_handles', '-'):>4} {m.get('computes', '-'):>5} {m.get('handle_computes', '-'):>6}")
+        if run["probes"]:
+            # A new state started at the last computed MPS, prepared once on
+            # the engine's handle or on a new one, with no operator or with
+            # the step's gates; the state's own sizes beside them.
+            probes = [(h, o) for h in ("engine", "fresh") for o in ("none", "batch")]
+            print(f"\n  variant={variant} probes: recommended (minimum) workspace in MiB of a new state at"
+                  " the computed MPS, and the computes its handle had done")
+            print(f"  {'step':>5} {'state':>13} " + " ".join(f"{h + '/' + o:>21}" for h, o in probes))
+            for step, p in sorted(run["probes"].items()):
+                m = run["marks"].get(step, {})
+                cell = lambda h, o: (f"{mib(p.get((h, o, 'recommended_workspace_bytes'), '-'))}"
+                                     f" ({mib(p.get((h, o, 'minimum_workspace_bytes'), '-'))})"
+                                     f" h{p.get((h, o, 'handle_computes'), '-')}"
+                                     if (h, o, "workspace") not in p else "error")
+                print(f"  {step:>5} {mib(m.get('recommended_workspace_bytes', '-')):>6}"
+                      f" ({mib(m.get('minimum_workspace_bytes', '-')):>4}) "
+                      + " ".join(f"{cell(h, o):>21}" for h, o in probes))
+    print("\n  slopes per step (least squares over the marks) and peaks; MiB/comp is the recommended")
+    print("  workspace's slope over the computes per step (from the last mark)")
+    print(f"  {'variant':24} {'dev MiB':>8} {'rec MiB':>8} {'min MiB':>8} {'ms':>8} {'comp ms':>8} "
+          f"{'prep ms':>8} {'other ms':>8} {'peak rec':>9} {'ms/step':>8} {'closed':>7} {'run':>5} {'MiB/comp':>9}")
+    def per_compute(run):
+        try:
+            step = max(s for s, m in run["marks"].items() if "computes" in m)
+            per_step = int(run["marks"][step]["computes"]) / step
+            return f"{float(run['slopes']['recommended_workspace']) / per_step:.4f}"
+        except (KeyError, ValueError, ZeroDivisionError):
+            return "-"
     for variant, run in hist.items():
         sl, o = run["slopes"], run["other"]
-        print(f"  {variant:18} {sl.get('device_mib', '-'):>8} {sl.get('recommended_workspace', '-'):>8} "
+        print(f"  {variant:24} {sl.get('device_mib', '-'):>8} {sl.get('recommended_workspace', '-'):>8} "
               f"{sl.get('minimum_workspace', '-'):>8} {sl.get('ms_per_step', '-'):>8} {sl.get('compute', '-'):>8} "
               f"{sl.get('prepare', '-'):>8} {sl.get('unprofiled', '-'):>8} "
               f"{o.get('peak_recommended_workspace_mib', '-'):>9} {o.get('ms_per_step', '-'):>8} "
-              f"{o.get('device_mib_after_close', '-'):>7} {o.get('run', 'ok'):>5}")
+              f"{o.get('device_mib_after_close', '-'):>7} {o.get('run', 'ok'):>5} {per_compute(run):>9}")
+    for variant, run in hist.items():
+        probed = {k: v for k, v in run["slopes"].items() if k.startswith("probe_")}
+        if probed:
+            print(f"  {variant} probes, recommended workspace MiB/step: "
+                  + "  ".join(f"{k[len('probe_'):]}={v}" for k, v in probed.items()))
     base = hist.get("current", {}).get("marks", {})
-    print("\n  P(One) at the marks: the largest difference from variant=current (a restart should change none)")
+    print("\n  P(One) at the marks: the largest difference from variant=current (a restart, a second compute or a")
+    print("  probe should change none)")
     for variant, run in hist.items():
         if variant == "current":
             continue
         diffs = [abs(float(m["p_one"]) - float(base[s]["p_one"])) for s, m in run["marks"].items()
                  if "p_one" in m and "p_one" in base.get(s, {})]
-        print(f"  {variant:18} {max(diffs):.3e} over {len(diffs)} marks" if diffs else f"  {variant:18} -")
+        print(f"  {variant:24} {max(diffs):.3e} over {len(diffs)} marks" if diffs else f"  {variant:24} -")
     print("\n  EXTRAPOLATION to H2's 1,404 measurements of the fitted lines, an estimate, not a measurement:")
     for variant, run in hist.items():
         o = run["other"]
-        print(f"  {variant:18} {o.get('h2_seconds_per_shot', '-'):>8} s/shot "
+        print(f"  {variant:24} {o.get('h2_seconds_per_shot', '-'):>8} s/shot "
               f"{o.get('h2_recommended_workspace_mib', '-'):>8} MiB recommended workspace at the end")
 
 print("\n=== measurements (every row but projection_memory's and history_growth's; rows.csv has them as CSV)")

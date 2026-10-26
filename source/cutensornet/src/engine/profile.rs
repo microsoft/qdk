@@ -6,7 +6,9 @@
 //! native call costs nanoseconds against the microseconds of the call. Only
 //! the `qualification` feature exposes it, through
 //! `CuTensorNetEngine::profile`, with the engine variants it is compared on
-//! (`Availability::mps_engine_variant`).
+//! (`Availability::mps_engine_variant`), and the workspace probe
+//! `CuTensorNetEngine::fresh_state_workspace`, which asks what a state with
+//! no history needs.
 
 use std::{num::NonZeroUsize, time::Duration};
 
@@ -42,6 +44,12 @@ pub struct StateProfile {
     pub restart: Duration,
     pub computes: usize,
     pub restarts: usize,
+    /// The restarts that moved the state to a new cuTensorNet handle.
+    pub fresh_handles: usize,
+    /// The computes done so far on the handle the state is on now, by any
+    /// state: the engine's handle is shared by every state of the engine
+    /// and its forks; a fresh handle is the state's alone.
+    pub handle_computes: usize,
     /// cuTensorNet's minimum scratch for the last compute
     /// (`CUTENSORNET_WORKSIZE_PREF_MIN`), in bytes.
     pub minimum_workspace_bytes: i64,
@@ -68,4 +76,39 @@ pub struct EngineVariant {
     /// Restart the native state from its computed MPS every this many
     /// computes.
     pub restart_period: Option<NonZeroUsize>,
+    /// At each restart, also move the state to a new cuTensorNet handle
+    /// and destroy the old one, unless it is the engine's. Needs a restart
+    /// period.
+    pub fresh_handle_at_restart: bool,
+}
+
+/// The cuTensorNet handle a probe of
+/// `CuTensorNetEngine::fresh_state_workspace` prepares its state on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    not(any(test, feature = "qualification")),
+    allow(dead_code, reason = "built by the qualification only")
+)]
+pub enum NativeHandle {
+    /// The engine's handle, which every state of the engine has used, and
+    /// keeps using.
+    Engine,
+    /// A handle created for the probe and destroyed after it, which nothing
+    /// else has used.
+    Fresh,
+}
+
+/// The scratch sizes cuTensorNet asks for after one prepare, in bytes.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[cfg_attr(
+    not(any(test, feature = "qualification")),
+    allow(dead_code, reason = "built by the qualification only")
+)]
+pub struct WorkspaceSizes {
+    /// `CUTENSORNET_WORKSIZE_PREF_MIN`.
+    pub minimum_bytes: i64,
+    /// `CUTENSORNET_WORKSIZE_PREF_RECOMMENDED`.
+    pub recommended_bytes: i64,
+    /// The computes done on the probe's handle before it, by any state.
+    pub handle_computes: usize,
 }

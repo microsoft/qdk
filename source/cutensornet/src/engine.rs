@@ -45,7 +45,7 @@ mod tests;
 
 pub use error::EngineError;
 #[cfg(feature = "qualification")]
-pub use profile::{EngineVariant, StateProfile};
+pub use profile::{EngineVariant, NativeHandle, StateProfile, WorkspaceSizes};
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use self::{
@@ -62,7 +62,13 @@ pub(crate) use self::{
 use num_complex::Complex64;
 use resources::SessionResources;
 use state::MpsExecution;
-use std::{cell::RefCell, ffi::c_void, ptr::NonNull, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    ffi::c_void,
+    ptr::NonNull,
+    rc::Rc,
+    sync::Arc,
+};
 use tensornet::{MpsEngine, MpsShape, PauliSum, SampleSeed};
 
 pub(crate) type OpaqueHandle = NonNull<c_void>;
@@ -86,6 +92,9 @@ impl<Api> NativeApi for Api where
 struct Session {
     resources: SessionResources<dyn NativeApi>,
     policy: policy::ExecutionPolicy,
+    /// The computes done on the session's handle, by any of its states, for
+    /// the profile: the A100 measured the workspace growing with them.
+    handle_computes: Cell<usize>,
 }
 
 /// A `tensornet::MpsEngine` on one CUDA device, through cuTensorNet.
@@ -122,7 +131,11 @@ impl CuTensorNetEngine {
         let policy = policy.validate()?;
         let resources = SessionResources::new(api, policy.device_ordinal)?;
         Ok(Self {
-            session: Rc::new(Session { resources, policy }),
+            session: Rc::new(Session {
+                resources,
+                policy,
+                handle_computes: Cell::new(0),
+            }),
         })
     }
 
@@ -151,6 +164,31 @@ impl CuTensorNetEngine {
     #[cfg(any(test, feature = "qualification"))]
     pub fn profile(&self, state: &CuTensorNetState) -> Result<profile::StateProfile, EngineError> {
         Ok(self.execution(state)?.profile())
+    }
+
+    /// The scratch cuTensorNet asks for to compute a new state that starts
+    /// at `state`'s last computed MPS and has only `operators` applied,
+    /// prepared on `handle`: the engine's, or one created for the probe.
+    /// The new state, its operator tensors and a fresh handle are released
+    /// before it returns, and `state` is not changed. For the A100
+    /// qualification's `history_growth`, which compares it with what
+    /// `state` itself asks for, to tell whether the workspace grows with the
+    /// state's history, with its handle's, or with neither.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `state` belongs to another engine, is in use or has never
+    /// been computed, if an operator is not one `apply` would take, or if a
+    /// native call fails; every release is attempted.
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn fresh_state_workspace(
+        &self,
+        state: &CuTensorNetState,
+        handle: profile::NativeHandle,
+        operators: &[(&[usize], &[Complex64])],
+    ) -> Result<profile::WorkspaceSizes, EngineError> {
+        self.execution(state)?
+            .fresh_state_workspace(handle, operators)
     }
 
     /// The state's execution, if `state` was created by this engine, with

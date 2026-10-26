@@ -10,9 +10,10 @@
 //!   creates, and fails listing every [`Failure`](tensornet::conformance::Failure);
 //!   `conformance_without_capture` does the same without capture, except
 //!   for the retained weight, which it reports but is not held to;
-//!   `conformance_with_restart` does it on an engine that restarts its native
-//!   state from the computed MPS at every opportunity. They are the only
-//!   tests that assert.
+//!   `conformance_with_restart` does it on two engines that restart their
+//!   native state from the computed MPS at every opportunity, the second on
+//!   a new cuTensorNet handle each time (its rows prefixed `handle=fresh;`).
+//!   They are the only tests that assert.
 //! - The others measure, and print what they measured as CSV rows (see
 //!   `report`): an engine error is a row, and the sweep goes on. They fail
 //!   only when no engine can be created. `environment` records the versions
@@ -25,7 +26,10 @@
 //!   values with the reference's; `impossible_condition` and
 //!   `rare_condition` place the threshold under which a conditional is
 //!   refused (E16); `history_growth` profiles what grows with a shot's
-//!   history, on engine variants with the minimum workspace or a restart.
+//!   history, on engine variants with the minimum workspace, a restart, a
+//!   restart on a fresh handle or two computes per step, and probes what a
+//!   state with no history asks for, on the engine's handle and on a new
+//!   one.
 //!
 //! Every test needs CUDA runtime 12.9 and cuTensorNet 2.13, found as
 //! [`discover`] finds them, and an NVIDIA GPU, so every test is ignored. Run
@@ -96,8 +100,13 @@ fn engine() -> CuTensorNetEngine {
 
 /// Closes `engine`, after its states are dropped, and records the result.
 fn close(report: &mut Report, engine: CuTensorNetEngine) {
-    if report.record("closed", engine.close()).is_some() {
-        report.row("closed", true, "");
+    close_as(report, "closed", engine);
+}
+
+/// [`close`], recorded as `item`.
+fn close_as(report: &mut Report, item: &str, engine: CuTensorNetEngine) {
+    if report.record(item, engine.close()).is_some() {
+        report.row(item, true, "");
     }
 }
 
@@ -169,27 +178,62 @@ fn conformance_without_capture() {
 
 /// Conformance of the engine restarting its native state from the computed
 /// MPS before every operator after a compute: the restart's
-/// `cutensornetStateInitializeMPS`, on the real library.
+/// `cutensornetStateInitializeMPS`, on the real library. Then the same on
+/// an engine that moves the state to a new cuTensorNet handle at each
+/// restart (`history_growth`'s `restart_10_fresh_handle`), its rows
+/// prefixed `handle=fresh;`.
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn conformance_with_restart() {
+    const NAME: &str = "conformance_with_restart";
     let availability = discover().unwrap_or_else(|error| panic!("no cuTensorNet: {error}"));
-    let engine = availability
-        .mps_engine_variant(EngineVariant {
-            restart_period: NonZeroUsize::new(1),
-            ..EngineVariant::default()
-        })
-        .unwrap_or_else(|error| panic!("no engine on CUDA device 0: {error}"));
-    conform("conformance_with_restart", engine, &[]);
+    let mut report = Report::new(NAME);
+    let mut failures = Vec::new();
+    for (prefix, fresh_handle_at_restart) in [("", false), ("handle=fresh;", true)] {
+        let engine = availability
+            .mps_engine_variant(EngineVariant {
+                restart_period: NonZeroUsize::new(1),
+                fresh_handle_at_restart,
+                ..EngineVariant::default()
+            })
+            .unwrap_or_else(|error| panic!("no engine on CUDA device 0: {error}"));
+        failures.extend(check_conformance(&mut report, prefix, engine, &[]));
+    }
+    report.finish();
+    assert_conforms(NAME, &failures);
 }
 
 /// Runs [`check`] on `engine`, prints a `case=<name>;passed` row for each
 /// case, and fails listing every failure outside `not_held`.
 fn conform(name: &'static str, engine: CuTensorNetEngine, not_held: &[&str]) {
     let mut report = Report::new(name);
+    let failures = check_conformance(&mut report, "", engine, not_held);
+    report.finish();
+    assert_conforms(name, &failures);
+}
+
+/// Fails listing `failures`, if any.
+fn assert_conforms(name: &str, failures: &[String]) {
+    assert!(
+        failures.is_empty(),
+        "{name}: the engine fails {} conformance checks:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// Runs [`check`] on `engine`, prints its rows, each item prefixed with
+/// `prefix`, closes it, and returns the failures outside `not_held`,
+/// prefixed too.
+fn check_conformance(
+    report: &mut Report,
+    prefix: &str,
+    engine: CuTensorNetEngine,
+    not_held: &[&str],
+) -> Vec<String> {
     let (failures, duration) =
         timed(|| Ok::<_, EngineError>(check(&engine))).unwrap_or_else(|error| panic!("{error}"));
-    report.row("duration", milliseconds(duration), "ms");
+    report.row(&format!("{prefix}duration"), milliseconds(duration), "ms");
     let mut cases = CONFORMANCE_CASES.to_vec();
     for failure in &failures {
         if !cases.contains(&failure.case) {
@@ -198,24 +242,17 @@ fn conform(name: &'static str, engine: CuTensorNetEngine, not_held: &[&str]) {
     }
     for case in cases {
         let passed = !failures.iter().any(|failure| failure.case == case);
-        report.row(&format!("case={case};passed"), passed, "");
+        report.row(&format!("{prefix}case={case};passed"), passed, "");
     }
     for failure in &failures {
-        report.note(&format!("case={}", failure.case), &failure.message);
+        report.note(&format!("{prefix}case={}", failure.case), &failure.message);
     }
-    close(&mut report, engine);
-    report.finish();
-    let failures: Vec<_> = failures
+    close_as(report, &format!("{prefix}closed"), engine);
+    failures
         .iter()
         .filter(|failure| !not_held.contains(&failure.case))
-        .collect();
-    let list: Vec<_> = failures.iter().map(ToString::to_string).collect();
-    assert!(
-        failures.is_empty(),
-        "{name}: the engine fails {} conformance checks:\n{}",
-        failures.len(),
-        list.join("\n")
-    );
+        .map(|failure| format!("{prefix}{failure}"))
+        .collect()
 }
 
 /// Reads of a state no operator was applied to: the first compute then
@@ -296,7 +333,9 @@ fn projection_memory() {
 
 /// What grows with a shot's history along H₂'s pattern, call by call, and
 /// whether the minimum workspace or a restart of the native state from its
-/// computed MPS every 10 or 50 steps stops it (`history`).
+/// computed MPS every 10 or 50 steps stops it, on the engine's handle or a
+/// new one; whether it grows per compute; and what a state with no history
+/// asks for (`history`).
 #[test]
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn history_growth() {

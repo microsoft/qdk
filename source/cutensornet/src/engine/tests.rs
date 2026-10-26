@@ -6,7 +6,10 @@
 
 use super::{
     CuTensorNetEngine, EngineError, NativeApi,
+    execution::MpsExecutionApi,
     policy::ExecutionPolicy,
+    profile::NativeHandle,
+    resources::SessionApi,
     test_double::{NativeDouble, uniform_capacity},
 };
 use num_complex::Complex64;
@@ -615,16 +618,35 @@ fn restarting(period: usize) -> (CuTensorNetEngine, Arc<NativeDouble>) {
     )
 }
 
+/// Restarting every `period` computes, each time on a new handle.
+fn restarting_on_fresh_handles(period: usize) -> (CuTensorNetEngine, Arc<NativeDouble>) {
+    engine_with(
+        ExecutionPolicy::base_qualification()
+            .with_restart_period(NonZeroUsize::new(period))
+            .with_fresh_handle_at_restart(true),
+    )
+}
+
 #[test]
 fn the_engine_restarting_its_state_conforms_to_the_exact_reference() {
     for period in [1, 2, 3] {
-        let (engine, native) = restarting(period);
-        let failures = conformance::check(&engine);
-        assert!(failures.is_empty(), "every {period}: {failures:#?}");
-        assert!(native.count("initialize_mps") > 0, "every {period}");
-        assert_eq!(native.live_objects(), 2, "only the stream and the handle");
-        ok(engine.close());
-        assert_eq!(native.live_objects(), 0);
+        for fresh in [false, true] {
+            let (engine, native) = if fresh {
+                restarting_on_fresh_handles(period)
+            } else {
+                restarting(period)
+            };
+            let failures = conformance::check(&engine);
+            assert!(
+                failures.is_empty(),
+                "every {period}, {fresh}: {failures:#?}"
+            );
+            assert!(native.count("initialize_mps") > 0, "every {period}");
+            assert_eq!(native.count("create_handle") > 1, fresh, "every {period}");
+            assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+            ok(engine.close());
+            assert_eq!(native.live_objects(), 0);
+        }
     }
 }
 
@@ -677,18 +699,30 @@ fn walk(engine: &CuTensorNetEngine) -> Vec<f64> {
 fn a_restart_changes_no_value_through_truncations_and_projections() {
     let (captured, _native) = engine();
     let expected = walk(&captured);
-    for period in [1, 2, 3, 50] {
-        let (engine, native) = restarting(period);
+    for (period, fresh) in [1, 2, 3, 50]
+        .into_iter()
+        .flat_map(|p| [(p, false), (p, true)])
+    {
+        let (engine, native) = if fresh {
+            restarting_on_fresh_handles(period)
+        } else {
+            restarting(period)
+        };
         let read = walk(&engine);
         assert_eq!(read.len(), expected.len());
         for (at, (value, wanted)) in read.iter().zip(&expected).enumerate() {
             assert!(
                 (value - wanted).abs() < 1e-12,
-                "every {period}, read {at}: {value}, not {wanted}"
+                "every {period}, {fresh}, read {at}: {value}, not {wanted}"
             );
         }
         let restarts = native.count("initialize_mps");
         assert_eq!(restarts > 0, period < 50, "every {period}: {restarts}");
+        assert_eq!(
+            native.count("create_handle") - 1,
+            if fresh { restarts } else { 0 },
+            "every {period}, {fresh}"
+        );
         assert_eq!(native.live_objects(), 2, "only the stream and the handle");
     }
 }
@@ -775,4 +809,348 @@ fn a_restart_without_capture_is_refused() {
         Err(EngineError::InvalidExecutionPolicy { .. })
     ));
     assert_eq!(native.live_objects(), 0);
+}
+
+/// The native calls of a restart on a fresh handle.
+fn handle_events(native: &NativeDouble) -> Vec<&'static str> {
+    native
+        .events()
+        .into_iter()
+        .filter(|event| {
+            [
+                "create_handle",
+                "destroy_handle",
+                "create_state",
+                "initialize_mps",
+                "destroy_state",
+                "create_workspace",
+                "destroy_workspace",
+            ]
+            .contains(event)
+        })
+        .collect()
+}
+
+#[test]
+fn a_fresh_handle_restart_moves_the_state_and_destroys_the_old_handle_last() {
+    let (engine, native) = restarting_on_fresh_handles(1);
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    ok(engine.probability_of_one(&state, 1));
+    assert_eq!(native.live_handles(), 1, "the session's");
+    let live = native.live_objects();
+    for step in 0..4 {
+        let before = handle_events(&native).len();
+        ok(engine.apply(&mut state, &[step % 3], &hadamard()));
+        let restart: Vec<_> = handle_events(&native)[before..].to_vec();
+        let mut expected = vec![
+            "create_handle",
+            "create_state",
+            "initialize_mps",
+            "create_workspace",
+            "destroy_state",
+            "destroy_workspace",
+        ];
+        if step > 0 {
+            expected.push("destroy_handle");
+        }
+        assert_eq!(restart, expected, "step {step}");
+        ok(engine.probability_of_one(&state, step % 3));
+        assert_eq!(native.live_handles(), 2, "the session's and the state's");
+        // The old handle is replaced, not kept: against the first state,
+        // one handle more and one operator tensor fewer.
+        assert_eq!(native.live_objects(), live, "step {step}");
+        let profile = ok(engine.profile(&state));
+        assert_eq!(
+            (
+                profile.restarts,
+                profile.fresh_handles,
+                profile.handle_computes
+            ),
+            (step + 1, step + 1, 1),
+            "the new handle has done one compute"
+        );
+        assert_eq!(profile.computes, step + 2);
+    }
+    ok(state.close());
+    assert_eq!(native.live_handles(), 1, "the state's handle is destroyed");
+    assert_eq!(
+        handle_events(&native).last(),
+        Some(&"destroy_handle"),
+        "after the state and its workspace"
+    );
+    assert_eq!(native.count("destroy_handle"), 4);
+    assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    ok(engine.close());
+    assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn the_profile_counts_the_computes_of_the_handle_the_state_is_on() {
+    let (engine, _native) = engine();
+    let mut first = ok(engine.prepare(&uniform_capacity(2, 2)));
+    let mut second = ok(engine.prepare(&uniform_capacity(2, 2)));
+    ok(engine.apply(&mut first, &[0], &hadamard()));
+    ok(engine.probability_of_one(&first, 0));
+    ok(engine.apply(&mut second, &[0], &hadamard()));
+    ok(engine.probability_of_one(&second, 0));
+    ok(engine.apply(&mut second, &[1], &hadamard()));
+    ok(engine.probability_of_one(&second, 1));
+    let profile = ok(engine.profile(&first));
+    assert_eq!((profile.computes, profile.handle_computes), (1, 3));
+    assert_eq!(profile.fresh_handles, 0);
+    ok(first.close());
+    ok(second.close());
+}
+
+#[test]
+fn forks_made_before_and_after_a_fresh_handle_restart_stay_usable() {
+    let reads = |engine: &CuTensorNetEngine| -> Vec<f64> {
+        let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+        ok(engine.apply(&mut state, &[0], &ry(0.7)));
+        ok(engine.probability_of_one(&state, 0));
+        let mut before = ok(engine.fork(&state));
+        ok(engine.apply(&mut state, &[0, 1], &cnot()));
+        ok(engine.probability_of_one(&state, 1));
+        let mut after = ok(engine.fork(&state));
+        ok(engine.apply(&mut state, &[1, 2], &cnot()));
+        ok(engine.apply(&mut before, &[2], &ry(1.1)));
+        ok(engine.apply(&mut after, &[2], &ry(0.3)));
+        let seed = SampleSeed::try_from(5).unwrap_or_else(|e| panic!("{e}"));
+        let mut read = vec![
+            ok(engine.probability_of_one(&state, 2)),
+            ok(engine.probability_of_one(&before, 2)),
+            ok(engine.probability_of_one(&after, 2)),
+        ];
+        read.extend(
+            ok(engine.sample(&state, &[0, 1, 2], 4, seed))
+                .into_iter()
+                .map(f64::from),
+        );
+        for state in [state, before, after] {
+            ok(state.close());
+        }
+        read
+    };
+    let (plain, _plain_native) = engine();
+    let expected = reads(&plain);
+    let (engine, native) = restarting_on_fresh_handles(1);
+    let read = reads(&engine);
+    assert!(native.count("create_handle") > 2, "the state restarted");
+    for (value, wanted) in read.iter().zip(&expected) {
+        assert!((value - wanted).abs() < 1e-12, "{read:?} != {expected:?}");
+    }
+    assert_eq!(native.live_objects(), 2, "only the stream and the handle");
+    ok(engine.close());
+}
+
+#[test]
+fn a_failed_fresh_handle_restart_poisons_the_state_and_releases_what_it_created() {
+    for operation in [
+        "create_handle",
+        "create_state",
+        "initialize_mps",
+        "configure_state_u32",
+        "create_workspace",
+    ] {
+        let (engine, native) = restarting_on_fresh_handles(1);
+        let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+        ok(engine.apply(&mut state, &[0], &hadamard()));
+        ok(engine.probability_of_one(&state, 0));
+        native.fail(operation, native.count(operation) + 1);
+        let failed = engine.apply(&mut state, &[0, 1], &cnot());
+        assert!(
+            matches!(
+                &failed,
+                Err(EngineError::NativeCallFailed { operation: at, .. }) if *at == operation
+            ),
+            "{operation}: {failed:?}"
+        );
+        assert!(
+            matches!(
+                engine.probability_of_one(&state, 0),
+                Err(EngineError::Poisoned { .. })
+            ),
+            "{operation}"
+        );
+        assert_eq!(
+            native.live_handles(),
+            1,
+            "{operation}: the new handle is released"
+        );
+        drop(state);
+        assert_eq!(native.live_objects(), 2, "{operation}");
+        ok(engine.close());
+        assert_eq!(native.live_objects(), 0, "{operation}");
+    }
+}
+
+#[test]
+fn a_fresh_handle_without_a_restart_is_refused() {
+    let native = Arc::new(NativeDouble::new());
+    let api: Arc<dyn NativeApi> = native.clone();
+    let policy = ExecutionPolicy::base_qualification().with_fresh_handle_at_restart(true);
+    assert!(matches!(
+        CuTensorNetEngine::with_api(api, policy),
+        Err(EngineError::InvalidExecutionPolicy { .. })
+    ));
+    assert_eq!(native.live_objects(), 0);
+}
+
+/// The double holds the engine to what it assumes of cuTensorNet: an
+/// object is used with the handle it was created on, and a handle outlives
+/// its objects.
+#[test]
+fn the_double_refuses_an_object_used_with_another_handle() {
+    let native = NativeDouble::new();
+    let first = ok(native.create_handle());
+    let second = ok(native.create_handle());
+    let state = ok(native.create_state(first, &[2, 2]));
+    let refused = |result: Result<(), EngineError>, message: &str| {
+        assert!(
+            matches!(&result, Err(EngineError::NativeCallFailed { message: m, .. }) if m == message),
+            "{result:?}"
+        );
+    };
+    refused(
+        native.capture_mps(second, state),
+        "the object belongs to another handle",
+    );
+    refused(
+        native.destroy_handle(first),
+        "an object of the handle is still live",
+    );
+    ok(native.destroy_state(state));
+    refused(native.capture_mps(first, state), "no such object");
+    ok(native.destroy_handle(first));
+    ok(native.destroy_handle(second));
+    assert_eq!(native.live_objects(), 0);
+}
+
+#[test]
+fn the_workspace_probe_prepares_a_new_state_and_releases_it() {
+    let (engine, native) = engine();
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    let p1 = ok(engine.probability_of_one(&state, 1));
+    let live = native.live_objects();
+    let state_computes = native.count("compute_state");
+    let gate = hadamard();
+    let batch: [(&[usize], &[Complex64]); 2] = [(&[2], &gate), (&[1], &gate)];
+    for handle in [NativeHandle::Engine, NativeHandle::Fresh] {
+        for operators in [&batch[..0], &batch[..]] {
+            let handles = native.count("create_handle");
+            let applied = native.applied().len();
+            let prepares = native.count("prepare_state");
+            let sizes = ok(engine.fresh_state_workspace(&state, handle, operators));
+            assert_eq!(
+                (sizes.minimum_bytes, sizes.recommended_bytes),
+                (512, 1024),
+                "{handle:?}"
+            );
+            let (created, on_handle) = match handle {
+                NativeHandle::Engine => (0, 1),
+                NativeHandle::Fresh => (1, 0),
+            };
+            assert_eq!(sizes.handle_computes, on_handle, "{handle:?}");
+            assert_eq!(native.count("create_handle") - handles, created);
+            assert_eq!(native.applied().len() - applied, operators.len());
+            assert_eq!(native.count("prepare_state") - prepares, 1);
+            assert_eq!(native.live_objects(), live, "{handle:?}: nothing leaks");
+        }
+    }
+    assert_eq!(
+        native.count("compute_state"),
+        state_computes,
+        "the probe computes nothing"
+    );
+    assert_eq!(
+        ok(engine.probability_of_one(&state, 1)).to_bits(),
+        p1.to_bits()
+    );
+    assert_eq!(
+        native.count("compute_state"),
+        state_computes,
+        "nor the state again"
+    );
+    ok(engine.apply(&mut state, &[1, 2], &cnot()));
+    let p2 = ok(engine.probability_of_one(&state, 2));
+    assert!((p2 - 0.5).abs() < 1e-12, "{p2}");
+    assert_eq!(ok(engine.profile(&state)).computes, 2);
+    ok(state.close());
+    assert_eq!(native.live_objects(), 2);
+}
+
+#[test]
+fn the_workspace_probe_is_refused_before_a_compute_and_for_an_operator_apply_refuses() {
+    let (engine, native) = engine();
+    let mut state = ok(engine.prepare(&uniform_capacity(3, 2)));
+    ok(engine.apply(&mut state, &[0], &hadamard()));
+    let live = native.live_objects();
+    assert!(is_invalid_request(&engine.fresh_state_workspace(
+        &state,
+        NativeHandle::Fresh,
+        &[]
+    )));
+    assert_eq!(native.live_objects(), live);
+    ok(engine.probability_of_one(&state, 0));
+    let live = native.live_objects();
+    let gate = cnot();
+    for operators in [
+        [(&[0_usize, 1, 2][..], &gate[..])],
+        [(&[0, 0][..], &gate[..])],
+        [(&[0][..], &gate[..])],
+        [(&[3][..], &hadamard()[..])],
+    ] {
+        assert!(is_invalid_request(&engine.fresh_state_workspace(
+            &state,
+            NativeHandle::Fresh,
+            &operators
+        )));
+    }
+    assert_eq!(native.live_objects(), live);
+    assert_eq!(native.count("create_handle"), 1, "refused up front");
+    ok(state.close());
+}
+
+#[test]
+fn a_failed_workspace_probe_releases_what_it_created_and_leaves_the_state_usable() {
+    for operation in [
+        "create_handle",
+        "create_state",
+        "initialize_mps",
+        "apply_tensor_operator",
+        "create_workspace",
+        "prepare_state",
+        "workspace_size",
+    ] {
+        let (engine, native) = engine();
+        let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+        ok(engine.apply(&mut state, &[0], &hadamard()));
+        let p0 = ok(engine.probability_of_one(&state, 0));
+        let live = native.live_objects();
+        native.fail(operation, native.count(operation) + 1);
+        let gate = hadamard();
+        let failed = engine.fresh_state_workspace(&state, NativeHandle::Fresh, &[(&[1], &gate)]);
+        assert!(
+            matches!(
+                &failed,
+                Err(EngineError::NativeCallFailed { operation: at, .. }) if *at == operation
+            ),
+            "{operation}: {failed:?}"
+        );
+        assert_eq!(native.live_objects(), live, "{operation}");
+        assert_eq!(
+            ok(engine.probability_of_one(&state, 0)).to_bits(),
+            p0.to_bits(),
+            "{operation}"
+        );
+        ok(engine.apply(&mut state, &[0, 1], &cnot()));
+        ok(engine.probability_of_one(&state, 1));
+        ok(state.close());
+        ok(engine.close());
+        assert_eq!(native.live_objects(), 0, "{operation}");
+    }
 }
