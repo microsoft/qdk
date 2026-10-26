@@ -7,7 +7,7 @@
 use super::{
     CuTensorNetEngine, EngineError, NativeApi,
     policy::ExecutionPolicy,
-    test_double::{NORM_SCALE, NativeDouble, uniform_capacity},
+    test_double::{NativeDouble, uniform_capacity},
 };
 use num_complex::Complex64;
 use std::sync::Arc;
@@ -64,11 +64,20 @@ fn the_engine_conforms_to_the_exact_reference() {
     assert_eq!(native.live_objects(), 0);
 }
 
+/// Except for the retained weight: without capture each compute truncates
+/// the whole history again, after a projection whose probability was read
+/// on an earlier truncation, so the projection changes the weight.
 #[test]
 fn the_engine_without_capture_conforms_to_the_exact_reference() {
     let (engine, native) = engine_without_capture();
-    let failures = conformance::check(&engine);
+    let (weight, failures): (Vec<_>, Vec<_>) = conformance::check(&engine)
+        .into_iter()
+        .partition(|failure| failure.case == "retained weight");
     assert!(failures.is_empty(), "{failures:#?}");
+    assert!(
+        matches!(weight.as_slice(), [failure] if failure.message.starts_with("a projection changed")),
+        "{weight:#?}"
+    );
     assert!(native.count("compute_state") > 0);
     assert_eq!(native.count("capture_mps"), 0);
     ok(engine.close());
@@ -179,11 +188,21 @@ fn a_fork_after_a_capture_replays_every_operator() {
     assert!((ok(engine.probability_of_one(&state, 1)) - 0.5).abs() < 1e-12);
 }
 
+fn ry(theta: f64) -> Vec<Complex64> {
+    let (s, k) = (theta / 2.0).sin_cos();
+    vec![c(k), c(-s), c(s), c(k)]
+}
+
 #[test]
 fn reads_divide_by_the_norm_the_library_reports() {
-    assert!((NORM_SCALE - 1.0).abs() > 0.1, "the double scales the norm");
     let (engine, _native) = engine();
-    let mut state = ok(engine.prepare(&uniform_capacity(2, 2)));
+    let mut state = ok(engine.prepare(&uniform_capacity(2, 1)));
+    // cos(0.35)|00⟩ + sin(0.35)|11⟩, truncated to |00⟩ with norm cos²(0.35).
+    ok(engine.apply(&mut state, &[0], &ry(0.7)));
+    ok(engine.apply(&mut state, &[0, 1], &cnot()));
+    let kept = 0.35f64.cos().powi(2);
+    let weight = ok(engine.retained_weight(&state));
+    assert!((weight - kept).abs() < 1e-12, "{weight}, not {kept}");
     ok(engine.apply(&mut state, &[0], &hadamard()));
     let p1 = ok(engine.probability_of_one(&state, 0));
     assert!((p1 - 0.5).abs() < 1e-12, "{p1}");
@@ -192,6 +211,50 @@ fn reads_divide_by_the_norm_the_library_reports() {
         .unwrap_or_else(|e| panic!("{e}"));
     let value = ok(engine.expectation(&state, &x0));
     assert!((value - c(1.0)).norm() < 1e-12, "{value}");
+    let weight = ok(engine.retained_weight(&state));
+    assert!((weight - kept).abs() < 1e-12, "a unitary keeps the weight");
+}
+
+#[test]
+fn the_retained_weight_falls_under_a_small_bond_and_projections_keep_it() {
+    let (engine, _native) = engine();
+    let sites = 6;
+    let mut state = ok(engine.prepare(&uniform_capacity(sites, 2)));
+    let mut weights = vec![ok(engine.retained_weight(&state))];
+    for layer in 0..8 {
+        for site in 0..sites {
+            let angle = 1.1 + 0.37 * f64::from(u8::try_from(site + layer).unwrap_or(0));
+            ok(engine.apply(&mut state, &[site], &ry(angle)));
+        }
+        for site in (layer % 2..sites - 1).step_by(2) {
+            ok(engine.apply(&mut state, &[site, site + 1], &cnot()));
+        }
+        let weight = ok(engine.retained_weight(&state));
+        // An edge site, so that the projection leaves the rest entangled.
+        let edge = if layer % 2 == 0 { 0 } else { sites - 1 };
+        let p1 = ok(engine.probability_of_one(&state, edge));
+        let (one, p) = if p1 >= 0.5 {
+            (true, p1)
+        } else {
+            (false, 1.0 - p1)
+        };
+        ok(engine.project(&mut state, edge, one, p));
+        let projected = ok(engine.retained_weight(&state));
+        assert!(
+            (projected - weight).abs() < 1e-12,
+            "a projection changed the weight from {weight} to {projected}"
+        );
+        weights.push(projected);
+    }
+    assert!((weights[0] - 1.0).abs() < 1e-12, "{weights:?}");
+    assert!(
+        weights.windows(2).all(|pair| pair[1] <= pair[0] + 1e-12),
+        "the weight rose: {weights:?}"
+    );
+    let last = weights.last().copied().unwrap_or(1.0);
+    assert!(last > 0.0 && last < 0.9, "the weight fell: {weights:?}");
+    let shape = ok(engine.shape(&state));
+    assert!(shape.fits_within(&uniform_capacity(sites, 2)), "{shape:?}");
 }
 
 #[test]

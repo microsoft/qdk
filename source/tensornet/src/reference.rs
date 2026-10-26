@@ -488,6 +488,14 @@ impl MpsEngine for ExactReference {
             .collect();
         Ok(MpsShape::new(sites)?)
     }
+
+    /// The sum of `re² + im²` over the amplitudes, in index order: 1 to
+    /// rounding, since the reference never truncates. A projection given a
+    /// probability other than the state's own changes it, as it would on
+    /// any engine.
+    fn retained_weight(&self, state: &ReferenceState) -> Result<f64, ReferenceError> {
+        Ok((0..state.re.len()).map(|i| state.probability(i)).sum())
+    }
 }
 
 #[cfg(test)]

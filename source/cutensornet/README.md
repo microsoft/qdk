@@ -130,7 +130,7 @@ case checks that the padding never shows.
 | `src/engine/memory_workspace.rs`, `ffi.rs` | Device memory and workspace calls; the C-compatible complex element.                                  |
 | `src/engine/policy.rs`                     | `ExecutionPolicy`: device, SVD cutoffs, algorithm and gauge, workspace limit, capture.                |
 | `src/engine/error.rs`                      | `EngineError`.                                                                                        |
-| `src/engine/test_double.rs`                | Host tests only: a CPU double of the native API that computes with `ExactReference`.                  |
+| `src/engine/test_double.rs`                | Host tests only: a CPU double of the native API: `ExactReference`, truncated to the bonds.            |
 | `src/engine/tests.rs`                      | Host tests: conformance, refusals, call order, release of every native object.                        |
 | `tests/qualification/`                     | The A100 qualification (ignored tests; see [A100 qualification](#a100-qualification)).                |
 
@@ -146,6 +146,7 @@ What each operation calls:
 | `sample`                                                              | `cudaMemGetInfo`, `cutensornetCreateSampler`, `cutensornetSamplerConfigure` (hyper-samples, path seed), `cutensornetSamplerPrepare`, `cutensornetWorkspaceGetMemorySize`, `cudaMalloc`, `cutensornetWorkspaceSetMemory`, `cutensornetSamplerConfigure` (sample seed), `cutensornetSamplerSample`, `cutensornetDestroySampler`, `cudaStreamSynchronize`, `cudaFree` (scratch)                                                                                                                                                         |
 | `fork`                                                                | `prepare`, then every logged operator applied again: cuTensorNet 2.13 offers no state copy among the loaded symbols, so a fork costs a new state and a recompute                                                                                                                                                                                                                                                                                                                                                                     |
 | `shape`                                                               | the compute, if needed; the extents `cutensornetStateCompute` reports                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `retained_weight`                                                     | the compute, if needed; one query, as a read's, of a product of identities, whose squared norm it returns unnormalized                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `close`, `Drop`                                                       | `cudaSetDevice`, `cudaStreamSynchronize`, the destroys, `cudaFree` of every retained buffer                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 Each compute is captured (`cutensornetStateCaptureMPS`): the computed MPS
@@ -172,8 +173,15 @@ unusable (`EngineError::Poisoned`); a failed query or sample frees its buffers
 and native objects and leaves the state usable. A conditional probability
 whose condition has weight at most 1e-12 of the state's norm is refused, since
 on a GPU an impossible condition comes back as rounding noise rather than
-zero. The engine's host tests run all of this against the test double; none
-of it has run on a GPU in this crate.
+zero. The engine pins `SvdNormalizationNone`, so a truncation discards weight
+and never rescales what it keeps: `retained_weight` is the squared norm of the
+computed state, the product of what each truncation kept, and every read
+divides by it. The SVD's absolute cutoff then applies to the unnormalized
+state, so it may cut deeper as the weight falls; the qualification's
+`projection_memory` records the weight to check that hypothesis against the
+A100's "nonpositive squared norm" at χ = 8. The engine's host tests run all
+of this against the test double, which truncates to the bonds asked for;
+none of it has run on a GPU in this crate.
 
 ## Runtime discovery
 
@@ -466,7 +474,9 @@ needs the feature `qualification`:
 
 - `conformance` and `conformance_without_capture` run
   `tensornet::conformance::check` on the engine with and without MPS capture,
-  and are the only tests that assert;
+  and are the only tests that assert; without capture, the retained weight is
+  reported but not held, since each compute truncates the whole history
+  again;
 - `environment` records the versions and libraries found;
 - `empty_compute`, `read_cost`, `fork_cost`, `free_after_compute`,
   `shape_and_tolerance`, `impossible_condition`, `rare_condition` and
@@ -482,7 +492,10 @@ needs the feature `qualification`:
   the step's last operator (unitary, one or two projections, a full-rank
   non-unitary, three reads first) and of the width, χ and truncation, to
   tell what the memory grows with; its slope in MiB per step is also scaled
-  to H₂'s 1,404 measurements, tagged `extrapolation=h2`.
+  to H₂'s 1,404 measurements, tagged `extrapolation=h2`. It also records the
+  retained weight at every mark, and the slope of its `log10` per step,
+  scaled to H₂ the same way: an estimate for a random circuit of H₂'s size,
+  likely pessimistic, not of H₂'s own circuit.
 
 `scripts/qualify-engine-on-a100.sh` runs them on an A100 host. It checks the
 host, the GPU, the libraries and their versions, the commit and the disk; it
@@ -491,7 +504,8 @@ nothing), then builds and runs at the given commit in a detached worktree next
 to the checkout, which it leaves untouched; and it writes the log, the rows, a
 summary (each test's result, `passed` or `failed` per conformance case with
 and without capture, the read cost, values and memory both ways, the forks of
-read states, then every measurement) and a tarball of them, also when a step
+read states, the memory and retained weight along H₂'s pattern, then every
+measurement) and a tarball of them, also when a step
 fails:
 
 ```bash

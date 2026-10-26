@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::reference::ReferenceError;
+use std::cell::Cell;
 
 #[test]
 fn the_reference_conforms_to_itself() {
@@ -36,9 +37,26 @@ enum Defect {
     IgnoresCondition,
     /// Samples the same values whatever the seed.
     IgnoresSeed,
+    /// Reports more weight than the state has.
+    OverstatesWeight,
+    /// Reports the weight right until its seventh read, the case's last,
+    /// then more: only the check that the weight never increases sees it.
+    RegainsWeight,
 }
 
-struct Defective(Defect);
+struct Defective {
+    defect: Defect,
+    weight_reads: Cell<u32>,
+}
+
+impl Defective {
+    fn new(defect: Defect) -> Self {
+        Self {
+            defect,
+            weight_reads: Cell::new(0),
+        }
+    }
+}
 
 impl MpsEngine for Defective {
     type State = ReferenceState;
@@ -54,7 +72,7 @@ impl MpsEngine for Defective {
         sites: &[usize],
         matrix: &[Complex64],
     ) -> Result<(), ReferenceError> {
-        if self.0 == Defect::SwapsSites && sites.len() == 2 {
+        if self.defect == Defect::SwapsSites && sites.len() == 2 {
             REFERENCE.apply(state, &[sites[1], sites[0]], matrix)
         } else {
             REFERENCE.apply(state, sites, matrix)
@@ -75,7 +93,7 @@ impl MpsEngine for Defective {
         site: usize,
         given: &[(usize, bool)],
     ) -> Result<f64, ReferenceError> {
-        if self.0 == Defect::IgnoresCondition {
+        if self.defect == Defect::IgnoresCondition {
             REFERENCE.probability_of_one(state, site)
         } else {
             REFERENCE.conditional_probability_of_one(state, site, given)
@@ -103,7 +121,7 @@ impl MpsEngine for Defective {
         shots: usize,
         seed: SampleSeed,
     ) -> Result<Vec<bool>, ReferenceError> {
-        let seed = match self.0 {
+        let seed = match self.defect {
             Defect::IgnoresSeed => SampleSeed::try_from(1).unwrap_or(seed),
             _ => seed,
         };
@@ -121,10 +139,22 @@ impl MpsEngine for Defective {
     fn shape(&self, state: &ReferenceState) -> Result<MpsShape, ReferenceError> {
         REFERENCE.shape(state)
     }
+
+    fn retained_weight(&self, state: &ReferenceState) -> Result<f64, ReferenceError> {
+        let reads = self.weight_reads.get() + 1;
+        self.weight_reads.set(reads);
+        let overstated = match self.defect {
+            Defect::OverstatesWeight => true,
+            Defect::RegainsWeight => reads >= 7,
+            _ => false,
+        };
+        let weight = REFERENCE.retained_weight(state)?;
+        Ok(if overstated { weight * 1.5 } else { weight })
+    }
 }
 
 fn failed_cases(defect: Defect) -> Vec<&'static str> {
-    check(&Defective(defect))
+    check(&Defective::new(defect))
         .into_iter()
         .map(|f| f.case)
         .collect()
@@ -139,4 +169,11 @@ fn the_checks_catch_a_defective_engine() {
         ["conditional", "refusals"]
     );
     assert_eq!(failed_cases(Defect::IgnoresSeed), ["sample"]);
+    assert_eq!(failed_cases(Defect::OverstatesWeight), ["retained weight"]);
+    let regained = check(&Defective::new(Defect::RegainsWeight));
+    assert!(
+        matches!(regained.as_slice(), [failure] if failure.case == "retained weight"
+            && failure.message.contains("rose")),
+        "{regained:?}"
+    );
 }

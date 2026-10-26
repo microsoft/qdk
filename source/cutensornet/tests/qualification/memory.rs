@@ -31,10 +31,25 @@
 //! slope, by least squares over the marks after step 0. Rows tagged
 //! `extrapolation=h2` scale the slope and the mean step to H₂'s 1,404
 //! measurements: estimates, not measurements.
+//!
+//! At every mark after step 0 it also records the state's
+//! [`retained_weight`](MpsEngine::retained_weight), read after the step's
+//! reads, so on a computed state: one more Query, outside the timed part
+//! and before the memory record before the ending, which with the record
+//! after it still brackets the ending alone. The weight is 1 until a
+//! compute truncates, and is expected to fall by a roughly constant factor
+//! per step once the bonds are at the cap; the least-squares slope of its
+//! `log10` per step, over the marks recorded before the variant ended or
+//! failed, is extrapolated to H₂ (an estimate, like the others). The log,
+//! because the weight of a long run may underflow. The steps' gates are a
+//! random brickwork ([`circuits::brickwork`]), which entangles about as fast
+//! as a circuit can, so that estimate is of a random circuit of H₂'s width,
+//! χ and gates per measurement, likely pessimistic, not of H₂'s own circuit,
+//! whose weight falls more slowly if it entangles less.
 
 use crate::circuits::{self, Operator, c};
 use crate::measure::{BATCH, H2_READS, UNLIKELY, quick};
-use crate::report::{Report, device_mib, or_unavailable};
+use crate::report::{Report, device_mib, or_unavailable, scientific};
 use num_complex::Complex64;
 use std::{
     error::Error,
@@ -141,9 +156,12 @@ pub fn projection_memory_of<E: MpsEngine>(
                 variant.name, variant.width, variant.chi
             )
         };
-        if let Err(error) = run(report, engine, variant, steps, &item) {
+        let mut weights = Vec::new();
+        if let Err(error) = run(report, engine, variant, steps, &item, &mut weights) {
             report.error(&item("run"), error);
         }
+        // Also after an error: the weight's trend before it may explain it.
+        weight_trend(report, &item, &weights);
         report.row(
             &item("device_mib_after_close"),
             or_unavailable(device_mib()),
@@ -158,6 +176,7 @@ fn run<E: MpsEngine>(
     variant: &Variant,
     steps: usize,
     item: &dyn Fn(&str) -> String,
+    weights: &mut Vec<(usize, f64)>,
 ) -> Result<(), Box<dyn Error>> {
     report.row(
         &item("device_mib_before_prepare"),
@@ -190,6 +209,11 @@ fn run<E: MpsEngine>(
         }
         let mut elapsed = start.elapsed();
         if marked {
+            // Before the memory record, so that the record and the next
+            // bracket the ending alone.
+            let weight = engine.retained_weight(&state)?;
+            report.row(&at("retained_weight"), scientific(weight), "");
+            weights.push((step, weight));
             report.row(
                 &at("device_mib_before_ending"),
                 or_unavailable(device_mib()),
@@ -240,6 +264,36 @@ fn run<E: MpsEngine>(
     }
     drop(state);
     Ok(())
+}
+
+/// The least-squares slope of `log10` of the retained weight per step, over
+/// the marks whose weight is positive, and its extrapolation to H₂.
+fn weight_trend(report: &mut Report, item: &dyn Fn(&str) -> String, weights: &[(usize, f64)]) {
+    let logs: Vec<(f64, f64)> = weights
+        .iter()
+        .filter(|(_, weight)| *weight > 0.0)
+        .map(|&(step, weight)| (float(step), weight.log10()))
+        .collect();
+    match slope(&logs) {
+        Some(slope) => {
+            report.row(
+                &item("log10_retained_weight_per_step"),
+                scientific(slope),
+                "",
+            );
+            report.row(
+                &item(&format!(
+                    "extrapolation=h2;measurements={H2_READS};log10_retained_weight"
+                )),
+                format!("{:.1}", slope * float(H2_READS)),
+                "",
+            );
+        }
+        None => report.note(
+            &item("log10_retained_weight_per_step"),
+            "fewer than two positive weights",
+        ),
+    }
 }
 
 /// Applies `ending` on `site`, whose P(One) is `p_one`. A projection takes

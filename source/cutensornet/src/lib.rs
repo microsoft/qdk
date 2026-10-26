@@ -108,6 +108,12 @@ impl Availability {
     /// from |0…0⟩ and every operator instead of from the last computed MPS.
     /// For the A100 qualification's measurement of what capture saves only.
     ///
+    /// Its retained weight is not the product of the steps' kept fractions:
+    /// each compute truncates the whole history again, after projections
+    /// whose probabilities were read on an earlier truncation, so a
+    /// projection may change the weight (the host tests show it does). Its
+    /// conformance is checked without the `retained weight` case.
+    ///
     /// # Errors
     ///
     /// As [`Self::mps_engine`].

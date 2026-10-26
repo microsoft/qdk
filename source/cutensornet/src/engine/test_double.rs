@@ -20,11 +20,18 @@
 //!   from the captured compute's output buffers, which must still be
 //!   allocated.
 //!
-//! An expectation returns the value and the squared norm both scaled by
-//! [`NORM_SCALE`], as a truncated MPS's are, so a read that skips the
-//! normalization is caught. It never truncates: a realized bond is the
-//! exact Schmidt rank, capped by the target's. A call can be made to fail
-//! with [`NativeDouble::fail`], to test cleanup.
+//! A compute truncates as an MPS of the target's bonds must: at each cut,
+//! left to right, whose Schmidt rank exceeds the target's bond, it projects
+//! the sites left of the cut on the eigenvectors of their reduced density
+//! matrix with the bond's largest eigenvalues, the best truncation of that
+//! cut, and does not renormalize, as cuTensorNet under
+//! `SvdNormalizationNone`. Its chain is then the truncated state's exact
+//! one. So a truncated state's squared norm is the weight its truncations
+//! kept, an expectation returns it beside the value, and a read that skips
+//! the normalization is caught. Its truncation need not be the one
+//! cuTensorNet's sweep finds when several cuts truncate at once; with one,
+//! as in `tensornet::conformance`, both are the best. A call can be made to
+//! fail with [`NativeDouble::fail`], to test cleanup.
 
 use super::{
     EngineError, OpaqueHandle, Stream,
@@ -47,9 +54,6 @@ use tensornet::{
     MpsEngine, MpsShape, SampleSeed,
     reference::{ExactReference, ReferenceState},
 };
-
-/// What an expectation's value and squared norm are both multiplied by.
-pub(super) const NORM_SCALE: f64 = 0.64;
 
 /// The bytes `workspace_memory_size` asks for.
 const WORKSPACE_BYTES: i64 = 1024;
@@ -297,6 +301,108 @@ impl Inner {
             .apply(state, sites, &matrix)
             .map_err(|error| failed(operation, &error.to_string()))
     }
+}
+
+/// Keeps the `bond` largest Schmidt values of `state` across the cut after
+/// site `cut`: projects sites `0..=cut` on the eigenvectors of their reduced
+/// density matrix `ρ[a][b] = Σ_c ψ(a + c·2^(cut+1))·conj(ψ(b + c·2^(cut+1)))`
+/// with the `bond` largest eigenvalues, without renormalizing.
+fn truncate(
+    state: &mut ReferenceState,
+    cut: usize,
+    bond: usize,
+) -> Result<(), tensornet::reference::ReferenceError> {
+    let left = 1_usize << (cut + 1);
+    let right = 1_usize << (state.sites() - cut - 1);
+    let mut density = vec![Complex64::new(0.0, 0.0); left * left];
+    for a in 0..left {
+        for b in 0..left {
+            density[a * left + b] = (0..right)
+                .map(|c| state.amplitude(a + c * left) * state.amplitude(b + c * left).conj())
+                .sum();
+        }
+    }
+    let (values, vectors) = hermitian_eigen(density, left);
+    let mut order: Vec<usize> = (0..left).collect();
+    order.sort_by(|&x, &y| values[y].total_cmp(&values[x]));
+    let kept = &order[..bond.min(left)];
+    let projector: Vec<Complex64> = (0..left * left)
+        .map(|at| {
+            let (a, b) = (at / left, at % left);
+            kept.iter()
+                .map(|&j| vectors[a * left + j] * vectors[b * left + j].conj())
+                .sum()
+        })
+        .collect();
+    // `apply` reads its first site as the most significant bit of the
+    // local index, so site `k` is bit `k` with the sites from `cut` down.
+    let sites: Vec<usize> = (0..=cut).rev().collect();
+    ExactReference.apply(state, &sites, &projector)
+}
+
+/// The eigenvalues of the Hermitian `order`×`order` row-major `matrix` and its
+/// eigenvectors, as the columns of a row-major matrix, by cyclic Jacobi
+/// rotations: each rotation zeroes one off-diagonal element, and sweeps
+/// repeat until the off-diagonal weight is rounding.
+fn hermitian_eigen(mut matrix: Vec<Complex64>, order: usize) -> (Vec<f64>, Vec<Complex64>) {
+    let zero = Complex64::new(0.0, 0.0);
+    let mut vectors: Vec<Complex64> = (0..order * order)
+        .map(|at| {
+            if at / order == at % order {
+                Complex64::new(1.0, 0.0)
+            } else {
+                zero
+            }
+        })
+        .collect();
+    let scale: f64 = matrix.iter().map(Complex64::norm_sqr).sum();
+    for _ in 0..64 {
+        let off: f64 = (0..order * order)
+            .filter(|at| at / order != at % order)
+            .map(|at| matrix[at].norm_sqr())
+            .sum();
+        if off <= 1e-30 * scale.max(f64::MIN_POSITIVE) {
+            break;
+        }
+        for p in 0..order {
+            for q in p + 1..order {
+                let element = matrix[p * order + q];
+                let magnitude = element.norm();
+                if magnitude == 0.0 {
+                    continue;
+                }
+                // G = diag(1, conj(phase)) · [[cos, sin], [−sin, cos]] on
+                // (p, q) makes the element real, then zeroes it (Numerical
+                // Recipes' rotation, ch. 11.1).
+                let phase = element / magnitude;
+                let tau = (matrix[q * order + q].re - matrix[p * order + p].re) / (2.0 * magnitude);
+                let tangent = tau.signum() / (tau.abs() + tau.mul_add(tau, 1.0).sqrt());
+                let cosine = 1.0 / tangent.mul_add(tangent, 1.0).sqrt();
+                let sine = tangent * cosine;
+                let (gpq, gqp, gqq) = (
+                    Complex64::new(sine, 0.0),
+                    -phase.conj() * sine,
+                    phase.conj() * cosine,
+                );
+                for k in 0..order {
+                    for m in [&mut matrix, &mut vectors] {
+                        let (kp, kq) = (m[k * order + p], m[k * order + q]);
+                        m[k * order + p] = kp * cosine + kq * gqp;
+                        m[k * order + q] = kp * gpq + kq * gqq;
+                    }
+                }
+                for k in 0..order {
+                    let (pk, qk) = (matrix[p * order + k], matrix[q * order + k]);
+                    matrix[p * order + k] = pk * cosine + qk * gqp.conj();
+                    matrix[q * order + k] = pk * gpq.conj() + qk * gqq.conj();
+                }
+            }
+        }
+    }
+    (
+        (0..order).map(|i| matrix[i * order + i].re).collect(),
+        vectors,
+    )
 }
 
 fn inner_product(bra: &ReferenceState, ket: &ReferenceState) -> Complex64 {
@@ -619,9 +725,18 @@ impl MpsExecutionApi for NativeDouble {
         for (sites, tensor) in &operators {
             inner.apply(&mut computed, sites, *tensor, OPERATION)?;
         }
-        let exact = ExactReference
-            .shape(&computed)
-            .map_err(|error| failed(OPERATION, &error.to_string()))?;
+        let exact_shape = |state: &ReferenceState| {
+            ExactReference
+                .shape(state)
+                .map_err(|error| failed(OPERATION, &error.to_string()))
+        };
+        for (cut, &bond) in bonds.iter().enumerate() {
+            if exact_shape(&computed)?.bond_dim(cut).unwrap_or(1) > bond {
+                truncate(&mut computed, cut, bond)
+                    .map_err(|error| failed(OPERATION, &error.to_string()))?;
+            }
+        }
+        let exact = exact_shape(&computed)?;
         let bond = |cut: usize| -> Result<i64, EngineError> {
             let realized = exact.bond_dim(cut).unwrap_or(1).min(bonds[cut]);
             i64::try_from(realized).map_err(|_| failed(OPERATION, "bond overflow"))
@@ -818,8 +933,7 @@ impl MpsExecutionApi for NativeDouble {
             }
             value += coefficient * inner_product(computed, &ket);
         }
-        let squared_norm = inner_product(computed, computed);
-        Ok((value * NORM_SCALE, squared_norm * NORM_SCALE))
+        Ok((value, inner_product(computed, computed)))
     }
 }
 

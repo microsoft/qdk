@@ -20,6 +20,7 @@
 //! terminal measurements, N shots, seed ──► sample(state, sites, N, seed)
 //! state query ⟨O⟩ ───────────────────────► expectation(state, O)
 //! cost, capacity check ──────────────────► shape(state) ─► MpsShape
+//! weight lost to truncation ─────────────► retained_weight(state) ─► ⟨ψ|ψ⟩
 //! ```
 //!
 //! Sites are qubits: an engine prepares one two-level site per qubit, and
@@ -147,6 +148,29 @@ pub trait MpsEngine {
     /// bond the engine uses at each cut (D22). The largest bond is the cost
     /// a method reports.
     fn shape(&self, state: &Self::State) -> Result<MpsShape, Self::Error>;
+
+    /// The weight the engine's truncations have kept: ⟨ψ|ψ⟩ of the state it
+    /// holds, without normalizing it. It is 1 after
+    /// [`prepare`](Self::prepare), the product of the fractions that each
+    /// truncation kept after that, and `1 −` it is the total weight
+    /// discarded. An engine that never truncates (the reference) keeps 1,
+    /// to rounding.
+    ///
+    /// It means that only because an engine does not renormalize after a
+    /// truncation, and because [`project`](Self::project) divides by the
+    /// square root of the normalized probability, which preserves the
+    /// norm: gates are unitary (as [`apply`](Self::apply) lets an engine
+    /// assume) and only truncations change it, so it never increases. The
+    /// other reads are of the normalized state: an engine that truncates
+    /// divides them by this weight.
+    ///
+    /// Read it next to [`shape`](Self::shape): a bond below the capacity's
+    /// kept everything at its cut, but a bond equal to it may or may not
+    /// have truncated; this weight says what the truncations cost in total.
+    /// Like the other reads, it applies the operators pending since the
+    /// last read first, so on an engine that truncates when it computes,
+    /// reading it may truncate.
+    fn retained_weight(&self, state: &Self::State) -> Result<f64, Self::Error>;
 }
 
 /// The seed of one [`MpsEngine::sample`] call: an integer in 1..=2³¹−1.
