@@ -43,7 +43,7 @@ fn instruction(instruction_name: &'static str, arguments: SmallVec<[Parameter; 3
     let mut profiler = lock_backend();
     let profiler = profiler.as_mut().unwrap_or_else(|| {
         abort_with_error(&format!(
-            "init() must be called before {instruction_name}()"
+            "qdk_init() must be called before qdk_{instruction_name}()"
         ))
     });
     let instruction = QuantumBackendInstruction {
@@ -51,7 +51,7 @@ fn instruction(instruction_name: &'static str, arguments: SmallVec<[Parameter; 3
         parameters: arguments,
     };
     if let Err(error) = profiler.as_backend_mut().execute_batch(&[instruction]) {
-        abort_with_error(&format!("{instruction_name} failed: {error}"));
+        abort_with_error(&format!("qdk_{instruction_name} failed: {error}"));
     }
 }
 
@@ -63,7 +63,7 @@ fn instruction_with_result(
     let mut profiler = lock_backend();
     let profiler = profiler.as_mut().unwrap_or_else(|| {
         abort_with_error(&format!(
-            "init() must be called before {instruction_name}()"
+            "qdk_init() must be called before qdk_{instruction_name}()"
         ))
     });
     let instruction = QuantumBackendInstruction {
@@ -73,10 +73,12 @@ fn instruction_with_result(
     let result = profiler
         .as_backend_mut()
         .execute_batch(&[instruction])
-        .unwrap_or_else(|error| abort_with_error(&format!("{instruction_name} failed: {error}")));
+        .unwrap_or_else(|error| {
+            abort_with_error(&format!("qdk_{instruction_name} failed: {error}"))
+        });
     if result.results.len() != 1 {
         abort_with_error(&format!(
-            "{instruction_name} must return exactly one result"
+            "qdk_{instruction_name} must return exactly one result"
         ));
     }
     match result.results[0] {
@@ -93,14 +95,16 @@ fn instruction_with_result(
 /// A non-null `backend` must point to a readable, NUL-terminated UTF-8 string
 /// that remains valid and unmodified for the duration of this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn init(backend: *const c_char) {
+pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
     if backend.is_null() {
-        abort_with_error("init() backend must not be null");
+        abort_with_error("qdk_init() backend must not be null");
     }
     // SAFETY: The caller guarantees a readable, NUL-terminated string.
     let backend = unsafe { CStr::from_ptr(backend) }
         .to_str()
-        .unwrap_or_else(|error| abort_with_error(&format!("init() backend is not UTF-8: {error}")));
+        .unwrap_or_else(|error| {
+            abort_with_error(&format!("qdk_init() backend is not UTF-8: {error}"))
+        });
     let mut stored_backend = lock_backend();
     *stored_backend = Some(match backend {
         "sparse_sim" => Backend::Simulator(Box::new(QuantumBackends::sparse_sim())),
@@ -109,13 +113,13 @@ pub unsafe extern "C" fn init(backend: *const c_char) {
                 .map(|id| (instruction_id_to_name(id).to_owned(), 0.0))
                 .collect();
             let profiler = SequentialCountingProfiler::new(1, timings).unwrap_or_else(|error| {
-                abort_with_error(&format!("init() counting_profiler failed: {error}"))
+                abort_with_error(&format!("qdk_init() counting_profiler failed: {error}"))
             });
             Backend::Profiler(Box::new(profiler))
         }
         "temporal_profiler" => Backend::Profiler(Box::new(TemporalProfiler::default())),
         _ => abort_with_error(&format!(
-            "init() unknown backend `{backend}`; expected sparse_sim, counting_profiler, or temporal_profiler"
+            "qdk_init() unknown backend `{backend}`; expected sparse_sim, counting_profiler, or temporal_profiler"
         )),
     });
 }
@@ -128,33 +132,33 @@ pub unsafe extern "C" fn init(backend: *const c_char) {
 /// A non-null `path` must point to a readable, NUL-terminated string that remains
 /// valid and unmodified for the duration of this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn save_profile(path: *const c_char) {
+pub unsafe extern "C" fn qdk_save_profile(path: *const c_char) {
     if path.is_null() {
-        abort_with_error("save_profile() path must not be null");
+        abort_with_error("qdk_save_profile() path must not be null");
     }
     // SAFETY: The caller guarantees a readable, NUL-terminated string.
     let path = unsafe { CStr::from_ptr(path) }
         .to_str()
         .unwrap_or_else(|error| {
-            abort_with_error(&format!("save_profile() path is not UTF-8: {error}"))
+            abort_with_error(&format!("qdk_save_profile() path is not UTF-8: {error}"))
         });
     let backend = lock_backend();
     let backend = backend
         .as_ref()
-        .unwrap_or_else(|| abort_with_error("init() must be called before save_profile()"));
+        .unwrap_or_else(|| abort_with_error("qdk_init() must be called before qdk_save_profile()"));
     let Backend::Profiler(profiler) = backend else {
-        eprintln!("qep_interop: save_profile() backend does not support profiling");
+        eprintln!("qep_interop: qdk_save_profile() backend does not support profiling");
         return;
     };
     let result = profiler.get_result();
     if let Err(error) = result.to_json(path) {
-        abort_with_error(&format!("save_profile() failed: {error}"));
+        abort_with_error(&format!("qdk_save_profile() failed: {error}"));
     }
 }
 
 /// Applies a doubly controlled X gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn ccx(control0: usize, control1: usize, target: usize) {
+pub extern "C" fn qdk_ccx(control0: usize, control1: usize, target: usize) {
     instruction(
         "ccx",
         smallvec![
@@ -167,7 +171,7 @@ pub extern "C" fn ccx(control0: usize, control1: usize, target: usize) {
 
 /// Applies a controlled X gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn cx(control: usize, target: usize) {
+pub extern "C" fn qdk_cx(control: usize, target: usize) {
     instruction(
         "cx",
         smallvec![Parameter::QubitId(control), Parameter::QubitId(target)],
@@ -176,7 +180,7 @@ pub extern "C" fn cx(control: usize, target: usize) {
 
 /// Applies a controlled Y gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn cy(control: usize, target: usize) {
+pub extern "C" fn qdk_cy(control: usize, target: usize) {
     instruction(
         "cy",
         smallvec![Parameter::QubitId(control), Parameter::QubitId(target)],
@@ -185,7 +189,7 @@ pub extern "C" fn cy(control: usize, target: usize) {
 
 /// Applies a controlled Z gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn cz(control: usize, target: usize) {
+pub extern "C" fn qdk_cz(control: usize, target: usize) {
     instruction(
         "cz",
         smallvec![Parameter::QubitId(control), Parameter::QubitId(target)],
@@ -194,7 +198,7 @@ pub extern "C" fn cz(control: usize, target: usize) {
 
 /// Rotates a qubit around the X axis by an angle in radians.
 #[unsafe(no_mangle)]
-pub extern "C" fn rx(qubit_id: usize, angle: f64) {
+pub extern "C" fn qdk_rx(qubit_id: usize, angle: f64) {
     instruction(
         "rx",
         smallvec![Parameter::QubitId(qubit_id), Parameter::Float(angle)],
@@ -203,7 +207,7 @@ pub extern "C" fn rx(qubit_id: usize, angle: f64) {
 
 /// Applies an XX rotation by an angle in radians.
 #[unsafe(no_mangle)]
-pub extern "C" fn rxx(qubit0: usize, qubit1: usize, angle: f64) {
+pub extern "C" fn qdk_rxx(qubit0: usize, qubit1: usize, angle: f64) {
     instruction(
         "rxx",
         smallvec![
@@ -216,7 +220,7 @@ pub extern "C" fn rxx(qubit0: usize, qubit1: usize, angle: f64) {
 
 /// Rotates a qubit around the Y axis by an angle in radians.
 #[unsafe(no_mangle)]
-pub extern "C" fn ry(qubit_id: usize, angle: f64) {
+pub extern "C" fn qdk_ry(qubit_id: usize, angle: f64) {
     instruction(
         "ry",
         smallvec![Parameter::QubitId(qubit_id), Parameter::Float(angle)],
@@ -225,7 +229,7 @@ pub extern "C" fn ry(qubit_id: usize, angle: f64) {
 
 /// Applies a YY rotation by an angle in radians.
 #[unsafe(no_mangle)]
-pub extern "C" fn ryy(qubit0: usize, qubit1: usize, angle: f64) {
+pub extern "C" fn qdk_ryy(qubit0: usize, qubit1: usize, angle: f64) {
     instruction(
         "ryy",
         smallvec![
@@ -238,7 +242,7 @@ pub extern "C" fn ryy(qubit0: usize, qubit1: usize, angle: f64) {
 
 /// Rotates a qubit around the Z axis by an angle in radians.
 #[unsafe(no_mangle)]
-pub extern "C" fn rz(qubit_id: usize, angle: f64) {
+pub extern "C" fn qdk_rz(qubit_id: usize, angle: f64) {
     instruction(
         "rz",
         smallvec![Parameter::QubitId(qubit_id), Parameter::Float(angle)],
@@ -247,7 +251,7 @@ pub extern "C" fn rz(qubit_id: usize, angle: f64) {
 
 /// Applies a ZZ rotation by an angle in radians.
 #[unsafe(no_mangle)]
-pub extern "C" fn rzz(qubit0: usize, qubit1: usize, angle: f64) {
+pub extern "C" fn qdk_rzz(qubit0: usize, qubit1: usize, angle: f64) {
     instruction(
         "rzz",
         smallvec![
@@ -260,61 +264,61 @@ pub extern "C" fn rzz(qubit0: usize, qubit1: usize, angle: f64) {
 
 /// Applies a Hadamard gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn h(qubit_id: usize) {
+pub extern "C" fn qdk_h(qubit_id: usize) {
     instruction("h", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies an S phase gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn s(qubit_id: usize) {
+pub extern "C" fn qdk_s(qubit_id: usize) {
     instruction("s", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies the adjoint of an S phase gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn sadj(qubit_id: usize) {
+pub extern "C" fn qdk_sadj(qubit_id: usize) {
     instruction("sadj", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a square-root X gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn sx(qubit_id: usize) {
+pub extern "C" fn qdk_sx(qubit_id: usize) {
     instruction("sx", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a T phase gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn t(qubit_id: usize) {
+pub extern "C" fn qdk_t(qubit_id: usize) {
     instruction("t", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies the adjoint of a T phase gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn tadj(qubit_id: usize) {
+pub extern "C" fn qdk_tadj(qubit_id: usize) {
     instruction("tadj", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies an X gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn x(qubit_id: usize) {
+pub extern "C" fn qdk_x(qubit_id: usize) {
     instruction("x", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a Y gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn y(qubit_id: usize) {
+pub extern "C" fn qdk_y(qubit_id: usize) {
     instruction("y", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Applies a Z gate.
 #[unsafe(no_mangle)]
-pub extern "C" fn z(qubit_id: usize) {
+pub extern "C" fn qdk_z(qubit_id: usize) {
     instruction("z", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Swaps two qubits.
 #[unsafe(no_mangle)]
-pub extern "C" fn swap(qubit0: usize, qubit1: usize) {
+pub extern "C" fn qdk_swap(qubit0: usize, qubit1: usize) {
     instruction(
         "swap",
         smallvec![Parameter::QubitId(qubit0), Parameter::QubitId(qubit1)],
@@ -323,13 +327,13 @@ pub extern "C" fn swap(qubit0: usize, qubit1: usize) {
 
 /// Resets a qubit to zero.
 #[unsafe(no_mangle)]
-pub extern "C" fn reset(qubit_id: usize) {
+pub extern "C" fn qdk_reset(qubit_id: usize) {
     instruction("reset", smallvec![Parameter::QubitId(qubit_id)]);
 }
 
 /// Measures a qubit in Z and stores the outcome in a result register.
 #[unsafe(no_mangle)]
-pub extern "C" fn mz_store(qubit_id: usize, result_id: usize) {
+pub extern "C" fn qdk_mz_store(qubit_id: usize, result_id: usize) {
     instruction(
         "mz_store",
         smallvec![Parameter::QubitId(qubit_id), Parameter::ResultId(result_id)],
@@ -338,7 +342,7 @@ pub extern "C" fn mz_store(qubit_id: usize, result_id: usize) {
 
 /// Measures a qubit in Z, stores the outcome, and resets the qubit.
 #[unsafe(no_mangle)]
-pub extern "C" fn mz_store_reset(qubit_id: usize, result_id: usize) {
+pub extern "C" fn qdk_mz_store_reset(qubit_id: usize, result_id: usize) {
     instruction(
         "mz_store_reset",
         smallvec![Parameter::QubitId(qubit_id), Parameter::ResultId(result_id)],
@@ -347,19 +351,19 @@ pub extern "C" fn mz_store_reset(qubit_id: usize, result_id: usize) {
 
 /// Reads a stored result as zero, one, or the backend error value two.
 #[unsafe(no_mangle)]
-pub extern "C" fn read_result(result_id: usize) -> usize {
+pub extern "C" fn qdk_read_result(result_id: usize) -> usize {
     instruction_with_result("read_result", smallvec![Parameter::ResultId(result_id)])
 }
 
 /// Measures a qubit in Z and returns zero, one, or the backend error value two.
 #[unsafe(no_mangle)]
-pub extern "C" fn mz(qubit_id: usize) -> usize {
+pub extern "C" fn qdk_mz(qubit_id: usize) -> usize {
     instruction_with_result("mz", smallvec![Parameter::QubitId(qubit_id)])
 }
 
 /// Measures a qubit in Z and resets it, returning zero, one, or the backend error value two.
 #[unsafe(no_mangle)]
-pub extern "C" fn mz_reset(qubit_id: usize) -> usize {
+pub extern "C" fn qdk_mz_reset(qubit_id: usize) -> usize {
     instruction_with_result("mz_reset", smallvec![Parameter::QubitId(qubit_id)])
 }
 
@@ -409,32 +413,32 @@ mod tests {
         *lock_backend() = Some(Backend::Simulator(Box::new(RecordingBackend {
             instructions: Arc::clone(&recorded),
         })));
-        ccx(1, 2, 3);
-        cx(1, 2);
-        cy(1, 2);
-        cz(1, 2);
-        rx(1, 0.25);
-        rxx(1, 2, 0.25);
-        ry(1, 0.25);
-        ryy(1, 2, 0.25);
-        rz(1, 0.25);
-        rzz(1, 2, 0.25);
-        h(1);
-        s(1);
-        sadj(1);
-        sx(1);
-        t(1);
-        tadj(1);
-        x(1);
-        y(1);
-        z(1);
-        swap(1, 2);
-        reset(1);
-        mz_store(1, 4);
-        mz_store_reset(1, 4);
-        assert_eq!(read_result(4), 0);
-        assert_eq!(mz(1), 1);
-        assert_eq!(mz_reset(1), 2);
+        qdk_ccx(1, 2, 3);
+        qdk_cx(1, 2);
+        qdk_cy(1, 2);
+        qdk_cz(1, 2);
+        qdk_rx(1, 0.25);
+        qdk_rxx(1, 2, 0.25);
+        qdk_ry(1, 0.25);
+        qdk_ryy(1, 2, 0.25);
+        qdk_rz(1, 0.25);
+        qdk_rzz(1, 2, 0.25);
+        qdk_h(1);
+        qdk_s(1);
+        qdk_sadj(1);
+        qdk_sx(1);
+        qdk_t(1);
+        qdk_tadj(1);
+        qdk_x(1);
+        qdk_y(1);
+        qdk_z(1);
+        qdk_swap(1, 2);
+        qdk_reset(1);
+        qdk_mz_store(1, 4);
+        qdk_mz_store_reset(1, 4);
+        assert_eq!(qdk_read_result(4), 0);
+        assert_eq!(qdk_mz(1), 1);
+        assert_eq!(qdk_mz_reset(1), 2);
 
         let expected = [
             ("ccx", smallvec![QubitId(1), QubitId(2), QubitId(3)]),
@@ -497,16 +501,16 @@ mod tests {
             c"sparse_sim",
         ] {
             // SAFETY: The backend name is a static, NUL-terminated string.
-            unsafe { init(backend.as_ptr()) };
+            unsafe { qdk_init(backend.as_ptr()) };
             if let Some(Backend::Profiler(profiler)) = lock_backend().as_ref() {
                 let result = profiler.get_result();
                 assert_eq!(result.totals.logical_qubits, 0);
                 assert!(result.totals.total_runtime_sec.abs() < f64::EPSILON);
             }
-            x(5);
-            let first = mz(5);
-            x(5);
-            let second = mz(5);
+            qdk_x(5);
+            let first = qdk_mz(5);
+            qdk_x(5);
+            let second = qdk_mz(5);
             assert!(first <= 1 && second <= 1);
 
             if backend == c"sparse_sim" {
@@ -514,16 +518,16 @@ mod tests {
                 assert!(matches!(*lock_backend(), Some(Backend::Simulator(_))));
                 fs::write(&path, "existing profile").expect("test file must be created");
                 // SAFETY: The CString remains valid for the duration of the call.
-                unsafe { save_profile(c_path.as_ptr()) };
+                unsafe { qdk_save_profile(c_path.as_ptr()) };
                 assert_eq!(
                     fs::read_to_string(&path).expect("existing file must remain readable"),
                     "existing profile"
                 );
                 fs::remove_file(&path).expect("test file must be removed");
                 // SAFETY: The CString remains valid for the duration of the call.
-                unsafe { save_profile(c_path.as_ptr()) };
+                unsafe { qdk_save_profile(c_path.as_ptr()) };
                 assert!(!path.exists(), "simulator must not create a profile");
-                x(5);
+                qdk_x(5);
             } else {
                 {
                     let stored = lock_backend();
@@ -551,7 +555,7 @@ mod tests {
                     }
                 }
                 // SAFETY: The CString remains valid for the duration of the call.
-                unsafe { save_profile(c_path.as_ptr()) };
+                unsafe { qdk_save_profile(c_path.as_ptr()) };
                 assert!(
                     fs::read_to_string(&path)
                         .expect("profiler must save JSON")

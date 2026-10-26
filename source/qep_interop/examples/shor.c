@@ -91,28 +91,28 @@ static void modular_add(const Circuit *circuit, int64_t modulus, int64_t constan
 static void modular_multiply(const Circuit *circuit, int64_t modulus, int64_t constant) {
     for (int i = 0; i < circuit->bits; ++i) {
         int64_t shifted = (constant << i) % modulus;
-        ccx(circuit->phase, (size_t)i, circuit->enable);
+        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
         modular_add(circuit, modulus, shifted);
-        ccx(circuit->phase, (size_t)i, circuit->enable);
+        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
     }
     for (int i = 0; i < circuit->bits; ++i) {
         size_t work = (size_t)(circuit->bits + i);
-        cx(work, (size_t)i);
-        ccx(circuit->phase, (size_t)i, work);
-        cx(work, (size_t)i);
+        qdk_cx(work, (size_t)i);
+        qdk_ccx(circuit->phase, (size_t)i, work);
+        qdk_cx(work, (size_t)i);
     }
     int64_t inverse = inverse_mod(constant, modulus);
     for (int i = 0; i < circuit->bits; ++i) {
         int64_t shifted = (inverse << i) % modulus;
-        ccx(circuit->phase, (size_t)i, circuit->enable);
+        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
         modular_add(circuit, modulus, modulus - shifted);
-        ccx(circuit->phase, (size_t)i, circuit->enable);
+        qdk_ccx(circuit->phase, (size_t)i, circuit->enable);
     }
 }
 
 /* Measures and resets a qubit, rejecting backend error outcomes. */
 static int64_t measure_reset(size_t qubit) {
-    size_t result = mz_reset(qubit);
+    size_t result = qdk_mz_reset(qubit);
     if (result > 1) fail("backend returned a measurement error");
     return (int64_t)result;
 }
@@ -129,17 +129,17 @@ static int64_t estimate_frequency(int64_t generator, int64_t modulus, int bits) 
     Circuit circuit = make_circuit(bits);
     int precision = 2 * bits + 1;
     int64_t frequency = 0;
-    x(0);
+    qdk_x(0);
     for (int index = precision - 1; index >= 0; --index) {
         int step = precision - 1 - index;
-        h(circuit.phase);
+        qdk_h(circuit.phase);
         modular_multiply(&circuit, modulus, power_mod(generator, INT64_C(1) << index, modulus));
         // R1Frac and Rz differ only by an irrelevant global phase here.
-        rz(circuit.phase, acos(-1.0) * (double)frequency / (double)(INT64_C(1) << step));
-        h(circuit.phase);
+        qdk_rz(circuit.phase, acos(-1.0) * (double)frequency / (double)(INT64_C(1) << step));
+        qdk_h(circuit.phase);
         if (measure_reset(circuit.phase) == 1) frequency |= INT64_C(1) << step;
     }
-    for (int i = 0; i < bits; ++i) reset((size_t)i);
+    for (int i = 0; i < bits; ++i) qdk_reset((size_t)i);
     printf("Estimated frequency=%" PRId64 "/%" PRId64 "\n", frequency, INT64_C(1) << precision);
     return frequency;
 }
@@ -210,9 +210,9 @@ static void self_test(void) {
             for (int64_t value = 0; value < modulus; ++value) {
                 for (int enabled = 0; enabled <= 1; ++enabled) {
                     for (int i = 0; i < bits; ++i) {
-                        if (((value >> i) & 1) != 0) x((size_t)(bits + i));
+                        if (((value >> i) & 1) != 0) qdk_x((size_t)(bits + i));
                     }
-                    if (enabled != 0) x(circuit.enable);
+                    if (enabled != 0) qdk_x(circuit.enable);
                     modular_add(&circuit, modulus, constant);
                     int64_t expected = enabled != 0 ? (value + constant) % modulus : value;
                     if (read_register((size_t)bits, bits) != expected) fail("modular addition failed");
@@ -221,9 +221,9 @@ static void self_test(void) {
 
                     if (gcd(constant, modulus) != 1) continue;
                     for (int i = 0; i < bits; ++i) {
-                        if (((value >> i) & 1) != 0) x((size_t)i);
+                        if (((value >> i) & 1) != 0) qdk_x((size_t)i);
                     }
-                    if (enabled != 0) x(circuit.phase);
+                    if (enabled != 0) qdk_x(circuit.phase);
                     modular_multiply(&circuit, modulus, constant);
                     expected = enabled != 0 ? value * constant % modulus : value;
                     if (read_register(0, bits) != expected) fail("modular multiplication failed");
@@ -232,19 +232,19 @@ static void self_test(void) {
                 }
             }
         }
-        x((size_t)bits);
-        h(circuit.enable);
+        qdk_x((size_t)bits);
+        qdk_h(circuit.enable);
         modular_add(&circuit, modulus, modulus - 1);
         modular_add(&circuit, modulus, 1);
-        h(circuit.enable);
+        qdk_h(circuit.enable);
         if (read_register((size_t)bits, bits) != 1) fail("coherent addition did not invert");
         check_clean(&circuit);
 
-        x(0);
-        h(circuit.phase);
+        qdk_x(0);
+        qdk_h(circuit.phase);
         modular_multiply(&circuit, modulus, modulus - 1);
         modular_multiply(&circuit, modulus, modulus - 1);
-        h(circuit.phase);
+        qdk_h(circuit.phase);
         if (read_register(0, bits) != 1) fail("coherent multiplication did not invert");
         check_clean(&circuit);
     }
@@ -256,7 +256,7 @@ static void self_test(void) {
 /* Runs the sample's default factorization or the reversible-arithmetic regression tests. */
 int main(int argc, char **argv) {
     if (argc > 2) fail("usage: shor [number | --self-test]");
-    init("sparse_sim");
+    qdk_init("sparse_sim");
     if (argc == 2 && strcmp(argv[1], "--self-test") == 0) {
         self_test();
         return EXIT_SUCCESS;

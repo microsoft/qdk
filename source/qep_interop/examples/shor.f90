@@ -20,7 +20,7 @@ program shor
     integer(int64) :: number, factor
 
     if (command_argument_count() > 1) call fail('usage: shor_fortran [number | --self-test]')
-    call init(c_char_"sparse_sim" // c_null_char)
+    call qdk_init(c_char_"sparse_sim" // c_null_char)
     number = 187_int64
     if (command_argument_count() == 1) then
         call get_command_argument(1, argument, status=status)
@@ -117,21 +117,21 @@ contains
         integer :: i
         select case (count)
         case (0)
-            call x(target)
+            call qdk_x(target)
         case (1)
-            call cx(controls(0), target)
+            call qdk_cx(controls(0), target)
         case (2)
-            call ccx(controls(0), controls(1), target)
+            call qdk_ccx(controls(0), controls(1), target)
         case default
-            call ccx(controls(0), controls(1), circuit%scratch)
+            call qdk_ccx(controls(0), controls(1), circuit%scratch)
             do i = 2, count - 2
-                call ccx(circuit%scratch + int(i - 2, c_size_t), controls(i), circuit%scratch + int(i - 1, c_size_t))
+                call qdk_ccx(circuit%scratch + int(i - 2, c_size_t), controls(i), circuit%scratch + int(i - 1, c_size_t))
             end do
-            call ccx(circuit%scratch + int(count - 3, c_size_t), controls(count - 1), target)
+            call qdk_ccx(circuit%scratch + int(count - 3, c_size_t), controls(count - 1), target)
             do i = count - 2, 2, -1
-                call ccx(circuit%scratch + int(i - 2, c_size_t), controls(i), circuit%scratch + int(i - 1, c_size_t))
+                call qdk_ccx(circuit%scratch + int(i - 2, c_size_t), controls(i), circuit%scratch + int(i - 1, c_size_t))
             end do
-            call ccx(controls(0), controls(1), circuit%scratch)
+            call qdk_ccx(controls(0), controls(1), circuit%scratch)
         end select
     end subroutine controlled_x
 
@@ -180,9 +180,9 @@ contains
         ! Toggle the carry iff the reduced work register is at least the added constant.
         work(circuit%bits) = circuit%compare
         call add_constant(circuit, -constant, work, circuit%bits + 1, no_control)
-        call x(circuit%compare)
-        call ccx(circuit%enable, circuit%compare, circuit%carry)
-        call x(circuit%compare)
+        call qdk_x(circuit%compare)
+        call qdk_ccx(circuit%enable, circuit%compare, circuit%carry)
+        call qdk_x(circuit%compare)
         call add_constant(circuit, constant, work, circuit%bits + 1, no_control)
     end subroutine modular_add
 
@@ -195,22 +195,22 @@ contains
         integer :: i
         do i = 0, circuit%bits - 1
             shifted = mod(shiftl(constant, i), modulus)
-            call ccx(circuit%phase, int(i, c_size_t), circuit%enable)
+            call qdk_ccx(circuit%phase, int(i, c_size_t), circuit%enable)
             call modular_add(circuit, modulus, shifted)
-            call ccx(circuit%phase, int(i, c_size_t), circuit%enable)
+            call qdk_ccx(circuit%phase, int(i, c_size_t), circuit%enable)
         end do
         do i = 0, circuit%bits - 1
             work = int(circuit%bits + i, c_size_t)
-            call cx(work, int(i, c_size_t))
-            call ccx(circuit%phase, int(i, c_size_t), work)
-            call cx(work, int(i, c_size_t))
+            call qdk_cx(work, int(i, c_size_t))
+            call qdk_ccx(circuit%phase, int(i, c_size_t), work)
+            call qdk_cx(work, int(i, c_size_t))
         end do
         inverse = inverse_mod(constant, modulus)
         do i = 0, circuit%bits - 1
             shifted = mod(shiftl(inverse, i), modulus)
-            call ccx(circuit%phase, int(i, c_size_t), circuit%enable)
+            call qdk_ccx(circuit%phase, int(i, c_size_t), circuit%enable)
             call modular_add(circuit, modulus, modulo(modulus - shifted, modulus))
-            call ccx(circuit%phase, int(i, c_size_t), circuit%enable)
+            call qdk_ccx(circuit%phase, int(i, c_size_t), circuit%enable)
         end do
     end subroutine modular_multiply
 
@@ -219,7 +219,7 @@ contains
         integer(c_size_t), intent(in) :: qubit
         integer(c_size_t) :: outcome
         integer(int64) :: value
-        outcome = mz_reset(qubit)
+        outcome = qdk_mz_reset(qubit)
         if (outcome < 0_c_size_t .or. outcome > 1_c_size_t) call fail('backend returned a measurement error')
         value = int(outcome, int64)
     end function measure_reset
@@ -247,20 +247,20 @@ contains
         circuit = make_circuit(bits)
         precision = 2 * bits + 1
         frequency = 0_int64
-        call x(0_c_size_t)
+        call qdk_x(0_c_size_t)
         do index = precision - 1, 0, -1
             step = precision - 1 - index
-            call h(circuit%phase)
+            call qdk_h(circuit%phase)
             constant = power_mod(generator, shiftl(1_int64, index), modulus)
             call modular_multiply(circuit, modulus, constant)
             ! R1Frac and Rz differ only by an irrelevant global phase here.
-            call rz(circuit%phase, acos(-1.0_c_double) * real(frequency, c_double) / real(shiftl(1_int64, step), c_double))
-            call h(circuit%phase)
+            call qdk_rz(circuit%phase, acos(-1.0_c_double) * real(frequency, c_double) / real(shiftl(1_int64, step), c_double))
+            call qdk_h(circuit%phase)
             outcome = measure_reset(circuit%phase)
             if (outcome == 1_int64) frequency = ibset(frequency, step)
         end do
         do index = 0, bits - 1
-            call reset(int(index, c_size_t))
+            call qdk_reset(int(index, c_size_t))
         end do
         print '(A, I0, A, I0)', 'Estimated frequency=', frequency, '/', shiftl(1_int64, precision)
     end function estimate_frequency
@@ -364,9 +364,9 @@ contains
                 do value = 0_int64, modulus - 1_int64
                     do enabled = 0, 1
                         do i = 0, bits - 1
-                            if (btest(value, i)) call x(int(bits + i, c_size_t))
+                            if (btest(value, i)) call qdk_x(int(bits + i, c_size_t))
                         end do
-                        if (enabled /= 0) call x(circuit%enable)
+                        if (enabled /= 0) call qdk_x(circuit%enable)
                         call modular_add(circuit, modulus, constant)
                         expected = value
                         if (enabled /= 0) expected = mod(value + constant, modulus)
@@ -376,9 +376,9 @@ contains
 
                         if (gcd(constant, modulus) /= 1_int64) cycle
                         do i = 0, bits - 1
-                            if (btest(value, i)) call x(int(i, c_size_t))
+                            if (btest(value, i)) call qdk_x(int(i, c_size_t))
                         end do
-                        if (enabled /= 0) call x(circuit%phase)
+                        if (enabled /= 0) call qdk_x(circuit%phase)
                         call modular_multiply(circuit, modulus, constant)
                         expected = value
                         if (enabled /= 0) expected = mod(value * constant, modulus)
@@ -390,19 +390,19 @@ contains
                     end do
                 end do
             end do
-            call x(int(bits, c_size_t))
-            call h(circuit%enable)
+            call qdk_x(int(bits, c_size_t))
+            call qdk_h(circuit%enable)
             call modular_add(circuit, modulus, modulus - 1_int64)
             call modular_add(circuit, modulus, 1_int64)
-            call h(circuit%enable)
+            call qdk_h(circuit%enable)
             if (read_register(int(bits, c_size_t), bits) /= 1_int64) call fail('coherent addition did not invert')
             call check_clean(circuit)
 
-            call x(0_c_size_t)
-            call h(circuit%phase)
+            call qdk_x(0_c_size_t)
+            call qdk_h(circuit%phase)
             call modular_multiply(circuit, modulus, modulus - 1_int64)
             call modular_multiply(circuit, modulus, modulus - 1_int64)
-            call h(circuit%phase)
+            call qdk_h(circuit%phase)
             if (read_register(0_c_size_t, bits) /= 1_int64) call fail('coherent multiplication did not invert')
             call check_clean(circuit)
         end do

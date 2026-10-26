@@ -4,13 +4,15 @@ This package provides interop between various programming languages and QDK.
 
 It allows you to write code that drives QuantumBackend by calling C-style functions.
 
+All exposed functions use the `qdk_` prefix (for example, `qdk_x` applies an X gate).
+
 Typical usage:
  * Write code for a quantum application in a language (e.g., C, C++, or Fortran)
    that calls the corresponding function exposed by the library for each quantum
    instruction (gate or measurement).
- * At the beginning of the code, call `init()` to instantiate a backend (which can
+ * At the beginning of the code, call `qdk_init()` to instantiate a backend (which can
    be a simulator or profiler).
- * When using a profiler, call `save_profile()` at the end to save the profile to a
+ * When using a profiler, call `qdk_save_profile()` at the end to save the profile to a
    JSON file (which will contain a resource estimate based on profiling).
  * Compile your code, statically linking it against the library provided by this package.
  * Execute the resulting binary.
@@ -19,7 +21,7 @@ At runtime, function calls will be turned into calls to the QuantumBackend inter
 
 See [qep_interop.h](include/qep_interop.h) for the full list of exposed functions.
 
-## Supported backends in init()
+## Supported backends in qdk_init()
 
 For now, we support only three backends, specified by name:
  * "sparse_sim" - a sparse simulator.
@@ -28,7 +30,7 @@ For now, we support only three backends, specified by name:
 
 Coming soon: profilers will load configuration from a file. Meanwhile, if you need
 to instantiate backend with custom parameters, define custom backend name (e.g. 
-"custom_profiler") and add implementation for it in `init()` in 
+"custom_profiler") and add implementation for it in `qdk_init()` in
 [src/lib.rs](src/lib.rs).
 
 
@@ -41,13 +43,13 @@ to instantiate backend with custom parameters, define custom backend name (e.g.
    `LLVM_SYS_201_PREFIX` to its installation directory.
 2. Include `qep_interop.h` in your source file. Add this package's `include`
    directory to your compiler's include path.
-3. Call `init(...)` before executing quantum instructions.
+3. Call `qdk_init(...)` before executing quantum instructions.
 4. Call the instruction functions directly. Qubit and result IDs use `size_t`;
-   rotation angles use `double` and are in radians. `mz()`, `mz_reset()`, and
-   `read_result()` return `size_t`: 0 for zero, 1 for one, or 2 for a
-   backend-reported error. `mz_store()` and `mz_store_reset()` store their
-   outcomes in a result ID for later access through `read_result()`.
-5. When using a profiler, call `save_profile("profile.json")` to save the
+   rotation angles use `double` and are in radians. `qdk_mz()`, `qdk_mz_reset()`, and
+   `qdk_read_result()` return `size_t`: 0 for zero, 1 for one, or 2 for a
+   backend-reported error. `qdk_mz_store()` and `qdk_mz_store_reset()` store their
+   outcomes in a result ID for later access through `qdk_read_result()`.
+5. When using a profiler, call `qdk_save_profile("profile.json")` to save the
    accumulated profile.
 6. Build the Rust static library with `cargo build --release -p qep_interop`,
    then compile and link your program with `target/release/libqep_interop.a`.
@@ -81,11 +83,11 @@ all functions in the C header. These interfaces use `bind(C)` and
    representable by `integer(c_size_t)`. The interfaces use `value` for numeric
    arguments to match the Rust C ABI; use kind-qualified literals such as
    `0_c_size_t` and `0.5_c_double`.
-4. Pass NUL-terminated UTF-8 strings to `init` and `save_profile`, for example
+4. Pass NUL-terminated UTF-8 strings to `qdk_init` and `qdk_save_profile`, for example
    `c_char_"sparse_sim" // c_null_char`. Fortran does not append the terminator
    automatically.
 5. Use `call` for instructions without results. Assign the return value of
-   `mz`, `mz_reset`, or `read_result` to an `integer(c_size_t)` variable.
+   `qdk_mz`, `qdk_mz_reset`, or `qdk_read_result` to an `integer(c_size_t)` variable.
    The result codes are the same as in C: 0, 1, or 2 for a backend error.
 6. From the repository root, build the Rust static library with
    `cargo build --release -p qep_interop`. This produces
@@ -102,9 +104,9 @@ program example
     include 'qep_interop.fi'
     integer(c_size_t) :: outcome
 
-    call init(c_char_"sparse_sim" // c_null_char)
-    call x(0_c_size_t)
-    outcome = mz(0_c_size_t)
+    call qdk_init(c_char_"sparse_sim" // c_null_char)
+    call qdk_x(0_c_size_t)
+    outcome = qdk_mz(0_c_size_t)
     print *, 'Measurement:', outcome
 end program example
 ```

@@ -25,24 +25,24 @@ static void validate_arguments(
 
 /* Applies X with the optional external control. */
 static void controlled_x(size_t control, size_t target) {
-    if (control == ARITHMETIC_NO_CONTROL) x(target);
-    else cx(control, target);
+    if (control == ARITHMETIC_NO_CONTROL) qdk_x(target);
+    else qdk_cx(control, target);
 }
 
 /* Applies CNOT with the optional external control. */
 static void controlled_cnot(size_t control, size_t source, size_t target) {
-    if (control == ARITHMETIC_NO_CONTROL) cx(source, target);
-    else ccx(control, source, target);
+    if (control == ARITHMETIC_NO_CONTROL) qdk_cx(source, target);
+    else qdk_ccx(control, source, target);
 }
 
 /* Ports ApplyOuterTTKAdder and its inverse; conjugation stays uncontrolled. */
 static void outer_ttk_adder(const size_t *xs, const size_t *ys, size_t count, bool adjoint) {
     if (!adjoint) {
-        for (size_t i = 1; i < count; ++i) cx(xs[i], ys[i]);
-        for (size_t i = count - 1; i > 1; --i) cx(xs[i - 1], xs[i]);
+        for (size_t i = 1; i < count; ++i) qdk_cx(xs[i], ys[i]);
+        for (size_t i = count - 1; i > 1; --i) qdk_cx(xs[i - 1], xs[i]);
     } else {
-        for (size_t i = 1; i + 1 < count; ++i) cx(xs[i], xs[i + 1]);
-        for (size_t i = count; i > 1; --i) cx(xs[i - 1], ys[i - 1]);
+        for (size_t i = 1; i + 1 < count; ++i) qdk_cx(xs[i], xs[i + 1]);
+        for (size_t i = count; i > 1; --i) qdk_cx(xs[i - 1], ys[i - 1]);
     }
 }
 
@@ -51,17 +51,17 @@ static void inner_ttk_adder(
     const size_t *xs, const size_t *ys, size_t count, size_t control, bool adjoint
 ) {
     if (!adjoint) {
-        for (size_t i = 0; i + 1 < count; ++i) ccx(xs[i], ys[i], xs[i + 1]);
+        for (size_t i = 0; i + 1 < count; ++i) qdk_ccx(xs[i], ys[i], xs[i + 1]);
         for (size_t i = count - 1; i > 0; --i) {
             controlled_cnot(control, xs[i], ys[i]);
-            ccx(xs[i - 1], ys[i - 1], xs[i]);
+            qdk_ccx(xs[i - 1], ys[i - 1], xs[i]);
         }
     } else {
         for (size_t i = 1; i < count; ++i) {
-            ccx(xs[i - 1], ys[i - 1], xs[i]);
+            qdk_ccx(xs[i - 1], ys[i - 1], xs[i]);
             controlled_cnot(control, xs[i], ys[i]);
         }
-        for (size_t i = count - 1; i > 0; --i) ccx(xs[i - 1], ys[i - 1], xs[i]);
+        for (size_t i = count - 1; i > 0; --i) qdk_ccx(xs[i - 1], ys[i - 1], xs[i]);
     }
 }
 
@@ -97,36 +97,36 @@ void inc_by_i(
     size_t xs[ARITHMETIC_MAX_BITS] = {0};
     for (size_t i = 0; i < count; ++i) {
         xs[i] = workspace + i;
-        if (((normalized >> i) & 1) != 0) x(xs[i]);
+        if (((normalized >> i) & 1) != 0) qdk_x(xs[i]);
     }
     ripple_carry_ttk_inc_by_le(xs, targets + trailing_zeros, count, control, adjoint);
     // ApplyXorInPlace is adjoint self, including the ascending gate order.
     for (size_t i = 0; i < count; ++i) {
-        if (((normalized >> i) & 1) != 0) x(xs[i]);
+        if (((normalized >> i) & 1) != 0) qdk_x(xs[i]);
     }
 }
 
 /* Ports the adaptive Adjoint AND, including its measurement correction. */
 static void uncompute_and(size_t a, size_t b, size_t target) {
-    h(target);
-    size_t result = mz_reset(target);
+    qdk_h(target);
+    size_t result = qdk_mz_reset(target);
     if (result > 1) fail("backend returned a measurement error");
-    if (result == 1) cz(a, b);
+    if (result == 1) qdk_cz(a, b);
 }
 
 /* Ports AND or ApplyOrAssuming0Target and its adjoint on a clean target. */
 static void comparison_step(size_t a, size_t b, size_t target, bool is_and, bool adjoint) {
     if (!is_and) {
-        x(a);
-        x(b);
+        qdk_x(a);
+        qdk_x(b);
     }
-    if (adjoint && !is_and) x(target);
+    if (adjoint && !is_and) qdk_x(target);
     if (adjoint) uncompute_and(a, b, target);
-    else ccx(a, b, target);
-    if (!adjoint && !is_and) x(target);
+    else qdk_ccx(a, b, target);
+    if (!adjoint && !is_and) qdk_x(target);
     if (!is_and) {
-        x(b);
-        x(a);
+        qdk_x(b);
+        qdk_x(a);
     }
 }
 
