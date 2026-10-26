@@ -9,8 +9,10 @@
 //!   [`Availability::mps_engine`](qdk_cutensornet::Availability::mps_engine)
 //!   creates, and fails listing every [`Failure`](tensornet::conformance::Failure);
 //!   `conformance_without_capture` does the same without capture, except
-//!   for the retained weight, which it reports but is not held to. They are
-//!   the only tests that assert.
+//!   for the retained weight, which it reports but is not held to;
+//!   `conformance_with_restart` does it on an engine that restarts its native
+//!   state from the computed MPS at every opportunity. They are the only
+//!   tests that assert.
 //! - The others measure, and print what they measured as CSV rows (see
 //!   `report`): an engine error is a row, and the sweep goes on. They fail
 //!   only when no engine can be created. `environment` records the versions
@@ -22,7 +24,8 @@
 //!   memory (E17); `shape_and_tolerance` compares realized shapes and
 //!   values with the reference's; `impossible_condition` and
 //!   `rare_condition` place the threshold under which a conditional is
-//!   refused (E16).
+//!   refused (E16); `history_growth` profiles what grows with a shot's
+//!   history, on engine variants with the minimum workspace or a restart.
 //!
 //! Every test needs CUDA runtime 12.9 and cuTensorNet 2.13, found as
 //! [`discover`] finds them, and an NVIDIA GPU, so every test is ignored. Run
@@ -43,13 +46,15 @@
 #![cfg(all(target_os = "linux", target_arch = "x86_64"))]
 
 mod circuits;
+mod history;
 mod measure;
 mod memory;
 mod report;
 
 use measure::{Measured, quick};
-use qdk_cutensornet::{CuTensorNetEngine, EngineError, discover};
+use qdk_cutensornet::{CuTensorNetEngine, EngineError, EngineVariant, discover};
 use report::{Report, device_mib, milliseconds, or_unavailable, timed};
+use std::num::NonZeroUsize;
 use tensornet::conformance::check;
 
 /// The cases of [`check`], in its order: it reports failures, not the cases
@@ -162,6 +167,22 @@ fn conformance_without_capture() {
     );
 }
 
+/// Conformance of the engine restarting its native state from the computed
+/// MPS before every operator after a compute: the restart's
+/// `cutensornetStateInitializeMPS`, on the real library.
+#[test]
+#[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
+fn conformance_with_restart() {
+    let availability = discover().unwrap_or_else(|error| panic!("no cuTensorNet: {error}"));
+    let engine = availability
+        .mps_engine_variant(EngineVariant {
+            restart_period: NonZeroUsize::new(1),
+            ..EngineVariant::default()
+        })
+        .unwrap_or_else(|error| panic!("no engine on CUDA device 0: {error}"));
+    conform("conformance_with_restart", engine, &[]);
+}
+
 /// Runs [`check`] on `engine`, prints a `case=<name>;passed` row for each
 /// case, and fails listing every failure outside `not_held`.
 fn conform(name: &'static str, engine: CuTensorNetEngine, not_held: &[&str]) {
@@ -271,4 +292,15 @@ fn rare_condition() {
 #[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
 fn projection_memory() {
     measure("projection_memory", memory::projection_memory);
+}
+
+/// What grows with a shot's history along H₂'s pattern, call by call, and
+/// whether the minimum workspace or a restart of the native state from its
+/// computed MPS every 10 or 50 steps stops it (`history`).
+#[test]
+#[ignore = "needs an NVIDIA GPU, CUDA runtime 12.9 and cuTensorNet 2.13"]
+fn history_growth() {
+    let mut report = Report::new("history_growth");
+    history::history_growth(&mut report);
+    report.finish();
 }

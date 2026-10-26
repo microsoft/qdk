@@ -299,7 +299,7 @@ fn weight_trend(report: &mut Report, item: &dyn Fn(&str) -> String, weights: &[(
 /// Applies `ending` on `site`, whose P(One) is `p_one`. A projection takes
 /// the value `step`'s parity prefers, or the other if that one has
 /// probability below [`UNLIKELY`].
-fn end<E: MpsEngine>(
+pub fn end<E: MpsEngine>(
     engine: &E,
     state: &mut E::State,
     ending: Ending,
@@ -351,6 +351,6 @@ fn slope(points: &[(f64, f64)]) -> Option<f64> {
     Some(sxy / sxx)
 }
 
-fn float(count: usize) -> f64 {
+pub fn float(count: usize) -> f64 {
     f64::from(u32::try_from(count).unwrap_or(u32::MAX))
 }

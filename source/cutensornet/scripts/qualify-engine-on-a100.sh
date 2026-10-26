@@ -4,9 +4,10 @@
 # A100, with their rows collected and summarized.
 #
 # What it runs (tests/qualification/main.rs has the details):
-#   conformance, conformance_without_capture
+#   conformance, conformance_without_capture, conformance_with_restart
 #                 tensornet::conformance::check on the engine, with and
-#                 without MPS capture; the only tests that assert
+#                 without MPS capture, and restarting its native state from
+#                 the computed MPS; the only tests that assert
 #   environment   the versions and libraries found
 #   empty_compute, read_cost, fork_cost, free_after_compute,
 #   shape_and_tolerance, impossible_condition, rare_condition,
@@ -16,6 +17,11 @@
 #                 projection_memory records the device memory along H2's
 #                 pattern, step after step, with variants of the measurement,
 #                 and the retained weight <psi|psi> the truncations left
+#   history_growth
+#                 H2's pattern for 300 steps on four engine variants (current,
+#                 minimum workspace, restart every 10 and every 50 computes):
+#                 the workspace sizes, device memory, allocations and the time
+#                 per kind of call, every 10 steps, and their slopes
 #
 # Usage, on the A100 VM:
 #   qualify-engine-on-a100.sh [--check | --quick] [--only TESTS] COMMIT [REPO]
@@ -68,8 +74,9 @@ readonly CRATE=source/cutensornet
 readonly BRANCH="${QDK_ENGINE_BRANCH:-domingom/tensor-network-engine}"
 readonly CUTENSORNET_PINNED=/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2
 readonly CUDART_PINNED=/usr/local/cuda-12.9/targets/x86_64-linux/lib/libcudart.so.12
-readonly TESTS="environment conformance conformance_without_capture empty_compute read_cost fork_cost \
-free_after_compute shape_and_tolerance impossible_condition rare_condition projection_memory"
+readonly TESTS="environment conformance conformance_without_capture conformance_with_restart empty_compute \
+read_cost fork_cost free_after_compute shape_and_tolerance impossible_condition rare_condition \
+projection_memory history_growth"
 
 usage() { printf 'usage: %s [--check | --quick] [--only TESTS] COMMIT [REPO]\n' "$0" >&2; exit 2; }
 
@@ -406,13 +413,15 @@ for test in tests:
         bad.append(f"test {test}: {verdict}")
     print(f"  {test:32} {verdict}")
 
-conformance = [case for case in ("conformance", "conformance_without_capture") if case in tests]
+conformance = [case for case in ("conformance", "conformance_without_capture", "conformance_with_restart")
+               if case in tests]
 if conformance:
     print("\n=== conformance (passed / failed per case)")
 for case in conformance:
     cells = [(r[1][len("case="):-len(";passed")], r[2]) for r in rows
              if r[0] == case and r[1].startswith("case=") and r[1].endswith(";passed")]
-    label = "capture=on " if case == "conformance" else "capture=off"
+    label = {"conformance": "capture=on ", "conformance_without_capture": "capture=off",
+             "conformance_with_restart": "restart=1  "}[case]
     if not cells:
         bad.append(f"{case}: no case rows")
         print(f"  {label}  no rows")
@@ -547,12 +556,76 @@ if "projection_memory" in tests:
               f"{run.get('h2_seconds_per_shot', '-'):>8} s/shot "
               f"{run.get('h2_log10_retained_weight', '-'):>8} log10 w")
 
-print("\n=== measurements (every row but projection_memory's; rows.csv has them as CSV)")
+if "history_growth" in tests:
+    print("\n=== history_growth: H2's pattern on engine variants, every 10 steps (per-step means since the last mark)")
+    hist = {}
+    for r in rows:
+        if r[0] != "history_growth":
+            continue
+        fields = dict(f.split("=", 1) for f in r[1].split(";") if "=" in f)
+        metric = r[1].rsplit(";", 1)[-1]
+        if "variant" not in fields:
+            continue
+        run = hist.setdefault(fields["variant"], {"marks": defaultdict(dict), "slopes": {}, "other": {}})
+        if r[1].split(";")[1:2] == ["slope"]:
+            run["slopes"][metric] = r[2]
+        elif "extrapolation" in fields:
+            run["other"]["h2_" + metric] = r[2]
+        elif "step" in fields:
+            run["marks"][int(fields["step"])][metric] = r[2]
+        else:
+            run["other"][metric] = r[2]
+    def mib(value):
+        try:
+            return f"{int(value) / 1048576:.0f}"
+        except ValueError:
+            return value
+    kinds = ["apply", "prepare", "workspace_query", "allocate", "compute", "capture", "free", "reads",
+             "restart", "unprofiled"]
+    short = ["apply", "prep", "wsq", "alloc", "comp", "capt", "free", "reads", "rstrt", "other"]
+    for variant, run in hist.items():
+        print(f"\n  variant={variant}  (ms per step by kind of call; workspace in MiB)")
+        print(f"  {'step':>5} {'ms':>8} " + " ".join(f"{s:>7}" for s in short)
+              + f" {'min_ws':>7} {'rec_ws':>7} {'dev_MiB':>7} {'live':>6} {'ops':>5} {'rst':>4}")
+        for step, m in sorted(run["marks"].items()):
+            if step == 0:
+                continue
+            print(f"  {step:>5} {m.get('ms_per_step', '-'):>8} "
+                  + " ".join(f"{m.get(k + '_ms', '-'):>7}" for k in kinds)
+                  + f" {mib(m.get('minimum_workspace_bytes', '-')):>7} {mib(m.get('recommended_workspace_bytes', '-')):>7}"
+                  + f" {m.get('device_mib', '-'):>7} {m.get('live_allocations', '-'):>6}"
+                  + f" {m.get('operator_tensors', '-'):>5} {m.get('restarts', '-'):>4}")
+    print("\n  slopes per step (least squares over the marks) and peaks")
+    print(f"  {'variant':18} {'dev MiB':>8} {'rec MiB':>8} {'min MiB':>8} {'ms':>8} {'comp ms':>8} "
+          f"{'prep ms':>8} {'other ms':>8} {'peak rec':>9} {'ms/step':>8} {'closed':>7} {'run':>5}")
+    for variant, run in hist.items():
+        sl, o = run["slopes"], run["other"]
+        print(f"  {variant:18} {sl.get('device_mib', '-'):>8} {sl.get('recommended_workspace', '-'):>8} "
+              f"{sl.get('minimum_workspace', '-'):>8} {sl.get('ms_per_step', '-'):>8} {sl.get('compute', '-'):>8} "
+              f"{sl.get('prepare', '-'):>8} {sl.get('unprofiled', '-'):>8} "
+              f"{o.get('peak_recommended_workspace_mib', '-'):>9} {o.get('ms_per_step', '-'):>8} "
+              f"{o.get('device_mib_after_close', '-'):>7} {o.get('run', 'ok'):>5}")
+    base = hist.get("current", {}).get("marks", {})
+    print("\n  P(One) at the marks: the largest difference from variant=current (a restart should change none)")
+    for variant, run in hist.items():
+        if variant == "current":
+            continue
+        diffs = [abs(float(m["p_one"]) - float(base[s]["p_one"])) for s, m in run["marks"].items()
+                 if "p_one" in m and "p_one" in base.get(s, {})]
+        print(f"  {variant:18} {max(diffs):.3e} over {len(diffs)} marks" if diffs else f"  {variant:18} -")
+    print("\n  EXTRAPOLATION to H2's 1,404 measurements of the fitted lines, an estimate, not a measurement:")
+    for variant, run in hist.items():
+        o = run["other"]
+        print(f"  {variant:18} {o.get('h2_seconds_per_shot', '-'):>8} s/shot "
+              f"{o.get('h2_recommended_workspace_mib', '-'):>8} MiB recommended workspace at the end")
+
+print("\n=== measurements (every row but projection_memory's and history_growth's; rows.csv has them as CSV)")
 errors = {}
 for r in rows:
     if r[1] == "errors":
         errors[r[0]] = r[2]
-    elif r[0] not in ("environment", "conformance", "conformance_without_capture", "read_cost", "projection_memory"):
+    elif r[0] not in ("environment", "conformance", "conformance_without_capture", "conformance_with_restart",
+                      "read_cost", "projection_memory", "history_growth"):
         print(f"  {r[0]},{r[1]},{r[2]},{r[3] if len(r) > 3 else ''}")
 for note in notes:
     if not note.startswith("# conformance"):
