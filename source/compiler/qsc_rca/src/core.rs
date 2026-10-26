@@ -150,10 +150,30 @@ impl<'a> Analyzer<'a> {
         &mut self,
         assignee_expr_id: ExprId,
         value_expr_id: ExprId,
+        short_circuit: bool,
     ) -> ComputeKind {
         // Visit the assignee and value expressions to determine their compute kind.
         self.visit_expr(assignee_expr_id);
+        let within_dynamic_scope = short_circuit
+            && self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+                .is_variable_value_kind();
+        if within_dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(assignee_expr_id);
+        }
         self.visit_expr(value_expr_id);
+        if within_dynamic_scope {
+            let dynamic_scope_expr = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("at least one dynamic scope should exist");
+            assert_eq!(dynamic_scope_expr, assignee_expr_id);
+        }
 
         // Since this is an assignment, update the local variables on the assignee expression with the compute kind of
         // the value expression.
@@ -259,6 +279,16 @@ impl<'a> Analyzer<'a> {
             .last_analyzed_compute_kind
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
+
+        // If the LHS expression is dynamic and this is a short-circuit binary operator, we push a new dynamic scope.
+        let within_dynamic_scope = (bin_op == BinOp::AndL || bin_op == BinOp::OrL)
+            && lhs_compute_kind.is_variable_value_kind();
+        if within_dynamic_scope {
+            self.get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .push(lhs_expr_id);
+        }
+
         self.visit_expr(rhs_expr_id);
         let rhs_compute_kind = self
             .last_analyzed_compute_kind
@@ -316,6 +346,15 @@ impl<'a> Analyzer<'a> {
                 // this runtime feature.
                 *runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
             }
+        }
+
+        if within_dynamic_scope {
+            let dynamic_scope_expr = self
+                .get_current_application_instance_mut()
+                .active_dynamic_scopes
+                .pop()
+                .expect("at least one dynamic scope should exist");
+            assert_eq!(dynamic_scope_expr, lhs_expr_id);
         }
 
         compute_kind
@@ -2159,10 +2198,13 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::ArrayRepeat(value_expr_id, size_expr_id) => {
                 self.analyze_expr_array_repeat(*value_expr_id, *size_expr_id)
             }
+            ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, assignee_expr_id, value_expr_id) => {
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, true)
+            }
             ExprKind::Assign(assignee_expr_id, value_expr_id)
             | ExprKind::AssignField(assignee_expr_id, _, value_expr_id)
             | ExprKind::AssignOp(_, assignee_expr_id, value_expr_id) => {
-                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id)
+                self.analyze_expr_assign(*assignee_expr_id, *value_expr_id, false)
             }
             ExprKind::AssignIndex(array_expr_id, index_expr_id, replacement_value_expr_id) => self
                 .analyze_expr_assign_index(

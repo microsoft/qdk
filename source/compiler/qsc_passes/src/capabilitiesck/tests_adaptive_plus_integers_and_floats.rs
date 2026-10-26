@@ -226,45 +226,21 @@ fn use_of_dynamic_udt_yields_errors() {
 }
 
 #[test]
-fn use_of_dynamic_function_yields_errors() {
+fn unused_dynamic_function_ignored() {
     check_profile(
         USE_DYNAMIC_FUNCTION,
         &expect![[r#"
-            [
-                UseOfDynamicArrowFunction(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 132,
-                            hi: 156,
-                        },
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
 
 #[test]
-fn use_of_dynamic_operation_yields_errors() {
+fn unused_dynamic_operation_ignored() {
     check_profile(
         USE_DYNAMIC_OPERATION,
         &expect![[r#"
-            [
-                UseOfDynamicArrowOperation(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 132,
-                            hi: 152,
-                        },
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
@@ -315,28 +291,6 @@ fn call_to_dynamic_function_yields_errors() {
         CALL_DYNAMIC_FUNCTION,
         &expect![[r#"
             [
-                UseOfDynamicArrowFunction(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 132,
-                            hi: 156,
-                        },
-                    },
-                ),
-                UseOfDynamicArrowFunction(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 170,
-                            hi: 178,
-                        },
-                    },
-                ),
                 CallToDynamicCallee(
                     PackageSpan {
                         package: PackageId(
@@ -359,28 +313,6 @@ fn call_to_dynamic_operation_yields_errors() {
         CALL_DYNAMIC_OPERATION,
         &expect![[r#"
             [
-                UseOfDynamicArrowOperation(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 132,
-                            hi: 152,
-                        },
-                    },
-                ),
-                UseOfDynamicArrowOperation(
-                    PackageSpan {
-                        package: PackageId(
-                            3,
-                        ),
-                        span: Span {
-                            lo: 166,
-                            hi: 171,
-                        },
-                    },
-                ),
                 CallToDynamicCallee(
                     PackageSpan {
                         package: PackageId(
