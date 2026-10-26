@@ -109,6 +109,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ $# -ge 1 && $# -le 2 ]] || usage
+# Before anything else: a shell that has not loaded rustup's environment
+# has no cargo.
+command -v cargo >/dev/null 2>&1 \
+    || { printf 'FAIL: cargo is not on PATH; load rustup'"'"'s environment first: . "$HOME/.cargo/env"\n' >&2; exit 1; }
 # The tests to run: every one, or --only's, in its order.
 selected="$TESTS"
 if [[ -n "$only" ]]; then
