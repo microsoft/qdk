@@ -21,6 +21,8 @@
 //!                                        shot, an L3 executor of the region ISA
 //! fusion.rs                              GateFusion: a region's gates as the
 //!                                        engine's operators (unfused, or pairs)
+//! readout.rs                             ReadoutDistribution: the exact distribution
+//!                                        of each run of consecutive measurements
 //! lowering.rs                            region gates to matrices (③'s tables)
 //! capacity.rs                            the capacity for a qubit count and a bond cap
 //! ```
@@ -36,6 +38,7 @@ mod fusion;
 mod lowering;
 mod program;
 mod queries;
+mod readout;
 mod stack;
 mod terminal;
 
@@ -47,5 +50,6 @@ pub use capacity::mps_capacity;
 pub use fusion::{GateFusion, SiteOperator};
 pub use program::ProgramError;
 pub use queries::{Evaluate, MpsCost, QueryError, StateQuery, StateQueryValue};
+pub use readout::{MAX_RUN, MeasurementRun, ReadoutDistribution, SMALLEST_CONDITION};
 pub use stack::{DEFAULT_MAX_BOND, MpsStack, StackError};
 pub use terminal::{TensorNetReport, TensorNetShots, TensorNetTerminal};

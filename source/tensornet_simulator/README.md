@@ -40,7 +40,25 @@ applies, by its `GateFusion`:
   A single-qubit gate joins the block of its qubit's next or previous
   two-qubit gate, and consecutive gates on one pair make one 4×4.
 
-Fusion is exact, and no block crosses a measurement or a reset. On H₂ it
+Fusion is exact, and no block crosses a measurement or a reset.
+
+## The readout distribution
+
+`with_readout_distribution(ReadoutDistribution::Exact)` (on `MpsStack` or
+`TensorNetShots`; `Off` by default) makes the per-shot terminal read, for
+each run of consecutive measurements on distinct qubits with no gate
+between them, the exact joint distribution of the run's values given the
+shot's history: 2^k − 1 conditional probabilities of one
+(`MpsEngine::conditional_probability_of_one`) on the state before the run,
+which also give the values it draws, from the same random numbers. The
+projections are deferred to the end of the run (a gate, a reset, a second
+measurement of a qubit, `MAX_RUN` = 10 measurements, `close`), because the
+walk sends each measurement in its own batch. The values, ln p and the
+records are those of `Off` (to rounding); `TensorNetTerminal::measurement_runs`
+gives each run's tags, qubits, values, P(One)s and distribution. Averaged
+over shots, the distributions estimate the readout's distribution with less
+variance than counting rows; for H₂, whose shots all reach the same state
+before the readout, one shot gives it. On H₂ it
 gives 4.5× fewer operators (87,598 for 392,338 gates). On the A100, H₂'s
 first 100 measurements take 131 s in pairs and 176 s unfused: the time goes
 to the two-qubit gates, which fusion keeps, so `Pairs` is the default for
@@ -51,33 +69,35 @@ a 1.34× gain (see `src/fusion.rs`). The batch strategy and the state queries st
 Each use below is backed by the test named next to it (the paths are under
 `src/tests/`).
 
-| Type or function                                            | Use                                                                                                                                    | Test                                                                                                               |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `MpsStack::sample`                                          | M0's `run_mps_shots`: N shots of a Base program for a seed. The same program, χ and seed give M0's sample.                             | `parity.rs`: `the_stack_samples_what_m0_sampled`, `the_same_seed_gives_the_same_shots_and_another_seed_others`     |
-| `MpsStack::evaluate` (`Evaluate`)                           | M0's `evaluate_state_queries`: ⟨Σ⟩ and the chain's cost on ψ, after M0's preflight.                                                    | `queries.rs`: `mps14_mps19_…`, `mps15_…`, `mps16_…`, `mps17_…`; `programs.rs`: `state_queries_share_the_preflight` |
-| `MpsStack::with_max_bond_dimension`                         | M0's `max_bond_dimension` option; `None` gives `DEFAULT_MAX_BOND` (128).                                                               | `programs.rs`: `max_bond_dimension_reaches_the_capacity`                                                           |
-| `MpsStack::batch`, `MpsBatchSimulator`                      | A `ShotStrategy` that samples every shot from one MPS. It refuses `feedback`, `resets`, `replayable` and `probabilities` with `Unmet`. | `batch.rs`: `mps7_mps12_mps20_…`, `mps8_…`, `mps9_…`                                                               |
-| `sampler_seed`                                              | The engine's sample seed for a session seed, as M0's `derive_sampler_seed`.                                                            | `parity.rs`: `the_sampler_seed_is_m0s`                                                                             |
-| `MpsStack::per_shot`, `TensorNetShots`, `TensorNetTerminal` | One state per shot, through `PerShot`, with feedback, resets, replayable shots and each shot's ln p.                                   | `per_shot.rs`: `mps1_…`, `feedback_and_resets_run_shot_by_shot`, `a_shot_draws_the_same_alone_or_with_others`      |
-| `GateFusion`, `SiteOperator`, `with_gate_fusion`            | How the per-shot terminal turns a region's gates into engine operators: `Unfused` (one per gate) or `Pairs` (blocks of ≤ 2 qubits).    | `fusion.rs`: `every_fusion_applies_the_product_of_the_regions_gates`, `fused_and_unfused_shots_draw_the_same_…`    |
-| `TensorNetReport`, `MpsBatchReport`                         | What a session ran: its batches, its instructions, its engine operators and its largest bond.                                          | `per_shot.rs`: `mps2_the_report_keeps_the_largest_bond`; `batch.rs`: `mps9_…`                                      |
-| `mps_capacity`                                              | The capacity for a qubit count and χ: each bond capped by the smaller side and by χ.                                                   | `tests.rs`: `the_capacity_caps_each_bond_at_the_smaller_side_and_at_chi`                                           |
-| `StackError`, `ProgramError`, `QueryError`                  | Why nothing ran, before any state is prepared (L3), or why the engine failed (`is_environment_error`, as M0's).                        | `programs.rs`: `preflight_rejects_…`, `plan_rejects_…`; `batch.rs`: `mps11_…`                                      |
+| Type or function                                                     | Use                                                                                                                                                                         | Test                                                                                                               |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `MpsStack::sample`                                                   | M0's `run_mps_shots`: N shots of a Base program for a seed. The same program, χ and seed give M0's sample.                                                                  | `parity.rs`: `the_stack_samples_what_m0_sampled`, `the_same_seed_gives_the_same_shots_and_another_seed_others`     |
+| `MpsStack::evaluate` (`Evaluate`)                                    | M0's `evaluate_state_queries`: ⟨Σ⟩ and the chain's cost on ψ, after M0's preflight.                                                                                         | `queries.rs`: `mps14_mps19_…`, `mps15_…`, `mps16_…`, `mps17_…`; `programs.rs`: `state_queries_share_the_preflight` |
+| `MpsStack::with_max_bond_dimension`                                  | M0's `max_bond_dimension` option; `None` gives `DEFAULT_MAX_BOND` (128).                                                                                                    | `programs.rs`: `max_bond_dimension_reaches_the_capacity`                                                           |
+| `MpsStack::batch`, `MpsBatchSimulator`                               | A `ShotStrategy` that samples every shot from one MPS. It refuses `feedback`, `resets`, `replayable` and `probabilities` with `Unmet`.                                      | `batch.rs`: `mps7_mps12_mps20_…`, `mps8_…`, `mps9_…`                                                               |
+| `sampler_seed`                                                       | The engine's sample seed for a session seed, as M0's `derive_sampler_seed`.                                                                                                 | `parity.rs`: `the_sampler_seed_is_m0s`                                                                             |
+| `MpsStack::per_shot`, `TensorNetShots`, `TensorNetTerminal`          | One state per shot, through `PerShot`, with feedback, resets, replayable shots and each shot's ln p.                                                                        | `per_shot.rs`: `mps1_…`, `feedback_and_resets_run_shot_by_shot`, `a_shot_draws_the_same_alone_or_with_others`      |
+| `GateFusion`, `SiteOperator`, `with_gate_fusion`                     | How the per-shot terminal turns a region's gates into engine operators: `Unfused` (one per gate) or `Pairs` (blocks of ≤ 2 qubits).                                         | `fusion.rs`: `every_fusion_applies_the_product_of_the_regions_gates`, `fused_and_unfused_shots_draw_the_same_…`    |
+| `ReadoutDistribution`, `MeasurementRun`, `with_readout_distribution` | Opt-in (`Off` by default): the per-shot terminal reads the exact joint distribution of each run of consecutive measurements (`measurement_runs`), given the shot's history. | `readout.rs`: `a_readout_is_one_run_with_the_exact_distribution`, `off_draws_what_the_terminal_drew_before`        |
+| `TensorNetReport`, `MpsBatchReport`                                  | What a session ran: its batches, its instructions, its engine operators and its largest bond.                                                                               | `per_shot.rs`: `mps2_the_report_keeps_the_largest_bond`; `batch.rs`: `mps9_…`                                      |
+| `mps_capacity`                                                       | The capacity for a qubit count and χ: each bond capped by the smaller side and by χ.                                                                                        | `tests.rs`: `the_capacity_caps_each_bond_at_the_smaller_side_and_at_chi`                                           |
+| `StackError`, `ProgramError`, `QueryError`                           | Why nothing ran, before any state is prepared (L3), or why the engine failed (`is_environment_error`, as M0's).                                                             | `programs.rs`: `preflight_rejects_…`, `plan_rejects_…`; `batch.rs`: `mps11_…`                                      |
 
 ## Files
 
-| File                           | What it holds                                                        |
-| ------------------------------ | -------------------------------------------------------------------- |
-| `src/stack.rs`                 | `MpsStack`, `StackError`, `DEFAULT_MAX_BOND`                         |
-| `src/program.rs`               | M0's preflight (`plan`) and each shot's replay through the walk      |
-| `src/batch.rs`                 | the batch strategy, its sessions and report; `sampler_seed`          |
-| `src/terminal.rs`              | `TensorNetTerminal`, `TensorNetShots`, `TensorNetReport`             |
-| `src/queries.rs`               | `Evaluate`, `StateQuery`, `StateQueryValue`, `MpsCost`, `QueryError` |
-| `src/lowering.rs`              | region gates to matrices, by ③'s gate tables                         |
-| `src/fusion.rs`                | `GateFusion`, `SiteOperator`: a region's gates to engine operators   |
-| `src/capacity.rs`              | `mps_capacity`                                                       |
-| `src/tests.rs`, `src/tests/`   | the tests (the module table is in `src/tests.rs`)                    |
-| `qualify-simulator-on-a100.sh` | the A100 qualification run (below)                                   |
+| File                           | What it holds                                                                            |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `src/stack.rs`                 | `MpsStack`, `StackError`, `DEFAULT_MAX_BOND`                                             |
+| `src/program.rs`               | M0's preflight (`plan`) and each shot's replay through the walk                          |
+| `src/batch.rs`                 | the batch strategy, its sessions and report; `sampler_seed`                              |
+| `src/terminal.rs`              | `TensorNetTerminal`, `TensorNetShots`, `TensorNetReport`                                 |
+| `src/queries.rs`               | `Evaluate`, `StateQuery`, `StateQueryValue`, `MpsCost`, `QueryError`                     |
+| `src/lowering.rs`              | region gates to matrices, by ③'s gate tables                                             |
+| `src/fusion.rs`                | `GateFusion`, `SiteOperator`: a region's gates to engine operators                       |
+| `src/readout.rs`               | `ReadoutDistribution`, `MeasurementRun`: the exact distribution of a run of measurements |
+| `src/capacity.rs`              | `mps_capacity`                                                                           |
+| `src/tests.rs`, `src/tests/`   | the tests (the module table is in `src/tests.rs`)                                        |
+| `qualify-simulator-on-a100.sh` | the A100 qualification run (below)                                                       |
 
 ## Tests
 
@@ -144,8 +164,10 @@ The options are:
 - `--check` only checks, and builds and changes nothing.
 - `--quick` runs Bell, B1 and the per-shot cases, unfused and in pairs.
 - With no option, the script runs every case but H₂.
-- `--h2 FILE [--shots N] [--fusion F] [--stop-after M]` runs H₂ only
-  (below).
+- `--h2 FILE [--shots N] [--fusion F] [--stop-after M]
+[--readout-distribution TABLE]` runs H₂ only (below).
+- The script stops at once if `cargo` is not on `PATH`; in a shell that
+  has not loaded rustup's environment, run `. "$HOME/.cargo/env"` first.
 
 ### H₂
 
@@ -158,14 +180,27 @@ shot. It reads the `AdaptiveProgram.as_dict()` JSON that
 operators and the device memory. Every 10 measurements it also prints a
 progress line with the time and the operators so far. At 50 shots or more it
 asserts that the two most frequent outcomes are `01010` and `10110`, written
-as `qdk_chemistry` writes them (the last result first). Copy the JSON to the
-VM, then run one shot, then more:
+as `qdk_chemistry` writes them (the last result first).
+
+M1's acceptance reads the exact readout distribution instead of ranking 50
+samples: `--readout-distribution TABLE` sets `QDK_H2_READOUT=distribution`
+and `QDK_H2_READOUT_TABLE=TABLE`, the exact distribution from the sparse
+simulator (a `.readout` file: record order, chemistry order, probability;
+data, not in the repository). From one shot, the test prints the 32 rows
+next to the table, the retained weight w, the largest bond, the TVD and the
+rows that differ most, and the largest |P(One) − ½| over the 1,399
+mid-circuit measurements, whose trace (`QDK_H2_TRACE`) goes to
+`h2-trace.txt` in the results. It asserts that `01010` and `10110` are the
+two largest rows, and that the TVD and every |P(One) − ½| are at most
+√(1 − w) + 1e-9 (`src/tests/h2.rs`, `ReadoutCheck`). Copy the JSON and the
+table to the VM, then run:
 
 ```sh
-/data/domingom/qualify-simulator-on-a100.sh --check --h2 /data/domingom/h2.bytecode.json COMMIT /data/domingom/qdk
-/data/domingom/qualify-simulator-on-a100.sh --h2 /data/domingom/h2.bytecode.json --shots 1 COMMIT /data/domingom/qdk
-/data/domingom/qualify-simulator-on-a100.sh --h2 /data/domingom/h2.bytecode.json --shots 50 COMMIT /data/domingom/qdk
+/data/domingom/qualify-simulator-on-a100.sh --check --h2 /data/domingom/h2.bytecode.json --readout-distribution /data/domingom/h2-seed1-shot0.readout COMMIT /data/domingom/qdk
+/data/domingom/qualify-simulator-on-a100.sh --h2 /data/domingom/h2.bytecode.json --shots 1 --readout-distribution /data/domingom/h2-seed1-shot0.readout COMMIT /data/domingom/qdk
 ```
+
+Without `--readout-distribution`, `--shots 50` ranks the rows drawn.
 
 To measure gate fusion, `--fusion unfused|pairs` sets `QDK_H2_FUSION`.
 `--stop-after M` sets `QDK_H2_STOP_AFTER`, which stops each shot after M
@@ -178,7 +213,8 @@ measurements of one shot, unfused and then in pairs:
 ```
 
 The H₂ driver is `src/tests/h2.rs`. `tests::fusion::h2_driver_on_a_coin_engine`
-runs it on CPU, on an engine that applies nothing, and
+runs it on CPU, on an engine that applies nothing (with
+`QDK_H2_READOUT=distribution` too), and
 `tests::fusion::h2_operators_per_shot` counts H₂'s operators under each
 fusion. Both need `QDK_H2_BYTECODE`.
 

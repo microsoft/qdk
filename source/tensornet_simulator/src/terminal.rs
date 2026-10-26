@@ -12,19 +12,26 @@ use executor_protocol::{
 };
 use qdk_simulators::{
     QubitID,
-    execution::{MeasurementKind, RegionInstruction, UnitaryOperation},
+    execution::{MeasurementKind, RegionInstruction},
 };
-use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
+use rand::{SeedableRng as _, rngs::StdRng};
 use tensornet::{MpsEngine, MpsShape, MpsShapeError};
 
-use crate::{GateFusion, capacity::mps_capacity, lowering};
+use crate::{
+    GateFusion, MeasurementRun, ReadoutDistribution,
+    capacity::mps_capacity,
+    lowering,
+    readout::{MeasurementRuns, draw},
+};
 
 /// One shot's matrix product state on an [`MpsEngine`], as an L3 executor of
 /// the region ISA ([`RegionInstruction`]): each region's gates are applied as
 /// the operators its [`GateFusion`] makes of them (one per gate by default,
 /// by `qdk_simulators`' gate tables), and each measurement or reset draws its
 /// value from the shot's own random numbers, with P(One) read from the
-/// state, then projects the state on it.
+/// state, then projects the state on it. With a [`ReadoutDistribution`],
+/// it also reads the exact distribution of each run of consecutive
+/// measurements ([`measurement_runs`](Self::measurement_runs)).
 ///
 /// It is the terminal `mps-a` runs Adaptive programs with, a shot at a time:
 /// a shot's measurements steer its own state only, so it offers feedback and
@@ -47,6 +54,7 @@ pub struct TensorNetTerminal<E: MpsEngine> {
     fusion: GateFusion,
     rng: StdRng,
     log_p: f64,
+    runs: MeasurementRuns,
     report: TensorNetReport,
     lifecycle: Lifecycle,
 }
@@ -77,6 +85,30 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
         self.fusion
     }
 
+    /// The terminal reading the readout distribution as `distribution`
+    /// says (by default [`ReadoutDistribution::Off`]). Set it before the
+    /// first batch: it drops the runs read so far.
+    #[must_use]
+    pub fn with_readout_distribution(mut self, distribution: ReadoutDistribution) -> Self {
+        self.runs = MeasurementRuns::new(distribution);
+        self
+    }
+
+    /// Whether it reads the readout distribution.
+    #[must_use]
+    pub fn readout_distribution(&self) -> ReadoutDistribution {
+        self.runs.distribution()
+    }
+
+    /// The runs of consecutive measurements of the shot so far, in order,
+    /// each with the exact distribution of its values given the shot's
+    /// history; empty with [`ReadoutDistribution::Off`]. The last run may
+    /// still grow with the next batch, if it starts with a measurement.
+    #[must_use]
+    pub fn measurement_runs(&self) -> &[MeasurementRun] {
+        self.runs.runs()
+    }
+
     fn with_state(
         engine: Rc<E>,
         state: Result<E::State, String>,
@@ -90,6 +122,7 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
             fusion: GateFusion::default(),
             rng: StdRng::seed_from_u64(seed),
             log_p: 0.0,
+            runs: MeasurementRuns::default(),
             report: TensorNetReport::default(),
             lifecycle: Lifecycle::default(),
         }
@@ -104,6 +137,14 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
     /// The shot's state, as the batches so far left it (Q9: a query of a
     /// shot's state mid-session reads it here); `None` when the engine
     /// could not prepare it, or a batch failed.
+    ///
+    /// While a run of measurements is open
+    /// ([`ReadoutDistribution::Exact`]), its projections are still to apply:
+    /// this is the state before the run, the state its distribution is
+    /// read on. Its retained weight is that of the projected state (a
+    /// projection preserves the norm), but its bonds may be larger. The
+    /// projections apply before the next gate or reset, before a
+    /// measurement that ends the run, and at [`Close::close`].
     #[must_use]
     pub fn state(&self) -> Option<&E::State> {
         self.state.as_ref().ok()
@@ -142,18 +183,23 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
         }
     }
 
-    /// Runs a checked batch: its outcomes, or the outcomes so far and why it
-    /// failed.
-    fn run(
-        engine: &E,
-        fusion: GateFusion,
-        state: &mut E::State,
-        rng: &mut StdRng,
-        log_p: &mut f64,
-        report: &mut TensorNetReport,
-        batch: &[RegionInstruction],
-    ) -> Result<Vec<Outcome>, (Vec<Outcome>, String)> {
+    /// Runs a checked batch on the prepared state: its outcomes, or the
+    /// outcomes so far and why it failed.
+    fn run(&mut self, batch: &[RegionInstruction]) -> Result<Vec<Outcome>, (Vec<Outcome>, String)> {
         let mut outcomes = Vec::new();
+        let Ok(state) = &mut self.state else {
+            return Err((outcomes, "the state is not prepared".to_string()));
+        };
+        let engine = &*self.engine;
+        let report = &mut self.report;
+        let capacity = &self.capacity;
+        // The capacity is checked on the states a terminal that projects at
+        // once checks at the end of a batch: an open run's, once projected.
+        let mut checked = |state: &E::State, report: &mut TensorNetReport| {
+            outgrown(engine, state, capacity).map(|bond| {
+                report.max_bond = report.max_bond.max(bond);
+            })
+        };
         for instruction in batch {
             let step = match instruction {
                 RegionInstruction::ExecuteRegion { region, .. } => {
@@ -163,62 +209,88 @@ impl<E: MpsEngine> TensorNetTerminal<E> {
                         .iter()
                         .map(|&operation| u64::from(lowering::is_applied(operation)))
                         .sum::<u64>();
-                    fusion
-                        .operators(region.operations())
-                        .iter()
-                        .try_for_each(|operator| {
+                    let operators = self.fusion.operators(region.operations());
+                    // A gate ends the open run; a region of no operator does not.
+                    if operators.is_empty() {
+                        Ok(())
+                    } else {
+                        close_run(&mut self.runs, engine, state, report, &mut checked)
+                    }
+                    .and_then(|()| {
+                        operators.iter().try_for_each(|operator| {
                             report.operators += 1;
-                            engine.apply(state, operator.sites(), operator.matrix())
+                            engine
+                                .apply(state, operator.sites(), operator.matrix())
+                                .map_err(|error| error.to_string())
                         })
+                    })
                 }
                 RegionInstruction::Measure(request) => {
                     let reset = request.kind == MeasurementKind::MeasureResetZ;
-                    draw(engine, state, rng, request.qubit, reset).map(|(one, ln_p)| {
-                        *log_p += ln_p;
+                    // The check admitted only tags that fit.
+                    let tag = u32::try_from(request.result_id).unwrap_or(u32::MAX);
+                    if self.runs.ends_at(request.qubit) {
+                        close_run(&mut self.runs, engine, state, report, &mut checked)
+                    } else {
+                        Ok(())
+                    }
+                    .and_then(|()| {
+                        self.runs
+                            .measure(engine, state, &mut self.rng, (request.qubit, tag), reset)
+                            .map_err(|error| error.to_string())
+                    })
+                    .map(|(one, ln_p)| {
+                        self.log_p += ln_p;
                         report.measurements += 1;
-                        // The check admitted only tags that fit.
-                        if let Ok(tag) = u32::try_from(request.result_id) {
-                            outcomes.push(Outcome {
-                                tag,
-                                value: Value::from(one),
-                            });
-                        }
+                        outcomes.push(Outcome {
+                            tag,
+                            value: Value::from(one),
+                        });
                     })
                 }
                 RegionInstruction::Reset { qubit } => {
-                    draw(engine, state, rng, *qubit, true).map(|(_, ln_p)| {
-                        *log_p += ln_p;
-                        report.resets += 1;
-                    })
+                    close_run(&mut self.runs, engine, state, report, &mut checked)
+                        .and_then(|()| {
+                            draw(engine, state, &mut self.rng, *qubit, true)
+                                .map_err(|error| error.to_string())
+                        })
+                        .map(|(_, ln_p)| {
+                            self.log_p += ln_p;
+                            report.resets += 1;
+                        })
                 }
             };
-            if let Err(error) = step {
-                return Err((outcomes, error.to_string()));
+            if let Err(reason) = step {
+                return Err((outcomes, reason));
             }
         }
-        Ok(outcomes)
+        if self.runs.is_open() {
+            return Ok(outcomes);
+        }
+        match checked(state, report) {
+            Ok(()) => Ok(outcomes),
+            Err(reason) => Err((outcomes, reason)),
+        }
     }
 }
 
-/// Draws the value of `qubit` from P(One) on `state`, projects on it, and
-/// flips it back to |0⟩ when `reset` and it was One. The value, and ln p of
-/// the value drawn.
-fn draw<E: MpsEngine>(
+/// Ends `runs`' open run, if there is one, and checks the projected state
+/// with `checked`.
+fn close_run<E: MpsEngine>(
+    runs: &mut MeasurementRuns,
     engine: &E,
     state: &mut E::State,
-    rng: &mut StdRng,
-    qubit: QubitID,
-    reset: bool,
-) -> Result<(bool, f64), E::Error> {
-    let p1 = engine.probability_of_one(state, qubit)?.clamp(0.0, 1.0);
-    // `random` is in [0, 1): One only when p1 > 0, Zero only when p1 < 1.
-    let one = rng.random::<f64>() < p1;
-    let p = if one { p1 } else { 1.0 - p1 };
-    engine.project(state, qubit, one, p)?;
-    if reset && one {
-        lowering::apply_operation(engine, state, UnitaryOperation::X { target: qubit })?;
+    report: &mut TensorNetReport,
+    checked: &mut impl FnMut(&E::State, &mut TensorNetReport) -> Result<(), String>,
+) -> Result<(), String> {
+    if runs
+        .close(engine, state)
+        .map_err(|error| error.to_string())?
+    {
+        checked(state, report)
+    } else {
+        Ok(())
     }
-    Ok((one, p.ln()))
 }
 
 fn qubit_beyond(qubit: QubitID, qubits: usize) -> Option<String> {
@@ -275,29 +347,11 @@ impl<E: MpsEngine> Executor<Batch<RegionInstruction>> for TensorNetTerminal<E> {
                 .prepare(&self.capacity)
                 .map_err(|error| error.to_string());
         }
-        let state = match &mut self.state {
-            Ok(state) => state,
-            Err(reason) => return Err(Rejected::Unavailable(reason.clone())),
-        };
+        if let Err(reason) = &self.state {
+            return Err(Rejected::Unavailable(reason.clone()));
+        }
         self.report.batches += 1;
-        let run = Self::run(
-            &self.engine,
-            self.fusion,
-            state,
-            &mut self.rng,
-            &mut self.log_p,
-            &mut self.report,
-            batch,
-        )
-        .and_then(
-            |outcomes| match outgrown(&*self.engine, state, &self.capacity) {
-                Ok(bond) => {
-                    self.report.max_bond = self.report.max_bond.max(bond);
-                    Ok(outcomes)
-                }
-                Err(reason) => Err((outcomes, reason)),
-            },
-        );
+        let run = self.run(batch);
         match run {
             Ok(outcomes) => Ok(Immediate::done(outcomes)),
             Err((outcomes, reason)) => {
@@ -324,9 +378,27 @@ impl<E: MpsEngine> Close for TensorNetTerminal<E> {
     type Report = TensorNetReport;
 
     /// Ends the terminal; later calls are [`Rejected::Closed`]. The state is
-    /// kept for [`TensorNetTerminal::state`], and dropped with the terminal.
+    /// kept for [`TensorNetTerminal::state`], and dropped with the terminal;
+    /// an open run of measurements is projected on first, and the projected
+    /// state checked within its capacity, as a batch's end checks it (when
+    /// either fails, there is no batch left to fail: the state is dropped
+    /// with the reason, and [`TensorNetTerminal::state`] is `None`).
     fn close(&mut self) -> TensorNetReport {
         self.lifecycle.close();
+        if let Ok(state) = &mut self.state {
+            let engine = &*self.engine;
+            let closed = self.runs.close(engine, state).map_err(|e| e.to_string());
+            let checked = closed.and_then(|projected| {
+                if projected {
+                    let bond = outgrown(engine, state, &self.capacity)?;
+                    self.report.max_bond = self.report.max_bond.max(bond);
+                }
+                Ok(())
+            });
+            if let Err(reason) = checked {
+                self.state = Err(reason);
+            }
+        }
         std::mem::take(&mut self.report)
     }
 }
@@ -341,6 +413,7 @@ pub struct TensorNetShots<E: MpsEngine> {
     engine: Rc<E>,
     capacity: MpsShape,
     fusion: GateFusion,
+    readout: ReadoutDistribution,
 }
 
 impl<E: MpsEngine> TensorNetShots<E> {
@@ -355,6 +428,7 @@ impl<E: MpsEngine> TensorNetShots<E> {
             engine,
             capacity: mps_capacity(qubits, max_bond)?,
             fusion: GateFusion::default(),
+            readout: ReadoutDistribution::default(),
         })
     }
 
@@ -370,6 +444,20 @@ impl<E: MpsEngine> TensorNetShots<E> {
     #[must_use]
     pub fn gate_fusion(&self) -> GateFusion {
         self.fusion
+    }
+
+    /// Shots whose terminals read the readout distribution as
+    /// `distribution` says (by default [`ReadoutDistribution::Off`]).
+    #[must_use]
+    pub fn with_readout_distribution(mut self, distribution: ReadoutDistribution) -> Self {
+        self.readout = distribution;
+        self
+    }
+
+    /// Whether each shot's terminal reads the readout distribution.
+    #[must_use]
+    pub fn readout_distribution(&self) -> ReadoutDistribution {
+        self.readout
     }
 
     /// The capacity each shot's state is prepared within.
@@ -414,6 +502,7 @@ impl<E: MpsEngine> MakeShot<RegionInstruction> for TensorNetShots<E> {
             ctx.rng_seed(ComponentId::TERMINAL),
         )
         .with_gate_fusion(self.fusion)
+        .with_readout_distribution(self.readout)
     }
 
     fn log_p(shot: &TensorNetTerminal<E>) -> Option<f64> {
@@ -443,7 +532,9 @@ pub struct TensorNetReport {
     pub measurements: u64,
     /// The resets it made.
     pub resets: u64,
-    /// The largest bond of the state at the end of a batch.
+    /// The largest bond of the state at the end of a batch (with
+    /// [`ReadoutDistribution::Exact`], once an open run's projections apply,
+    /// so the same states are checked).
     pub max_bond: usize,
 }
 

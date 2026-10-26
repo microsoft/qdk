@@ -14,6 +14,7 @@
 //! | `fusion`        | `GateFusion`: exact products, no block across a measurement, edge     |
 //! |                 | cases; H₂'s operator counts and its driver on CPU (`#[ignore]`d)      |
 //! | `h2`            | the H₂ QPE driver, over any engine (`qualification` runs it on GPU)   |
+//! | `readout`       | the readout distribution: each run's exact joint distribution         |
 //! | `qualification` | the A100 qualification and H₂ QPE, `#[ignore]`d (Linux x86-64 only)   |
 //!
 //! The cases that hold for any engine are generic over [`MpsEngine`] in
@@ -55,6 +56,7 @@ mod programs;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod qualification;
 mod queries;
+mod readout;
 
 // Bytecode, as M0's tests built it.
 const IMMEDIATE_SRC0: u64 = 1 << 16;

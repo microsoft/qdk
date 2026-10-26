@@ -161,8 +161,13 @@ fn per_shot_phase_estimation_in_pairs_on_the_a100() {
 /// H₂ QPE through the walk over `MpsStack::per_shot` on cuTensorNet, M1's
 /// acceptance test, by `tests::h2::h2_qpe`, which documents its environment
 /// (`QDK_H2_BYTECODE`, `QDK_H2_SHOTS`, `QDK_H2_SEED`, `QDK_H2_CHI`,
-/// `QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`) and its output. From 50 shots it
-/// asserts H₂'s two peaks.
+/// `QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, `QDK_H2_READOUT`,
+/// `QDK_H2_READOUT_TABLE`, `QDK_H2_TRACE`) and its output. With
+/// `QDK_H2_READOUT=distribution`, M1's acceptance, it asserts from one shot
+/// that H₂'s two peaks lead the exact readout distribution, which is within
+/// √(1 − w) of the table in TVD, and every mid-circuit P(One) is within
+/// √(1 − w) of ½; from 50 shots it asserts that the peaks are the two rows
+/// drawn most.
 #[test]
 #[ignore = "requires the pinned A100 environment and H₂'s bytecode in QDK_H2_BYTECODE"]
 fn h2_qpe_on_the_a100() {

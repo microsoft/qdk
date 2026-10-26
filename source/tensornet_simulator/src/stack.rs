@@ -16,7 +16,7 @@ use rand::RngExt as _;
 use tensornet::{MpsEngine, MpsShapeError};
 
 use crate::{
-    GateFusion,
+    GateFusion, ReadoutDistribution,
     batch::MpsBatchSimulator,
     program::{ProgramError, plan, replay},
     queries::{Evaluate, QueryError, StateQuery, StateQueryValue, Within, evaluate_on},
@@ -43,13 +43,15 @@ pub const DEFAULT_MAX_BOND: usize = 128;
 ///
 /// The per-shot strategy over the same engine ([`MpsStack::per_shot`]) is
 /// the one Adaptive programs run with; its terminals group each region's
-/// gates as the stack's [`GateFusion`] says. The batch strategy and the
+/// gates as the stack's [`GateFusion`] says, and read the readout
+/// distribution as its [`ReadoutDistribution`] says. The batch strategy and the
 /// state queries apply gates unfused, as M0 did, so that they keep M0's
 /// numbers under truncation.
 pub struct MpsStack<E: MpsEngine> {
     engine: Rc<E>,
     max_bond: usize,
     gate_fusion: GateFusion,
+    readout: ReadoutDistribution,
 }
 
 impl<E: MpsEngine> MpsStack<E> {
@@ -66,6 +68,7 @@ impl<E: MpsEngine> MpsStack<E> {
             engine,
             max_bond: DEFAULT_MAX_BOND,
             gate_fusion: GateFusion::Unfused,
+            readout: ReadoutDistribution::Off,
         }
     }
 
@@ -99,6 +102,21 @@ impl<E: MpsEngine> MpsStack<E> {
         self.gate_fusion
     }
 
+    /// The stack whose per-shot terminals read the readout distribution as
+    /// `distribution` says ([`ReadoutDistribution::Off`] by default). The
+    /// batch strategy does not read it: it samples every shot at once.
+    #[must_use]
+    pub fn with_readout_distribution(mut self, distribution: ReadoutDistribution) -> Self {
+        self.readout = distribution;
+        self
+    }
+
+    /// Whether its per-shot terminals read the readout distribution.
+    #[must_use]
+    pub fn readout_distribution(&self) -> ReadoutDistribution {
+        self.readout
+    }
+
     /// The engine.
     #[must_use]
     pub fn engine(&self) -> &E {
@@ -114,15 +132,20 @@ impl<E: MpsEngine> MpsStack<E> {
         MpsBatchSimulator::new(Rc::clone(&self.engine), qubits, self.max_bond)
     }
 
-    /// The per-shot strategy for `qubits` qubits under this stack's χ and
-    /// gate fusion.
+    /// The per-shot strategy for `qubits` qubits under this stack's χ, gate
+    /// fusion and readout distribution.
     ///
     /// # Errors
     ///
     /// [`mps_capacity`](crate::mps_capacity)'s, when that is not a chain.
     pub fn per_shot(&self, qubits: usize) -> Result<PerShot<TensorNetShots<E>>, MpsShapeError> {
-        TensorNetShots::new(Rc::clone(&self.engine), qubits, self.max_bond)
-            .map(|shots| PerShot(shots.with_gate_fusion(self.gate_fusion)))
+        TensorNetShots::new(Rc::clone(&self.engine), qubits, self.max_bond).map(|shots| {
+            PerShot(
+                shots
+                    .with_gate_fusion(self.gate_fusion)
+                    .with_readout_distribution(self.readout),
+            )
+        })
     }
 
     /// `shots` shots of `program`, each its output records, as M0's

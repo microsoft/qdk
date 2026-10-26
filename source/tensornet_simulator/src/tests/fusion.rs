@@ -69,7 +69,7 @@ fn z(re: f64) -> Complex64 {
 
 /// Every unitary operation of the region ISA on `qubits` qubits (two or
 /// more for the two-qubit ones), with random operands and angles.
-fn random_operation(rng: &mut StdRng, qubits: usize) -> UnitaryOperation {
+pub(super) fn random_operation(rng: &mut StdRng, qubits: usize) -> UnitaryOperation {
     let target = rng.random_range(0..qubits);
     let angle = rng.random_range(-std::f64::consts::PI..std::f64::consts::PI);
     let kinds = if qubits >= 2 { 21 } else { 14 };
@@ -375,7 +375,11 @@ fn no_operator_crosses_a_measurement_or_a_reset() {
 /// random gates run only when the previous result is One (`READ_RESULT`,
 /// `ICMP ne`, `BRANCH`, as H₂ conditions its gates). Every result is
 /// recorded.
-fn random_adaptive_program(seed: u64, qubits: u32, rounds: u64) -> PreparedAdaptiveProgram<u64> {
+pub(super) fn random_adaptive_program(
+    seed: u64,
+    qubits: u32,
+    rounds: u64,
+) -> PreparedAdaptiveProgram<u64> {
     let mut rng = StdRng::seed_from_u64(seed);
     let n = qubits as usize;
     let mut program = Bytecode::new(qubits);
@@ -486,7 +490,7 @@ fn bytecode_of(operation: UnitaryOperation) -> (u64, u64, u64, f64) {
 
 /// Shot `j` of `program` through the walk over `strategy`, opened with
 /// `seed`: its records, ln p and report.
-fn walk<E: MpsEngine>(
+pub(super) fn walk<E: MpsEngine>(
     strategy: &PerShot<TensorNetShots<E>>,
     program: &PreparedAdaptiveProgram<u64>,
     seed: u64,
@@ -605,9 +609,11 @@ impl MpsEngine for TestDoubleCoinEngine {
 }
 
 /// The A100's H₂ driver (`h2::h2_qpe`), with its environment
-/// (`QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, …), on [`TestDoubleCoinEngine`]:
-/// its progress, its stop and its operator count, checked on CPU before a
-/// VM runs it. The rows are coin flips, so it asserts no peaks.
+/// (`QDK_H2_FUSION`, `QDK_H2_STOP_AFTER`, `QDK_H2_READOUT`, …), on
+/// [`TestDoubleCoinEngine`]: its progress, its stop, its operator count and,
+/// with `QDK_H2_READOUT=distribution`, its readout distribution (uniform:
+/// every P(One) is ½) and trace, checked on CPU before a VM runs it. The
+/// rows are coin flips, so it asserts no peaks.
 #[test]
 #[ignore = "needs H₂'s bytecode in QDK_H2_BYTECODE"]
 fn h2_driver_on_a_coin_engine() {
