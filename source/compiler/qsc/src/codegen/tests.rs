@@ -852,6 +852,106 @@ fn nested_callable_selectors_generate_correct_qir_on_every_profile() {
     }
 }
 
+/// The outer true branch uses the inner selection; inner false must select B.
+#[test]
+fn nested_callable_selectors_inner_false_selects_second_operation() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            let f = Choose(1 < 2, Choose(1 > 2, A, B), B);
+            f(q);
+            MResetEachZ(q)
+        }
+    "#;
+    assert_nested_callable_selector_on_every_profile(source, 1);
+}
+
+/// Even though the inner selection produces A, outer false must select B.
+#[test]
+fn nested_callable_selectors_outer_false_selects_second_operation() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            let f = Choose(1 > 2, Choose(1 < 2, A, B), B);
+            f(q);
+            MResetEachZ(q)
+        }
+    "#;
+    assert_nested_callable_selector_on_every_profile(source, 1);
+}
+
+/// Read the outer flag before the inner argument sets it false: select A.
+/// The later conditional B gate also detects a dropped mutation, which would
+/// otherwise leave the selected target unchanged but execute an extra X.
+#[test]
+fn nested_callable_selectors_snapshot_preserves_argument_effects() {
+    let source = r#"
+        operation A(q : Qubit[]) : Unit { X(q[0]); }
+        operation B(q : Qubit[]) : Unit { X(q[1]); }
+        function Choose(flag : Bool, a : Qubit[] => Unit, b : Qubit[] => Unit) : Qubit[] => Unit {
+            if flag { a } else { b }
+        }
+        operation Main() : Result[] {
+            use q = Qubit[2];
+            mutable flag = true;
+            let f = Choose(flag, Choose({ set flag = false; 1 < 2 }, A, B), B);
+            f(q);
+            if flag { B(q); }
+            MResetEachZ(q)
+        }
+    "#;
+    assert_nested_callable_selector_on_every_profile(source, 0);
+}
+
+fn assert_nested_callable_selector_on_every_profile(source: &str, target: usize) {
+    for profile in [
+        Profile::Base,
+        Profile::AdaptiveRI,
+        Profile::AdaptiveRIF,
+        Profile::Adaptive,
+    ] {
+        let context = format!("{profile:?}: {source}");
+        let mut interpreter = interpreter_with_capabilities(profile.into());
+        eval_fragments(&mut interpreter, source);
+        let expected = Value::Array(
+            (0..2)
+                .map(|index| Value::Result(qsc_eval::val::Result::Val(index == target)))
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        assert_eq!(
+            eval_fragments(&mut interpreter, "Main()"),
+            expected,
+            "{context}: source must select only qubit {target}"
+        );
+        let qir = compile_source_to_qir(source, profile.into());
+        if profile == Profile::Adaptive {
+            assert_eq!(qir.matches("call void @X(").count(), 1, "{context}:\n{qir}");
+            assert!(
+                qir.contains(&format!("call void @X(ptr inttoptr (i64 {target} to ptr))")),
+                "{context}: expected X on qubit {target}:\n{qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__x__body").count(),
+                1,
+                "{context}:\n{qir}"
+            );
+        } else {
+            assert_x_targets_with_context(&qir, &[target], &context);
+        }
+    }
+}
+
 #[test]
 fn expanding_polymorphic_recursion_reports_source_errors_on_every_compile_profile() {
     let sources = [
@@ -4028,15 +4128,15 @@ fn generic_nominal_callback_interpreter(
     (interpreter, a, b)
 }
 
-/// A and B both contain one Int, but they are distinct named types. IdA and
-/// MakeA(0) have type A -> A, whereas ReadB requires a callback of type B -> B.
+/// A and B both contain one Int, but they are distinct named types. `IdA` and
+/// `MakeA(0)` have type `A -> A`, whereas `ReadB` requires a callback of type `B -> B`.
 ///
-/// Forward<'T>(value : 'T, read : 'T -> Int) requires both arguments to agree on
-/// 'T. Forward(IdA, ReadB) therefore requires 'T to be both A -> A and B -> B,
-/// which is invalid. Reverse(ReadB, IdA) has the same conflict in the other order.
+/// `Forward<'T>(value : 'T, read : 'T -> Int)` requires both arguments to agree on
+/// `'T`. `Forward(IdA, ReadB)` therefore requires `'T` to be both `A -> A` and `B -> B`,
+/// which is invalid. `Reverse(ReadB, IdA)` has the same conflict in the other order.
 ///
-/// Previously, runtime validation skipped IdA while 'T was still unknown, then
-/// let ReadB constrain 'T without revisiting IdA. Structural validation missed
+/// Previously, runtime validation skipped `IdA` while `'T` was still unknown, then
+/// let `ReadB` constrain `'T` without revisiting `IdA`. Structural validation missed
 /// the conflict because A and B have identical erased layouts; Forward generated
 /// QIR even though the source type checker rejected it.
 ///

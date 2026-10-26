@@ -754,14 +754,14 @@ pub mod qir {
 
         /// Rechecks values whose expected nominal type was unknown when first visited.
         ///
-        /// For example, Forward<'T>(value : 'T, read : 'T -> Int) might receive
-        /// [IdA] followed by ReadArrayB, where IdA is A -> A and ReadArrayB expects
+        /// For example, `Forward<'T>(value : 'T, read : 'T -> Int)` might receive
+        /// `[IdA]` followed by `ReadArrayB`, where `IdA` is `A -> A` and `ReadArrayB` expects
         /// an array of B -> B callbacks. The array is initially deferred: its runtime
-        /// representation cannot establish 'T's nominal type. ReadArrayB's declared
-        /// signature then binds 'T to (B -> B)[], allowing this recheck to inspect
-        /// the array and reject IdA even if A and B have identical payload layouts.
+        /// representation cannot establish `'T`'s nominal type. `ReadArrayB`'s declared
+        /// signature then binds `'T` to `(B -> B)[]`, allowing this recheck to inspect
+        /// the array and reject `IdA` even if A and B have identical payload layouts.
         ///
-        /// Each round takes the current queue so check_value can enqueue unresolved
+        /// Each round takes the current queue so `check_value` can enqueue unresolved
         /// values or nested children separately. Inspecting a newly resolved aggregate
         /// can reveal callbacks that add bindings needed by other deferred values,
         /// so another round may be necessary.
