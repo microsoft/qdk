@@ -170,7 +170,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       await this.service.switchCourse(input.courseId, "chat");
-      await this.showActivity();
+      await this.showActivity("top");
       return { state: this.serializeState(false) }; // workspace state is correct after switch
     });
   }
@@ -339,13 +339,12 @@ export class LearningTools {
    */
   async solution(): Promise<{ solutions: string[] } & StateSnapshot> {
     await this.ensureInitialized();
-    return this.invoke(async () => {
+    return this.invoke(() => {
       const state = this.serializeState(true); // use editor for solutions
       const solutions = this.service.getAllSolutions(
         state.position.location,
         "chat",
       );
-      await this.showActivity();
       return { solutions, state };
     });
   }

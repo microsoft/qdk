@@ -22,23 +22,14 @@ export function registerLearningCommands(
     vscode.commands.registerCommand(
       "qsharp-vscode.learningShowActivity",
       async (reveal: NotebookReveal = "currentActivity"): Promise<void> => {
-        if (!service.initialized) {
-          // Preserve the existing initialization and warning behavior.
-          await panelManager.show();
-          if (
-            !service.initialized ||
-            !isNotebookCourse(service.getActiveCourseInfo())
-          ) {
-            return;
-          }
-        }
-
-        if (isNotebookCourse(service.getActiveCourseInfo())) {
-          await openCourseNotebook(service, { reveal });
-          return;
-        }
-
+        // Initializes the service and no-ops for notebook courses.
         await panelManager.show();
+        if (
+          service.initialized &&
+          isNotebookCourse(service.getActiveCourseInfo())
+        ) {
+          await openCourseNotebook(service, { reveal });
+        }
       },
     ),
 
