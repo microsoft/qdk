@@ -89,7 +89,7 @@ pub(super) fn noiseless_my() -> Instrument {
     Instrument::new(vec![noiseless_my0(), noiseless_my1()]).expect("instrument should be valid")
 }
 
-pub(super) fn noiseless_instrument(target: Targets) -> Instrument {
+pub(super) fn noiseless_instrument(target: &Targets) -> Instrument {
     match target {
         Targets::MX => noiseless_mx(),
         Targets::MY => noiseless_my(),
@@ -192,7 +192,7 @@ pub fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits<NS: NoisySim
     let (h, cnot, m) = (
         noiseless_h(),
         noiseless_cnot(),
-        noiseless_instrument(target),
+        noiseless_instrument(&target),
     );
     let mut sim = NS::new_with_seed(2, seed);
 
@@ -222,7 +222,7 @@ pub fn check_bell_pair_sampling_yields_opposite_outcome_for_both_qubits<NS: Nois
     let (h, cnot, m) = (
         noiseless_h(),
         noiseless_cnot(),
-        noiseless_instrument(target),
+        noiseless_instrument(&target),
     );
     let mut sim = NS::new_with_seed(2, seed);
 

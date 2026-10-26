@@ -3,7 +3,7 @@
 
 @Measurement()
 @SimulatableIntrinsic()
-operation __quantum__qis__mx__body(q : Qubit) : Result {
+operation __quantum__qis__custom__mx__body(q : Qubit) : Result {
     H(q);
     M(q)
 }
