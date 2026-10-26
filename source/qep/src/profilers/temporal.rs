@@ -20,30 +20,34 @@ use std::{
 /// Litinski, arXiv:1808.02892, Section 1, defines a logical time step as roughly
 /// d surface-code cycles; Section 4 assumes a 1 us physical code cycle. For this
 /// distance-5 demo, one logical step is therefore 5 * 1_000 = 5_000 ns.
-/// This is a fixed benchmark, not a hardware calibration or a distance-dependent
-/// estimate: it does not currently use `ProfilerConfig::ecc_distance`.
+/// These are the default timings; callers can override them in `ProfilerConfig`.
+/// Durations do not automatically scale with `ProfilerConfig::ecc_distance`.
 ///
 /// We charge every Clifford one logical step. Actual costs differ: Pauli gates
 /// can be tracked classically, and lattice-surgery CNOTs can require several
 /// stages. Destructive logical readout need not take d rounds (Section 1);
-/// we allow one physical code cycle for measurement, reset, or their combination,
+/// the default allows one physical code cycle for measurement, reset, or their combination,
 /// rather than modeling their separate hardware and decoding latencies.
-fn instruction_time_nanos(instruction: &QuantumBackendInstruction) -> usize {
-    const CLIFFORD_TIME_NANOS: usize = 5_000;
-    const MEASUREMENT_RESET_TIME_NANOS: usize = 1_000;
-
+fn instruction_time_nanos(
+    instruction: &QuantumBackendInstruction,
+    config: &ProfilerConfig,
+) -> usize {
     match instruction.instruction_name {
         "cx" | "cy" | "cz" | "h" | "s" | "sadj" | "sx" | "x" | "y" | "z" | "swap" => {
-            CLIFFORD_TIME_NANOS
+            config.clifford_gate_time_nanos
         }
-        "mz" | "mz_reset" | "mz_store" | "mz_store_reset" | "reset" => MEASUREMENT_RESET_TIME_NANOS,
+        "mz" | "mz_reset" | "mz_store" | "mz_store_reset" | "reset" => config.measurment_time_nanos,
         // Explicit injection: CNOT + measurement + worst-case conditional S,
-        // with CNOT and S each charged one Clifford step: 11_000 ns. We omit
+        // with CNOT and S each charged one Clifford step: 11_000 ns by default. We omit
         // extra classical feedforward latency and assume a distilled state is
         // already available; the scheduler accounts for factory waiting.
         // This is not Litinski's optimized fast-block consumption time of one
         // logical step, which tracks or avoids the separate correction.
-        "inject_t" | "inject_tadj" => 2 * CLIFFORD_TIME_NANOS + MEASUREMENT_RESET_TIME_NANOS,
+        "inject_t" | "inject_tadj" => config
+            .clifford_gate_time_nanos
+            .checked_mul(2)
+            .and_then(|time| time.checked_add(config.measurment_time_nanos))
+            .expect("T injection duration overflow"),
 
         "read_result" => 0,
         "t" | "tadj" => panic!("These should be implemented by inject gates"),
@@ -123,7 +127,7 @@ impl InstructionState {
 ///
 /// A simulated event clock schedules instruction completions and factory distillation rounds.
 /// Events at the same timestamp are handled in insertion order. Instruction durations use
-/// the fixed logical timing model; `read_result` takes no time. Each factory holds at most one T-state and restarts after a failed
+/// the configured logical timing model; `read_result` takes no time. Each factory holds at most one T-state and restarts after a failed
 /// round or after the injection consuming its state completes.
 ///
 /// Distillation and measurement randomness share a seedable RNG. Instruction and round intervals
@@ -131,6 +135,8 @@ impl InstructionState {
 /// with no resource dependency may start while distillation events remain scheduled, and each batch
 /// runs the event loop only until that batch completes.
 pub struct TemporalProfiler {
+    /// Configuration used for instruction durations.
+    config: ProfilerConfig,
     /// Logical-qubit scheduling state, indexed by qubit ID.
     qubits: Vec<LogicalQubit>,
     /// Factories.
@@ -176,6 +182,7 @@ impl TemporalProfiler {
             "at least one T factory is required"
         );
         let mut profiler = Self {
+            config,
             qubits: Vec::new(),
             factories: vec![TFactory::new(); config.t_factories_count],
             result_writers: FxHashMap::default(),
@@ -364,7 +371,7 @@ impl TemporalProfiler {
 
         let end_time_nanos = self
             .current_time_nanos
-            .checked_add(instruction_time_nanos(instruction))
+            .checked_add(instruction_time_nanos(instruction, &self.config))
             .expect("simulated instruction time overflow");
 
         // Record gate in aggreator, using gate start time as gate time.
@@ -718,15 +725,49 @@ mod tests {
         ] {
             for &instruction_name in names {
                 assert_eq!(
-                    instruction_time_nanos(&QuantumBackendInstruction {
-                        instruction_name,
-                        parameters: smallvec::smallvec![],
-                    }),
+                    instruction_time_nanos(
+                        &QuantumBackendInstruction {
+                            instruction_name,
+                            parameters: smallvec::smallvec![],
+                        },
+                        &ProfilerConfig::default(),
+                    ),
                     expected,
                     "{instruction_name}"
                 );
             }
         }
+    }
+
+    /// Checks that configured durations reach the scheduler, including T injection.
+    #[test]
+    fn schedules_configured_instruction_durations() -> Result<(), String> {
+        let mut profiler = TemporalProfiler::new(ProfilerConfig {
+            clifford_gate_time_nanos: 700,
+            measurment_time_nanos: 300,
+            record_trace: true,
+            seed: Some(42),
+            ..ProfilerConfig::default()
+        });
+        for factory in &mut profiler.factories {
+            factory.probability_success = 1.0;
+        }
+        let instructions: Vec<_> = ["x", "mz", "reset", "t", "tadj"]
+            .into_iter()
+            .map(|instruction_name| QuantumBackendInstruction {
+                instruction_name,
+                parameters: smallvec::smallvec![QubitId(0)],
+            })
+            .collect();
+        profiler.execute_batch(&instructions)?;
+        let durations: Vec<_> = profiler
+            .logs
+            .iter()
+            .filter(|entry| entry.instruction.instruction_name != "round")
+            .map(|entry| entry.end_time_nanos - entry.start_time_nanos)
+            .collect();
+        assert_eq!(durations, [700, 300, 300, 1_700, 1_700]);
+        Ok(())
     }
 
     /// Checks that T and T-adjoint each consume one state while H needs none.

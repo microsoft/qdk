@@ -72,15 +72,23 @@ class SequentialCountingProfiler(Profiler):
     ) -> SequentialCountingProfiler: ...
 
 class ProfilerConfig:
+    """Temporal profiling settings with required gate durations in nanoseconds."""
+
     def __new__(
         cls,
         *,
+        clifford_gate_time_nanos: int,
+        measurment_time_nanos: int,
         aggregation_window_nanos: int = 1_000_000_000,
         t_factories_count: int = 10,
         seed: Optional[int] = None,
         record_trace: bool = False,
         ecc_distance: int = 5,
     ) -> ProfilerConfig: ...
+    @property
+    def clifford_gate_time_nanos(self) -> int: ...
+    @property
+    def measurment_time_nanos(self) -> int: ...
     @property
     def aggregation_window_nanos(self) -> int: ...
     @property
@@ -93,7 +101,7 @@ class ProfilerConfig:
     def ecc_distance(self) -> int: ...
 
 class TemporalProfiler(Profiler):
-    def __new__(cls, config: Optional[ProfilerConfig] = None) -> TemporalProfiler: ...
+    def __new__(cls, config: ProfilerConfig) -> TemporalProfiler: ...
 
 class ISA:
     def __add__(self, other: ISA) -> ISA:

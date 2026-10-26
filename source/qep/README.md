@@ -247,18 +247,34 @@ and a proof-of-concept for the whole QEP project.
 * Instructions are ordered by their per-qubit and measurement-result dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
 * Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
-* Supported gates and measurements take 1 ns; `read_result` takes 0 ns.
+* Clifford instructions use `ProfilerConfig.clifford_gate_time_nanos` (5,000 ns by default).
+  Measurement, reset, and combined measurement/reset use `measurment_time_nanos`
+  (1,000 ns by default); `read_result` takes 0 ns. These timings do not scale with ECC distance.
 * Every T factory starts an 11 ns distillation round at startup. Each attempt succeeds with
   probability 0.5; failures immediately retry. A successful factory holds one T-state and pauses
   until that state is consumed.
 * `t` and `tadj` reserve a ready factory and execute as `inject_t` and `inject_tadj`, with operands
-  `[FactoryId, QubitId]`. The factory starts its next round only when the 1 ns injection finishes.
+  `[FactoryId, QubitId]`. Injection takes twice the Clifford duration plus the measurement
+  duration (11,000 ns by default). The factory starts its next round only when injection finishes.
   Ready factories are selected FIFO within each resource type.
 * Instruction references and qubit/result dependencies persist across QIR batches, including the
   adaptive-profile result barrier.
 * `ProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
   `seed`. Defaults use ten factories and no seed. A fixed seed reproduces both distillation
   outcomes and measurement bits. Construction requires at least one factory and a nonzero window.
+
+Python requires both timing arguments explicitly; `TemporalProfiler` requires a configuration:
+
+```python
+from qdk.qre import ProfilerConfig, TemporalProfiler
+
+profiler = TemporalProfiler(ProfilerConfig(
+    clifford_gate_time_nanos=5_000,
+    measurment_time_nanos=1_000,
+))
+```
+
+Changing instruction timings does not change the separate factory distillation duration.
 
 `TemporalProfiler.get_result()` returns logical qubit usage, simulated elapsed time, operation
 counts, rate profiles, and a detailed execution trace. Round starts count as `round` operations;

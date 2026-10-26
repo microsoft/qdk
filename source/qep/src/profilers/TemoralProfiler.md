@@ -6,10 +6,13 @@ any specific real quantum computer.
 
 ### Gates
 Hardware supports the following operations:
- * Clifford gates (single-qubit and CX/CY/CZ) - each gate takes 5000ns.
- * Measurement or reset takes 1000ns.
+ * Clifford gates (single-qubit and CX/CY/CZ) take `ProfilerConfig.clifford_gate_time_nanos`
+   (5000ns by default in Rust).
+ * Measurement, reset, or their combination takes `ProfilerConfig.measurment_time_nanos`
+   (1000ns by default in Rust).
  * T/Tadj gate is implemented by "InjectT"/"InjectTAdj" instruction, both consuming a
-   T-State and taking 2*5000+1000=11000ns.
+   T-State and taking twice the Clifford duration plus the measurement duration
+   (2*5000+1000=11000ns by default). Python requires both durations explicitly.
 
 Operations can be performed in parallel as long as they don't act on the same qubits.
 

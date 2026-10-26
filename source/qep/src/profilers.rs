@@ -23,6 +23,10 @@ pub use temporal::TemporalProfiler;
 
 #[derive(Clone, Copy)]
 pub struct ProfilerConfig {
+    /// Duration of a Clifford instruction in nanoseconds.
+    pub clifford_gate_time_nanos: usize,
+    /// Duration of measurement, reset, or their combination in nanoseconds.
+    pub measurment_time_nanos: usize,
     pub aggregation_window_nanos: usize,
     pub t_factories_count: usize,
     /// Seed for temporal-profiler distillation and measurement randomness.
@@ -41,6 +45,8 @@ impl Default for ProfilerConfig {
     /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
     fn default() -> Self {
         Self {
+            clifford_gate_time_nanos: 5_000,
+            measurment_time_nanos: 1_000,
             aggregation_window_nanos: 1_000_000_000,
             t_factories_count: 10,
             seed: None,

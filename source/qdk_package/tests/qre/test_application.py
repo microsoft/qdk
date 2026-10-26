@@ -440,6 +440,8 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
         """
     )
     config = ProfilerConfig(
+        clifford_gate_time_nanos=5000,
+        measurment_time_nanos=1000,
         aggregation_window_nanos=10_000,
         t_factories_count=5,
         seed=42,

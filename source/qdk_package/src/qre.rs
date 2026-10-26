@@ -332,6 +332,8 @@ impl SequentialCountingProfiler {
 /// Immutable configuration for temporal quantum profiling.
 #[pyclass(module = "qdk.qre", frozen, get_all)]
 pub struct ProfilerConfig {
+    clifford_gate_time_nanos: usize,
+    measurment_time_nanos: usize,
     aggregation_window_nanos: usize,
     t_factories_count: usize,
     seed: Option<u64>,
@@ -341,10 +343,12 @@ pub struct ProfilerConfig {
 
 #[pymethods]
 impl ProfilerConfig {
-    /// Creates a configuration with validated window and factory counts.
+    /// Creates a configuration with explicit gate timings and validated window and factory counts.
     #[new]
-    #[pyo3(signature = (*, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=5))]
+    #[pyo3(signature = (*, clifford_gate_time_nanos, measurment_time_nanos, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=5))]
     fn new(
+        clifford_gate_time_nanos: usize,
+        measurment_time_nanos: usize,
         aggregation_window_nanos: usize,
         t_factories_count: usize,
         seed: Option<u64>,
@@ -362,6 +366,8 @@ impl ProfilerConfig {
             ));
         }
         Ok(Self {
+            clifford_gate_time_nanos,
+            measurment_time_nanos,
             aggregation_window_nanos,
             t_factories_count,
             seed,
@@ -377,18 +383,18 @@ pub struct TemporalProfiler;
 
 #[pymethods]
 impl TemporalProfiler {
-    /// Creates a temporal profiler using the supplied or default configuration.
+    /// Creates a temporal profiler using the required explicit timing configuration.
     #[new]
-    #[pyo3(signature = (config=None))]
-    fn new(config: Option<PyRef<'_, ProfilerConfig>>) -> PyClassInitializer<Self> {
-        let config =
-            config.map_or_else(qep::ProfilerConfig::default, |config| qep::ProfilerConfig {
-                aggregation_window_nanos: config.aggregation_window_nanos,
-                t_factories_count: config.t_factories_count,
-                seed: config.seed,
-                record_trace: config.record_trace,
-                ecc_distance: config.ecc_distance,
-            });
+    fn new(config: PyRef<'_, ProfilerConfig>) -> PyClassInitializer<Self> {
+        let config = qep::ProfilerConfig {
+            clifford_gate_time_nanos: config.clifford_gate_time_nanos,
+            measurment_time_nanos: config.measurment_time_nanos,
+            aggregation_window_nanos: config.aggregation_window_nanos,
+            t_factories_count: config.t_factories_count,
+            seed: config.seed,
+            record_trace: config.record_trace,
+            ecc_distance: config.ecc_distance,
+        };
         PyClassInitializer::from(Profiler {
             backend: Some(Box::new(qep::TemporalProfiler::new(config))),
         })
