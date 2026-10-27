@@ -572,6 +572,20 @@ impl Backend for LogicalCounter {
         }
     }
 
+    fn measure_single_pauli(
+        &mut self,
+        _pauli: qsc::OneQubitMeasurement,
+        q: usize,
+    ) -> Result<BackendResult, String> {
+        self.assert_compute_qubits([q])?;
+        self.m_count += 1;
+        if let Some(val) = self.post_select_measurements.remove(&q) {
+            Ok(val.into())
+        } else {
+            Ok(self.rnd.borrow_mut().random_bool(0.5).into())
+        }
+    }
+
     fn mresetz(&mut self, q: usize) -> Result<BackendResult, String> {
         let result = self.m(q);
         if let MemoryCompute::Manual(mc) = &mut self.memory_compute {

@@ -52,7 +52,7 @@ fn check_bell_pair_sampling_in_mz_yields_same_outcome_for_both_qubits() {
     for seed in 0..20 {
         noiseless_tests::check_bell_pair_sampling_yields_same_outcome_for_both_qubits::<
             StateVectorSimulator,
-        >(seed, noiseless_tests::Targets::MZ);
+        >(seed, &noiseless_tests::Targets::MZ);
     }
 }
 
@@ -61,7 +61,7 @@ fn check_bell_pair_sampling_in_mx_yields_same_outcome_for_both_qubits() {
     for seed in 0..20 {
         noiseless_tests::check_bell_pair_sampling_yields_same_outcome_for_both_qubits::<
             StateVectorSimulator,
-        >(seed, noiseless_tests::Targets::MX);
+        >(seed, &noiseless_tests::Targets::MX);
     }
 }
 
@@ -70,7 +70,7 @@ fn check_bell_pair_sampling_in_my_yields_opposite_outcome_for_both_qubits() {
     for seed in 0..20 {
         noiseless_tests::check_bell_pair_sampling_yields_opposite_outcome_for_both_qubits::<
             StateVectorSimulator,
-        >(seed, noiseless_tests::Targets::MY);
+        >(seed, &noiseless_tests::Targets::MY);
     }
 }
 

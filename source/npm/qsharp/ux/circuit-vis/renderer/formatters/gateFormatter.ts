@@ -56,7 +56,10 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
     renderData;
   switch (type) {
     case GateType.Measure:
-      return _createGate([_measure(x, controlsY[0], controlsY)], renderData);
+      return _createGate(
+        [_measure(label, x, controlsY[0], controlsY)],
+        renderData,
+      );
     case GateType.Unitary: {
       let bodyWidth = width;
       let bodyX = x;
@@ -304,13 +307,19 @@ const _gateBoundingBox = (
 /**
  * Creates a measurement gate at position (x, y).
  *
+ * @param label measurement gate label.
  * @param x  x coord of measurement gate.
  * @param y  y coord of measurement gate.
  * @param wireYs y coords of wires connected to the measurement gate.
  *
  * @returns SVG representation of measurement gate.
  */
-const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
+const _measure = (
+  label: string,
+  x: number,
+  y: number,
+  wireYs: number[],
+): SVGElement => {
   x -= minGateWidth / 2;
   const width: number = minGateWidth,
     height = gateHeight;
@@ -332,9 +341,17 @@ const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
     "qs-line-measure",
   );
   meter.style.pointerEvents = "none";
+  const basis = label === "MX" ? "X" : label === "MY" ? "Y" : undefined;
+  const elements = [mBox, mArc, meter];
+  if (basis !== undefined) {
+    const basisLabel = text(basis, x + 8, y + 8 + argsFontSize / 2, argsFontSize);
+    basisLabel.classList.add("measurement-basis");
+    basisLabel.style.pointerEvents = "none";
+    elements.push(basisLabel);
+  }
   mBox.setAttribute("data-wire-ys", JSON.stringify(wireYs));
   mBox.setAttribute("data-width", `${width}`);
-  return group([mBox, mArc, meter]);
+  return group(elements);
 };
 
 const use_katex = true;

@@ -187,12 +187,12 @@ pub fn check_measuring_plus_state_in_my_yields_minus_with_50_percent_probability
 /// Check that both measurements in a Bell Pair yield the same result.
 pub fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits<NS: NoisySimulator>(
     seed: u64,
-    target: Targets,
+    target: &Targets,
 ) {
     let (h, cnot, m) = (
         noiseless_h(),
         noiseless_cnot(),
-        noiseless_instrument(&target),
+        noiseless_instrument(target),
     );
     let mut sim = NS::new_with_seed(2, seed);
 
@@ -217,12 +217,12 @@ pub fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits<NS: NoisySim
 /// Check that both measurements in a Bell Pair yield the same result.
 pub fn check_bell_pair_sampling_yields_opposite_outcome_for_both_qubits<NS: NoisySimulator>(
     seed: u64,
-    target: Targets,
+    target: &Targets,
 ) {
     let (h, cnot, m) = (
         noiseless_h(),
         noiseless_cnot(),
-        noiseless_instrument(&target),
+        noiseless_instrument(target),
     );
     let mut sim = NS::new_with_seed(2, seed);
 

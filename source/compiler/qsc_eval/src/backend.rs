@@ -50,6 +50,7 @@ pub trait Backend {
         Err("measure_single_pauli operation not implemented".to_string())
     }
     fn m(&mut self, _q: usize) -> Result<val::Result, String> {
+        // todo!("Remove this function once QRE is updated.")
         Err("m operation not implemented".to_string())
     }
     fn mresetz(&mut self, _q: usize) -> Result<val::Result, String> {

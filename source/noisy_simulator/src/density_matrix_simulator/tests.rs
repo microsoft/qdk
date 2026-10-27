@@ -24,7 +24,7 @@ fn check_bell_pair_sampling_yields_same_outcome_for_both_qubits() {
     for seed in 0..20 {
         noiseless_tests::check_bell_pair_sampling_yields_same_outcome_for_both_qubits::<
             DensityMatrixSimulator,
-        >(seed, noiseless_tests::Targets::MZ);
+        >(seed, &noiseless_tests::Targets::MZ);
     }
 }
 

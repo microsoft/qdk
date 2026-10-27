@@ -46,9 +46,42 @@ fn c_reg(q_id: usize, c_id: usize) -> Register {
     Register::classical(q_id, c_id)
 }
 
-fn measurement(q_id: usize, c_id: usize) -> Operation {
+fn x_measurement(q_id: usize, c_id: usize) -> Operation {
     Operation::Measurement(Measurement {
-        gate: "Measure".to_string(),
+        gate: "MX".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+fn y_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "MY".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+fn z_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "M".to_string(),
+        args: vec![],
+        qubits: vec![Register::quantum(q_id)],
+        results: vec![Register::classical(q_id, c_id)],
+        children: vec![],
+        metadata: None,
+    })
+}
+
+fn mresetz_measurement(q_id: usize, c_id: usize) -> Operation {
+    Operation::Measurement(Measurement {
+        gate: "M".to_string(),
         args: vec![],
         qubits: vec![Register::quantum(q_id)],
         results: vec![Register::classical(q_id, c_id)],
@@ -176,8 +209,8 @@ fn bell() {
     let operations = vec![
         unitary("H", vec![q_reg(0)]),
         ctl_unitary("X", vec![q_reg(1)], vec![q_reg(0)]),
-        measurement(0, 0),
-        measurement(1, 0),
+        z_measurement(0, 0),
+        z_measurement(1, 0),
     ];
     let qubits = vec![qubit_with_results(0, 1), qubit_with_results(1, 1)];
     let component_grid = operation_list_to_grid(operations, &qubits);
@@ -198,7 +231,7 @@ fn bell() {
 #[test]
 fn control_classical() {
     let operations = vec![
-        measurement(0, 0),
+        z_measurement(0, 0),
         ctl_unitary("X", vec![q_reg(2)], vec![c_reg(0, 0)]),
         ctl_unitary("X", vec![q_reg(2)], vec![q_reg(0)]),
     ];
@@ -220,7 +253,7 @@ fn control_classical() {
 
 #[test]
 fn two_measurements() {
-    let operations = vec![measurement(0, 0), measurement(0, 1)];
+    let operations = vec![z_measurement(0, 0), z_measurement(0, 1)];
     let qubits = vec![qubit_with_results(0, 2)];
     let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
@@ -318,7 +351,7 @@ fn group_single_row() {
                 )],
             },
             ComponentColumn {
-                components: vec![measurement(1, 0)],
+                components: vec![z_measurement(1, 0)],
             },
             ComponentColumn {
                 components: vec![unitary("Z", vec![q_reg(0)])],
@@ -357,7 +390,7 @@ fn group_multiple_rows() {
                 )],
             },
             ComponentColumn {
-                components: vec![measurement(1, 0)],
+                components: vec![z_measurement(1, 0)],
             },
             ComponentColumn {
                 components: vec![unitary("Z", vec![q_reg(0)])],
@@ -388,10 +421,10 @@ fn controlled_group() {
                 components: vec![unitary("H", vec![q_reg(0)])],
             },
             ComponentColumn {
-                components: vec![measurement(0, 0)],
+                components: vec![z_measurement(0, 0)],
             },
             ComponentColumn {
-                components: vec![measurement(1, 0)],
+                components: vec![z_measurement(1, 0)],
             },
             ComponentColumn {
                 components: vec![ctl_unitary_with_children(
@@ -433,7 +466,7 @@ fn classical_controlled_group() {
                 components: vec![unitary("H", vec![q_reg(0)])],
             },
             ComponentColumn {
-                components: vec![measurement(1, 0)],
+                components: vec![z_measurement(1, 0)],
             },
             ComponentColumn {
                 components: vec![ctl_unitary_with_children(
@@ -490,4 +523,45 @@ fn typescript_current_version_matches_rust() {
         .expect("TypeScript CURRENT_VERSION should be an integer");
 
     assert_eq!(typescript_current_version, CURRENT_VERSION);
+}
+
+#[test]
+fn diff_bases_measurements() {
+    let operations = vec![
+        z_measurement(0, 0),
+        x_measurement(0, 1),
+        y_measurement(0, 2),
+    ];
+    let qubits = vec![qubit_with_results(0, 3)];
+    let component_grid = operation_list_to_grid(operations, &qubits);
+    let c = Circuit {
+        qubits,
+        component_grid,
+    };
+
+    expect![[r"
+        q_0    ── M ─── MX ─── MY ──
+                  ╘══════╪══════╪═══
+                         ╘══════╪═══
+                                ╘═══
+    "]]
+    .assert_eq(&c.to_string());
+}
+
+#[test]
+fn mresetz_test() {
+    let operations = vec![mresetz_measurement(0, 0), z_measurement(0, 1)];
+    let qubits = vec![qubit_with_results(0, 2)];
+    let component_grid = operation_list_to_grid(operations, &qubits);
+    let c = Circuit {
+        qubits,
+        component_grid,
+    };
+
+    expect![[r"
+        q_0    ── M ──── M ──
+                  ╘══════╪═══
+                         ╘═══
+    "]]
+    .assert_eq(&c.to_string());
 }

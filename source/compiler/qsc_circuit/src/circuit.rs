@@ -443,8 +443,11 @@ impl Row {
         self.add(column, CircuitObject::Object(object.to_string()));
     }
 
-    fn add_measurement(&mut self, column: usize, source: Option<&SourceLocation>) {
-        let mut gate_label = String::from("M");
+    fn add_measurement(&mut self, column: usize, gate: &str, source: Option<&SourceLocation>) {
+        let mut gate_label = String::from(match gate {
+            "MResetZ" => "M",
+            _ => gate,
+        });
         if self.render_locations
             && let Some(loc) = source
         {
@@ -1029,7 +1032,7 @@ fn add_operation_to_rows(
         for (i, inverted) in controls {
             let row = &mut rows[*i];
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
-                row.add_measurement(column, operation.source_location());
+                row.add_measurement(column, &operation.gate(), operation.source_location());
             } else {
                 if matches!(row.wire, Wire::Classical { .. }) {
                     row.start_classical(0);
