@@ -1,6 +1,7 @@
 use qep::{
     OPERATION_COUNT, Parameter, Profiler, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackends, SequentialCountingProfiler, TemporalProfiler, instruction_id_to_name,
+    QuantumBackends, SequentialCountingProfiler, TemporalProfiler, TemporalProfilerConfig,
+    instruction_id_to_name,
 };
 use smallvec::{SmallVec, smallvec};
 use std::{
@@ -117,7 +118,14 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
             });
             Backend::Profiler(Box::new(profiler))
         }
-        "temporal_profiler" => Backend::Profiler(Box::new(TemporalProfiler::default())),
+        "temporal_profiler" => {
+            let config = TemporalProfilerConfig {
+                t_factories_count: 1,
+                record_trace: true,
+                ..TemporalProfilerConfig::default()
+            };
+            Backend::Profiler(Box::new(TemporalProfiler::new(config)))
+        }
         _ => abort_with_error(&format!(
             "qdk_init() unknown backend `{backend}`; expected sparse_sim, counting_profiler, or temporal_profiler"
         )),
@@ -154,6 +162,7 @@ pub unsafe extern "C" fn qdk_save_profile(path: *const c_char) {
     if let Err(error) = result.to_json(path) {
         abort_with_error(&format!("qdk_save_profile() failed: {error}"));
     }
+    println!("Profile saved to {path}");
 }
 
 /// Applies a doubly controlled X gate.

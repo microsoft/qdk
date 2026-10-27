@@ -29,9 +29,9 @@ int main(void) {
         printf("result = %d\n", result);
     }
 
-    qdk_init("counting_profiler");
+    qdk_init("temporal_profiler");
     ghz_example(10);
-    qdk_save_profile("source/qep/tmp/ghz_profile.json");
+    qdk_save_profile("source/qep/profile_viewer/profiles/ghz_profile.json");
 
     return 0;
 }
