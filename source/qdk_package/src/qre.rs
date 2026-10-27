@@ -195,7 +195,7 @@ impl ProfilerResult {
     /// Writes all profiling data as pretty-printed JSON, creating or replacing the file.
     ///
     /// Accepts a string or path-like object. Parent directories must already exist.
-    /// Raises OSError with the file path if creation, serialization, or flushing fails.
+    /// Raises `OSError` with the file path if creation, serialization, or flushing fails.
     fn to_json(&self, path: PathBuf) -> PyResult<()> {
         self.0.to_json(path).map_err(PyIOError::new_err)
     }
@@ -385,7 +385,7 @@ pub struct TemporalProfiler;
 impl TemporalProfiler {
     /// Creates a temporal profiler using the required explicit timing configuration.
     #[new]
-    fn new(config: PyRef<'_, TemporalProfilerConfig>) -> PyClassInitializer<Self> {
+    fn new(config: &TemporalProfilerConfig) -> PyClassInitializer<Self> {
         let config = qep::TemporalProfilerConfig {
             clifford_gate_time_nanos: config.clifford_gate_time_nanos,
             measurment_time_nanos: config.measurment_time_nanos,

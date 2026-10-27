@@ -14,11 +14,12 @@ pub(crate) struct Batcher<'a> {
     max_batch_size: usize,
 }
 
+/// Identifies instructions that require an immediate backend result.
 fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
-    return matches!(
+    matches!(
         instruction.instruction_name,
         "read_result" | "mz" | "mz_reset"
-    );
+    )
 }
 
 impl<'a> Batcher<'a> {

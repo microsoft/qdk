@@ -17,14 +17,22 @@
 ///   - Or it gets moved into memory buffer (this is not implemented for now).  
 /// * After T state is used, distillation can start again.
 ///
-/// For the demo, I am using 15-1 factory from fig.15 in https://arxiv.org/pdf/1808.02892
+/// For the demo, I am using 15-1 factory from fig.15 in <https://arxiv.org/pdf/1808.02892>
 #[derive(Clone)]
 pub(super) struct TFactory {
     pub(super) logical_qubits: usize,
     ecc_distance: usize,
     pub(super) probability_success: f64,
     distillation_round_duration_nanos: usize,
+    #[expect(
+        dead_code,
+        reason = "The profiler does not yet report factory error rates."
+    )]
     input_state_error: f64,
+    #[expect(
+        dead_code,
+        reason = "The profiler does not yet report factory error rates."
+    )]
     output_state_error: f64,
 }
 
@@ -65,7 +73,7 @@ impl TFactory {
     /// Counts data and syndrome qubits for the factory's rotated surface-code patches.
     pub fn physical_qubits(&self) -> usize {
         let d = self.ecc_distance;
-        self.logical_qubits * (2 * d * d - 1) 
+        self.logical_qubits * (2 * d * d - 1)
     }
 
     /// Returns one attempt's duration, without averaging over failed attempts.

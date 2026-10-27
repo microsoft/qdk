@@ -48,7 +48,7 @@ impl<B: QuantumBackend> TranspilingAdapter<B> {
                 Box::new(RzQftTranspiler),
             ],
         )
-        .unwrap()
+        .unwrap_or_else(|error| panic!("{error}"))
     }
 }
 

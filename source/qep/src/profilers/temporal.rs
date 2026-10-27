@@ -55,7 +55,7 @@ impl Default for TemporalProfilerConfig {
 ///
 /// Litinski, arXiv:1808.02892, Section 1, defines a logical time step as roughly
 /// d surface-code cycles; Section 4 assumes a 1 us physical code cycle. For this
-/// distance-5 demo, one logical step is therefore 5 * 1_000 = 5_000 ns.
+/// distance-5 demo, one logical step is therefore `5 * 1_000 = 5_000` ns.
 /// These are the default timings; callers can override them in `TemporalProfilerConfig`.
 /// Durations do not automatically scale with `TemporalProfilerConfig::ecc_distance`.
 ///
@@ -606,7 +606,7 @@ impl Profiler for TemporalProfiler {
 
         // Assuming Surface Code.
         let factory_physical_qubits: usize =
-            self.factories.iter().map(|f| f.physical_qubits()).sum();
+            self.factories.iter().map(TFactory::physical_qubits).sum();
         let d = self.config.ecc_distance;
         let physical_qubits = self.qubits.len() * (2 * d * d - 1) + factory_physical_qubits;
 
