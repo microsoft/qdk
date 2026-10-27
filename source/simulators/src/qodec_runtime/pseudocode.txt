@@ -17,15 +17,17 @@ help with the data model.
   ├──────────────────────────────┤        ...
   │ QodecLayer n-1               │
   └──────────────────────────────┘  Backend<Id, P, R>   (bottom ISA instructions)
-     quantum simulator (any implementation of Backend)
+     bottom backend: any implementation of Backend for the bottom ISA
+     (a simulator, a tracer, a profiler, ...)
 
 Every layer implements Backend and consumes the Backend below it.  The stack is
-nested ownership: QodecLayer<QodecLayer<... QodecLayer<Simulator>>>.
+nested ownership: QodecLayer<QodecLayer<... QodecLayer<B>>>, where B is the
+bottom backend.
 
 Out of scope:
   - The classical runtime (e.g. a QIR runtime) that drives the stack.  It
     already speaks the top ISA: it sends top-ISA instructions and reads results.
-  - The quantum simulator.  It only has to implement Backend for the bottom ISA
+  - The bottom backend.  It only has to implement Backend for the bottom ISA
     (§10).
 
 Tags used below:
@@ -60,7 +62,7 @@ Sections
    7. Gadget body runtime
    8. Layer runtime (implements Backend)
    9. Reference decoder (Pauli-frame decoder)
-  10. Stack composition and simulator contract
+  10. Stack composition and bottom backend contract
 
 ══════════════════════════════════════════════════════════════════════
  0. BACKEND INTERFACE AND CONVENTIONS  [INTERFACE]
@@ -98,7 +100,7 @@ The same Id, P and R types are used at every boundary in the stack.
 At each boundary, an Id is the index of the instruction in that boundary's ISA
 instruction list, in declaration order.  The top boundary uses the top ISA, and
 the boundary below layer k uses layer k+1's ISA.  The bottom boundary uses the
-bottom ISA, which the simulator implements.
+bottom ISA, which the bottom backend implements.
 
     pub trait InstructionId: Copy {
         fn from_index(index: usize) -> Self;
@@ -164,7 +166,7 @@ observe outcomes first, then flags).  Other instructions contribute nothing.
         fn status(&self) -> Status;
     }
 
-A simulator returning `mz` builds R::new(&[Some(b)], &[], Status::default()).
+A backend returning the outcome of `mz` builds R::new(&[Some(b)], &[], Status::default()).
 
 ── 0.5 Errors ─────────────────────────────────────────────────────────
 
@@ -190,12 +192,12 @@ Neither the trait nor the layers have lifecycle methods.  A stack lives for
 exactly one shot:
   - A StackBuilder does the shot-independent work once: layer plans, decoder
     preparation and sizing (§5, §8.2, §10.1).
-  - builder.buildStack(sim) builds fresh layers, each with a fresh decoder
-    session, on top of a simulator supplied by the caller.  A layer is
+  - builder.buildStack(backend) builds fresh layers, each with a fresh decoder
+    session, on top of a bottom backend supplied by the caller.  A layer is
     constructed ready to run (§8.3).
   - Dropping the stack ends the shot.  There is no start(), close() or reset.
-The caller owns the simulator's lifecycle: it hands over one in its initial
-state, either built for this shot or reset and reused (§10.2).
+The caller owns the bottom backend's lifecycle: it hands over one in its
+initial state, either built for this shot or reset and reused (§10.2).
 
 After an unrecoverable error the shot is lost.  A poisoned layer rejects every
 further execute_batch with Poisoned; the caller drops the stack and runs a new
@@ -1046,7 +1048,7 @@ function release(label):
 // none: emit nothing, and the block stays live below until this layer reuses
 // the id.  At that next use:
 //   - as an output-only operand: a lower qodec layer first releases the live
-//     block itself (§8.6), and a simulator treats it as fresh (§10.2);
+//     block itself (§8.6), and the bottom backend treats it as fresh (§10.2);
 //   - as an in-place operand: the block is still live, carrying stale state.
 //     That is correct only if the instruction resets it (an unconditional
 //     `stabilize`, e.g. a physical R).  A lower FrameDecoder may then report
@@ -1095,7 +1097,7 @@ function applyCorrections(stream) -> T:
         // A Pauli X/Z correction is an ordinary lower instruction.  If the lower
         // layer is a qodec layer whose ISA has no gadget for it, that layer applies
         // it to its own frame (applyLogicalPauli).  Eventually it is a physical
-        // Pauli in the simulator.
+        // Pauli in the bottom backend.
 
 ══════════════════════════════════════════════════════════════════════
  9. REFERENCE DECODER — PAULI-FRAME DECODER  [SPEC semantics]
@@ -1215,7 +1217,7 @@ function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
     return T
 
 ══════════════════════════════════════════════════════════════════════
- 10. STACK COMPOSITION AND SIMULATOR CONTRACT
+ 10. STACK COMPOSITION AND BOTTOM BACKEND CONTRACT
 ══════════════════════════════════════════════════════════════════════
 
 ── 10.1 The stack builder ─────────────────────────────────────────────
@@ -1232,44 +1234,48 @@ function StackBuilder::new(manifest, decoderKind, topResources):
     for k in 0..n-1: res[k+1] = plans[k].requiredResources(res[k])
     return StackBuilder(plans, factories, res)
 
-builder.bottomResources() = res[n]                  // what the simulator must hold
+builder.bottomResources() = res[n]                  // what the bottom backend must hold
 
 // The stack of one shot: fresh layers and decoder sessions over the caller's
-// simulator.  res[k] is layer k's UPPER resources, so layer k is built with
-// res[k+1].
-function builder.buildStack(sim) -> Stack:
-    stack = sim
+// bottom backend.  res[k] is layer k's UPPER resources, so layer k is built
+// with res[k+1].
+function builder.buildStack(backend) -> Stack:
+    stack = backend
     for k in n-1 down to 0:
         stack = QodecLayer::new(plans[k], factories[k], lower = stack, res[k+1])
     return stack                                    // : impl Backend<Id, P, R>
 
-// `sim` is any Backend for the bottom ISA.  Backend is also implemented for
-// &mut B, so a caller that reuses one simulator across shots lends it with
-// buildStack(&mut sim), and resets it however it likes between shots.  A
-// simulator whose setup is expensive (e.g. on a GPU) is therefore never rebuilt.
+// `backend` is any Backend for the bottom ISA: a simulator, a profiler,
+// or another stack of components.  Backend is also implemented for
+// &mut B, so a caller that reuses one backend across shots lends it with
+// buildStack(&mut backend), and resets it however it likes between shots.
+// A backend whose setup is expensive (e.g. a GPU simulator or a hardware
+// connection) is therefore never rebuilt.
 //
 //     builder = StackBuilder::new(manifest, FrameDecoder, topResources)
 //     for each shot:
-//         stack = builder.buildStack(simulator in its initial state)
+//         stack = builder.buildStack(bottom backend in its initial state)
 //         stack.execute_batch(...) ...
 //         drop(stack)
 
-── 10.2 Simulator contract (the bottom Backend) ───────────────────────
+── 10.2 Bottom backend contract ───────────────────────────────────────
 
-The simulator implements Backend<Id, P, R> for the bottom ISA:
+The bottom backend implements Backend<Id, P, R> for the bottom ISA:
   - It starts every shot in its initial state, with room for
     builder.bottomResources().  Whether it is built for the shot or reset and
     reused is the caller's choice (§10.1).
-  - Id is the index of a bottom-ISA instruction.  The simulator executes it
-    according to that instruction's action.
+  - Id is the index of a bottom-ISA instruction, whose action defines it (a
+    simulator executes it; a profiler or a device may count, forward or run it).
   - parameters follow §0.3: Block(q) operands with q < the bottom resources,
     then arguments in declaration order.
   - It returns exactly one R per instruction with needsResult, in order.  Each R
     holds that instruction's observe outcomes, then its flags.  Status is
-    usually default; None bits are allowed (e.g. a lost qubit).
-  - Err is reserved for unrecoverable failures, e.g. a numerical error.
+    usually default; None bits are allowed (e.g. a lost qubit, or a backend that
+    does not produce outcomes).
+  - Err is reserved for unrecoverable failures, e.g. a numerical error or a lost
+    device connection.
   - A block id that a layer releases lazily (§8.6) may still hold stale state
-    when it is next used.  The simulator must accept that: an output-only use
+    when it is next used.  The backend must accept that: an output-only use
     treats the block as fresh, and a reset overwrites it.
   - Optional, per block type the last layer uses:
       * a release instruction (in = [t], out = [], no observe, no flags).  If it
