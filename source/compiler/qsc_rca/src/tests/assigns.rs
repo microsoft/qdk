@@ -26,6 +26,83 @@ fn check_rca_for_classical_int_assign_to_local() {
 }
 
 #[test]
+fn check_rca_for_assignment_discard_in_tuple() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        mutable a = 0;
+        set (_, a) = (1, 2);
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assignment_discard_in_nested_tuple() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        mutable a = 0;
+        set (_, (_, a)) = (1, (3, 2));
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assignment_discard_of_call_result() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        function Make() : (Int, Int) { (1, 2) }
+        mutable a = 0;
+        set _ = Make();
+        a"#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assignment_discard_preserves_dynamic_local() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        mutable a = false;
+        set (_, a) = (1, MResetZ(q) == One);
+        a
+        "#,
+    );
+    check_last_statement_compute_properties(
+        compilation_context.get_compute_properties(),
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
 fn check_rca_for_dynamic_result_assign_to_local() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(
@@ -659,5 +736,97 @@ fn check_rca_for_immutable_tuple_bound_to_tuple_from_classical_conditional() {
             ApplicationsGeneratorSet:
                 inherent: Static
                 dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assign_to_unit_tuple_with_dynamic_value() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use (q, t) = (Qubit(), Qubit());
+        set () = M(q) == One ? X(t) | ();
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assign_to_tuple_with_unit_element_and_dynamic_value() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use (q, t) = (Qubit(), Qubit());
+        mutable a = 0;
+        set (a, ()) = (1, M(q) == One ? X(t) | ());
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assign_to_nested_unit_tuples_with_dynamic_value() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use (q, t) = (Qubit(), Qubit());
+        set ((), ()) = ((), M(q) == One ? X(t) | ());
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_assign_to_unit_tuple_with_block_updating_mutable_in_dynamic_scope() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation Foo() : Unit {
+            use (q, t) = (Qubit(), Qubit());
+            mutable z = 3;
+            set () = { if M(q) == One { set z = 5; X(t); } () };
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Foo",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
     );
 }

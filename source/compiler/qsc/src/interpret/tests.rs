@@ -2591,6 +2591,28 @@ mod given_interpreter {
             let (result, output) = line(&mut interpreter, "123");
             is_only_value(&result, &output, &Value::Int(123));
         }
+
+        #[test]
+        fn assignment_discard_loads_and_runs_in_all_profiles() {
+            for profile in qsc_data_structures::target::Profile::all() {
+                let mut interpreter = get_interpreter_with_capabilities(profile.into());
+                let (result, output) = line(
+                    &mut interpreter,
+                    "operation Main() : Int {
+                        mutable a = 0;
+                        set (_, a) = (1, 2);
+                        a
+                    }",
+                );
+                is_only_value(&result, &output, &Value::unit());
+
+                let (result, output) = line(&mut interpreter, "Main()");
+                is_only_value(&result, &output, &Value::Int(2));
+
+                let (result, output) = run(&mut interpreter, "{ Main(); }");
+                is_only_value(&result, &output, &Value::unit());
+            }
+        }
     }
 
     fn get_interpreter() -> Interpreter {
