@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    MeasurementResult, Pauli, QubitID, ResultID, Simulator,
+    MeasurementResult, QubitID, ResultID, Simulator,
     noise_config::{
         CumulativeNoiseConfig, CumulativeNoiseTable, Fault, FaultTerm, IntrinsicID, LossPolicy,
     },
@@ -12,6 +12,7 @@ use nalgebra::Complex;
 use noisy_simulator::{
     Instrument, NoisySimulator as _, Operation, StateVectorSimulator, operation,
 };
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use rand::{RngExt, SeedableRng as _, rngs::StdRng};
 use std::sync::{Arc, LazyLock};
 
@@ -436,11 +437,11 @@ impl FullStateSimulator {
     }
 
     /// Records a measurement in the specified Pauli basis on the given `target`.
-    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: Pauli) {
+    fn record_m_pauli(&mut self, target: QubitID, result_id: ResultID, pauli: OneQubitMeasurement) {
         let measurement = match pauli {
-            Pauli::X => self.m_pauli_impl(target, &MX),
-            Pauli::Y => self.m_pauli_impl(target, &MY),
-            Pauli::Z => self.m_pauli_impl(target, &MZ),
+            OneQubitMeasurement::X => self.m_pauli_impl(target, &MX),
+            OneQubitMeasurement::Y => self.m_pauli_impl(target, &MY),
+            OneQubitMeasurement::Z => self.m_pauli_impl(target, &MZ),
         };
         self.measurements[result_id] = measurement;
     }
@@ -647,23 +648,15 @@ impl Simulator for FullStateSimulator {
         self.apply_noise(|config| &config.swap, &[q1, q2]);
     }
 
-    fn mx(&mut self, target: QubitID, result_id: ResultID) {
-        // TODO: check for noise, will it change?
+    fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        target: QubitID,
+        result_id: ResultID,
+    ) {
+        // todo!("Change noise type when new noise is configured")
         self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, Pauli::X);
-        self.apply_noise(|config| &config.mz, &[target]);
-    }
-
-    fn my(&mut self, target: QubitID, result_id: ResultID) {
-        // TODO: check for noise, will it change?
-        self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, Pauli::Y);
-        self.apply_noise(|config| &config.mz, &[target]);
-    }
-
-    fn mz(&mut self, target: QubitID, result_id: ResultID) {
-        self.apply_idle_noise(target);
-        self.record_m_pauli(target, result_id, Pauli::Z);
+        self.record_m_pauli(target, result_id, pauli);
         self.apply_noise(|config| &config.mz, &[target]);
     }
 

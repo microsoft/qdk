@@ -112,8 +112,16 @@ fn test_measure_pauli() {
         &[Rx(PI), Ry(-FRAC_PI_2)],
         &[Rx(0.6), Ry(0.9)],
     ] {
-        for p1 in [Pauli::Z, Pauli::X, Pauli::Y] {
-            for p2 in [Pauli::Z, Pauli::X, Pauli::Y] {
+        for p1 in [
+            OneQubitMeasurement::Z,
+            OneQubitMeasurement::X,
+            OneQubitMeasurement::Y,
+        ] {
+            for p2 in [
+                OneQubitMeasurement::Z,
+                OneQubitMeasurement::X,
+                OneQubitMeasurement::Y,
+            ] {
                 check_measure_pauli([p1, p2], gates);
             }
         }

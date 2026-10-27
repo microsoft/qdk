@@ -14,13 +14,13 @@ mod pauli_testing;
 #[cfg(test)]
 mod tests;
 
-use crate::Pauli;
 use index_map::IndexMap;
 use ndarray::{Array2, s};
 use nearly_zero::NearlyZero;
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use num_traits::{One, ToPrimitive, Zero};
+use qsc_data_structures::measurement::OneQubitMeasurement;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{cell::RefCell, f64::consts::FRAC_1_SQRT_2, f64::consts::FRAC_PI_2, fmt::Write};
@@ -349,13 +349,13 @@ impl SparseStateSim {
     ///
     /// This function will panic if the given identifier does not correspond to an allocated qubit.
     #[must_use]
-    pub fn measure_pauli(&mut self, id: usize, pauli: Pauli) -> bool {
+    pub fn measure_single_pauli(&mut self, id: usize, pauli: OneQubitMeasurement) -> bool {
         let mut flip_res = false;
         let mut change_basis = true;
 
         match pauli {
-            Pauli::Z => self.measure(id),
-            Pauli::X => {
+            OneQubitMeasurement::Z => self.measure(id),
+            OneQubitMeasurement::X => {
                 let ry = self.ry_queue.get(id).copied();
 
                 // Rx commutes with X-basis measurement so we can safely ignore it IF it is the last operation in queue.
@@ -383,7 +383,7 @@ impl SparseStateSim {
                 self.h_flag.set_bit(id as u64, true);
                 res
             }
-            Pauli::Y => {
+            OneQubitMeasurement::Y => {
                 let rx = self.rx_queue.get(id).copied();
 
                 // Ry commutes with Y-basis measurement so we can safely ignore it IF it is the last operation in queue.

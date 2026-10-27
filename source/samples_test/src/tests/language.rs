@@ -190,10 +190,10 @@ pub const COPYANDUPDATEOPERATOR_EXPECT_QIR_ADAPTIVE: Expect =
 pub const CUSTOMMEASUREMENTS_EXPECT: Expect = expect!["Zero"];
 pub const CUSTOMMEASUREMENTS_EXPECT_DEBUG: Expect = expect!["Zero"];
 // SimulatableIntrinsic, custom measurements are not expected to work in the circuit generation.
-pub const CUSTOMMEASUREMENTS_EXPECT_CIRCUIT: Expect = expect!["compilation error: name error"];
+pub const CUSTOMMEASUREMENTS_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
 pub const CUSTOMMEASUREMENTS_EXPECT_QIR_ADAPTIVE_RIF: Expect =
-    expect!["compilation error: name error"];
-pub const CUSTOMMEASUREMENTS_EXPECT_QIR_ADAPTIVE: Expect = expect!["compilation error: name error"];
+    expect!["generated QIR of length 1305"];
+pub const CUSTOMMEASUREMENTS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1489"];
 pub const DATATYPES_EXPECT: Expect = expect![[r#"
     Binary BigInt: 42
     Octal BigInt: 42

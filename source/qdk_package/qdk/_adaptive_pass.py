@@ -52,6 +52,8 @@ GATE_MAP: Dict[str, int] = {
     "rzz": 19,
     "ccx": 20,
     "m": 21,
+    "mx": 30,
+    "my": 31,
     "mz": 21,
     "mresetz": 22,
     "swap": 24,
@@ -59,7 +61,7 @@ GATE_MAP: Dict[str, int] = {
 }
 
 # Gates that take a result ID as a second argument
-MEASURE_GATES = {"m", "mz", "mresetz"}
+MEASURE_GATES = {"m", "mx", "my", "mz", "mresetz"}
 
 # Gates that reset a qubit (single qubit argument, no result)
 RESET_GATES = {"reset"}

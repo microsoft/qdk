@@ -48,16 +48,12 @@ impl Backend for CustomSim {
         self.sim.h(q)
     }
 
-    fn m(&mut self, q: usize) -> Result<val::Result, String> {
-        self.sim.m(q)
-    }
-
-    fn mx(&mut self, q: usize) -> Result<val::Result, String> {
-        self.sim.mx(q)
-    }
-
-    fn my(&mut self, q: usize) -> Result<val::Result, String> {
-        self.sim.my(q)
+    fn measure_single_pauli(
+        &mut self,
+        pauli: qsc_data_structures::measurement::OneQubitMeasurement,
+        q: usize,
+    ) -> Result<val::Result, String> {
+        self.sim.measure_single_pauli(pauli, q)
     }
 
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {

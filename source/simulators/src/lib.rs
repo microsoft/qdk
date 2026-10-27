@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub use qsc_data_structures::measurement::OneQubitMeasurement;
+
 pub mod bytecode;
 pub mod cpu_full_state_simulator;
 #[cfg(feature = "gpu")]
@@ -36,14 +38,6 @@ pub enum OutputRecord {
     Bool(bool),
     Int(i64),
     Double(f64),
-}
-
-/// Pauli bases for intrinsic measurements.
-#[derive(Debug, Clone, Copy)]
-pub enum Pauli {
-    X,
-    Y,
-    Z,
 }
 
 pub trait Simulator {
@@ -113,14 +107,13 @@ pub trait Simulator {
     /// Two qubits SWAP gate.
     fn swap(&mut self, q1: QubitID, q2: QubitID);
 
-    /// `MX` operation.
-    fn mx(&mut self, target: QubitID, result_id: ResultID);
-
-    /// `MY` operation.
-    fn my(&mut self, target: QubitID, result_id: ResultID);
-
-    /// `MZ` operation.
-    fn mz(&mut self, target: QubitID, result_id: ResultID);
+    /// Measures a single qubit in the specified Pauli basis.
+    fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        target: QubitID,
+        result_id: ResultID,
+    );
 
     /// `MResetZ` operation.
     fn mresetz(&mut self, target: QubitID, result_id: ResultID);

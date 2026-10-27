@@ -10,11 +10,11 @@ use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::{
-    MeasurementResult, Pauli, Simulator as _, SparseStateSim,
+    MeasurementResult, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
 };
-use qsc_data_structures::index_map::IndexMap;
+use qsc_data_structures::{index_map::IndexMap, measurement::OneQubitMeasurement};
 use qsc_fir::fir::PackageStoreLookup;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
@@ -42,14 +42,15 @@ pub trait Backend {
     fn h(&mut self, _q: usize) -> Result<(), String> {
         Err("h gate not implemented".to_string())
     }
+    fn measure_single_pauli(
+        &mut self,
+        _pauli: OneQubitMeasurement,
+        _q: usize,
+    ) -> Result<val::Result, String> {
+        Err("measure_single_pauli operation not implemented".to_string())
+    }
     fn m(&mut self, _q: usize) -> Result<val::Result, String> {
         Err("m operation not implemented".to_string())
-    }
-    fn mx(&mut self, _q: usize) -> Result<val::Result, String> {
-        Err("mx operation not implemented".to_string())
-    }
-    fn my(&mut self, _q: usize) -> Result<val::Result, String> {
-        Err("my operation not implemented".to_string())
     }
     fn mresetz(&mut self, _q: usize) -> Result<val::Result, String> {
         Err("mresetz operation not implemented".to_string())
@@ -260,35 +261,22 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         Ok(())
     }
 
-    pub fn m(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
+    pub fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        q: usize,
+        stack: &[Frame],
+    ) -> Result<val::Result, String> {
         let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.m(q)?,
+            OptionalBackend::Some(backend) => backend.measure_single_pauli(pauli, q)?,
             OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
-            tracer.measure(stack, "M", q, &r);
-        }
-        Ok(r)
-    }
-
-    pub fn mx(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
-        let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.mx(q)?,
-            OptionalBackend::None(fallback) => fallback.result_allocate(),
-        };
-        if let Some(tracer) = &mut self.tracer {
-            tracer.measure(stack, "MX", q, &r);
-        }
-        Ok(r)
-    }
-
-    pub fn my(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
-        let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.my(q)?,
-            OptionalBackend::None(fallback) => fallback.result_allocate(),
-        };
-        if let Some(tracer) = &mut self.tracer {
-            tracer.measure(stack, "MY", q, &r);
+            match pauli {
+                OneQubitMeasurement::X => tracer.measure(stack, "MX", q, &r),
+                OneQubitMeasurement::Y => tracer.measure(stack, "MY", q, &r),
+                OneQubitMeasurement::Z => tracer.measure(stack, "M", q, &r),
+            }
         }
         Ok(r)
     }
@@ -854,37 +842,18 @@ impl Backend for SparseSim {
         Ok(())
     }
 
-    fn m(&mut self, q: usize) -> Result<val::Result, String> {
-        self.apply_faults(|noise| &noise.mz, &[q]);
-        if self.is_qubit_lost(q) {
-            // If the qubit is lost, we cannot measure it.
-            // Mark it as no longer lost so it becomes usable again, since
-            // measurement will "reload" the qubit.
-            self.lost_qubits.set_bit(q as u64, false);
-            return Ok(val::Result::Loss);
-        }
-        Ok(val::Result::Val(self.sim.measure(q)))
-    }
-
-    fn mx(&mut self, q: usize) -> Result<val::Result, String> {
-        // TODO: [FUTURE] Change noise type
+    fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        q: usize,
+    ) -> Result<val::Result, String> {
+        // Change the noise config after new noise is added for different measurement basis
         self.apply_faults(|noise| &noise.mz, &[q]);
         if self.is_qubit_lost(q) {
             self.lost_qubits.set_bit(q as u64, false);
             return Ok(val::Result::Loss);
         }
-        let res = self.sim.measure_pauli(q, Pauli::X);
-        Ok(val::Result::Val(res))
-    }
-
-    fn my(&mut self, q: usize) -> Result<val::Result, String> {
-        // TODO: [FUTURE] Change noise type
-        self.apply_faults(|noise| &noise.mz, &[q]);
-        if self.is_qubit_lost(q) {
-            self.lost_qubits.set_bit(q as u64, false);
-            return Ok(val::Result::Loss);
-        }
-        let res = self.sim.measure_pauli(q, Pauli::Y);
+        let res = self.sim.measure_single_pauli(q, pauli);
         Ok(val::Result::Val(res))
     }
 
@@ -1333,9 +1302,13 @@ impl Backend for CliffordSim {
         Ok(())
     }
 
-    fn m(&mut self, q: usize) -> Result<val::Result, String> {
+    fn measure_single_pauli(
+        &mut self,
+        pauli: OneQubitMeasurement,
+        q: usize,
+    ) -> Result<val::Result, String> {
         let q_id = self.qubit_id_map[q];
-        self.sim.mz(q_id, 0);
+        self.sim.measure_single_pauli(pauli, q_id, 0);
         let res = self
             .sim
             .measurements()

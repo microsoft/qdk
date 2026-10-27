@@ -9,7 +9,7 @@ use crate::qir_simulation::{
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
-    MeasurementResult, OutputRecord, Simulator,
+    MeasurementResult, OneQubitMeasurement, OutputRecord, Simulator,
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
     cpu_full_state_simulator::FullStateSimulator,
     noise_config::{self, CumulativeNoiseConfig},
@@ -236,9 +236,15 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) -> Vec<O
                 QirInstructionId::CX => sim.cx(*q1 as usize, *q2 as usize),
                 QirInstructionId::CY => sim.cy(*q1 as usize, *q2 as usize),
                 QirInstructionId::CZ => sim.cz(*q1 as usize, *q2 as usize),
-                QirInstructionId::MX => sim.mx(*q1 as usize, *q2 as usize),
-                QirInstructionId::MY => sim.my(*q1 as usize, *q2 as usize),
-                QirInstructionId::MZ | QirInstructionId::M => sim.mz(*q1 as usize, *q2 as usize),
+                QirInstructionId::MX => {
+                    sim.measure_single_pauli(OneQubitMeasurement::X, *q1 as usize, *q2 as usize);
+                }
+                QirInstructionId::MY => {
+                    sim.measure_single_pauli(OneQubitMeasurement::Y, *q1 as usize, *q2 as usize);
+                }
+                QirInstructionId::MZ | QirInstructionId::M => {
+                    sim.measure_single_pauli(OneQubitMeasurement::Z, *q1 as usize, *q2 as usize);
+                }
                 QirInstructionId::MResetZ => sim.mresetz(*q1 as usize, *q2 as usize),
                 QirInstructionId::SWAP => sim.swap(*q1 as usize, *q2 as usize),
                 _ => panic!("unsupported two-qubits gate: {id:?}"),

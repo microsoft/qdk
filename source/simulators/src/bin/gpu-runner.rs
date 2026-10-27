@@ -684,9 +684,9 @@ fn test_cy_noise_inverts_phase() {
 /// measured state after the first measurement.
 fn test_mz_idempotent() {
     let ops: Vec<Op> = vec![
-        Op::new_h_gate(0),     // Put qubit in |+⟩ superposition
-        Op::new_mz_gate(0, 0), // First measurement -> result slot 0
-        Op::new_mz_gate(0, 1), // Second measurement -> result slot 1 (should match result slot 0)
+        Op::new_h_gate(0),                   // Put qubit in |+⟩ superposition
+        Op::new_m_pauli_gate(ops::MZ, 0, 0), // First measurement -> result slot 0
+        Op::new_m_pauli_gate(ops::MZ, 0, 1), // Second measurement -> result slot 1 (should match result slot 0)
     ];
     let shot_count = 1000;
     let results =
@@ -1050,7 +1050,9 @@ fn op_from_ir_line(line: &str) -> Vec<Op> {
                 Vec::new()
             }
         }
-        "m" => vec![Op::new_mz_gate(qubits[0], result_ids[0])],
+        "m" => vec![Op::new_m_pauli_gate(ops::MZ, qubits[0], result_ids[0])],
+        "mx" => vec![Op::new_m_pauli_gate(ops::MX, qubits[0], result_ids[0])],
+        "my" => vec![Op::new_m_pauli_gate(ops::MY, qubits[0], result_ids[0])],
         "mresetz" => vec![Op::new_mresetz_gate(qubits[0], result_ids[0])],
         "ccx" => {
             // Decompose CCX (Toffoli) gate as per the Python implementation
