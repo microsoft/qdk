@@ -368,6 +368,7 @@ extends:
                       ${{ envVar.key }}: ${{ envVar.value }}
                 timeoutInMinutes: 90
                 templateContext:
+                  # For Linux targets, build in a container image to support the targeted `manylinux` wheels
                   ${{ if eq(target.os, 'linux') }}:
                     authenticatedContainerRegistries:
                       - serviceConnection: qdkacr

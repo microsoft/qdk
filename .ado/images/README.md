@@ -33,7 +33,7 @@ ADO_PROJECT="Az..."
 # Upstream UBI8 details
 # See https://catalog.redhat.com/en/software/containers/ubi8/5c647760bed8bd28d0e38f9f for the latest UBI8 image tag
 UBI_REGISTRY="registry.access.redhat.com"
-UBI_TAG="8.10-1792456775"
+UBI_TAG="8.10-1793091705"
 
 # Log in to Azure for the right account and subscription
 az login --tenant AZ_TENANT_ID --skip-subscription-discovery --subscription AZ_SUBSCRIPTION_ID
@@ -61,6 +61,7 @@ To rebuild the base OS image, update the sha256 in `./qdk-base/Dockerfile` and r
 ACR_IMAGE_TAG="20261007"
 GH_BRANCH="billti/manylinux_2_28"
 az acr run --registry "$ACR_NAME" \
+  --set ubi8Tag="$UBI_TAG"
   --set imageTag="$ACR_IMAGE_TAG" \
   --file manifest-task.yaml \
   "https://github.com/microsoft/qdk.git#${GH_BRANCH}:.ado/images/qdk-base"
