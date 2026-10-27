@@ -61,7 +61,7 @@ To rebuild the base OS image, update the sha256 in `./qdk-base/Dockerfile` and r
 ACR_IMAGE_TAG="20261007"
 GH_BRANCH="billti/manylinux_2_28"
 az acr run --registry "$ACR_NAME" \
-  --set ubi8Tag="$UBI_TAG"
+  --set ubi8Tag="$UBI_TAG" \
   --set imageTag="$ACR_IMAGE_TAG" \
   --file manifest-task.yaml \
   "https://github.com/microsoft/qdk.git#${GH_BRANCH}:.ado/images/qdk-base"

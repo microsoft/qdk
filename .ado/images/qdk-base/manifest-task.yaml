@@ -21,8 +21,8 @@ steps:
       $Registry/docker:29-cli
       buildx build
       --platform linux/amd64
-      --build-arg BASE_REGISTRY=$Registry \
-      --build-arg UBI8_TAG={{.Values.ubi8Tag}} \
+      --build-arg BASE_REGISTRY=$Registry
+      --build-arg UBI8_TAG={{.Values.ubi8Tag}}
       --tag $Registry/qdk-base:{{.Values.imageTag}}-amd64
       --push
       .
@@ -32,8 +32,8 @@ steps:
       $Registry/docker:29-cli
       buildx build
       --platform linux/arm64
-      --build-arg BASE_REGISTRY=$Registry \
-      --build-arg UBI8_TAG={{.Values.ubi8Tag}} \
+      --build-arg BASE_REGISTRY=$Registry
+      --build-arg UBI8_TAG={{.Values.ubi8Tag}}
       --tag $Registry/qdk-base:{{.Values.imageTag}}-arm64
       --push
       .

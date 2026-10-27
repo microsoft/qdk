@@ -37,10 +37,22 @@ parameters:
     default: true
 
   # Parameters for ACR images and related tags
+  - name: ACR_NAME
+    displayName: Azure Container Registry resource name
+    type: string
+    default: "qdkacr"
   - name: ACR_SERVER
     displayName: Azure Container Registry server
     type: string
     default: "qdkacr-cfgqhwddajdaebhg.azurecr.io"
+  - name: azureServiceConnection
+    displayName: Azure service connection for ACR imports and builds
+    type: string
+    default: "AzureQuantum-test"
+  - name: registryServiceConnection
+    displayName: Docker Registry service connection for ACR pulls and pushes
+    type: string
+    default: "qdkacr"
   - name: UBI8_IMAGE_TAG
     displayName: Tag for the UBI8 image
     type: string
@@ -55,21 +67,27 @@ parameters:
     default: "latest"
 
 variables:
-  CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.95"
-  UBI_REGISTRY="registry.access.redhat.com"
-  UBI_TAG: ${{ parameters.UBI8_IMAGE_TAG }}
+  - name: CARGO_TERM_COLOR
+    value: always
+  - name: RUST_TOOLCHAIN_VERSION
+    value: "1.95"
+  - name: UBI_REGISTRY
+    value: "registry.access.redhat.com"
+  - name: UBI_TAG
+    value: ${{ parameters.UBI8_IMAGE_TAG }}
 
-  # If the user didn't specify a tag for the qdk-base or qdk-build image, use the build ID as the tag.
-  ${{ if eq(parameters.qdkBaseTag, 'latest') }}:
-    finalBaseTag: $(Build.BuildId)
-  ${{ else }}:
-    finalBaseTag: ${{ parameters.qdkBaseTag }}
+  # Use the build ID for new images, but preserve latest when reusing an existing base image.
+  - name: finalBaseTag
+    ${{ if and(parameters.buildBaseImage, eq(parameters.qdkBaseTag, 'latest')) }}:
+      value: $(Build.BuildId)
+    ${{ else }}:
+      value: ${{ parameters.qdkBaseTag }}
 
-  ${{ if eq(parameters.qdkBuildTag, 'latest') }}:
-    finalBuildTag: $(Build.BuildId)
-  ${{ else }}:
-    finalBuildTag: ${{ parameters.qdkBuildTag }}
+  - name: finalBuildTag
+    ${{ if eq(parameters.qdkBuildTag, 'latest') }}:
+      value: $(Build.BuildId)
+    ${{ else }}:
+      value: ${{ parameters.qdkBuildTag }}
 
 resources:
   repositories:
@@ -108,12 +126,17 @@ extends:
                 steps:
                   - task: AzureCLI@2
                     inputs:
-                      azureSubscription: "AzureQuantum-test"
+                      azureSubscription: ${{ parameters.azureServiceConnection }}
                       scriptType: bash
                       scriptLocation: inlineScript
                       inlineScript: |
                         set -euo pipefail
-                        az acr import --name qdkacr --source $(UBI_REGISTRY)/ubi8/ubi:$(UBI_TAG) --image ubi8/ubi:$(UBI_TAG)
+                        az acr import --name "$ACR_NAME" \
+                          --source "$(UBI_REGISTRY)/ubi8/ubi:$(UBI_TAG)" \
+                          --image "ubi8/ubi:$(UBI_TAG)" \
+                          --force
+                    env:
+                      ACR_NAME: ${{ parameters.ACR_NAME }}
                     displayName: Import UBI Image
 
       - ${{ if eq(parameters.buildBaseImage, true) }}:
@@ -129,16 +152,18 @@ extends:
                   - checkout: self
                   - task: AzureCLI@2
                     inputs:
-                      azureSubscription: "AzureQuantum-test"
+                      azureSubscription: ${{ parameters.azureServiceConnection }}
                       scriptType: bash
                       scriptLocation: inlineScript
                       inlineScript: |
                         set -euo pipefail
-                        az acr run --registry "qdkacr" \
+                        az acr run --registry "$ACR_NAME" \
                           --set ubi8Tag="$(UBI_TAG)" \
                           --set imageTag="$(finalBaseTag)" \
                           --file manifest-task.yaml \
                           ".ado/images/qdk-base"
+                    env:
+                      ACR_NAME: ${{ parameters.ACR_NAME }}
                     displayName: Build Base Image
 
       - ${{ if eq(parameters.buildToolsImage, true) }}:
@@ -158,7 +183,7 @@ extends:
                     timeoutInMinutes: 300
                     templateContext:
                       authenticatedContainerRegistries:
-                        - serviceConnection: qdkacr
+                        - serviceConnection: ${{ parameters.registryServiceConnection }}
                     steps:
                       - checkout: self
 
@@ -196,6 +221,7 @@ extends:
                           # I tried using BuildKit with secrets, but it didn't work with the network isolation due
                           # to trying to fetch schema files from docker.io
                           buildArguments: >
+                            --build-arg BASE_REGISTRY=${{ parameters.ACR_SERVER }}
                             --build-arg BASE_TAG=$(finalBaseTag)
                             --build-arg MSRUSTUP_FEED_URL=$(toolchainFeed)
                             --build-arg MSRUSTUP_ACCESS_TOKEN=$(System.AccessToken)
@@ -213,7 +239,7 @@ extends:
 
                 templateContext:
                   authenticatedContainerRegistries:
-                    - serviceConnection: qdkacr
+                    - serviceConnection: ${{ parameters.registryServiceConnection }}
 
                 pool:
                   name: "Azure-Pipelines-DevTools-EO"
