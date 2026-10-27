@@ -19,7 +19,7 @@ use std::{
 };
 
 pub(super) struct ExecutionState<'a> {
-    batcher: Batcher<'a>,
+    batcher: Batcher<&'a mut dyn QuantumBackend>,
     qubits: usize,
     written_results: Vec<bool>,
     pub records: Vec<OutputRecord>,
@@ -40,7 +40,7 @@ impl<'a> ExecutionState<'a> {
             .map_err(|error| format!("Cannot allocate result slots: {error}"))?;
         slots.resize(results, false);
         Ok(Self {
-            batcher: Batcher::new(backend, max_batch_size)?,
+            batcher: Batcher::new(backend, max_batch_size),
             qubits,
             written_results: slots,
             records: Vec::new(),

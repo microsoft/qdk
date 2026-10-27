@@ -6,7 +6,7 @@ interface
         character(kind=c_char), intent(in) :: backend(*)
     end subroutine qdk_init
 
-    ! Saves profiling data to a NUL-terminated UTF-8 path.
+    ! Flushes pending instructions and saves profiling data to a NUL-terminated UTF-8 path.
     subroutine qdk_save_profile(path) bind(C, name="qdk_save_profile")
         use, intrinsic :: iso_c_binding, only: c_char
         character(kind=c_char), intent(in) :: path(*)

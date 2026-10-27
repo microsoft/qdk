@@ -1,15 +1,20 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult};
+use crate::{
+    Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult, interface::Driver,
+};
 use smallvec::smallvec;
 
 /// Default number of instructions sent to a backend in one batch.
 pub const DEFAULT_MAX_BATCH_SIZE: usize = 10_000;
 
-/// Buffers QIR instructions and flushes at capacity or a `read_result`, `mz`, or `mz_reset` barrier.
-pub(crate) struct Batcher<'a> {
-    backend: &'a mut dyn QuantumBackend,
+/// Buffers instructions for an owned or borrowed backend.
+///
+/// Flushes at capacity or a `read_result`, `mz`, or `mz_reset` barrier.
+/// Call [`Self::finish`] to submit trailing instructions; dropping discards them.
+pub struct Batcher<B> {
+    backend: B,
     instructions: Vec<QuantumBackendInstruction>,
     max_batch_size: usize,
 }
@@ -22,24 +27,28 @@ fn produces_result(instruction: &QuantumBackendInstruction) -> bool {
     )
 }
 
-impl<'a> Batcher<'a> {
+impl<B: QuantumBackend> Driver for Batcher<B> {
+    type Backend = B;
+
+    /// Returns the backend without flushing pending instructions.
+    fn get_backend(&self) -> &B {
+        &self.backend
+    }
+}
+
+impl<B: QuantumBackend> Batcher<B> {
     /// Creates a batcher with a reusable instruction buffer.
-    pub(crate) fn new(
-        backend: &'a mut dyn QuantumBackend,
-        max_batch_size: usize,
-    ) -> Result<Self, String> {
-        if max_batch_size == 0 {
-            return Err("Maximum QIR batch size must be greater than zero".into());
-        }
-        Ok(Self {
+    pub fn new(backend: B, max_batch_size: usize) -> Self {
+        assert!(max_batch_size > 0);
+        Self {
             backend,
             instructions: Vec::with_capacity(max_batch_size),
             max_batch_size,
-        })
+        }
     }
 
     /// Buffers a non-blocking instruction and flushes a full batch.
-    pub(crate) fn push(&mut self, instruction: QuantumBackendInstruction) -> Result<(), String> {
+    pub fn push(&mut self, instruction: QuantumBackendInstruction) -> Result<(), String> {
         debug_assert!(!produces_result(&instruction));
         self.instructions.push(instruction);
         if self.instructions.len() == self.max_batch_size {
@@ -49,18 +58,26 @@ impl<'a> Batcher<'a> {
     }
 
     /// Flushes pending instructions with a final result read and returns its value.
-    pub(crate) fn read_result(&mut self, result_id: usize) -> Result<bool, String> {
-        self.push_with_result(QuantumBackendInstruction {
+    pub fn read_result(&mut self, result_id: usize) -> Result<bool, String> {
+        let result = self.push_with_result(QuantumBackendInstruction {
             instruction_name: "read_result",
             parameters: smallvec![Parameter::ResultId(result_id)],
-        })
+        })?;
+        match result {
+            QuantumBackendResult::Zero => Ok(false),
+            QuantumBackendResult::One => Ok(true),
+            QuantumBackendResult::Error => Err("QIR backend returned an error result".into()),
+        }
     }
 
-    /// Submits a result-producing instruction as an immediate barrier after pending work.
-    pub(crate) fn push_with_result(
+    /// Flushes at a result barrier, preserving a single backend-reported error value.
+    ///
+    /// Unlike [`Self::push_with_result`], this returns `QuantumBackendResult::Error`
+    /// as a value. Execution failures and invalid result counts remain errors.
+    pub fn push_with_result(
         &mut self,
         instruction: QuantumBackendInstruction,
-    ) -> Result<bool, String> {
+    ) -> Result<QuantumBackendResult, String> {
         debug_assert!(produces_result(&instruction));
         let name = instruction.instruction_name;
         self.instructions.push(instruction);
@@ -69,7 +86,7 @@ impl<'a> Batcher<'a> {
     }
 
     /// Flushes instructions remaining at the end of execution.
-    pub(crate) fn finish(&mut self) -> Result<(), String> {
+    pub fn finish(&mut self) -> Result<(), String> {
         if !self.instructions.is_empty() {
             self.flush(false)?;
         }
@@ -77,18 +94,19 @@ impl<'a> Batcher<'a> {
     }
 
     /// Executes the buffered instructions and validates the backend response.
-    fn flush(&mut self, expects_result: bool) -> Result<Option<bool>, String> {
+    fn flush(&mut self, expects_result: bool) -> Result<Option<QuantumBackendResult>, String> {
         let batch = self.backend.execute_batch(&self.instructions);
         self.instructions.clear();
         let batch = batch?;
 
-        if batch.results.contains(&QuantumBackendResult::Error) {
+        if batch.results.contains(&QuantumBackendResult::Error)
+            && !(expects_result && batch.results.len() == 1)
+        {
             return Err("QIR backend returned an error result".into());
         }
         match (expects_result, batch.results.as_slice()) {
             (_, []) => Ok(None),
-            (true, [QuantumBackendResult::Zero]) => Ok(Some(false)),
-            (true, [QuantumBackendResult::One]) => Ok(Some(true)),
+            (true, [result]) => Ok(Some(*result)),
             (false, _) => {
                 Err("QIR backend returned a result for a batch without read_result".into())
             }
@@ -123,11 +141,43 @@ mod tests {
     }
 
     #[test]
+    /// Flushes an owned backend at capacity and preserves a backend error value.
+    fn owns_backend_and_preserves_error_result() -> Result<(), String> {
+        use crate::interface::Driver;
+
+        let backend = RecordingBackend {
+            results: VecDeque::from([
+                BatchResult::default(),
+                BatchResult {
+                    results: [QuantumBackendResult::Error].into_iter().collect(),
+                },
+            ]),
+            ..Default::default()
+        };
+        let mut batcher = Batcher::new(backend, 1);
+        batcher.push(QuantumBackendInstruction {
+            instruction_name: "h",
+            parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
+        })?;
+        assert_eq!(batcher.get_backend().batches.len(), 1);
+        assert_eq!(
+            batcher.push_with_result(QuantumBackendInstruction {
+                instruction_name: "mz",
+                parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
+            })?,
+            QuantumBackendResult::Error
+        );
+        batcher.finish()?;
+        assert_eq!(batcher.get_backend().batches.len(), 2);
+        Ok(())
+    }
+
+    #[test]
     /// Flushes at capacity and reuses the buffer for later instructions.
     fn flushes_at_configured_capacity() -> Result<(), String> {
         let mut backend = RecordingBackend::default();
         {
-            let mut batcher = Batcher::new(&mut backend, 2)?;
+            let mut batcher = Batcher::new(&mut backend, 2);
             batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "h",
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
@@ -159,7 +209,7 @@ mod tests {
             ..Default::default()
         };
         let value = {
-            let mut batcher = Batcher::new(&mut backend, 10)?;
+            let mut batcher = Batcher::new(&mut backend, 10);
             batcher.push(crate::QuantumBackendInstruction {
                 instruction_name: "mz_store",
                 parameters: smallvec::smallvec![
@@ -199,7 +249,7 @@ mod tests {
             }]),
             ..Default::default()
         };
-        let mut batcher = Batcher::new(&mut backend, 10)?;
+        let mut batcher = Batcher::new(&mut backend, 10);
         assert!(!batcher.read_result(0)?);
         Ok(())
     }
@@ -226,7 +276,7 @@ mod tests {
                 }]),
                 ..Default::default()
             };
-            let mut batcher = Batcher::new(&mut backend, 10)?;
+            let mut batcher = Batcher::new(&mut backend, 10);
             let error = if expects_result {
                 batcher.read_result(0).expect_err("invalid result")
             } else {

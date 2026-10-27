@@ -70,7 +70,7 @@ fn callable(expr: &str) -> (Interpreter, Value) {
 /// Forwards every gate with canonical operand ordering in a single batch.
 fn forwards_all_gates() -> Result<(), String> {
     let mut backend = RecordingBackend::default();
-    let mut shim = QsBackendReverseShim::new(&mut backend)?;
+    let mut shim = QsBackendReverseShim::new(&mut backend);
     let a = shim.qubit_allocate()?;
     let b = shim.qubit_allocate()?;
     let c = shim.qubit_allocate()?;
@@ -134,7 +134,7 @@ fn forwards_all_gates() -> Result<(), String> {
 /// Flushes full batches and the final partial batch without extra instructions.
 fn batches_at_capacity() -> Result<(), String> {
     let mut backend = RecordingBackend::default();
-    let mut shim = QsBackendReverseShim::new(&mut backend)?;
+    let mut shim = QsBackendReverseShim::new(&mut backend);
     let q = shim.qubit_allocate()?;
     for _ in 0..=DEFAULT_MAX_BATCH_SIZE {
         shim.h(q)?;
@@ -153,7 +153,7 @@ fn measurement_barriers() -> Result<(), String> {
         measurements: VecDeque::from([true, false]),
         ..Default::default()
     };
-    let mut shim = QsBackendReverseShim::new(&mut backend)?;
+    let mut shim = QsBackendReverseShim::new(&mut backend);
     let q = shim.qubit_allocate()?;
     shim.x(q)?;
     assert_eq!(shim.m(q)?, qsc_eval::val::Result::Val(true));
@@ -179,7 +179,7 @@ fn measurement_barriers() -> Result<(), String> {
 /// Preserves physical mappings across ID swaps and logical qubit reuse.
 fn reuses_swapped_qubits() -> Result<(), String> {
     let mut backend = RecordingBackend::default();
-    let mut shim = QsBackendReverseShim::new(&mut backend)?;
+    let mut shim = QsBackendReverseShim::new(&mut backend);
     let a = shim.qubit_allocate()?;
     let b = shim.qubit_allocate()?;
     shim.x(a)?;
@@ -206,7 +206,7 @@ fn reuses_swapped_qubits() -> Result<(), String> {
 /// Rejects unavailable service operations without measuring or fabricating state.
 fn rejects_unsupported_services() -> Result<(), String> {
     let mut backend = RecordingBackend::default();
-    let mut shim = QsBackendReverseShim::new(&mut backend)?;
+    let mut shim = QsBackendReverseShim::new(&mut backend);
     let q = shim.qubit_allocate()?;
     assert!(
         shim.qubit_is_zero(q)

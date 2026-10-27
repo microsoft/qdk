@@ -42,6 +42,17 @@ pub trait QuantumBackend {
     ) -> Result<BatchResult, String>;
 }
 
+/// Driver is something that owns a backend and provides access to it.
+/// Driver is a generic trait parametrized by type of its backend.
+pub trait Driver {
+    type Backend: QuantumBackend + ?Sized;
+
+    /// Returns the wrapped backend.
+    fn get_backend(&self) -> &Self::Backend;
+}
+
+// End of interface definition.
+
 impl<T: QuantumBackend + ?Sized> QuantumBackend for Box<T> {
     /// Forwards instruction execution to the boxed backend.
     fn execute_batch(
@@ -50,15 +61,6 @@ impl<T: QuantumBackend + ?Sized> QuantumBackend for Box<T> {
     ) -> Result<BatchResult, String> {
         (**self).execute_batch(instructions)
     }
-}
-
-/// Driver is something that owns a backend and provides access to it.
-/// Driver is a generic trait parametrized by type of its backend.
-pub trait Driver {
-    type Backend: QuantumBackend + ?Sized;
-
-    /// Returns the wrapped backend.
-    fn get_backend(&self) -> &Self::Backend;
 }
 
 impl<T: QuantumBackend + ?Sized> Driver for Box<T> {
@@ -70,7 +72,15 @@ impl<T: QuantumBackend + ?Sized> Driver for Box<T> {
     }
 }
 
-// End of interface definition.
+impl<T: QuantumBackend + ?Sized> QuantumBackend for &mut T {
+    /// Forwards instruction execution to the borrowed backend.
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<BatchResult, String> {
+        (**self).execute_batch(instructions)
+    }
+}
 
 impl From<bool> for QuantumBackendResult {
     /// Converts a measurement bit to its backend result.

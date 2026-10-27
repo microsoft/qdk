@@ -41,7 +41,7 @@ pub fn run_qsharp_call(
     args: Value,
     backend: &mut impl QuantumBackend,
 ) -> Result<(), QsharpRunError> {
-    let mut qs_backend = QsBackendReverseShim::new(backend).map_err(QsharpRunError::Backend)?;
+    let mut qs_backend = QsBackendReverseShim::new(backend);
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
 
@@ -60,7 +60,7 @@ pub fn run_qsharp_expr(
     expr: &str,
     backend: &mut impl QuantumBackend,
 ) -> Result<(), QsharpRunError> {
-    let mut qs_backend = QsBackendReverseShim::new(backend).map_err(QsharpRunError::Backend)?;
+    let mut qs_backend = QsBackendReverseShim::new(backend);
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
 
@@ -73,19 +73,19 @@ pub fn run_qsharp_expr(
 
 /// Adapts classical Q# evaluator calls to buffered quantum instructions.
 struct QsBackendReverseShim<'a> {
-    batcher: Batcher<'a>,
+    batcher: Batcher<&'a mut dyn QuantumBackend>,
     qubits: Vec<usize>,
     free_list: Vec<usize>,
 }
 
 impl<'a> QsBackendReverseShim<'a> {
     /// Creates a batcher and an empty logical-to-backend qubit map.
-    fn new(backend: &'a mut impl QuantumBackend) -> Result<Self, String> {
-        Ok(Self {
-            batcher: Batcher::new(backend, DEFAULT_MAX_BATCH_SIZE)?,
+    fn new(backend: &'a mut dyn QuantumBackend) -> Self {
+        Self {
+            batcher: Batcher::new(backend, DEFAULT_MAX_BATCH_SIZE),
             qubits: Vec::new(),
             free_list: Vec::new(),
-        })
+        }
     }
 
     /// Measures into a reusable result slot and resolves it before execution continues.

@@ -1,7 +1,8 @@
+use qep::interface::Driver;
 use qep::{
-    OPERATION_COUNT, Parameter, Profiler, QuantumBackend, QuantumBackendInstruction,
-    QuantumBackends, SequentialCountingProfiler, TemporalProfiler, TemporalProfilerConfig,
-    instruction_id_to_name,
+    Batcher, DEFAULT_MAX_BATCH_SIZE, OPERATION_COUNT, Parameter, Profiler, QuantumBackend,
+    QuantumBackendInstruction, QuantumBackends, SequentialCountingProfiler, TemporalProfiler,
+    TemporalProfilerConfig, instruction_id_to_name,
 };
 use smallvec::{SmallVec, smallvec};
 use std::{
@@ -9,22 +10,47 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-enum Backend {
-    Simulator(Box<dyn QuantumBackend + Send>),
+enum BackendKind {
     Profiler(Box<dyn Profiler + Send>),
+    Other(Box<dyn QuantumBackend + Send>),
 }
-
-impl Backend {
-    /// Provides instruction execution for either variant using trait upcasting.
-    fn as_backend_mut(&mut self) -> &mut (dyn QuantumBackend + Send) {
+impl QuantumBackend for BackendKind {
+    /// Executes instructions through the selected backend's retained trait object.
+    fn execute_batch(
+        &mut self,
+        instructions: &[QuantumBackendInstruction],
+    ) -> Result<qep::BatchResult, String> {
         match self {
-            Self::Simulator(backend) => backend.as_mut(),
-            Self::Profiler(profiler) => profiler.as_mut(),
+            Self::Profiler(profiler) => profiler.execute_batch(instructions),
+            Self::Other(backend) => backend.execute_batch(instructions),
         }
     }
 }
 
-static BACKEND: Mutex<Option<Backend>> = Mutex::new(None);
+struct BackendWrapper {
+    batcher: Batcher<BackendKind>,
+}
+
+impl BackendWrapper {
+    /// Wraps an owned backend without exposing profiling support.
+    fn new(backend: impl QuantumBackend + Send + 'static) -> Self {
+        Self::from_kind(BackendKind::Other(Box::new(backend)))
+    }
+
+    /// Wraps an owned profiler while retaining access to its profiling data.
+    fn for_profiler(profiler: impl Profiler + Send + 'static) -> Self {
+        Self::from_kind(BackendKind::Profiler(Box::new(profiler)))
+    }
+
+    /// Creates the shared instruction buffer for either backend kind.
+    fn from_kind(backend: BackendKind) -> Self {
+        Self {
+            batcher: Batcher::new(backend, DEFAULT_MAX_BATCH_SIZE),
+        }
+    }
+}
+
+static BACKEND: Mutex<Option<BackendWrapper>> = Mutex::new(None);
 
 /// Reports an unrecoverable C API error without unwinding across the FFI boundary.
 fn abort_with_error(message: &str) -> ! {
@@ -33,7 +59,7 @@ fn abort_with_error(message: &str) -> ! {
 }
 
 /// Locks the shared backend, terminating if a previous call poisoned the mutex.
-fn lock_backend() -> MutexGuard<'static, Option<Backend>> {
+fn lock_backend() -> MutexGuard<'static, Option<BackendWrapper>> {
     BACKEND
         .lock()
         .unwrap_or_else(|error| abort_with_error(&format!("profiler mutex poisoned: {error}")))
@@ -51,7 +77,7 @@ fn instruction(instruction_name: &'static str, arguments: SmallVec<[Parameter; 3
         instruction_name,
         parameters: arguments,
     };
-    if let Err(error) = profiler.as_backend_mut().execute_batch(&[instruction]) {
+    if let Err(error) = profiler.batcher.push(instruction) {
         abort_with_error(&format!("qdk_{instruction_name} failed: {error}"));
     }
 }
@@ -72,17 +98,12 @@ fn instruction_with_result(
         parameters: arguments,
     };
     let result = profiler
-        .as_backend_mut()
-        .execute_batch(&[instruction])
+        .batcher
+        .push_with_result(instruction)
         .unwrap_or_else(|error| {
             abort_with_error(&format!("qdk_{instruction_name} failed: {error}"))
         });
-    if result.results.len() != 1 {
-        abort_with_error(&format!(
-            "qdk_{instruction_name} must return exactly one result"
-        ));
-    }
-    match result.results[0] {
+    match result {
         qep::QuantumBackendResult::Zero => 0,
         qep::QuantumBackendResult::One => 1,
         qep::QuantumBackendResult::Error => 2,
@@ -108,7 +129,7 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
         });
     let mut stored_backend = lock_backend();
     *stored_backend = Some(match backend {
-        "sparse_sim" => Backend::Simulator(Box::new(QuantumBackends::sparse_sim())),
+        "sparse_sim" => BackendWrapper::new(QuantumBackends::sparse_sim()),
         "counting_profiler" => {
             let timings = (0..OPERATION_COUNT)
                 .map(|id| (instruction_id_to_name(id).to_owned(), 0.0))
@@ -116,7 +137,7 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
             let profiler = SequentialCountingProfiler::new(1, timings).unwrap_or_else(|error| {
                 abort_with_error(&format!("qdk_init() counting_profiler failed: {error}"))
             });
-            Backend::Profiler(Box::new(profiler))
+            BackendWrapper::for_profiler(profiler)
         }
         "temporal_profiler" => {
             let config = TemporalProfilerConfig {
@@ -124,7 +145,7 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
                 record_trace: true,
                 ..TemporalProfilerConfig::default()
             };
-            Backend::Profiler(Box::new(TemporalProfiler::new(config)))
+            BackendWrapper::for_profiler(TemporalProfiler::new(config))
         }
         _ => abort_with_error(&format!(
             "qdk_init() unknown backend `{backend}`; expected sparse_sim, counting_profiler, or temporal_profiler"
@@ -132,7 +153,8 @@ pub unsafe extern "C" fn qdk_init(backend: *const c_char) {
     });
 }
 
-/// Saves profiling data, or reports unsupported profiling on stderr and returns.
+/// Flushes pending instructions and saves profiling data when supported.
+/// Reports unsupported profiling on stderr without writing a file.
 /// Invalid paths and save failures abort the process.
 ///
 /// # Safety
@@ -150,11 +172,14 @@ pub unsafe extern "C" fn qdk_save_profile(path: *const c_char) {
         .unwrap_or_else(|error| {
             abort_with_error(&format!("qdk_save_profile() path is not UTF-8: {error}"))
         });
-    let backend = lock_backend();
+    let mut backend = lock_backend();
     let backend = backend
-        .as_ref()
+        .as_mut()
         .unwrap_or_else(|| abort_with_error("qdk_init() must be called before qdk_save_profile()"));
-    let Backend::Profiler(profiler) = backend else {
+    backend.batcher.finish().unwrap_or_else(|error| {
+        abort_with_error(&format!("qdk_save_profile() flush failed: {error}"))
+    });
+    let BackendKind::Profiler(profiler) = backend.batcher.get_backend() else {
         eprintln!("qep_interop: qdk_save_profile() backend does not support profiling");
         return;
     };
@@ -389,24 +414,24 @@ mod tests {
     }
 
     impl QuantumBackend for RecordingBackend {
-        /// Validates and records single-instruction batches with distinct test outcomes.
+        /// Validates and records batches with distinct measurement outcomes.
         fn execute_batch(
             &mut self,
             instructions: &[QuantumBackendInstruction],
         ) -> Result<BatchResult, String> {
-            assert_eq!(instructions.len(), 1);
-            let instruction = &instructions[0];
-            qep::validate_instruction(instruction);
-            self.instructions
-                .lock()
-                .expect("recording mutex must not be poisoned")
-                .push(instruction.clone());
             let mut result = BatchResult::default();
-            match instruction.instruction_name {
-                "read_result" => result.results.push(QuantumBackendResult::Zero),
-                "mz" => result.results.push(QuantumBackendResult::One),
-                "mz_reset" => result.results.push(QuantumBackendResult::Error),
-                _ => {}
+            for instruction in instructions {
+                qep::validate_instruction(instruction);
+                self.instructions
+                    .lock()
+                    .expect("recording mutex must not be poisoned")
+                    .push(instruction.clone());
+                match instruction.instruction_name {
+                    "read_result" => result.results.push(QuantumBackendResult::Zero),
+                    "mz" => result.results.push(QuantumBackendResult::One),
+                    "mz_reset" => result.results.push(QuantumBackendResult::Error),
+                    _ => {}
+                }
             }
             Ok(result)
         }
@@ -419,9 +444,9 @@ mod tests {
 
         let _test_lock = TEST_LOCK.lock().expect("test mutex must not be poisoned");
         let recorded = Arc::new(Mutex::new(Vec::new()));
-        *lock_backend() = Some(Backend::Simulator(Box::new(RecordingBackend {
+        *lock_backend() = Some(BackendWrapper::new(RecordingBackend {
             instructions: Arc::clone(&recorded),
-        })));
+        }));
         qdk_ccx(1, 2, 3);
         qdk_cx(1, 2);
         qdk_cy(1, 2);
@@ -445,6 +470,13 @@ mod tests {
         qdk_reset(1);
         qdk_mz_store(1, 4);
         qdk_mz_store_reset(1, 4);
+        assert!(
+            recorded
+                .lock()
+                .expect("recording mutex must not be poisoned")
+                .is_empty(),
+            "instructions must remain buffered until a result is requested"
+        );
         assert_eq!(qdk_read_result(4), 0);
         assert_eq!(qdk_mz(1), 1);
         assert_eq!(qdk_mz_reset(1), 2);
@@ -488,6 +520,23 @@ mod tests {
                 .as_slice(),
             expected.as_slice()
         );
+        qdk_x(1);
+        assert_eq!(
+            recorded
+                .lock()
+                .expect("recording mutex must not be poisoned")
+                .len(),
+            expected.len()
+        );
+        // SAFETY: The path is a static, NUL-terminated string; this backend writes no file.
+        unsafe { qdk_save_profile(c"unused.json".as_ptr()) };
+        assert_eq!(
+            recorded
+                .lock()
+                .expect("recording mutex must not be poisoned")
+                .len(),
+            expected.len() + 1
+        );
         *lock_backend() = None;
     }
 
@@ -511,9 +560,14 @@ mod tests {
         ] {
             // SAFETY: The backend name is a static, NUL-terminated string.
             unsafe { qdk_init(backend.as_ptr()) };
-            if let Some(Backend::Profiler(profiler)) = lock_backend().as_ref() {
+            if let Some(wrapper) = lock_backend().as_ref()
+                && let BackendKind::Profiler(profiler) = wrapper.batcher.get_backend()
+            {
                 let result = profiler.get_result();
-                assert_eq!(result.totals.logical_qubits, 0);
+                assert_eq!(result.totals.logical_compute_qubits, 0);
+                if backend == c"counting_profiler" {
+                    assert_eq!(result.totals.total_operations_count, 0);
+                }
                 assert!(result.totals.total_runtime_sec.abs() < f64::EPSILON);
             }
             qdk_x(5);
@@ -524,7 +578,14 @@ mod tests {
 
             if backend == c"sparse_sim" {
                 assert_eq!((first, second), (1, 0));
-                assert!(matches!(*lock_backend(), Some(Backend::Simulator(_))));
+                assert!(matches!(
+                    lock_backend()
+                        .as_ref()
+                        .expect("backend must be initialized")
+                        .batcher
+                        .get_backend(),
+                    BackendKind::Other(_)
+                ));
                 fs::write(&path, "existing profile").expect("test file must be created");
                 // SAFETY: The CString remains valid for the duration of the call.
                 unsafe { qdk_save_profile(c_path.as_ptr()) };
@@ -540,12 +601,18 @@ mod tests {
             } else {
                 {
                     let stored = lock_backend();
-                    let Some(Backend::Profiler(profiler)) = stored.as_ref() else {
+                    let BackendKind::Profiler(profiler) = stored
+                        .as_ref()
+                        .expect("backend must be initialized")
+                        .batcher
+                        .get_backend()
+                    else {
                         panic!("profiler selection must use the profiler variant");
                     };
                     let result = profiler.get_result();
-                    assert_eq!(result.totals.logical_qubits, 6);
+                    assert_eq!(result.totals.logical_compute_qubits, 6);
                     if backend == c"counting_profiler" {
+                        assert_eq!(result.totals.logical_qubits, 6);
                         assert_eq!(result.totals.physical_qubits, 6);
                         assert_eq!(result.totals.total_operations_count, 4);
                         assert_eq!(result.totals.calls_per_operation["x"], 2);
@@ -553,7 +620,7 @@ mod tests {
                         assert!(result.totals.total_runtime_sec.abs() < f64::EPSILON);
                         assert!(result.infos.is_empty());
                     } else {
-                        assert!(result.trace.is_none());
+                        assert!(result.trace.is_some());
                         let x_rate = result
                             .profiles
                             .profiles
@@ -563,13 +630,30 @@ mod tests {
                         assert!((x_rate.series[0].1 - 2.0).abs() < 1e-12);
                     }
                 }
-                // SAFETY: The CString remains valid for the duration of the call.
-                unsafe { qdk_save_profile(c_path.as_ptr()) };
-                assert!(
-                    fs::read_to_string(&path)
-                        .expect("profiler must save JSON")
-                        .contains("\"totals\"")
-                );
+                qdk_x(5);
+                for _ in 0..2 {
+                    // SAFETY: The CString remains valid for the duration of the call.
+                    unsafe { qdk_save_profile(c_path.as_ptr()) };
+                    assert!(
+                        fs::read_to_string(&path)
+                            .expect("profiler must save JSON")
+                            .contains("\"totals\"")
+                    );
+                    if backend == c"counting_profiler" {
+                        let stored = lock_backend();
+                        let BackendKind::Profiler(profiler) = stored
+                            .as_ref()
+                            .expect("backend must be initialized")
+                            .batcher
+                            .get_backend()
+                        else {
+                            panic!("profiler selection must retain profiling support");
+                        };
+                        let result = profiler.get_result();
+                        assert_eq!(result.totals.total_operations_count, 5);
+                        assert_eq!(result.totals.calls_per_operation["x"], 3);
+                    }
+                }
                 fs::remove_file(&path).expect("test profile must be removed");
             }
         }
