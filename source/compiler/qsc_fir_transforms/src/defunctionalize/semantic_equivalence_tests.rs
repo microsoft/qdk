@@ -8,6 +8,7 @@
 use indoc::formatdoc;
 #[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
+use qsc_eval::val::{Result as MeasurementResult, Value};
 
 use super::test_cases;
 
@@ -16,6 +17,264 @@ fn conditional_hof_callees_preserve_branch_argument_ownership() {
     for (source, expected) in test_cases::conditional_hof_argument_cases() {
         check_callable_result(&source, expected);
     }
+}
+
+#[test]
+fn nested_closures_preserve_producer_capture_values() {
+    for (source, expected) in test_cases::nested_environment_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+/// The nested operation must retain its captured pi angle, not the caller's
+/// zero-valued sentinel. Both rotation directions flip the qubit; empty controls
+/// exercise functor nesting, and trace comparison also checks the applied gates.
+#[test]
+fn nested_operation_captures_preserve_rotation_effects_through_functors() {
+    for functor in [
+        "",
+        "Adjoint",
+        "Controlled",
+        "Controlled Controlled",
+        "Adjoint Controlled",
+    ] {
+        let args = match functor.matches("Controlled").count() {
+            0 => "q",
+            1 => "[], q",
+            _ => "[], ([], q)",
+        };
+        let source = formatdoc! {r#"
+            function Make(angle : Double) : Qubit => Unit is Adj + Ctl {{
+                let inner : Qubit => Unit is Adj + Ctl = q=>Ry(angle,q);
+                let ops=[inner];
+                q=>{{ let op=ops[0]; op(q); }}
+            }}
+            @EntryPoint() operation Main() : Int {{
+                let sentinel=0.0;
+                let op=Make(3.141592653589793);
+                use q=Qubit();
+                {functor} op({args});
+                if MResetZ(q) == One {{ 1 }} else {{ 0 }}
+            }}
+        "#};
+        check_callable_result(&source, 1);
+    }
+}
+
+#[test]
+fn data_only_factory_uses_preserve_other_closure_captures() {
+    for (source, expected) in test_cases::surviving_producer_capture_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn data_only_factory_uses_preserve_functor_wrapped_closure_captures() {
+    for source in test_cases::surviving_producer_functor_cases() {
+        check_callable_result(&source, 7);
+    }
+}
+
+/// Copying the capture expression must preserve the free `outer` reference and
+/// freshen `inner` without changing its binding: `3 + (1 + (3 + 1) * 2) = 12`.
+#[test]
+fn copied_capture_block_preserves_free_and_bound_locals() {
+    check_callable_result(
+        r#"
+        function Make(offset : Int) : Int -> Int { x->x+offset }
+        @EntryPoint() operation Main() : Int {
+            let outer=3;
+            let f=Make({let inner=outer+1;inner*2});
+            outer+f(1)
+        }
+        "#,
+        12,
+    );
+}
+
+#[test]
+fn indirect_factory_calls_preserve_returned_closure_captures() {
+    for (source, expected) in test_cases::indirect_factory_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+#[test]
+fn capturing_indirect_factory_preserves_outer_and_returned_captures() {
+    check_callable_result(test_cases::CAPTURING_INDIRECT_FACTORY, 108);
+}
+
+/// Exercise both reaching factory values. Previously consumed direct closures
+/// contribute 120; the indirect result contributes 6 or 9 according to the branch.
+#[test]
+fn conditional_factory_assignment_preserves_both_returned_closure_behaviors() {
+    for choose_second in [false, true] {
+        let source = formatdoc! {r#"
+            function Make(n : Int) : Int -> Int {{ x->x+n }}
+            function Other(n : Int) : Int -> Int {{ x->x+2*n }}
+            @EntryPoint() operation Main() : Int {{
+                let first=Make(1);
+                let second=Other(1);
+                mutable factory=Make;
+                for i in 0..0 {{ if {choose_second} {{ set factory=Other; }} }}
+                let deferred=factory(3);
+                100*first(0)+10*second(0)+deferred(3)
+            }}
+        "#};
+        check_callable_result(&source, if choose_second { 129 } else { 126 });
+    }
+}
+
+/// Relay's `make:3` message must occur once before `ready`, not be removed or
+/// replayed when reconstructing the returned closure.
+#[test]
+fn indirect_factory_call_preserves_message_order_and_capture_values() {
+    check_callable_result(
+        r#"
+        function Make(n : Int) : Int -> Int { x->x+n }
+        function Relay(n : Int) : Int -> Int { Message($"make:{n}"); Make(n) }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            mutable factory=Relay;
+            for i in 0..0 { set factory=Relay; }
+            let deferred=factory(3);
+            Message("ready");
+            100*direct(0)+deferred(3)
+        }
+        "#,
+        106,
+    );
+}
+
+/// Reading only `data.N` must not authorize cleanup of the same factory's
+/// callable-valued result used through `factory`: `100 * 1 + 9 + (3 + 3) = 115`.
+#[test]
+fn data_only_factory_use_preserves_indirectly_called_closure() {
+    check_callable_result(
+        r#"
+        struct Box { F : Int -> Int, N : Int }
+        function Make(n : Int) : Box { new Box { F=x->x+n, N=n } }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            let data=Make(9);
+            mutable factory=Make;
+            for i in 0..0 { set factory=Make; }
+            let deferred=factory(3);
+            100*direct.F(0)+data.N+deferred.F(deferred.N)
+        }
+        "#,
+        115,
+    );
+}
+
+/// Consuming Make's closure in the library's Direct function must not change
+/// the capture returned by a later indirect call from the user package.
+#[test]
+fn indirect_foreign_factory_preserves_returned_closure_captures() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : Int -> Int { x->x+n }
+            function Direct() : Int { let f=Make(1); f(0) }
+            export Make, Direct;
+        }
+    "#;
+    let source = r#"
+        import Lib.*;
+        @EntryPoint() operation Main() : Int {
+            let direct=Direct();
+            mutable factory=Make;
+            for i in 0..0 { set factory=Make; }
+            let deferred=factory(3);
+            100*direct+deferred(3)
+        }
+    "#;
+    assert_eq!(
+        crate::test_utils::eval_qsharp_original_with_library(library, source),
+        Ok(qsc_eval::val::Value::Int(106)),
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
+}
+
+#[test]
+fn higher_order_consumers_preserve_transitive_factory_captures() {
+    for (source, expected) in test_cases::protected_owner_producer_cases() {
+        check_callable_result(&source, expected);
+    }
+}
+
+/// Specializing Consumer for Inc must keep the deferred Relay -> Make chain.
+/// The direct closure contributes 100; the deferred closure computes `(3 + 1) + 3`.
+#[test]
+fn specialized_consumer_preserves_deferred_factory_capture_values() {
+    check_callable_result(
+        r#"
+        function Make(n : Int) : Int -> Int { x->x+n }
+        function Relay(n : Int) : Int -> Int { Make(n) }
+        function Inc(n : Int) : Int { n+1 }
+        function Consumer(f : Int -> Int, n : Int) : Int {
+            mutable value=Relay(0);
+            for i in 0..0 { set value=Relay(n); }
+            value(f(n))
+        }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            100*direct(0)+Consumer(Inc,3)
+        }
+        "#,
+        107,
+    );
+}
+
+/// Consumer must retain both factory evaluations, producing `relay:0` then
+/// `relay:3` exactly once each, while the final closure uses the updated capture.
+#[test]
+fn higher_order_consumer_preserves_factory_message_order_and_capture_values() {
+    check_callable_result(
+        r#"
+        function Make(n : Int) : Int -> Int { x->x+n }
+        function Relay(n : Int) : Int -> Int { Message($"relay:{n}"); Make(n) }
+        function Consumer(n : Int) : Int {
+            mutable value=Relay(0);
+            for i in 0..0 { set value=Relay(n); }
+            value(n)
+        }
+        function Apply(f : Int -> Int, n : Int) : Int { f(n) }
+        @EntryPoint() operation Main() : Int {
+            let direct=Make(1);
+            100*direct(0)+Apply(Consumer,3)
+        }
+        "#,
+        106,
+    );
+}
+
+/// The user specializes Apply for a foreign Consumer. Cleanup must preserve
+/// Consumer's library-local Relay -> Make dependency and its updated capture.
+#[test]
+fn foreign_higher_order_consumer_preserves_transitive_factory_captures() {
+    let library = r#"
+        namespace Lib {
+            function Make(n : Int) : Int -> Int { x->x+n }
+            function Relay(n : Int) : Int -> Int { Make(n) }
+            function Direct() : Int { let f=Make(1); f(0) }
+            function Consumer(n : Int) : Int {
+                mutable value=Relay(0);
+                for i in 0..0 { set value=Relay(n); }
+                value(n)
+            }
+            export Direct, Consumer;
+        }
+    "#;
+    let source = r#"
+        import Lib.*;
+        function Apply(f : Int -> Int, n : Int) : Int { f(n) }
+        @EntryPoint() operation Main() : Int { 100*Direct()+Apply(Consumer,3) }
+    "#;
+    assert_eq!(
+        crate::test_utils::eval_qsharp_original_with_library(library, source),
+        Ok(qsc_eval::val::Value::Int(106)),
+    );
+    crate::test_utils::check_semantic_equivalence_with_library(library, source);
 }
 
 #[test]
@@ -2159,7 +2418,6 @@ fn direct_callee_effects_run_once_before_arguments_and_conditional_dispatch() {
                     count * 100 + value
                 }}
             "#};
-            eprintln!("{label}, flag={flag}");
             check_callable_result(&source, expected);
             let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
                 &source,
@@ -2189,7 +2447,6 @@ fn direct_callee_effects_run_once_before_arguments_and_conditional_dispatch() {
                 count * 100 + total
             }}
         "#};
-        eprintln!("repeated dispatch: {body}");
         check_callable_result(&source, 310);
         let (mut store, package) =
             crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Defunc);
@@ -2437,7 +2694,6 @@ fn callable_capture_timing_preserves_mutation_values_and_quantum_effects() {
                         count * 100 + value
                     }}
                 "#};
-                eprintln!("capture flag={flag}, callee={callee}, argument={argument}");
                 check_callable_result(&source, expected);
                 let (mut store, package) = crate::test_utils::compile_and_run_pipeline_to(
                     &source,
@@ -3412,7 +3668,6 @@ fn check_indexed_callable_argument_cases(cases: impl IntoIterator<Item = (&'stat
             crate::test_utils::check_semantic_equivalence(&source);
         })
         .is_ok();
-        eprintln!("{name}: {}", if passed { "passed" } else { "failed" });
         if !passed {
             failures.push(name);
         }
@@ -3429,7 +3684,6 @@ fn residual_callable_sources_preserve_semantics() {
         {
             failures.push(name);
         }
-        eprintln!("checked {name}");
     }
     assert!(failures.is_empty(), "semantic failures: {failures:?}");
 }
@@ -4387,4 +4641,1594 @@ fn capture_admissibility_loop_mutable_snapshot() {
             }
         }
     "#});
+}
+
+/// Shared lambda targets must not merge different captured scalars or nested
+/// callable values, including captures changed by recursive factory calls.
+/// The operation case additionally distinguishes Step from Adjoint Step by
+/// their X versus Z trace, not just by the final returned value.
+#[test]
+fn wrapped_closures_preserve_distinct_captures_and_functor_effects() {
+    for (declarations, call, expected) in [
+        (
+            "function Make(n : Int) : Int -> Int { x -> x+n }",
+            "Apply(Make(2), 1)*100+Apply(Make(5), 1)",
+            306,
+        ),
+        (
+            "function Make(n : Int) : Int -> Int { x -> x*n }\n\
+             function Wrap(f : Int -> Int, n : Int) : Int -> Int { x -> f(x)+n }",
+            "Apply(Wrap(Make(2), 1), 5)*100+Apply(Wrap(Make(3), 4), 5)",
+            1119,
+        ),
+        (
+            "function Make(n : Int) : Int -> Int { x -> x+n }\n\
+             function Rec(f : Int -> Int, n : Int) : Int {\n\
+                 if n == 0 { f(1) } else { f(n)*100+Rec(Make(n), n-1) }\n\
+             }",
+            "Rec(Make(5), 2)",
+            1002,
+        ),
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+            {declarations}
+            function Apply(f : Int -> Int, x : Int) : Int {{ f(x) }}
+            @EntryPoint() operation Main() : Int {{ {call} }}
+        "#},
+            expected,
+        );
+    }
+    let source = r#"
+        operation Step(q : Qubit) : Unit is Adj {
+            body ... { X(q); }
+            adjoint ... { Z(q); }
+        }
+        function Wrap(f : Qubit => Unit is Adj) : Qubit => Unit is Adj { q => f(q) }
+        operation Apply(f : Qubit => Unit is Adj, q : Qubit) : Unit { f(q); }
+        @EntryPoint() operation Main() : Unit {
+            use q = Qubit();
+            let first = Wrap(Step); let second = Wrap(Adjoint Step);
+            Apply(first, q); Apply(second, q); X(q);
+        }
+    "#;
+    let (store, package) = crate::test_utils::compile_to_fir(source);
+    let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package);
+    assert_eq!(result, Ok(Value::unit()));
+    expect_test::expect![[r#"[QubitAllocate(0), Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "Z", is_adjoint: false, targets: [0], controls: [], theta: None }, Gate { name: "X", is_adjoint: false, targets: [0], controls: [], theta: None }, QubitRelease(0)]"#]]
+        .assert_eq(&format!("{trace:?}"));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+/// Exercise direct and transitive forwarding, with straight-line or loop
+/// reassignment. The direct closure keeps capture 1; the deferred closure uses 3.
+/// Removing the direct use must not remove the deferred factory's environment.
+#[test]
+fn forwarded_factories_preserve_independent_direct_and_deferred_captures() {
+    for (forward, assignment, direct, expected) in [
+        (
+            "Make(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "direct(0)*10+",
+            13,
+        ),
+        (
+            "Relay(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "direct(0)*10+",
+            13,
+        ),
+        ("Make(n)", "set deferred = Forward(3);", "direct(0)*10+", 13),
+        (
+            "Make(n)",
+            "for i in 0..0 { set deferred = Forward(3); }",
+            "",
+            3,
+        ),
+    ] {
+        check_callable_result(
+            &formatdoc! {r#"
+            function Make(n : Int) : Int -> Int {{ x -> x+n }}
+            function Relay(n : Int) : Int -> Int {{ Make(n) }}
+            function Forward(n : Int) : Int -> Int {{ {forward} }}
+            @EntryPoint() operation Main() : Int {{
+                let direct = Make(1);
+                mutable deferred = Forward(0);
+                {assignment}
+                {direct}deferred(0)
+            }}
+        "#},
+            expected,
+        );
+    }
+}
+
+/// Vary the factory's container, forwarding depth, and reassignment shape.
+/// Retained closures must use the updated capture and retain any non-callable
+/// fields. Omitting the direct closure use removes only its contribution of 10.
+#[test]
+fn callable_aggregate_factories_preserve_captures_and_noncallable_fields() {
+    for (declarations, result, expected) in [
+        (
+            "function Make(n : Int) : (Int -> Int, Int) { (x -> x+n, n) }",
+            "let (a, _) = direct; let (f, n) = deferred; a(0)*10+f(0)+n",
+            16,
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }\n\
+          function Make(n : Int) : Box { new Box { F = x -> x+n, N = n } }",
+            "direct::F(0)*10+deferred::F(0)+deferred::N",
+            16,
+        ),
+        (
+            "function Make(n : Int) : (Int -> Int)[] { [x -> x+n] }",
+            "direct[0](0)*10+deferred[0](0)",
+            13,
+        ),
+        (
+            "struct Box { F : Int -> Int, N : Int }\n\
+             function Make(n : Int) : Box { new Box { F = x -> x+n, N = n } }",
+            "let dataOnly = Make(9); direct::F(0)*10+deferred::F(0)+deferred::N+dataOnly::N",
+            25,
+        ),
+        (
+            "function Produce(n : Int) : (Int -> Int, Int) { (x -> x+n, n) }\n\
+          function Relay(n : Int) : (Int -> Int, Int) { Produce(n) }\n\
+          function Make(n : Int) : (Int -> Int, Int) { Relay(n) }",
+            "let (a, _) = direct; let (f, n) = deferred; a(0)*10+f(0)+n",
+            16,
+        ),
+    ] {
+        for update in [
+            "for i in 0..0 { set deferred = Make(3); }",
+            "set deferred = Make(3);",
+        ] {
+            for consume_direct in [true, false] {
+                let result = if consume_direct {
+                    result.to_string()
+                } else {
+                    result
+                        .replace("a(0)*10+", "")
+                        .replace("direct::F(0)*10+", "")
+                        .replace("direct[0](0)*10+", "")
+                };
+                check_callable_result(
+                    &formatdoc! {r#"
+                {declarations}
+                @EntryPoint() operation Main() : Int {{
+                    let direct = Make(1);
+                    mutable deferred = Make(0);
+                    {update}
+                    {result}
+                }}
+            "#},
+                    if consume_direct {
+                        expected
+                    } else {
+                        expected - 10
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// Reassignment must replace either a named callable or an earlier factory
+/// result, without overwriting the independent direct closure's capture.
+/// The result combines the direct capture 1 and updated capture 3 as `10 + 3`.
+#[test]
+fn reassigned_factory_result_preserves_captures_with_either_initializer() {
+    for initializer in ["Add1", "Make(0)"] {
+        check_callable_result(
+            &formatdoc! {r#"
+                namespace Test {{
+                    function Add1(x : Int) : Int {{ x + 1 }}
+                    function Make(n : Int) : Int -> Int {{ x -> x + n }}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        let direct = Make(1);
+                        mutable deferred = {initializer};
+                        for index in 0..0 {{ set deferred = Make(3); }}
+                        direct(0) * 10 + deferred(0)
+                    }}
+                }}
+            "#},
+            13,
+        );
+    }
+}
+
+/// Alternate calls between closures with different nested offsets and scales.
+/// Direct and higher-order dispatch must use each instance's own environment.
+#[test]
+fn distinct_nested_closures_preserve_direct_and_forwarded_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                value -> inner(value) * scale
+            }
+            function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+            @EntryPoint()
+            operation Main() : (Int, Int, Int, Int) {
+                let first = Wrap(Make(3), 2);
+                let second = Wrap(Make(17), 5);
+                (first(1), Invoke(second, 2), Invoke(first, 3), second(4))
+            }
+        }
+    "#},
+        Value::Tuple(
+            vec![
+                Value::Int(8),
+                Value::Int(95),
+                Value::Int(12),
+                Value::Int(105),
+            ]
+            .into(),
+            None,
+        ),
+    );
+}
+
+#[test]
+fn nested_closure_preserves_mixed_direct_and_forwarded_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        &nested_closure_source("let first = Wrap(Make(3), 2); (first(1), Invoke(first, 3))"),
+        Value::Tuple(vec![Value::Int(8), Value::Int(12)].into(), None),
+    );
+}
+
+fn nested_closure_source(body: &str) -> String {
+    formatdoc! {r#"
+        function Make(offset : Int) : Int -> Int {{ value -> value+offset }}
+        function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {{
+            value -> inner(value)*scale
+        }}
+        function Invoke(callable : Int -> Int, value : Int) : Int {{ callable(value) }}
+        @EntryPoint()
+        operation Main() : (Int, Int) {{ {body} }}
+    "#}
+}
+
+#[test]
+fn nested_closure_preserves_direct_call_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        &nested_closure_source("let first = Wrap(Make(3), 2); (first(1), first(3))"),
+        Value::Tuple(vec![Value::Int(8), Value::Int(12)].into(), None),
+    );
+}
+
+#[test]
+fn nested_closure_preserves_higher_order_call_results() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        &nested_closure_source(
+            "let first = Wrap(Make(3), 2); (Invoke(first, 1), Invoke(first, 3))",
+        ),
+        Value::Tuple(vec![Value::Int(8), Value::Int(12)].into(), None),
+    );
+}
+
+/// Identical conditional arms leave an indexed closure value live even when
+/// per-candidate specializations exist. Cleanup must not replace it with a
+/// stand-in. Zero-angle rotations keep both results Zero; trace comparison still
+/// detects the wrong gate, a missing invocation, or duplicated effects.
+#[test]
+fn unresolved_indexed_dispatch_preserves_live_closure_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+            @EntryPoint()
+            operation Main() : (Result, Result) {
+                use q = Qubit();
+                use target = Qubit();
+                let a = 0.0;
+                let ops = [q0 => Rx(a, q0), q0 => Ry(a, q0)];
+                let m = MResetZ(q);
+                let idx = m == One ? 0 | 1;
+                let cond2 = m == One;
+                let f = cond2 ? ops[idx] | ops[idx];
+                Run(f, target);
+                return (m, MResetZ(target));
+            }
+        }
+    "#},
+        Value::Tuple(
+            vec![Value::Result(MeasurementResult::Val(false)); 2].into(),
+            None,
+        ),
+    );
+}
+
+/// Specialization makes `MakeOp` unreachable without removing or replaying the
+/// surrounding effects. The trace must retain X, H, Rx, H, Y in order; the
+/// producer's orphaned closure can be removed later with its item.
+#[test]
+fn orphaned_producer_body_preserves_caller_evaluation_order() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            operation InnerOp(angle : Double, q : Qubit) : Unit {
+                Rx(angle, q);
+            }
+            function MakeOp(angle : Double) : Qubit => Unit {
+                return InnerOp(angle, _);
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                H(q);
+                op(q);
+                H(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                X(q);
+                let op = MakeOp(1.5707963267948966);
+                ApplyOp(op, q);
+                Y(q);
+                MResetZ(q)
+            }
+        }
+    "#},
+        Value::Result(MeasurementResult::Val(false)),
+    );
+}
+
+/// Both `Choose` branches are specialized, but `Offset` reads keep their aggregate
+/// values live. Replacing the unused callable fields must preserve the direct
+/// calls' results and effects: X, three H, Z, four Y, then Reset.
+/// The result `11 + 20 + 100 + 7 = 138` also checks the retained data fields.
+#[test]
+fn consumed_aggregate_fields_preserve_direct_dispatch_results_and_effects() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            newtype Choice = (F : Int -> Int, Offset : Int);
+
+            function Choose(flag : Bool) : Choice {
+                if flag {
+                    Choice(x -> x + 1, 100)
+                } else {
+                    Choice(x -> x * 2, 7)
+                }
+            }
+
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let selectedT = Choose(true);
+                let selectedF = Choose(false);
+                let fT = selectedT::F;
+                let fF = selectedF::F;
+                X(q);
+                for _ in 1..fT(2) {
+                    H(q);
+                }
+                Z(q);
+                for _ in 1..fF(2) {
+                    Y(q);
+                }
+                Reset(q);
+                fT(10) + fF(10) + selectedT::Offset + selectedF::Offset
+            }
+        }
+    "#},
+        Value::Int(138),
+    );
+}
+
+/// Table lookup exercises capturing closures inside library aggregate values.
+/// Address |1> selects data[1] = [true], so the output must measure One.
+/// Trace comparison also checks that cleanup preserves the library's gate sequence.
+#[test]
+fn table_lookup_preserves_result_and_effects_after_closure_cleanup() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Result {
+                use address = Qubit[1];
+                use output = Qubit[1];
+                X(address[0]);
+                Std.TableLookup.Select([[false], [true]], address, output);
+                let result = MResetZ(output[0]);
+                ResetAll(address);
+                result
+            }
+        }
+    "#},
+        Value::Result(MeasurementResult::Val(true)),
+    );
+}
+
+/// `MakeRot` only constructs a partial application, so specialization may consume
+/// its result. The captured pi rotation must still execute once, yielding One
+/// with the same effect trace before and after transformation.
+#[test]
+fn pure_partial_application_factory_preserves_rotation_effects_after_specialization() {
+    crate::test_utils::check_semantic_equivalence_with_expected(
+        indoc::indoc! {r#"
+        namespace Test {
+            function MakeRot(angle : Double) : Qubit => Unit is Adj + Ctl {
+                Rx(angle, _)
+            }
+            operation ApplyOp(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = MakeRot(3.141592653589793);
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#},
+        Value::Result(MeasurementResult::Val(true)),
+    );
+}
+
+/// The captured count stays 3 after the source changes to 2. Eleven repetitions
+/// therefore flip only the actively controlled target; compare the complete trace.
+#[test]
+fn deep_controlled_payload_preserves_active_inactive_controls_and_snapshot() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+    use qsc_fir::fir::{ExprKind, ItemKind, PackageLookup, PatKind};
+    use qsc_fir::ty::Ty;
+
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Inner = (Bias : Int, Action : (Qubit => Unit is Adj + Ctl));
+            operation Toggle(count : Int, target : Qubit) : Unit is Adj + Ctl {
+                for step in 1..count { X(target); }
+            }
+            operation Evaluate(payload : (Int, (Int, Inner)), target : Qubit) : Unit is Adj + Ctl {
+                let (scale, (offset, inner)) = payload;
+                let action = inner::Action;
+                for step in 1..scale + offset + inner::Bias { action(target); }
+            }
+            function Make(payload : (Int, (Int, Inner))) : (Qubit => Unit is Adj + Ctl) {
+                target => Evaluate(payload, target)
+            }
+            @EntryPoint()
+            operation Main() : (Result, Result, Result, Result) {
+                use inactive = Qubit();
+                use active = Qubit();
+                use first = Qubit();
+                use second = Qubit();
+                mutable count = 3;
+                let action = Make((2, (3, Inner(6, Toggle(count, _)))));
+                set count = 2;
+                X(active);
+                Controlled action([inactive], first);
+                Controlled action([active], second);
+                (MResetZ(inactive), MResetZ(active), MResetZ(first), MResetZ(second))
+            }
+        }
+    "#};
+    let (original, package_id) = compile_to_fir(source);
+    let package = original.get(package_id);
+    assert!(
+        package.exprs.iter().any(|(_, expr)| {
+            let ExprKind::Closure(captures, target) = &expr.kind else {
+                return false;
+            };
+            let ItemKind::Callable(decl) = &package.items.get(*target).expect("target exists").kind
+            else {
+                return false;
+            };
+            let PatKind::Tuple(patterns) = &package.get_pat(decl.input).kind else {
+                return false;
+            };
+            captures.len() == 1
+                && matches!(&package.get_pat(patterns[0]).ty, Ty::Tuple(items)
+                if matches!(items.as_slice(), [Ty::Prim(_), Ty::Tuple(nested)]
+                    if matches!(nested.as_slice(), [Ty::Prim(_), Ty::Udt(_)])))
+        }),
+        "Q# must produce the deep aggregate capture"
+    );
+    let (expected, expected_trace) = try_eval_fir_entry_with_trace(&original, package_id);
+    assert_eq!(
+        expected
+            .as_ref()
+            .expect("original must succeed")
+            .to_string(),
+        "(Zero, One, Zero, One)"
+    );
+    assert!(!expected_trace.is_empty());
+    let (normalized, normalized_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    assert!(
+        normalized.get(normalized_id).pats.iter().any(|(_, pat)| {
+            matches!(&pat.kind, PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+        }),
+        "the aggregate environment must normalize"
+    );
+    let (full, full_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    let (actual, actual_trace) = try_eval_fir_entry_with_trace(&full, full_id);
+    assert_eq!(actual, expected);
+    assert_eq!(actual_trace, expected_trace);
+}
+
+/// The payload applies 33 S gates, equivalent to S. The prepared S phase is
+/// canceled by the adjoint but doubled by the forward operation, so measurement
+/// distinguishes the functor direction as well as both control layers.
+#[test]
+fn deep_capture_functors_preserve_adjoint_phase_and_two_control_layers() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+    use qsc_fir::fir::{ExprKind, Functor, PatKind, UnOp};
+
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Inner = (Bias : Int, Action : (Qubit => Unit is Adj + Ctl));
+            operation Phase(count : Int, target : Qubit) : Unit is Adj + Ctl {
+                for step in 1..count { S(target); }
+            }
+            operation Evaluate(payload : (Int, (Int, Inner)), target : Qubit) : Unit is Adj + Ctl {
+                let (scale, (offset, inner)) = payload;
+                let action = inner::Action;
+                for step in 1..scale + offset + inner::Bias { action(target); }
+            }
+            function Make(payload : (Int, (Int, Inner))) : (Qubit => Unit is Adj + Ctl) {
+                target => Evaluate(payload, target)
+            }
+            @EntryPoint()
+            operation Main() : (Result, Result, Result, Result, Result, Result) {
+                use outer = Qubit();
+                use inner = Qubit();
+                use inactive = Qubit();
+                use inverseTarget = Qubit();
+                use activeTarget = Qubit();
+                use inactiveTarget = Qubit();
+                let action = Make((2, (3, Inner(6, Phase(3, _)))));
+                X(outer);
+                X(inner);
+                H(inverseTarget);
+                S(inverseTarget);
+                Controlled Adjoint action([outer], inverseTarget);
+                H(inverseTarget);
+                H(activeTarget);
+                S(activeTarget);
+                Controlled Controlled action([outer], ([inner], activeTarget));
+                H(activeTarget);
+                H(inactiveTarget);
+                Controlled Controlled action([outer], ([inactive], inactiveTarget));
+                H(inactiveTarget);
+                (MResetZ(inverseTarget), MResetZ(activeTarget), MResetZ(inactiveTarget),
+                 MResetZ(outer), MResetZ(inner), MResetZ(inactive))
+            }
+        }
+    "#};
+    let (original, package_id) = compile_to_fir(source);
+    let package = original.get(package_id);
+    let mut functor_counts = (0, 0);
+    for expr in package.exprs.values() {
+        match expr.kind {
+            ExprKind::UnOp(UnOp::Functor(Functor::Adj), _) => functor_counts.0 += 1,
+            ExprKind::UnOp(UnOp::Functor(Functor::Ctl), _) => functor_counts.1 += 1,
+            _ => {}
+        }
+    }
+    assert!(functor_counts.0 > 0);
+    assert!(functor_counts.1 >= 5);
+    let (expected, expected_trace) = try_eval_fir_entry_with_trace(&original, package_id);
+    assert_eq!(
+        expected
+            .as_ref()
+            .expect("original must succeed")
+            .to_string(),
+        "(Zero, One, Zero, One, One, Zero)"
+    );
+    let (normalized, normalized_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    assert!(normalized.get(normalized_id).pats.values().any(|pat| {
+        matches!(&pat.kind, PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+    }));
+    let (full, full_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    let (actual, actual_trace) = try_eval_fir_entry_with_trace(&full, full_id);
+    assert_eq!(actual, expected);
+    assert_eq!(actual_trace, expected_trace);
+}
+
+/// An array remains one capture slot. Adding a direct callable sibling permits
+/// tuple expansion, but must not flatten or reorder the array's contents.
+#[test]
+fn opaque_array_preserves_elements_beside_normalized_arrow() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+    use qsc_fir::fir::{ExprKind, PatKind};
+    use qsc_fir::ty::Ty;
+
+    for (mixed, binding, answer) in [
+        (
+            false,
+            "let environment = actions; let saved = value -> Evaluate(environment, value);",
+            510,
+        ),
+        (
+            true,
+            "let environment = (actions, Add17); let saved = value -> { let (opaque, action) = environment; Evaluate(opaque, value) + action(value) };",
+            529,
+        ),
+    ] {
+        let source = formatdoc! {r#"
+            namespace Test {{
+                function Add17(value : Int) : Int {{ value + 17 }}
+                function Evaluate(actions : Int[], value : Int) : Int {{
+                    (actions[0] + value) * 100 + actions[1] * value
+                }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    let actions = [3, 5];
+                    {binding}
+                    saved(2)
+                }}
+            }}
+        "#};
+        let (original, package_id) = compile_to_fir(&source);
+        assert!(original.get(package_id).exprs.values().any(|expr| {
+            matches!(&expr.kind, ExprKind::Closure(captures, _) if captures.len() == 1)
+        }));
+        let expected = try_eval_fir_entry_with_trace(&original, package_id);
+        assert_eq!(expected.0, Ok(qsc_eval::val::Value::Int(answer)));
+        let (normalized, normalized_id) =
+            compile_and_run_pipeline_to(&source, PipelineStage::Defunc);
+        let leaves: Vec<_> = normalized.get(normalized_id).pats.values().filter(|pat| {
+            matches!(&pat.kind, PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+        }).collect();
+        assert_eq!(!leaves.is_empty(), mixed);
+        if mixed {
+            assert!(leaves.iter().any(|pat| matches!(&pat.ty, Ty::Array(element) if matches!(element.as_ref(), Ty::Prim(_)))));
+            assert!(leaves.iter().any(|pat| matches!(&pat.ty, Ty::Arrow(_))));
+        }
+        let (full, full_id) = compile_and_run_pipeline_to(&source, PipelineStage::Full);
+        assert_eq!(try_eval_fir_entry_with_trace(&full, full_id), expected);
+    }
+}
+
+/// Eligible outer and inner environments must expand together. The array-only
+/// case stays opaque; both variants must keep the original seed after reassignment.
+#[test]
+fn nested_recaptures_preserve_compatible_and_opaque_snapshots() {
+    use crate::PipelineStage;
+    use crate::test_utils::{
+        compile_and_run_pipeline_to, compile_to_fir, try_eval_fir_entry_with_trace,
+    };
+    use qsc_fir::fir::{ExprKind, ItemKind, PackageLookup, PatKind};
+
+    for replace_seed in [false, true] {
+        let replacement = if replace_seed { "set seed = 100;" } else { "" };
+        for (eligible, environment, evaluate) in [
+            (
+                true,
+                "(seed, Add3)",
+                "let (bias, action) = environment; bias + action(delta + value)",
+            ),
+            (false, "[seed]", "environment[0] + Add3(delta + value)"),
+        ] {
+            let source = formatdoc! {r#"
+            namespace Test {{
+                function Add3(value : Int) : Int {{ value + 3 }}
+                @EntryPoint()
+                operation Main() : Int {{
+                    mutable seed = 7;
+                    let environment = {environment};
+                    let factory = delta -> {{
+                        let inner = value -> {{ {evaluate} }};
+                        inner(2)
+                    }};
+                    {replacement}
+                    factory(11)
+                }}
+            }}
+        "#};
+            let (original, package_id) = compile_to_fir(&source);
+            assert_eq!(
+                original
+                    .get(package_id)
+                    .exprs
+                    .values()
+                    .filter(|expr| {
+                        matches!(&expr.kind, ExprKind::Closure(captures, _) if !captures.is_empty())
+                    })
+                    .count(),
+                2
+            );
+            let expected = try_eval_fir_entry_with_trace(&original, package_id);
+            assert_eq!(expected.0, Ok(qsc_eval::val::Value::Int(23)));
+            let (normalized, normalized_id) =
+                compile_and_run_pipeline_to(&source, PipelineStage::Defunc);
+            let package = normalized.get(normalized_id);
+            let normalized_targets = package.items.values().filter(|item| {
+            let ItemKind::Callable(decl) = &item.kind else { return false; };
+            let PatKind::Tuple(patterns) = &package.get_pat(decl.input).kind else { return false; };
+            patterns.iter().any(|pattern| {
+                matches!(&package.get_pat(*pattern).kind, PatKind::Bind(ident) if ident.name.as_ref() == "capture_leaf")
+            })
+        }).count();
+            if eligible {
+                assert!(
+                    normalized_targets >= 2,
+                    "both nested capture targets must normalize"
+                );
+            } else {
+                assert_eq!(normalized_targets, 0, "opaque recaptures remain unchanged");
+            }
+            let (full, full_id) = compile_and_run_pipeline_to(&source, PipelineStage::Full);
+            assert_eq!(try_eval_fir_entry_with_trace(&full, full_id), expected);
+        }
+    }
+}
+
+/// End-to-end compatibility checks. The isolated prepass suite asserts the
+/// changed layouts directly, before other passes can normalize equivalent code.
+mod nested_capture_snapshots {
+    use super::check_callable_result;
+
+    #[test]
+    fn forwarded_tuple_array_captures_preserve_each_candidate() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Evaluate(payload : (Int, Int[]), value : Int) : Int {
+                    let (offset, weights) = payload;
+                    offset + weights[0] * value + weights[1]
+                }
+                function Make(payload : (Int, Int[])) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Select(actions : (Int -> Int)[], index : Int, value : Int) : Int {
+                    actions[index](value)
+                }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..2 {
+                        set answer = answer * 1000 + Select(saved, index, index + 1);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make((3, [2, 5])),
+                        Make((17, [7, 11])),
+                        Make((41, [13, 19]))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 10_042_099);
+    }
+
+    #[test]
+    fn generic_forwarder_preserves_tuple_udt_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                newtype Weights = (Offset : Int, Factors : Int[]);
+                function Evaluate(payload : (Int, Weights), value : Int) : Int {
+                    let (bias, weights) = payload;
+                    let factors = weights::Factors;
+                    bias + weights::Offset + factors[0] * value + factors[1]
+                }
+                function Make(payload : (Int, Weights)) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward<'T>(items : 'T[]) : 'T[] { items }
+                function Select(actions : (Int -> Int)[], index : Int, value : Int) : Int {
+                    actions[index](value)
+                }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + Select(saved, index, index + 2);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make((3, Weights(5, [7, 11]))),
+                        Make((17, Weights(19, [23, 29])))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 33_134);
+    }
+
+    #[test]
+    fn forwarded_nested_callable_captures_preserve_inner_values() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Shift(offset : Int) : Int -> Int { value -> offset + value }
+                function Evaluate(payload : (Int, Int -> Int), value : Int) : Int {
+                    let (scale, action) = payload;
+                    scale * action(value)
+                }
+                function Make(payload : (Int, Int -> Int)) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Select(actions : (Int -> Int)[], index : Int, value : Int) : Int {
+                    actions[index](value)
+                }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..2 {
+                        set answer = answer * 1000 + Select(saved, index, index + 1);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make((2, Shift(3))),
+                        Make((5, Shift(17))),
+                        Make((7, Shift(41)))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 8_095_308);
+    }
+
+    #[test]
+    fn deeply_nested_tuple_udt_callable_captures_preserve_scalar_siblings() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                newtype Inner = (Bias : Int, Action : Int -> Int);
+                function Shift(offset : Int) : Int -> Int { value -> offset + value }
+                function Evaluate(payload : (Int, (Int, Inner)), value : Int) : Int {
+                    let (scale, (offset, inner)) = payload;
+                    let action = inner::Action;
+                    scale * action(value) + offset + inner::Bias
+                }
+                function Make(payload : (Int, (Int, Inner))) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + saved[index](index + 1);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make((2, (3, Inner(5, Shift(7))))),
+                        Make((11, (13, Inner(17, Shift(19)))))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 24_261);
+    }
+
+    #[test]
+    fn deep_inline_payload_preserves_effect_order_and_capture_snapshot() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                newtype Inner = (Bias : Int, Action : Int -> Int);
+                operation Mark(value : Int) : Int {
+                    Message($"field {value}");
+                    value
+                }
+                function Shift(offset : Int) : Int -> Int { value -> offset + value }
+                function Evaluate(payload : (Int, (Int, Inner)), value : Int) : Int {
+                    let (scale, (offset, inner)) = payload;
+                    let action = inner::Action;
+                    scale * action(value) + offset + inner::Bias
+                }
+                function Make(payload : (Int, (Int, Inner))) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable seed = 7;
+                    let action = Make((Mark(2), (Mark(3), Inner(Mark(5), Shift(seed)))));
+                    set seed = 100;
+                    action(1)
+                }
+            }
+        "#};
+        check_callable_result(source, 24);
+    }
+
+    #[test]
+    fn two_callable_fields_in_captured_payload_preserve_distinct_inner_values() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Shift(offset : Int) : Int -> Int { value -> offset + value }
+                function Multiply(factor : Int) : Int -> Int { value -> factor * value }
+                function Evaluate(payload : (Int, (Int -> Int, Int -> Int)), value : Int) : Int {
+                    let (bias, (first, second)) = payload;
+                    bias + 10 * first(value) + second(value)
+                }
+                function Make(payload : (Int, (Int -> Int, Int -> Int))) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + saved[index](index + 1);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make((3, (Shift(5), Multiply(7)))),
+                        Make((11, (Shift(13), Multiply(17))))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 70_195);
+    }
+
+    #[test]
+    fn fully_consumed_nested_single_tuple_captures_preserve_inner_values() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Shift(offset : Int) : Int -> Int { value -> offset + value }
+                function Evaluate(payload : ((Int -> Int,),), value : Int) : Int {
+                    let ((action,),) = payload;
+                    action(value)
+                }
+                function Make(payload : ((Int -> Int,),)) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + saved[index](index + 1);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make(((Shift(3),),)),
+                        Make(((Shift(17),),))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 4_019);
+    }
+
+    #[test]
+    fn destructured_callable_leaf_alias_captured_in_returned_lambda_preserves_values() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Shift(offset : Int) : Int -> Int { value -> offset + value }
+                function Make(payload : (Int, (Int, Int -> Int))) : Int -> Int {
+                    let (_, (_, action)) = payload;
+                    let alias = action;
+                    value -> alias(value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let saved = Forward(actions);
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + saved[index](index + 1);
+                    }
+                    answer
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay([
+                        Make((101, (103, Shift(5)))),
+                        Make((107, (109, Shift(23))))
+                    ])
+                }
+            }
+        "#};
+        check_callable_result(source, 6_025);
+    }
+
+    #[test]
+    fn aliased_forwarded_arrays_preserve_captured_array_versions() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Evaluate(payload : (Int, Int[]), value : Int) : Int {
+                    let (offset, weights) = payload;
+                    offset + weights[0] * value + weights[1]
+                }
+                function Make(payload : (Int, Int[])) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+                function Consume(actions : (Int -> Int)[]) : Int {
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + actions[index](index + 2);
+                    }
+                    answer
+                }
+                function Relay(actions : (Int -> Int)[]) : Int {
+                    let alias = actions;
+                    let forwarded = Forward(alias);
+                    let saved = forwarded;
+                    Consume(saved)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable weights = [2, 5];
+                    let first = Make((3, weights));
+                    set weights w/= 0 <- 7;
+                    set weights w/= 1 <- 11;
+                    let second = Make((17, weights));
+                    set weights w/= 0 <- 101;
+                    let actions = [first, second];
+                    let alias = actions;
+                    Relay(alias) * 1000 + weights[0]
+                }
+            }
+        "#};
+        check_callable_result(source, 12_049_101);
+    }
+
+    #[test]
+    fn nested_array_wrapper_fields_preserve_compound_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                struct ActionSet { Marker : Int, Actions : (Int -> Int)[] }
+                struct Envelope { Header : Int, Inner : ActionSet, Tail : Int }
+                function Evaluate(payload : (Int, Int[]), value : Int) : Int {
+                    let (offset, weights) = payload;
+                    offset + weights[0] * value + weights[1]
+                }
+                function Make(payload : (Int, Int[])) : Int -> Int {
+                    value -> Evaluate(payload, value)
+                }
+                function Forward(whole : Envelope) : Envelope { whole }
+                function Consume(whole : Envelope) : Int {
+                    let inner = whole.Inner;
+                    let actions = inner.Actions;
+                    mutable answer = 0;
+                    for index in 0..1 {
+                        set answer = answer * 1000 + actions[index](index + 2);
+                    }
+                    answer * 1000 + whole.Header * 100 + inner.Marker * 10 + whole.Tail
+                }
+                function Relay(whole : Envelope) : Int {
+                    Consume(Forward(whole))
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    let actions = [Make((3, [2, 5])), Make((17, [7, 11]))];
+                    let inner = new ActionSet { Marker = 7, Actions = actions };
+                    Relay(new Envelope { Header = 5, Inner = inner, Tail = 19 })
+                }
+            }
+        "#};
+        check_callable_result(source, 12_049_589);
+    }
+}
+
+#[test]
+fn forwarded_closure_array_keeps_unequal_capture_values() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int, scale : Int) : Int -> Int {
+                value -> offset + scale * value
+            }
+            function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] { actions }
+            function Invoke(action : Int -> Int, value : Int) : Int { action(value) }
+            function Select(actions : (Int -> Int)[], index : Int, value : Int) : Int {
+                Invoke(actions[index], value)
+            }
+            function Relay(actions : (Int -> Int)[], index : Int, value : Int) : Int {
+                Select(Forward(actions), index, value)
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                let actions = [Make(3, 2), Make(17, 5), Make(41, 7)];
+                mutable answer = 0;
+                for index in 0..2 {
+                    set answer = answer * 1000 + Relay(actions, index, index + 1);
+                }
+                answer
+            }
+        }
+    "#};
+    check_callable_result(source, 5_027_062);
+}
+
+#[test]
+fn forwarded_callable_array_preserves_each_candidates_result() {
+    for (actions, expected) in [
+        ("[Add3, Times5]", 515),
+        ("[Make(7), Times5]", 915),
+        ("[Make(7), Make(19)]", 922),
+    ] {
+        let source = formatdoc! {r#"
+            namespace Test {{
+                function Add3(value : Int) : Int {{ value + 3 }}
+                function Times5(value : Int) : Int {{ value * 5 }}
+                function Make(offset : Int) : Int -> Int {{ value -> offset + value }}
+                function Forward(actions : (Int -> Int)[]) : (Int -> Int)[] {{ actions }}
+                function Relay(actions : (Int -> Int)[]) : Int {{
+                    let saved = Forward(actions);
+                    saved[0](2) * 100 + saved[1](3)
+                }}
+                @EntryPoint()
+                operation Main() : Int {{ Relay({actions}) }}
+            }}
+        "#};
+        check_callable_result(&source, expected);
+    }
+}
+
+/// Scratch-array sizes expose both the captured widths and the two controls.
+/// Controlled calls allocate 5 and 7 scratch qubits; controlled-adjoint calls
+/// allocate 8 and 6. Including the controls, the trace must allocate/release 28.
+#[test]
+fn controlled_root_callable_array_preserves_control_register() {
+    use crate::test_utils::TraceOp::{QubitAllocate, QubitRelease};
+
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Stamp(width : Int, input : Unit) : Unit is Adj + Ctl {
+                body (...) { use scratch = Qubit[width]; }
+                adjoint (...) { use scratch = Qubit[width + 1]; }
+                controlled (controls, ...) {
+                    mutable count = width + 2;
+                    for control in controls { set count += 1; }
+                    use scratch = Qubit[count];
+                }
+                controlled adjoint (controls, ...) {
+                    mutable count = width + 3;
+                    for control in controls { set count += 1; }
+                    use scratch = Qubit[count];
+                }
+            }
+            operation Apply(actions : (Unit => Unit is Adj + Ctl)[]) : Unit is Adj + Ctl {
+                for action in actions { action(); }
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                use controls = Qubit[2];
+                let actions = [Stamp(1, _), Stamp(3, _)];
+                Controlled Apply(controls, actions);
+                Controlled Adjoint Apply(controls, actions);
+                17
+            }
+        }
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, trace) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(17)));
+    assert_eq!(
+        trace
+            .iter()
+            .filter(|event| matches!(event, QubitAllocate(_)))
+            .count(),
+        28,
+        "{trace:?}"
+    );
+    assert_eq!(
+        trace
+            .iter()
+            .filter(|event| matches!(event, QubitRelease(_)))
+            .count(),
+        28,
+        "{trace:?}"
+    );
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn nested_newtype_payload_preserves_named_and_unnamed_ancestors() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype NestedPayload = (
+                Header : Int,
+                Payload : (Int, (Int -> Int, Int)),
+                (Tail : Int, Bool)
+            );
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Forward(whole : NestedPayload) : NestedPayload { whole }
+            function Consume(whole : NestedPayload) : Int {
+                let (marker, (action, stored)) = whole::Payload;
+                let (_, _, (tail, enabled)) = whole!;
+                if enabled {
+                    whole::Header * 1000 + marker * 100 + stored + action(2) + tail
+                } else { 0 }
+            }
+            function Relay(whole : NestedPayload) : Int {
+                Consume(Forward(whole))
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                Relay(NestedPayload(5, (7, (Make(13), 19)), (23, true)))
+            }
+        }
+    "#};
+    check_callable_result(source, 5757);
+}
+
+#[test]
+fn nested_constructor_arguments_preserve_payload_and_capture_placement() {
+    for expression in [
+        "Consume(Payload(5, (Add13, 19)))",
+        "Consume(Payload(5, (Make(13), 19)))",
+        "let saved = Payload(5, (Make(13), 19)); Consume(saved)",
+        "Relay(7, Payload(5, (Make(13), 19)), 11) - 18",
+    ] {
+        let source = formatdoc! {r#"
+            namespace Test {{
+                newtype Payload = (Header : Int, Contents : (Int -> Int, Int));
+                function Make(offset : Int) : Int -> Int {{ value -> value + offset }}
+                function Add13(value : Int) : Int {{ value + 13 }}
+                function Consume(payload : Payload) : Int {{
+                    let (action, stored) = payload::Contents;
+                    payload::Header * 100 + stored + action(2)
+                }}
+                function Relay(first : Int, payload : Payload, last : Int) : Int {{
+                    first + Consume(payload) + last
+                }}
+                @EntryPoint()
+                operation Main() : Int {{ {expression} }}
+            }}
+        "#};
+        check_callable_result(&source, 534);
+    }
+}
+
+#[test]
+fn forwarded_tuple_preserves_capture_snapshot_after_reassignment() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Forward(pair : (Int, Int -> Int)) : (Int, Int -> Int) { pair }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable offset = 3;
+                mutable (value, callable) = (14, {
+                    let captured = offset;
+                    input -> input + captured
+                });
+                let saved = Forward((value, callable));
+                set offset = 17;
+                set (value, callable) = (9, {
+                    let captured = offset;
+                    input -> input + captured
+                });
+                let forwarded = Forward(saved);
+                set (value, callable) = forwarded;
+                offset * 10000 + value * 100 + callable(2)
+            }
+        }
+    "#};
+    check_callable_result(source, 171_405);
+}
+
+#[test]
+fn nested_wrapper_array_preserves_distinct_capture_results() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function Wrap(inner : Int -> Int, scale : Int) : Int -> Int {
+                value -> inner(value) * scale
+            }
+            function Invoke(callable : Int -> Int, value : Int) : Int { callable(value) }
+            @EntryPoint()
+            operation Main() : Int {
+                let wrappers = [Wrap(Wrap(Make(3), 2), 3), Wrap(Wrap(Make(17), 5), 7)];
+                mutable answer = 0;
+                for index in 0..0 {
+                    set answer = 1000 * Invoke(wrappers[index], 1) + wrappers[1 - index](1);
+                }
+                answer
+            }
+        }
+    "#};
+    check_callable_result(source, 24_630);
+}
+
+/// Preserve existing forwarding and mutation semantics alongside environment
+/// normalization; these cases need not require normalization to execute correctly.
+mod aggregate_forwarding {
+    use super::check_callable_result;
+
+    #[test]
+    fn nested_udt_projection_preserves_nominal_fields_and_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                struct Payload { Stored : Int, Action : Int -> Int }
+                struct Packet { Enabled : Bool, Payload : Payload, Tail : Int }
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Project(packet : Packet) : Payload { packet.Payload }
+                function Forward(payload : Payload) : Payload { payload }
+                function Consume(payload : Payload) : Int {
+                    payload.Stored * 100 + payload.Action(2)
+                }
+                function Relay(packet : Packet) : Int {
+                    if packet.Enabled { Consume(Forward(Project(packet))) + packet.Tail } else { 0 }
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay(new Packet {
+                        Tail = 7,
+                        Payload = new Payload { Action = Make(3), Stored = 14 },
+                        Enabled = true
+                    })
+                }
+            }
+        "#};
+        check_callable_result(source, 1412);
+    }
+
+    #[test]
+    fn udt_forwarding_preserves_reordered_fields_and_mutable_snapshots() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                struct Payload { Stored : Int, Action : Int -> Int }
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Forward(payload : Payload) : Payload { payload }
+                function Consume(payload : Payload) : Int {
+                    payload.Stored * 100 + payload.Action(2)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    mutable order = 0;
+                    mutable whole = new Payload {
+                        Action = { set order = order * 10 + 1; Make(3) },
+                        Stored = { set order = order * 10 + 2; 14 }
+                    };
+                    let saved = Forward(whole);
+                    set whole = new Payload { ...whole, Stored = 9, Action = Make(17) };
+                    let changed = Forward(whole);
+                    set whole = new Payload { Stored = 3, Action = Make(41) };
+                    order * 1000000 + Consume(saved) * 1000 + Consume(changed)
+                }
+            }
+        "#};
+        check_callable_result(source, 13_405_919);
+    }
+
+    #[test]
+    fn tuple_backed_newtype_forwarding_preserves_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                newtype Payload = (Stored : Int, Action : Int -> Int);
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Forward(payload : Payload) : Payload { payload }
+                function Consume(payload : Payload) : Int {
+                    payload::Stored * 100 + payload::Action(2)
+                }
+                @EntryPoint()
+                operation Main() : Int { Consume(Forward(Forward(Payload(14, Make(3))))) }
+            }
+        "#};
+        check_callable_result(source, 1405);
+    }
+
+    #[test]
+    fn captured_nested_alias_restores_both_callables_repeatedly() {
+        super::check_tuple_assignment_result(
+            indoc::indoc! {r#"
+                mutable (value, (first, second)) = (14, (Add11, Times3));
+                let saved = (value, (first, second));
+                let observe = input -> {
+                    let (stored, (left, right)) = saved;
+                    stored * 10000 + left(input) * 100 + right(input)
+                };
+                mutable total = 0;
+                for iteration in 1..3 {
+                    set (value, (first, second)) = (iteration, (Minus5, Add11));
+                    set (value, (first, second)) = saved;
+                    set total += observe(2) + value * 10000 + first(2) * 100 + second(2);
+                }
+                total
+            "#},
+            847_836,
+        );
+    }
+
+    #[test]
+    fn whole_tuple_forwarding_preserves_callable_and_payload() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Add11(value : Int) : Int { value + 11 }
+                function Forward(pair : (Int, Int -> Int)) : (Int, Int -> Int) { pair }
+                function Consume(pair : (Int, Int -> Int)) : Int {
+                    let (stored, action) = pair;
+                    stored * 100 + action(2)
+                }
+                function Relay(pair : (Int, Int -> Int)) : Int {
+                    Consume(Forward(pair))
+                }
+                @EntryPoint()
+                operation Main() : Int { Relay((14, Add11)) }
+            }
+        "#};
+        check_callable_result(source, 1413);
+    }
+
+    #[test]
+    fn whole_udt_forwarding_preserves_callable_and_payload() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                struct Payload { Stored : Int, Action : Int -> Int }
+                function Add11(value : Int) : Int { value + 11 }
+                function Forward(payload : Payload) : Payload { payload }
+                function Consume(payload : Payload) : Int {
+                    payload.Stored * 100 + payload.Action(2)
+                }
+                function Relay(payload : Payload) : Int { Consume(Forward(payload)) }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay(new Payload { Stored = 14, Action = Add11 })
+                }
+            }
+        "#};
+        check_callable_result(source, 1413);
+    }
+
+    #[test]
+    fn successive_tuple_callable_fields_preserve_order_and_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Forward(bundle : (Int -> Int, Int, Int -> Int, Int -> Int, Int))
+                    : (Int -> Int, Int, Int -> Int, Int -> Int, Int) { bundle }
+                function Consume(bundle : (Int -> Int, Int, Int -> Int, Int -> Int, Int)) : Int {
+                    let (first, marker, second, third, tail) = bundle;
+                    marker * 1000000 + first(2) * 10000 + second(2) * 100 + third(2) * 10 + tail
+                }
+                function Relay(bundle : (Int -> Int, Int, Int -> Int, Int -> Int, Int)) : Int {
+                    Consume(Forward(Forward(bundle)))
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay((Make(3), 7, Make(17), Make(41), 9))
+                }
+            }
+        "#};
+        check_callable_result(source, 7_052_339);
+    }
+
+    #[test]
+    fn successive_udt_callable_fields_preserve_order_and_captures() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                struct Bundle {
+                    First : Int -> Int,
+                    Marker : Int,
+                    Second : Int -> Int,
+                    Third : Int -> Int,
+                    Tail : Int
+                }
+                function Make(offset : Int) : Int -> Int { value -> value + offset }
+                function Forward(bundle : Bundle) : Bundle { bundle }
+                function Consume(bundle : Bundle) : Int {
+                    bundle.Marker * 1000000 + bundle.First(2) * 10000
+                        + bundle.Second(2) * 100 + bundle.Third(2) * 10 + bundle.Tail
+                }
+                function Relay(bundle : Bundle) : Int { Consume(Forward(Forward(bundle))) }
+                @EntryPoint()
+                operation Main() : Int {
+                    Relay(new Bundle {
+                        First = Make(3), Marker = 7, Second = Make(17), Third = Make(41), Tail = 9
+                    })
+                }
+            }
+        "#};
+        check_callable_result(source, 7_052_339);
+    }
+
+    #[test]
+    fn partial_nested_tuple_projection_preserves_ancestor_shape() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Add11(value : Int) : Int { value + 11 }
+                function Times3(value : Int) : Int { value * 3 }
+                function Project(packet : ((Int, (Int -> Int, Int -> Int)), Bool, Int))
+                    : (Int, (Int -> Int, Int -> Int)) {
+                    let (head, _, _) = packet;
+                    head
+                }
+                function Consume(head : (Int, (Int -> Int, Int -> Int))) : Int {
+                    let (stored, (first, second)) = head;
+                    stored * 10000 + first(2) * 100 + second(2)
+                }
+                function Relay(packet : ((Int, (Int -> Int, Int -> Int)), Bool, Int)) : Int {
+                    let (_, enabled, tail) = packet;
+                    if enabled { Consume(Project(packet)) + tail } else { 0 }
+                }
+                @EntryPoint()
+                operation Main() : Int { Relay(((14, (Add11, Times3)), true, 7)) }
+            }
+        "#};
+        check_callable_result(source, 141_313);
+    }
+
+    #[test]
+    fn whole_tuple_mutation_return_preserves_latest_value() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                function Add11(value : Int) : Int { value + 11 }
+                function Times3(value : Int) : Int { value * 3 }
+                function Replace(pair : (Int, Int -> Int), replacement : (Int, Int -> Int))
+                    : (Int, Int -> Int) {
+                    mutable whole = pair;
+                    set whole = replacement;
+                    whole
+                }
+                function Consume(pair : (Int, Int -> Int)) : Int {
+                    let (stored, action) = pair;
+                    stored * 100 + action(2)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    let saved = (14, Add11);
+                    let changed = Replace(saved, (9, Times3));
+                    Consume(saved) * 10000 + Consume(changed)
+                }
+            }
+        "#};
+        check_callable_result(source, 14_130_906);
+    }
+
+    #[test]
+    fn whole_udt_mutation_return_preserves_latest_value() {
+        let source = indoc::indoc! {r#"
+            namespace Test {
+                struct Payload { Stored : Int, Action : Int -> Int }
+                function Add11(value : Int) : Int { value + 11 }
+                function Times3(value : Int) : Int { value * 3 }
+                function Replace(payload : Payload, replacement : Payload) : Payload {
+                    mutable whole = payload;
+                    set whole = replacement;
+                    whole
+                }
+                function Consume(payload : Payload) : Int {
+                    payload.Stored * 100 + payload.Action(2)
+                }
+                @EntryPoint()
+                operation Main() : Int {
+                    let saved = new Payload { Stored = 14, Action = Add11 };
+                    let changed = Replace(saved, new Payload { Stored = 9, Action = Times3 });
+                    Consume(saved) * 10000 + Consume(changed)
+                }
+            }
+        "#};
+        check_callable_result(source, 14_130_906);
+    }
+
+    #[test]
+    fn mutable_tuple_alias_assignment_preserves_latest_snapshot() {
+        super::check_tuple_assignment_result(
+            indoc::indoc! {r#"
+                mutable (value, callable) = (14, Add11);
+                mutable saved = (value, callable);
+                set (value, callable) = (9, Times3);
+                set saved = (value, callable);
+                set (value, callable) = (3, Minus5);
+                set (value, callable) = saved;
+                value * 100 + callable(2)
+            "#},
+            906,
+        );
+    }
 }

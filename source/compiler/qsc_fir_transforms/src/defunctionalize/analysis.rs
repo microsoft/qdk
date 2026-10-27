@@ -2370,7 +2370,7 @@ fn materialize_capture_exprs_from_state(
                 let mut remapped_condition = Vec::with_capacity(condition.len());
                 for condition in condition {
                     let condition = remap_condition_expr(pkg, state, condition);
-                    if expr_contains_local_reference(pkg, condition) {
+                    if expr_references_local(pkg, condition) {
                         return CalleeLattice::Dynamic;
                     }
                     remapped_condition.push(condition);
@@ -2391,16 +2391,6 @@ fn materialize_capture_exprs_from_state(
         }
         other => other,
     }
-}
-
-fn expr_contains_local_reference(pkg: &Package, expr_id: ExprId) -> bool {
-    let mut contains_local = false;
-    crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_expr_id, expr| {
-        if matches!(expr.kind, ExprKind::Var(Res::Local(_), _)) {
-            contains_local = true;
-        }
-    });
-    contains_local
 }
 
 fn expr_reads_mutable_local(
@@ -2975,7 +2965,7 @@ fn compound_literal_has_residual_leak(
     }
 }
 
-/// Reports whether `expr_id` transitively references any `Var(Res::Local(_))`.
+/// Reports whether `expr_id` transitively reads a local or captures one in a closure.
 ///
 /// A sound deep scan over every expression kind (via the FIR `Visitor`), used
 /// by [`compound_literal_has_residual_leak`] on the verbatim-cloned leaves so
@@ -2989,8 +2979,8 @@ fn expr_references_local(pkg: &Package, expr_id: ExprId) -> bool {
     finder.found
 }
 
-/// FIR `Visitor` that short-circuits on the first `Var(Res::Local(_))` reached
-/// from a starting expression.
+/// FIR `Visitor` that short-circuits on the first local read or nonempty closure
+/// capture list reached from a starting expression.
 struct LocalVarFinder<'a> {
     package: &'a Package,
     found: bool,
@@ -3001,7 +2991,10 @@ impl<'a> Visitor<'a> for LocalVarFinder<'a> {
         if self.found {
             return;
         }
-        if let ExprKind::Var(Res::Local(_), _) = &self.package.get_expr(expr).kind {
+        let kind = &self.package.get_expr(expr).kind;
+        if matches!(kind, ExprKind::Var(Res::Local(_), _))
+            || matches!(kind, ExprKind::Closure(captures, _) if !captures.is_empty())
+        {
             self.found = true;
             return;
         }

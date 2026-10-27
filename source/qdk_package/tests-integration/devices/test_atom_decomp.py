@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import re
+
 import pytest
 from expecttest import assert_expected_inline
 
@@ -1609,6 +1611,63 @@ def test_rz_non_clifford_decomposition_fails() -> None:
         str(ex),
         """<ExceptionInfo ValueError('Angle 0.1 used in RZ is not a Clifford compatible rotation angle') tblen=9>""",
     )
+
+
+def _rz_to_clifford_qis_calls(angle: str) -> list[str]:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile(
+        f"""
+        {{
+            use q = Qubit();
+            Rz({angle}, q);
+        }}
+        """
+    )
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    DecomposeRzAnglesToCliffordGates().run(module)
+    return re.findall(r"call void @__quantum__qis__(\w+)\(", str(module))
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize(
+    "angle",
+    [
+        "-Std.Math.PI() / 4.0",
+        "-0.3",
+        "9.0 * Std.Math.PI() / 4.0",
+        "-9.0 * Std.Math.PI() / 4.0",
+    ],
+)
+def test_rz_non_clifford_angle_decomposition_fails(angle: str) -> None:
+    with pytest.raises(
+        ValueError, match="used in RZ is not a Clifford compatible rotation angle"
+    ):
+        _rz_to_clifford_qis_calls(angle)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize(
+    "angle, expected",
+    [
+        ("0.0", []),
+        ("Std.Math.PI() / 2.0", ["s__body"]),
+        ("-Std.Math.PI() / 2.0", ["s__adj"]),
+        ("3.0 * Std.Math.PI() / 2.0", ["s__adj"]),
+        ("-3.0 * Std.Math.PI() / 2.0", ["s__body"]),
+        ("Std.Math.PI()", ["z__body"]),
+        ("-Std.Math.PI()", ["z__body"]),
+        ("2.0 * Std.Math.PI()", []),
+        ("-2.0 * Std.Math.PI()", []),
+        ("5.0 * Std.Math.PI() / 2.0", ["s__body"]),
+        ("-5.0 * Std.Math.PI() / 2.0", ["s__adj"]),
+        ("3.0 * Std.Math.PI()", ["z__body"]),
+        ("-7.0 * Std.Math.PI() / 2.0", ["s__body"]),
+        ("4.0 * Std.Math.PI()", []),
+    ],
+)
+def test_rz_clifford_angle_decomposition(angle: str, expected: list[str]) -> None:
+    assert _rz_to_clifford_qis_calls(angle) == expected
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)

@@ -13,8 +13,7 @@
 //!
 //! Three further controls pin the structural assumptions the residual-`Return`
 //! skip set relies on: the package entry expression is never itself a `Return`,
-//! the non-Unit block-tail check is bypassed only for a callable left with a
-//! residual `Return` (and would otherwise reject its un-collapsed tail), and a
+//! a residual `Return` is accepted only with an explicit skip, and a
 //! residual-`Return` callable still receives a well-formed, non-empty rebuilt
 //! specialization exec graph.
 
@@ -282,18 +281,14 @@ fn skip_set_allows_intentionally_retained_return_callable() {
 }
 
 #[test]
-fn residual_return_tail_trips_non_unit_block_tail_check_without_skip() {
-    // The negative control for the skip-set gating: with an empty skip set, the
-    // un-rewritten callable's residual `Return` body is checked and its
-    // non-single-exit, non-Unit block tail is rejected. This proves the skip in
-    // the positive control is load-bearing rather than vacuous.
+fn residual_return_is_rejected_without_an_explicit_skip() {
+    // Divergence can justify a tail-type mismatch, but cannot authorize a
+    // residual Return after return unification.
     let source = residual_return_entry_point_source();
 
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
-    let reachable = collect_reachable_from_entry(&store, pkg_id);
-
-    assert_panics_with("Non-Unit block-tail invariant violation", || {
-        invariants::check_non_unit_block_tails(&store, pkg_id, &reachable, &FxHashSet::default());
+    assert_panics_with("ExprKind::Return found after return unification", || {
+        invariants::check(&store, pkg_id, invariants::InvariantLevel::PostReturnUnify);
     });
 }
 

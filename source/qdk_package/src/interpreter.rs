@@ -17,7 +17,7 @@ use crate::{
         get_program_type, get_search_path, sanitize_name,
     },
     interpreter::data_interop::{
-        PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
+        PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, first_unsupported_interop_ty,
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
@@ -44,11 +44,11 @@ use pyo3::{
     types::{PyBool, PyDict, PyList, PyString, PyTuple, PyType},
 };
 use qsc::{
-    LanguageFeatures, PackageType, SourceMap,
+    FunctorApp, LanguageFeatures, PackageType, SourceMap,
     circuit::{TracerConfig, circuit_to_standalone_qsharp, circuits_to_qsharp},
     error::WithSource,
     fir::{self},
-    hir::ty::{Prim, Ty},
+    hir::ty::Ty,
     interpret::{
         self, CircuitEntryPoint, PackageGlobal, PauliNoise, SimType, TaggedItem, Value,
         output::{Error, Receiver},
@@ -1119,12 +1119,12 @@ fn args_to_values(
 ) -> PyResult<Value> {
     // If the types are not supported, we can't convert the arguments or return value.
     // Check this before trying to convert the arguments, and return an error if the types are not supported.
-    if let Some(ty) = first_unsupported_interop_ty(ctx, input_ty) {
+    if let Some(ty) = first_unsupported_interop_ty(ctx, input_ty, false) {
         return Err(QSharpError::new_err(format!(
             "unsupported input type: `{ty}`"
         )));
     }
-    if let Some(ty) = first_unsupported_interop_ty(ctx, output_ty) {
+    if let Some(ty) = first_unsupported_interop_ty(ctx, output_ty, false) {
         return Err(QSharpError::new_err(format!(
             "unsupported output type: `{ty}`"
         )));
@@ -1148,65 +1148,34 @@ fn args_to_values(
     }
 }
 
-/// Finds any Q# type recursively that does not support interop with Python, meaning our code cannot convert it back and forth
-/// across the interop boundary.
-fn first_unsupported_interop_ty<'ctx, 'ty>(
-    ctx: &'ctx interpret::Interpreter,
-    ty: &'ty Ty,
-) -> Option<&'ctx Ty>
-where
-    'ty: 'ctx,
-{
-    match ty {
-        Ty::Prim(prim_ty) => match prim_ty {
-            Prim::Pauli
-            | Prim::BigInt
-            | Prim::Bool
-            | Prim::Double
-            | Prim::Int
-            | Prim::String
-            | Prim::Result => None,
-            Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
-                Some(ty)
-            }
-        },
-        Ty::Tuple(tup) => tup
-            .iter()
-            .find(|t| first_unsupported_interop_ty(ctx, t).is_some()),
-        Ty::Array(ty) => first_unsupported_interop_ty(ctx, ty),
-        Ty::Udt(_, res) => {
-            let qsc::hir::Res::Item(item_id) = res else {
-                panic!("Udt should be an item");
-            };
-            let (udt, _) = ctx.udt_ty_from_item_id(item_id);
-
-            let Ok(fields) = collect_udt_fields(udt) else {
-                return Some(ty);
-            };
-
-            for field in fields {
-                if let Some(ty) = first_unsupported_interop_ty(ctx, field.1) {
-                    return Some(ty);
-                }
-            }
-
-            None
-        }
-        Ty::Arrow(..) => None,
-        Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty),
-    }
-}
-
 fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
-    if let Ok(global_callable) = callable.extract::<GlobalCallable>(py) {
-        Ok(global_callable.0)
+    let callable_val = if let Ok(global_callable) = callable.extract::<GlobalCallable>(py) {
+        global_callable.0
     } else if let Ok(closure) = callable.extract::<Closure>(py) {
-        Ok(closure.0)
+        closure.0
     } else {
-        Err(PyException::new_err(
+        return Err(QSharpError::new_err(
             "callable must be either a GlobalCallable or a Closure",
-        ))
+        ));
+    };
+
+    // Ensure the value is either a callabe with no functors or a closure with no functors
+    match &callable_val {
+        Value::Closure(closure) if closure.functor == FunctorApp::default() => {}
+        Value::Global(_, functor) if *functor == FunctorApp::default() => {}
+        Value::Closure(_) | Value::Global(_, _) => {
+            return Err(QSharpError::new_err(
+                "callable must have no applied functors (`Adjoint` or `Controlled`)",
+            ));
+        }
+        _ => {
+            return Err(QSharpError::new_err(
+                "callable must be either a GlobalCallable or a Closure",
+            ));
+        }
     }
+
+    Ok(callable_val)
 }
 
 #[pyfunction]

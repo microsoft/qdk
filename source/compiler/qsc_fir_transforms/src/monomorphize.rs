@@ -17,13 +17,14 @@
 //!   in reachable code.
 //! - **Three phases:** *Discovery* collects concrete generic references;
 //!   *Specialization* drives a worklist that clones each body, substitutes
-//!   type params, and feeds back transitive generic references it finds;
+//!   type params, and scans the clone and its transitive lifted-lambda bodies
+//!   for newly concrete generic references to feed back into the worklist;
 //!   *Rewrite* redirects call sites and closure targets across every reachable
 //!   package and (via `collect_rewrite_scope_for_package`) walks closure items
 //!   so generic sites in lifted lambdas are not missed.
 //! - **Special cases:** identity instantiations (`[Param(0), ...]`) are
-//!   skipped (they would duplicate the original); intrinsics get their
-//!   argument lists cleared in place with no new callable; generic references
+//!   skipped (they would duplicate the original); intrinsic specializations
+//!   retain names required by runtime dispatch; generic references
 //!   in foreign bodies are specialized in place in the package that owns the
 //!   source callable, so each package receives its own concrete
 //!   specializations.
@@ -942,8 +943,8 @@ fn create_specializations(
 
 /// Clones a single `(callable, args)` pair into its owning package, substitutes
 /// type parameters, and returns the new item id plus any concrete generic
-/// references discovered in the cloned body that require their own
-/// specializations.
+/// references discovered in the cloned body and its transitive lifted lambdas
+/// that require their own specializations.
 fn specialize_one(
     owning_pkg: &mut Package,
     owning_pkg_id: PackageId,
@@ -1024,27 +1025,35 @@ fn specialize_one(
     (new_item_id, refs_out)
 }
 
-/// Scans a freshly created monomorphized callable for concrete generic
-/// references that require their own specializations.
+/// Scans a freshly created monomorphized callable and its transitive closure
+/// bodies for concrete generic references that require their own specializations.
 ///
 /// References to items already non-generic in the owning package (for example
 /// self-references from a recursive callable remapped by `set_self_item_remap`)
 /// are dropped; every other concrete reference is returned for the caller to
-/// enqueue.
+/// enqueue. Closure targets are package-local, but generic references found
+/// inside them retain their full package identity, so dependencies are specialized
+/// in their declaring packages rather than the cloned lambda's package.
 fn collect_new_generic_refs(
     owning_pkg: &Package,
     owning_pkg_id: PackageId,
     new_local_id: LocalItemId,
 ) -> Vec<(StoreItemId, Vec<GenericArg>)> {
-    // Scan the newly created callable for additional concrete generic
-    // references that need their own specializations. Skip references to
-    // items in the owning package that are already non-generic (e.g.,
-    // self-references from recursive callables that were remapped by
-    // set_self_item_remap).
     let mut refs_out = Vec::new();
-    let created_item = owning_pkg.items.get(new_local_id).expect("just inserted");
-    if let ItemKind::Callable(created_decl) = &created_item.kind {
-        let new_refs = scan_for_concrete_generic_refs(owning_pkg_id, owning_pkg, created_decl);
+    let mut worklist = vec![new_local_id];
+    let mut seen_items = FxHashSet::default();
+    while let Some(item_id) = worklist.pop() {
+        if !seen_items.insert(item_id) {
+            continue;
+        }
+        let item = owning_pkg.get_item(item_id);
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        // Lifted lambdas may declare no generics themselves, but substitution in
+        // their cloned bodies can expose additional concrete generic dependencies.
+        worklist.extend(collect_closure_targets_in_callable(owning_pkg, decl));
+        let new_refs = scan_for_concrete_generic_refs(owning_pkg_id, owning_pkg, decl);
         for (ref_id, ref_args) in new_refs {
             if ref_id.package == owning_pkg_id
                 && let Some(ref_item) = owning_pkg.items.get(ref_id.item)
@@ -1302,8 +1311,9 @@ fn substitute_functor_set(
 
 /// Walks all nodes that the cloner inserted into the target package and
 /// replaces `Ty::Param` / `FunctorSet::Param` with concrete types.
-/// Also substitutes types inside generic args on `ExprKind::Var` expressions
-/// and clears generic args that become concrete after substitution.
+/// Also substitutes types inside generic args on `ExprKind::Var` expressions.
+/// Retains those arguments for dependency discovery and specialization lookup;
+/// [`rewrite_call_sites`] clears them after redirecting the references.
 ///
 /// # Before
 /// ```text

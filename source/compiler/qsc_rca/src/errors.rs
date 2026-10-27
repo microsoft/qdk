@@ -346,12 +346,6 @@ pub fn generate_errors_from_runtime_features(
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicUdt) {
         errors.push(Error::UseOfDynamicUdt(span));
     }
-    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicArrowFunction) {
-        errors.push(Error::UseOfDynamicArrowFunction(span));
-    }
-    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicArrowOperation) {
-        errors.push(Error::UseOfDynamicArrowOperation(span));
-    }
     if runtime_features.contains(RuntimeFeatureFlags::CallToDynamicCallee) {
         errors.push(Error::CallToDynamicCallee(span));
     }

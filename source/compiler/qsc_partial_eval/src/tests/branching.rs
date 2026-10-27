@@ -2426,7 +2426,7 @@ fn short_circuit_andl_with_potentially_skipped_mutable_update_with_literal() {
                 Branch Variable(3, Boolean), 2, 1
             Block 1:Block:
                 Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(0, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
@@ -2462,12 +2462,80 @@ fn short_circuit_orl_with_potentially_skipped_mutable_update_with_literal() {
                 Branch Variable(3, Boolean), 1, 2
             Block 1:Block:
                 Variable(5, Integer) = Store Variable(0, Integer)
-                Call id(4), args( Variable(0, Integer), Tag(0, 3), )
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
                 Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(5)
                 Variable(4, Boolean) = Store Bool(true)
                 Jump(1)"#]],
+    );
+}
+
+#[test]
+fn assign_to_unit_tuple_with_block_updating_mutable_in_dynamic_branch() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int {
+            use q = Qubit();
+            let d = MResetZ(q) == One;
+            mutable z = 3;
+            set () = { if d { set z = 5; } () };
+            z
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Variable(3, Integer) = Store Integer(3)
+            Branch Variable(2, Boolean), 2, 1
+        Block 1:Block:
+            Variable(4, Integer) = Store Variable(3, Integer)
+            Call id(4), args( Variable(4, Integer), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(3, Integer) = Store Integer(5)
+            Jump(1)"#]],
+    );
+}
+
+#[test]
+fn assign_to_unit_tuple_with_block_applying_gate_in_dynamic_branch() {
+    let program = get_rir_program(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Result {
+            use (q, t) = (Qubit(), Qubit());
+            let d = MResetZ(q) == One;
+            set () = { if d { X(t); } () };
+            MResetZ(t)
+        }
+    "#
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 2, 1
+        Block 1:Block:
+            Call id(2), args( Qubit(1), Result(1), )
+            Call id(5), args( Result(1), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Call id(4), args( Qubit(1), )
+            Jump(1)"#]],
     );
 }
 

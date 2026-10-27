@@ -315,6 +315,132 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_optimize_does_not_cancel_gates_across_fused_h_s_h() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile(
+        """
+        {
+            use q = Qubit();
+            Z(q);
+            H(q);
+            S(q);
+            H(q);
+            Z(q);
+        }
+        """
+    )
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    OptimizeSingleQubitGates().run(module)
+
+    assert_expected_inline(
+        str(module),
+        """\
+
+@0 = internal constant [4 x i8] c"0_t\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__z__body(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__z__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+declare void @__quantum__qis__z__body(ptr)
+
+declare void @__quantum__qis__h__body(ptr)
+
+declare void @__quantum__qis__s__body(ptr)
+
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+declare void @__quantum__qis__sx__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
+    )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_optimize_h_s_h_fusion_reuses_existing_sx_declaration() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile(
+        """
+        {
+            use q = Qubit();
+            SX(q);
+            H(q);
+            S(q);
+            H(q);
+        }
+        """
+    )
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    OptimizeSingleQubitGates().run(module)
+
+    assert_expected_inline(
+        str(module),
+        """\
+
+@0 = internal constant [4 x i8] c"0_t\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+declare void @__quantum__qis__sx__body(ptr)
+
+declare void @__quantum__qis__h__body(ptr)
+
+declare void @__quantum__qis__s__body(ptr)
+
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
+    )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_optimize_removes_x_x_gates() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile(

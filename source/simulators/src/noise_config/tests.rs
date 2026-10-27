@@ -97,6 +97,17 @@ fn test_encode_pauli() {
 }
 
 #[test]
+fn encode_pauli_supports_21_qubits() {
+    assert_eq!(0b_001, encode_pauli(&format!("{}X", "I".repeat(20))));
+}
+
+#[test]
+#[should_panic(expected = "has 22 qubits, but at most 21 are supported")]
+fn encode_pauli_panics_on_more_than_21_qubits() {
+    let _ = encode_pauli(&"X".repeat(22));
+}
+
+#[test]
 fn test_decode_pauli() {
     const MAP: [char; 5] = ['I', 'X', 'Z', 'Y', 'L'];
     assert_eq!(vec!['I', 'I'], decode_pauli(0b_000_000, 2, &MAP));

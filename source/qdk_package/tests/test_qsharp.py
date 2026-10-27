@@ -918,6 +918,55 @@ def test_callable_with_unsupported_udt_return_type_raises_error_on_call() -> Non
         qdk.code.Unsupported()
 
 
+def test_callable_with_functor_raises_error_on_call() -> None:
+    qsharp.init()
+    callable = qsharp.eval("""
+        operation Unsupported() : Unit is Adj + Ctl { }
+        Adjoint Unsupported
+        """)
+    with pytest.raises(
+        qsharp.QSharpError,
+        match="callable must have no applied functors",
+    ):
+        qsharp.run(callable, shots=1)
+    callable = qsharp.eval("Controlled Unsupported")
+    with pytest.raises(
+        qsharp.QSharpError,
+        match="callable must have no applied functors",
+    ):
+        qsharp.run(callable, shots=1)
+
+
+def test_callable_with_generic_type_raises_error_on_call() -> None:
+    qsharp.init()
+    qsharp.eval("""
+        function Unsupported<'T>(a : 'T) : Unit { }
+        """)
+    with pytest.raises(qsharp.QSharpError, match="unsupported input type"):
+        qdk.code.Unsupported()
+
+
+def test_callable_with_function_argument_with_generic_type_raises_error_on_call() -> (
+    None
+):
+    qsharp.init()
+    qsharp.eval("""
+        function Unsupported<'T>(a : 'T -> 'T) : Unit { }
+        """)
+    with pytest.raises(qsharp.QSharpError, match="unsupported input type"):
+        qdk.code.Unsupported()
+
+
+def test_callable_with_generic_function_as_input_raises_error_on_call() -> None:
+    qsharp.init()
+    qsharp.eval("""
+        function Identity<'T>(x : 'T) : 'T { x }
+        function IntIdentity(x : Int, id : (Int -> Int)) : Int { id(x) }
+        """)
+    with pytest.raises(qsharp.QSharpError, match="unsupported input type"):
+        qdk.code.IntIdentity(42, qdk.code.Identity)
+
+
 def test_returning_unsupported_udt_from_eval_raises_error_on_call() -> None:
     qsharp.init()
     with pytest.raises(

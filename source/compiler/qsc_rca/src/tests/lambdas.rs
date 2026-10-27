@@ -176,6 +176,36 @@ fn check_rca_for_dynamic_lambda_two_dynamic_parameters_one_classical_capture() {
 }
 
 #[test]
+fn check_rca_for_captured_lambda_with_opaque_nested_input() {
+    let mut compilation_context = CompilationContext::default();
+    // Capture and input propagation produce distinct dynamic output types.
+    // The mutable tuple keeps all three explicit parameter leaves opaque.
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let captured = MResetZ(q) == One;
+        let lambda = (a, (b, c)) -> {
+            let from_capture = captured ? 1.0 | 2.0;
+            let from_input = (a or b or c) ? 1 | 2;
+            (from_capture, from_input)
+        };
+        mutable args = (false, (false, MResetZ(q) == One));
+        lambda(args)
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | QubitAllocation)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
 fn check_rca_for_operation_lambda_two_parameters() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(
