@@ -352,6 +352,383 @@ fn recursive_callee_is_emitted() {
 }
 
 #[test]
+fn recursive_immediate_measurement_comparison_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                if MResetZ(q) == One { X(target); }
+                Rec(n - 1, q, target);
+            }
+        }
+        operation Main() : Unit {
+            use (q, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(q) == One { 2 } else { 0 }, q, target);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Rec",
+                "X",
+            ]"#]],
+    );
+}
+
+#[test]
+fn recursive_materialized_boolean_survives_reentry() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                let saved = M(q) == One;
+                X(q);
+                Rec(n - 1, q, target);
+                if saved { X(target); }
+            }
+        }
+        operation Main() : Result {
+            use (flag, q, target) = (Qubit(), Qubit(), Qubit());
+            X(flag);
+            let n = if MResetZ(flag) == One { 2 } else { 0 };
+            Rec(n, q, target);
+            Reset(q);
+            MResetZ(target)
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Rec",
+                "Reset",
+                "X",
+            ]"#]],
+    );
+    assert_eq!(program.get_callable(CallableId(2)).name, "X");
+    assert_eq!(
+        program.get_callable(CallableId(5)).name,
+        "__quantum__rt__read_result"
+    );
+    assert_eq!(program.get_callable(CallableId(6)).name, "Rec");
+    assert_eq!(
+        program.get_callable(CallableId(7)).name,
+        "__quantum__qis__m__body"
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(4), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(5), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 4
+            Block 1:Block:
+                Call id(3), args( Variable(0, Qubit), )
+                Return
+            Block 2:Block:
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Integer) = Store Variable(4, Integer)
+                Call id(6), args( Variable(5, Integer), Qubit(1), Qubit(2), )
+                Call id(8), args( Qubit(1), )
+                Call id(4), args( Qubit(2), Result(2), )
+                Call id(10), args( Result(2), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Variable(3, Integer) = Store Integer(2)
+                Jump(2)
+            Block 4:Block:
+                Variable(3, Integer) = Store Integer(0)
+                Jump(2)
+            Block 5:Block:
+                Variable(9, Integer) = Store Variable(6, Integer)
+                Variable(10, Boolean) = Icmp Sgt, Variable(9, Integer), Integer(0)
+                Branch Variable(10, Boolean), 7, 6
+            Block 6:Block:
+                Return
+            Block 7:Block:
+                Call id(7), args( Variable(7, Qubit), Result(1), )
+                Variable(11, Boolean) = Call id(5), args( Result(1), )
+                Variable(12, Boolean) = Store Variable(11, Boolean)
+                Variable(13, Boolean) = Store Variable(12, Boolean)
+                Call id(2), args( Variable(7, Qubit), )
+                Variable(14, Integer) = Store Variable(6, Integer)
+                Variable(15, Integer) = Sub Variable(14, Integer), Integer(1)
+                Variable(16, Integer) = Store Variable(15, Integer)
+                Variable(17, Qubit) = Store Variable(7, Qubit)
+                Variable(18, Qubit) = Store Variable(8, Qubit)
+                Call id(6), args( Variable(16, Integer), Variable(17, Qubit), Variable(18, Qubit), )
+                Branch Variable(13, Boolean), 9, 8
+            Block 8:Block:
+                Jump(6)
+            Block 9:Block:
+                Call id(2), args( Variable(8, Qubit), )
+                Jump(8)
+            Block 10:Block:
+                Call id(9), args( Variable(19, Qubit), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn recursive_boolean_measurement_helper_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Observe(q : Qubit) : Bool { M(q) == One }
+        operation Rec(n : Int, q : Qubit, target : Qubit) : Unit {
+            if n > 0 {
+                let saved = Observe(q);
+                X(q);
+                Rec(n - 1, q, target);
+                if saved { X(target); }
+            }
+        }
+        operation Main() : Unit {
+            use (q, target) = (Qubit(), Qubit());
+            Rec(if MResetZ(q) == One { 2 } else { 0 }, q, target);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Observe",
+                "Rec",
+                "Reset",
+                "X",
+            ]"#]],
+    );
+}
+
+#[test]
+fn mutual_recursive_boolean_measurement_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation A(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let saved = M(q) == One;
+                X(q);
+                B(n - 1, q);
+                if saved { X(q); }
+            }
+        }
+        operation B(n : Int, q : Qubit) : Unit { A(n, q); }
+        operation Main() : Unit {
+            use q = Qubit();
+            B(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "A",
+            "B",
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_proof_uses_selected_adjoint() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Step(n : Int, q : Qubit) : Unit is Adj {
+            body (...) {
+                let raw = M(q);
+                Rec(n - 1, q);
+                if raw == One { X(q); }
+            }
+            adjoint (...) {
+                if One != M(q) { X(q); }
+                Rec(n - 1, q);
+            }
+        }
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 { Adjoint Step(n, q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(if MResetZ(q) == One { 2 } else { 1 }, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "Reset",
+            "Step__Adj",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_proof_rejects_live_controlled_adjoint_result() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Step(n : Int, q : Qubit) : Unit is Adj + Ctl {
+            body (...) {}
+            adjoint (...) {}
+            controlled (cs, ...) {}
+            controlled adjoint (cs, ...) {
+                let raw = M(q);
+                Rec(n - 1, cs[0], q);
+                if raw == One { X(q); }
+            }
+        }
+        operation Rec(n : Int, control : Qubit, q : Qubit) : Unit {
+            if n > 0 { Controlled Adjoint Step([control], (n, q)); }
+        }
+        operation Main() : Unit {
+            use (control, q) = (Qubit(), Qubit());
+            Rec(2, control, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_with_unused_result_parameter_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit, unused : Result) : Unit {
+            if n > 0 {
+                if M(q) == One { X(q); }
+                Rec(n - 1, q, Zero);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(2, q, Zero);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_result_comparison_with_effectful_rhs_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                if M(q) == { X(q); Rec(n - 1, q); M(q) } { X(q); }
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(2, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn raw_result_in_acyclic_caller_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                if M(q) == One { X(q); }
+                Rec(n - 1, q);
+            }
+        }
+        operation Outer(n : Int, q : Qubit) : Unit {
+            let raw = M(q);
+            Rec(n, q);
+            if raw == One { X(q); }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(2, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Rec",
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn recursive_measurement_argument_with_live_result_keeps_inline_fallback() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        operation Rec(n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                if M({
+                    let raw = M(q);
+                    Rec(n - 1, q);
+                    if raw == One { X(q); }
+                    q
+                }) == One { X(q); }
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Rec(2, q);
+            Reset(q);
+        }
+        "#,
+    );
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Reset",
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
 fn recursive_operation_factory_is_inlined_before_calling_returned_operation() {
     let source = r#"
         namespace Test {
