@@ -13,6 +13,7 @@ mod management;
 
 use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
+pub use evaluation_context::{MAX_RECURSIVE_INLINE_DEPTH, MAX_RECURSIVE_INLINE_WORK};
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
 use num_bigint::BigInt;
@@ -119,9 +120,16 @@ pub enum Error {
     #[error("cannot inline a recursive call under runtime-dependent control flow")]
     #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedRecursiveInlining"))]
     #[diagnostic(help(
-        "make the recursion depth known at compile time or use a non-recursive implementation"
+        "make recursive arguments compile-time-known or use a non-recursive implementation; inline expansion is subject to work and depth limits"
     ))]
     UnsupportedRecursiveInlining(#[label] PackageSpan),
+
+    #[error("recursive inline expansion exceeds the {0} limit of {1}")]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.RecursiveExpansionLimitExceeded"))]
+    #[diagnostic(help(
+        "simplify the recursive expansion or use a non-recursive implementation; compile-time-known arguments do not guarantee bounded expansion"
+    ))]
+    RecursiveExpansionLimitExceeded(&'static str, usize, #[label] PackageSpan),
 
     #[error("unsupported type `{0}` in custom intrinsic callable")]
     #[diagnostic(help(
@@ -177,6 +185,7 @@ impl Error {
             Self::CapabilityError(e) => map_fir_package_span_to_hir(e.span()),
             Self::UnexpectedDynamicValue(span)
             | Self::UnsupportedRecursiveInlining(span)
+            | Self::RecursiveExpansionLimitExceeded(_, _, span)
             | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
             | Self::OutputResultLiteral(span)
@@ -1712,10 +1721,18 @@ impl<'a> PartialEvaluator<'a> {
                             .any(|operand| matches!(operand, Operand::Variable(_)))
                 })
         };
+        // Emitted runtime calls do not require recursive inlining. For inline re-entry into
+        // the same specialization under runtime control, require compile-time-known arguments,
+        // including nested values, closure captures, and controls. Static arguments do not
+        // prove termination; separate work and depth limits bound the expansion.
         if ir_function_arg_operands.is_none()
             && self
                 .eval_context
                 .is_callable_in_dynamic_branch(store_item_id, functor_app)
+            && !args
+                .iter()
+                .chain(ctls_arg.iter())
+                .all(|arg| is_static_value(arg.value()))
         {
             return Err(Error::UnsupportedRecursiveInlining(
                 self.get_expr_package_span(call_expr_id),
@@ -1765,14 +1782,24 @@ impl<'a> PartialEvaluator<'a> {
             }
             Some(spec_decl) => {
                 if let Some(arg_operands) = ir_function_arg_operands {
+                    // Emit a runtime call without charging inline work. This path checks
+                    // expansion depth only when a cache miss requires evaluating a new body.
                     self.eval_expr_call_to_ir_function(
                         store_item_id,
                         functor_app,
                         spec_decl,
                         callable_decl,
                         &arg_operands,
+                        self.get_expr_package_span(call_expr_id),
                     )?
                 } else {
+                    // Inlining evaluates the body at this call site. Charge its work and
+                    // enforce active recursion limits before entering the callee scope.
+                    self.eval_context.charge_inline_call(
+                        store_item_id,
+                        functor_app,
+                        self.get_expr_package_span(call_expr_id),
+                    )?;
                     self.eval_expr_call_to_spec(call_scope, store_item_id, functor_app, spec_decl)?
                 }
             }
@@ -2353,6 +2380,7 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
         arg_operands: &[Operand],
+        call_span: PackageSpan,
     ) -> Result<Value, Error> {
         let functor_set_value = functor_app_to_functor_set_value(functor_app);
         let cache_key = (store_item_id, functor_set_value);
@@ -2360,6 +2388,9 @@ impl<'a> PartialEvaluator<'a> {
         let callable_id = if let Some(callable_id) = self.ir_function_callables.get(&cache_key) {
             *callable_id
         } else {
+            // Emitting a new body grows the compiler stack; cached runtime
+            // calls do not enter another evaluation scope or consume inline work.
+            self.eval_context.check_expansion_depth(call_span)?;
             self.emit_ir_function(store_item_id, functor_app, spec_decl, callable_decl)?
         };
 
