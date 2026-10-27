@@ -66,10 +66,10 @@ impl TumblingWindowAggregator {
     }
 
     /// Returns event rates in events/second and factory utilization in factories.
-    /// Profiles are ordered by metric name.
+    /// Profiles use the supplied group name and are ordered by metric name.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
-    pub fn get_profiles(&self) -> Vec<TimeSeries> {
+    pub fn get_profiles(&self, group_name: &str) -> Vec<TimeSeries> {
         let window_size_sec = self.window_size_nanos as f64 / 1e9;
         let mut profiles = Vec::with_capacity(self.event_counts.len());
         for (event_name, counts) in &self.event_counts {
@@ -91,6 +91,7 @@ impl TumblingWindowAggregator {
                 metric_name,
                 metric_units: metric_units.to_owned(),
                 series,
+                group_name: group_name.to_owned(),
             });
         }
         profiles.sort_by(|left, right| left.metric_name.cmp(&right.metric_name));
@@ -108,7 +109,7 @@ mod tests {
     fn collects_two_event_metrics_across_windows() {
         let mut aggregator = TumblingWindowAggregator::new(500_000_000, AggregationType::Rate);
         assert_eq!(aggregator.total_event_count(), 0);
-        assert!(aggregator.get_profiles().is_empty());
+        assert!(aggregator.get_profiles("Event rates").is_empty());
 
         for time_nanos in [0, 1, 499_999_999, 500_000_000, 1_100_000_000, 1_000_000_000] {
             aggregator.record_event(time_nanos, "X gate", 1);
@@ -119,16 +120,18 @@ mod tests {
         assert_eq!(aggregator.total_event_count(), 10);
 
         assert_eq!(
-            aggregator.get_profiles(),
+            aggregator.get_profiles("Event rates"),
             vec![
                 TimeSeries {
                     metric_name: "T gate rate".to_owned(),
                     metric_units: "events/s".to_owned(),
+                    group_name: "Event rates".to_owned(),
                     series: vec![(0.0, 6.0), (0.5, 0.0), (1.0, 2.0)],
                 },
                 TimeSeries {
                     metric_name: "X gate rate".to_owned(),
                     metric_units: "events/s".to_owned(),
+                    group_name: "Event rates".to_owned(),
                     series: vec![(0.0, 6.0), (0.5, 2.0), (1.0, 4.0)],
                 },
             ]
@@ -144,10 +147,11 @@ mod tests {
         }
         assert_eq!(aggregator.total_event_count(), 10);
         assert_eq!(
-            aggregator.get_profiles(),
+            aggregator.get_profiles("Event rates"),
             vec![TimeSeries {
                 metric_name: "X gate rate".to_owned(),
                 metric_units: "events/s".to_owned(),
+                group_name: "Event rates".to_owned(),
                 series: vec![(0.0, 10.0), (0.5, 10.0), (1.0, 0.0)],
             }]
         );
@@ -164,16 +168,18 @@ mod tests {
         aggregator.record_event(0, "Other utilization", 250_000_000);
         assert_eq!(aggregator.total_event_count(), 1_750_000_000);
         assert_eq!(
-            aggregator.get_profiles(),
+            aggregator.get_profiles("Utilization"),
             vec![
                 TimeSeries {
                     metric_name: "Factory utilization".to_owned(),
                     metric_units: "factories".to_owned(),
+                    group_name: "Utilization".to_owned(),
                     series: vec![(0.0, 2.5), (0.5, 0.0), (1.0, 0.5)],
                 },
                 TimeSeries {
                     metric_name: "Other utilization".to_owned(),
                     metric_units: "factories".to_owned(),
+                    group_name: "Utilization".to_owned(),
                     series: vec![(0.0, 0.5)],
                 },
             ]
@@ -187,10 +193,11 @@ mod tests {
         aggregator.record_event(0, "Factory utilization", 3);
         assert_eq!(aggregator.total_event_count(), 3);
         assert_eq!(
-            aggregator.get_profiles(),
+            aggregator.get_profiles("Event rates"),
             vec![TimeSeries {
                 metric_name: "Factory utilization rate".to_owned(),
                 metric_units: "events/s".to_owned(),
+                group_name: "Event rates".to_owned(),
                 series: vec![(0.0, 6.0)],
             }]
         );

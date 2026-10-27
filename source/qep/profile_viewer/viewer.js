@@ -134,8 +134,9 @@ function validateProfile(profile) {
       object(metric) &&
         typeof metric.metric_name === "string" &&
         typeof metric.metric_units === "string" &&
+        typeof metric.group_name === "string" &&
         Array.isArray(metric.series),
-      "Each time series needs a name, units, and samples.",
+      "Each time series needs a name, units, group_name, and samples.",
     );
     let previous = -Infinity;
     for (const point of metric.series) {
@@ -577,7 +578,7 @@ function initializeViewer() {
     return `hsl(${((hash % 360) + 360) % 360} 45% 45%)`;
   }
 
-  /** Builds one chart and checkbox list for each distinct units string. */
+  /** Builds one chart and checkbox list for each distinct group name. */
   function renderCharts() {
     chartObserver.disconnect();
     hideTooltip();
@@ -586,22 +587,23 @@ function initializeViewer() {
     container.replaceChildren();
     const groups = new Map();
     profile.profiles.profiles.forEach((metric, index) => {
-      if (!groups.has(metric.metric_units)) groups.set(metric.metric_units, []);
-      groups.get(metric.metric_units).push(index);
+      if (!groups.has(metric.group_name)) groups.set(metric.group_name, []);
+      groups.get(metric.group_name).push(index);
     });
     if (groups.size === 0) groups.set("", []);
     const window = profile.profiles.aggregation_window_sec;
-    for (const [units, indices] of groups) {
+    for (const [groupName, indices] of groups) {
       const group =
         element("chart-template").content.firstElementChild.cloneNode(true);
-      group.querySelector(".chart-units").textContent = units || "Time series";
+      group.querySelector(".chart-title").textContent =
+        groupName || "Time series";
       group.querySelector(".window-note").textContent =
         window === null
           ? "No fixed aggregation window"
           : `Aggregation window: ${formatNumber(window)} s`;
       group.setAttribute(
         "aria-label",
-        units ? `Time series in ${units}` : "Time series",
+        groupName ? `Time series in ${groupName}` : "Time series",
       );
       const chart = {
         canvas: group.querySelector(".rates-canvas"),
@@ -612,8 +614,8 @@ function initializeViewer() {
       };
       chart.canvas.setAttribute(
         "aria-label",
-        units
-          ? `Selected time series in ${units} over time`
+        groupName
+          ? `Selected time series in ${groupName} over time`
           : "Selected time series over time",
       );
       renderSeriesSelector(chart);
@@ -642,7 +644,7 @@ function initializeViewer() {
     }
   }
 
-  /** Creates accessible series toggles for a single units group. */
+  /** Creates accessible series toggles for a single named group. */
   function renderSeriesSelector(chart) {
     const list = chart.list;
     list.replaceChildren();
@@ -1083,7 +1085,7 @@ function initializeViewer() {
       event,
     );
   });
-  /** Shows only selected series from the hovered chart's units group. */
+  /** Shows only selected series from the hovered chart's named group. */
   function showChartTooltip(chart, event) {
     if (!profile) return;
     const bounds = chart.canvas.getBoundingClientRect();

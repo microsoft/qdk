@@ -62,6 +62,8 @@ pub struct TotalCounts {
 pub struct TimeSeries {
     pub metric_name: String,
     pub metric_units: String,
+    /// Display group for related metrics.
+    pub group_name: String,
     /// Pairs (time in seconds, metric value).
     pub series: Vec<(f64, f64)>,
 }
@@ -236,6 +238,7 @@ mod tests {
                     TimeSeries {
                         metric_name: "hidden metric".into(),
                         metric_units: "events/s".into(),
+                        group_name: "Event rates".into(),
                         series: vec![(0.0, 123.0), (1.0, 456.0)],
                     };
                     2

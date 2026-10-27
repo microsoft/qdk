@@ -5,7 +5,35 @@
 
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { axisTicks, formatAxisTick } = require("./viewer.js");
+const { axisTicks, formatAxisTick, validateProfile } = require("./viewer.js");
+
+test("requires a string group_name on each time series", () => {
+  const metric = {
+    metric_name: "X rate",
+    metric_units: "events/s",
+    group_name: "Event rates",
+    series: [[0, 1]],
+  };
+  const profile = {
+    totals: {
+      logical_qubits: 0,
+      logical_compute_qubits: 0,
+      physical_qubits: 0,
+      total_runtime_sec: 1,
+      total_operations_count: 0,
+      calls_per_operation: {},
+      runtime_sec_per_operation: {},
+    },
+    profiles: { aggregation_window_sec: 1, profiles: [metric] },
+    trace: null,
+    infos: [],
+  };
+  assert.equal(validateProfile(profile), profile);
+  for (const groupName of [undefined, null, 123, {}]) {
+    metric.group_name = groupName;
+    assert.throws(() => validateProfile(profile), /group_name/);
+  }
+});
 
 test("uses integer ticks for a zero-to-ten axis", () => {
   assert.deepEqual(axisTicks(0, 10).ticks, [0, 2, 4, 6, 8, 10]);

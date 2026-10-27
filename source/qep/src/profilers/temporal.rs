@@ -646,8 +646,8 @@ impl Profiler for TemporalProfiler {
             calls_per_operation: Default::default(),
             runtime_sec_per_operation: Default::default(),
         };
-        let mut profiles = self.event_aggregator.get_profiles();
-        profiles.extend(self.utilization_aggregator.get_profiles());
+        let mut profiles = self.event_aggregator.get_profiles("Event rates");
+        profiles.extend(self.utilization_aggregator.get_profiles("Utilization"));
         profiles.sort_by(|left, right| left.metric_name.cmp(&right.metric_name));
         #[allow(clippy::cast_precision_loss)]
         let window_size_sec = self.config.aggregation_window_nanos as f64 / 1e9;

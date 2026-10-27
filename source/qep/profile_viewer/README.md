@@ -13,6 +13,8 @@ also works offline over `file://` with the file picker.
   successfully loaded profile remains displayed if another file fails to load.
 - Exports must include `totals.logical_compute_qubits`; regenerate older profiles
   to distinguish compute qubits from factory qubits.
+- Each time series must include a string `group_name`, which determines its chart
+  and chart title.
 - When served over HTTP or HTTPS, `index.html?profile_name=my_run` automatically
   loads `profiles/my_run.json` from the directory next to `index.html`.
   Names may contain only ASCII letters, digits, underscores, and hyphens; omit
@@ -28,19 +30,20 @@ Zero physical qubits and empty maps are displayed as reported, not estimated.
 The temporal profiler's operation count can include factory/resource events,
 not just quantum instructions.
 
-Time series are grouped by their exact units string, with a separate chart and
+Time series are grouped by their exact `group_name`, with a separate chart and
 independent y scale for each group. Each chart has time in seconds on its x axis.
 The right-hand checklist contains only that group's series and allows individual
 selection, selecting all, or clearing all. Hover to see values from that group.
-Each chart has its own panel titled with its units, with the exported aggregation
+Each chart has its own panel titled with its group name, with the exported aggregation
 window displayed beside the title.
 Chart axes and the trace time axis use 3-10 ticks at rounded steps such as 1, 2,
 or 5 times a power of ten, preferring fewer decimal places. Horizontal grid lines
 follow the chart's y-axis ticks.
 
 Rates are not recomputed: in particular the final partial window retains the
-exporter's full-window denominator. For example, `events/s` and `factories` are
-shown on different charts. Large series use a
+exporter's full-window denominator. For example, the `Event rates` and `Utilization`
+groups are shown on different charts. Units remain visible beside each series.
+Large series use a
 pixel-column envelope that retains extrema and bounds the number of points drawn.
 
 ## Execution trace
