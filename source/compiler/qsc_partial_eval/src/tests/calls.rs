@@ -18,6 +18,454 @@ use qsc::TargetCapabilityFlags;
 use qsc_data_structures::target::Profile;
 use qsc_rir::rir::{BlockId, CallableId, Program};
 
+fn evaluate_with_inline_limits(
+    source: &str,
+    depth: usize,
+    work: usize,
+) -> Result<Program, crate::Error> {
+    let capabilities = Profile::AdaptiveRIF.into();
+    let context = super::CompilationContext::new(source, capabilities);
+    let mut evaluator = crate::PartialEvaluator::new(
+        &context.fir_store,
+        &context.compute_properties,
+        &context.entry,
+        capabilities,
+        crate::PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
+    evaluator.eval_context.set_inline_limits(depth, work);
+    evaluator.eval().inspect(|program| {
+        qsc_rir::passes::check_and_transform(&mut program.clone());
+    })
+}
+
+#[test]
+fn recursive_inline_depth_boundary() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { Rec(n - 1, qs); } }
+        }";
+    evaluate_with_inline_limits(source, 3, 100).expect("exact depth must fit");
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 2, 100),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("depth", 2, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_work_is_shared_by_sibling_branches() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 {
+                if M(qs[0]) == Zero { Rec(n - 1, qs); }
+                else { Rec(n - 1, qs); }
+            }
+        }";
+    evaluate_with_inline_limits(source, 100, 4).expect("exact work must fit");
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 100, 3),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("work", 3, _))
+    ));
+}
+
+#[test]
+fn ordinary_static_recursion_ignores_runtime_inline_limits() {
+    let source = "
+        operation Main() : Unit { use q = Qubit(); Rec(4, [q]); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { X(qs[0]); Rec(n - 1, qs); }
+        }";
+    let program = evaluate_with_inline_limits(source, 2, 2)
+        .expect("ordinary static recursion must not acquire the new runtime-branch caps");
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn recursive_inline_work_resets_between_independent_roots() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); Rec(1, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { Rec(n - 1, qs); } }
+            else { Step(qs); }
+        }
+        operation Step(qs : Qubit[]) : Unit {
+            QIR.Intrinsic.__quantum__qis__x__body(qs[0]);
+        }";
+    evaluate_with_inline_limits(source, 100, 4)
+        .expect("each independent root must have its own four-body budget");
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 100, 3),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("work", 3, _))
+    ));
+}
+
+#[test]
+fn ordinary_inline_work_before_recursive_root_is_not_charged() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Step(qs); Step(qs); Step(qs); Step(qs);
+            Rec(1, qs);
+        }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { Rec(n - 1, qs); } }
+            else { Step(qs); }
+        }
+        operation Step(qs : Qubit[]) : Unit {
+            QIR.Intrinsic.__quantum__qis__x__body(qs[0]);
+        }";
+    evaluate_with_inline_limits(source, 100, 4)
+        .expect("earlier ordinary inline work must not consume the recursive root budget");
+}
+
+#[test]
+fn ordinary_inline_work_after_recursive_root_is_not_charged() {
+    let source = "
+        operation Main() : Unit {
+            use qs = Qubit[1];
+            Rec(1, qs);
+            Step(qs); Step(qs); Step(qs); Step(qs);
+        }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { Rec(n - 1, qs); } }
+            else { Step(qs); }
+        }
+        operation Step(qs : Qubit[]) : Unit {
+            QIR.Intrinsic.__quantum__qis__x__body(qs[0]);
+        }";
+    evaluate_with_inline_limits(source, 100, 4)
+        .expect("ordinary work after the root exits must not consume its old budget");
+}
+
+#[test]
+fn recursive_inline_depth_is_enforced_again_after_root_exit() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); Rec(2, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { Rec(n - 1, qs); } }
+        }";
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 3, 100),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("depth", 3, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_work_after_runtime_branch_stays_within_root_budget() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 {
+                if M(qs[0]) == Zero { Rec(n - 1, qs); }
+                Step(qs);
+            }
+        }
+        operation Step(qs : Qubit[]) : Unit {
+            QIR.Intrinsic.__quantum__qis__x__body(qs[0]);
+        }";
+    evaluate_with_inline_limits(source, 100, 4)
+        .expect("exact root work including the post-branch helper must fit");
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 100, 3),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("work", 3, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_static_closure_capture_preserves_target() {
+    let source = "
+        operation Main() : Result {
+            use flag = Qubit();
+            use target = Qubit();
+            let targets = [target];
+            let action = () => QIR.Intrinsic.__quantum__qis__x__body(targets[0]);
+            Rec(1, action, [flag]);
+            MResetZ(target)
+        }
+        operation Rec(n : Int, action : (Unit => Unit), qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { Rec(n - 1, action, qs); } }
+            else { action(); }
+        }";
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let program = get_rir_program_with_capabilities(source, profile.into());
+        assert_eq!(
+            program.get_callable(CallableId(4)).name,
+            "__quantum__qis__x__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(3), args( Result(0), )
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                    Branch Variable(1, Boolean), 2, 1
+                Block 1:Block:
+                    Call id(5), args( Qubit(1), Result(1), )
+                    Call id(6), args( Result(1), Tag(0, 3), )
+                    Return Integer(0)
+                Block 2:Block:
+                    Call id(4), args( Qubit(1), )
+                    Jump(1)"#]],
+        );
+    }
+}
+
+#[test]
+fn recursive_inline_static_nested_arguments_preserve_target() {
+    let source = "
+        operation Main() : Result {
+            use flag = Qubit();
+            use target = Qubit();
+            use other = Qubit();
+            Rec(1, (true, [[target, other]]), flag);
+            MResetZ(target)
+        }
+        operation Rec(n : Int, payload : (Bool, Qubit[][]), flag : Qubit) : Unit {
+            if n > 0 { if M(flag) == Zero { Rec(n - 1, payload, flag); } }
+            else {
+                let (_, targets) = payload;
+                QIR.Intrinsic.__quantum__qis__x__body(targets[0][0]);
+            }
+        }";
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let program = get_rir_program_with_capabilities(source, profile.into());
+        assert_eq!(
+            program.get_callable(CallableId(4)).name,
+            "__quantum__qis__x__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(3), args( Result(0), )
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                    Branch Variable(1, Boolean), 2, 1
+                Block 1:Block:
+                    Call id(5), args( Qubit(1), Result(1), )
+                    Call id(6), args( Result(1), Tag(0, 3), )
+                    Return Integer(0)
+                Block 2:Block:
+                    Call id(4), args( Qubit(1), )
+                    Jump(1)"#]],
+        );
+    }
+}
+
+#[test]
+fn recursive_inline_finite_controlled_adjoint_preserves_control_and_target() {
+    let source = "
+        operation Main() : Result {
+            use flag = Qubit();
+            use target = Qubit();
+            use control = Qubit();
+            QIR.Intrinsic.__quantum__qis__x__body(control);
+            Controlled Adjoint Rec([control], (1, [flag, target]));
+            MResetZ(target)
+        }
+        operation Rec(n : Int, qs : Qubit[]) : Unit is Adj + Ctl {
+            body (...) {}
+            adjoint (...) {}
+            controlled (cs, ...) {}
+            controlled adjoint (cs, ...) {
+                if n > 0 {
+                    if M(qs[0]) == Zero {
+                        Controlled Controlled Adjoint Rec([], (cs, (n - 1, qs)));
+                    }
+                } else {
+                    QIR.Intrinsic.__quantum__qis__cx__body(cs[0], qs[1]);
+                }
+            }
+        }";
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let program = get_rir_program_with_capabilities(source, profile.into());
+        assert_eq!(
+            program.get_callable(CallableId(5)).name,
+            "__quantum__qis__cx__body"
+        );
+        assert_blocks(
+            &program,
+            &expect![[r#"
+                Blocks:
+                Block 0:Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(2), )
+                    Call id(3), args( Qubit(0), Result(0), )
+                    Variable(0, Boolean) = Call id(4), args( Result(0), )
+                    Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                    Branch Variable(1, Boolean), 2, 1
+                Block 1:Block:
+                    Call id(6), args( Qubit(1), Result(1), )
+                    Call id(7), args( Result(1), Tag(0, 3), )
+                    Return Integer(0)
+                Block 2:Block:
+                    Call id(5), args( Qubit(2), Qubit(1), )
+                    Jump(1)"#]],
+        );
+    }
+}
+
+#[test]
+fn recursive_inline_unchanged_arguments_exhaust_depth() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if M(qs[0]) == Zero { Rec(n, qs); }
+        }";
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 3, 100),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("depth", 3, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_increasing_arguments_exhaust_depth() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, qs); }
+        operation Rec(n : Int, qs : Qubit[]) : Unit {
+            if M(qs[0]) == Zero { Rec(n + 1, qs); }
+        }";
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 3, 100),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("depth", 3, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_mutual_helpers_consume_work() {
+    let source = "
+        operation Main() : Unit { use qs = Qubit[1]; A(1, qs); }
+        operation A(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 { if M(qs[0]) == Zero { B(n, qs); } }
+        }
+        operation B(n : Int, qs : Qubit[]) : Unit { A(n - 1, qs); }";
+    evaluate_with_inline_limits(source, 100, 4).expect("exact helper work must fit");
+    assert!(matches!(
+        evaluate_with_inline_limits(source, 100, 3),
+        Err(crate::Error::RecursiveExpansionLimitExceeded("work", 3, _))
+    ));
+}
+
+#[test]
+fn recursive_inline_nested_runtime_result_is_not_static() {
+    let error = evaluate_with_inline_limits(
+        "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, (0, [Zero]), qs); }
+        operation Rec(n : Int, payload : (Int, Result[]), qs : Qubit[]) : Unit {
+            if n > 0 {
+                let result = M(qs[0]);
+                if result == Zero { Rec(n - 1, (0, [result]), qs); }
+            }
+        }",
+        100,
+        100,
+    )
+    .err()
+    .expect("nested Result ID cannot prove static contents");
+    assert!(matches!(
+        error,
+        crate::Error::UnsupportedRecursiveInlining(_)
+    ));
+}
+
+#[test]
+fn recursive_inline_runtime_closure_capture_is_not_static() {
+    let error = evaluate_with_inline_limits(
+        "
+        operation Main() : Unit { use qs = Qubit[1]; Rec(1, () => (), qs); }
+        operation Rec(n : Int, action : (Unit => Unit), qs : Qubit[]) : Unit {
+            if n > 0 {
+                let flag = M(qs[0]) == Zero;
+                let next = () => { if flag { action(); } };
+                if flag { Rec(n - 1, next, qs); }
+            }
+        }",
+        100,
+        100,
+    )
+    .err()
+    .expect("runtime closure capture cannot prove static contents");
+    assert!(matches!(
+        error,
+        crate::Error::UnsupportedRecursiveInlining(_)
+    ));
+}
+
+#[test]
+fn recursive_inline_adjoint_specialization_is_bounded() {
+    let error = evaluate_with_inline_limits(
+        "
+        operation Main() : Unit { use qs = Qubit[1]; Adjoint Rec(qs); }
+        operation Rec(qs : Qubit[]) : Unit is Adj {
+            body (...) {}
+            adjoint (...) { if M(qs[0]) == Zero { Adjoint Rec(qs); } }
+        }",
+        3,
+        100,
+    )
+    .err()
+    .expect("selected adjoint recursion must be charged");
+    assert!(
+        matches!(
+            error,
+            crate::Error::RecursiveExpansionLimitExceeded("depth", 3, _)
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn recursive_inline_controlled_adjoint_normalizes_control_count() {
+    let error = evaluate_with_inline_limits(
+        "
+        operation Main() : Unit {
+            use qs = Qubit[2];
+            Controlled Adjoint Rec([qs[0]], [qs[1]]);
+        }
+        operation Rec(qs : Qubit[]) : Unit is Adj + Ctl {
+            body (...) {}
+            adjoint (...) {}
+            controlled (cs, ...) {}
+            controlled adjoint (cs, ...) {
+                if M(qs[0]) == Zero {
+                    Controlled Controlled Adjoint Rec([], (cs, qs));
+                }
+            }
+        }",
+        3,
+        100,
+    )
+    .err()
+    .expect("changing control count cannot evade specialization accounting");
+    assert!(
+        matches!(
+            error,
+            crate::Error::RecursiveExpansionLimitExceeded("depth", 3, _)
+        ),
+        "{error:?}"
+    );
+}
+
 #[test]
 fn call_to_single_qubit_unitary_with_two_calls_to_the_same_intrinsic() {
     let program = get_rir_program(indoc! {r#"
@@ -1391,6 +1839,42 @@ fn call_to_recursive_callable_succeeds() {
                 Call id(3), args( Qubit(0), Result(0), )
                 Call id(4), args( Result(0), Tag(0, 3), )
                 Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn recursive_static_arguments_under_runtime_control_succeed() {
+    let program = get_rir_program(indoc! {"
+        operation Main() : Result {
+            use q = Qubit();
+            Recurse(1, [q]);
+            MResetZ(q)
+        }
+        operation Recurse(n : Int, qs : Qubit[]) : Unit {
+            if n > 0 {
+                if M(qs[0]) == Zero {
+                    X(qs[0]);
+                    Recurse(n - 1, qs);
+                }
+            }
+        }"});
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+            Branch Variable(1, Boolean), 2, 1
+        Block 1:Block:
+            Call id(5), args( Qubit(0), Result(1), )
+            Call id(6), args( Result(1), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Call id(4), args( Qubit(0), )
+            Jump(1)"#]],
     );
 }
 
