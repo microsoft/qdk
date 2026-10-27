@@ -1,6 +1,8 @@
 package-lock.json
+component-detection-pip-report.json
 __pycache__/
 .cargo/
+.cargo-manylinux/
 .devcontainer/
 /.github/CODEOWNERS
 .pytest_cache/

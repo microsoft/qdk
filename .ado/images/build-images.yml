@@ -20,28 +20,74 @@ parameters:
         arch: aarch64
         tag: arm64
 
-  # Parameters for building the qdk-build image
+  # Parameters for controlling the stages to run
+  - name: importUbi
+    displayName: Import UBI image
+    type: boolean
+    default: true
+
+  - name: buildBaseImage
+    displayName: Build QDK base image
+    type: boolean
+    default: true
+
+  - name: buildToolsImage
+    displayName: Build QDK tools image
+    type: boolean
+    default: true
+
+  # Parameters for ACR images and related tags
+  - name: ACR_NAME
+    displayName: Azure Container Registry resource name
+    type: string
+    default: "qdkacr"
   - name: ACR_SERVER
     displayName: Azure Container Registry server
     type: string
     default: "qdkacr-cfgqhwddajdaebhg.azurecr.io"
-  - name: qdkBuildTag
-    displayName: Tag for the new qdk-build container image
+  - name: azureServiceConnection
+    displayName: Azure service connection for ACR imports and builds
+    type: string
+    default: "AzureQuantum-test"
+  - name: registryServiceConnection
+    displayName: Docker Registry service connection for ACR pulls and pushes
+    type: string
+    default: "qdkacr"
+  - name: UBI8_IMAGE_TAG
+    displayName: Tag for the UBI8 image
+    type: string
+    default: "8.10-1793091705"
+  - name: qdkBaseTag
+    displayName: Tag for the qdk-base container image
     type: string
     default: "latest"
-  - name: qdkBaseTag
-    displayName: Tag for the qdk-base container image to use
+  - name: qdkBuildTag
+    displayName: Tag for the qdk-build container image
     type: string
     default: "latest"
 
 variables:
-  CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.95"
-  # If the user didn't specify a tag for the qdk-build image, use the build ID as the tag.
-  ${{ if eq(parameters.qdkBuildTag, 'latest') }}:
-    finalBuildTag: $(Build.BuildId)
-  ${{ else }}:
-    finalBuildTag: ${{ parameters.qdkBuildTag }}
+  - name: CARGO_TERM_COLOR
+    value: always
+  - name: RUST_TOOLCHAIN_VERSION
+    value: "1.95"
+  - name: UBI_REGISTRY
+    value: "registry.access.redhat.com"
+  - name: UBI_TAG
+    value: ${{ parameters.UBI8_IMAGE_TAG }}
+
+  # Use the build ID for new images, but preserve latest when reusing an existing base image.
+  - name: finalBaseTag
+    ${{ if and(parameters.buildBaseImage, eq(parameters.qdkBaseTag, 'latest')) }}:
+      value: $(Build.BuildId)
+    ${{ else }}:
+      value: ${{ parameters.qdkBaseTag }}
+
+  - name: finalBuildTag
+    ${{ if eq(parameters.qdkBuildTag, 'latest') }}:
+      value: $(Build.BuildId)
+    ${{ else }}:
+      value: ${{ parameters.qdkBuildTag }}
 
 resources:
   repositories:
@@ -49,10 +95,6 @@ resources:
       type: git
       name: 1ESPipelineTemplates/1ESPipelineTemplates
       ref: refs/tags/release
-  containers:
-    - container: qdkBase
-      image: ${{ parameters.ACR_SERVER }}/qdk-base:${{ parameters.qdkBaseTag }}
-      endpoint: qdkacr
 
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
@@ -60,7 +102,9 @@ extends:
     settings:
       # To fetch the Universal Package from the ADO feed, Azure blob access is needed.
       # See https://eng.ms/docs/cloud-ai-platform/devdiv/one-engineering-system-1es/1es-build/cloudbuild/security/1espt-network-isolation
-      networkIsolationPolicy: AzureStorage
+      # Here, using Permissive to try and address failures to fetch from GitHub or sent pipeline telemetry.
+      # As some point, try and narrow this down to the minimal required (starting with `AzureStorage,GitHub`)
+      networkIsolationPolicy: Permissive
 
     sdl:
       autobaseline:
@@ -70,100 +114,154 @@ extends:
         image: windows-2022
         os: windows
     stages:
-      - stage: build
-        displayName: Build
-        jobs:
-          - ${{ each target in parameters.matrix }}:
-              - job: ${{ target.name }}
+      - ${{ if eq(parameters.importUbi, true) }}:
+          - stage: ImportUBI
+            displayName: Import UBI Image
+            jobs:
+              - job: importUbiImage
                 pool:
-                  name: ${{ target.poolName }}
-                  image: ${{ target.imageName }}
-                  os: ${{ target.os }}
-                  ${{ if eq(target.arch, 'aarch64') }}:
-                    hostArchitecture: Arm64
-                variables:
-                  arch: ${{ target.arch }}
-                timeoutInMinutes: 300
-                templateContext:
-                  authenticatedContainerRegistries:
-                    - serviceConnection: qdkacr
+                  name: "Azure-Pipelines-DevTools-EO"
+                  image: ubuntu-latest
+                  os: linux
+                steps:
+                  - task: AzureCLI@2
+                    inputs:
+                      azureSubscription: ${{ parameters.azureServiceConnection }}
+                      scriptType: bash
+                      scriptLocation: inlineScript
+                      inlineScript: |
+                        set -euo pipefail
+                        az acr import --name "$ACR_NAME" \
+                          --source "$(UBI_REGISTRY)/ubi8/ubi:$(UBI_TAG)" \
+                          --image "ubi8/ubi:$(UBI_TAG)" \
+                          --force
+                    env:
+                      ACR_NAME: ${{ parameters.ACR_NAME }}
+                    displayName: Import UBI Image
+
+      - ${{ if eq(parameters.buildBaseImage, true) }}:
+          - stage: BuildBase
+            displayName: Build Base Image
+            jobs:
+              - job: buildBase
+                pool:
+                  name: "Azure-Pipelines-DevTools-EO"
+                  image: ubuntu-latest
+                  os: linux
                 steps:
                   - checkout: self
-
-                  - task: UniversalPackages@1
-                    displayName: Download LLVM 20 source
+                  - task: AzureCLI@2
                     inputs:
-                      command: download
-                      feed: "AzureQuantum/azure-quantum"
-                      packageName: "llvm-source"
-                      packageVersion: "20.1.8"
-                      directory: "$(Pipeline.Workspace)/llvm-src"
-                  - task: UniversalPackages@1
-                    displayName: Download Python 3.15 source
-                    inputs:
-                      command: download
-                      feed: "AzureQuantum/azure-quantum"
-                      packageName: "python-source"
-                      packageVersion: "3.15.1"
-                      directory: "$(Pipeline.Workspace)/python-src"
+                      azureSubscription: ${{ parameters.azureServiceConnection }}
+                      scriptType: bash
+                      scriptLocation: inlineScript
+                      inlineScript: |
+                        set -euo pipefail
+                        az acr run --registry "$ACR_NAME" \
+                          --set ubi8Tag="$(UBI_TAG)" \
+                          --set imageTag="$(finalBaseTag)" \
+                          --file manifest-task.yaml \
+                          ".ado/images/qdk-base"
+                    env:
+                      ACR_NAME: ${{ parameters.ACR_NAME }}
+                    displayName: Build Base Image
 
-                  # Need to copy the LLVM and Python source into the container before building it
-                  - script: |
+      - ${{ if eq(parameters.buildToolsImage, true) }}:
+          - stage: BuildTools
+            displayName: Build QDK Tools Image
+            jobs:
+              - ${{ each target in parameters.matrix }}:
+                  - job: ${{ target.name }}
+                    pool:
+                      name: ${{ target.poolName }}
+                      image: ${{ target.imageName }}
+                      os: ${{ target.os }}
+                      ${{ if eq(target.arch, 'aarch64') }}:
+                        hostArchitecture: Arm64
+                    variables:
+                      arch: ${{ target.arch }}
+                    timeoutInMinutes: 300
+                    templateContext:
+                      authenticatedContainerRegistries:
+                        - serviceConnection: ${{ parameters.registryServiceConnection }}
+                    steps:
+                      - checkout: self
+
+                      - task: UniversalPackages@1
+                        displayName: Download LLVM 20 source
+                        inputs:
+                          command: download
+                          feed: "AzureQuantum/azure-quantum"
+                          packageName: "llvm-source"
+                          packageVersion: "20.1.8"
+                          directory: "$(Pipeline.Workspace)/llvm-src"
+                      - task: UniversalPackages@1
+                        displayName: Download Python 3.15 source
+                        inputs:
+                          command: download
+                          feed: "AzureQuantum/azure-quantum"
+                          packageName: "python-source"
+                          packageVersion: "3.15.1"
+                          directory: "$(Pipeline.Workspace)/python-src"
+
+                      # Need to copy the LLVM and Python source into the container before building it
+                      - script: |
+                          set -euxo pipefail
+                          cp -R "$(Pipeline.Workspace)/llvm-src/." "$(Build.SourcesDirectory)/.ado/images/qdk-build"
+                          cp -R "$(Pipeline.Workspace)/python-src/." "$(Build.SourcesDirectory)/.ado/images/qdk-build"
+                          ls -la "$(Build.SourcesDirectory)/.ado/images/qdk-build"
+                        displayName: Copy LLVM 20 and Python 3.15 source into container build context
+
+                      - task: 1ES.BuildContainerImage@1
+                        inputs:
+                          path: $(Build.SourcesDirectory)/.ado/images/qdk-build
+                          image: qdk-build:$(finalBuildTag)-${{ target.tag }}
+                          # Need to enable network access in order to access the ms-rustup feed
+                          enableNetwork: true
+                          # I tried using BuildKit with secrets, but it didn't work with the network isolation due
+                          # to trying to fetch schema files from docker.io
+                          buildArguments: >
+                            --build-arg BASE_REGISTRY=${{ parameters.ACR_SERVER }}
+                            --build-arg BASE_TAG=$(finalBaseTag)
+                            --build-arg MSRUSTUP_FEED_URL=$(toolchainFeed)
+                            --build-arg MSRUSTUP_ACCESS_TOKEN=$(System.AccessToken)
+                            --build-arg RUST_TOOLCHAIN=ms-prod-$(RUST_TOOLCHAIN_VERSION)
+
+                      - task: 1ES.PushContainerImage@1
+                        inputs:
+                          image: qdk-build:$(finalBuildTag)-${{ target.tag }}
+                          remoteImage: ${{ parameters.ACR_SERVER }}/qdk-build:$(finalBuildTag)-${{ target.tag }}
+
+              - job: publishImageManifest
+                dependsOn:
+                  - linux_x86_64
+                  - linux_aarch64
+
+                templateContext:
+                  authenticatedContainerRegistries:
+                    - serviceConnection: ${{ parameters.registryServiceConnection }}
+
+                pool:
+                  name: "Azure-Pipelines-DevTools-EO"
+                  image: "ubuntu-22.04"
+                  os: "linux"
+
+                steps:
+                  - bash: |
                       set -euxo pipefail
-                      cp -R "$(Pipeline.Workspace)/llvm-src/." "$(Build.SourcesDirectory)/.ado/images/qdk-build"
-                      cp -R "$(Pipeline.Workspace)/python-src/." "$(Build.SourcesDirectory)/.ado/images/qdk-build"
-                      ls -la "$(Build.SourcesDirectory)/.ado/images/qdk-build"
-                    displayName: Copy LLVM 20 and Python 3.15 source into container build context
 
-                  - task: 1ES.BuildContainerImage@1
-                    inputs:
-                      path: $(Build.SourcesDirectory)/.ado/images/qdk-build
-                      image: qdk-build:$(finalBuildTag)-${{ target.tag }}
-                      # Need to enable network access in order to access the ms-rustup feed
-                      enableNetwork: true
-                      # I tried using BuildKit with secrets, but it didn't work with the network isolation due
-                      # to trying to fetch schema files from docker.io
-                      buildArguments: >
-                        --build-arg BASE_TAG=${{ parameters.qdkBaseTag }}
-                        --build-arg MSRUSTUP_FEED_URL=$(toolchainFeed)
-                        --build-arg MSRUSTUP_ACCESS_TOKEN=$(System.AccessToken)
-                        --build-arg RUST_TOOLCHAIN=ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                      ACR="${{ parameters.ACR_SERVER }}"
+                      IMG="qdk-build"
+                      TAG="$(finalBuildTag)"
 
-                  - task: 1ES.PushContainerImage@1
-                    inputs:
-                      image: qdk-build:$(finalBuildTag)-${{ target.tag }}
-                      remoteImage: ${{ parameters.ACR_SERVER }}/qdk-build:$(finalBuildTag)-${{ target.tag }}
+                      # Create a manifest list that points at the already-pushed arch tags
+                      docker buildx imagetools create \
+                            --tag "$ACR/$IMG:$TAG" \
+                            "$ACR/$IMG:$TAG-amd64" \
+                            "$ACR/$IMG:$TAG-arm64"
+                      # Tag as latest
+                      docker buildx imagetools create \
+                            --tag "$ACR/$IMG:latest" \
+                            "$ACR/$IMG:$TAG"
 
-          - job: publishImageManifest
-            dependsOn:
-              - linux_x86_64
-              - linux_aarch64
-
-            templateContext:
-              authenticatedContainerRegistries:
-                - serviceConnection: qdkacr
-
-            pool:
-              name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-22.04"
-              os: "linux"
-
-            steps:
-              - bash: |
-                  set -euxo pipefail
-
-                  ACR="${{ parameters.ACR_SERVER }}"
-                  IMG="qdk-build"
-                  TAG="$(finalBuildTag)"
-
-                  # Create a manifest list that points at the already-pushed arch tags
-                  docker buildx imagetools create \
-                        --tag "$ACR/$IMG:$TAG" \
-                        "$ACR/$IMG:$TAG-amd64" \
-                        "$ACR/$IMG:$TAG-arm64"
-                  # Tag as latest
-                  docker buildx imagetools create \
-                        --tag "$ACR/$IMG:latest" \
-                        "$ACR/$IMG:$TAG"
-
-                  docker buildx imagetools inspect "$ACR/$IMG:$TAG"
+                      docker buildx imagetools inspect "$ACR/$IMG:$TAG"
