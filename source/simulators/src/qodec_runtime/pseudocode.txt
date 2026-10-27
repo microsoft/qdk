@@ -2,27 +2,27 @@
  QODEC RUNTIME — PSEUDOCODE
 ══════════════════════════════════════════════════════════════════════
 
-The qodec runtime is the stack of all qodec layers plugged together.  It
-executes instructions of a qodec's top ISA by lowering them one layer at a time
-(https://github.com/microsoft/qdk-ec/tree/main/qodec) and returns the top
-layer's results.
+The qodec runtime (QodecRuntime) is the stack of all layer runtimes plugged
+together.  It executes instructions of a qodec's top ISA by lowering them one
+layer at a time (https://github.com/microsoft/qdk-ec/tree/main/qodec) and
+returns the top layer's results.
 
 qodec releases a rust crate at https://docs.rs/qodec/latest/qodec/ which could
 help with the data model.
 
   ┌──────────────────────────────┐  Backend<Id, P, R>   (top ISA instructions)
-  │ QodecLayer 0                 │
+  │ LayerRuntime 0               │
   ├──────────────────────────────┤  Backend<Id, P, R>   (layer-1 ISA instructions)
-  │ QodecLayer 1                 │
+  │ LayerRuntime 1               │
   ├──────────────────────────────┤        ...
-  │ QodecLayer n-1               │
+  │ LayerRuntime n-1             │
   └──────────────────────────────┘  Backend<Id, P, R>   (bottom ISA instructions)
      bottom backend: any implementation of Backend for the bottom ISA
      (a simulator, a tracer, a profiler, ...)
 
 Every layer implements Backend and consumes the Backend below it.  The stack is
-nested ownership: QodecLayer<QodecLayer<... QodecLayer<B>>>, where B is the
-bottom backend.
+nested ownership: LayerRuntime<LayerRuntime<... LayerRuntime<B>>>, where B is
+the bottom backend.
 
 Out of scope:
   - The classical runtime (e.g. a QIR runtime) that drives the stack.  It
@@ -35,6 +35,18 @@ Tags used below:
   [INTERFACE]  required by the Backend interface (§0)
   [RUNTIME]    a consumer choice made by this runtime; the spec leaves it open
 
+Names follow three domains:
+  qodec data         The model loaded by the qodec crate: Qodec, Layer, Gadget,
+                     Instruction, Code, Encoding, Circuit, ...
+  plans   (XPlan)    Shot-independent data derived once from the qodec data by
+                     pre-processing: QodecPlan, LayerPlan, GadgetPlan,
+                     InstructionPlan, CodePlan, EncodingPlan, CircuitPlan,
+                     DecoderPlan.  Built with new() (or decoder.plan()).
+  runtimes (XRuntime) Per-shot state instantiated from a plan: QodecRuntime,
+                     LayerRuntime, DecoderRuntime.  Built with plan.instantiate().
+So Qodec → QodecPlan → QodecRuntime, Layer → LayerPlan → LayerRuntime, and a
+chosen Decoder → DecoderPlan (one per layer) → DecoderRuntime (one per shot).
+
 Deliberate differences from the Python reference implementation
 (qdk/simulation/_qodec).  Each fixes a bug found by formal verification or
 complexity analysis:
@@ -46,7 +58,7 @@ complexity analysis:
   - Any unrecoverable error after side effects poisons the layer.              §8.4
   - Outputs always get a fresh BlockRef generation.  decode() corrections
     never target inputs.                                                       §2 §8.6
-  - Every shot gets fresh layers and a fresh decoder session.                  §8.3 §10.1
+  - Every shot gets fresh layer and decoder runtimes.                        §8.3 §10.1
   - A `number` argument accepts Ints, and never overflows on out-of-range values. §4.2
 Interface differences: the stack takes ISA instructions only (no generic h/cx/
 prepare/measure requests), batches lower traffic, and reports recoverable
@@ -62,7 +74,7 @@ Sections
    7. Gadget body runtime
    8. Layer runtime (implements Backend)
    9. Reference decoder (Pauli-frame decoder)
-  10. Stack composition and bottom backend contract
+  10. Qodec plan, qodec runtime and bottom backend contract
 
 ══════════════════════════════════════════════════════════════════════
  0. BACKEND INTERFACE AND CONVENTIONS  [INTERFACE]
@@ -183,25 +195,26 @@ Unrecoverable (in Err):
         Poisoned,            // a previous Err left the layer inconsistent
     }
 
-A layer's Error is QodecError<B::Error>.  The stack's Error is therefore nested,
-one level per layer (an implementation may flatten it).
+A layer's Error is QodecError<B::Error>.  The QodecRuntime's Error is therefore
+nested, one level per layer (an implementation may flatten it).
 
 ── 0.6 Shot lifecycle [RUNTIME] ───────────────────────────────────────
 
-Neither the trait nor the layers have lifecycle methods.  A stack lives for
-exactly one shot:
-  - A StackBuilder does the shot-independent work once: layer plans, decoder
-    preparation and sizing (§5, §8.2, §10.1).
-  - builder.buildStack(backend) builds fresh layers, each with a fresh decoder
-    session, on top of a bottom backend supplied by the caller.  A layer is
-    constructed ready to run (§8.3).
-  - Dropping the stack ends the shot.  There is no start(), close() or reset.
+Neither the trait nor the layers have lifecycle methods.  A QodecRuntime lives
+for exactly one shot:
+  - A QodecPlan does the shot-independent work once: layer plans, decoder
+    plans and sizing (§5, §8.2, §10.1).
+  - qodecPlan.instantiate(backend) builds a QodecRuntime: fresh layer runtimes,
+    each with a fresh decoder runtime, on top of a bottom backend supplied by
+    the caller.  A layer runtime is constructed ready to run (§8.3).
+  - Dropping the QodecRuntime ends the shot.  There is no start(), close() or
+    reset.
 The caller owns the bottom backend's lifecycle: it hands over one in its
 initial state, either built for this shot or reset and reused (§10.2).
 
 After an unrecoverable error the shot is lost.  A poisoned layer rejects every
-further execute_batch with Poisoned; the caller drops the stack and runs a new
-shot.
+further execute_batch with Poisoned; the caller drops the QodecRuntime and runs
+a new shot.
 
 Status is shot-level, not per instruction.  Once set, it is OR-ed into every R
 the layer returns for the rest of the shot.  It is not causal within a batch:
@@ -305,9 +318,10 @@ LiveBlock       = (ref: BlockRef,
                    qubits:  List<(LowerId, Int)>)   // its code qubits, in code order:
                                                     // (lower block, logical index in it)
 
-EncodingLayout  = (blockType: BlockType, code: Code,
+EncodingPlan    = (blockType: BlockType, code: CodePlan,
                    labels: List<CircuitLabel>,
                    lowerTypes: List<BlockType>)     // lower type per label
+CodePlan        = a Code with its Pauli text parsed
 resources(L)    = countBy(L.lowerTypes)
 
 Call            = (I: Instruction, operands: List<Label>, args: Map<Name, Value>)
@@ -330,17 +344,23 @@ LazyBit         = Known(Bit) | Pending(slot: SlotId, kind: outcome|flag, index: 
 force(b)        = b is Known(v) ? v
                 : (flushIfPending(b.slot);  bitOf(results[b.slot], b.kind, b.index))
 
-Decoder interface  [RUNTIME]   (a fresh session per shot; see §8.3)
-    deferrable()         -> Bool       // true iff `before` is absent and `decode`
+Decoder interface  [RUNTIME]   (three domains, like everything else)
+    Decoder                              // the algorithm the caller chooses
+        deferrable()     -> Bool       // true iff `before` is absent and `decode`
                                        // never yields corrections; such decodes are
-                                       // queued and run at flush time (§8.4)
-    before(inv)          -> Coroutine<Correction, None>      (optional)
+                                       // queued and run at flush time (§8.4).  A
+                                       // property of the algorithm, known before
+                                       // any plan exists.
+        plan(layerPlan)  -> DecoderPlan  // once per layer (e.g. §9)
+    DecoderPlan
+        instantiate()    -> DecoderRuntime   // once per shot (§8.3)
+    DecoderRuntime                       // per-shot state, dropped with its layer
+        before(inv)      -> Coroutine<Correction, None>      (optional)
                             may target inv.inputRefs and other live blocks
-    decode(inv, raw: List<Bit>) -> Coroutine<Correction, Decoded>
+        decode(inv, raw: List<Bit>) -> Coroutine<Correction, Decoded>
                             may target inv.outputRefs and other live blocks,
                             never inv.inputRefs (they are dead by then)
-    discarded(refs)                                          (optional)
-    A session lives for one shot and is dropped with its layer.
+        discarded(refs)                                      (optional)
     A correction coroutine is resumed with the lower result of the previous
     correction (or nothing, if that correction requires no result).
 
@@ -510,19 +530,21 @@ function localParity(g, equation, memo, active):
 
 ── 4.6 Encodings and code-qubit addresses ─────────────────────────────
 
+// Plans one side of a gadget boundary: one EncodingPlan per operand.
 function layoutBoundary(operands, encodings, codes, upperCaps, lowerCaps):
     require len(operands) == len(encodings)
     layouts = []
     for (op, enc) in zip(operands, encodings):
-        code = codes[op.type] or error          // the layer binds the code, never the gadget
-        require enc.code == code
+        code = codes[op.type] or error          // a CodePlan: the layer binds the code,
+                                                // never the gadget
+        require enc.code == code.code
         require len(code.x) == len(code.z) == upperCaps[op.type]
         types = enc.lowerTypes  or  (size(lowerCaps)==1 ? [onlyKey(lowerCaps)] * len(enc.support)
                                                       : error)
         require len(types) == len(enc.support) and types ⊆ keys(lowerCaps)
         require Σ lowerCaps[t] for t in types == code.n
         require enc.support labels are distinct
-        layouts.append(EncodingLayout(op.type, code, enc.support, types))
+        layouts.append(EncodingPlan(op.type, code, enc.support, types))
     // Distinct operands on the same side must not share lower blocks; otherwise
     // two live blocks would own the same LowerId (double free).
     require all labels across `layouts` are pairwise distinct
@@ -532,7 +554,7 @@ function layoutBoundary(operands, encodings, codes, upperCaps, lowerCaps):
 // single lower type of size `stride`, this is offset k % stride inside
 // support[k // stride].  Mixed lower types contribute their own sizes, in
 // support order.
-function codeQubits(L: EncodingLayout, placement, lowerCaps) -> List<(LowerId, Int)>:
+function codeQubits(L: EncodingPlan, placement, lowerCaps) -> List<(LowerId, Int)>:
     require len(L.labels) == len(L.lowerTypes)          // never truncate silently
     return [ (placement[lab], i)
              for (lab, t) in zip(L.labels, L.lowerTypes)
@@ -542,18 +564,20 @@ function codeQubits(L: EncodingLayout, placement, lowerCaps) -> List<(LowerId, I
  5. LAYER PLAN  (built once per layer)
 ══════════════════════════════════════════════════════════════════════
 
-function buildPlan(layer, lowerIsa, decoderDeferrable: Bool):
-    // decoderDeferrable: whether this layer's decoder kind is deferrable (§2).
-    // It is a property of the decoder implementation, known before any session
-    // exists, and it only affects the Pauli check below.
+function LayerPlan::new(layer, lowerIsa, decoderDeferrable: Bool):
+    // decoderDeferrable: whether the chosen Decoder is deferrable (§2).  It is a
+    // property of the algorithm, known before any decoder plan exists, and it
+    // only affects the Pauli check below.
     plan.isa          = layer.isa                         // upper ISA: decodes incoming Ids
     plan.lowerIsa     = lowerIsa                          // the next layer's ISA
     plan.capacities   = layer.isa.blocks                  // upper type -> logical qubits
     plan.lowerCaps    = lowerIsa.blocks
-    plan.codes        = layer.codes
+    plan.codes        = { t: CodePlan(code) for (t, code) in layer.codes }
     plan.requirements = {}                                // upperType -> Map<lowerType, Int>
     plan.scratch      = {}                                // lowerType -> Int
-    plan.gadgets      = {}                                // upper instruction index -> GadgetPlan
+    plan.instructions = [Unsupported] * len(layer.isa.instructions)
+                        // one InstructionPlan per upper instruction:
+                        //   Gadget(GadgetPlan) | LogicalPauli | Release | Unsupported
     plan.lowerId      = { I.mnemonic: index for (index, I) in enumerate(lowerIsa.instructions) }
 
     for (name, g) in layer.gadgets:
@@ -562,7 +586,7 @@ function buildPlan(layer, lowerIsa, decoderDeferrable: Bool):
 
         inputs  = layoutBoundary(I.in,  g.in,  plan.codes, plan.capacities, plan.lowerCaps)
         outputs = layoutBoundary(I.out, g.out, plan.codes, plan.capacities, plan.lowerCaps)
-        body    = prepareCallList(g.circuit, plan.lowerId)    // §7
+        body    = CircuitPlan::new(g.circuit, plan.lowerId)    // §7
 
         labels  = orderedUnique( concat(e.support for e in g.in)
                                ++ body.labels
@@ -586,22 +610,23 @@ function buildPlan(layer, lowerIsa, decoderDeferrable: Bool):
         scratch  = positivePart(countBy(labelType[lab] for lab in labels) - boundary)
         plan.scratch = maxMerge(plan.scratch, scratch)
 
-        plan.gadgets[indexOf(layer.isa.instructions, I)] =
-            (g, I, body, labels, inputs, outputs, labelType,
-             frames = prepareFrames(g))
+        plan.instructions[indexOf(layer.isa.instructions, I)] =
+            Gadget(GadgetPlan(g, I, body, labels, inputs, outputs, labelType,
+                              frames = prepareFrames(g)))
 
-    // Native handling of upper instructions without a gadget [RUNTIME]:
-    //   pauliOnly(I): the action is only unguarded `pauli` steps, with no flags,
+    // Upper instructions without a gadget [RUNTIME]:
+    //   LogicalPauli: the action is only unguarded `pauli` steps, with no flags,
     //                 and the boundary is strictly in place (in and out have the
     //                 same operand shape and types, so nothing is created, consumed
     //                 or retyped).  It is applied to the Pauli frame as the code's
     //                 logical operator (§8.6).
-    //   release(I):   in = [t], out = [], empty action, no flags.  It releases
+    //   Release:      in = [t], out = [], empty action, no flags.  It releases
     //                 the block (§8.6).
-    // Any other upper instruction without a gadget fails with NoImplementation.
-    plan.native = { index: kind  for (index, I) in enumerate(layer.isa.instructions)
-                    if index ∉ plan.gadgets
-                    and (kind = pauliOnly(I) ? Pauli : release(I) ? Release : None) ≠ None }
+    //   Unsupported:  anything else.  It fails with NoImplementation.
+    for (index, I) in enumerate(layer.isa.instructions):
+        if plan.instructions[index] == Unsupported:
+            plan.instructions[index] = pauliOnly(I) ? LogicalPauli
+                                     : release(I)   ? Release : Unsupported
 
     // Lower-ISA instructions this layer emits on its own (§6):
     plan.resolver     = buildResolver(lowerIsa)                    // §6
@@ -612,7 +637,7 @@ function buildPlan(layer, lowerIsa, decoderDeferrable: Bool):
                         // A measuring fallback is never used, because below a qodec
                         // layer it would run a whole measurement gadget.
     // Pauli corrections are checked only where they can occur: when the upper
-    // ISA has a native Pauli instruction (§8.6), or when not decoderDeferrable
+    // ISA has a LogicalPauli instruction (§8.6), or when not decoderDeferrable
     // (the decoder may emit corrections).  In that case resolveLower("x") and
     // resolveLower("z") must bind on one logical index of every lower type.  A
     // "y" correction falls back to x·z (§6).  Layers that never emit a Pauli need
@@ -700,10 +725,10 @@ function bindOne(op, slots, angle):
 // follow the same record rules.  A body never sees the backend; it emits
 // through the layer's buffer (§8.4) and works with LazyBits.
 
-function prepareCallList(circuit, lowerId) -> PreparedBody:
+function CircuitPlan::new(circuit, lowerId) -> CircuitPlan:
     calls  = parse(circuit.source)
     labels = orderedUnique(str(o) for c in calls for o in c.operands)
-    blockTypes = {};  prepared = [];  offset = 0
+    blockTypes = {};  callPlans = [];  offset = 0
     for c in calls:
         I = circuit.isa.instructions[lowerId[c.mnemonic]] or error
         (ins, outs) = bindOperands(circuit.isa, I, c.operands)
@@ -714,7 +739,8 @@ function prepareCallList(circuit, lowerId) -> PreparedBody:
                 require I.parameters[name] == bit
                         and expandSelector(a) has exactly one index j and j < offset
         count = observeCount(I) + len(I.flags)
-        prepared += (c, I, lowerId[c.mnemonic], count, compileSelect(I.flags, c.select))
+        callPlans += CallPlan(c, I, lowerId[c.mnemonic], count,
+                              compileSelect(I.flags, c.select))
         offset += count
         for b in ins ++ outs: blockTypes[str(b.label)] = b.type
     // Labels the body itself consumes: their last appearance is as an input of a
@@ -723,7 +749,7 @@ function prepareCallList(circuit, lowerId) -> PreparedBody:
     consumed = { str(l) for each label l whose LAST appearance among the calls is in
                  that call's inputs and not in its outputs }
     needs = countBy(values(blockTypes))
-    return (labels, blockTypes, needs, prepared, consumed)
+    return CircuitPlan(labels, blockTypes, needs, calls = callPlans, consumed)
 
 // Runs one body.  `placement` maps circuit labels to lower block ids.
 // Returns the lazy record, the per-call selects, and the slots it owns.
@@ -732,7 +758,7 @@ function runBody(layer, body, inv, placement) -> (record: List<LazyBit>, selects
     // [SPEC] parameter_bindings: instruction param -> circuit source name
     forwarded = { src: inv.call.args[param] for (param, src) in inv.gadget.parameterBindings }
     record = [];  selects = [];  slots = []
-    for (c, I, id, count, sel) in body.prepared:
+    for (c, I, id, count, sel) in body.calls:
         args = {}
         for (name, a) in c.args:
             if a is String and a ∈ forwarded:      a = forwarded[a]
@@ -759,9 +785,9 @@ function runBody(layer, body, inv, placement) -> (record: List<LazyBit>, selects
  8. LAYER RUNTIME  (implements Backend)  [RUNTIME]
 ══════════════════════════════════════════════════════════════════════
 
-    pub struct QodecLayer<B> { plan, lower: B, state... }
+    pub struct LayerRuntime<B> { plan: LayerPlan, lower: B, state... }
     impl<Id: InstructionId, P: Param, R: Readout, B: Backend<Id, P, R>>
-        Backend<Id, P, R> for QodecLayer<B> { type Error = QodecError<B::Error>; ... }
+        Backend<Id, P, R> for LayerRuntime<B> { type Error = QodecError<B::Error>; ... }
 
 ── 8.1 State ──────────────────────────────────────────────────────────
 
@@ -772,7 +798,7 @@ typeCount      : Map<BlockType, Int>     // allocated lower blocks per type (inc
 capacityByType : Map<BlockType, Int>
 generation     : Map<Label, Int>
 nextInvocation : Int
-decoder        : DecoderSession          // created from decoderFactory by new()
+decoder        : DecoderRuntime          // decoderPlan.instantiate(), in new()
 status         : Status                  // sticky per shot (§0.6)
 failed         : Bool                    // poisoned: every further execute_batch
                                          // fails with Poisoned (§0.6)
@@ -798,9 +824,9 @@ decoderLog     : Queue<DecoderEvent>     // deferred decoder work, in program or
 // generation, and every decoder call or queued DecoderEvent increments
 // sideEffects.  It decides whether an Err poisons the layer (§8.4).
 
-── 8.2 Sizing ─────────────────────────────────────────────────────────
+── 8.2 Sizing (a LayerPlan method: it needs no runtime state) ─────────
 
-function requiredResources(upper) -> Resources:
+function LayerPlan.requiredResources(upper) -> Resources:
     need = copy(upper.blocks)
     if upper.qubits > 0:
         require size(plan.capacities) == 1
@@ -813,11 +839,11 @@ function requiredResources(upper) -> Resources:
         return Resources(qubits = Σ values(lower))
     return Resources(blocks = lower)
 
-── 8.3 Construction (one layer per shot) ──────────────────────────────
+── 8.3 Construction (one layer runtime per shot) ──────────────────────
 
-// `res` is this layer's LOWER resources (§10.1).  The layer is ready to run;
-// dropping it ends the shot.
-function new(plan, decoderFactory, lower, res):
+// `res` is this layer's LOWER resources (§10.1).  The layer runtime is ready to
+// run; dropping it ends the shot.
+function LayerRuntime::new(plan: LayerPlan, decoderPlan, lower, res):
     require keys(res.blocks) ⊆ keys(plan.lowerCaps)
     capacityByType = copy(res.blocks)
     if res.qubits > 0:
@@ -826,8 +852,8 @@ function new(plan, decoderFactory, lower, res):
     free = heap(0 .. res.qubits + Σ values(res.blocks) - 1)
     blocks, typeOf, typeCount, generation, buffer, bufferSlots, results, decoderLog = empty
     // Generations start over in every shot, so BlockRefs repeat across shots:
-    // a decoder session must never outlive its shot.
-    decoder = decoderFactory()
+    // a decoder runtime must never outlive its shot.
+    decoder = decoderPlan.instantiate()
     nextInvocation = 0;  nextSlot = 0;  sideEffects = 0
     status = Status{};  failed = false
 
@@ -908,15 +934,15 @@ function decodeInstruction(ins) -> Call:
 ── 8.6 Executing one instruction ──────────────────────────────────────
 
 function executeOne(call) -> Sink:
-    k = index of call.I
-    if k ∈ plan.gadgets:           return runInvocation(planInvocation(call), nextInvocation++)
-    if plan.native[k] == Pauli:    applyLogicalPauli(call);  return Sink.empty()
-    if plan.native[k] == Release:  release(call.operands[0]); return Sink.empty()
-    Err(NoImplementation)
+    match plan.instructions[index of call.I]:
+        Gadget(gp):   return runInvocation(prepareInvocation(gp, call), nextInvocation++)
+        LogicalPauli: applyLogicalPauli(call);  return Sink.empty()
+        Release:      release(call.operands[0]); return Sink.empty()
+        Unsupported:  Err(NoImplementation)
 
-// Planning is pure: it only reads state, so a failure here never poisons.
-function planInvocation(call):
-    gp = plan.gadgets[index of call.I]
+// Places one invocation on live lower blocks.  Pure: it only reads state, so a
+// failure here never poisons.
+function prepareInvocation(gp, call):
     // Only inputs are constrained by live types; outputs take the instruction's
     // declared types, so type-changing instructions are allowed (spec).
     // Look up only the operands, not every live block.
@@ -948,14 +974,14 @@ function planInvocation(call):
     require ∀t: after[t] ≤ capacityByType[t]                           else Err(Capacity)
     return (gp, call, outOps, placement)
 
-function runInvocation(ip, id) -> Sink:
-    gp = ip.gp;  nIn = len(gp.g.in)
+function runInvocation(prepared, id) -> Sink:
+    gp = prepared.gp;  nIn = len(gp.g.in)
 
-    for t in ip.call.operands[nIn:]: release(t)        // overwrite output-only operands
+    for t in prepared.call.operands[nIn:]: release(t)        // overwrite output-only operands
 
-    inRefs  = [blocks[t].ref for t in ip.call.operands[:nIn]]
-    outRefs = [freshRef(o.label, o.type) for o in ip.outOps]
-    inv     = Invocation(id, gp.g, ip.call, inRefs, outRefs)
+    inRefs  = [blocks[t].ref for t in prepared.call.operands[:nIn]]
+    outRefs = [freshRef(o.label, o.type) for o in prepared.outOps]
+    inv     = Invocation(id, gp.g, prepared.call, inRefs, outRefs)
 
     // Correction contract: `before` may target inputRefs and other live blocks.
     // It runs while inputs are still published.  `decode` runs after outputs
@@ -964,7 +990,7 @@ function runInvocation(ip, id) -> Sink:
     // or in-place input fails the generation check.
     if decoder has before: applyCorrections(decoder.before(inv))
 
-    placement = ip.placement
+    placement = prepared.placement
     for lab in gp.labels:
         if lab ∉ placement:
             placement[lab] = free.popMin()
@@ -973,7 +999,7 @@ function runInvocation(ip, id) -> Sink:
     (raw, selects, slots) = runBody(this, gp.body, inv, placement)   // lazy circuit.readouts
 
     // Publish outputs: an output block is the gadget's `out` encoding.
-    for t in ip.call.operands[:nIn]: blocks.remove(t)
+    for t in prepared.call.operands[:nIn]: blocks.remove(t)
     retained = {}
     for (ref, L) in zip(outRefs, gp.outputs):
         sup = [placement[lab] for lab in L.labels]
@@ -1051,7 +1077,7 @@ function release(label):
 //     block itself (§8.6), and the bottom backend treats it as fresh (§10.2);
 //   - as an in-place operand: the block is still live, carrying stale state.
 //     That is correct only if the instruction resets it (an unconditional
-//     `stabilize`, e.g. a physical R).  A lower FrameDecoder may then report
+//     `stabilize`, e.g. a physical R).  A lower frame decoder may then report
 //     `unresolved` if stale signs remain on the reset qubits (§9.2).
 //     A body that reads a scratch block before preparing it is malformed
 //     either way.
@@ -1112,19 +1138,25 @@ function applyCorrections(stream) -> T:
 
 FrameDecoder.deferrable() = true
 
-FrameDecoder.prepare(layer):
-    for (name, g) in layer.gadgets:
-        plans[name] = ( checks    = [expr(c) for c in g.checks],
-                        readouts  = [expr(r) for r in g.readouts],
-                        frames    = prepareFrames(g),             // §4.5
-                        transport = circuitTransport(g) )         // may be None
+// Plan: per gadget of the layer, fixed once.
+FrameDecoder.plan(layerPlan) -> FrameDecoderPlan:
+    for each Gadget(gp) in layerPlan.instructions:
+        g = gp.g
+        gadgets[g.name] = ( checks    = [expr(c) for c in g.checks],
+                            readouts  = [expr(r) for r in g.readouts],
+                            frames    = prepareFrames(g),             // §4.5
+                            transport = circuitTransport(g) )         // may be None
         // Optimization: the checks, readout definitions and transport are fixed
         // per gadget.  Eliminate them once here, and substitute only the readout
         // bits and incoming signs at decode time.
+    return FrameDecoderPlan(gadgets)
+
+// Runtime: the signs known in this shot.
+FrameDecoderPlan.instantiate() -> FrameDecoderRuntime:
     signs: Map<BlockRef, Map<(basis, k), Bool>> = {}              // known boundary signs
 
-coroutine FrameDecoder.decode(inv, raw) -> Decoded:
-    p   = plans[inv.call.I.mnemonic]
+coroutine FrameDecoderRuntime.decode(inv, raw) -> Decoded:
+    p   = gadgets[inv.call.I.mnemonic]
     sys = BinarySystem();  st = Status{}
     n   = observeCount(inv.gadget.implements)
     try:
@@ -1157,7 +1189,7 @@ coroutine FrameDecoder.decode(inv, raw) -> Decoded:
     values = [sys.value(("ro", i)) for i in 0..len(p.readouts)-1]    // None = unresolved
     return Decoded(values[:n], values[n:], st)
 
-FrameDecoder.discarded(refs): for r in refs: signs.remove(r)   // no-op if r has no entry
+FrameDecoderRuntime.discarded(refs): for r in refs: signs.remove(r)   // no-op if r has no entry
 
 ── 9.1 Logical-sign transport from a Clifford-only body ───────────────
 
@@ -1217,52 +1249,53 @@ function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
     return T
 
 ══════════════════════════════════════════════════════════════════════
- 10. STACK COMPOSITION AND BOTTOM BACKEND CONTRACT
+ 10. QODEC PLAN, QODEC RUNTIME AND BOTTOM BACKEND CONTRACT
 ══════════════════════════════════════════════════════════════════════
 
-── 10.1 The stack builder ─────────────────────────────────────────────
+── 10.1 The qodec plan and its runtimes ───────────────────────────────
 
-// Shot-independent work, done once.
-function StackBuilder::new(manifest, decoderKind, topResources):
+// Plan: shot-independent work, done once.
+function QodecPlan::new(manifest, decoder, topResources):
     require len(manifest.layers) ≥ 2
     n = len(manifest.layers) - 1                    // layers 0..n-1 have gadgets
-    plans = [buildPlan(manifest.layers[k], manifest.layers[k+1].isa,
-                       decoderDeferrable = decoderKind.deferrable)   // a property of
-             for k in 0..n-1]                                        // the decoder kind
-    factories = [decoderKind.prepare(plans[k]) for k in 0..n-1]      // e.g. §9
+    layerPlans   = [LayerPlan::new(manifest.layers[k], manifest.layers[k+1].isa,
+                                   decoderDeferrable = decoder.deferrable)
+                    for k in 0..n-1]
+    decoderPlans = [decoder.plan(layerPlans[k]) for k in 0..n-1]      // e.g. §9
     res[0] = topResources
-    for k in 0..n-1: res[k+1] = plans[k].requiredResources(res[k])
-    return StackBuilder(plans, factories, res)
+    for k in 0..n-1: res[k+1] = layerPlans[k].requiredResources(res[k])
+    return QodecPlan(layerPlans, decoderPlans, res)
 
-builder.bottomResources() = res[n]                  // what the bottom backend must hold
+qodecPlan.bottomResources() = res[n]                // what the bottom backend must hold
 
-// The stack of one shot: fresh layers and decoder sessions over the caller's
-// bottom backend.  res[k] is layer k's UPPER resources, so layer k is built
-// with res[k+1].
-function builder.buildStack(backend) -> Stack:
-    stack = backend
+// Runtime: the QodecRuntime of one shot, with fresh layer and decoder runtimes
+// over the caller's bottom backend.  res[k] is layer k's UPPER resources, so
+// layer k is built with res[k+1].
+function qodecPlan.instantiate(backend) -> QodecRuntime:
+    runtime = backend
     for k in n-1 down to 0:
-        stack = QodecLayer::new(plans[k], factories[k], lower = stack, res[k+1])
-    return stack                                    // : impl Backend<Id, P, R>
+        runtime = LayerRuntime::new(layerPlans[k], decoderPlans[k], lower = runtime,
+                                    res[k+1])
+    return runtime                                  // : impl Backend<Id, P, R>
 
 // `backend` is any Backend for the bottom ISA: a simulator, a profiler,
 // or another stack of components.  Backend is also implemented for
 // &mut B, so a caller that reuses one backend across shots lends it with
-// buildStack(&mut backend), and resets it however it likes between shots.
+// instantiate(&mut backend), and resets it however it likes between shots.
 // A backend whose setup is expensive (e.g. a GPU simulator or a hardware
 // connection) is therefore never rebuilt.
 //
-//     builder = StackBuilder::new(manifest, FrameDecoder, topResources)
+//     qodecPlan = QodecPlan::new(manifest, FrameDecoder, topResources)
 //     for each shot:
-//         stack = builder.buildStack(bottom backend in its initial state)
-//         stack.execute_batch(...) ...
-//         drop(stack)
+//         runtime = qodecPlan.instantiate(bottom backend in its initial state)
+//         runtime.execute_batch(...) ...
+//         drop(runtime)
 
 ── 10.2 Bottom backend contract ───────────────────────────────────────
 
 The bottom backend implements Backend<Id, P, R> for the bottom ISA:
   - It starts every shot in its initial state, with room for
-    builder.bottomResources().  Whether it is built for the shot or reset and
+    qodecPlan.bottomResources().  Whether it is built for the shot or reset and
     reused is the caller's choice (§10.1).
   - Id is the index of a bottom-ISA instruction, whose action defines it (a
     simulator executes it; a profiler or a device may count, forward or run it).
@@ -1282,7 +1315,7 @@ The bottom backend implements Backend<Id, P, R> for the bottom ISA:
         exists, releases are eager; otherwise they are lazy.
       * Pauli X and Z instructions.  These are required only if the last layer
         can emit Pauli corrections or has native Pauli instructions (§5).
-    Checked at buildPlan time (§5).
+    Checked by LayerPlan::new (§5).
 
 ── 10.3 Cost summary ──────────────────────────────────────────────────
 
