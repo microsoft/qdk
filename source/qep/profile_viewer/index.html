@@ -343,10 +343,14 @@
           >
         </section>
 
-        <section class="panel" aria-labelledby="trace-heading">
+        <section
+          id="trace-section"
+          class="panel"
+          aria-labelledby="trace-heading"
+          hidden
+        >
           <div class="section-heading">
             <h2 id="trace-heading">Execution trace</h2>
-            <label><input id="show-trace" type="checkbox" /> Show trace</label>
           </div>
           <p id="trace-message" class="muted"></p>
           <div id="trace-content" hidden>

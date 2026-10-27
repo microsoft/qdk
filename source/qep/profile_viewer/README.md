@@ -1,9 +1,9 @@
 # QEP profile viewer
 
 Open `index.html` directly in a modern browser. Keep `viewer.js` next to it.
-There is no build step, server, package installation, network request, or CDN
+There is no build step, required server, package installation, or CDN
 dependency. The page uses native Canvas 2D rather than a charting framework so it
-also works offline over `file://`.
+also works offline over `file://` with the file picker.
 
 ## Loading profiles
 
@@ -13,6 +13,11 @@ also works offline over `file://`.
   successfully loaded profile remains displayed if another file fails to load.
 - Exports must include `totals.logical_compute_qubits`; regenerate older profiles
   to distinguish compute qubits from factory qubits.
+- When served over HTTP or HTTPS, `index.html?profile_name=my_run` automatically
+  loads `profiles/my_run.json` from the directory next to `index.html`.
+  Names may contain only ASCII letters, digits, underscores, and hyphens; omit
+  the `.json` extension. Loading failures are shown in the status message.
+  Automatic loading is unavailable over `file://`; use **Open JSON file** instead.
 
 ## Summary and rate chart
 
@@ -35,8 +40,9 @@ pixel-column envelope that retains extrema and bounds the number of points drawn
 
 ## Execution trace
 
-**Show trace** is initially off. A null trace explains how to enable
-`TemporalProfilerConfig.record_trace`; an empty trace is identified separately.
+The execution trace section is hidden when the export's trace is null.
+Recorded traces are displayed automatically, without a checkbox. An empty
+recorded trace shows an explanatory message instead of a timeline.
 
 When shown, `totals.logical_compute_qubits` compute-qubit lanes appear first in
 numeric order, followed by factories. `totals.logical_qubits` includes factory
@@ -65,18 +71,16 @@ lanes and time-overlapping intervals, not a DOM element per instruction.
 The native horizontal scrollbar is capped in size and mapped to the logical
 time range, avoiding browser limits on enormous CSS widths.
 
-An interval index is built lazily on first show, yielding between chunks.
+An interval index is built automatically when a recorded trace is loaded, yielding between chunks.
 Per-lane start-time arrays and prefix maximum end times allow binary-search
 range queries, including long intervals that begin before the viewport.
 Empty logical-qubit lanes are synthesized without creating a per-qubit index.
 
-Hiding the trace cancels pending indexing/redraw frames, disconnects its resize
-observer, clears hover geometry, and releases the canvas backing store.
-No trace animation loop or index construction runs while hidden. A completed
-index is retained for quick reopening, and released on loading another profile.
-The parsed JSON remains in memory; hiding a trace does not undo the initial
-file read/JSON parse. Extremely large exports can still require substantial
-memory for the parsed data and lane index.
+Loading another profile cancels pending indexing/redraw frames, disconnects the
+trace resize observer, clears hover geometry, and releases the previous canvas
+backing store and index. No trace animation loop or index construction runs
+when the export has no trace. Extremely large exports can still require
+substantial memory for the parsed data and lane index.
 
 ## Implementation
 

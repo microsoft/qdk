@@ -354,7 +354,7 @@ function initializeViewer() {
   const ratesCanvas = element("rates-canvas");
   const traceCanvas = element("trace-canvas");
   const traceScroll = element("trace-scroll");
-  const traceToggle = element("show-trace");
+  const traceSection = element("trace-section");
   const selected = new Set();
   let profile = null;
   let loadId = 0;
@@ -392,39 +392,50 @@ function initializeViewer() {
     tooltip.hidden = true;
   }
 
-  /** Loads a browser File with last-selection-wins protection. */
-  async function loadFile(file) {
-    if (!file) return;
+  /** Loads a browser File or relative URL with last-selection-wins protection. */
+  async function loadProfile(source) {
+    if (!source) return;
+    const fromUrl = typeof source === "string";
+    const name = fromUrl ? source : source.name;
     const request = ++loadId;
     setStatus(
-      `Loading ${file.name} (${formatNumber(file.size / 1024)} KiB)...`,
+      fromUrl
+        ? `Loading ${name}...`
+        : `Loading ${name} (${formatNumber(source.size / 1024)} KiB)...`,
     );
     try {
-      const contents = await file.text();
+      let contents;
+      if (fromUrl) {
+        const response = await fetch(source);
+        if (!response.ok)
+          throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        contents = await response.text();
+      } else {
+        contents = await source.text();
+      }
       if (request !== loadId) return;
       const next = validateProfile(JSON.parse(contents));
       stopTrace();
       profile = next;
       traceIndex = null;
       element("profile-content").hidden = false;
-      element("profile-name").textContent = file.name;
+      element("profile-name").textContent = name;
       renderSummary();
       renderSeriesSelector();
-      traceToggle.checked = false;
-      traceToggle.disabled =
-        profile.trace === null || profile.trace.instructions.length === 0;
-      element("trace-message").textContent =
-        profile.trace === null
-          ? "No trace in this export. Enable ProfilerConfig.record_trace when profiling to include it."
-          : profile.trace.instructions.length === 0
-            ? "The recorded trace is empty."
-            : `${formatNumber(profile.trace.instructions.length)} instructions available. Enable Show trace to build the timeline.`;
-      setStatus(`Loaded ${file.name}.`);
+      traceSection.hidden = profile.trace === null;
+      if (profile.trace !== null) {
+        if (profile.trace.instructions.length === 0) {
+          element("trace-message").textContent = "The recorded trace is empty.";
+        } else {
+          startTrace();
+        }
+      }
+      setStatus(`Loaded ${name}.`);
       queueChart();
     } catch (error) {
       if (request !== loadId) return;
       setStatus(
-        `Could not load ${file.name}: ${error.message}${profile ? " The previous profile remains displayed." : ""}`,
+        `Could not load ${name}: ${error.message}${profile ? " The previous profile remains displayed." : ""}`,
         true,
       );
     }
@@ -675,7 +686,7 @@ function initializeViewer() {
     }
   }
 
-  /** Cancels trace work and releases its backing canvas whenever the timeline is hidden. */
+  /** Cancels trace work and releases its backing canvas before replacing a profile. */
   function stopTrace() {
     cancelAnimationFrame(traceFrame);
     cancelAnimationFrame(indexFrame);
@@ -693,7 +704,7 @@ function initializeViewer() {
 
   /** Builds the trace index only while visible and yields between chunks to stay responsive. */
   function startTrace() {
-    if (!profile?.trace || !traceToggle.checked) return;
+    if (!profile?.trace || traceSection.hidden) return;
     element("trace-content").hidden = false;
     if (traceIndex) {
       traceObserver.observe(traceScroll);
@@ -705,7 +716,7 @@ function initializeViewer() {
     /** Advances at most one index chunk per animation frame. */
     function advanceIndex() {
       indexFrame = 0;
-      if (!traceToggle.checked || !indexBuilder) return;
+      if (traceSection.hidden || !indexBuilder) return;
       const step = indexBuilder.next();
       if (!step.done) {
         indexFrame = requestAnimationFrame(advanceIndex);
@@ -730,7 +741,7 @@ function initializeViewer() {
 
   /** Maps an arbitrary zoom range to a bounded native scrollbar, avoiding browser size limits. */
   function configureTrace(start) {
-    if (!traceToggle.checked || !traceIndex) return;
+    if (traceSection.hidden || !traceIndex) return;
     const width = traceScroll.clientWidth;
     const height = traceScroll.clientHeight;
     if (!width || !height) return;
@@ -750,10 +761,10 @@ function initializeViewer() {
 
   /** Coalesces scroll and zoom events and does no work for a hidden trace. */
   function queueTrace() {
-    if (!traceToggle.checked || !traceIndex || traceFrame) return;
+    if (traceSection.hidden || !traceIndex || traceFrame) return;
     traceFrame = requestAnimationFrame(() => {
       traceFrame = 0;
-      if (traceToggle.checked) drawTrace();
+      if (!traceSection.hidden) drawTrace();
     });
   }
 
@@ -870,7 +881,7 @@ function initializeViewer() {
 
   /** Zooms around a fractional point of the current viewport, preserving its timestamp. */
   function zoomTrace(factor, anchor = 0.5) {
-    if (!traceIndex || !traceToggle.checked) return;
+    if (!traceIndex || traceSection.hidden) return;
     const time = viewStart + viewDuration * anchor;
     viewDuration = Math.max(
       1,
@@ -881,7 +892,7 @@ function initializeViewer() {
   }
 
   element("file-input").addEventListener("change", (event) => {
-    loadFile(event.target.files[0]);
+    loadProfile(event.target.files[0]);
     event.target.value = "";
   });
   for (const [id, checked] of [
@@ -898,10 +909,6 @@ function initializeViewer() {
       queueChart();
     });
   }
-  traceToggle.addEventListener("change", () => {
-    if (traceToggle.checked) startTrace();
-    else stopTrace();
-  });
   element("zoom-in").addEventListener("click", () => zoomTrace(0.5));
   element("zoom-out").addEventListener("click", () => zoomTrace(2));
   element("zoom-fit").addEventListener("click", () => {
@@ -912,7 +919,7 @@ function initializeViewer() {
   traceScroll.addEventListener(
     "scroll",
     () => {
-      if (traceToggle.checked) {
+      if (!traceSection.hidden) {
         hideTooltip();
         queueTrace();
       }
@@ -923,7 +930,7 @@ function initializeViewer() {
     "wheel",
     (event) => {
       if (
-        !traceToggle.checked ||
+        traceSection.hidden ||
         (!event.ctrlKey && !event.metaKey) ||
         !traceGeometry
       )
@@ -942,7 +949,7 @@ function initializeViewer() {
     { passive: false },
   );
   traceCanvas.addEventListener("mousemove", (event) => {
-    if (!traceToggle.checked || !traceGeometry) return;
+    if (traceSection.hidden || !traceGeometry) return;
     const bounds = traceCanvas.getBoundingClientRect();
     const x = event.clientX - bounds.left;
     const y = event.clientY - bounds.top;
@@ -1001,6 +1008,23 @@ function initializeViewer() {
   const chartObserver = new ResizeObserver(queueChart);
   chartObserver.observe(element("chart-wrap"));
   const traceObserver = new ResizeObserver(() => {
-    if (traceToggle.checked && traceIndex) configureTrace(viewStart);
+    if (!traceSection.hidden && traceIndex) configureTrace(viewStart);
   });
+
+  const profileName = new URLSearchParams(location.search).get("profile_name");
+  if (profileName !== null) {
+    if (!/^[A-Za-z0-9_-]+$/.test(profileName)) {
+      setStatus(
+        "Invalid profile_name: use only letters, digits, underscores, or hyphens.",
+        true,
+      );
+    } else if (location.protocol === "file:") {
+      setStatus(
+        "Automatic profile loading requires HTTP or HTTPS. Use Open JSON file instead.",
+        true,
+      );
+    } else {
+      loadProfile(`profiles/${profileName}.json`);
+    }
+  }
 }
