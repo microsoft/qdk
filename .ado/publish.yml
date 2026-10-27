@@ -417,6 +417,8 @@ extends:
                   - template: /.ado/templates/create-authenticated-npmrc.yml@self
 
                   - script: |
+                      export DEBIAN_FRONTEND=noninteractive
+                      sudo dpkg --configure -a
                       sudo apt update
                       sudo apt install -y patchelf
                     displayName: Install Linux x86_64 prereqs
