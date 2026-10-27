@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{Profiler, ProfilerResult, TotalCounts, factories::TFactory};
+use super::{
+    AggregationType, Profiler, ProfilerResult, TemporalProfiles, TotalCounts, factories::TFactory,
+};
 use crate::{
     Parameter, QuantumBackendResult, TumblingWindowAggregator,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
@@ -202,7 +204,9 @@ pub struct TemporalProfiler {
     /// Whether instruction and factory-round intervals should be retained.
     record_trace: bool,
     /// Collects event counts into fixed-window rate profiles.
-    aggregator: TumblingWindowAggregator,
+    event_aggregator: TumblingWindowAggregator,
+    /// Collects factory busy durations into fixed-window utilization profiles.
+    utilization_aggregator: TumblingWindowAggregator,
 }
 
 impl TemporalProfiler {
@@ -235,7 +239,14 @@ impl TemporalProfiler {
             all_instructions_offset: 0,
             logs: Vec::new(),
             record_trace: config.record_trace,
-            aggregator: TumblingWindowAggregator::new(config.aggregation_window_nanos),
+            event_aggregator: TumblingWindowAggregator::new(
+                config.aggregation_window_nanos,
+                AggregationType::Rate,
+            ),
+            utilization_aggregator: TumblingWindowAggregator::new(
+                config.aggregation_window_nanos,
+                AggregationType::Utilization,
+            ),
         };
         for factory in 0..profiler.factories.len() {
             profiler.start_distillation_round(FactoryId(factory));
@@ -260,8 +271,13 @@ impl TemporalProfiler {
                 },
             });
         }
-        self.aggregator
-            .record_event(self.current_time_nanos, "round");
+        self.event_aggregator
+            .record_event(self.current_time_nanos, "round", 1);
+        self.utilization_aggregator.record_event(
+            self.current_time_nanos,
+            "Factory utilization",
+            end_time_nanos - self.current_time_nanos,
+        );
     }
 
     /// Stores batch instructions and records their qubit and result dependencies.
@@ -411,8 +427,11 @@ impl TemporalProfiler {
             .expect("simulated instruction time overflow");
 
         // Record gate in aggreator, using gate start time as gate time.
-        self.aggregator
-            .record_event(self.current_time_nanos, instruction.instruction_name);
+        self.event_aggregator.record_event(
+            self.current_time_nanos,
+            instruction.instruction_name,
+            1,
+        );
 
         // Record instruction in detailed profile.
         if self.record_trace {
@@ -497,8 +516,11 @@ impl TemporalProfiler {
         match event {
             Event::DistillationRoundFinished(factory) => {
                 if self.rng.random::<f64>() < self.factories[factory.0].probability_success {
-                    self.aggregator
-                        .record_event(self.current_time_nanos, "T state produced");
+                    self.event_aggregator.record_event(
+                        self.current_time_nanos,
+                        "T state produced",
+                        1,
+                    );
                     self.available_resources
                         .entry(ResourceType::TState)
                         .or_default()
@@ -518,8 +540,11 @@ impl TemporalProfiler {
                 }
                 let instruction = &self.all_instructions[index].instruction;
                 if matches!(instruction.instruction_name, "inject_t" | "inject_tadj") {
-                    self.aggregator
-                        .record_event(self.current_time_nanos, "T state consumed");
+                    self.event_aggregator.record_event(
+                        self.current_time_nanos,
+                        "T state consumed",
+                        1,
+                    );
                     let [Parameter::FactoryId(factory), Parameter::QubitId(_)] =
                         instruction.parameters.as_slice()
                     else {
@@ -617,13 +642,21 @@ impl Profiler for TemporalProfiler {
             logical_compute_qubits: self.qubits.len(),
             physical_qubits,
             total_runtime_sec,
-            total_operations_count: self.aggregator.total_event_count(),
+            total_operations_count: self.event_aggregator.total_event_count(),
             calls_per_operation: Default::default(),
             runtime_sec_per_operation: Default::default(),
         };
+        let mut profiles = self.event_aggregator.get_profiles();
+        profiles.extend(self.utilization_aggregator.get_profiles());
+        profiles.sort_by(|left, right| left.metric_name.cmp(&right.metric_name));
+        #[allow(clippy::cast_precision_loss)]
+        let window_size_sec = self.config.aggregation_window_nanos as f64 / 1e9;
         ProfilerResult {
             totals,
-            profiles: self.aggregator.get_profiles(),
+            profiles: TemporalProfiles {
+                profiles,
+                aggregation_window_sec: Some(window_size_sec),
+            },
             trace: self.record_trace.then(|| ExecutionTrace {
                 instructions: self.logs.clone(),
             }),
@@ -866,7 +899,7 @@ mod tests {
         );
         // Five states were produced and two were consumed.
         assert_eq!(
-            profiler.aggregator.total_event_count(),
+            profiler.event_aggregator.total_event_count(),
             profiler.logs.len() + 7
         );
         assert!(
@@ -1024,7 +1057,7 @@ mod tests {
         );
         // Four states have been produced and consumed, including the second batch.
         assert_eq!(
-            profiler.aggregator.total_event_count(),
+            profiler.event_aggregator.total_event_count(),
             profiler.logs.len() + 8
         );
         Ok(())
@@ -1110,6 +1143,12 @@ mod tests {
         assert_eq!(profiler.get_result().totals.total_operations_count, 53);
         assert!((profiler.get_result().totals.total_runtime_sec - 211_000e-9).abs() < 1e-18);
         let metrics = profiler.get_result().profiles.profiles;
+        let utilization_profile = metrics
+            .iter()
+            .find(|profile| profile.metric_name == "Factory utilization")
+            .expect("factory utilization is reported separately");
+        assert_eq!(utilization_profile.metric_units, "factories");
+        assert_eq!(utilization_profile.series, vec![(0.0, 330_000e-9)]);
         let round_profile = metrics
             .iter()
             .find(|profile| profile.metric_name == "round rate")

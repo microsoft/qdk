@@ -282,6 +282,15 @@ injections count as `inject_t`/`inject_tadj`, not `t`/`tadj`. The trace includes
 intervals, even rounds extending beyond execution. Pending rounds do not extend the reported
 runtime: each batch stops as soon as its instructions finish.
 
+`Factory utilization` sums distillation-round durations in nanoseconds and divides by the
+aggregation window size in nanoseconds, reporting an estimated average number of busy factories
+(units: `factories`), not a percentage. Waiting time is excluded. Each round is charged to its
+starting window rather than split across window boundaries.
+Event rates and factory utilization use separate `TumblingWindowAggregator` instances,
+configured with `AggregationType::Rate` and `AggregationType::Utilization`, respectively.
+Only the event aggregator contributes to the total operation/event count; their time series
+are combined in the result.
+
 
 ### Resource estimation workflow.
 

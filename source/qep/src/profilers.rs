@@ -17,7 +17,7 @@ use std::{
     path::Path,
 };
 
-pub use aggregators::TumblingWindowAggregator;
+pub use aggregators::{AggregationType, TumblingWindowAggregator};
 pub use counting::SequentialCountingProfiler;
 pub use temporal::{TemporalProfiler, TemporalProfilerConfig};
 
