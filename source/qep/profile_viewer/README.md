@@ -34,6 +34,9 @@ The right-hand checklist contains only that group's series and allows individual
 selection, selecting all, or clearing all. Hover to see values from that group.
 Each chart has its own panel titled with its units, with the exported aggregation
 window displayed beside the title.
+Chart axes and the trace time axis use 3-10 ticks at rounded steps such as 1, 2,
+or 5 times a power of ten, preferring fewer decimal places. Horizontal grid lines
+follow the chart's y-axis ticks.
 
 Rates are not recomputed: in particular the final partial window retains the
 exporter's full-window denominator. For example, `events/s` and `factories` are

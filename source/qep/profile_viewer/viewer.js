@@ -333,6 +333,61 @@ function formatNumber(value) {
   );
 }
 
+/** Chooses 3-10 evenly spaced ticks, preferring fewer decimal places and about six labels. */
+function axisTicks(minimum, maximum) {
+  if (
+    !Number.isFinite(minimum) ||
+    !Number.isFinite(maximum) ||
+    maximum <= minimum
+  )
+    throw new RangeError("Axis bounds must be finite and increasing.");
+  const magnitude = 10 ** Math.floor(Math.log10((maximum - minimum) / 5));
+  let best = null;
+  for (const factor of [1, 2, 5, 10]) {
+    const step = magnitude * factor;
+    const decimals = Math.max(0, -Math.floor(Math.log10(step)));
+    const first = Math.ceil(minimum / step - 1e-10);
+    const last = Math.floor(maximum / step + 1e-10);
+    const count = last - first + 1;
+    if (count < 3 || count > 10) continue;
+    const ticks = Array.from({ length: count }, (_, index) => {
+      const value = (first + index) * step;
+      return Number(
+        decimals <= 100 ? value.toFixed(decimals) : value.toPrecision(16),
+      );
+    }).filter((value) => value >= minimum && value <= maximum);
+    if (ticks.length < 3 || new Set(ticks).size !== ticks.length) continue;
+    const distance = Math.abs(ticks.length - 6);
+    if (
+      !best ||
+      decimals < best.decimals ||
+      (decimals === best.decimals && distance < best.distance)
+    ) {
+      best = { ticks, step, decimals, distance };
+    }
+  }
+  if (!best)
+    throw new RangeError("Axis range is too small to place distinct ticks.");
+  return { ticks: best.ticks, step: best.step };
+}
+
+/** Formats tick labels at the step's precision without unnecessary trailing zeros. */
+function formatAxisTick(value, step) {
+  if (value === 0) return "0";
+  const exponent = Math.floor(Math.log10(step));
+  const decimals = Math.max(0, -exponent);
+  if (Math.abs(value) < 0.001 || Math.abs(value) >= 1e7 || decimals > 20) {
+    const precision = Math.max(
+      0,
+      Math.floor(Math.log10(Math.abs(value))) - exponent,
+    );
+    return value.toExponential(Math.min(100, precision)).replace(/\.?0+e/, "e");
+  }
+  return new Intl.NumberFormat("en", {
+    maximumFractionDigits: decimals,
+  }).format(value);
+}
+
 // The same pure helpers are testable in Node; the page itself uses a classic
 // script, not an ES module, so opening index.html via file:// works offline.
 if (typeof module !== "undefined" && module.exports) {
@@ -341,6 +396,8 @@ if (typeof module !== "undefined" && module.exports) {
     buildTraceIndex,
     visibleEntries,
     decimateSeries,
+    axisTicks,
+    formatAxisTick,
   };
 }
 if (typeof document !== "undefined") initializeViewer();
@@ -671,8 +728,9 @@ function initializeViewer() {
     }
     maximum = maximum ? maximum * 1.08 : 1;
     context.textBaseline = "middle";
-    for (let tick = 0; tick <= 5; tick += 1) {
-      const y = top + plotHeight * (1 - tick / 5);
+    const yAxis = axisTicks(0, maximum);
+    for (const tick of yAxis.ticks) {
+      const y = top + plotHeight * (1 - tick / maximum);
       context.strokeStyle = "#e1e7ef";
       context.beginPath();
       context.moveTo(left, y);
@@ -680,11 +738,15 @@ function initializeViewer() {
       context.stroke();
       context.fillStyle = "#53647a";
       context.textAlign = "right";
-      context.fillText(formatNumber((maximum * tick) / 5), left - 10, y);
-      const x = left + (plotWidth * tick) / 5;
+      context.fillText(formatAxisTick(tick, yAxis.step), left - 10, y);
+    }
+    const xAxis = axisTicks(0, duration);
+    for (const tick of xAxis.ticks) {
+      const x = left + (plotWidth * tick) / duration;
+      context.fillStyle = "#53647a";
       context.textAlign = "center";
       context.fillText(
-        formatNumber((duration * tick) / 5),
+        formatAxisTick(tick, xAxis.step),
         x,
         top + plotHeight + 20,
       );
@@ -920,14 +982,15 @@ function initializeViewer() {
       );
     }
     context.fillText("time, s", 10, RULER / 2);
-    for (let tick = 0; tick <= 5; tick += 1) {
-      const x = GUTTER + (plotWidth * tick) / 5;
-      context.textAlign = tick === 0 ? "left" : tick === 5 ? "right" : "center";
-      context.fillText(
-        formatNumber((viewStart + (viewDuration * tick) / 5) / 1e9),
-        x,
-        RULER / 2,
-      );
+    const timeStart = viewStart / 1e9;
+    const timeDuration = viewDuration / 1e9;
+    const timeAxis = axisTicks(timeStart, timeStart + timeDuration);
+    for (const tick of timeAxis.ticks) {
+      const fraction = (tick - timeStart) / timeDuration;
+      const x = GUTTER + plotWidth * fraction;
+      context.textAlign =
+        fraction < 0.05 ? "left" : fraction > 0.95 ? "right" : "center";
+      context.fillText(formatAxisTick(tick, timeAxis.step), x, RULER / 2);
     }
     traceGeometry = { width, height, plotWidth };
     element("trace-scale").textContent =
