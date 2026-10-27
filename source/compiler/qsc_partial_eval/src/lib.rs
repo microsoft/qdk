@@ -2237,7 +2237,7 @@ impl<'a> PartialEvaluator<'a> {
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. Inputs must have runtime-representable leaves; outputs must be Unit
     /// or a supported scalar (Int/Double/Bool). Ineligible specializations use the inline path.
-    /// Static qubit allocation and recursive measurement-result reuse force inlining.
+    /// Static qubit allocation and unproved recursive measurement-result lifetimes force inlining.
     /// The caller additionally checks body resolution and folds fully static calls.
     fn is_ir_function_eligible(
         &mut self,
@@ -2297,7 +2297,9 @@ impl<'a> PartialEvaluator<'a> {
         // Every flattened input leaf must map to both an RIR operand and an
         // evaluator variable. Callable and composite leaves force inlining.
         let callable_package = self.package_store.get(store_item_id.package);
+        let mut has_result_parameters = false;
         for param in callable_package.derive_callable_input_params(callable_decl) {
+            has_result_parameters |= measurement_type_may_contain_result(&param.ty);
             let Ok(rir_ty) = map_fir_type_to_rir_type(&param.ty) else {
                 return false;
             };
@@ -2327,6 +2329,7 @@ impl<'a> PartialEvaluator<'a> {
                 .config
                 .capabilities
                 .contains(TargetCapabilityFlags::DynamicQubitAllocation),
+            has_result_parameters,
         );
         self.ir_function_resource_safety.insert(root, safe);
         safe
@@ -5411,11 +5414,13 @@ fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue 
 
 /// Checks selected reachable bodies rather than RCA summaries, which can be incomplete at cycles.
 /// Static qubits cannot be captured by emitted functions. Static result slots can be used in
-/// acyclic functions, but cannot be shared by overlapping recursive invocations.
+/// acyclic functions. Recursive reuse additionally requires that no raw result can survive
+/// another invocation of its measuring body.
 fn ir_function_resources_are_safe(
     store: &PackageStore,
     root: (PackageId, BlockId),
     dynamic_qubits: bool,
+    mut has_result_parameters: bool,
 ) -> bool {
     use qsc_fir::visit::Visitor;
 
@@ -5423,6 +5428,7 @@ fn ir_function_resources_are_safe(
     // directly invoke measurement intrinsics; recursive callers are identified below.
     let mut edges = FxHashMap::<(PackageId, BlockId), Vec<(PackageId, BlockId)>>::default();
     let mut measuring = FxHashSet::default();
+    let mut custom_measurement = false;
     let mut pending = vec![root];
     while let Some(body) = pending.pop() {
         if edges.contains_key(&body) {
@@ -5445,6 +5451,11 @@ fn ir_function_resources_are_safe(
                 return false;
             };
             if let CallableImpl::Spec(specs) = &callable.implementation {
+                has_result_parameters |= store
+                    .get(item.package)
+                    .derive_callable_input_params(callable)
+                    .iter()
+                    .any(|param| measurement_type_may_contain_result(&param.ty));
                 let callee = (item.package, get_spec_decl(specs, functors).block);
                 callees.push(callee);
                 pending.push(callee);
@@ -5460,13 +5471,13 @@ fn ir_function_resources_are_safe(
                 }
                 // Both custom and built-in measurements use static result slots, even
                 // when dynamic qubits are enabled. Associate the slot with its calling body.
-                if callable.attrs.contains(&fir::Attr::Measurement)
-                    || matches!(
-                        callable.name.name.as_ref(),
-                        "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
-                    )
-                {
+                let builtin_measurement = matches!(
+                    callable.name.name.as_ref(),
+                    "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
+                );
+                if callable.attrs.contains(&fir::Attr::Measurement) || builtin_measurement {
                     measuring.insert(body);
+                    custom_measurement |= !builtin_measurement;
                 }
             }
         }
@@ -5500,9 +5511,152 @@ fn ir_function_resources_are_safe(
             }
         }
     }
-    // Any remaining measurement is reachable from recursion. Conservatively inline the
-    // root rather than risk a nested invocation overwriting a caller's result slot.
-    measuring.is_empty()
+    if measuring.is_empty() {
+        return true;
+    }
+    if has_result_parameters || custom_measurement {
+        return false;
+    }
+
+    // Check every reachable body, including pruned callers: a caller outside the cycle
+    // can still hold a result owned by a helper that the cycle re-enters.
+    edges.keys().all(|body| {
+        if is_measurement_forwarder(store, *body) {
+            return true;
+        }
+        let mut scanner = MeasurementUseScanner {
+            calls: ResourceCallScanner {
+                package: store.get(body.0),
+                package_id: body.0,
+                calls: Vec::new(),
+                unresolved: false,
+            },
+            store,
+            safe: true,
+        };
+        scanner.visit_block(body.1);
+        scanner.safe
+    })
+}
+
+/// Unknown or nominal storage is not a proof that a result cannot escape.
+fn measurement_type_may_contain_result(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Result) | Ty::Udt(_) | Ty::Infer(_) | Ty::Param(_) | Ty::Err => true,
+        Ty::Array(element) => measurement_type_may_contain_result(element),
+        Ty::Tuple(elements) => elements.iter().any(measurement_type_may_contain_result),
+        Ty::Prim(_) | Ty::Arrow(_) => false,
+    }
+}
+
+/// Recognizes the single-expression wrappers used by `M` and `MResetZ`, without trusting
+/// their names or extending the proof to arbitrary result-returning helpers.
+fn is_measurement_forwarder(store: &PackageStore, body: (PackageId, BlockId)) -> bool {
+    let package = store.get(body.0);
+    let [stmt] = package.get_block(body.1).stmts.as_slice() else {
+        return false;
+    };
+    let StmtKind::Expr(expr) = package.get_stmt(*stmt).kind else {
+        return false;
+    };
+    let ExprKind::Call(callee, arg) = package.get_expr(expr).kind else {
+        return false;
+    };
+    if package.get_expr(arg).ty != Ty::Prim(Prim::Qubit)
+        || !matches!(package.get_expr(arg).kind, ExprKind::Var(Res::Local(_), _))
+    {
+        return false;
+    }
+    let ExprKind::Var(Res::Item(item), _) = package.get_expr(callee).kind else {
+        return false;
+    };
+    let Some(Global::Callable(callable)) = store.get_global((item.package, item.item).into())
+    else {
+        return false;
+    };
+    !matches!(callable.implementation, CallableImpl::Spec(_))
+        && matches!(
+            callable.name.name.as_ref(),
+            "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
+        )
+}
+
+/// Proves the deliberately narrow nonescaping pattern: a built-in measurement is compared
+/// directly with a result literal. The read therefore precedes every subsequent call,
+/// including calls in later operands. Only the resulting Boolean may be saved or returned.
+struct MeasurementUseScanner<'a> {
+    calls: ResourceCallScanner<'a>,
+    store: &'a PackageStore,
+    safe: bool,
+}
+
+impl MeasurementUseScanner<'_> {
+    fn is_immediate_measurement(&self, expr: ExprId) -> bool {
+        let ExprKind::Call(callee, _) = self.calls.package.get_expr(expr).kind else {
+            return false;
+        };
+        let Some((item, functors)) = self.calls.resolve_callee(callee) else {
+            return false;
+        };
+        let Some(Global::Callable(callable)) = self.store.get_global(item) else {
+            return false;
+        };
+        match &callable.implementation {
+            CallableImpl::Spec(specs) => is_measurement_forwarder(
+                self.store,
+                (item.package, get_spec_decl(specs, functors).block),
+            ),
+            _ => matches!(
+                callable.name.name.as_ref(),
+                "__quantum__qis__m__body" | "__quantum__qis__mresetz__body"
+            ),
+        }
+    }
+}
+
+impl<'a> qsc_fir::visit::Visitor<'a> for MeasurementUseScanner<'a> {
+    fn visit_expr(&mut self, expr: ExprId) {
+        let expression = self.calls.package.get_expr(expr);
+        if matches!(expression.kind, ExprKind::Parallel(..))
+            || (measurement_type_may_contain_result(&expression.ty)
+                && !matches!(expression.kind, ExprKind::Lit(fir::Lit::Result(_))))
+        {
+            self.safe = false;
+            return;
+        }
+        if let ExprKind::BinOp(BinOp::Eq | BinOp::Neq, lhs, rhs) = expression.kind {
+            for (measured, literal) in [(lhs, rhs), (rhs, lhs)] {
+                if matches!(
+                    self.calls.package.get_expr(literal).kind,
+                    ExprKind::Lit(fir::Lit::Result(_))
+                ) && self.is_immediate_measurement(measured)
+                {
+                    // Skip only the measured call's result value, never its callee or
+                    // argument expressions: either can have independently unsafe effects.
+                    qsc_fir::visit::walk_expr(self, measured);
+                    self.visit_expr(literal);
+                    return;
+                }
+            }
+        }
+        qsc_fir::visit::walk_expr(self, expr);
+    }
+
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.calls.package.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.calls.package.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.calls.package.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.calls.package.get_stmt(id)
+    }
 }
 
 /// Collects call targets within one specialization body for the resource-safety graph.
