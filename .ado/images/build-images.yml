@@ -20,6 +20,26 @@ parameters:
         arch: aarch64
         tag: arm64
 
+  - name: importUbi
+    displayName: Import UBI image
+    type: boolean
+    default: true
+
+  - name: buildBaseImage
+    displayName: Build QDK base image
+    type: boolean
+    default: true
+
+  - name: buildToolsImage
+    displayName: Build QDK tools image
+    type: boolean
+    default: true
+
+  - name: UBI8_IMAGE_TAG
+    displayName: Image tag for the UBI8 image
+    type: string
+    default: "8.10-1792646452"
+
   # Parameters for building the qdk-build image
   - name: ACR_SERVER
     displayName: Azure Container Registry server
