@@ -351,11 +351,10 @@ function initializeViewer() {
   const element = (id) => document.getElementById(id);
   const status = element("status");
   const tooltip = element("tooltip");
-  const ratesCanvas = element("rates-canvas");
   const traceCanvas = element("trace-canvas");
   const traceScroll = element("trace-scroll");
   const traceSection = element("trace-section");
-  const selected = new Set();
+  const charts = [];
   let profile = null;
   let loadId = 0;
   let chartFrame = 0;
@@ -421,7 +420,7 @@ function initializeViewer() {
       element("profile-content").hidden = false;
       element("profile-name").textContent = name;
       renderSummary();
-      renderSeriesSelector();
+      renderCharts();
       traceSection.hidden = profile.trace === null;
       if (profile.trace !== null) {
         if (profile.trace.instructions.length === 0) {
@@ -521,13 +520,77 @@ function initializeViewer() {
     return `hsl(${((hash % 360) + 360) % 360} 45% 45%)`;
   }
 
-  /** Creates accessible series toggles, showing each series' own unit. */
-  function renderSeriesSelector() {
-    const list = element("series-list");
-    list.replaceChildren();
-    selected.clear();
+  /** Builds one chart and checkbox list for each distinct units string. */
+  function renderCharts() {
+    chartObserver.disconnect();
+    hideTooltip();
+    charts.length = 0;
+    const container = element("charts");
+    container.replaceChildren();
+    const groups = new Map();
     profile.profiles.profiles.forEach((metric, index) => {
-      selected.add(index);
+      if (!groups.has(metric.metric_units)) groups.set(metric.metric_units, []);
+      groups.get(metric.metric_units).push(index);
+    });
+    if (groups.size === 0) groups.set("", []);
+    const window = profile.profiles.aggregation_window_sec;
+    for (const [units, indices] of groups) {
+      const group =
+        element("chart-template").content.firstElementChild.cloneNode(true);
+      group.querySelector(".chart-units").textContent = units || "Time series";
+      group.querySelector(".window-note").textContent =
+        window === null
+          ? "No fixed aggregation window"
+          : `Aggregation window: ${formatNumber(window)} s`;
+      group.setAttribute(
+        "aria-label",
+        units ? `Time series in ${units}` : "Time series",
+      );
+      const chart = {
+        canvas: group.querySelector(".rates-canvas"),
+        wrap: group.querySelector(".chart-wrap"),
+        list: group.querySelector(".series-list"),
+        indices,
+        selected: new Set(indices),
+      };
+      chart.canvas.setAttribute(
+        "aria-label",
+        units
+          ? `Selected time series in ${units} over time`
+          : "Selected time series over time",
+      );
+      renderSeriesSelector(chart);
+      group.querySelector(".series-empty").hidden = indices.length !== 0;
+      for (const [selector, checked] of [
+        [".series-all", true],
+        [".series-none", false],
+      ]) {
+        group.querySelector(selector).addEventListener("click", () => {
+          chart.selected.clear();
+          for (const checkbox of chart.list.querySelectorAll("input")) {
+            checkbox.checked = checked;
+            if (checked) chart.selected.add(Number(checkbox.dataset.index));
+          }
+          hideTooltip();
+          queueChart();
+        });
+      }
+      chart.canvas.addEventListener("mousemove", (event) =>
+        showChartTooltip(chart, event),
+      );
+      chart.canvas.addEventListener("mouseleave", hideTooltip);
+      container.append(group);
+      charts.push(chart);
+      chartObserver.observe(chart.wrap);
+    }
+  }
+
+  /** Creates accessible series toggles for a single units group. */
+  function renderSeriesSelector(chart) {
+    const list = chart.list;
+    list.replaceChildren();
+    for (const index of chart.indices) {
+      const metric = profile.profiles.profiles[index];
       const label = document.createElement("label");
       label.className = "series-option";
       const checkbox = document.createElement("input");
@@ -535,8 +598,9 @@ function initializeViewer() {
       checkbox.checked = true;
       checkbox.dataset.index = String(index);
       checkbox.addEventListener("change", () => {
-        if (checkbox.checked) selected.add(index);
-        else selected.delete(index);
+        if (checkbox.checked) chart.selected.add(index);
+        else chart.selected.delete(index);
+        hideTooltip();
         queueChart();
       });
       const swatch = document.createElement("span");
@@ -549,13 +613,7 @@ function initializeViewer() {
       text.append(units);
       label.append(checkbox, swatch, text);
       list.append(label);
-    });
-    element("series-empty").hidden = profile.profiles.profiles.length !== 0;
-    const window = profile.profiles.aggregation_window_sec;
-    element("window-note").textContent =
-      window === null
-        ? "No fixed aggregation window"
-        : `Aggregation window: ${formatNumber(window)} s`;
+    }
   }
 
   /** Scales a viewport-sized backing store for sharp high-DPI canvas rendering. */
@@ -589,23 +647,25 @@ function initializeViewer() {
     if (!chartFrame)
       chartFrame = requestAnimationFrame(() => {
         chartFrame = 0;
-        if (profile) drawChart();
+        if (profile) {
+          for (const chart of charts) drawChart(chart);
+        }
       });
   }
 
   /** Draws step-like rate series, numeric axes, and a time-only x-axis label. */
-  function drawChart() {
-    const width = element("chart-wrap").clientWidth;
-    const height = element("chart-wrap").clientHeight;
+  function drawChart(chart) {
+    const width = chart.wrap.clientWidth;
+    const height = chart.wrap.clientHeight;
     if (!width || !height) return;
-    const context = prepareCanvas(ratesCanvas, width, height);
+    const context = prepareCanvas(chart.canvas, width, height);
     const left = Math.min(78, width / 4);
     const top = 20;
     const plotWidth = Math.max(1, width - left - 20);
     const plotHeight = height - top - 58;
     const duration = chartDuration();
     let maximum = 0;
-    for (const index of selected) {
+    for (const index of chart.selected) {
       for (const point of profile.profiles.profiles[index].series)
         maximum = Math.max(maximum, point[1]);
     }
@@ -634,7 +694,7 @@ function initializeViewer() {
     context.beginPath();
     context.rect(left, top, plotWidth, plotHeight);
     context.clip();
-    for (const index of selected) {
+    for (const index of chart.selected) {
       const series = profile.profiles.profiles[index].series;
       const points = decimateSeries(
         series,
@@ -675,7 +735,7 @@ function initializeViewer() {
       }
     }
     context.restore();
-    if (selected.size === 0 || profile.profiles.profiles.length === 0) {
+    if (chart.selected.size === 0) {
       context.fillStyle = "#53647a";
       context.textAlign = "center";
       context.fillText(
@@ -895,20 +955,6 @@ function initializeViewer() {
     loadProfile(event.target.files[0]);
     event.target.value = "";
   });
-  for (const [id, checked] of [
-    ["series-all", true],
-    ["series-none", false],
-  ]) {
-    element(id).addEventListener("click", () => {
-      if (!profile) return;
-      selected.clear();
-      for (const checkbox of element("series-list").querySelectorAll("input")) {
-        checkbox.checked = checked;
-        if (checked) selected.add(Number(checkbox.dataset.index));
-      }
-      queueChart();
-    });
-  }
   element("zoom-in").addEventListener("click", () => zoomTrace(0.5));
   element("zoom-out").addEventListener("click", () => zoomTrace(2));
   element("zoom-fit").addEventListener("click", () => {
@@ -974,9 +1020,10 @@ function initializeViewer() {
       event,
     );
   });
-  ratesCanvas.addEventListener("mousemove", (event) => {
+  /** Shows only selected series from the hovered chart's units group. */
+  function showChartTooltip(chart, event) {
     if (!profile) return;
-    const bounds = ratesCanvas.getBoundingClientRect();
+    const bounds = chart.canvas.getBoundingClientRect();
     const left = Math.min(78, bounds.width / 4);
     const fraction =
       (event.clientX - bounds.left - left) /
@@ -984,7 +1031,7 @@ function initializeViewer() {
     if (fraction < 0 || fraction > 1) return hideTooltip();
     const time = fraction * chartDuration();
     const lines = [`Time: ${formatNumber(time)} s`];
-    for (const index of selected) {
+    for (const index of chart.selected) {
       const metric = profile.profiles.profiles[index];
       let low = 0;
       let high = metric.series.length;
@@ -1002,11 +1049,9 @@ function initializeViewer() {
       }
     }
     showTooltip(lines.join("\n"), event);
-  });
-  ratesCanvas.addEventListener("mouseleave", hideTooltip);
+  }
   traceCanvas.addEventListener("mouseleave", hideTooltip);
   const chartObserver = new ResizeObserver(queueChart);
-  chartObserver.observe(element("chart-wrap"));
   const traceObserver = new ResizeObserver(() => {
     if (!traceSection.hidden && traceIndex) configureTrace(viewStart);
   });

@@ -162,12 +162,16 @@
         overflow: auto;
         max-height: 300px;
       }
-      #chart-layout {
+      #charts {
+        display: grid;
+        gap: 24px;
+      }
+      .chart-layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 300px;
         gap: 20px;
       }
-      #chart-wrap {
+      .chart-wrap {
         position: relative;
         min-width: 0;
         height: 440px;
@@ -175,11 +179,11 @@
       canvas {
         display: block;
       }
-      #rates-canvas {
+      .rates-canvas {
         width: 100%;
         height: 100%;
       }
-      #series-list {
+      .series-list {
         max-height: 390px;
         overflow: auto;
         margin-top: 12px;
@@ -254,15 +258,15 @@
         body {
           padding: 14px;
         }
-        #chart-layout {
+        .chart-layout {
           grid-template-columns: 1fr;
         }
-        #series-list {
+        .series-list {
           max-height: 210px;
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         }
-        #chart-wrap {
+        .chart-wrap {
           height: 350px;
         }
       }
@@ -309,39 +313,42 @@
           </details>
         </section>
 
-        <section class="panel" aria-labelledby="rates-heading">
-          <div class="section-heading">
-            <h2 id="rates-heading">Event rates</h2>
-            <span id="window-note" class="muted"></span>
-          </div>
-          <div id="chart-layout">
-            <div id="chart-wrap">
-              <canvas
-                id="rates-canvas"
-                role="img"
-                aria-label="Selected event rates over time"
-              ></canvas>
+        <div id="charts"></div>
+        <template id="chart-template">
+          <div class="panel metric-group" role="region">
+            <div class="section-heading">
+              <h2 class="chart-units"></h2>
+              <span class="window-note muted"></span>
             </div>
-            <aside aria-label="Select time series">
-              <div class="toolbar">
-                <button id="series-all" type="button">Select all</button>
-                <button id="series-none" type="button">Clear</button>
+            <div class="chart-layout">
+              <div class="chart-wrap">
+                <canvas
+                  class="rates-canvas"
+                  role="img"
+                  aria-label="Selected event rates over time"
+                ></canvas>
               </div>
-              <div id="series-list"></div>
-              <p id="series-empty" class="muted" hidden>
-                No time series recorded.
-              </p>
-              <small
-                >Each series uses the units shown here. Different units share
-                one numeric axis.</small
-              >
-            </aside>
+              <aside aria-label="Select time series">
+                <div class="toolbar">
+                  <button class="series-all" type="button">Select all</button>
+                  <button class="series-none" type="button">Clear</button>
+                </div>
+                <div class="series-list"></div>
+                <p class="series-empty muted" hidden>
+                  No time series recorded.
+                </p>
+                <small
+                  >Each series uses the units shown here. Series with the same
+                  units share one numeric axis.</small
+                >
+              </aside>
+            </div>
+            <small
+              >Values are displayed as exported, without renormalizing the final
+              partial aggregation window. Hover for values.</small
+            >
           </div>
-          <small
-            >Values are displayed as exported, without renormalizing the final
-            partial aggregation window. Hover for values.</small
-          >
-        </section>
+        </template>
 
         <section
           id="trace-section"

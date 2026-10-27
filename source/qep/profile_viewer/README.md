@@ -28,14 +28,16 @@ Zero physical qubits and empty maps are displayed as reported, not estimated.
 The temporal profiler's operation count can include factory/resource events,
 not just quantum instructions.
 
-The rate chart has time in seconds on its x axis and a shared numeric y axis
-without a unit label. The right-hand checklist supplies each series' units and
-allows individual selection, selecting all, or clearing all. Hover to see values.
-The exported aggregation window is displayed above the chart.
+Time series are grouped by their exact units string, with a separate chart and
+independent y scale for each group. Each chart has time in seconds on its x axis.
+The right-hand checklist contains only that group's series and allows individual
+selection, selecting all, or clearing all. Hover to see values from that group.
+Each chart has its own panel titled with its units, with the exported aggregation
+window displayed beside the title.
 
 Rates are not recomputed: in particular the final partial window retains the
-exporter's full-window denominator. Series with different units share the same
-scale; hide unrelated series when comparing them. Large series use a
+exporter's full-window denominator. For example, `events/s` and `factories` are
+shown on different charts. Large series use a
 pixel-column envelope that retains extrema and bounds the number of points drawn.
 
 ## Execution trace
