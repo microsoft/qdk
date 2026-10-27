@@ -30,7 +30,7 @@ from .._native import (
     LatticeSurgery,
     PSSPC,
     Profiler,
-    ProfilerConfig,
+    TemporalProfilerConfig,
     ProfilerResult,
     TemporalProfiles,
     TimeSeries,

@@ -32,7 +32,7 @@ pub use interface::{
     BatchResult, Parameter, QuantumBackend, QuantumBackendInstruction, QuantumBackendResult,
 };
 pub use profilers::{
-    Profiler, ProfilerConfig, ProfilerResult, SequentialCountingProfiler, TemporalProfiler,
+    Profiler, ProfilerResult, SequentialCountingProfiler, TemporalProfiler, TemporalProfilerConfig,
     TemporalProfiles, TimeSeries, TotalCounts, TumblingWindowAggregator,
 };
 pub use runner::{

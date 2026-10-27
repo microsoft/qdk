@@ -19,42 +19,7 @@ use std::{
 
 pub use aggregators::TumblingWindowAggregator;
 pub use counting::SequentialCountingProfiler;
-pub use temporal::TemporalProfiler;
-
-#[derive(Clone, Copy)]
-pub struct ProfilerConfig {
-    /// Duration of a Clifford instruction in nanoseconds.
-    pub clifford_gate_time_nanos: usize,
-    /// Duration of measurement, reset, or their combination in nanoseconds.
-    pub measurment_time_nanos: usize,
-    pub aggregation_window_nanos: usize,
-    pub t_factories_count: usize,
-    /// Seed for temporal-profiler distillation and measurement randomness.
-    pub seed: Option<u64>,
-    /// Records temporal instruction and factory-round intervals when true.
-    /// Disabling this leaves metrics unchanged and returns no execution trace.
-    pub record_trace: bool,
-
-    /// Distanceof the error-coorecting code.
-    /// Assumes that all logical qubits have the same error correcting code.
-    /// TODO: change it to specify different ECCs for different qubits.
-    pub ecc_distance: usize,
-}
-
-impl Default for ProfilerConfig {
-    /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
-    fn default() -> Self {
-        Self {
-            clifford_gate_time_nanos: 5_000,
-            measurment_time_nanos: 1_000,
-            aggregation_window_nanos: 1_000_000_000,
-            t_factories_count: 10,
-            seed: None,
-            record_trace: false,
-            ecc_distance: 5,
-        }
-    }
-}
+pub use temporal::{TemporalProfiler, TemporalProfilerConfig};
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize)]
 pub struct TotalCounts {
@@ -213,7 +178,7 @@ mod tests {
                 10,
                 FxHashMap::from_iter([("x".into(), 1.0)]),
             )?),
-            Box::new(TemporalProfiler::new(ProfilerConfig::default())),
+            Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
         ];
         for mut profiler in profilers {
             profiler.execute_batch(&[QuantumBackendInstruction {

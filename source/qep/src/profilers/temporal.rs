@@ -5,7 +5,7 @@ use super::{Profiler, ProfilerResult, TotalCounts, factories::TFactory};
 use crate::{
     Parameter, QuantumBackendResult, TumblingWindowAggregator,
     interface::{BatchResult, QuantumBackend, QuantumBackendInstruction},
-    profilers::{ExecutionTrace, InstructionTrace, ProfilerConfig},
+    profilers::{ExecutionTrace, InstructionTrace},
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -15,13 +15,49 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
+/// Configuration for temporal quantum profiling.
+#[derive(Clone, Copy)]
+pub struct TemporalProfilerConfig {
+    /// Duration of a Clifford instruction in nanoseconds.
+    pub clifford_gate_time_nanos: usize,
+    /// Duration of measurement, reset, or their combination in nanoseconds.
+    pub measurment_time_nanos: usize,
+    pub aggregation_window_nanos: usize,
+    pub t_factories_count: usize,
+    /// Seed for temporal-profiler distillation and measurement randomness.
+    pub seed: Option<u64>,
+    /// Records temporal instruction and factory-round intervals when true.
+    /// Disabling this leaves metrics unchanged and returns no execution trace.
+    pub record_trace: bool,
+
+    /// Distance of the error-coorecting code.
+    /// Assumes that all logical qubits have the same error correcting code.
+    /// TODO: change it to specify different ECCs for different qubits.
+    pub ecc_distance: usize,
+}
+
+impl Default for TemporalProfilerConfig {
+    /// Uses ten factories, one-second windows, unseeded randomness, and no trace recording.
+    fn default() -> Self {
+        Self {
+            clifford_gate_time_nanos: 5_000,
+            measurment_time_nanos: 1_000,
+            aggregation_window_nanos: 1_000_000_000,
+            t_factories_count: 10,
+            seed: None,
+            record_trace: false,
+            ecc_distance: 5,
+        }
+    }
+}
+
 /// Returns a coarse logical-instruction duration, in nanoseconds.
 ///
 /// Litinski, arXiv:1808.02892, Section 1, defines a logical time step as roughly
 /// d surface-code cycles; Section 4 assumes a 1 us physical code cycle. For this
 /// distance-5 demo, one logical step is therefore 5 * 1_000 = 5_000 ns.
-/// These are the default timings; callers can override them in `ProfilerConfig`.
-/// Durations do not automatically scale with `ProfilerConfig::ecc_distance`.
+/// These are the default timings; callers can override them in `TemporalProfilerConfig`.
+/// Durations do not automatically scale with `TemporalProfilerConfig::ecc_distance`.
 ///
 /// We charge every Clifford one logical step. Actual costs differ: Pauli gates
 /// can be tracked classically, and lattice-surgery CNOTs can require several
@@ -30,7 +66,7 @@ use std::{
 /// rather than modeling their separate hardware and decoding latencies.
 fn instruction_time_nanos(
     instruction: &QuantumBackendInstruction,
-    config: &ProfilerConfig,
+    config: &TemporalProfilerConfig,
 ) -> usize {
     match instruction.instruction_name {
         "cx" | "cy" | "cz" | "h" | "s" | "sadj" | "sx" | "x" | "y" | "z" | "swap" => {
@@ -136,7 +172,7 @@ impl InstructionState {
 /// runs the event loop only until that batch completes.
 pub struct TemporalProfiler {
     /// Configuration used for instruction durations.
-    config: ProfilerConfig,
+    config: TemporalProfilerConfig,
     /// Logical-qubit scheduling state, indexed by qubit ID.
     qubits: Vec<LogicalQubit>,
     /// Factories.
@@ -176,7 +212,7 @@ impl TemporalProfiler {
     ///
     /// Panics if there are no T factories or the aggregation window is zero.
     #[must_use]
-    pub fn new(config: ProfilerConfig) -> Self {
+    pub fn new(config: TemporalProfilerConfig) -> Self {
         assert!(
             config.t_factories_count > 0,
             "at least one T factory is required"
@@ -184,7 +220,7 @@ impl TemporalProfiler {
         let mut profiler = Self {
             config,
             qubits: Vec::new(),
-            factories: vec![TFactory::new(); config.t_factories_count],
+            factories: vec![TFactory::new(config.ecc_distance); config.t_factories_count],
             result_writers: FxHashMap::default(),
             current_batch_result: BatchResult::default(),
             events_queue: BinaryHeap::new(),
@@ -526,7 +562,7 @@ impl TemporalProfiler {
 impl Default for TemporalProfiler {
     /// Creates a profiler with one-second aggregation windows.
     fn default() -> Self {
-        Self::new(ProfilerConfig::default())
+        Self::new(TemporalProfilerConfig::default())
     }
 }
 
@@ -566,12 +602,19 @@ impl Profiler for TemporalProfiler {
     /// Returns the profiling shell and the recorded instruction timeline.
     fn get_result(&self) -> ProfilerResult {
         let factory_logical_qubits: usize = self.factories.iter().map(|f| f.logical_qubits).sum();
+        let logical_qubits = self.qubits.len() + factory_logical_qubits;
+
+        // Assuming Surface Code.
+        let factory_physical_qubits: usize =
+            self.factories.iter().map(|f| f.physical_qubits()).sum();
+        let d = self.config.ecc_distance;
+        let physical_qubits = self.qubits.len() * (2 * d * d - 1) + factory_physical_qubits;
 
         #[allow(clippy::cast_precision_loss)]
         let total_runtime_sec = self.current_time_nanos as f64 / 1e9;
         let totals = TotalCounts {
-            logical_qubits: self.qubits.len() + factory_logical_qubits,
-            physical_qubits: 0,
+            logical_qubits,
+            physical_qubits,
             total_runtime_sec,
             total_operations_count: self.aggregator.total_event_count(),
             calls_per_operation: Default::default(),
@@ -598,18 +641,19 @@ mod tests {
     use crate::tests::compile_qsharp_to_qir;
     use crate::{
         Parameter::{FactoryId as FactoryParameter, QubitId},
-        Profiler, ProfilerConfig, QuantumBackend, QuantumBackendInstruction, TranspilingAdapter,
+        Profiler, QuantumBackend, QuantumBackendInstruction, TemporalProfilerConfig,
+        TranspilingAdapter,
     };
     use expect_test::expect;
     use qsc::target::Profile;
 
     /// Creates a repeatable five-factory profiler with tracing enabled for timing assertions.
     fn seeded_profiler() -> TemporalProfiler {
-        TemporalProfiler::new(ProfilerConfig {
+        TemporalProfiler::new(TemporalProfilerConfig {
             t_factories_count: 5,
             seed: Some(42),
             record_trace: true,
-            ..ProfilerConfig::default()
+            ..TemporalProfilerConfig::default()
         })
     }
     #[test]
@@ -625,12 +669,12 @@ mod tests {
         let qir_path = qir_path
             .to_str()
             .ok_or("Shor's algorithm QIR path is not valid UTF-8")?;
-        let profiler = TemporalProfiler::new(ProfilerConfig {
+        let profiler = TemporalProfiler::new(TemporalProfilerConfig {
             aggregation_window_nanos: 1_000_000_000,
             t_factories_count: 5,
             seed: Some(42),
             record_trace: false,
-            ..ProfilerConfig::default()
+            ..TemporalProfilerConfig::default()
         });
         let mut profiler = TranspilingAdapter::with_defaults(profiler);
         let start = Instant::now();
@@ -730,7 +774,7 @@ mod tests {
                             instruction_name,
                             parameters: smallvec::smallvec![],
                         },
-                        &ProfilerConfig::default(),
+                        &TemporalProfilerConfig::default(),
                     ),
                     expected,
                     "{instruction_name}"
@@ -742,12 +786,12 @@ mod tests {
     /// Checks that configured durations reach the scheduler, including T injection.
     #[test]
     fn schedules_configured_instruction_durations() -> Result<(), String> {
-        let mut profiler = TemporalProfiler::new(ProfilerConfig {
+        let mut profiler = TemporalProfiler::new(TemporalProfilerConfig {
             clifford_gate_time_nanos: 700,
             measurment_time_nanos: 300,
             record_trace: true,
             seed: Some(42),
-            ..ProfilerConfig::default()
+            ..TemporalProfilerConfig::default()
         });
         for factory in &mut profiler.factories {
             factory.probability_success = 1.0;
@@ -907,11 +951,11 @@ mod tests {
     /// Two factories serve concurrent gates and cannot be reused until injection finishes.
     #[test]
     fn reserves_factories_until_injection_completes() -> Result<(), String> {
-        let mut profiler = TemporalProfiler::new(ProfilerConfig {
+        let mut profiler = TemporalProfiler::new(TemporalProfilerConfig {
             t_factories_count: 2,
             seed: Some(42),
             record_trace: true,
-            ..ProfilerConfig::default()
+            ..TemporalProfilerConfig::default()
         });
         for factory in &mut profiler.factories {
             factory.probability_success = 1.0;
@@ -1085,9 +1129,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "at least one T factory is required")]
     fn rejects_zero_factories() {
-        let _ = TemporalProfiler::new(ProfilerConfig {
+        let _ = TemporalProfiler::new(TemporalProfilerConfig {
             t_factories_count: 0,
-            ..ProfilerConfig::default()
+            ..TemporalProfilerConfig::default()
         });
     }
 }

@@ -20,7 +20,7 @@ from typing import (
 from .qre import Trace
 from .qre._qre import (
     Profiler as Profiler,
-    ProfilerConfig as ProfilerConfig,
+    TemporalProfilerConfig as TemporalProfilerConfig,
     ProfilerResult as ProfilerResult,
     SequentialCountingProfiler as SequentialCountingProfiler,
     TemporalProfiler as TemporalProfiler,

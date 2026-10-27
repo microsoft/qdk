@@ -6,10 +6,10 @@ any specific real quantum computer.
 
 ### Gates
 Hardware supports the following operations:
- * Clifford gates (single-qubit and CX/CY/CZ) take `ProfilerConfig.clifford_gate_time_nanos`
-   (5000ns by default in Rust).
- * Measurement, reset, or their combination takes `ProfilerConfig.measurment_time_nanos`
-   (1000ns by default in Rust).
+ * Clifford gates (single-qubit and CX/CY/CZ) take the same time (5000ns by default,
+    configurable with `TemporalProfilerConfig.clifford_gate_time_nanos`).
+ * Measurement time is configurable with `TemporalProfilerConfig.measurment_time_nanos`,
+    1000ns by default.
  * T/Tadj gate is implemented by "InjectT"/"InjectTAdj" instruction, both consuming a
    T-State and taking twice the Clifford duration plus the measurement duration
    (2*5000+1000=11000ns by default). Python requires both durations explicitly.
@@ -20,12 +20,34 @@ Not supported gates:
 * CCX gates are not supported and must be decomposed into Clifford+T before reaching profiler.
 * Rotation gates are not supported and must be approximated by Clifford+T gates before reaching profiler.
 
-### Qubits
+### Logical qubits
 
 Computer consists of logical qubits:
 * Logical qubits used by gates - their number is inferred from QubitId argumentsof instructions.
 * Logical qubits used by factories - their number is computed as number of logical qubits
     per factory times the number of factories.
+
+### Physical qubits
+
+Each logical qubit is assumed to use a rotated surface code of distance
+`d = TemporalProfilerConfig.ecc_distance` (5 by default). A logical qubit requires
+`d^2` physical data qubits and `d^2 - 1` syndrome-extraction ancillas, giving
+`2*d^2 - 1` physical qubits per logical qubit. This is the same formula used by
+QREv3's [SurfaceCode model](../../../qdk_package/qdk/qre/models/qec/_surface_code.py).
+
+The total is computed as:
+* Physical qubits used by gates: `gate_logical_qubits * (2*d^2 - 1)`.
+* Physical qubits used by factories: the sum of each factory's physical-qubit
+  count, currently `5 * (2*d^2 - 1)` per factory.
+
+All factories currently receive the same code distance as the gate qubits, so
+the total is equivalent to `logical_qubits * (2*d^2 - 1)`, where `logical_qubits`
+already includes factory qubits. At distance 5, this is 49 physical qubits per
+logical qubit, or 245 per five-logical-qubit factory.
+
+This is an encoded-patch estimate: no additional routing space, lattice-surgery
+workspace, memory buffers, or hardware spares are counted. The distance is
+provided by the caller, not selected from a target failure probability.
 
 ### Factories
 

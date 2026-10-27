@@ -71,7 +71,7 @@ class SequentialCountingProfiler(Profiler):
         gate_time_sec: Optional[dict[str, float]] = None,
     ) -> SequentialCountingProfiler: ...
 
-class ProfilerConfig:
+class TemporalProfilerConfig:
     """Temporal profiling settings with required gate durations in nanoseconds."""
 
     def __new__(
@@ -84,7 +84,7 @@ class ProfilerConfig:
         seed: Optional[int] = None,
         record_trace: bool = False,
         ecc_distance: int = 5,
-    ) -> ProfilerConfig: ...
+    ) -> TemporalProfilerConfig: ...
     @property
     def clifford_gate_time_nanos(self) -> int: ...
     @property
@@ -101,7 +101,7 @@ class ProfilerConfig:
     def ecc_distance(self) -> int: ...
 
 class TemporalProfiler(Profiler):
-    def __new__(cls, config: ProfilerConfig) -> TemporalProfiler: ...
+    def __new__(cls, config: TemporalProfilerConfig) -> TemporalProfiler: ...
 
 class ISA:
     def __add__(self, other: ISA) -> ISA:

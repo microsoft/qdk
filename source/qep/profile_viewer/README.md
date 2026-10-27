@@ -34,7 +34,7 @@ pixel-column envelope that retains extrema and bounds the number of points drawn
 ## Execution trace
 
 **Show trace** is initially off. A null trace explains how to enable
-`ProfilerConfig.record_trace`; an empty trace is identified separately.
+`TemporalProfilerConfig.record_trace`; an empty trace is identified separately.
 
 When shown, logical qubits appear first in numeric order, followed by factories.
 Each instruction is drawn on every qubit/factory operand it touches, with no

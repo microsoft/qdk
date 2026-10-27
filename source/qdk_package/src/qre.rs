@@ -26,7 +26,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ProfilerResult>()?;
     m.add_class::<Profiler>()?;
     m.add_class::<SequentialCountingProfiler>()?;
-    m.add_class::<ProfilerConfig>()?;
+    m.add_class::<TemporalProfilerConfig>()?;
     m.add_class::<TemporalProfiler>()?;
     m.add_class::<ISA>()?;
     m.add_class::<ISARequirements>()?;
@@ -331,7 +331,7 @@ impl SequentialCountingProfiler {
 
 /// Immutable configuration for temporal quantum profiling.
 #[pyclass(module = "qdk.qre", frozen, get_all)]
-pub struct ProfilerConfig {
+pub struct TemporalProfilerConfig {
     clifford_gate_time_nanos: usize,
     measurment_time_nanos: usize,
     aggregation_window_nanos: usize,
@@ -342,7 +342,7 @@ pub struct ProfilerConfig {
 }
 
 #[pymethods]
-impl ProfilerConfig {
+impl TemporalProfilerConfig {
     /// Creates a configuration with explicit gate timings and validated window and factory counts.
     #[new]
     #[pyo3(signature = (*, clifford_gate_time_nanos, measurment_time_nanos, aggregation_window_nanos=1_000_000_000, t_factories_count=10, seed=None, record_trace=false, ecc_distance=5))]
@@ -385,8 +385,8 @@ pub struct TemporalProfiler;
 impl TemporalProfiler {
     /// Creates a temporal profiler using the required explicit timing configuration.
     #[new]
-    fn new(config: PyRef<'_, ProfilerConfig>) -> PyClassInitializer<Self> {
-        let config = qep::ProfilerConfig {
+    fn new(config: PyRef<'_, TemporalProfilerConfig>) -> PyClassInitializer<Self> {
+        let config = qep::TemporalProfilerConfig {
             clifford_gate_time_nanos: config.clifford_gate_time_nanos,
             measurment_time_nanos: config.measurment_time_nanos,
             aggregation_window_nanos: config.aggregation_window_nanos,

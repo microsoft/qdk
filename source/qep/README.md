@@ -247,7 +247,7 @@ and a proof-of-concept for the whole QEP project.
 * Instructions are ordered by their per-qubit and measurement-result dependencies. Independent
   instructions can run concurrently, including successors unblocked by the same operation.
 * Instruction completion events are ordered by timestamp, with equal-time events processed FIFO.
-* Clifford instructions use `ProfilerConfig.clifford_gate_time_nanos` (5,000 ns by default).
+* Clifford instructions use `TemporalProfilerConfig.clifford_gate_time_nanos` (5,000 ns by default).
   Measurement, reset, and combined measurement/reset use `measurment_time_nanos`
   (1,000 ns by default); `read_result` takes 0 ns. These timings do not scale with ECC distance.
 * Every T factory starts an 11 ns distillation round at startup. Each attempt succeeds with
@@ -259,16 +259,16 @@ and a proof-of-concept for the whole QEP project.
   Ready factories are selected FIFO within each resource type.
 * Instruction references and qubit/result dependencies persist across QIR batches, including the
   adaptive-profile result barrier.
-* `ProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
+* `TemporalProfilerConfig` configures the aggregation window, factory count, ECC distance, and optional
   `seed`. Defaults use ten factories and no seed. A fixed seed reproduces both distillation
   outcomes and measurement bits. Construction requires at least one factory and a nonzero window.
 
 Python requires both timing arguments explicitly; `TemporalProfiler` requires a configuration:
 
 ```python
-from qdk.qre import ProfilerConfig, TemporalProfiler
+from qdk.qre import TemporalProfilerConfig, TemporalProfiler
 
-profiler = TemporalProfiler(ProfilerConfig(
+profiler = TemporalProfiler(TemporalProfilerConfig(
     clifford_gate_time_nanos=5_000,
     measurment_time_nanos=1_000,
 ))
