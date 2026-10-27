@@ -27,6 +27,10 @@ Computer consists of logical qubits:
 * Logical qubits used by factories - their number is computed as number of logical qubits
     per factory times the number of factories.
 
+`totals.logical_compute_qubits` reports only the qubits used by gates.
+`totals.logical_qubits` includes both compute and factory qubits. The trace viewer
+uses the compute count for qubit lanes and displays factories on separate lanes.
+
 ### Physical qubits
 
 Each logical qubit is assumed to use a rotated surface code of distance

@@ -93,6 +93,7 @@ function validateProfile(profile) {
   requireValue(object(profile.totals), "Missing totals.");
   for (const key of [
     "logical_qubits",
+    "logical_compute_qubits",
     "physical_qubits",
     "total_operations_count",
   ]) {
@@ -101,6 +102,10 @@ function validateProfile(profile) {
       `totals.${key} must be a nonnegative safe integer.`,
     );
   }
+  requireValue(
+    profile.totals.logical_compute_qubits <= profile.totals.logical_qubits,
+    "totals.logical_compute_qubits exceeds totals.logical_qubits.",
+  );
   requireValue(
     nonnegative(profile.totals.total_runtime_sec),
     "Invalid total runtime.",
@@ -182,8 +187,8 @@ function validateProfile(profile) {
         );
         if (kind === "QubitId") {
           requireValue(
-            value < profile.totals.logical_qubits,
-            "Trace qubit ID exceeds totals.logical_qubits.",
+            value < profile.totals.logical_compute_qubits,
+            "Trace qubit ID exceeds totals.logical_compute_qubits.",
           );
         }
       }
@@ -430,6 +435,7 @@ function initializeViewer() {
     const totals = profile.totals;
     const cards = [
       ["Logical qubits", totals.logical_qubits],
+      ["Logical compute qubits", totals.logical_compute_qubits],
       ["Physical qubits (reported)", totals.physical_qubits],
       ["Runtime, s", totals.total_runtime_sec],
       ["Operation / event count", totals.total_operations_count],
@@ -711,7 +717,7 @@ function initializeViewer() {
       viewStart = 0;
       const omitted = traceIndex.unplaced;
       element("trace-message").textContent =
-        `${profile.totals.logical_qubits} logical qubit lanes; ${traceIndex.factories.length} factory lanes.` +
+        `${profile.totals.logical_compute_qubits} logical compute qubit lanes; ${traceIndex.factories.length} factory lanes.` +
         (omitted
           ? ` ${omitted} instructions without qubit/factory operands (such as read_result) have no lane.`
           : "") +
@@ -732,7 +738,7 @@ function initializeViewer() {
     viewDuration = Math.max(1, Math.min(traceIndex.extent, viewDuration));
     const spacer = element("trace-spacer");
     spacer.style.width = `${Math.min(MAX_SCROLL_WIDTH, Math.max(width, (traceIndex.extent / viewDuration) * plotWidth + GUTTER))}px`;
-    spacer.style.height = `${Math.max(height, RULER + (profile.totals.logical_qubits + traceIndex.factories.length) * ROW_HEIGHT)}px`;
+    spacer.style.height = `${Math.max(height, RULER + (profile.totals.logical_compute_qubits + traceIndex.factories.length) * ROW_HEIGHT)}px`;
     viewStart = Math.max(0, Math.min(start, traceIndex.extent - viewDuration));
     const maximumScroll = traceScroll.scrollWidth - traceScroll.clientWidth;
     traceScroll.scrollLeft =
@@ -769,7 +775,7 @@ function initializeViewer() {
       Math.floor(traceScroll.scrollTop / ROW_HEIGHT),
     );
     const lastRow = Math.min(
-      profile.totals.logical_qubits + traceIndex.factories.length,
+      profile.totals.logical_compute_qubits + traceIndex.factories.length,
       Math.ceil((traceScroll.scrollTop + height - RULER) / ROW_HEIGHT),
     );
     rendered = [];
@@ -782,9 +788,11 @@ function initializeViewer() {
     for (let rowIndex = firstRow; rowIndex < lastRow; rowIndex += 1) {
       const y = RULER + rowIndex * ROW_HEIGHT - traceScroll.scrollTop;
       const row =
-        rowIndex < profile.totals.logical_qubits
+        rowIndex < profile.totals.logical_compute_qubits
           ? traceIndex.qubits.get(rowIndex)
-          : traceIndex.factories[rowIndex - profile.totals.logical_qubits];
+          : traceIndex.factories[
+              rowIndex - profile.totals.logical_compute_qubits
+            ];
       context.strokeStyle = "#d4dce8";
       context.beginPath();
       context.moveTo(GUTTER, y + ROW_HEIGHT / 2);
@@ -831,9 +839,9 @@ function initializeViewer() {
     context.textBaseline = "middle";
     for (let rowIndex = firstRow; rowIndex < lastRow; rowIndex += 1) {
       const label =
-        rowIndex < profile.totals.logical_qubits
+        rowIndex < profile.totals.logical_compute_qubits
           ? `Qubit ${rowIndex}`
-          : `Factory ${traceIndex.factories[rowIndex - profile.totals.logical_qubits].id}`;
+          : `Factory ${traceIndex.factories[rowIndex - profile.totals.logical_compute_qubits].id}`;
       context.fillText(
         label,
         10,

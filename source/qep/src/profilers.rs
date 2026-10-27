@@ -23,8 +23,11 @@ pub use temporal::{TemporalProfiler, TemporalProfilerConfig};
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize)]
 pub struct TotalCounts {
-    /// Number of logical qubits used by the program.
+    /// Number of logical qubits, including factory qubits.
     pub logical_qubits: usize,
+
+    /// Number of logical compute qubits, excluding factory qubits.
+    pub logical_compute_qubits: usize,
 
     /// Number of physical qubits used by program.
     pub physical_qubits: usize,
@@ -181,11 +184,15 @@ mod tests {
             Box::new(TemporalProfiler::new(TemporalProfilerConfig::default())),
         ];
         for mut profiler in profilers {
+            assert_eq!(profiler.get_result().totals.logical_compute_qubits, 0);
             profiler.execute_batch(&[QuantumBackendInstruction {
                 instruction_name: "x",
                 parameters: smallvec::smallvec![crate::Parameter::QubitId(0)],
             }])?;
             let result = profiler.get_result();
+            assert_eq!(result.totals.logical_compute_qubits, 1);
+            let json = serde_json::to_value(&result).expect("profile should serialize");
+            assert_eq!(json["totals"]["logical_compute_qubits"], 1);
             assert!(result.totals.total_operations_count > 0);
             assert!(result.totals.total_runtime_sec > 0.0);
         }
@@ -218,6 +225,7 @@ mod tests {
         let result = ProfilerResult {
             totals: TotalCounts {
                 logical_qubits: 2,
+                logical_compute_qubits: 2,
                 physical_qubits: 20,
                 total_runtime_sec: 0.5,
                 total_operations_count: 3,

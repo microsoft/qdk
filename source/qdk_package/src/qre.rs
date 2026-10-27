@@ -80,18 +80,25 @@ impl TotalCounts {
     /// Summarizes qubit usage, estimated runtime, and operation count for Python.
     fn __repr__(&self) -> String {
         format!(
-            "TotalCounts(logical_qubits={}, physical_qubits={}, total_runtime_sec={:?}, total_operations_count={})",
+            "TotalCounts(logical_qubits={}, logical_compute_qubits={}, physical_qubits={}, total_runtime_sec={:?}, total_operations_count={})",
             self.0.logical_qubits,
+            self.0.logical_compute_qubits,
             self.0.physical_qubits,
             self.0.total_runtime_sec,
             self.0.total_operations_count
         )
     }
 
-    /// Returns the number of logical qubits used by the program.
+    /// Returns the total number of logical qubits, including factory qubits.
     #[getter]
     fn logical_qubits(&self) -> usize {
         self.0.logical_qubits
+    }
+
+    /// Returns the number of logical compute qubits, excluding factory qubits.
+    #[getter]
+    fn logical_compute_qubits(&self) -> usize {
+        self.0.logical_compute_qubits
     }
 
     /// Returns the number of physical qubits used by the program.

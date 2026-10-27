@@ -614,6 +614,7 @@ impl Profiler for TemporalProfiler {
         let total_runtime_sec = self.current_time_nanos as f64 / 1e9;
         let totals = TotalCounts {
             logical_qubits,
+            logical_compute_qubits: self.qubits.len(),
             physical_qubits,
             total_runtime_sec,
             total_operations_count: self.aggregator.total_event_count(),
@@ -722,6 +723,8 @@ mod tests {
 
         let result = profiler.get_result();
         let profile_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tmp/small_profile.json");
+        assert_eq!(result.totals.logical_compute_qubits, 2);
+        assert_eq!(result.totals.logical_qubits, 27);
         result.to_json(&profile_path)?;
         expect![[r#"
             0-55000: round 0

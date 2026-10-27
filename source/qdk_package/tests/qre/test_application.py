@@ -347,6 +347,7 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
     assert isinstance(result, ProfilerResult)
     assert isinstance(result.totals, TotalCounts)
     assert result.totals.logical_qubits == 2
+    assert result.totals.logical_compute_qubits == 2
     assert result.totals.physical_qubits == 20
     assert result.totals.calls_per_operation == {
         "x": 2,
@@ -377,6 +378,7 @@ def test_qsharp_application_profile(use_qir: bool, tmp_path: Path):
         assert json.loads(path.read_text(encoding="utf-8")) == {
             "totals": {
                 "logical_qubits": 2,
+                "logical_compute_qubits": 2,
                 "physical_qubits": 20,
                 "total_runtime_sec": 1.75,
                 "total_operations_count": 6,
@@ -458,4 +460,7 @@ def test_temporal_profiler(use_qir: bool, tmp_path: Path) -> None:
     result.to_json(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["totals"]["logical_qubits"] == result.totals.logical_qubits
+    assert result.totals.logical_qubits == 27
+    assert result.totals.logical_compute_qubits == 2
+    assert data["totals"]["logical_compute_qubits"] == 2
  

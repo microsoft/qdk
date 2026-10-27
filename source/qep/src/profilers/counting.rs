@@ -127,6 +127,7 @@ impl Profiler for SequentialCountingProfiler {
         ProfilerResult {
             totals: TotalCounts {
                 logical_qubits,
+                logical_compute_qubits: logical_qubits,
                 physical_qubits,
                 total_runtime_sec,
                 total_operations_count,
@@ -394,6 +395,7 @@ mod tests {
 
         let result = profiler.get_result();
         assert_eq!(result.totals.logical_qubits, 5);
+        assert_eq!(result.totals.logical_compute_qubits, 5);
         assert_eq!(result.totals.physical_qubits, 10);
         assert!((result.totals.total_runtime_sec - 1.5).abs() < f64::EPSILON);
         assert!(result.infos.is_empty());

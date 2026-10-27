@@ -11,10 +11,12 @@ also works offline over `file://`.
 - Files are read locally with the browser File API and are never uploaded.
 - Invalid JSON or malformed profile fields produce a visible error. The last
   successfully loaded profile remains displayed if another file fails to load.
+- Exports must include `totals.logical_compute_qubits`; regenerate older profiles
+  to distinguish compute qubits from factory qubits.
 
 ## Summary and rate chart
 
-The summary shows logical qubits, reported physical qubits, runtime in seconds,
+The summary shows total logical qubits, logical compute qubits, reported physical qubits, runtime in seconds,
 and the exported operation/event count. Expand **Per-operation totals** for the
 two per-operation maps. Informational messages are displayed as plain text.
 Zero physical qubits and empty maps are displayed as reported, not estimated.
@@ -36,7 +38,9 @@ pixel-column envelope that retains extrema and bounds the number of points drawn
 **Show trace** is initially off. A null trace explains how to enable
 `TemporalProfilerConfig.record_trace`; an empty trace is identified separately.
 
-When shown, logical qubits appear first in numeric order, followed by factories.
+When shown, `totals.logical_compute_qubits` compute-qubit lanes appear first in
+numeric order, followed by factories. `totals.logical_qubits` includes factory
+qubits and is not used to size the compute-qubit portion of the trace.
 Each instruction is drawn on every qubit/factory operand it touches, with no
 connecting lines. For example, CNOT appears on two qubit lanes and an injection
 appears on its qubit and factory lanes. Result IDs and floating-point operands
