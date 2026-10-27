@@ -44,7 +44,7 @@ complexity analysis:
   - Any unrecoverable error after side effects poisons the layer.              §8.4
   - Outputs always get a fresh BlockRef generation.  decode() corrections
     never target inputs.                                                       §2 §8.6
-  - start() creates a fresh decoder session.                                   §8.3
+  - Every shot gets fresh layers and a fresh decoder session.                  §8.3 §10.1
   - A `number` argument accepts Ints, and never overflows on out-of-range values. §4.2
 Interface differences: the stack takes ISA instructions only (no generic h/cx/
 prepare/measure requests), batches lower traffic, and reports recoverable
@@ -186,16 +186,23 @@ one level per layer (an implementation may flatten it).
 
 ── 0.6 Shot lifecycle [RUNTIME] ───────────────────────────────────────
 
-The trait has no lifecycle methods.  Each layer also has inherent methods:
-    required_resources(upper: Resources) -> Resources      // sizing (§8.2)
-    start(resources: Resources)                            // begin a shot (§8.3)
-    close()
-and the stack propagates them through StackMember (§10.1).  Recovery from a
-poisoned layer requires stack.start_all(): a single layer's start() does not
-reset the layers below it, which may also be poisoned.
+Neither the trait nor the layers have lifecycle methods.  A stack lives for
+exactly one shot:
+  - A StackBuilder does the shot-independent work once: layer plans, decoder
+    preparation and sizing (§5, §8.2, §10.1).
+  - builder.buildStack(sim) builds fresh layers, each with a fresh decoder
+    session, on top of a simulator supplied by the caller.  A layer is
+    constructed ready to run (§8.3).
+  - Dropping the stack ends the shot.  There is no start(), close() or reset.
+The caller owns the simulator's lifecycle: it hands over one in its initial
+state, either built for this shot or reset and reused (§10.2).
+
+After an unrecoverable error the shot is lost.  A poisoned layer rejects every
+further execute_batch with Poisoned; the caller drops the stack and runs a new
+shot.
 
 Status is shot-level, not per instruction.  Once set, it is OR-ed into every R
-the layer returns until the next start().  It is not causal within a batch:
+the layer returns for the rest of the shot.  It is not causal within a batch:
 results are built after the final flush, so a result may carry a condition that
 first appeared while a later instruction of the same batch ran.  A lower layer's
 status reaches this layer only through a lower R.  A condition raised by
@@ -274,8 +281,9 @@ FrameKey        = "out[e].x[k]" | "out[e].z[k]"     // exactly one output logica
 
   Reference aliases, normalized before use (see the spec's paths doc):
     "in[e].code.B[SEL]"  ≡ "in[e].B[SEL]",  "out[e].code.B[SEL]" ≡ "out[e].B[SEL]"
-    "layers[n].gadgets[\"g\"].<gadget-local path>" ≡ "<gadget-local path>"
-        (only when it names the gadget being evaluated)
+  References are gadget-local.  Model-rooted paths such as
+  "layers[n].gadgets[\"g\"].<path>" are not accepted in equations, so a layer
+  does not need to know its index in the manifest.
 
   Circuit record: each call appends its observe outcomes, then its flags.
   Hidden reset outcomes are not recorded.  `circuit.readouts[i]` counts from 0
@@ -320,7 +328,7 @@ LazyBit         = Known(Bit) | Pending(slot: SlotId, kind: outcome|flag, index: 
 force(b)        = b is Known(v) ? v
                 : (flushIfPending(b.slot);  bitOf(results[b.slot], b.kind, b.index))
 
-Decoder interface  [RUNTIME]   (a fresh session per start(); see §8.3)
+Decoder interface  [RUNTIME]   (a fresh session per shot; see §8.3)
     deferrable()         -> Bool       // true iff `before` is absent and `decode`
                                        // never yields corrections; such decodes are
                                        // queued and run at flush time (§8.4)
@@ -330,7 +338,7 @@ Decoder interface  [RUNTIME]   (a fresh session per start(); see §8.3)
                             may target inv.outputRefs and other live blocks,
                             never inv.inputRefs (they are dead by then)
     discarded(refs)                                          (optional)
-    close()
+    A session lives for one shot and is dropped with its layer.
     A correction coroutine is resumed with the lower result of the previous
     correction (or nothing, if that correction requires no result).
 
@@ -762,9 +770,10 @@ typeCount      : Map<BlockType, Int>     // allocated lower blocks per type (inc
 capacityByType : Map<BlockType, Int>
 generation     : Map<Label, Int>
 nextInvocation : Int
-decoder        : DecoderSession          // created from decoderFactory by start()
+decoder        : DecoderSession          // created from decoderFactory by new()
 status         : Status                  // sticky per shot (§0.6)
-failed         : Bool                    // poisoned: only close() and start() are allowed
+failed         : Bool                    // poisoned: every further execute_batch
+                                         // fails with Poisoned (§0.6)
 sideEffects    : Int                     // see rule below
 
 // Lower-traffic buffer (§8.4)
@@ -802,25 +811,23 @@ function requiredResources(upper) -> Resources:
         return Resources(qubits = Σ values(lower))
     return Resources(blocks = lower)
 
-── 8.3 Lifecycle ──────────────────────────────────────────────────────
+── 8.3 Construction (one layer per shot) ──────────────────────────────
 
-function start(res):
+// `res` is this layer's LOWER resources (§10.1).  The layer is ready to run;
+// dropping it ends the shot.
+function new(plan, decoderFactory, lower, res):
     require keys(res.blocks) ⊆ keys(plan.lowerCaps)
     capacityByType = copy(res.blocks)
     if res.qubits > 0:
         require size(plan.lowerCaps) == 1 and onlyValue(plan.lowerCaps) == 1
         capacityByType[onlyKey(plan.lowerCaps)] += res.qubits
     free = heap(0 .. res.qubits + Σ values(res.blocks) - 1)
-    clear blocks, typeOf, typeCount, generation, buffer, bufferSlots, results, decoderLog
-    // Generations restart, so BlockRefs repeat: the decoder must not keep state
-    // from a previous shot.
-    decoder?.close();  decoder = decoderFactory()
+    blocks, typeOf, typeCount, generation, buffer, bufferSlots, results, decoderLog = empty
+    // Generations start over in every shot, so BlockRefs repeat across shots:
+    // a decoder session must never outlive its shot.
+    decoder = decoderFactory()
     nextInvocation = 0;  nextSlot = 0;  sideEffects = 0
     status = Status{};  failed = false
-
-function close():                                  // allowed even when failed
-    clear all state;  decoder?.close();  decoder = None
-    failed = true            // a closed layer rejects execute_batch (Poisoned) until start()
 
 ── 8.4 execute_batch, buffering and flushing ──────────────────────────
 
@@ -1149,7 +1156,6 @@ coroutine FrameDecoder.decode(inv, raw) -> Decoded:
     return Decoded(values[:n], values[n:], st)
 
 FrameDecoder.discarded(refs): for r in refs: signs.remove(r)   // no-op if r has no entry
-FrameDecoder.close(): signs.clear()
 
 ── 9.1 Logical-sign transport from a Clifford-only body ───────────────
 
@@ -1212,50 +1218,48 @@ function actionTransport(inv, sys) -> Map<(e, x|z, k), Parity>:
  10. STACK COMPOSITION AND SIMULATOR CONTRACT
 ══════════════════════════════════════════════════════════════════════
 
-── 10.1 Building the stack ────────────────────────────────────────────
+── 10.1 The stack builder ─────────────────────────────────────────────
 
-function buildStack(manifest, makeDecoder, topResources, makeSimulator):
+// Shot-independent work, done once.
+function StackBuilder::new(manifest, decoderKind, topResources):
     require len(manifest.layers) ≥ 2
     n = len(manifest.layers) - 1                    // layers 0..n-1 have gadgets
     plans = [buildPlan(manifest.layers[k], manifest.layers[k+1].isa,
-                       decoderDeferrable = makeDecoder.deferrable)   // a property of
+                       decoderDeferrable = decoderKind.deferrable)   // a property of
              for k in 0..n-1]                                        // the decoder kind
+    factories = [decoderKind.prepare(plans[k]) for k in 0..n-1]      // e.g. §9
     res[0] = topResources
     for k in 0..n-1: res[k+1] = plans[k].requiredResources(res[k])
-    sim = makeSimulator(manifest.layers[n].isa, res[n])   // sized for the bottom ISA
-    stack = Bottom(sim, resetSim = (sim, res) -> sim's own reset API, closeSim = ...)
+    return StackBuilder(plans, factories, res)
+
+builder.bottomResources() = res[n]                  // what the simulator must hold
+
+// The stack of one shot: fresh layers and decoder sessions over the caller's
+// simulator.  res[k] is layer k's UPPER resources, so layer k is built with
+// res[k+1].
+function builder.buildStack(sim) -> Stack:
+    stack = sim
     for k in n-1 down to 0:
-        stack = QodecLayer::new(plans[k], decoderFactory = () -> makeDecoder(manifest.layers[k]),
-                                lower = stack)
-    stack.start_all(res[0..n])
+        stack = QodecLayer::new(plans[k], factories[k], lower = stack, res[k+1])
     return stack                                    // : impl Backend<Id, P, R>
 
-// Lifecycle propagates through an internal trait, implemented recursively.
-// It never depends on detecting whether B is a QodecLayer.
-    trait StackMember {
-        fn start_all(&mut self, res: &[Resources]);   // res[0] is for this member
-        fn close_all(&mut self);
-    }
-    impl<B: StackMember> StackMember for QodecLayer<B> {
-        start_all(res): self.lower.start_all(&res[1..]);  self.start(res[1])
-                        // res[k] is layer k's UPPER resources; start() needs its
-                        // LOWER ones, res[k+1].  Bottom up: lower layers are ready
-                        // before this one starts.
-        close_all():    self.close();  self.lower.close_all()     // top down
-    }
-    // Bottom<S> wraps the simulator.  It implements Backend by forwarding, and
-    // StackMember through the user-supplied reset/close hooks.  The simulator
-    // itself needs nothing beyond Backend.
-    impl<S> StackMember for Bottom<S> {
-        start_all(res): resetSim(&mut self.sim, res[0]);   close_all(): closeSim(&mut self.sim)
-        // The bottom receives [res[n]]: the simulator's own resources.
-    }
-
-// New shot: stack.start_all(res).  Shutdown: stack.close_all().
+// `sim` is any Backend for the bottom ISA.  Backend is also implemented for
+// &mut B, so a caller that reuses one simulator across shots lends it with
+// buildStack(&mut sim), and resets it however it likes between shots.  A
+// simulator whose setup is expensive (e.g. on a GPU) is therefore never rebuilt.
+//
+//     builder = StackBuilder::new(manifest, FrameDecoder, topResources)
+//     for each shot:
+//         stack = builder.buildStack(simulator in its initial state)
+//         stack.execute_batch(...) ...
+//         drop(stack)
 
 ── 10.2 Simulator contract (the bottom Backend) ───────────────────────
 
 The simulator implements Backend<Id, P, R> for the bottom ISA:
+  - It starts every shot in its initial state, with room for
+    builder.bottomResources().  Whether it is built for the shot or reset and
+    reused is the caller's choice (§10.1).
   - Id is the index of a bottom-ISA instruction.  The simulator executes it
     according to that instruction's action.
   - parameters follow §0.3: Block(q) operands with q < the bottom resources,
